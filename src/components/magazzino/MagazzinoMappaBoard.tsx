@@ -459,6 +459,7 @@ export function MagazzinoMappaBoard({
   } | null>(null);
   const [spostaDiDraft, setSpostaDiDraft] = useState("");
   const [spostaDiPx, setSpostaDiPx] = useState<number | null>(null);
+  const [specchioAttivo, setSpecchioAttivo] = useState(false);
   const [specchioLato, setSpecchioLato] = useState<LatoRettangolo>("right");
   const [specchioModo, setSpecchioModo] = useState<MappaSpecchioModo>("copia");
   const carryRef = useRef<typeof carry>(null);
@@ -658,6 +659,7 @@ export function MagazzinoMappaBoard({
     setSelectedRifIds([]);
     setAreaEditOpen(false);
     setCarry(null);
+    setSpecchioAttivo(false);
     resetTrasformaRett();
   }
 
@@ -1273,7 +1275,7 @@ export function MagazzinoMappaBoard({
         carryRef.current = null;
         return;
       }
-      if (selezioneBounds) {
+      if (specchioAttivo && selezioneBounds) {
         const tol = Math.max(10, 14 / zoom);
         const handles = handlePuntiRettangolo({
           x: selezioneBounds.x,
@@ -2393,7 +2395,7 @@ export function MagazzinoMappaBoard({
   }
 
   function specchiaSelezione() {
-    if (!canDraw || selezioneCount === 0 || carry) return;
+    if (!canDraw || !specchioAttivo || selezioneCount === 0 || carry) return;
     const box = selezioneBounds;
     if (!box) return;
     if (specchioModo === "copia") {
@@ -3206,14 +3208,26 @@ export function MagazzinoMappaBoard({
               >
                 Copia selezione
               </button>
-              <button
-                type="button"
-                disabled={selezioneCount === 0 || Boolean(carry)}
-                onClick={() => setTool("seleziona")}
-                className="rounded-lg border border-violet-600 px-3 py-1.5 text-sm font-medium text-violet-950 hover:bg-violet-50 disabled:opacity-50"
+              <label
+                className={`inline-flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-sm font-medium ${
+                  selezioneCount === 0 || carry
+                    ? "border-slate-200 text-slate-400"
+                    : specchioAttivo
+                      ? "border-violet-700 bg-violet-50 text-violet-950"
+                      : "border-violet-600 text-violet-950 hover:bg-violet-50"
+                }`}
               >
+                <input
+                  type="checkbox"
+                  disabled={selezioneCount === 0 || Boolean(carry)}
+                  checked={specchioAttivo}
+                  onChange={(e) => {
+                    setSpecchioAttivo(e.target.checked);
+                    if (e.target.checked) setTool("seleziona");
+                  }}
+                />
                 Speculare
-              </button>
+              </label>
             </>
           ) : null}
         </div>
@@ -3380,7 +3394,7 @@ export function MagazzinoMappaBoard({
                 ? "Spostamento vincolato: muovi il mouse per la direzione (orizzontale/verticale o libera). Clic per posare."
                 : carry
                 ? "Oggetti attaccati al mouse. Clic sul foglio per posarli."
-                : "Primo click: seleziona uno o più oggetti. Copia duplica. Speculare: scegli il lato e se creare una copia affianco o ribaltare gli stessi oggetti."}
+                : "Primo click: seleziona uno o più oggetti. Copia duplica. La spunta Speculare apre lato, copia/stessi oggetti e l'anteprima."}
             </p>
           ) : null}
 
@@ -3863,7 +3877,7 @@ export function MagazzinoMappaBoard({
           <p className="mt-0.5 text-xs text-indigo-900">
             {spostaDiPx
               ? "Misura armata. Frecce = solo verticale o orizzontale. Click sull'oggetto = direzione libera alla stessa misura."
-              : "Copia duplica. Speculare mantiene proporzioni e distanze, ribaltate sul lato scelto."}
+              : "Copia duplica. Spunta Speculare per i controlli di ribaltamento."}
           </p>
           <div className="mt-2 flex flex-wrap items-end gap-3">
             <button
@@ -3914,58 +3928,74 @@ export function MagazzinoMappaBoard({
             </form>
           </div>
           <div className="mt-3 rounded-lg border border-violet-300 bg-violet-50 px-3 py-2">
-            <p className="text-xs font-semibold text-violet-950">Speculare</p>
-            <p className="mt-0.5 text-[11px] text-violet-900">
-              Scegli il lato dello specchio. Copia = nuovi oggetti affianco alle
-              madri. Stessi oggetti = ribaltamento nello stesso posto.
-            </p>
-            <div className="mt-2 flex flex-wrap gap-1.5">
-              {(["up", "down", "left", "right"] as LatoRettangolo[]).map(
-                (lato) => (
-                  <button
-                    key={lato}
-                    type="button"
-                    onClick={() => setSpecchioLato(lato)}
-                    className={`rounded-lg border px-2.5 py-1 text-xs font-semibold ${
-                      specchioLato === lato
-                        ? "border-violet-700 bg-violet-700 text-white"
-                        : "border-violet-400 bg-white text-violet-950 hover:bg-violet-100"
-                    }`}
-                  >
-                    {LATO_RETTANGOLO_LABEL[lato]}
-                  </button>
-                )
-              )}
-            </div>
-            <div className="mt-2 flex flex-wrap gap-3 text-xs text-violet-950">
-              <label className="inline-flex items-center gap-1.5 font-medium">
-                <input
-                  type="radio"
-                  name="specchio-modo"
-                  checked={specchioModo === "copia"}
-                  onChange={() => setSpecchioModo("copia")}
-                />
-                Crea copia (affianco)
-              </label>
-              <label className="inline-flex items-center gap-1.5 font-medium">
-                <input
-                  type="radio"
-                  name="specchio-modo"
-                  checked={specchioModo === "stesso"}
-                  onChange={() => setSpecchioModo("stesso")}
-                />
-                Stessi oggetti (stesso posto)
-              </label>
-            </div>
-            <button
-              type="button"
-              onClick={() => specchiaSelezione()}
-              className="mt-2 rounded-lg bg-violet-700 px-3 py-1.5 text-sm font-medium text-white hover:bg-violet-800"
-            >
-              {specchioModo === "copia"
-                ? `Specchia e copia verso ${LATO_RETTANGOLO_LABEL[specchioLato].toLowerCase()}`
-                : `Specchia verso ${LATO_RETTANGOLO_LABEL[specchioLato].toLowerCase()}`}
-            </button>
+            <label className="inline-flex items-center gap-2 text-xs font-semibold text-violet-950">
+              <input
+                type="checkbox"
+                checked={specchioAttivo}
+                onChange={(e) => setSpecchioAttivo(e.target.checked)}
+              />
+              Speculare
+            </label>
+            {specchioAttivo ? (
+              <>
+                <p className="mt-1 text-[11px] text-violet-900">
+                  Scegli il lato dello specchio. Copia = nuovi oggetti affianco
+                  alle madri. Stessi oggetti = ribaltamento nello stesso posto.
+                </p>
+                <div className="mt-2 flex flex-wrap gap-1.5">
+                  {(["up", "down", "left", "right"] as LatoRettangolo[]).map(
+                    (lato) => (
+                      <button
+                        key={lato}
+                        type="button"
+                        onClick={() => setSpecchioLato(lato)}
+                        className={`rounded-lg border px-2.5 py-1 text-xs font-semibold ${
+                          specchioLato === lato
+                            ? "border-violet-700 bg-violet-700 text-white"
+                            : "border-violet-400 bg-white text-violet-950 hover:bg-violet-100"
+                        }`}
+                      >
+                        {LATO_RETTANGOLO_LABEL[lato]}
+                      </button>
+                    )
+                  )}
+                </div>
+                <div className="mt-2 flex flex-wrap gap-3 text-xs text-violet-950">
+                  <label className="inline-flex items-center gap-1.5 font-medium">
+                    <input
+                      type="radio"
+                      name="specchio-modo"
+                      checked={specchioModo === "copia"}
+                      onChange={() => setSpecchioModo("copia")}
+                    />
+                    Crea copia (affianco)
+                  </label>
+                  <label className="inline-flex items-center gap-1.5 font-medium">
+                    <input
+                      type="radio"
+                      name="specchio-modo"
+                      checked={specchioModo === "stesso"}
+                      onChange={() => setSpecchioModo("stesso")}
+                    />
+                    Stessi oggetti (stesso posto)
+                  </label>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => specchiaSelezione()}
+                  className="mt-2 rounded-lg bg-violet-700 px-3 py-1.5 text-sm font-medium text-white hover:bg-violet-800"
+                >
+                  {specchioModo === "copia"
+                    ? `Specchia e copia verso ${LATO_RETTANGOLO_LABEL[specchioLato].toLowerCase()}`
+                    : `Specchia verso ${LATO_RETTANGOLO_LABEL[specchioLato].toLowerCase()}`}
+                </button>
+              </>
+            ) : (
+              <p className="mt-1 text-[11px] text-violet-900">
+                Spunta per scegliere lato, copia o stessi oggetti, e vedere
+                l&apos;anteprima sul foglio.
+              </p>
+            )}
           </div>
           {spostaDiPx ? (
             <p className="mt-1 text-xs font-medium text-indigo-950">
@@ -4805,6 +4835,7 @@ export function MagazzinoMappaBoard({
               </g>
             ) : null}
             {canDraw &&
+            specchioAttivo &&
             tool === "seleziona" &&
             !carry &&
             selezioneBounds ? (
