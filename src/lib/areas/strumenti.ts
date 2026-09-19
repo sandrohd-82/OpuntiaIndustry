@@ -45,6 +45,13 @@ export const STRUMENTI_SECTIONS: readonly NavItem[] = [
     description: "Disegna le piante e collegale a Magazzino → Mappa Magazzino",
     path: "/app/strumenti/editor-aree",
   },
+  {
+    slug: "ticket",
+    label: "Ticket",
+    description:
+      "Bug, funzioni e miglioramenti del gestionale, in chat sul ticket",
+    path: "/app/strumenti/ticket",
+  },
 ];
 
 export function getFirstStrumentiPath(): string {

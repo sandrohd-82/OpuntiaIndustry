@@ -3,6 +3,7 @@ import { notFound, redirect } from "next/navigation";
 import { OrdiniStoricoBoard } from "@/components/amministrazione/OrdiniStoricoBoard";
 import { RegistroAccessiBoard } from "@/components/amministrazione/RegistroAccessiBoard";
 import { DocumentazioniBoard } from "@/components/amministrazione/DocumentazioniBoard";
+import { TicketBoard } from "@/components/strumenti/TicketBoard";
 import { ContrattiFiscaliBoard } from "@/components/amministrazione/ContrattiFiscaliBoard";
 import { CatalogoOffertaBoard } from "@/components/amministrazione/CatalogoOffertaBoard";
 import { ChatArgomentiStoricoBoard } from "@/components/chat/ChatArgomentiStoricoBoard";
@@ -48,6 +49,7 @@ function sourceOf(segment: string | undefined) {
     segment === "chat" ||
     segment === "webmail" ||
     segment === "magazzino" ||
+    segment === "strumenti" ||
     segment === "area-fiscale"
   ) {
     return segment;
@@ -188,6 +190,17 @@ export default async function ArchivioCatchAllPage({ params }: Props) {
         <AppHeader title={page.label} subtitle={page.description} />
         <div className="p-6">
           <RegistroAccessiBoard />
+        </div>
+      </>
+    );
+  }
+
+  if (key === "strumenti/ticket") {
+    return (
+      <>
+        <AppHeader title={page.label} subtitle={page.description} />
+        <div className="p-6">
+          <TicketBoard mode="archivio" />
         </div>
       </>
     );

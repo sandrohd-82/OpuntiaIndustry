@@ -124,6 +124,14 @@ export async function requireArchivioSource(
     return { auth };
   }
 
+  if (source === "strumenti") {
+    const ok =
+      userCanAccessArea(auth.areas, "strumenti") ||
+      userCanAccessArea(auth.areas, "amministrazione");
+    if (!ok) notFound();
+    return { auth };
+  }
+
   if (!userCanAccessArea(auth.areas, source)) {
     notFound();
   }

@@ -1,0 +1,597 @@
+"use server";
+
+import { revalidatePath } from "next/cache";
+import { writeAuditLog } from "@/lib/audit";
+import { requireAnyAreaAccess } from "@/lib/areas/guard";
+import { formatOperatorShortName } from "@/lib/auth/operator-short-name";
+import { isSuperadminProfile } from "@/lib/auth/roles";
+import { userCanAccessArea } from "@/lib/auth/session";
+import { createClient, createServiceClient } from "@/lib/supabase/server";
+import {
+  TICKET_BUCKET,
+  TICKET_MAX_FILE_BYTES,
+  TICKET_MAX_FILE_PER_MSG,
+  extDaNomeOMime,
+  kindDaMime,
+  mimeAmmesso,
+  ticketCreaSchema,
+  ticketMessaggioSchema,
+  titoloDaDescrizione,
+  type TicketCategoria,
+  type TicketDocumentoStato,
+  type TicketFile,
+  type TicketMessaggio,
+  type TicketRiga,
+  type TicketScheda,
+  type TicketUrgenza,
+} from "@/lib/strumenti/ticket";
+
+const TICKET_COLS =
+  "id, codice, categoria, urgenza, titolo, descrizione, documento_stato, versione, resolved_by, resolved_at, archiviato_at, archiviato_by, created_by, created_at, updated_at";
+
+type AuthBag = Awaited<ReturnType<typeof requireAnyAreaAccess>>["auth"];
+
+function canGestire(auth: AuthBag): boolean {
+  return (
+    isSuperadminProfile(auth.profile) ||
+    userCanAccessArea(auth.areas, "amministrazione")
+  );
+}
+
+async function gateTicket() {
+  const { auth } = await requireAnyAreaAccess([
+    "strumenti",
+    "amministrazione",
+  ]);
+  return { auth, admin: canGestire(auth), db: createServiceClient() };
+}
+
+function revalidateTicket() {
+  revalidatePath("/app/strumenti/ticket");
+  revalidatePath("/app/archivio/strumenti/ticket");
+}
+
+function asCategoria(v: string): TicketCategoria {
+  if (v === "funzioni" || v === "miglioramenti") return v;
+  return "bug";
+}
+
+function asUrgenza(v: string): TicketUrgenza {
+  if (v === "poco_urgente" || v === "urgente") return v;
+  return "non_urgente";
+}
+
+function asStato(v: string): TicketDocumentoStato {
+  if (v === "in_carico" || v === "risolto" || v === "archiviato") return v;
+  return "bozza";
+}
+
+async function nomiOperatori(
+  db: ReturnType<typeof createServiceClient>,
+  ids: string[]
+): Promise<Map<string, string>> {
+  const uniq = [...new Set(ids.filter(Boolean))];
+  const out = new Map<string, string>();
+  if (!uniq.length) return out;
+  const { data } = await db
+    .from("profiles")
+    .select("id, first_name, last_name, full_name, email")
+    .in("id", uniq);
+  for (const p of (data ?? []) as Array<{
+    id: string;
+    first_name: string | null;
+    last_name: string | null;
+    full_name: string | null;
+    email: string | null;
+  }>) {
+    out.set(p.id, formatOperatorShortName(p));
+  }
+  return out;
+}
+
+async function signedUrls(
+  db: ReturnType<typeof createServiceClient>,
+  paths: string[]
+): Promise<Map<string, string>> {
+  const unique = [...new Set(paths.filter(Boolean))];
+  const out = new Map<string, string>();
+  if (!unique.length) return out;
+  const { data } = await db.storage
+    .from(TICKET_BUCKET)
+    .createSignedUrls(unique, 60 * 60);
+  for (const r of data ?? []) {
+    if (r.path && r.signedUrl) out.set(r.path, r.signedUrl);
+  }
+  return out;
+}
+
+function mapFile(
+  row: Record<string, unknown>,
+  urls: Map<string, string>
+): TicketFile {
+  const path = String(row.storage_path ?? "");
+  const kindRaw = String(row.kind ?? "allegato");
+  const kind =
+    kindRaw === "vocale" || kindRaw === "immagine" ? kindRaw : "allegato";
+  return {
+    id: String(row.id),
+    ticketId: String(row.ticket_id),
+    messaggioId: row.messaggio_id ? String(row.messaggio_id) : null,
+    storagePath: path,
+    fileName: String(row.file_name ?? ""),
+    mime: String(row.mime ?? ""),
+    fileSize: Number(row.file_size ?? 0),
+    kind,
+    url: urls.get(path) ?? null,
+    createdAt: String(row.created_at ?? ""),
+  };
+}
+
+function mapRiga(
+  row: Record<string, unknown>,
+  nomi: Map<string, string>,
+  messaggiCount: number
+): TicketRiga {
+  const createdBy = row.created_by ? String(row.created_by) : null;
+  return {
+    id: String(row.id),
+    codice: String(row.codice ?? ""),
+    categoria: asCategoria(String(row.categoria ?? "")),
+    urgenza: asUrgenza(String(row.urgenza ?? "")),
+    titolo: String(row.titolo ?? ""),
+    descrizione: String(row.descrizione ?? ""),
+    documentoStato: asStato(String(row.documento_stato ?? "")),
+    versione: Number(row.versione ?? 1),
+    createdBy,
+    autoreNome: createdBy ? nomi.get(createdBy) ?? "Operatore" : "Operatore",
+    createdAt: String(row.created_at ?? ""),
+    updatedAt: String(row.updated_at ?? ""),
+    archiviatoAt: row.archiviato_at ? String(row.archiviato_at) : null,
+    resolvedAt: row.resolved_at ? String(row.resolved_at) : null,
+    messaggiCount,
+  };
+}
+
+async function assertVede(
+  db: ReturnType<typeof createServiceClient>,
+  auth: AuthBag,
+  admin: boolean,
+  ticketId: string
+) {
+  const { data, error } = await db
+    .from("strumenti_ticket")
+    .select(TICKET_COLS)
+    .eq("id", ticketId)
+    .is("deleted_at", null)
+    .maybeSingle();
+  if (error || !data) return { ok: false as const, error: "Ticket non trovato." };
+  const createdBy = (data as { created_by?: string | null }).created_by;
+  if (!admin && createdBy !== auth.userId) {
+    return { ok: false as const, error: "Non puoi vedere questo ticket." };
+  }
+  return { ok: true as const, row: data as Record<string, unknown> };
+}
+
+async function uploadFiles(
+  db: ReturnType<typeof createServiceClient>,
+  userId: string,
+  ticketId: string,
+  messaggioId: string,
+  files: File[]
+): Promise<{ error?: string }> {
+  if (files.length > TICKET_MAX_FILE_PER_MSG) {
+    return { error: `Massimo ${TICKET_MAX_FILE_PER_MSG} file per messaggio.` };
+  }
+  for (const file of files) {
+    if (!file.size) continue;
+    if (file.size > TICKET_MAX_FILE_BYTES) {
+      return { error: `«${file.name}» supera 15 MB.` };
+    }
+    if (!mimeAmmesso(file.type)) {
+      return { error: `Formato non ammesso: ${file.name}` };
+    }
+    const ext = extDaNomeOMime(file.name, file.type);
+    const path = `${ticketId}/${messaggioId}/${crypto.randomUUID()}.${ext}`;
+    const { error: upErr } = await db.storage
+      .from(TICKET_BUCKET)
+      .upload(path, file, { contentType: file.type || "application/octet-stream" });
+    if (upErr) return { error: upErr.message };
+    const { error: insErr } = await db.from("strumenti_ticket_file").insert({
+      ticket_id: ticketId,
+      messaggio_id: messaggioId,
+      storage_path: path,
+      file_name: file.name || `file.${ext}`,
+      mime: file.type || "application/octet-stream",
+      file_size: file.size,
+      kind: kindDaMime(file.type),
+      created_by: userId,
+      updated_by: userId,
+    });
+    if (insErr) return { error: insErr.message };
+  }
+  return {};
+}
+
+export async function listTicketAction(input: {
+  archivio: boolean;
+  categoria?: TicketCategoria | "";
+  urgenza?: TicketUrgenza | "";
+  q?: string;
+  sort?: "recenti" | "urgenza" | "categoria";
+}): Promise<
+  | { success: true; items: TicketRiga[]; canGestire: boolean }
+  | { success: false; error: string }
+> {
+  const { auth, admin, db } = await gateTicket();
+  let q = db
+    .from("strumenti_ticket")
+    .select(TICKET_COLS)
+    .is("deleted_at", null);
+  if (input.archivio) q = q.not("archiviato_at", "is", null);
+  else q = q.is("archiviato_at", null);
+  if (!admin) q = q.eq("created_by", auth.userId);
+  if (input.categoria) q = q.eq("categoria", input.categoria);
+  if (input.urgenza) q = q.eq("urgenza", input.urgenza);
+  const term = (input.q ?? "").trim();
+  if (term) {
+    q = q.or(
+      `codice.ilike.%${term}%,titolo.ilike.%${term}%,descrizione.ilike.%${term}%`
+    );
+  }
+  if (input.sort === "categoria") {
+    q = q
+      .order("categoria", { ascending: true })
+      .order("created_at", { ascending: false });
+  } else if (input.sort === "urgenza") {
+    q = q.order("created_at", { ascending: false });
+  } else {
+    q = q.order("created_at", { ascending: false });
+  }
+  const { data, error } = await q;
+  if (error) return { success: false, error: error.message };
+  const rows = (data ?? []) as Record<string, unknown>[];
+  const nomi = await nomiOperatori(
+    db,
+    rows.map((r) => String(r.created_by ?? ""))
+  );
+  const ids = rows.map((r) => String(r.id));
+  const counts = new Map<string, number>();
+  if (ids.length) {
+    const { data: msgs } = await db
+      .from("strumenti_ticket_messaggi")
+      .select("ticket_id")
+      .in("ticket_id", ids)
+      .is("deleted_at", null);
+    for (const m of (msgs ?? []) as { ticket_id: string }[]) {
+      counts.set(m.ticket_id, (counts.get(m.ticket_id) ?? 0) + 1);
+    }
+  }
+  let items = rows.map((r) =>
+    mapRiga(r, nomi, counts.get(String(r.id)) ?? 0)
+  );
+  if (input.sort === "urgenza") {
+    const rank: Record<TicketUrgenza, number> = {
+      urgente: 0,
+      poco_urgente: 1,
+      non_urgente: 2,
+    };
+    items = items.sort(
+      (a, b) =>
+        rank[a.urgenza] - rank[b.urgenza] ||
+        b.createdAt.localeCompare(a.createdAt)
+    );
+  }
+  return { success: true, items, canGestire: admin };
+}
+
+export async function getTicketAction(
+  ticketId: string
+): Promise<
+  | { success: true; ticket: TicketScheda; canGestire: boolean }
+  | { success: false; error: string }
+> {
+  const { auth, admin, db } = await gateTicket();
+  const seen = await assertVede(db, auth, admin, ticketId);
+  if (!seen.ok) return { success: false, error: seen.error };
+  const { data: msgs, error: mErr } = await db
+    .from("strumenti_ticket_messaggi")
+    .select("id, ticket_id, contenuto, tipo, created_by, created_at")
+    .eq("ticket_id", ticketId)
+    .is("deleted_at", null)
+    .order("created_at", { ascending: true });
+  if (mErr) return { success: false, error: mErr.message };
+  const { data: files } = await db
+    .from("strumenti_ticket_file")
+    .select(
+      "id, ticket_id, messaggio_id, storage_path, file_name, mime, file_size, kind, created_at"
+    )
+    .eq("ticket_id", ticketId)
+    .is("deleted_at", null);
+  const fileRows = (files ?? []) as Record<string, unknown>[];
+  const urls = await signedUrls(
+    db,
+    fileRows.map((f) => String(f.storage_path ?? ""))
+  );
+  const mappedFiles = fileRows.map((f) => mapFile(f, urls));
+  const byMsg = new Map<string, TicketFile[]>();
+  for (const f of mappedFiles) {
+    if (!f.messaggioId) continue;
+    const list = byMsg.get(f.messaggioId) ?? [];
+    list.push(f);
+    byMsg.set(f.messaggioId, list);
+  }
+  const msgRows = (msgs ?? []) as Record<string, unknown>[];
+  const nomi = await nomiOperatori(db, [
+    String(seen.row.created_by ?? ""),
+    ...msgRows.map((m) => String(m.created_by ?? "")),
+  ]);
+  const messaggi: TicketMessaggio[] = msgRows.map((m) => {
+    const createdBy = m.created_by ? String(m.created_by) : null;
+    const tipoRaw = String(m.tipo ?? "testo");
+    const tipo =
+      tipoRaw === "vocale" || tipoRaw === "file" || tipoRaw === "misto"
+        ? tipoRaw
+        : "testo";
+    return {
+      id: String(m.id),
+      ticketId,
+      contenuto: String(m.contenuto ?? ""),
+      tipo,
+      createdBy,
+      autoreNome: createdBy ? nomi.get(createdBy) ?? "Operatore" : "Operatore",
+      createdAt: String(m.created_at ?? ""),
+      files: byMsg.get(String(m.id)) ?? [],
+    };
+  });
+  return {
+    success: true,
+    canGestire: admin,
+    ticket: {
+      ...mapRiga(seen.row, nomi, messaggi.length),
+      messaggi,
+    },
+  };
+}
+
+export async function createTicketAction(
+  formData: FormData
+): Promise<
+  | { success: true; ticket: TicketScheda; canGestire: boolean }
+  | { success: false; error: string }
+> {
+  const { auth, admin, db } = await gateTicket();
+  const parsed = ticketCreaSchema.safeParse({
+    categoria: String(formData.get("categoria") ?? ""),
+    urgenza: String(formData.get("urgenza") ?? ""),
+    descrizione: String(formData.get("descrizione") ?? ""),
+  });
+  if (!parsed.success) {
+    return {
+      success: false,
+      error: parsed.error.issues[0]?.message ?? "Dati ticket non validi.",
+    };
+  }
+  const files = formData
+    .getAll("files")
+    .filter((f): f is File => f instanceof File && f.size > 0);
+  const audio = formData.get("audio");
+  const audioFile =
+    audio instanceof File && audio.size > 0 ? audio : null;
+  if (!parsed.data.descrizione.trim() && !audioFile) {
+    return {
+      success: false,
+      error: "Scrivi il problema oppure registra un vocale.",
+    };
+  }
+  const descrizione =
+    parsed.data.descrizione.trim() ||
+    (audioFile ? "Nota vocale" : "");
+  const titolo = titoloDaDescrizione(descrizione);
+  const { data: created, error } = await db
+    .from("strumenti_ticket")
+    .insert({
+      categoria: parsed.data.categoria,
+      urgenza: parsed.data.urgenza,
+      titolo,
+      descrizione,
+      documento_stato: "bozza",
+      versione: 1,
+      created_by: auth.userId,
+      updated_by: auth.userId,
+    })
+    .select("id")
+    .single();
+  if (error || !created) {
+    return { success: false, error: error?.message ?? "Ticket non creato." };
+  }
+  const ticketId = (created as { id: string }).id;
+  const tipo =
+    audioFile && files.length
+      ? "misto"
+      : audioFile
+        ? "vocale"
+        : files.length
+          ? "file"
+          : "testo";
+  const { data: msg, error: msgErr } = await db
+    .from("strumenti_ticket_messaggi")
+    .insert({
+      ticket_id: ticketId,
+      contenuto: descrizione,
+      tipo,
+      created_by: auth.userId,
+      updated_by: auth.userId,
+    })
+    .select("id")
+    .single();
+  if (msgErr || !msg) {
+    return {
+      success: false,
+      error: msgErr?.message ?? "Messaggio iniziale non salvato.",
+    };
+  }
+  const msgId = (msg as { id: string }).id;
+  const toUpload = [...files];
+  if (audioFile) toUpload.push(audioFile);
+  const up = await uploadFiles(db, auth.userId, ticketId, msgId, toUpload);
+  if (up.error) return { success: false, error: up.error };
+  await writeAuditLog({
+    entity_type: "strumenti_ticket",
+    entity_id: ticketId,
+    action: "create",
+    actor_id: auth.userId,
+    summary: `Aperto ticket ${titolo}`,
+    payload: {
+      categoria: parsed.data.categoria,
+      urgenza: parsed.data.urgenza,
+    },
+  });
+  revalidateTicket();
+  return getTicketAction(ticketId);
+}
+
+export async function sendTicketMessaggioAction(
+  formData: FormData
+): Promise<
+  | { success: true; ticket: TicketScheda; canGestire: boolean }
+  | { success: false; error: string }
+> {
+  const { auth, admin, db } = await gateTicket();
+  const parsed = ticketMessaggioSchema.safeParse({
+    ticketId: String(formData.get("ticketId") ?? ""),
+    contenuto: String(formData.get("contenuto") ?? ""),
+  });
+  if (!parsed.success) {
+    return { success: false, error: "Messaggio non valido." };
+  }
+  const seen = await assertVede(db, auth, admin, parsed.data.ticketId);
+  if (!seen.ok) return { success: false, error: seen.error };
+  if (seen.row.archiviato_at) {
+    return { success: false, error: "Il ticket è archiviato: chat chiusa." };
+  }
+  const files = formData
+    .getAll("files")
+    .filter((f): f is File => f instanceof File && f.size > 0);
+  const audio = formData.get("audio");
+  const audioFile =
+    audio instanceof File && audio.size > 0 ? audio : null;
+  if (!parsed.data.contenuto && !audioFile && !files.length) {
+    return { success: false, error: "Scrivi un testo, un vocale o un file." };
+  }
+  const tipo =
+    audioFile && (files.length || parsed.data.contenuto)
+      ? "misto"
+      : audioFile
+        ? "vocale"
+        : files.length && !parsed.data.contenuto
+          ? "file"
+          : "testo";
+  const { data: msg, error } = await db
+    .from("strumenti_ticket_messaggi")
+    .insert({
+      ticket_id: parsed.data.ticketId,
+      contenuto: parsed.data.contenuto || (audioFile ? "Nota vocale" : ""),
+      tipo,
+      created_by: auth.userId,
+      updated_by: auth.userId,
+    })
+    .select("id")
+    .single();
+  if (error || !msg) {
+    return { success: false, error: error?.message ?? "Invio fallito." };
+  }
+  const up = await uploadFiles(
+    db,
+    auth.userId,
+    parsed.data.ticketId,
+    (msg as { id: string }).id,
+    [...files, ...(audioFile ? [audioFile] : [])]
+  );
+  if (up.error) return { success: false, error: up.error };
+  if (admin && String(seen.row.documento_stato) === "bozza") {
+    await db
+      .from("strumenti_ticket")
+      .update({
+        documento_stato: "in_carico",
+        updated_by: auth.userId,
+      })
+      .eq("id", parsed.data.ticketId);
+  }
+  revalidateTicket();
+  return getTicketAction(parsed.data.ticketId);
+}
+
+export async function prendiInCaricoTicketAction(
+  ticketId: string
+): Promise<
+  | { success: true; ticket: TicketScheda; canGestire: boolean }
+  | { success: false; error: string }
+> {
+  const { auth, admin, db } = await gateTicket();
+  if (!admin) {
+    return { success: false, error: "Solo Super Admin o Amministrazione." };
+  }
+  const seen = await assertVede(db, auth, admin, ticketId);
+  if (!seen.ok) return { success: false, error: seen.error };
+  if (seen.row.archiviato_at) {
+    return { success: false, error: "Ticket già archiviato." };
+  }
+  const { error } = await db
+    .from("strumenti_ticket")
+    .update({
+      documento_stato: "in_carico",
+      updated_by: auth.userId,
+    })
+    .eq("id", ticketId);
+  if (error) return { success: false, error: error.message };
+  await writeAuditLog({
+    entity_type: "strumenti_ticket",
+    entity_id: ticketId,
+    action: "update",
+    actor_id: auth.userId,
+    summary: `Ticket ${String(seen.row.codice)} in carico`,
+    payload: { documento_stato: "in_carico" },
+  });
+  revalidateTicket();
+  return getTicketAction(ticketId);
+}
+
+export async function risolviArchiviaTicketAction(
+  ticketId: string
+): Promise<
+  | { success: true; ticket: TicketScheda; canGestire: boolean }
+  | { success: false; error: string }
+> {
+  const { auth, admin, db } = await gateTicket();
+  if (!admin) {
+    return { success: false, error: "Solo Super Admin o Amministrazione." };
+  }
+  const seen = await assertVede(db, auth, admin, ticketId);
+  if (!seen.ok) return { success: false, error: seen.error };
+  if (seen.row.archiviato_at) {
+    return { success: false, error: "Ticket già archiviato." };
+  }
+  const now = new Date().toISOString();
+  const { error } = await db
+    .from("strumenti_ticket")
+    .update({
+      documento_stato: "archiviato",
+      resolved_by: auth.userId,
+      resolved_at: now,
+      archiviato_at: now,
+      archiviato_by: auth.userId,
+      updated_by: auth.userId,
+    })
+    .eq("id", ticketId);
+  if (error) return { success: false, error: error.message };
+  await writeAuditLog({
+    entity_type: "strumenti_ticket",
+    entity_id: ticketId,
+    action: "update",
+    actor_id: auth.userId,
+    summary: `Risolto e archiviato ticket ${String(seen.row.codice)}`,
+    payload: { documento_stato: "archiviato" },
+  });
+  revalidateTicket();
+  return getTicketAction(ticketId);
+}

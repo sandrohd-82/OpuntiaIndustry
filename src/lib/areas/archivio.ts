@@ -226,6 +226,20 @@ export const ARCHIVIO_SECTIONS: readonly NavItem[] = [
     ],
   },
   {
+    slug: "strumenti",
+    label: "Strumenti",
+    description: "Ticket risolti sul gestionale",
+    path: "/app/archivio/strumenti",
+    children: [
+      {
+        slug: "ticket",
+        label: "Ticket",
+        description: "Ticket risolti e archiviati (bug, funzioni, miglioramenti)",
+        path: "/app/archivio/strumenti/ticket",
+      },
+    ],
+  },
+  {
     slug: "area-fiscale",
     label: "Area Fiscale",
     description: "Archivio contratti",
@@ -256,6 +270,7 @@ const ARCHIVIO_SOURCE_SLUGS: AreaSlug[] = [
   "chat",
   "webmail",
   "magazzino",
+  "strumenti",
   "area-fiscale",
 ];
 
@@ -271,6 +286,9 @@ export function filterArchivioNavByAccess(
   return sections.filter((item) => {
     if (item.slug === "tutorial") return have.has("archivio");
     if (item.slug === "webmail") return webmailOk;
+    if (item.slug === "strumenti") {
+      return have.has("strumenti") || have.has("amministrazione");
+    }
     return have.has(item.slug as AreaSlug);
   });
 }

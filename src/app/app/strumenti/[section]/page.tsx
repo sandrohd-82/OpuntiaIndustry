@@ -5,7 +5,8 @@ import { EditorAreeBoard } from "@/components/magazzino/EditorAreeBoard";
 import { AppHeader } from "@/components/layout/AppHeader";
 import { LottiEsterniBoard } from "@/components/produzione/LottiEsterniBoard";
 import { LottoEsternoDecoderBoard } from "@/components/produzione/LottoEsternoDecoderBoard";
-import { requireAreaAccess } from "@/lib/areas/guard";
+import { TicketBoard } from "@/components/strumenti/TicketBoard";
+import { requireAnyAreaAccess, requireAreaAccess } from "@/lib/areas/guard";
 import { resolveStrumentiPage } from "@/lib/areas/strumenti";
 
 type Props = {
@@ -13,8 +14,12 @@ type Props = {
 };
 
 export default async function StrumentiSectionPage({ params }: Props) {
-  await requireAreaAccess("strumenti");
   const { section } = await params;
+  if (section === "ticket") {
+    await requireAnyAreaAccess(["strumenti", "amministrazione"]);
+  } else {
+    await requireAreaAccess("strumenti");
+  }
   const page = resolveStrumentiPage([section]);
   if (!page) notFound();
 
@@ -32,6 +37,7 @@ export default async function StrumentiSectionPage({ params }: Props) {
           <BarcodeRegistratiBoard catalogKind="prodotto_fornitore" />
         ) : null}
         {section === "editor-aree" ? <EditorAreeBoard /> : null}
+        {section === "ticket" ? <TicketBoard mode="viva" /> : null}
       </div>
     </>
   );
