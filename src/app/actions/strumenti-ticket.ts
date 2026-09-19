@@ -119,12 +119,48 @@ async function signedUrls(
   return out;
 }
 
-function fileDaForm(v: FormDataEntryValue): File | null {
-  if (typeof v !== "object" || v === null) return null;
+async function normalizeUpload(
+  v: FormDataEntryValue | null
+): Promise<File | null> {
+  if (!v || typeof v === "string") return null;
   const blob = v as Blob;
-  if (typeof blob.size !== "number" || blob.size <= 0) return null;
   if (typeof blob.arrayBuffer !== "function") return null;
-  return v as File;
+  let buf: ArrayBuffer;
+  try {
+    buf = await blob.arrayBuffer();
+  } catch {
+    return null;
+  }
+  if (!buf.byteLength) return null;
+  const named = v as File;
+  const name =
+    typeof named.name === "string" && named.name.trim()
+      ? named.name
+      : "allegato.bin";
+  return new File([buf], name, { type: blob.type || "" });
+}
+
+async function filesDaFormData(formData: FormData): Promise<File[]> {
+  const raw: FormDataEntryValue[] = [
+    ...formData.getAll("files"),
+    ...formData.getAll("file"),
+    ...formData.getAll("allegati"),
+  ];
+  for (let i = 0; i < TICKET_MAX_FILE_PER_MSG + 2; i++) {
+    const v = formData.get(`file_${i}`);
+    if (v) raw.push(v);
+  }
+  const seen = new Set<string>();
+  const out: File[] = [];
+  for (const v of raw) {
+    const f = await normalizeUpload(v);
+    if (!f) continue;
+    const key = `${f.name}:${f.size}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(f);
+  }
+  return out;
 }
 
 function mapFile(
@@ -214,10 +250,13 @@ async function uploadFiles(
     }
     const ext = extDaNomeOMime(file.name, mime);
     const path = `${ticketId}/${messaggioId}/${crypto.randomUUID()}.${ext}`;
-    const buf = new Uint8Array(await file.arrayBuffer());
+    const buf = Buffer.from(await file.arrayBuffer());
     const { error: upErr } = await db.storage
       .from(TICKET_BUCKET)
-      .upload(path, buf, { contentType: mime || "application/octet-stream", upsert: false });
+      .upload(path, buf, {
+        contentType: mime || "application/octet-stream",
+        upsert: false,
+      });
     if (upErr) return { error: `Caricamento «${file.name}»: ${upErr.message}` };
     const { error: insErr } = await db.from("strumenti_ticket_file").insert({
       ticket_id: ticketId,
@@ -394,11 +433,8 @@ export async function createTicketAction(
       error: parsed.error.issues[0]?.message ?? "Dati ticket non validi.",
     };
   }
-  const files = formData.getAll("files").flatMap((f) => {
-    const file = fileDaForm(f);
-    return file ? [file] : [];
-  });
-  const audioFile = fileDaForm(formData.get("audio") ?? "");
+  const files = await filesDaFormData(formData);
+  const audioFile = await normalizeUpload(formData.get("audio"));
   if (!parsed.data.descrizione.trim() && !audioFile) {
     return {
       success: false,
@@ -491,11 +527,8 @@ export async function sendTicketMessaggioAction(
   if (seen.row.archiviato_at) {
     return { success: false, error: "Il ticket è archiviato: chat chiusa." };
   }
-  const files = formData.getAll("files").flatMap((f) => {
-    const file = fileDaForm(f);
-    return file ? [file] : [];
-  });
-  const audioFile = fileDaForm(formData.get("audio") ?? "");
+  const files = await filesDaFormData(formData);
+  const audioFile = await normalizeUpload(formData.get("audio"));
   if (!parsed.data.contenuto && !audioFile && !files.length) {
     return { success: false, error: "Scrivi un testo, un vocale o un file." };
   }

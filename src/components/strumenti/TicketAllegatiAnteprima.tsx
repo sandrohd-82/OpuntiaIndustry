@@ -44,15 +44,58 @@ function TicketFileCard({
   item,
   uploading,
   onRemove,
+  compact,
 }: {
   item: TicketAnteprimaItem;
   uploading?: boolean;
   onRemove?: () => void;
+  compact?: boolean;
 }) {
   const pdf = isPdfFile(item.mime, item.fileName);
   const img = item.kind === "immagine";
   const audio = item.kind === "vocale";
   const size = formatBytesTicket(item.fileSize);
+
+  if (compact) {
+    return (
+      <li className="relative w-24 shrink-0 overflow-hidden rounded-lg border border-slate-200 bg-white">
+        <div className="relative h-20 bg-slate-100">
+          {item.url && img ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img
+              src={item.url}
+              alt={item.fileName}
+              className="h-full w-full object-cover"
+            />
+          ) : item.url && pdf ? (
+            <iframe title={item.fileName} src={item.url} className="h-full w-full" />
+          ) : (
+            <span className="flex h-full items-center justify-center text-slate-500">
+              {pdf ? <FaFilePdf className="text-red-600" /> : <FaFile />}
+            </span>
+          )}
+          {uploading ? (
+            <div className="absolute inset-0 flex items-center justify-center bg-white/70 text-[10px] font-medium">
+              Carico…
+            </div>
+          ) : null}
+          {onRemove && !uploading ? (
+            <button
+              type="button"
+              onClick={onRemove}
+              className="absolute right-0.5 top-0.5 rounded bg-white/90 p-0.5 text-slate-600 hover:text-red-700"
+              aria-label={`Rimuovi ${item.fileName}`}
+            >
+              <FaTimes size={10} />
+            </button>
+          ) : null}
+        </div>
+        <p className="truncate px-1 py-0.5 text-[10px] text-slate-700" title={item.fileName}>
+          {item.fileName}
+        </p>
+      </li>
+    );
+  }
 
   return (
     <li className="relative overflow-hidden rounded-lg border border-slate-200 bg-white">
@@ -122,19 +165,22 @@ export function TicketAllegatiAnteprima({
   items,
   uploading = false,
   onRemove,
+  compact = false,
 }: {
   items: TicketAnteprimaItem[];
   uploading?: boolean;
   onRemove?: (id: string) => void;
+  compact?: boolean;
 }) {
   if (!items.length) return null;
   return (
-    <ul className="mt-2 grid gap-2 sm:grid-cols-2">
+    <ul className={compact ? "mt-2 flex flex-wrap gap-2" : "mt-2 grid gap-2 sm:grid-cols-2"}>
       {items.map((item) => (
         <TicketFileCard
           key={item.id}
           item={item}
           uploading={uploading}
+          compact={compact}
           onRemove={onRemove ? () => onRemove(item.id) : undefined}
         />
       ))}
