@@ -1,7 +1,15 @@
+"use client";
+
+import type { MouseEvent } from "react";
 import {
   ritaglioDisegnoMappa,
   type MappaMagazzino,
 } from "@/lib/magazzino/mappa";
+import {
+  capienzaDi,
+  stileAreaPosto,
+  type MappaAreaDisegnata,
+} from "@/lib/magazzino/ubicazioni";
 import {
   dettaglioAngoliImporto,
   estremiCalcoDest,
@@ -16,10 +24,57 @@ function fontTarga(width: number, height: number, testo: string): number {
   return Math.max(10, Math.min((width * 0.78) / lettere, lato * 0.48));
 }
 
-export function PiantaVistaRitaglio({ mappa }: { mappa: MappaMagazzino }) {
+function puntoSvg(
+  svg: SVGSVGElement,
+  clientX: number,
+  clientY: number
+): { x: number; y: number } | null {
+  const ctm = svg.getScreenCTM();
+  if (!ctm) return null;
+  const pt = svg.createSVGPoint();
+  pt.x = clientX;
+  pt.y = clientY;
+  const p = pt.matrixTransform(ctm.inverse());
+  return { x: p.x, y: p.y };
+}
+
+function hitArea(
+  aree: MappaAreaDisegnata[],
+  x: number,
+  y: number
+): MappaAreaDisegnata | null {
+  for (let i = aree.length - 1; i >= 0; i -= 1) {
+    const a = aree[i]!;
+    if (x >= a.x && x <= a.x + a.width && y >= a.y && y <= a.y + a.height) {
+      return a;
+    }
+  }
+  return null;
+}
+
+export function PiantaVistaRitaglio({
+  mappa,
+  accese,
+  primariaId,
+  onSeleziona,
+}: {
+  mappa: MappaMagazzino;
+  accese?: Set<string>;
+  primariaId?: string | null;
+  onSeleziona?: (ubicazioneId: string | null) => void;
+}) {
   const extra = (mappa.riferimenti ?? []).flatMap((g) => estremiCalcoDest(g));
   const box = ritaglioDisegnoMappa(mappa.linee, mappa.aree ?? [], extra);
   const g = Math.max(mappa.grigliaPx, 1);
+  const glowId = `posto-glow-${mappa.id}`;
+
+  function onClick(e: MouseEvent<SVGSVGElement>) {
+    if (!onSeleziona) return;
+    const p = puntoSvg(e.currentTarget, e.clientX, e.clientY);
+    if (!p) return;
+    const hit = hitArea(mappa.aree ?? [], p.x, p.y);
+    onSeleziona(hit?.ubicazioneId || null);
+  }
 
   return (
     <div className="flex h-full min-h-0 flex-col rounded-xl border border-[var(--border)] bg-white">
@@ -29,9 +84,19 @@ export function PiantaVistaRitaglio({ mappa }: { mappa: MappaMagazzino }) {
       <div className="min-h-0 flex-1 p-2">
         <svg
           viewBox={`${box.x} ${box.y} ${box.width} ${box.height}`}
-          className="h-full w-full"
+          className={`h-full w-full ${onSeleziona ? "cursor-pointer" : ""}`}
           preserveAspectRatio="xMidYMid meet"
+          onClick={onClick}
         >
+          <defs>
+            <filter id={glowId} x="-20%" y="-20%" width="140%" height="140%">
+              <feGaussianBlur stdDeviation="3.2" result="blur" />
+              <feMerge>
+                <feMergeNode in="blur" />
+                <feMergeNode in="SourceGraphic" />
+              </feMerge>
+            </filter>
+          </defs>
           <rect
             x={box.x}
             y={box.y}
@@ -40,7 +105,7 @@ export function PiantaVistaRitaglio({ mappa }: { mappa: MappaMagazzino }) {
             fill="#ffffff"
           />
           {(mappa.riferimenti ?? []).map((rif) => (
-            <g key={rif.id}>
+            <g key={rif.id} pointerEvents="none">
               {rif.haLimite !== false ? (
                 <rect
                   x={rif.destX}
@@ -103,25 +168,37 @@ export function PiantaVistaRitaglio({ mappa }: { mappa: MappaMagazzino }) {
           ))}
           {(mappa.aree ?? []).map((a) => {
             const targa = a.codice.trim() || a.nome.trim();
+            const cap = capienzaDi(a);
+            const accesa = Boolean(accese?.has(a.ubicazioneId));
+            const primaria = primariaId === a.ubicazioneId;
+            const stile = stileAreaPosto({
+              occupazione: cap.occupazione,
+              accesa,
+              primaria,
+            });
             return (
-              <g key={a.id}>
+              <g
+                key={a.id}
+                filter={accesa ? `url(#${glowId})` : undefined}
+              >
                 <rect
                   x={a.x}
                   y={a.y}
                   width={a.width}
                   height={a.height}
-                  fill="rgba(13,148,136,0.12)"
-                  stroke="#0d9488"
-                  strokeWidth={1.6}
+                  fill={stile.fill}
+                  stroke={stile.stroke}
+                  strokeWidth={stile.strokeWidth}
                 />
                 <text
                   x={a.x + a.width / 2}
                   y={a.y + a.height / 2}
                   textAnchor="middle"
                   dominantBaseline="central"
-                  fill="#134e4a"
+                  fill={stile.text}
                   fontSize={fontTarga(a.width, a.height, targa)}
                   fontWeight={700}
+                  pointerEvents="none"
                 >
                   {targa}
                 </text>
@@ -138,6 +215,7 @@ export function PiantaVistaRitaglio({ mappa }: { mappa: MappaMagazzino }) {
               stroke={l.colore}
               strokeWidth={l.spessore}
               strokeLinecap="round"
+              pointerEvents="none"
             />
           ))}
         </svg>

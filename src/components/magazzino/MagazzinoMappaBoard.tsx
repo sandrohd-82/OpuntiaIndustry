@@ -88,8 +88,10 @@ import {
   type MappaTracciatoModo,
 } from "@/lib/magazzino/mappa";
 import {
+  capienzaDi,
   codiceLocaleDi,
   previewPosizioneOperativa,
+  stileAreaPosto,
   type MappaAreaDisegnata,
   type UbicazioneElenco,
 } from "@/lib/magazzino/ubicazioni";
@@ -4615,6 +4617,10 @@ export function MagazzinoMappaBoard({
               const cy = a.y + a.height / 2;
               const targa = posizioneDi(a) || a.codice.trim() || a.nome.trim();
               const fontSize = fontTargaArea(a.width, a.height, targa);
+              const postoStile = stileAreaPosto({
+                occupazione: capienzaDi(a).occupazione,
+                accesa: false,
+              });
               return (
                 <g key={a.id}>
                   <rect
@@ -4622,8 +4628,8 @@ export function MagazzinoMappaBoard({
                     y={a.y}
                     width={a.width}
                     height={a.height}
-                    fill={sel ? "rgba(234,88,12,0.42)" : "rgba(13,148,136,0.10)"}
-                    stroke={sel ? "#c2410c" : "#0d9488"}
+                    fill={sel ? "rgba(234,88,12,0.42)" : postoStile.fill}
+                    stroke={sel ? "#c2410c" : postoStile.stroke}
                     strokeWidth={sel ? Math.max(3.5, 5 / zoom) : Math.max(1.2, 2 / zoom)}
                   />
                   {sel ? (

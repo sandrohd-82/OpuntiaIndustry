@@ -32,8 +32,11 @@ import {
   type SalvaNomeAreaMappaInput,
 } from "@/lib/magazzino/mappa";
 import {
+  aggiornaUbicazioneCapienzaSchema,
+  capienzaDaRiga,
   codicePostoFiglio,
   etichettaUbicazione,
+  type AggiornaUbicazioneCapienzaInput,
   type MappaAreaDisegnata,
   type UbicazioneElenco,
 } from "@/lib/magazzino/ubicazioni";
@@ -182,7 +185,7 @@ async function loadMappa(
   const { data: forme } = await supabase
     .from("magazzino_mappa_aree")
     .select(
-      "id, ubicazione_id, x, y, width, height, ubicazione:magazzino_ubicazioni(id, codice, nome, parent_id)"
+      "id, ubicazione_id, x, y, width, height, ubicazione:magazzino_ubicazioni(id, codice, nome, parent_id, peso_max_kg, misura_unita, misura_max_larghezza, misura_max_profondita, misura_max_altezza, misura_min_larghezza, misura_min_profondita, misura_min_altezza, occupazione_stato)"
     )
     .eq("mappa_id", id)
     .is("deleted_at", null)
@@ -196,8 +199,36 @@ async function loadMappa(
       width: number | string;
       height: number | string;
       ubicazione:
-        | { id: string; codice: string; nome: string; parent_id: string | null }
-        | { id: string; codice: string; nome: string; parent_id: string | null }[]
+        | {
+            id: string;
+            codice: string;
+            nome: string;
+            parent_id: string | null;
+            peso_max_kg?: unknown;
+            misura_unita?: unknown;
+            misura_max_larghezza?: unknown;
+            misura_max_profondita?: unknown;
+            misura_max_altezza?: unknown;
+            misura_min_larghezza?: unknown;
+            misura_min_profondita?: unknown;
+            misura_min_altezza?: unknown;
+            occupazione_stato?: unknown;
+          }
+        | {
+            id: string;
+            codice: string;
+            nome: string;
+            parent_id: string | null;
+            peso_max_kg?: unknown;
+            misura_unita?: unknown;
+            misura_max_larghezza?: unknown;
+            misura_max_profondita?: unknown;
+            misura_max_altezza?: unknown;
+            misura_min_larghezza?: unknown;
+            misura_min_profondita?: unknown;
+            misura_min_altezza?: unknown;
+            occupazione_stato?: unknown;
+          }[]
         | null;
     }[]
   ).map((r) => {
@@ -212,6 +243,7 @@ async function loadMappa(
       y: Number(r.y),
       width: Number(r.width),
       height: Number(r.height),
+      ...capienzaDaRiga(u),
     };
   });
   const ubicazioni = await loadUbicazioniScope(supabase, id, h.luogo_nome ?? "");
@@ -3104,4 +3136,102 @@ export async function riapriProgettazioneMappaAction(
   const mappa = await loadMappa(supabase, mappaId);
   if (!mappa) return { success: false, error: "Riapertura ok, pianta non leggibile." };
   return { success: true, mappa };
+}
+
+export async function aggiornaUbicazioneCapienzaAction(
+  raw: AggiornaUbicazioneCapienzaInput
+): Promise<
+  | { success: true; capienza: ReturnType<typeof capienzaDaRiga> }
+  | { success: false; error: string }
+> {
+  const { auth } = await requireAnyAreaAccess([
+    "magazzino",
+    "strumenti",
+    "amministrazione",
+  ]);
+  const parsed = aggiornaUbicazioneCapienzaSchema.safeParse(raw);
+  if (!parsed.success) {
+    return {
+      success: false,
+      error:
+        parsed.error.issues[0]?.message ?? "Dati posto non validi.",
+    };
+  }
+  const input = parsed.data;
+  const supabase = await createClient();
+  const { data: prev, error: prevErr } = await supabase
+    .from("magazzino_ubicazioni")
+    .select(
+      "id, codice, nome, peso_max_kg, misura_unita, misura_max_larghezza, misura_max_profondita, misura_max_altezza, misura_min_larghezza, misura_min_profondita, misura_min_altezza, occupazione_stato"
+    )
+    .eq("id", input.ubicazioneId)
+    .is("deleted_at", null)
+    .maybeSingle();
+  if (prevErr || !prev) {
+    return { success: false, error: prevErr?.message ?? "Posto non trovato." };
+  }
+  const oldOcc = String(
+    (prev as { occupazione_stato?: string }).occupazione_stato ?? "libero"
+  );
+  const now = new Date().toISOString();
+  const { error } = await supabase
+    .from("magazzino_ubicazioni")
+    .update({
+      peso_max_kg: input.pesoMaxKg ?? null,
+      misura_unita: input.misuraUnita,
+      misura_max_larghezza: input.maxLarghezza ?? null,
+      misura_max_profondita: input.maxProfondita ?? null,
+      misura_max_altezza: input.maxAltezza ?? null,
+      misura_min_larghezza: input.minLarghezza ?? null,
+      misura_min_profondita: input.minProfondita ?? null,
+      misura_min_altezza: input.minAltezza ?? null,
+      occupazione_stato: input.occupazione,
+      occupazione_at: now,
+      occupazione_by: auth.userId,
+      updated_by: auth.userId,
+    })
+    .eq("id", input.ubicazioneId)
+    .is("deleted_at", null);
+  if (error) return { success: false, error: error.message };
+  const capienza = capienzaDaRiga({
+    peso_max_kg: input.pesoMaxKg ?? null,
+    misura_unita: input.misuraUnita,
+    misura_max_larghezza: input.maxLarghezza ?? null,
+    misura_max_profondita: input.maxProfondita ?? null,
+    misura_max_altezza: input.maxAltezza ?? null,
+    misura_min_larghezza: input.minLarghezza ?? null,
+    misura_min_profondita: input.minProfondita ?? null,
+    misura_min_altezza: input.minAltezza ?? null,
+    occupazione_stato: input.occupazione,
+  });
+  const row = prev as { codice?: string; nome?: string };
+  await writeAuditLog({
+    entity_type: "magazzino_ubicazioni",
+    entity_id: input.ubicazioneId,
+    action: "update",
+    actor_id: auth.userId,
+    summary:
+      oldOcc !== input.occupazione
+        ? `Posto ${row.codice ?? ""}: ${oldOcc} → ${input.occupazione}`
+        : `Aggiornati settaggi posto ${row.codice ?? ""}`,
+    payload: {
+      codice: row.codice,
+      nome: row.nome,
+      occupazione: input.occupazione,
+      occupazione_precedente: oldOcc,
+      peso_max_kg: input.pesoMaxKg ?? null,
+      misura_unita: input.misuraUnita,
+      misura_max: {
+        larghezza: input.maxLarghezza ?? null,
+        profondita: input.maxProfondita ?? null,
+        altezza: input.maxAltezza ?? null,
+      },
+      misura_min: {
+        larghezza: input.minLarghezza ?? null,
+        profondita: input.minProfondita ?? null,
+        altezza: input.minAltezza ?? null,
+      },
+    },
+  });
+  return { success: true, capienza };
 }

@@ -3,6 +3,44 @@ import { z } from "zod";
 export const UBICAZIONE_TIPI = ["riponibile"] as const;
 export type UbicazioneTipo = (typeof UBICAZIONE_TIPI)[number];
 
+export const UBICAZIONE_OCCUPAZIONI = ["libero", "occupato"] as const;
+export type UbicazioneOccupazione = (typeof UBICAZIONE_OCCUPAZIONI)[number];
+
+export const UBICAZIONE_OCCUPAZIONE_LABEL: Record<
+  UbicazioneOccupazione,
+  string
+> = {
+  libero: "Libero",
+  occupato: "Occupato",
+};
+
+export const UBICAZIONE_MISURA_UNITA = ["cm", "m"] as const;
+export type UbicazioneMisuraUnita = (typeof UBICAZIONE_MISURA_UNITA)[number];
+
+export type UbicazioneCapienza = {
+  pesoMaxKg: number | null;
+  misuraUnita: UbicazioneMisuraUnita;
+  maxLarghezza: number | null;
+  maxProfondita: number | null;
+  maxAltezza: number | null;
+  minLarghezza: number | null;
+  minProfondita: number | null;
+  minAltezza: number | null;
+  occupazione: UbicazioneOccupazione;
+};
+
+export const CAPIENZA_DEFAULT: UbicazioneCapienza = {
+  pesoMaxKg: null,
+  misuraUnita: "cm",
+  maxLarghezza: null,
+  maxProfondita: null,
+  maxAltezza: null,
+  minLarghezza: null,
+  minProfondita: null,
+  minAltezza: null,
+  occupazione: "libero",
+};
+
 export type MappaAreaDisegnata = {
   id: string;
   ubicazioneId: string;
@@ -13,7 +51,7 @@ export type MappaAreaDisegnata = {
   y: number;
   width: number;
   height: number;
-};
+} & Partial<UbicazioneCapienza>;
 
 export type UbicazioneElenco = {
   id: string;
@@ -46,6 +84,152 @@ export function etichettaUbicazione(
   return luogo ? `${luogo} · ${base}` : base;
 }
 
+function numOpz(v: unknown): number | null {
+  if (v == null || v === "") return null;
+  const n = typeof v === "number" ? v : Number(v);
+  if (!Number.isFinite(n) || n <= 0) return null;
+  return n;
+}
+
+export function parseOccupazione(v: unknown): UbicazioneOccupazione {
+  return v === "occupato" ? "occupato" : "libero";
+}
+
+export function parseMisuraUnita(v: unknown): UbicazioneMisuraUnita {
+  return v === "m" ? "m" : "cm";
+}
+
+export function capienzaDaRiga(u: {
+  peso_max_kg?: unknown;
+  misura_unita?: unknown;
+  misura_max_larghezza?: unknown;
+  misura_max_profondita?: unknown;
+  misura_max_altezza?: unknown;
+  misura_min_larghezza?: unknown;
+  misura_min_profondita?: unknown;
+  misura_min_altezza?: unknown;
+  occupazione_stato?: unknown;
+} | null | undefined): UbicazioneCapienza {
+  if (!u) return { ...CAPIENZA_DEFAULT };
+  return {
+    pesoMaxKg: numOpz(u.peso_max_kg),
+    misuraUnita: parseMisuraUnita(u.misura_unita),
+    maxLarghezza: numOpz(u.misura_max_larghezza),
+    maxProfondita: numOpz(u.misura_max_profondita),
+    maxAltezza: numOpz(u.misura_max_altezza),
+    minLarghezza: numOpz(u.misura_min_larghezza),
+    minProfondita: numOpz(u.misura_min_profondita),
+    minAltezza: numOpz(u.misura_min_altezza),
+    occupazione: parseOccupazione(u.occupazione_stato),
+  };
+}
+
+export function capienzaDi(
+  a: Partial<UbicazioneCapienza> | null | undefined
+): UbicazioneCapienza {
+  return {
+    pesoMaxKg: a?.pesoMaxKg ?? null,
+    misuraUnita: a?.misuraUnita === "m" ? "m" : "cm",
+    maxLarghezza: a?.maxLarghezza ?? null,
+    maxProfondita: a?.maxProfondita ?? null,
+    maxAltezza: a?.maxAltezza ?? null,
+    minLarghezza: a?.minLarghezza ?? null,
+    minProfondita: a?.minProfondita ?? null,
+    minAltezza: a?.minAltezza ?? null,
+    occupazione: a?.occupazione === "occupato" ? "occupato" : "libero",
+  };
+}
+
+export function applicaCapienza(
+  area: MappaAreaDisegnata,
+  c: UbicazioneCapienza
+): MappaAreaDisegnata {
+  return { ...area, ...c };
+}
+
+/** Stesso posto su altre viste + padre + figli (non i fratelli). */
+export function idsUbicazioniCollegate(
+  aree: Array<{ ubicazioneId: string; parentId: string | null }>,
+  pivotId: string | null
+): Set<string> {
+  const out = new Set<string>();
+  if (!pivotId) return out;
+  out.add(pivotId);
+  const pivot = aree.find((a) => a.ubicazioneId === pivotId);
+  if (pivot?.parentId) out.add(pivot.parentId);
+  const coda = [pivotId];
+  while (coda.length) {
+    const id = coda.pop()!;
+    for (const a of aree) {
+      if (a.parentId === id && a.ubicazioneId && !out.has(a.ubicazioneId)) {
+        out.add(a.ubicazioneId);
+        coda.push(a.ubicazioneId);
+      }
+    }
+  }
+  return out;
+}
+
+export function stileAreaPosto(opts: {
+  occupazione: UbicazioneOccupazione;
+  accesa: boolean;
+  primaria?: boolean;
+}): { fill: string; stroke: string; text: string; strokeWidth: number } {
+  const primaria = Boolean(opts.primaria);
+  if (opts.occupazione === "occupato") {
+    return {
+      fill: opts.accesa ? "rgba(20,83,45,0.78)" : "rgba(21,128,61,0.52)",
+      stroke: opts.accesa ? "#052e16" : "#14532d",
+      text: opts.accesa ? "#ecfdf5" : "#14532d",
+      strokeWidth: primaria ? 3.4 : opts.accesa ? 2.6 : 1.6,
+    };
+  }
+  return {
+    fill: opts.accesa ? "rgba(45,212,191,0.48)" : "rgba(13,148,136,0.12)",
+    stroke: opts.accesa ? "#0f766e" : "#0d9488",
+    text: "#134e4a",
+    strokeWidth: primaria ? 3.2 : opts.accesa ? 2.4 : 1.6,
+  };
+}
+
+const misuraOpz = z
+  .union([z.number().positive().max(100000), z.null()])
+  .optional();
+
+export const aggiornaUbicazioneCapienzaSchema = z
+  .object({
+    ubicazioneId: z.string().uuid(),
+    pesoMaxKg: misuraOpz,
+    misuraUnita: z.enum(UBICAZIONE_MISURA_UNITA).default("cm"),
+    maxLarghezza: misuraOpz,
+    maxProfondita: misuraOpz,
+    maxAltezza: misuraOpz,
+    minLarghezza: misuraOpz,
+    minProfondita: misuraOpz,
+    minAltezza: misuraOpz,
+    occupazione: z.enum(UBICAZIONE_OCCUPAZIONI),
+  })
+  .superRefine((v, ctx) => {
+    const coppie: Array<[number | null | undefined, number | null | undefined, string]> =
+      [
+        [v.minLarghezza, v.maxLarghezza, "larghezza"],
+        [v.minProfondita, v.maxProfondita, "profondità"],
+        [v.minAltezza, v.maxAltezza, "altezza"],
+      ];
+    for (const [min, max, nome] of coppie) {
+      if (min != null && max != null && min > max) {
+        ctx.addIssue({
+          code: "custom",
+          message: `La misura minima di ${nome} non può superare la massima.`,
+        });
+      }
+    }
+  });
+
+export type AggiornaUbicazioneCapienzaInput = z.infer<
+  typeof aggiornaUbicazioneCapienzaSchema
+>;
+
 export const mappaAreaInputSchema = z.object({
   id: z.string().uuid().optional(),
   ubicazioneId: z.string().uuid().optional(),
@@ -75,6 +259,7 @@ export function areeElencoConsultazione(aree: MappaAreaDisegnata[]): {
   id: string;
   codice: string;
   nome: string;
+  occupazione: UbicazioneOccupazione;
 }[] {
   const haLivelli = aree.some((a) => a.parentId);
   const isPadre = (a: MappaAreaDisegnata) =>
@@ -92,7 +277,12 @@ export function areeElencoConsultazione(aree: MappaAreaDisegnata[]): {
           ? codicePostoFiglio(parent.codice, a.codice)
           : a.codice
         : letteraColonna(a.codice);
-      return { id: a.ubicazioneId || a.id, codice, nome: a.nome };
+      return {
+        id: a.ubicazioneId || a.id,
+        codice,
+        nome: a.nome,
+        occupazione: capienzaDi(a).occupazione,
+      };
     })
     .sort((a, b) => a.codice.localeCompare(b.codice, "it"));
 }
