@@ -633,7 +633,7 @@ export function PiantaLuogoBoard({ luogo }: { luogo: PiantaLuogoPagina }) {
                           type="button"
                           className="rounded-lg border border-slate-400 bg-white px-2 py-1 text-xs font-medium text-slate-800"
                         >
-                          Metti
+                          Stampa etichette
                         </button>
                       </div>
                     </td>
