@@ -3,12 +3,8 @@
 import { useEffect, useState } from "react";
 import { aggiornaUbicazioneCapienzaAction } from "@/app/actions/magazzino-mappa";
 import {
-  listImballaggiPostoAction,
-  listMovimentazioniPostoAction,
-} from "@/app/actions/magazzino-posto-occupazione";
-import type { ImballaggioPostoOpt } from "@/lib/magazzino/posto-occupazione";
-import {
   capienzaDi,
+  type FonteSettaggioPosto,
   type MappaAreaDisegnata,
   type UbicazioneCapienza,
   type UbicazioneMisuraUnita,
@@ -29,16 +25,14 @@ function leggi(v: string): number | null {
 export function PiantaPostoPannello({
   posto,
   viste,
+  fontiSettaggio = [],
   onSalvato,
   onChiudi,
 }: {
   posto: MappaAreaDisegnata;
   viste: string[];
-  onSalvato: (
-    ubicazioneId: string,
-    capienza: UbicazioneCapienza,
-    movimentazioneVoceIds: string[]
-  ) => void;
+  fontiSettaggio?: FonteSettaggioPosto[];
+  onSalvato: (ubicazioneId: string, capienza: UbicazioneCapienza) => void;
   onChiudi: () => void;
 }) {
   const [peso, setPeso] = useState("");
@@ -52,11 +46,9 @@ export function PiantaPostoPannello({
   const [busy, setBusy] = useState(false);
   const [errore, setErrore] = useState("");
   const [ok, setOk] = useState("");
-  const [catalogoMov, setCatalogoMov] = useState<ImballaggioPostoOpt[]>([]);
-  const [movIds, setMovIds] = useState<string[]>([]);
+  const [copiaDa, setCopiaDa] = useState("");
 
-  useEffect(() => {
-    const c = capienzaDi(posto);
+  function applicaFonte(c: UbicazioneCapienza) {
     setPeso(campo(c.pesoMaxKg));
     setUnita(c.misuraUnita);
     setMaxL(campo(c.maxLarghezza));
@@ -65,17 +57,13 @@ export function PiantaPostoPannello({
     setMinL(campo(c.minLarghezza));
     setMinP(campo(c.minProfondita));
     setMinH(campo(c.minAltezza));
+  }
+
+  useEffect(() => {
+    applicaFonte(capienzaDi(posto));
     setErrore("");
     setOk("");
-    const saved = posto.movimentazioneVoceIds ?? [];
-    setMovIds(saved);
-    void Promise.all([
-      listImballaggiPostoAction(),
-      listMovimentazioniPostoAction(posto.ubicazioneId),
-    ]).then(([cat, cur]) => {
-      if (cat.success) setCatalogoMov(cat.movimentazioni);
-      if (cur.success) setMovIds(cur.ids);
-    });
+    setCopiaDa("");
   }, [posto.ubicazioneId, posto.pesoMaxKg]);
 
   async function salva() {
@@ -93,7 +81,6 @@ export function PiantaPostoPannello({
       minLarghezza: leggi(minL),
       minProfondita: leggi(minP),
       minAltezza: leggi(minH),
-      movimentazioneVoceIds: movIds,
     });
     setBusy(false);
     if (!res.success) {
@@ -101,7 +88,7 @@ export function PiantaPostoPannello({
       return;
     }
     setOk("Settaggi salvati.");
-    onSalvato(posto.ubicazioneId, res.capienza, movIds);
+    onSalvato(posto.ubicazioneId, res.capienza);
   }
 
   return (
@@ -130,6 +117,34 @@ export function PiantaPostoPannello({
       <p className="mt-3 text-xs text-slate-700">
         Campi vuoti = nessuna avvertenza particolare.
       </p>
+
+      <label className="mt-3 block text-xs font-medium text-slate-900">
+        Copia settaggi da
+        <select
+          value={copiaDa}
+          onChange={(e) => {
+            const id = e.target.value;
+            setCopiaDa(id);
+            const fonte = fontiSettaggio.find((f) => f.ubicazioneId === id);
+            if (!fonte) return;
+            applicaFonte(fonte.capienza);
+            setOk(`Copiati i settaggi da «${fonte.nome}». Salva per applicarli.`);
+            setErrore("");
+          }}
+          className="mt-0.5 w-full max-w-md rounded border border-slate-200 bg-white px-2 py-1 text-sm"
+        >
+          <option value="">
+            {fontiSettaggio.length
+              ? "Scegli un posto…"
+              : "Nessun altro posto con settaggi"}
+          </option>
+          {fontiSettaggio.map((f) => (
+            <option key={f.ubicazioneId} value={f.ubicazioneId}>
+              {f.nome}
+            </option>
+          ))}
+        </select>
+      </label>
 
       <div className="mt-2 grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
         <label className="text-xs font-medium text-slate-900">
@@ -238,51 +253,6 @@ export function PiantaPostoPannello({
           </div>
         </fieldset>
       </div>
-
-      <fieldset className="mt-3 rounded-lg border border-slate-200 bg-white px-2 py-2">
-        <legend className="px-1 text-xs font-semibold text-slate-900">
-          Movimentazioni possibili
-        </legend>
-        <p className="mb-2 text-xs text-slate-600">
-          Solo queste compariranno in occupazione (es. certi pallet sui ripiani
-          2–3, pallet e bins sul ripiano 1).
-        </p>
-        {catalogoMov.length === 0 ? (
-          <p className="text-xs text-slate-500">
-            Nessuna movimentazione in catalogo. Aggiungile in Amministrazione →
-            Imballaggi e spedizioni.
-          </p>
-        ) : (
-          <div className="flex flex-wrap gap-2">
-            {catalogoMov.map((v) => {
-              const on = movIds.includes(v.id);
-              return (
-                <label
-                  key={v.id}
-                  className={`inline-flex cursor-pointer items-center gap-1.5 rounded-lg border px-2 py-1 text-xs ${
-                    on
-                      ? "border-slate-800 bg-slate-800 text-white"
-                      : "border-slate-200 bg-slate-50 text-slate-800"
-                  }`}
-                >
-                  <input
-                    type="checkbox"
-                    className="sr-only"
-                    checked={on}
-                    onChange={() =>
-                      setMovIds((prev) =>
-                        on ? prev.filter((id) => id !== v.id) : [...prev, v.id]
-                      )
-                    }
-                  />
-                  {v.nome}
-                  <span className="opacity-70">({v.codice})</span>
-                </label>
-              );
-            })}
-          </div>
-        )}
-      </fieldset>
 
       <div className="mt-3 flex flex-wrap items-center gap-2">
         <button

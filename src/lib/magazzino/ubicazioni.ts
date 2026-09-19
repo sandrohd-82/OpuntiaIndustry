@@ -51,7 +51,6 @@ export type MappaAreaDisegnata = {
   y: number;
   width: number;
   height: number;
-  movimentazioneVoceIds?: string[];
 } & Partial<UbicazioneCapienza>;
 
 export type UbicazioneElenco = {
@@ -141,6 +140,28 @@ export function capienzaDi(
   };
 }
 
+/** True se il posto ha almeno un valore di capienza impostato. */
+export function postoHaSettaggi(
+  a: Partial<UbicazioneCapienza> | null | undefined
+): boolean {
+  const c = capienzaDi(a);
+  return (
+    c.pesoMaxKg != null ||
+    c.maxLarghezza != null ||
+    c.maxProfondita != null ||
+    c.maxAltezza != null ||
+    c.minLarghezza != null ||
+    c.minProfondita != null ||
+    c.minAltezza != null
+  );
+}
+
+export type FonteSettaggioPosto = {
+  ubicazioneId: string;
+  nome: string;
+  capienza: UbicazioneCapienza;
+};
+
 export function applicaCapienza(
   area: MappaAreaDisegnata,
   c: UbicazioneCapienza
@@ -208,7 +229,6 @@ export const aggiornaUbicazioneCapienzaSchema = z
     minLarghezza: misuraOpz,
     minProfondita: misuraOpz,
     minAltezza: misuraOpz,
-    movimentazioneVoceIds: z.array(z.string().uuid()).max(80).optional(),
   })
   .superRefine((v, ctx) => {
     const coppie: Array<[number | null | undefined, number | null | undefined, string]> =
@@ -263,6 +283,7 @@ export function areeElencoConsultazione(aree: MappaAreaDisegnata[]): {
   codice: string;
   nome: string;
   occupazione: UbicazioneOccupazione;
+  haSettaggi: boolean;
 }[] {
   const haLivelli = aree.some((a) => a.parentId);
   const isPadre = (a: MappaAreaDisegnata) =>
@@ -285,6 +306,7 @@ export function areeElencoConsultazione(aree: MappaAreaDisegnata[]): {
         codice,
         nome: a.nome,
         occupazione: capienzaDi(a).occupazione,
+        haSettaggi: postoHaSettaggi(a),
       };
     })
     .sort((a, b) => a.codice.localeCompare(b.codice, "it"));

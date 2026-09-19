@@ -10,8 +10,11 @@ import {
 import {
   applicaCapienza,
   areeElencoConsultazione,
+  capienzaDi,
   idsUbicazioniCollegate,
+  postoHaSettaggi,
   unisciAreePiante,
+  type FonteSettaggioPosto,
   type UbicazioneCapienza,
 } from "@/lib/magazzino/ubicazioni";
 import { PiantaVistaRitaglio } from "@/components/magazzino/PiantaVistaRitaglio";
@@ -59,9 +62,31 @@ export function PiantaLuogoBoard({ luogo }: { luogo: PiantaLuogoPagina }) {
   );
   const n = mappe.length;
   const griglia = classiGrigliaViste(n);
-  const aree = areeElencoConsultazione(unisciAreePiante(mappe.map((m) => m.aree ?? [])));
+  const areeUnite = useMemo(
+    () => unisciAreePiante(mappe.map((m) => m.aree ?? [])),
+    [mappe]
+  );
+  const aree = areeElencoConsultazione(areeUnite);
   const haLivelli = tutteAree.some((a) => a.parentId);
   const posto = tutteAree.find((a) => a.ubicazioneId === selezionata) ?? null;
+  const fontiSettaggio = useMemo((): FonteSettaggioPosto[] => {
+    const seen = new Set<string>();
+    const out: FonteSettaggioPosto[] = [];
+    for (const a of areeUnite) {
+      if (!a.ubicazioneId || a.ubicazioneId === posto?.ubicazioneId) continue;
+      if (!postoHaSettaggi(a)) continue;
+      if (seen.has(a.ubicazioneId)) continue;
+      const nome = a.nome.trim();
+      if (!nome) continue;
+      seen.add(a.ubicazioneId);
+      out.push({
+        ubicazioneId: a.ubicazioneId,
+        nome,
+        capienza: capienzaDi(a),
+      });
+    }
+    return out.sort((x, y) => x.nome.localeCompare(y.nome, "it"));
+  }, [areeUnite, posto?.ubicazioneId]);
   const vistePosto = posto
     ? mappe
         .filter((m) =>
@@ -70,21 +95,12 @@ export function PiantaLuogoBoard({ luogo }: { luogo: PiantaLuogoPagina }) {
         .map((m) => m.vistaEtichetta || "Vista")
     : [];
 
-  function applica(
-    ubicazioneId: string,
-    capienza: UbicazioneCapienza,
-    movIds?: string[]
-  ) {
+  function applica(ubicazioneId: string, capienza: UbicazioneCapienza) {
     setMappe((prev) =>
       prev.map((m) => ({
         ...m,
         aree: (m.aree ?? []).map((a) =>
-          a.ubicazioneId === ubicazioneId
-            ? {
-                ...applicaCapienza(a, capienza),
-                movimentazioneVoceIds: movIds ?? a.movimentazioneVoceIds,
-              }
-            : a
+          a.ubicazioneId === ubicazioneId ? applicaCapienza(a, capienza) : a
         ),
       }))
     );
@@ -259,6 +275,7 @@ export function PiantaLuogoBoard({ luogo }: { luogo: PiantaLuogoPagina }) {
           key={`set-${posto.ubicazioneId}`}
           posto={posto}
           viste={vistePosto}
+          fontiSettaggio={fontiSettaggio}
           onSalvato={applica}
           onChiudi={() => setPannello(null)}
         />
@@ -352,7 +369,11 @@ export function PiantaLuogoBoard({ luogo }: { luogo: PiantaLuogoPagina }) {
                     <td className="px-3 py-1.5">
                       <button
                         type="button"
-                        className="rounded-lg border border-slate-400 bg-white px-2 py-1 text-xs font-medium text-slate-800 hover:bg-slate-100"
+                        className={`rounded-lg border px-2 py-1 text-xs font-medium ${
+                          a.haSettaggi
+                            ? "border-green-900 bg-green-800 text-white hover:bg-green-900"
+                            : "border-slate-400 bg-white text-slate-800 hover:bg-slate-100"
+                        }`}
                         onClick={() => {
                           setSelezionata(a.id);
                           setPannello("settaggio");
