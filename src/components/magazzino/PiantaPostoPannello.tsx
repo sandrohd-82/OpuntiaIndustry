@@ -272,3 +272,98 @@ export function PiantaPostoPannello({
     </div>
   );
 }
+
+function valore(v: number | null, unita?: string): string {
+  if (v == null) return "—";
+  return unita ? `${v} ${unita}` : String(v);
+}
+
+/** Nuvola dalla “i”: solo i settaggi già salvati, nessuna modifica. */
+export function PiantaPostoSettaggiInfo({
+  posto,
+  viste,
+  onChiudi,
+}: {
+  posto: MappaAreaDisegnata;
+  viste: string[];
+  onChiudi: () => void;
+}) {
+  const c = capienzaDi(posto);
+  const u = c.misuraUnita;
+  const ha =
+    c.pesoMaxKg != null ||
+    c.maxLarghezza != null ||
+    c.maxProfondita != null ||
+    c.maxAltezza != null ||
+    c.minLarghezza != null ||
+    c.minProfondita != null ||
+    c.minAltezza != null;
+
+  return (
+    <div className="rounded-xl bg-white px-3 py-3">
+      <div className="flex items-start justify-between gap-2">
+        <div>
+          <p className="text-sm font-semibold text-slate-900">
+            Settaggi {posto.codice}
+            {posto.nome.trim() ? ` — ${posto.nome.trim()}` : ""}
+          </p>
+          <p className="mt-0.5 text-xs text-slate-600">
+            Solo lettura. Per modificare usa Settaggio in tabella.
+            {viste.length ? ` · Viste: ${viste.join(" · ")}` : ""}
+          </p>
+        </div>
+        <button
+          type="button"
+          onClick={onChiudi}
+          className="rounded-lg px-2 py-1 text-xs text-slate-600 hover:bg-slate-50"
+        >
+          Chiudi
+        </button>
+      </div>
+      {!ha ? (
+        <p className="mt-3 text-sm text-slate-600">Nessun settaggio salvato.</p>
+      ) : (
+        <dl className="mt-3 grid grid-cols-2 gap-x-3 gap-y-2 text-sm">
+          <div>
+            <dt className="text-xs text-slate-500">Peso massimo</dt>
+            <dd className="font-medium">{valore(c.pesoMaxKg, "kg")}</dd>
+          </div>
+          <div>
+            <dt className="text-xs text-slate-500">Unità misure</dt>
+            <dd className="font-medium">{u}</dd>
+          </div>
+          <div className="col-span-2 border-t border-slate-100 pt-2 text-xs font-semibold text-slate-700">
+            Misura massima
+          </div>
+          <div>
+            <dt className="text-xs text-slate-500">Larghezza</dt>
+            <dd className="font-medium">{valore(c.maxLarghezza, u)}</dd>
+          </div>
+          <div>
+            <dt className="text-xs text-slate-500">Profondità</dt>
+            <dd className="font-medium">{valore(c.maxProfondita, u)}</dd>
+          </div>
+          <div>
+            <dt className="text-xs text-slate-500">Altezza</dt>
+            <dd className="font-medium">{valore(c.maxAltezza, u)}</dd>
+          </div>
+          <div className="col-span-2 border-t border-slate-100 pt-2 text-xs font-semibold text-slate-700">
+            Misura minima
+          </div>
+          <div>
+            <dt className="text-xs text-slate-500">Larghezza</dt>
+            <dd className="font-medium">{valore(c.minLarghezza, u)}</dd>
+          </div>
+          <div>
+            <dt className="text-xs text-slate-500">Profondità</dt>
+            <dd className="font-medium">{valore(c.minProfondita, u)}</dd>
+          </div>
+          <div>
+            <dt className="text-xs text-slate-500">Altezza</dt>
+            <dd className="font-medium">{valore(c.minAltezza, u)}</dd>
+          </div>
+        </dl>
+      )}
+    </div>
+  );
+}

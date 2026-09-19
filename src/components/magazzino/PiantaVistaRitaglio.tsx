@@ -381,10 +381,12 @@ function PostoOverlay({
           type="button"
           title="Info settaggio"
           aria-label={`Info settaggio ${targa}`}
-          className={`pointer-events-auto absolute inline-flex h-[18px] w-[18px] items-center justify-center rounded-full border text-[11px] font-bold italic leading-none shadow-sm ${
-            haSettaggi
-              ? "border-green-950 bg-green-800 text-white hover:bg-green-900"
-              : "border-slate-500 bg-white text-slate-800 hover:bg-slate-100"
+          className={`pointer-events-auto absolute bg-transparent p-0 text-[13px] font-bold italic leading-none underline-offset-2 hover:underline ${
+            chiaro
+              ? "text-emerald-50"
+              : haSettaggi
+                ? "text-teal-900"
+                : "text-teal-800/80"
           }`}
           style={{ top: pad, right: pad }}
           onClick={(e) => {

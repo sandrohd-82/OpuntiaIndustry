@@ -20,7 +20,10 @@ import {
 import { getOccupazionePostoAction } from "@/app/actions/magazzino-posto-occupazione";
 import { riepilogoOccupazionePosto } from "@/lib/magazzino/posto-occupazione";
 import { PiantaVistaRitaglio } from "@/components/magazzino/PiantaVistaRitaglio";
-import { PiantaPostoPannello } from "@/components/magazzino/PiantaPostoPannello";
+import {
+  PiantaPostoPannello,
+  PiantaPostoSettaggiInfo,
+} from "@/components/magazzino/PiantaPostoPannello";
 import { PiantaPostoOccupazione } from "@/components/magazzino/PiantaPostoOccupazione";
 import { PiantaPostoNuvola } from "@/components/magazzino/PiantaPostoNuvola";
 
@@ -43,9 +46,9 @@ export function PiantaLuogoBoard({ luogo }: { luogo: PiantaLuogoPagina }) {
   const router = useRouter();
   const [mappe, setMappe] = useState(luogo.mappe);
   const [selezionata, setSelezionata] = useState<string | null>(null);
-  const [pannello, setPannello] = useState<"settaggio" | "occupazione" | null>(
-    null
-  );
+  const [pannello, setPannello] = useState<
+    "info" | "settaggio" | "occupazione" | null
+  >(null);
   const [settaggioAnchor, setSettaggioAnchor] = useState<{
     left: number;
     top: number;
@@ -341,7 +344,7 @@ export function PiantaLuogoBoard({ luogo }: { luogo: PiantaLuogoPagina }) {
                     ? undefined
                     : (id) => {
                         setSelezionata(id);
-                        setPannello("settaggio");
+                        setPannello("info");
                       }
                 }
                 onOccupa={
@@ -370,9 +373,27 @@ export function PiantaLuogoBoard({ luogo }: { luogo: PiantaLuogoPagina }) {
         })}
       </div>
 
-      {posto && pannello === "settaggio" ? (
+      {posto && pannello === "info" ? (
         <PiantaPostoNuvola
           anchor={settaggioAnchor}
+          onClose={() => {
+            setPannello(null);
+            setSettaggioAnchor(null);
+          }}
+        >
+          <PiantaPostoSettaggiInfo
+            key={`info-${posto.ubicazioneId}`}
+            posto={posto}
+            viste={vistePosto}
+            onChiudi={() => {
+              setPannello(null);
+              setSettaggioAnchor(null);
+            }}
+          />
+        </PiantaPostoNuvola>
+      ) : posto && pannello === "settaggio" ? (
+        <PiantaPostoNuvola
+          anchor={null}
           onClose={() => {
             setPannello(null);
             setSettaggioAnchor(null);
@@ -405,8 +426,8 @@ export function PiantaLuogoBoard({ luogo }: { luogo: PiantaLuogoPagina }) {
       ) : (
         <p className="text-xs text-[var(--muted)]">
           Clicca un posto sul disegno: il codice va in alto a sinistra, i
-          dettagli al centro e l&apos;ingranaggio in alto a destra apre i
-          settaggi.
+          dettagli al centro e la «i» in alto a destra mostra i settaggi in
+          sola lettura.
         </p>
       )}
 
