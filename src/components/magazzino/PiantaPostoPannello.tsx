@@ -129,25 +129,16 @@ export function PiantaPostoPannello({
 
   return (
     <div className="rounded-xl border border-slate-300 bg-slate-50 px-3 py-3">
-      <div className="flex flex-wrap items-start justify-between gap-2">
-        <div>
-          <p className="text-sm font-semibold text-slate-900">
-            Settaggio {posto.codice}
-            {posto.nome.trim() ? ` — ${posto.nome.trim()}` : ""}
-          </p>
-          <p className="mt-0.5 text-xs text-slate-600">
-            Si imposta di solito una sola volta. Si modifica solo in casi
-            particolari. Non cambia lo stato libero/occupato.
-            {viste.length ? ` · Viste: ${viste.join(" · ")}` : ""}
-          </p>
-        </div>
-        <button
-          type="button"
-          onClick={onChiudi}
-          className="rounded-lg px-2 py-1 text-xs text-slate-600 hover:bg-white"
-        >
-          Chiudi
-        </button>
+      <div>
+        <p className="text-sm font-semibold text-slate-900">
+          Settaggio {posto.codice}
+          {posto.nome.trim() ? ` — ${posto.nome.trim()}` : ""}
+        </p>
+        <p className="mt-0.5 text-xs text-slate-600">
+          Si imposta di solito una sola volta. Si modifica solo in casi
+          particolari. Non cambia lo stato libero/occupato.
+          {viste.length ? ` · Viste: ${viste.join(" · ")}` : ""}
+        </p>
       </div>
 
       <p className="mt-3 text-xs text-slate-700">
@@ -346,20 +337,29 @@ export function PiantaPostoPannello({
         )}
       </fieldset>
 
-      <div className="mt-3 flex flex-wrap items-center gap-2">
+      <div className="mt-3 flex items-center justify-between gap-3">
+        <div className="flex min-w-0 flex-wrap items-center gap-2">
+          <button
+            type="button"
+            disabled={busy}
+            onClick={() => void salva()}
+            className="rounded-lg bg-slate-800 px-3 py-1.5 text-sm font-medium text-white hover:bg-slate-900 disabled:opacity-60"
+          >
+            {busy ? "Salvataggio…" : "Salva settaggi"}
+          </button>
+          {errore ? (
+            <p className="text-sm text-red-700">{errore}</p>
+          ) : ok ? (
+            <p className="text-sm text-emerald-800">{ok}</p>
+          ) : null}
+        </div>
         <button
           type="button"
-          disabled={busy}
-          onClick={() => void salva()}
-          className="rounded-lg bg-slate-800 px-3 py-1.5 text-sm font-medium text-white hover:bg-slate-900 disabled:opacity-60"
+          onClick={onChiudi}
+          className="shrink-0 rounded-lg border border-slate-400 bg-white px-3 py-1.5 text-sm font-medium text-slate-900 shadow-sm hover:bg-slate-100"
         >
-          {busy ? "Salvataggio…" : "Salva settaggi"}
+          Chiudi
         </button>
-        {errore ? (
-          <p className="text-sm text-red-700">{errore}</p>
-        ) : ok ? (
-          <p className="text-sm text-emerald-800">{ok}</p>
-        ) : null}
       </div>
     </div>
   );
