@@ -8,7 +8,6 @@ import {
   type MouseEvent,
   type RefObject,
 } from "react";
-import { FaGear } from "react-icons/fa6";
 import {
   ritaglioDisegnoMappa,
   type MappaMagazzino,
@@ -63,6 +62,7 @@ function hitArea(
 
 function areaCssBox(
   svg: SVGSVGElement,
+  host: HTMLElement,
   area: Pick<MappaAreaDisegnata, "x" | "y" | "width" | "height">
 ) {
   const ctm = svg.getScreenCTM();
@@ -75,10 +75,10 @@ function areaCssBox(
   };
   const a = toScreen(area.x, area.y);
   const b = toScreen(area.x + area.width, area.y + area.height);
-  const host = svg.getBoundingClientRect();
+  const origin = host.getBoundingClientRect();
   return {
-    left: a.x - host.left,
-    top: a.y - host.top,
+    left: a.x - origin.left,
+    top: a.y - origin.top,
     width: Math.max(0, b.x - a.x),
     height: Math.max(0, b.y - a.y),
   };
@@ -109,8 +109,9 @@ export function PiantaVistaRitaglio({
   const box = ritaglioDisegnoMappa(mappa.linee, mappa.aree ?? [], extra);
   const g = Math.max(mappa.grigliaPx, 1);
   const glowId = `posto-glow-${mappa.id}`;
+  const hostRef = useRef<HTMLDivElement>(null);
   const svgRef = useRef<SVGSVGElement>(null);
-  const gearRef = useRef<HTMLButtonElement>(null);
+  const infoRef = useRef<HTMLButtonElement>(null);
   const primaria = (mappa.aree ?? []).find(
     (a) => a.ubicazioneId && a.ubicazioneId === primariaId
   );
@@ -123,19 +124,20 @@ export function PiantaVistaRitaglio({
 
   const syncOverlay = useCallback(() => {
     const svg = svgRef.current;
-    if (!svg || !primaria) {
+    const host = hostRef.current;
+    if (!svg || !host || !primaria) {
       setOverlay(null);
       return;
     }
-    setOverlay(areaCssBox(svg, primaria));
+    setOverlay(areaCssBox(svg, host, primaria));
   }, [primaria]);
 
   useLayoutEffect(() => {
     syncOverlay();
-    const svg = svgRef.current;
-    if (!svg) return;
+    const host = hostRef.current;
+    if (!host) return;
     const ro = new ResizeObserver(() => syncOverlay());
-    ro.observe(svg);
+    ro.observe(host);
     window.addEventListener("resize", syncOverlay);
     return () => {
       ro.disconnect();
@@ -156,7 +158,7 @@ export function PiantaVistaRitaglio({
       <p className="shrink-0 border-b border-[var(--border)] px-3 py-1.5 text-sm font-medium text-slate-800">
         {mappa.vistaEtichetta || "Vista"}
       </p>
-      <div className="relative min-h-0 flex-1 p-2">
+      <div ref={hostRef} className="relative min-h-0 flex-1 p-2">
         <svg
           ref={svgRef}
           viewBox={`${box.x} ${box.y} ${box.width} ${box.height}`}
@@ -305,12 +307,12 @@ export function PiantaVistaRitaglio({
             haSettaggi={postoHaSettaggi(primaria)}
             testo={occupazioneTesto ?? null}
             loading={Boolean(occupazioneLoading)}
-            gearRef={gearRef}
+            infoRef={infoRef}
             onSettaggio={
               onSettaggio
                 ? () => {
                     onSettaggio(primaria.ubicazioneId);
-                    const el = gearRef.current;
+                    const el = infoRef.current;
                     onSettaggioAnchor?.(el ? el.getBoundingClientRect() : null);
                   }
                 : undefined
@@ -332,7 +334,7 @@ function PostoOverlay({
   haSettaggi,
   testo,
   loading,
-  gearRef,
+  infoRef,
   onSettaggio,
   onOccupa,
 }: {
@@ -342,15 +344,16 @@ function PostoOverlay({
   haSettaggi: boolean;
   testo: string | null;
   loading: boolean;
-  gearRef: RefObject<HTMLButtonElement | null>;
+  infoRef: RefObject<HTMLButtonElement | null>;
   onSettaggio?: () => void;
   onOccupa?: () => void;
 }) {
   const targa = area.codice.trim() || area.nome.trim() || "Posto";
   const chiaro = occupato;
+  const pad = Math.max(3, Math.min(8, Math.round(Math.min(box.width, box.height) * 0.08)));
   return (
     <div
-      className="pointer-events-none absolute overflow-hidden"
+      className="pointer-events-none absolute box-border overflow-hidden"
       style={{
         left: box.left,
         top: box.top,
@@ -358,70 +361,82 @@ function PostoOverlay({
         height: box.height,
       }}
     >
-      <div
-        className={`flex h-full min-h-0 flex-col p-[4%] ${
+      <p
+        className={`absolute truncate font-bold leading-none ${
           chiaro ? "text-emerald-50" : "text-teal-950"
         }`}
+        title={targa}
+        style={{
+          top: pad,
+          left: pad,
+          right: pad + 22,
+          fontSize: Math.max(9, Math.min(12, box.width * 0.16)),
+        }}
       >
-        <div className="flex items-start justify-between gap-1">
-          <p
-            className="min-w-0 truncate text-[10px] font-bold leading-tight sm:text-[11px]"
-            title={targa}
+        {targa}
+      </p>
+      {onSettaggio ? (
+        <button
+          ref={infoRef}
+          type="button"
+          title="Info settaggio"
+          aria-label={`Info settaggio ${targa}`}
+          className={`pointer-events-auto absolute inline-flex h-[18px] w-[18px] items-center justify-center rounded-full border text-[11px] font-bold italic leading-none shadow-sm ${
+            haSettaggi
+              ? "border-green-950 bg-green-800 text-white hover:bg-green-900"
+              : "border-slate-500 bg-white text-slate-800 hover:bg-slate-100"
+          }`}
+          style={{ top: pad, right: pad }}
+          onClick={(e) => {
+            e.stopPropagation();
+            onSettaggio();
+          }}
+        >
+          i
+        </button>
+      ) : null}
+      <div
+        className={`absolute flex flex-col items-center justify-center text-center font-semibold leading-snug ${
+          chiaro ? "text-emerald-50" : "text-teal-950"
+        }`}
+        style={{
+          top: pad + 18,
+          right: pad,
+          bottom: pad,
+          left: pad,
+          fontSize: Math.max(8, Math.min(11, box.width * 0.12)),
+        }}
+      >
+        {occupato ? (
+          <button
+            type="button"
+            className={`pointer-events-auto max-h-full overflow-auto ${
+              onOccupa ? "hover:underline" : ""
+            }`}
+            onClick={(e) => {
+              e.stopPropagation();
+              onOccupa?.();
+            }}
           >
-            {targa}
-          </p>
-          {onSettaggio ? (
-            <button
-              ref={gearRef}
-              type="button"
-              title="Settaggio"
-              aria-label={`Settaggio ${targa}`}
-              className={`pointer-events-auto inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-md border shadow-sm sm:h-6 sm:w-6 ${
-                haSettaggi
-                  ? "border-green-950 bg-green-800 text-white hover:bg-green-900"
-                  : "border-slate-500 bg-white text-slate-800 hover:bg-slate-100"
-              }`}
-              onClick={(e) => {
-                e.stopPropagation();
-                onSettaggio();
-              }}
-            >
-              <FaGear className="h-3 w-3" />
-            </button>
-          ) : null}
-        </div>
-        <div className="mt-0.5 min-h-0 flex-1 overflow-auto text-[9px] font-semibold leading-snug sm:text-[10px]">
-          {occupato ? (
-            <button
-              type="button"
-              className={`pointer-events-auto text-left ${
-                onOccupa ? "hover:underline" : ""
-              }`}
-              onClick={(e) => {
-                e.stopPropagation();
-                onOccupa?.();
-              }}
-            >
-              {loading ? "Occupato…" : testo?.trim() || "Occupato"}
-            </button>
-          ) : (
-            <div className="flex flex-col items-start gap-1">
-              <p>Libero</p>
-              {onOccupa ? (
-                <button
-                  type="button"
-                  className="pointer-events-auto rounded border border-green-800 bg-white px-1.5 py-0.5 text-[10px] font-semibold text-green-950 shadow-sm hover:bg-green-50"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    onOccupa();
-                  }}
-                >
-                  Occupa
-                </button>
-              ) : null}
-            </div>
-          )}
-        </div>
+            {loading ? "Occupato…" : testo?.trim() || "Occupato"}
+          </button>
+        ) : (
+          <div className="flex flex-col items-center gap-1">
+            <p>Libero</p>
+            {onOccupa ? (
+              <button
+                type="button"
+                className="pointer-events-auto rounded border border-green-800 bg-white px-2 py-0.5 text-[10px] font-semibold text-green-950 shadow-sm hover:bg-green-50"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onOccupa();
+                }}
+              >
+                Occupa
+              </button>
+            ) : null}
+          </div>
+        )}
       </div>
     </div>
   );
