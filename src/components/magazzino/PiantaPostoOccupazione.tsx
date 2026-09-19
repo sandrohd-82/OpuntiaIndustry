@@ -362,8 +362,8 @@ export function PiantaPostoOccupazione({
         <div className="mt-3 space-y-3">
           {movimenti.length === 0 ? (
             <p className="text-sm text-amber-900">
-              Prima imposta le movimentazioni possibili nel settaggio di questo
-              posto.
+              Nel catalogo Imballaggi non ci sono movimentazioni (pallet, bins,
+              …). Aggiungile lì: il settaggio del posto non è obbligatorio.
             </p>
           ) : (
             <div className="grid gap-2 sm:grid-cols-2">

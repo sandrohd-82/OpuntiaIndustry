@@ -18,7 +18,7 @@ import {
 const CATALOG_PROPRIO = "prodotto_proprio";
 
 async function codiceLibero(
-  supabase: Awaited<ReturnType<typeof createClient>>,
+  supabase: ReturnType<typeof createServiceClient>,
   tabella: "magazzino_posto_occupazioni" | "magazzino_posto_elementi",
   colonna: "codice_pallet" | "numero",
   lunghezza: number
@@ -37,7 +37,7 @@ async function codiceLibero(
 }
 
 async function syncStatoUbicazione(
-  supabase: Awaited<ReturnType<typeof createClient>>,
+  supabase: ReturnType<typeof createServiceClient>,
   ubicazioneId: string,
   stato: "libero" | "occupato",
   userId: string
@@ -116,6 +116,22 @@ function mapOccupazione(
 const OCC_SELECT =
   "id, ubicazione_id, tipo_elemento, movimentazione_voce_id, movimentazione_nome, imballaggio_voce_id, imballaggio_nome, quantita_elementi, codice_pallet, peso_modo, peso_complessivo_kg, peso_motivazione, prodotto_id, kg_allocati, lotto_interno_codice, lotto_esterno_id, lotto_esterno_codice, note";
 
+async function catalogoImballaggiPosto(
+  supabase: ReturnType<typeof createServiceClient>
+): Promise<
+  | { success: true; rows: ImballaggioPostoOpt[] }
+  | { success: false; error: string }
+> {
+  const { data, error } = await supabase
+    .from("imballaggi_voci")
+    .select("id, codice, nome, stadio")
+    .is("deleted_at", null)
+    .order("sort_order", { ascending: true })
+    .order("nome", { ascending: true });
+  if (error) return { success: false, error: error.message };
+  return { success: true, rows: (data ?? []) as ImballaggioPostoOpt[] };
+}
+
 export async function listImballaggiPostoAction(): Promise<
   | {
       success: true;
@@ -125,19 +141,12 @@ export async function listImballaggiPostoAction(): Promise<
   | { success: false; error: string }
 > {
   await requireAnyAreaAccess(["magazzino", "strumenti", "amministrazione"]);
-  const supabase = await createClient();
-  const { data, error } = await supabase
-    .from("imballaggi_voci")
-    .select("id, codice, nome, stadio")
-    .is("deleted_at", null)
-    .order("sort_order", { ascending: true })
-    .order("nome", { ascending: true });
-  if (error) return { success: false, error: error.message };
-  const rows = (data ?? []) as ImballaggioPostoOpt[];
+  const cat = await catalogoImballaggiPosto(createServiceClient());
+  if (!cat.success) return cat;
   return {
     success: true,
-    movimentazioni: rows.filter((v) => v.stadio === "movimentazione"),
-    elementi: rows.filter(
+    movimentazioni: cat.rows.filter((v) => v.stadio === "movimentazione"),
+    elementi: cat.rows.filter(
       (v) => v.stadio === "confezione" || v.stadio === "isolamento"
     ),
   };
@@ -146,41 +155,45 @@ export async function listImballaggiPostoAction(): Promise<
 export async function listMovimentazioniPostoAction(
   ubicazioneId: string
 ): Promise<
-  | { success: true; ids: string[]; voci: ImballaggioPostoOpt[] }
+  | {
+      success: true;
+      ids: string[];
+      voci: ImballaggioPostoOpt[];
+      ristretto: boolean;
+    }
   | { success: false; error: string }
 > {
   await requireAnyAreaAccess(["magazzino", "strumenti", "amministrazione"]);
-  if (!ubicazioneId) return { success: true, ids: [], voci: [] };
-  const supabase = await createClient();
+  const supabase = createServiceClient();
+  const cat = await catalogoImballaggiPosto(supabase);
+  if (!cat.success) return cat;
+  const catalogo = cat.rows.filter((v) => v.stadio === "movimentazione");
+  if (!ubicazioneId) {
+    return { success: true, ids: [], voci: catalogo, ristretto: false };
+  }
   const { data, error } = await supabase
     .from("magazzino_ubicazione_movimentazioni")
-    .select(
-      "imballaggio_voce_id, voce:imballaggi_voci(id, codice, nome, stadio)"
-    )
+    .select("imballaggio_voce_id")
     .eq("ubicazione_id", ubicazioneId)
     .is("deleted_at", null);
   if (error) return { success: false, error: error.message };
-  const voci: ImballaggioPostoOpt[] = [];
-  const ids: string[] = [];
-  for (const r of (data ?? []) as Array<{
-    imballaggio_voce_id: string;
-    voce:
-      | { id: string; codice: string; nome: string; stadio: string }
-      | { id: string; codice: string; nome: string; stadio: string }[]
-      | null;
-  }>) {
-    const v = Array.isArray(r.voce) ? r.voce[0] : r.voce;
-    ids.push(r.imballaggio_voce_id);
-    if (v) {
-      voci.push({
-        id: v.id,
-        codice: v.codice,
-        nome: v.nome,
-        stadio: "movimentazione",
-      });
-    }
-  }
-  return { success: true, ids, voci };
+  const ids = [
+    ...new Set(
+      ((data ?? []) as { imballaggio_voce_id: string }[]).map(
+        (r) => r.imballaggio_voce_id
+      )
+    ),
+  ];
+  const allowed = new Set(ids);
+  const ristretto = allowed.size > 0;
+  return {
+    success: true,
+    ids,
+    voci: ristretto
+      ? catalogo.filter((v) => allowed.has(v.id))
+      : catalogo,
+    ristretto,
+  };
 }
 
 const TIPI_USCITA = new Set([
@@ -390,6 +403,7 @@ export async function occupaPostoAction(
 > {
   const { auth } = await requireAnyAreaAccess([
     "magazzino",
+    "strumenti",
     "amministrazione",
   ]);
   const parsed = occupaPostoSchema.safeParse(raw);
@@ -400,7 +414,7 @@ export async function occupaPostoAction(
     };
   }
   const input = parsed.data;
-  const supabase = await createClient();
+  const supabase = createServiceClient();
 
   const { data: ubi } = await supabase
     .from("magazzino_ubicazioni")
@@ -410,7 +424,7 @@ export async function occupaPostoAction(
     .maybeSingle();
   if (!ubi) return { success: false, error: "Posto non trovato." };
 
-  const { data: ammesse } = await supabase
+  const { data: ammesse } = await createServiceClient()
     .from("magazzino_ubicazione_movimentazioni")
     .select("imballaggio_voce_id")
     .eq("ubicazione_id", input.ubicazioneId)
@@ -420,13 +434,7 @@ export async function occupaPostoAction(
       (r) => r.imballaggio_voce_id
     )
   );
-  if (!okMov.size) {
-    return {
-      success: false,
-      error: "Nel settaggio del posto indica almeno una movimentazione possibile.",
-    };
-  }
-  if (!okMov.has(input.movimentazioneVoceId)) {
+  if (okMov.size && !okMov.has(input.movimentazioneVoceId)) {
     return {
       success: false,
       error: "Questa movimentazione non è ammessa su questo posto.",
@@ -661,9 +669,10 @@ export async function liberaPostoAction(
 ): Promise<{ success: true } | { success: false; error: string }> {
   const { auth } = await requireAnyAreaAccess([
     "magazzino",
+    "strumenti",
     "amministrazione",
   ]);
-  const supabase = await createClient();
+  const supabase = createServiceClient();
   const { data } = await supabase
     .from("magazzino_posto_occupazioni")
     .select("id, codice_pallet")
@@ -720,9 +729,10 @@ export async function rimuoviElementoPostoAction(
 ): Promise<{ success: true } | { success: false; error: string }> {
   const { auth } = await requireAnyAreaAccess([
     "magazzino",
+    "strumenti",
     "amministrazione",
   ]);
-  const supabase = await createClient();
+  const supabase = createServiceClient();
   const { data } = await supabase
     .from("magazzino_posto_elementi")
     .select("id, numero, occupazione_id")

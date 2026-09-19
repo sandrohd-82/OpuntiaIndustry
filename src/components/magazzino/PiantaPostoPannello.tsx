@@ -1,7 +1,12 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import {
+  listImballaggiPostoAction,
+  listMovimentazioniPostoAction,
+} from "@/app/actions/magazzino-posto-occupazione";
 import { aggiornaUbicazioneCapienzaAction } from "@/app/actions/magazzino-mappa";
+import type { ImballaggioPostoOpt } from "@/lib/magazzino/posto-occupazione";
 import {
   capienzaDi,
   type FonteSettaggioPosto,
@@ -47,6 +52,8 @@ export function PiantaPostoPannello({
   const [errore, setErrore] = useState("");
   const [ok, setOk] = useState("");
   const [copiaDa, setCopiaDa] = useState("");
+  const [catalogoMov, setCatalogoMov] = useState<ImballaggioPostoOpt[]>([]);
+  const [movIds, setMovIds] = useState<string[]>([]);
 
   function applicaFonte(c: UbicazioneCapienza) {
     setPeso(campo(c.pesoMaxKg));
@@ -64,6 +71,26 @@ export function PiantaPostoPannello({
     setErrore("");
     setOk("");
     setCopiaDa("");
+    let live = true;
+    void (async () => {
+      const [cat, amm] = await Promise.all([
+        listImballaggiPostoAction(),
+        posto.ubicazioneId
+          ? listMovimentazioniPostoAction(posto.ubicazioneId)
+          : Promise.resolve({
+              success: true as const,
+              ids: [] as string[],
+              voci: [] as ImballaggioPostoOpt[],
+              ristretto: false,
+            }),
+      ]);
+      if (!live) return;
+      if (cat.success) setCatalogoMov(cat.movimentazioni);
+      if (amm.success) setMovIds(amm.ristretto ? amm.ids : []);
+    })();
+    return () => {
+      live = false;
+    };
   }, [posto.ubicazioneId, posto.pesoMaxKg]);
 
   async function salva() {
@@ -81,6 +108,7 @@ export function PiantaPostoPannello({
       minLarghezza: leggi(minL),
       minProfondita: leggi(minP),
       minAltezza: leggi(minH),
+      movimentazioneVoceIds: movIds,
     });
     setBusy(false);
     if (!res.success) {
@@ -130,6 +158,10 @@ export function PiantaPostoPannello({
             applicaFonte(fonte.capienza);
             setOk(`Copiati i settaggi da «${fonte.nome}». Salva per applicarli.`);
             setErrore("");
+            void listMovimentazioniPostoAction(id).then((res) => {
+              if (!res.success) return;
+              setMovIds(res.ristretto ? res.ids : []);
+            });
           }}
           className="mt-0.5 w-full max-w-md rounded border border-slate-200 bg-white px-2 py-1 text-sm"
         >
@@ -214,8 +246,12 @@ export function PiantaPostoPannello({
         </fieldset>
         <fieldset className="rounded-lg border border-slate-200 bg-white px-2 py-2">
           <legend className="px-1 text-xs font-semibold text-slate-900">
-            Misura minima
+            Misura minima (opzionale)
           </legend>
+          <p className="mb-2 text-[11px] text-slate-500">
+            Lascia vuoto se non serve. Non blocca il salvataggio né
+            l&apos;occupazione.
+          </p>
           <div className="grid grid-cols-3 gap-2">
             <label className="text-xs">
               Larghezza
@@ -253,6 +289,50 @@ export function PiantaPostoPannello({
           </div>
         </fieldset>
       </div>
+
+      <fieldset className="mt-3 rounded-lg border border-slate-200 bg-white px-2 py-2">
+        <legend className="px-1 text-xs font-semibold text-slate-900">
+          Movimentazioni possibili (opzionale)
+        </legend>
+        <p className="mb-2 text-[11px] text-slate-500">
+          Se non selezioni nulla, in occupazione si possono usare tutte le
+          movimentazioni del catalogo.
+        </p>
+        {catalogoMov.length === 0 ? (
+          <p className="text-xs text-slate-600">
+            Nessuna voce di movimentazione nel catalogo Imballaggi.
+          </p>
+        ) : (
+          <ul className="grid gap-1 sm:grid-cols-2">
+            {catalogoMov.map((v) => {
+              const on = movIds.includes(v.id);
+              return (
+                <li key={v.id}>
+                  <label className="flex items-center gap-2 text-sm text-slate-800">
+                    <input
+                      type="checkbox"
+                      checked={on}
+                      onChange={() =>
+                        setMovIds((prev) =>
+                          on
+                            ? prev.filter((id) => id !== v.id)
+                            : [...prev, v.id]
+                        )
+                      }
+                    />
+                    <span>
+                      {v.nome}
+                      {v.codice ? (
+                        <span className="text-slate-500"> ({v.codice})</span>
+                      ) : null}
+                    </span>
+                  </label>
+                </li>
+              );
+            })}
+          </ul>
+        )}
+      </fieldset>
 
       <div className="mt-3 flex flex-wrap items-center gap-2">
         <button

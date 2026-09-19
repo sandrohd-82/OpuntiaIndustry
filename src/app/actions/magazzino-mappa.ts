@@ -3409,10 +3409,11 @@ export async function aggiornaUbicazioneCapienzaAction(
     .is("deleted_at", null);
   if (error) return { success: false, error: error.message };
 
-  if (input.movimentazioneVoceIds) {
+  if (input.movimentazioneVoceIds !== undefined) {
     const wanted = [...new Set(input.movimentazioneVoceIds)];
+    const admin = createServiceClient();
     if (wanted.length) {
-      const { data: voci } = await supabase
+      const { data: voci } = await admin
         .from("imballaggi_voci")
         .select("id, stadio")
         .in("id", wanted)
@@ -3428,7 +3429,7 @@ export async function aggiornaUbicazioneCapienzaAction(
       }
     }
     const now = new Date().toISOString();
-    const { data: existing } = await supabase
+    const { data: existing } = await admin
       .from("magazzino_ubicazione_movimentazioni")
       .select("id, imballaggio_voce_id")
       .eq("ubicazione_id", input.ubicazioneId)
@@ -3441,7 +3442,7 @@ export async function aggiornaUbicazioneCapienzaAction(
     const keep = new Set(wanted);
     const toSoft = [...have.entries()].filter(([vid]) => !keep.has(vid));
     if (toSoft.length) {
-      await supabase
+      await admin
         .from("magazzino_ubicazione_movimentazioni")
         .update({
           deleted_at: now,
@@ -3455,7 +3456,7 @@ export async function aggiornaUbicazioneCapienzaAction(
     }
     for (const vid of wanted) {
       if (have.has(vid)) continue;
-      const { error: insErr } = await supabase
+      const { error: insErr } = await admin
         .from("magazzino_ubicazione_movimentazioni")
         .insert({
           ubicazione_id: input.ubicazioneId,
