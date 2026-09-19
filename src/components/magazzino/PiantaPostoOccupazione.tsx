@@ -134,6 +134,7 @@ export function PiantaPostoOccupazione({
         if (amm.voci[0] && !movId) setMovId(amm.voci[0].id);
       }
       if (lot.success) setLotti(lot.lotti);
+      else setErrore(lot.error);
       setLoading(false);
     })();
     return () => {
@@ -509,8 +510,11 @@ export function PiantaPostoOccupazione({
                       key={`${l.prodottoId}|${l.lottoInterno}`}
                       value={`${l.prodottoId}|${l.lottoInterno}`}
                     >
-                      {l.lottoInterno} · {l.prodottoCodice} ·{" "}
-                      {l.kgDaSistemare.toLocaleString("it-IT")} kg da sistemare
+                      {l.prodottoCodice || l.prodottoNome} · {l.lottoInterno}
+                      {l.lottoEsternoCodice
+                        ? ` · est. ${l.lottoEsternoCodice}`
+                        : ""}{" "}
+                      · {l.kgDaSistemare.toLocaleString("it-IT")} kg da sistemare
                     </option>
                   ))}
                 </select>
@@ -527,7 +531,8 @@ export function PiantaPostoOccupazione({
                     .filter((l) => l.lottoEsternoId)
                     .map((l) => (
                       <option key={l.lottoEsternoId!} value={l.lottoEsternoId!}>
-                        {l.lottoEsternoCodice} · {l.prodottoCodice} ·{" "}
+                        {l.prodottoCodice || l.prodottoNome} ·{" "}
+                        {l.lottoEsternoCodice} · int. {l.lottoInterno} ·{" "}
                         {l.kgDaSistemare.toLocaleString("it-IT")} kg da
                         sistemare
                       </option>

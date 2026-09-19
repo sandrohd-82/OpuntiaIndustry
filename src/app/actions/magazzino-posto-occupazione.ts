@@ -3,7 +3,7 @@
 import { randomUUID } from "crypto";
 import { writeAuditLog } from "@/lib/audit";
 import { requireAnyAreaAccess } from "@/lib/areas/guard";
-import { createClient } from "@/lib/supabase/server";
+import { createClient, createServiceClient } from "@/lib/supabase/server";
 import {
   generaCodiceRandom,
   occupaPostoSchema,
@@ -183,8 +183,19 @@ export async function listMovimentazioniPostoAction(
   return { success: true, ids, voci };
 }
 
+const TIPI_USCITA = new Set([
+  "prelievo",
+  "scarico",
+  "uscita_produzione",
+]);
+
+function kgMovimentoFirmato(tipo: string, quantitaKg: number): number {
+  const qty = Number(quantitaKg) || 0;
+  return TIPI_USCITA.has(tipo) ? -Math.abs(qty) : qty;
+}
+
 async function kgSistematiPerLotti(
-  supabase: Awaited<ReturnType<typeof createClient>>,
+  supabase: ReturnType<typeof createServiceClient>,
   chiavi: Array<{ prodottoId: string; lottoInterno: string }>
 ): Promise<Map<string, number>> {
   const out = new Map<string, number>();
@@ -214,59 +225,107 @@ export async function listLottiDaSistemareAction(): Promise<
   | { success: false; error: string }
 > {
   await requireAnyAreaAccess(["magazzino", "strumenti", "amministrazione"]);
-  const supabase = await createClient();
-  const { data, error } = await supabase
-    .from("magazzino_movimenti")
-    .select(
-      "prodotto_id, prodotto_codice, quantita_kg, tipo, lotto_codice, lotto_esterno_id, lotto_esterno:lotti_esterni!lotto_esterno_id(id, codice), prodotto:prodotti_propri!prodotto_id(nome)"
-    )
-    .eq("catalog_kind", CATALOG_PROPRIO)
-    .is("deleted_at", null)
-    .not("lotto_codice", "is", null);
-  if (error) return { success: false, error: error.message };
+  const supabase = createServiceClient();
+  // Stessa fonte di Elenco e Quantità: magazzino_movimenti per prodotto_proprio
+  // con lotto. Service role: dalla pianta (Strumenti) RLS movimenti non
+  // include quella area. Nessun embed su prodotti_propri: la FK è stata tolta
+  // (catalogo polimorfo) e PostgREST faceva fallire tutta la query.
+  const pageSize = 1000;
+  const movimenti: Array<{
+    prodotto_id: string | null;
+    prodotto_codice: string | null;
+    quantita_kg: number;
+    tipo: string;
+    lotto_codice: string | null;
+    lotto_esterno_id: string | null;
+  }> = [];
+  for (let from = 0; ; from += pageSize) {
+    const { data, error } = await supabase
+      .from("magazzino_movimenti")
+      .select(
+        "prodotto_id, prodotto_codice, quantita_kg, tipo, lotto_codice, lotto_esterno_id"
+      )
+      .eq("catalog_kind", CATALOG_PROPRIO)
+      .is("deleted_at", null)
+      .not("lotto_codice", "is", null)
+      .range(from, from + pageSize - 1);
+    if (error) return { success: false, error: error.message };
+    const rows = (data ?? []) as typeof movimenti;
+    movimenti.push(...rows);
+    if (rows.length < pageSize) break;
+  }
 
   type Acc = LottoDaSistemare;
   const by = new Map<string, Acc>();
-  for (const r of (data ?? []) as Array<Record<string, unknown>>) {
+  const esternoIds = new Set<string>();
+  const prodottoIds = new Set<string>();
+  for (const r of movimenti) {
     const lotto = String(r.lotto_codice ?? "").trim();
     const prodottoId = String(r.prodotto_id ?? "");
     if (!lotto || !prodottoId) continue;
     const key = `${prodottoId}|${lotto}`;
-    const esterno = Array.isArray(r.lotto_esterno)
-      ? r.lotto_esterno[0]
-      : r.lotto_esterno;
-    const prod = Array.isArray(r.prodotto) ? r.prodotto[0] : r.prodotto;
-    const qty = Number(r.quantita_kg) || 0;
-    const signed = String(r.tipo ?? "") === "prelievo" ? -Math.abs(qty) : qty;
+    const signed = kgMovimentoFirmato(r.tipo, Number(r.quantita_kg) || 0);
     const prev = by.get(key);
     if (!prev) {
+      prodottoIds.add(prodottoId);
+      if (r.lotto_esterno_id) esternoIds.add(r.lotto_esterno_id);
       by.set(key, {
         prodottoId,
-        prodottoCodice: String(r.prodotto_codice ?? ""),
-        prodottoNome: (prod as { nome?: string } | null)?.nome ?? "",
+        prodottoCodice: String(r.prodotto_codice ?? "").trim(),
+        prodottoNome: "",
         lottoInterno: lotto,
-        lottoEsternoId:
-          (esterno as { id?: string } | null)?.id ??
-          (r.lotto_esterno_id as string | null) ??
-          null,
-        lottoEsternoCodice:
-          (esterno as { codice?: string } | null)?.codice ?? null,
+        lottoEsternoId: r.lotto_esterno_id,
+        lottoEsternoCodice: null,
         kgCaricati: signed,
         kgSistemati: 0,
         kgDaSistemare: 0,
       });
     } else {
       prev.kgCaricati = Math.round((prev.kgCaricati + signed) * 1000) / 1000;
-      if (!prev.lottoEsternoId) {
-        prev.lottoEsternoId =
-          (esterno as { id?: string } | null)?.id ??
-          (r.lotto_esterno_id as string | null) ??
-          null;
-        prev.lottoEsternoCodice =
-          (esterno as { codice?: string } | null)?.codice ?? null;
+      if (!prev.lottoEsternoId && r.lotto_esterno_id) {
+        prev.lottoEsternoId = r.lotto_esterno_id;
+        esternoIds.add(r.lotto_esterno_id);
       }
     }
   }
+
+  if (prodottoIds.size) {
+    const { data: prodotti } = await supabase
+      .from("prodotti_propri")
+      .select("id, codice, nome")
+      .in("id", [...prodottoIds]);
+    const nomi = new Map(
+      ((prodotti ?? []) as Array<{ id: string; codice: string; nome: string }>).map(
+        (p) => [p.id, p]
+      )
+    );
+    for (const l of by.values()) {
+      const p = nomi.get(l.prodottoId);
+      if (!p) continue;
+      l.prodottoNome = p.nome ?? "";
+      if (!l.prodottoCodice) l.prodottoCodice = p.codice ?? "";
+    }
+  }
+
+  if (esternoIds.size) {
+    const { data: esterni } = await supabase
+      .from("lotti_esterni")
+      .select("id, codice")
+      .in("id", [...esternoIds])
+      .is("deleted_at", null);
+    const codici = new Map(
+      ((esterni ?? []) as Array<{ id: string; codice: string }>).map((e) => [
+        e.id,
+        e.codice,
+      ])
+    );
+    for (const l of by.values()) {
+      if (l.lottoEsternoId) {
+        l.lottoEsternoCodice = codici.get(l.lottoEsternoId) ?? null;
+      }
+    }
+  }
+
   const sistemati = await kgSistematiPerLotti(
     supabase,
     [...by.values()].map((l) => ({
@@ -282,7 +341,10 @@ export async function listLottiDaSistemareAction(): Promise<
       return { ...l, kgSistemati, kgDaSistemare };
     })
     .filter((l) => l.kgDaSistemare > 0.0005)
-    .sort((a, b) => a.prodottoCodice.localeCompare(b.prodottoCodice, "it"));
+    .sort((a, b) => {
+      const c = a.prodottoCodice.localeCompare(b.prodottoCodice, "it");
+      return c !== 0 ? c : a.lottoInterno.localeCompare(b.lottoInterno, "it");
+    });
   return { success: true, lotti };
 }
 
