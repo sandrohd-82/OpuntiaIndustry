@@ -73,7 +73,7 @@ import {
   type MappaMenuPercorsoNodo,
   type RinominaPercorsoMappaInput,
 } from "@/lib/magazzino/menu-mappa";
-import { createClient } from "@/lib/supabase/server";
+import { createClient, createServiceClient } from "@/lib/supabase/server";
 
 function canProgettare(profile: Parameters<typeof isSuperadminProfile>[0]) {
   return isSuperadminProfile(profile);
@@ -1261,8 +1261,9 @@ export async function riordinaVisteLuogoAction(
     };
   }
 
+  const admin = createServiceClient();
   for (const [i, id] of input.mappaIds.entries()) {
-    const { error } = await supabase
+    const { data: updated, error } = await admin
       .from("magazzino_mappe")
       .update({
         sort_order: i,
@@ -1270,8 +1271,13 @@ export async function riordinaVisteLuogoAction(
       })
       .eq("id", id)
       .eq("menu_nodo_id", input.nodoId)
-      .is("deleted_at", null);
+      .is("deleted_at", null)
+      .select("id")
+      .maybeSingle();
     if (error) return { success: false, error: error.message };
+    if (!updated) {
+      return { success: false, error: "Vista non aggiornata. Riprova." };
+    }
   }
 
   await writeAuditLog({

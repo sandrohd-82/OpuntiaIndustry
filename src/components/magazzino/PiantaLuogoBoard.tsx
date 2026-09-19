@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState, type DragEvent } from "react";
+import { useRouter } from "next/navigation";
 import { riordinaVisteLuogoAction } from "@/app/actions/magazzino-mappa";
 import {
   classiGrigliaViste,
@@ -37,6 +38,7 @@ function muoviVista(
 }
 
 export function PiantaLuogoBoard({ luogo }: { luogo: PiantaLuogoPagina }) {
+  const router = useRouter();
   const [mappe, setMappe] = useState(luogo.mappe);
   const [selezionata, setSelezionata] = useState<string | null>(null);
   const [pannello, setPannello] = useState<"settaggio" | "occupazione" | null>(
@@ -47,10 +49,12 @@ export function PiantaLuogoBoard({ luogo }: { luogo: PiantaLuogoPagina }) {
   const [overId, setOverId] = useState<string | null>(null);
   const [seqBusy, setSeqBusy] = useState(false);
   const [seqError, setSeqError] = useState<string | null>(null);
+  const [seqOk, setSeqOk] = useState<string | null>(null);
+  const serverOrdine = luogo.mappe.map((m) => m.id).join(",");
 
   useEffect(() => {
     setMappe(luogo.mappe);
-  }, [luogo]);
+  }, [luogo.nodoId, serverOrdine]);
 
   const tutteAree = useMemo(
     () => mappe.flatMap((m) => m.aree ?? []),
@@ -125,11 +129,12 @@ export function PiantaLuogoBoard({ luogo }: { luogo: PiantaLuogoPagina }) {
     setPannello(null);
   }
 
-  async function applicaSequenza(next: MappaMagazzino[]) {
+  async function applicaSequenza(next: MappaMagazzino[]): Promise<boolean> {
     const prev = mappe;
     setMappe(next);
     setSeqBusy(true);
     setSeqError(null);
+    setSeqOk(null);
     const res = await riordinaVisteLuogoAction({
       nodoId: luogo.nodoId,
       mappaIds: next.map((m) => m.id),
@@ -138,7 +143,22 @@ export function PiantaLuogoBoard({ luogo }: { luogo: PiantaLuogoPagina }) {
     if (!res.success) {
       setMappe(prev);
       setSeqError(res.error);
+      return false;
     }
+    setSeqOk("Sequenza viste salvata.");
+    router.refresh();
+    return true;
+  }
+
+  async function chiudiSequenza() {
+    const corrente = mappe.map((m) => m.id).join(",");
+    if (corrente !== serverOrdine) {
+      const ok = await applicaSequenza(mappe);
+      if (!ok) return;
+    }
+    setModificaSequenza(false);
+    setDragId(null);
+    setOverId(null);
   }
 
   function onDragStart(e: DragEvent, id: string) {
@@ -188,13 +208,23 @@ export function PiantaLuogoBoard({ luogo }: { luogo: PiantaLuogoPagina }) {
                 : "border-[var(--border)] bg-white text-slate-800 hover:bg-slate-50"
             }`}
             onClick={() => {
-              setModificaSequenza((v) => !v);
+              if (modificaSequenza) {
+                void chiudiSequenza();
+                return;
+              }
+              setModificaSequenza(true);
               setSeqError(null);
+              setSeqOk(null);
               setDragId(null);
               setOverId(null);
             }}
+            disabled={seqBusy}
           >
-            {modificaSequenza ? "Fine sequenza" : "Modifica sequenza"}
+            {seqBusy
+              ? "Salvataggio sequenza…"
+              : modificaSequenza
+                ? "Fine sequenza"
+                : "Modifica sequenza"}
           </button>
         </div>
       ) : null}
@@ -236,6 +266,10 @@ export function PiantaLuogoBoard({ luogo }: { luogo: PiantaLuogoPagina }) {
       {seqError ? (
         <p className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">
           {seqError}
+        </p>
+      ) : seqOk ? (
+        <p className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-900">
+          {seqOk}
         </p>
       ) : null}
 

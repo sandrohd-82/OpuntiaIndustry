@@ -229,6 +229,7 @@ export const aggiornaUbicazioneCapienzaSchema = z
     minLarghezza: misuraOpz,
     minProfondita: misuraOpz,
     minAltezza: misuraOpz,
+    movimentazioneVoceIds: z.array(z.string().uuid()).max(80).optional(),
   })
   .superRefine((v, ctx) => {
     const coppie: Array<[number | null | undefined, number | null | undefined, string]> =
