@@ -55,12 +55,14 @@ import {
   MAPPA_LINEA_COLORE_DEFAULT,
   MAPPA_QUADRATI_MAX,
   MAPPA_STATO_LABEL,
+  MAPPA_TRACCIATO_MODO_LABEL,
   MAPPA_VISTA_SUGGERITE,
   MAPPA_ZOOM_MAX,
   MAPPA_ZOOM_MIN,
   normalizzaColoreLinea,
   puntiRiferimentoLinea,
   puntoDopoQuadrati,
+  puntoFineTracciato,
   etichettaSensoRettangolo,
   puntoOppostoRettangolo,
   rettangoloDaLinea,
@@ -83,6 +85,7 @@ import {
   type MappaRettangoloAsse,
   type MappaScalaUnita,
   type MappaSpecchioModo,
+  type MappaTracciatoModo,
 } from "@/lib/magazzino/mappa";
 import {
   codiceLocaleDi,
@@ -107,6 +110,7 @@ import {
 
 type Tool =
   | "linea"
+  | "misura"
   | "seleziona"
   | "trasforma"
   | "rettangolo"
@@ -525,6 +529,12 @@ export function MagazzinoMappaBoard({
   const [colore, setColore] = useState(MAPPA_LINEA_COLORE_DEFAULT);
   const [tool, setTool] = useState<Tool>("linea");
   const [draftStart, setDraftStart] = useState<MappaPunto | null>(null);
+  const [tracciatoModo, setTracciatoModo] =
+    useState<MappaTracciatoModo>("ortogonale");
+  const [misuraFissa, setMisuraFissa] = useState<{
+    a: MappaPunto;
+    b: MappaPunto;
+  } | null>(null);
   const [forma, setForma] = useState<FormaStato | null>(null);
   const [quadratiLato, setQuadratiLato] = useState(4);
   const [cursor, setCursor] = useState<MappaPunto | null>(null);
@@ -1251,6 +1261,10 @@ export function MagazzinoMappaBoard({
     if (!w) return;
     const { punto: snap } = risolviPuntoDisegno(w);
     if (!canDraw) {
+      if (tool === "misura") {
+        applicaClickTracciato(snap);
+        return;
+      }
       const rid = hitRif(w.x, w.y);
       if (rid) {
         scegliSoloRif(rid);
@@ -1498,13 +1512,37 @@ export function MagazzinoMappaBoard({
       }
       return;
     }
+    if (tool !== "linea" && tool !== "misura") return;
+    applicaClickTracciato(snap);
+  }
+
+  function applicaClickTracciato(snap: MappaPunto) {
+    const fine = draftStart
+      ? puntoFineTracciato(draftStart, snap, tracciatoModo, griglia)
+      : snap;
     if (!draftStart) {
       setDraftStart(snap);
+      setMisuraFissa(null);
       scegliSoloLinea(null);
       return;
     }
-    if (draftStart.x === snap.x && draftStart.y === snap.y) return;
-    addLinea(draftStart, snap);
+    if (draftStart.x === fine.x && draftStart.y === fine.y) return;
+    if (tool === "linea") {
+      addLinea(draftStart, fine);
+    } else {
+      setMisuraFissa({ a: draftStart, b: fine });
+      setOk(
+        `Misura: ${formattaMisuraSegmento(
+          draftStart.x,
+          draftStart.y,
+          fine.x,
+          fine.y,
+          griglia,
+          scalaValore,
+          scalaUnita
+        ) || "0"}. Altro click per una nuova misura.`
+      );
+    }
     setDraftStart(null);
   }
 
@@ -1643,6 +1681,7 @@ export function MagazzinoMappaBoard({
 
   function resetDisegno() {
     setDraftStart(null);
+    setMisuraFissa(null);
     setForma(null);
     scegliSoloLinea(null);
     setPendingArea(null);
@@ -2586,13 +2625,28 @@ export function MagazzinoMappaBoard({
     return risolviPuntoDisegno(cursor);
   }, [cursor, linee, griglia, zoom]);
 
+  const fineTracciato = useMemo(() => {
+    const raw = disegnoCursor?.punto ?? snappedCursor;
+    if (!draftStart || !raw) return raw;
+    if (tool !== "linea" && tool !== "misura") return raw;
+    return puntoFineTracciato(draftStart, raw, tracciatoModo, griglia);
+  }, [
+    draftStart,
+    disegnoCursor,
+    snappedCursor,
+    tool,
+    tracciatoModo,
+    griglia,
+  ]);
+
   const accavallamentiVisibili = useMemo(() => {
     const out: { kind: "inizio" | "fine"; acc: AccavallamentoLinea }[] = [];
     const startP =
       draftStart ??
       previewForma?.from ??
       (forma ? forma.vertici[forma.vertici.length - 1] : null);
-    const endP = previewForma?.to ?? (draftStart ? disegnoCursor?.punto : null);
+    const endP =
+      previewForma?.to ?? (draftStart ? fineTracciato : null);
     if (startP) {
       const acc = accavallamentoPuntoSuLinee(
         startP,
@@ -2619,6 +2673,7 @@ export function MagazzinoMappaBoard({
     previewForma,
     forma,
     disegnoCursor,
+    fineTracciato,
     linee,
     griglia,
     zoom,
@@ -3013,12 +3068,23 @@ export function MagazzinoMappaBoard({
         scalaUnita
       );
     }
-    if (draftStart && snappedCursor) {
+    if (draftStart && fineTracciato) {
       return formattaMisuraSegmento(
         draftStart.x,
         draftStart.y,
-        snappedCursor.x,
-        snappedCursor.y,
+        fineTracciato.x,
+        fineTracciato.y,
+        griglia,
+        scalaValore,
+        scalaUnita
+      );
+    }
+    if (misuraFissa) {
+      return formattaMisuraSegmento(
+        misuraFissa.a.x,
+        misuraFissa.a.y,
+        misuraFissa.b.x,
+        misuraFissa.b.y,
         griglia,
         scalaValore,
         scalaUnita
@@ -3043,6 +3109,8 @@ export function MagazzinoMappaBoard({
     forma,
     previewForma,
     draftStart,
+    fineTracciato,
+    misuraFissa,
     snappedCursor,
     selectedId,
     linee,
@@ -3332,6 +3400,7 @@ export function MagazzinoMappaBoard({
                 onChange={(e) => {
                   setTool(e.target.value as Tool);
                   setDraftStart(null);
+                  setMisuraFissa(null);
                   setForma(null);
                   setCarry(null);
                   carryRef.current = null;
@@ -3342,6 +3411,7 @@ export function MagazzinoMappaBoard({
                 className="ml-1 rounded border border-[var(--border)] px-2 py-1 text-sm"
               >
                 <option value="linea">Traccia linea</option>
+                <option value="misura">Misura</option>
                 <option value="rettangolo">Rettangolo / quadrato</option>
                 <option value="area">Crea area / posto</option>
                 <option value="poligono">Poligono</option>
@@ -3349,6 +3419,32 @@ export function MagazzinoMappaBoard({
                 <option value="trasforma">Modifica / trasforma</option>
               </select>
             </label>
+            {(tool === "linea" && canDraw) || tool === "misura" ? (
+              <fieldset className="flex flex-wrap items-center gap-2 text-xs">
+                <legend className="sr-only">Tracciato</legend>
+                <span className="font-medium">Tracciato</span>
+                {(["ortogonale", "libero"] as MappaTracciatoModo[]).map(
+                  (modo) => (
+                    <label
+                      key={modo}
+                      className={`inline-flex items-center gap-1 rounded-lg border px-2 py-1 font-medium ${
+                        tracciatoModo === modo
+                          ? "border-teal-700 bg-teal-50 text-teal-950"
+                          : "border-slate-300 bg-white text-slate-700"
+                      }`}
+                    >
+                      <input
+                        type="radio"
+                        name="tracciato-modo"
+                        checked={tracciatoModo === modo}
+                        onChange={() => setTracciatoModo(modo)}
+                      />
+                      {MAPPA_TRACCIATO_MODO_LABEL[modo]}
+                    </label>
+                  )
+                )}
+              </fieldset>
+            ) : null}
             <label className="text-xs">
               Spessore
               <input
@@ -3387,6 +3483,18 @@ export function MagazzinoMappaBoard({
               Adatta al foglio
             </button>
           </div>
+
+          {(canDraw && tool === "linea") || tool === "misura" ? (
+            <p className="text-xs text-indigo-950">
+              {tool === "misura"
+                ? "Misura: primo click inizio, secondo click fine. La linea è temporanea e non viene salvata."
+                : "Linea: primo click inizio, secondo click fine."}{" "}
+              {tracciatoModo === "ortogonale"
+                ? "Ortogonale: dal punto iniziale solo destra, sinistra, alto o basso, in linea perfettamente dritta."
+                : "Libero: il tracciato segue il cursore."}{" "}
+              Esc annulla.
+            </p>
+          ) : null}
 
           {canDraw && tool === "seleziona" ? (
             <p className="text-xs text-indigo-900">
@@ -4391,7 +4499,7 @@ export function MagazzinoMappaBoard({
           griglia={griglia}
           scalaValore={scalaValore}
           scalaUnita={scalaUnita}
-          cursore={disegnoCursor?.punto ?? snappedCursor}
+          cursore={fineTracciato ?? disegnoCursor?.punto ?? snappedCursor}
         >
         <div ref={svgWrapRef} className="absolute inset-0">
         {vistaOk ? (
@@ -4416,18 +4524,24 @@ export function MagazzinoMappaBoard({
         >
           Adatta al foglio
         </button>
-        {disegnoCursor?.punto ?? snappedCursor ? (
+        {fineTracciato ?? disegnoCursor?.punto ?? snappedCursor ? (
           <>
             <div
               className="pointer-events-none absolute top-0 z-[5] h-full w-0 border-l-2 border-dashed border-rose-500/80"
               style={{
-                left: (disegnoCursor?.punto ?? snappedCursor)!.x * zoom + pan.x,
+                left:
+                  (fineTracciato ?? disegnoCursor?.punto ?? snappedCursor)!.x *
+                    zoom +
+                  pan.x,
               }}
             />
             <div
               className="pointer-events-none absolute left-0 z-[5] h-0 w-full border-t-2 border-dashed border-rose-500/80"
               style={{
-                top: (disegnoCursor?.punto ?? snappedCursor)!.y * zoom + pan.y,
+                top:
+                  (fineTracciato ?? disegnoCursor?.punto ?? snappedCursor)!.y *
+                    zoom +
+                  pan.y,
               }}
             />
           </>
@@ -4443,7 +4557,7 @@ export function MagazzinoMappaBoard({
               ? carry
                 ? "cursor-grabbing"
                 : "cursor-pointer"
-              : canDraw
+              : canDraw || tool === "misura"
                 ? "cursor-crosshair"
                 : "cursor-default"
           }`}
@@ -5004,24 +5118,105 @@ export function MagazzinoMappaBoard({
                 strokeLinecap="square"
               />
             ) : null}
-            {canDraw && !forma && draftStart && (disegnoCursor?.punto ?? snappedCursor) ? (
+            {canDraw &&
+            tool === "linea" &&
+            !forma &&
+            draftStart &&
+            fineTracciato ? (
               <line
                 x1={draftStart.x}
                 y1={draftStart.y}
-                x2={(disegnoCursor?.punto ?? snappedCursor)!.x}
-                y2={(disegnoCursor?.punto ?? snappedCursor)!.y}
+                x2={fineTracciato.x}
+                y2={fineTracciato.y}
                 stroke={colore}
                 strokeWidth={spessore}
                 strokeDasharray="8 6"
                 strokeLinecap="square"
               />
             ) : null}
-            {canDraw && (disegnoCursor?.punto ?? snappedCursor) ? (
+            {tool === "misura" && draftStart && fineTracciato ? (
+              <g pointerEvents="none">
+                <line
+                  x1={draftStart.x}
+                  y1={draftStart.y}
+                  x2={fineTracciato.x}
+                  y2={fineTracciato.y}
+                  stroke="#4f46e5"
+                  strokeWidth={Math.max(2, 3 / zoom)}
+                  strokeDasharray="8 6"
+                  strokeLinecap="square"
+                />
+                <circle
+                  cx={draftStart.x}
+                  cy={draftStart.y}
+                  r={Math.max(3, 5 / zoom)}
+                  fill="#4f46e5"
+                />
+                {misuraTesto ? (
+                  <text
+                    x={(draftStart.x + fineTracciato.x) / 2}
+                    y={(draftStart.y + fineTracciato.y) / 2 - 10 / zoom}
+                    textAnchor="middle"
+                    fill="#312e81"
+                    fontSize={Math.max(11, 13 / zoom)}
+                    fontWeight={700}
+                  >
+                    {misuraTesto}
+                  </text>
+                ) : null}
+              </g>
+            ) : null}
+            {misuraFissa && !draftStart ? (
+              <g pointerEvents="none">
+                <line
+                  x1={misuraFissa.a.x}
+                  y1={misuraFissa.a.y}
+                  x2={misuraFissa.b.x}
+                  y2={misuraFissa.b.y}
+                  stroke="#4f46e5"
+                  strokeWidth={Math.max(2, 3 / zoom)}
+                  strokeDasharray="10 5"
+                  strokeLinecap="square"
+                />
+                <circle
+                  cx={misuraFissa.a.x}
+                  cy={misuraFissa.a.y}
+                  r={Math.max(3, 5 / zoom)}
+                  fill="#4f46e5"
+                />
+                <circle
+                  cx={misuraFissa.b.x}
+                  cy={misuraFissa.b.y}
+                  r={Math.max(3, 5 / zoom)}
+                  fill="#4f46e5"
+                />
+                {misuraTesto ? (
+                  <text
+                    x={(misuraFissa.a.x + misuraFissa.b.x) / 2}
+                    y={(misuraFissa.a.y + misuraFissa.b.y) / 2 - 10 / zoom}
+                    textAnchor="middle"
+                    fill="#312e81"
+                    fontSize={Math.max(11, 13 / zoom)}
+                    fontWeight={700}
+                  >
+                    {misuraTesto}
+                  </text>
+                ) : null}
+              </g>
+            ) : null}
+            {(canDraw || tool === "misura") &&
+            (fineTracciato ?? disegnoCursor?.punto ?? snappedCursor) ? (
               <circle
-                cx={(disegnoCursor?.punto ?? snappedCursor)!.x}
-                cy={(disegnoCursor?.punto ?? snappedCursor)!.y}
+                cx={(fineTracciato ?? disegnoCursor?.punto ?? snappedCursor)!.x}
+                cy={(fineTracciato ?? disegnoCursor?.punto ?? snappedCursor)!.y}
                 r={Math.max(3, 6 / zoom)}
-                fill={disegnoCursor?.acc ? "#e11d48" : colore}
+                fill={
+                  tool === "misura"
+                    ? "#4f46e5"
+                    : disegnoCursor?.acc
+                      ? "#e11d48"
+                      : colore
+                }
               />
             ) : null}
             {accavallamentiVisibili.map(({ kind, acc }) => (

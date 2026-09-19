@@ -316,6 +316,28 @@ export function formattaMisuraSegmento(
   return `${formattaQuadrati(q)} quadrati · ${formattaLunghezzaReale(q, valore, unita)}`;
 }
 
+export type MappaTracciatoModo = "libero" | "ortogonale";
+
+export const MAPPA_TRACCIATO_MODO_LABEL: Record<MappaTracciatoModo, string> = {
+  libero: "Libero",
+  ortogonale: "Ortogonale",
+};
+
+/** Fine tratto: ortogonale = solo destra, sinistra, alto o basso dal punto iniziale. */
+export function puntoFineTracciato(
+  from: MappaPunto,
+  to: MappaPunto,
+  modo: MappaTracciatoModo,
+  griglia: number
+): MappaPunto {
+  if (modo === "libero") return to;
+  const heading = headingCardinale(from, to);
+  if (heading === 0 || heading === 180) {
+    return { x: snapToGrid(to.x, griglia), y: from.y };
+  }
+  return { x: from.x, y: snapToGrid(to.y, griglia) };
+}
+
 /** 0 = destra, 90 = basso, 180 = sinistra, 270 = alto (coordinate schermo). */
 export function headingCardinale(from: MappaPunto, to: MappaPunto): number {
   const dx = to.x - from.x;
