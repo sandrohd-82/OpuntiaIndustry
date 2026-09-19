@@ -207,7 +207,6 @@ export const aggiornaUbicazioneCapienzaSchema = z
     minLarghezza: misuraOpz,
     minProfondita: misuraOpz,
     minAltezza: misuraOpz,
-    occupazione: z.enum(UBICAZIONE_OCCUPAZIONI),
   })
   .superRefine((v, ctx) => {
     const coppie: Array<[number | null | undefined, number | null | undefined, string]> =

@@ -3199,10 +3199,9 @@ export async function aggiornaUbicazioneCapienzaAction(
   if (prevErr || !prev) {
     return { success: false, error: prevErr?.message ?? "Posto non trovato." };
   }
-  const oldOcc = String(
+  const occ = String(
     (prev as { occupazione_stato?: string }).occupazione_stato ?? "libero"
   );
-  const now = new Date().toISOString();
   const { error } = await supabase
     .from("magazzino_ubicazioni")
     .update({
@@ -3214,9 +3213,6 @@ export async function aggiornaUbicazioneCapienzaAction(
       misura_min_larghezza: input.minLarghezza ?? null,
       misura_min_profondita: input.minProfondita ?? null,
       misura_min_altezza: input.minAltezza ?? null,
-      occupazione_stato: input.occupazione,
-      occupazione_at: now,
-      occupazione_by: auth.userId,
       updated_by: auth.userId,
     })
     .eq("id", input.ubicazioneId)
@@ -3231,7 +3227,7 @@ export async function aggiornaUbicazioneCapienzaAction(
     misura_min_larghezza: input.minLarghezza ?? null,
     misura_min_profondita: input.minProfondita ?? null,
     misura_min_altezza: input.minAltezza ?? null,
-    occupazione_stato: input.occupazione,
+    occupazione_stato: occ,
   });
   const row = prev as { codice?: string; nome?: string };
   await writeAuditLog({
@@ -3239,15 +3235,11 @@ export async function aggiornaUbicazioneCapienzaAction(
     entity_id: input.ubicazioneId,
     action: "update",
     actor_id: auth.userId,
-    summary:
-      oldOcc !== input.occupazione
-        ? `Posto ${row.codice ?? ""}: ${oldOcc} → ${input.occupazione}`
-        : `Aggiornati settaggi posto ${row.codice ?? ""}`,
+    summary: `Aggiornati settaggi posto ${row.codice ?? ""}`,
     payload: {
       codice: row.codice,
       nome: row.nome,
-      occupazione: input.occupazione,
-      occupazione_precedente: oldOcc,
+      occupazione: occ,
       peso_max_kg: input.pesoMaxKg ?? null,
       misura_unita: input.misuraUnita,
       misura_max: {
