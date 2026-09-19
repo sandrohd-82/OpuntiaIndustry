@@ -55,7 +55,10 @@ export function useClienti() {
   async function removeCliente(
     id: string,
     confermaTestuale: string
-  ): Promise<{ success: true } | { success: false; error: string }> {
+  ): Promise<
+    | { success: true; cancellazioneId: string }
+    | { success: false; error: string }
+  > {
     const result = await prenotaCancellazioneClienteAction({
       id,
       confermaTestuale,
@@ -76,7 +79,7 @@ export function useClienti() {
       )
     );
     setError(null);
-    return { success: true };
+    return { success: true, cancellazioneId: result.cancellazioneId };
   }
 
   return {

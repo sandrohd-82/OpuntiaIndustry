@@ -11,6 +11,8 @@ type Props = {
   title?: string;
   confirmLabel?: string;
   description?: string;
+  /** Sopra la modale di modifica scheda. */
+  elevated?: boolean;
 };
 
 export function SoftDeleteConfirmModal({
@@ -21,6 +23,7 @@ export function SoftDeleteConfirmModal({
   title,
   confirmLabel,
   description,
+  elevated = false,
 }: Props) {
   const titleId = useId();
   const [step, setStep] = useState<1 | 2>(1);
@@ -63,7 +66,9 @@ export function SoftDeleteConfirmModal({
 
   return (
     <div
-      className="fixed inset-0 z-[70] flex items-center justify-center bg-slate-950/60 p-4"
+      className={`fixed inset-0 flex items-center justify-center bg-slate-950/60 p-4 ${
+        elevated ? "z-[120]" : "z-[70]"
+      }`}
       role="presentation"
       onClick={(e) => e.stopPropagation()}
     >

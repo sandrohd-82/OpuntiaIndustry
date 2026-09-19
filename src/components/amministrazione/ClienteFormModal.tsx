@@ -44,6 +44,11 @@ import {
   type ConsegnaAltraAzienda,
   type SedeCliente,
 } from "@/lib/amministrazione/clienti";
+import {
+  useActionAccess,
+  useAnagraficaPrivileges,
+} from "@/components/layout/ActionAccessProvider";
+import { isCommercialOwnRecord } from "@/lib/auth/commerciale";
 import { parseTrattativa } from "@/lib/promemorie-e-note/trattativa";
 import { TrattativaSelectField } from "@/components/amministrazione/TrattativaSelectField";
 import {
@@ -78,6 +83,14 @@ type Props = {
    * Default: scheda cliente normale.
    */
   variant?: "cliente" | "possibile";
+  /** Per i privilegi di eliminazione (scheda propria / area commerciale). */
+  lineageIds?: string[];
+  /** Prenota (cliente) o elimina (possibile). Solo in modifica. */
+  onRequestDelete?: () => void;
+  /** Super Admin: conferma cancellazione prenotata del cliente. */
+  onConfirmCancellazione?: () => void;
+  /** Super Admin: rifiuta la prenotazione. */
+  onRifiutaCancellazione?: () => void;
 };
 
 function isSedeFilled(sede: SedeCliente): boolean {
@@ -99,11 +112,43 @@ export function ClienteFormModal({
   stackTop = false,
   ficDocument = null,
   variant = "cliente",
+  lineageIds = [],
+  onRequestDelete,
+  onConfirmCancellazione,
+  onRifiutaCancellazione,
 }: Props) {
   const isPossibile = variant === "possibile";
-  const router = useRouter();
-  const titleId = useId();
   const isEdit = mode === "edit";
+  const router = useRouter();
+  const { bypassPrivileges } = useActionAccess();
+  const priv = useAnagraficaPrivileges(
+    isPossibile ? "cliente_possibile" : "cliente"
+  );
+  const treatAsOwn = isCommercialOwnRecord({
+    userId: priv.userId,
+    createdBy: initial?.createdBy,
+    commercialeId: initial?.commercialeId,
+    lineageIds,
+  });
+  const canDeleteRecord = priv.canDelete(initial?.createdBy, treatAsOwn);
+  const prenotata = Boolean(initial?.cancellazionePrenotata);
+  const showEliminaPossibile =
+    isEdit && isPossibile && Boolean(onRequestDelete) && canDeleteRecord;
+  const showPrenotaCliente =
+    isEdit &&
+    !isPossibile &&
+    Boolean(onRequestDelete) &&
+    canDeleteRecord &&
+    !prenotata;
+  const showConfermaCliente =
+    isEdit &&
+    !isPossibile &&
+    prenotata &&
+    bypassPrivileges &&
+    Boolean(onConfirmCancellazione);
+  const showAttesaCliente =
+    isEdit && !isPossibile && prenotata && !bypassPrivileges;
+  const titleId = useId();
   const [codiceTarga, setCodiceTarga] = useState(initial?.codiceTarga ?? "");
   const [codiceError, setCodiceError] = useState<string | null>(null);
   const [codiceLoading, setCodiceLoading] = useState(!isEdit && !isPossibile);
@@ -813,6 +858,86 @@ export function ClienteFormModal({
               {formError}
             </p>
           )}
+
+          {showEliminaPossibile ||
+          showPrenotaCliente ||
+          showConfermaCliente ||
+          showAttesaCliente ? (
+            <div className="rounded-lg border border-red-200 bg-red-50/70 px-3 py-3">
+              <p className="text-xs font-semibold uppercase tracking-wide text-red-800">
+                {isPossibile ? "Eliminazione lead" : "Cancellazione cliente"}
+              </p>
+              {showEliminaPossibile ? (
+                <>
+                  <p className="mt-1 text-xs text-red-900">
+                    Soft delete ISO 9001: la scheda esce dall’elenco e va in
+                    archivio. Nessun delete fisico.
+                  </p>
+                  <button
+                    type="button"
+                    disabled={saving}
+                    onClick={onRequestDelete}
+                    className="mt-2 inline-flex items-center gap-1.5 rounded-lg border border-red-700 bg-white px-3 py-1.5 text-sm font-medium text-red-700 hover:bg-red-100 disabled:opacity-60"
+                  >
+                    <FaTrash size={11} />
+                    Elimina possibile cliente
+                  </button>
+                </>
+              ) : null}
+              {showPrenotaCliente ? (
+                <>
+                  <p className="mt-1 text-xs text-red-900">
+                    Non elimina ora: si prenota la cancellazione. Solo un Super
+                    Admin può confermarla. Soft delete ISO 9001, nessun delete
+                    fisico.
+                  </p>
+                  <button
+                    type="button"
+                    disabled={saving}
+                    onClick={onRequestDelete}
+                    className="mt-2 inline-flex items-center gap-1.5 rounded-lg border border-red-700 bg-white px-3 py-1.5 text-sm font-medium text-red-700 hover:bg-red-100 disabled:opacity-60"
+                  >
+                    <FaTrash size={11} />
+                    Prenota cancellazione
+                  </button>
+                </>
+              ) : null}
+              {showAttesaCliente ? (
+                <p className="mt-1 text-xs text-amber-950">
+                  Cancellazione già prenotata. In attesa di conferma o rifiuto
+                  da Super Admin.
+                </p>
+              ) : null}
+              {showConfermaCliente ? (
+                <>
+                  <p className="mt-1 text-xs text-red-900">
+                    Prenotazione in attesa. Confermi da Super Admin (soft
+                    delete) oppure rifiuti.
+                  </p>
+                  <div className="mt-2 flex flex-wrap gap-2">
+                    <button
+                      type="button"
+                      disabled={saving}
+                      onClick={onConfirmCancellazione}
+                      className="inline-flex items-center gap-1.5 rounded-lg bg-red-700 px-3 py-1.5 text-sm font-medium text-white hover:bg-red-800 disabled:opacity-60"
+                    >
+                      Conferma cancellazione
+                    </button>
+                    {onRifiutaCancellazione ? (
+                      <button
+                        type="button"
+                        disabled={saving}
+                        onClick={onRifiutaCancellazione}
+                        className="inline-flex items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-60"
+                      >
+                        Rifiuta prenotazione
+                      </button>
+                    ) : null}
+                  </div>
+                </>
+              ) : null}
+            </div>
+          ) : null}
 
           <div className="flex gap-2 pt-1">
             <button

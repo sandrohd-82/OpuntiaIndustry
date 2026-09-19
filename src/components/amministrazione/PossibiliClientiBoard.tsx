@@ -8,7 +8,6 @@ import {
   FaMagnifyingGlass,
   FaPen,
   FaPlus,
-  FaTrash,
 } from "react-icons/fa6";
 import { listProdottiPropriAction } from "@/app/actions/prodotti-propri";
 import { getCommercialeAnagraficaContextAction } from "@/app/actions/commerciale-anagrafica";
@@ -62,14 +61,12 @@ function statoLabel(stato: ClientePossibile["stato"]) {
 function PossibileClienteRow({
   lead,
   onEdit,
-  onDelete,
   onTimeline,
   prodottiByCode,
   lineageIds,
 }: {
   lead: ClientePossibile;
   onEdit: (lead: ClientePossibile) => void;
-  onDelete: (lead: ClientePossibile) => void;
   onTimeline: (lead: ClientePossibile) => void;
   prodottiByCode: Map<string, ProdottoProprio>;
   lineageIds: string[];
@@ -86,6 +83,7 @@ function PossibileClienteRow({
   const canEdit = priv.canEdit(lead.createdBy, treatAsOwn);
   const canDelete = priv.canDelete(lead.createdBy, treatAsOwn);
   const canTimeline = priv.canTimelineRecord(treatAsOwn);
+  const canOpenScheda = canEdit || canDelete;
 
   return (
     <>
@@ -150,7 +148,7 @@ function PossibileClienteRow({
                 Sincronizza
               </button>
             ) : null}
-            {canEdit ? (
+            {canOpenScheda ? (
               <button
                 type="button"
                 onClick={() => onEdit(lead)}
@@ -158,16 +156,6 @@ function PossibileClienteRow({
               >
                 <FaPen size={11} />
                 Modifica
-              </button>
-            ) : null}
-            {canDelete ? (
-              <button
-                type="button"
-                onClick={() => onDelete(lead)}
-                className="inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-xs font-medium text-red-600 hover:bg-slate-50"
-              >
-                <FaTrash size={11} />
-                Elimina
               </button>
             ) : null}
             <button
@@ -416,7 +404,6 @@ export function PossibiliClientiBoard() {
                   lineageIds={lineageIds}
                   onEdit={(item) => setEditingLead(item)}
                   onTimeline={(item) => setTimelineFor(item)}
-                  onDelete={(item) => setDeleting(item)}
                 />
               ))}
             </tbody>
@@ -449,7 +436,9 @@ export function PossibiliClientiBoard() {
           mode="edit"
           variant="possibile"
           initial={clienteSchedaFromPossibile(editingLead)}
+          lineageIds={lineageIds}
           onClose={() => setEditingLead(null)}
+          onRequestDelete={() => setDeleting(editingLead)}
           onSave={async (values) => {
             const res = await updateClientePossibileAction(
               editingLead.id,
@@ -478,6 +467,7 @@ export function PossibiliClientiBoard() {
 
       {deleting ? (
         <SoftDeleteConfirmModal
+          elevated
           entityLabel="possibile cliente"
           confirmCode={deleting.ragioneSociale}
           onClose={() => setDeleting(null)}
@@ -490,6 +480,7 @@ export function PossibiliClientiBoard() {
               throw new Error(result.error);
             }
             setDeleting(null);
+            setEditingLead(null);
             reload();
           }}
         />

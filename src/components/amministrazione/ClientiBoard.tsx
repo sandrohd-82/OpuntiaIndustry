@@ -10,7 +10,6 @@ import {
   FaMagnifyingGlass,
   FaPen,
   FaPlus,
-  FaTrash,
   FaUser,
 } from "react-icons/fa6";
 import { rinumeraTutteFattureEmesseAction } from "@/app/actions/fatture";
@@ -62,9 +61,6 @@ import type { ProdottoProprio } from "@/lib/amministrazione/prodotti-propri";
 function ClienteRow({
   cliente,
   onEdit,
-  onDelete,
-  onConfirmCancellazione,
-  onRifiutaCancellazione,
   onTimeline,
   prodottiByCode,
   selectMode,
@@ -75,9 +71,6 @@ function ClienteRow({
 }: {
   cliente: Cliente;
   onEdit: (cliente: Cliente) => void;
-  onDelete: (cliente: Cliente) => void;
-  onConfirmCancellazione: (cliente: Cliente) => void;
-  onRifiutaCancellazione: (cliente: Cliente) => void;
   onTimeline: (cliente: Cliente) => void;
   prodottiByCode: Map<string, ProdottoProprio>;
   selectMode: boolean;
@@ -98,6 +91,10 @@ function ClienteRow({
   const canEdit = priv.canEdit(cliente.createdBy, treatAsOwn);
   const canDelete = priv.canDelete(cliente.createdBy, treatAsOwn);
   const canTimeline = priv.canTimelineRecord(treatAsOwn);
+  const canOpenScheda =
+    canEdit ||
+    canDelete ||
+    (isSuperAdmin && Boolean(cliente.cancellazionePrenotata));
 
   return (
     <>
@@ -195,7 +192,7 @@ function ClienteRow({
               Sincronizza
             </button>
             ) : null}
-            {canEdit ? (
+            {canOpenScheda ? (
             <button
               type="button"
               onClick={() => onEdit(cliente)}
@@ -204,34 +201,6 @@ function ClienteRow({
               <FaPen size={11} />
               Modifica
             </button>
-            ) : null}
-            {canDelete && !cliente.cancellazionePrenotata ? (
-            <button
-              type="button"
-              onClick={() => onDelete(cliente)}
-              className="inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-xs font-medium text-red-600 hover:bg-red-50"
-            >
-              <FaTrash size={11} />
-              Prenota canc.
-            </button>
-            ) : null}
-            {isSuperAdmin && cliente.cancellazionePrenotata ? (
-              <>
-                <button
-                  type="button"
-                  onClick={() => onConfirmCancellazione(cliente)}
-                  className="inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-xs font-medium text-red-700 hover:bg-red-50"
-                >
-                  Conferma canc.
-                </button>
-                <button
-                  type="button"
-                  onClick={() => onRifiutaCancellazione(cliente)}
-                  className="inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-xs font-medium text-slate-600 hover:bg-slate-50"
-                >
-                  Rifiuta
-                </button>
-              </>
             ) : null}
             <button
               type="button"
@@ -255,7 +224,7 @@ function ClienteRow({
       {open && (
         <tr className="border-t border-[var(--border)] bg-slate-50/70">
           <td colSpan={9} className="px-4 py-4">
-            {canEdit ? (
+            {canOpenScheda ? (
             <div className="mb-3 flex justify-end">
               <button
                 type="button"
@@ -728,33 +697,6 @@ export function ClientiBoard() {
                     setEditing(item);
                   }}
                   onTimeline={(item) => setTimelineFor(item)}
-                  onDelete={(item) => {
-                    setSaveError(null);
-                    setDeleting(item);
-                  }}
-                  onConfirmCancellazione={(item) => {
-                    setSaveError(null);
-                    setConfirmingCanc(item);
-                  }}
-                  onRifiutaCancellazione={(item) => {
-                    if (
-                      !item.cancellazioneId ||
-                      !window.confirm(
-                        `Rifiutare la prenotazione di cancellazione di ${item.codiceTarga}?`
-                      )
-                    ) {
-                      return;
-                    }
-                    void rifiutaCancellazioneClienteAction({
-                      cancellazioneId: item.cancellazioneId,
-                    }).then((res) => {
-                      if (!res.success) {
-                        setSaveError(res.error);
-                        return;
-                      }
-                      void refresh();
-                    });
-                  }}
                   lineageIds={lineageIds}
                   isSuperAdmin={bypassPrivileges}
                 />
@@ -785,7 +727,44 @@ export function ClientiBoard() {
         <ClienteFormModal
           mode="edit"
           initial={editing}
+          lineageIds={lineageIds}
           onClose={() => setEditing(null)}
+          onRequestDelete={() => {
+            setSaveError(null);
+            setDeleting(editing);
+          }}
+          onConfirmCancellazione={() => {
+            setSaveError(null);
+            setConfirmingCanc(editing);
+          }}
+          onRifiutaCancellazione={() => {
+            if (
+              !editing.cancellazioneId ||
+              !window.confirm(
+                `Rifiutare la prenotazione di cancellazione di ${editing.codiceTarga}?`
+              )
+            ) {
+              return;
+            }
+            void rifiutaCancellazioneClienteAction({
+              cancellazioneId: editing.cancellazioneId,
+            }).then((res) => {
+              if (!res.success) {
+                setSaveError(res.error);
+                return;
+              }
+              setEditing((prev) =>
+                prev
+                  ? {
+                      ...prev,
+                      cancellazionePrenotata: false,
+                      cancellazioneId: null,
+                    }
+                  : prev
+              );
+              void refresh();
+            });
+          }}
           onSave={async (values) => {
             const updated = await updateCliente(editing.id, values);
             if (updated) {
@@ -812,6 +791,7 @@ export function ClientiBoard() {
 
       {deleting && (
         <SoftDeleteConfirmModal
+          elevated
           entityLabel="cliente"
           confirmCode={deleting.codiceTarga}
           title="Prenota cancellazione cliente"
@@ -824,12 +804,22 @@ export function ClientiBoard() {
               throw new Error(result.error);
             }
             setDeleting(null);
+            setEditing((prev) =>
+              prev
+                ? {
+                    ...prev,
+                    cancellazionePrenotata: true,
+                    cancellazioneId: result.cancellazioneId,
+                  }
+                : prev
+            );
           }}
         />
       )}
 
       {confirmingCanc && confirmingCanc.cancellazioneId ? (
         <SoftDeleteConfirmModal
+          elevated
           entityLabel="cliente"
           confirmCode={confirmingCanc.codiceTarga}
           title="Conferma cancellazione cliente"
@@ -845,6 +835,7 @@ export function ClientiBoard() {
               throw new Error(result.error);
             }
             setConfirmingCanc(null);
+            setEditing(null);
             void refresh();
           }}
         />
