@@ -11,6 +11,10 @@
     {
       "path": "/api/cron/pn-avvisi",
       "schedule": "* * * * *"
+    },
+    {
+      "path": "/api/cron/documentazioni-scadute",
+      "schedule": "20 0 * * *"
     }
   ]
 }

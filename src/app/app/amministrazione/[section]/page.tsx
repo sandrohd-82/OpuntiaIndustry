@@ -1,5 +1,6 @@
 import { notFound, redirect } from "next/navigation";
 import { RubricaBoard } from "@/components/amministrazione/RubricaBoard";
+import { DocumentazioniBoard } from "@/components/amministrazione/DocumentazioniBoard";
 import { AreaPlaceholder } from "@/components/areas/AreaPlaceholder";
 import { AppHeader } from "@/components/layout/AppHeader";
 import {
@@ -7,7 +8,7 @@ import {
   resolveAmministrazionePage,
 } from "@/lib/areas/amministrazione";
 import { isNavBranch } from "@/lib/areas/nav-tree";
-import { requireAreaAccess } from "@/lib/areas/guard";
+import { requireAreaAccess, requireSuperadmin } from "@/lib/areas/guard";
 
 type Props = {
   params: Promise<{ section: string }>;
@@ -61,6 +62,20 @@ export default async function AmministrazioneSectionPage({ params }: Props) {
         <AppHeader title={page.label} subtitle={page.description} />
         <div className="p-6">
           <RubricaBoard />
+        </div>
+      </>
+    );
+  }
+
+  if (section === "documentazioni") {
+    await requireSuperadmin();
+    const page = resolveAmministrazionePage([section]);
+    if (!page) notFound();
+    return (
+      <>
+        <AppHeader title={page.label} subtitle={page.description} />
+        <div className="p-6">
+          <DocumentazioniBoard mode="viva" />
         </div>
       </>
     );

@@ -2,6 +2,7 @@ import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { OrdiniStoricoBoard } from "@/components/amministrazione/OrdiniStoricoBoard";
 import { RegistroAccessiBoard } from "@/components/amministrazione/RegistroAccessiBoard";
+import { DocumentazioniBoard } from "@/components/amministrazione/DocumentazioniBoard";
 import { ContrattiFiscaliBoard } from "@/components/amministrazione/ContrattiFiscaliBoard";
 import { CatalogoOffertaBoard } from "@/components/amministrazione/CatalogoOffertaBoard";
 import { ChatArgomentiStoricoBoard } from "@/components/chat/ChatArgomentiStoricoBoard";
@@ -17,7 +18,11 @@ import { WebmailBoard } from "@/components/commerciale/WebmailBoard";
 import { AppHeader } from "@/components/layout/AppHeader";
 import { ArchivioTutorialBoard } from "@/components/archivio/ArchivioTutorialBoard";
 import { AreaPlaceholder } from "@/components/areas/AreaPlaceholder";
-import { requireArchivioSource, requireAreaAccess } from "@/lib/areas/guard";
+import {
+  requireArchivioSource,
+  requireAreaAccess,
+  requireSuperadmin,
+} from "@/lib/areas/guard";
 import {
   filterArchivioNavByAccess,
   getFirstArchivioPath,
@@ -183,6 +188,18 @@ export default async function ArchivioCatchAllPage({ params }: Props) {
         <AppHeader title={page.label} subtitle={page.description} />
         <div className="p-6">
           <RegistroAccessiBoard />
+        </div>
+      </>
+    );
+  }
+
+  if (key === "amministrazione/documentazioni") {
+    await requireSuperadmin();
+    return (
+      <>
+        <AppHeader title={page.label} subtitle={page.description} />
+        <div className="p-6">
+          <DocumentazioniBoard mode="archivio" />
         </div>
       </>
     );

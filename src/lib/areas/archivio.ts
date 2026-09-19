@@ -18,7 +18,7 @@ export const ARCHIVIO_SECTIONS: readonly NavItem[] = [
   {
     slug: "amministrazione",
     label: "Amministrazione",
-    description: "Storico ordini e registro accessi",
+    description: "Storico ordini, registro accessi e documentazioni archiviate",
     path: "/app/archivio/amministrazione",
     children: [
       {
@@ -40,6 +40,14 @@ export const ARCHIVIO_SECTIONS: readonly NavItem[] = [
         label: "Registro accessi",
         description: "Accessi al gestionale: timeline o elenco",
         path: "/app/archivio/amministrazione/registro-accessi",
+      },
+      {
+        slug: "documentazioni",
+        label: "Documentazioni",
+        description:
+          "Documentazioni scadute archiviate dopo consenso Super Admin",
+        path: "/app/archivio/amministrazione/documentazioni",
+        superAdminOnly: true,
       },
     ],
   },

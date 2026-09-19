@@ -41,6 +41,7 @@ import {
   applyDaProcessareBadge,
   applyPnAttivitaUnreadBadge,
   filterNavByAdminOnly,
+  filterNavBySuperAdminOnly,
   isNavBranch,
   openKeysFromPathname,
   type NavBadge,
@@ -1000,11 +1001,14 @@ export function AppSidebar({
               mappaMenuMappe
             );
             const treeSectionsFiltered = treeSectionsRaw
-              ? filterNavByAdminOnly(
-                  applyPageFilter
-                    ? filterNavByPageAccess(treeSectionsRaw, pageAccess)
-                    : treeSectionsRaw,
-                  isAdminLike
+              ? filterNavBySuperAdminOnly(
+                  filterNavByAdminOnly(
+                    applyPageFilter
+                      ? filterNavByPageAccess(treeSectionsRaw, pageAccess)
+                      : treeSectionsRaw,
+                    isAdminLike
+                  ),
+                  isSuperadmin
                 )
               : null;
             const treeSections =

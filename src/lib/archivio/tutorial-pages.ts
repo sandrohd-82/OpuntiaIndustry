@@ -359,6 +359,36 @@ export const PAGE_EXTRAS: Record<string, TutorialBlock[]> = {
       text: "Chi è entrato nel gestionale e quando (timeline o elenco). Utile per qualità e sicurezza, non per i lotti merce.",
     },
   ],
+  "/app/amministrazione/documentazioni": [
+    { type: "h", text: "Cosa fai qui" },
+    {
+      type: "p",
+      text: "Solo Super Admin. Registro dei documenti aziendali: nome, reparto, spiegazione, date, rinnovo, più file (PDF o immagini).",
+    },
+    { type: "h", text: "Stati" },
+    {
+      type: "ol",
+      items: [
+        "In attesa: creata, da mettere In carico.",
+        "In carico: documento attivo, approvato dal Super Admin.",
+        "Scaduto: la data è passata; resta qui finché non rinnovi o archivi.",
+      ],
+    },
+    {
+      type: "p",
+      text: "Il rinnovo incrementa la versione sulla stessa scheda. Le versioni scadute restano collegate come storico, con i loro file.",
+    },
+    {
+      type: "p",
+      text: "Per mandare uno Scaduto in Archivio → Amministrazione → Documentazioni serve la conferma testuale (come le altre operazioni sensibili). Non è una cancellazione fisica.",
+    },
+  ],
+  "/app/archivio/amministrazione/documentazioni": [
+    {
+      type: "p",
+      text: "Solo Super Admin. Stessa scheda della pagina viva, ma solo le documentazioni già archiviate dopo consenso. File e versioni restano consultabili.",
+    },
+  ],
   "/app/archivio/produzione/foglio-ingresso-mp/storico": [
     {
       type: "p",

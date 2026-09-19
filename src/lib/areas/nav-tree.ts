@@ -11,6 +11,8 @@ export type NavLeaf = {
   badge?: NavBadge;
   /** Voce visibile solo ad Admin / Super Admin. */
   adminOnly?: boolean;
+  /** Voce visibile solo al Super Admin (non agli Admin). */
+  superAdminOnly?: boolean;
 };
 
 export type NavBranch = {
@@ -21,6 +23,8 @@ export type NavBranch = {
   badge?: NavBadge;
   /** Voce visibile solo ad Admin / Super Admin. */
   adminOnly?: boolean;
+  /** Voce visibile solo al Super Admin (non agli Admin). */
+  superAdminOnly?: boolean;
   /** Foglie o sotto-rami (max profondità usata: 3 livelli area→ramo→foglia). */
   children: readonly NavItem[];
 };
@@ -122,6 +126,25 @@ export function filterNavByAdminOnly(
     if (isNavBranch(item)) {
       const children = filterNavByAdminOnly(item.children, isAdminLike);
       if (children.length === 0 && item.adminOnly) continue;
+      out.push({ ...item, children });
+      continue;
+    }
+    out.push(item);
+  }
+  return out;
+}
+
+/** Nasconde rami/foglie riservati al Super Admin. */
+export function filterNavBySuperAdminOnly(
+  items: readonly NavItem[],
+  isSuperadmin: boolean
+): NavItem[] {
+  const out: NavItem[] = [];
+  for (const item of items) {
+    if (item.superAdminOnly && !isSuperadmin) continue;
+    if (isNavBranch(item)) {
+      const children = filterNavBySuperAdminOnly(item.children, isSuperadmin);
+      if (children.length === 0 && item.superAdminOnly) continue;
       out.push({ ...item, children });
       continue;
     }

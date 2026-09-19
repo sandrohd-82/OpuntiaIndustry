@@ -153,6 +153,14 @@ export const AMMINISTRAZIONE_SECTIONS: readonly NavItem[] = [
       },
     ],
   },
+  {
+    slug: "documentazioni",
+    label: "Documentazioni",
+    description:
+      "Documenti aziendali: In attesa, In carico e Scaduti da archiviare (solo Super Admin)",
+    path: "/app/amministrazione/documentazioni",
+    superAdminOnly: true,
+  },
 ] as const;
 
 export function getFirstAmministrazionePath(): string {
