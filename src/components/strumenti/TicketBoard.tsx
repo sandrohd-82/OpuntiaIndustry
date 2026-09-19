@@ -69,6 +69,7 @@ function fmtQuando(iso: string) {
 }
 
 function appendAllegati(fd: FormData, files: File[]) {
+  fd.set("fileCount", String(files.length));
   files.forEach((f, i) => {
     fd.append("files", f, f.name);
     fd.append(`file_${i}`, f, f.name);
