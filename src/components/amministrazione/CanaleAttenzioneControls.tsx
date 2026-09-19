@@ -17,16 +17,24 @@ import {
   type ContattoCanaleKind,
 } from "@/lib/amministrazione/contatto-canale-attenzione";
 
-function InfoBang({ active }: { active: boolean }) {
+function InfoEditLabel({ hasNota }: { hasNota: boolean }) {
   return (
     <span
-      className={`inline-flex h-8 min-w-8 items-center justify-center rounded-lg border px-1.5 text-xs font-extrabold ${
-        active
+      className={`inline-flex h-8 items-center justify-center rounded-lg border px-2.5 text-xs font-semibold ${
+        hasNota
           ? "border-amber-400 bg-amber-100 text-amber-950"
-          : "border-slate-300 bg-white text-slate-500"
+          : "border-slate-300 bg-white text-slate-700"
       }`}
     >
-      ! info
+      Info
+    </span>
+  );
+}
+
+function AvvisoBang() {
+  return (
+    <span className="inline-flex h-8 min-w-8 items-center justify-center rounded-lg border border-amber-400 bg-amber-100 text-sm font-extrabold text-amber-950">
+      !
     </span>
   );
 }
@@ -34,11 +42,15 @@ function InfoBang({ active }: { active: boolean }) {
 export function CanaleAttenzioneButton({
   canale,
   valore,
+  mode = "edit",
 }: {
   canale: ContattoCanaleKind;
   valore: string;
+  /** edit = bottone Info in scheda. view = ! solo se c'è una nota. */
+  mode?: "edit" | "view";
 }) {
   const [open, setOpen] = useState(false);
+  const [viewOpen, setViewOpen] = useState(false);
   const [item, setItem] = useState<ContattoCanaleAttenzione | null>(null);
   const [clausola, setClausola] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -69,6 +81,52 @@ export function CanaleAttenzioneButton({
     setOpen(true);
   }
 
+  if (mode === "view") {
+    if (!ready || !item) return null;
+    return (
+      <>
+        <button
+          type="button"
+          title="Nota di avviso"
+          aria-label={`Nota di avviso su ${valore}`}
+          onClick={() => setViewOpen(true)}
+          className="shrink-0"
+        >
+          <AvvisoBang />
+        </button>
+        {viewOpen ? (
+          <div
+            className="fixed inset-0 z-[120] flex items-start justify-center bg-slate-950/50 p-4 py-16"
+            onClick={() => setViewOpen(false)}
+          >
+            <div
+              role="dialog"
+              className="w-full max-w-md rounded-xl border border-amber-300 bg-white p-4 shadow-2xl"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <p className="text-[10px] font-bold uppercase tracking-wide text-amber-800">
+                Avviso · {canale === "email" ? "Mail" : "Telefono"}
+              </p>
+              <p className="mt-1 font-mono text-sm text-slate-800">{valore}</p>
+              <p className="mt-3 whitespace-pre-wrap rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-950">
+                {item.clausola}
+              </p>
+              <div className="mt-4 flex justify-end">
+                <button
+                  type="button"
+                  className="rounded-lg px-3 py-1.5 text-sm text-slate-600 hover:bg-slate-100"
+                  onClick={() => setViewOpen(false)}
+                >
+                  Chiudi
+                </button>
+              </div>
+            </div>
+          </div>
+        ) : null}
+      </>
+    );
+  }
+
   return (
     <>
       <button
@@ -77,14 +135,14 @@ export function CanaleAttenzioneButton({
         title={
           ready
             ? item
-              ? "Attenzione collegata: leggi o modifica"
-              : "Aggiungi attenzione su questo contatto"
+              ? "Modifica la nota di avviso"
+              : "Inserisci una nota di avviso"
             : "Inserisci prima il valore"
         }
         onClick={openEdit}
         className="shrink-0 disabled:opacity-40"
       >
-        <InfoBang active={Boolean(item)} />
+        <InfoEditLabel hasNota={Boolean(item)} />
       </button>
       {open ? (
         <div
@@ -97,14 +155,14 @@ export function CanaleAttenzioneButton({
             onClick={(e) => e.stopPropagation()}
           >
             <p className="text-[10px] font-bold uppercase tracking-wide text-amber-800">
-              Attenzione · {canale === "email" ? "Mail" : "Telefono"}
+              Nota di avviso · {canale === "email" ? "Mail" : "Telefono"}
             </p>
             <p className="mt-1 font-mono text-sm text-slate-800">{valore}</p>
             <textarea
               value={clausola}
               onChange={(e) => setClausola(e.target.value)}
               rows={5}
-              placeholder="Clausola visibile in compose e prima della chiamata…"
+              placeholder="Nota di avviso visibile in compose e prima della chiamata…"
               className="mt-3 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm"
             />
             {error ? (
@@ -382,7 +440,7 @@ export function CanaleAttenzioneBanners({
           className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-950"
         >
           <p className="text-[10px] font-bold uppercase tracking-wide">
-            ! info · {item.valoreDisplay || item.valoreNormalizzato}
+            ! · {item.valoreDisplay || item.valoreNormalizzato}
           </p>
           <p className="mt-1 whitespace-pre-wrap">{item.clausola}</p>
         </div>
@@ -402,13 +460,17 @@ export function CanaleReadonlyActions({
     <span className="inline-flex flex-wrap items-center gap-1">
       {telefono ? (
         <>
-          <CanaleAttenzioneButton canale="telefono" valore={telefono} />
+          <CanaleAttenzioneButton
+            mode="view"
+            canale="telefono"
+            valore={telefono}
+          />
           <CanaleCallButton valore={telefono} />
         </>
       ) : null}
       {email ? (
         <>
-          <CanaleAttenzioneButton canale="email" valore={email} />
+          <CanaleAttenzioneButton mode="view" canale="email" valore={email} />
           <CanaleMailButton valore={email} />
         </>
       ) : null}
