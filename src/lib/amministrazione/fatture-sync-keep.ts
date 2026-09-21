@@ -1,5 +1,6 @@
 import { z } from "zod";
 import type { FatturaKind } from "@/lib/amministrazione/fatture";
+import { normalizeFatturaNumeroEsterno } from "@/lib/amministrazione/fatture-sync";
 
 export type FattureSyncKeepKind = "emessa" | "ricevuta";
 export type FattureSyncModalita = "precisa" | "veloce" | "keep";
@@ -125,9 +126,53 @@ export function todayIsoRome(): string {
   return new Date().toLocaleDateString("en-CA", { timeZone: "Europe/Rome" });
 }
 
+export function normalizeIsoDate(value: string | null | undefined): string {
+  const s = String(value ?? "").trim();
+  const m = s.match(/^(\d{4}-\d{2}-\d{2})/);
+  return m?.[1] ?? "";
+}
+
 export function monthKeyFromIso(iso: string): string | null {
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(iso)) return null;
-  return iso.slice(0, 7);
+  const day = normalizeIsoDate(iso);
+  return day ? day.slice(0, 7) : null;
+}
+
+/** FiC già in gestionale: stesso fic_id, oppure stesso numero + data/importo. */
+export function ficDocGiaInGestionale(
+  doc: {
+    ficId: number;
+    number: string;
+    date: string | null;
+    amountGross: number;
+  },
+  registered: Array<{
+    ficId: number | null;
+    numeroEsterno: string;
+    dataEmissione: string;
+    totale: number;
+  }>
+): boolean {
+  if (
+    registered.some(
+      (r) => r.ficId != null && Number.isFinite(r.ficId) && r.ficId === doc.ficId
+    )
+  ) {
+    return true;
+  }
+  const num = normalizeFatturaNumeroEsterno(doc.number);
+  const date = normalizeIsoDate(doc.date);
+  if (!num) return false;
+  return registered.some((r) => {
+    if (normalizeFatturaNumeroEsterno(r.numeroEsterno) !== num) return false;
+    const rDate = normalizeIsoDate(r.dataEmissione);
+    if (date && rDate && date === rDate) return true;
+    if (date && rDate && date.slice(0, 7) === rDate.slice(0, 7)) {
+      const a = Math.abs(Number(doc.amountGross) || 0);
+      const b = Math.abs(Number(r.totale) || 0);
+      if (a > 0 && b > 0 && Math.abs(a - b) <= 0.05) return true;
+    }
+    return false;
+  });
 }
 
 export function monthStartIso(key: string): string {
@@ -150,10 +195,12 @@ export function splitForwardRetro(
 ): { forward: FattureSyncPendingMeta[]; retro: FattureSyncPendingMeta[] } {
   const forward: FattureSyncPendingMeta[] = [];
   const retro: FattureSyncPendingMeta[] = [];
+  const todayDay = normalizeIsoDate(today) || today;
+  const last = lastRegisteredDate ? normalizeIsoDate(lastRegisteredDate) : "";
   for (const d of docs) {
-    const date = d.date || "";
-    if (!date || date > today) continue;
-    if (!lastRegisteredDate || date >= lastRegisteredDate) {
+    const date = normalizeIsoDate(d.date) || d.date || "";
+    if (!date || date > todayDay) continue;
+    if (!last || date >= last) {
       forward.push(d);
     } else {
       retro.push(d);
@@ -168,9 +215,10 @@ export function filterFromStopMonth(
   today: string
 ): FattureSyncPendingMeta[] {
   const from = monthStartIso(stopMonth);
+  const todayDay = normalizeIsoDate(today) || today;
   return docs.filter((d) => {
-    const date = d.date || "";
-    return Boolean(date) && date >= from && date <= today;
+    const date = normalizeIsoDate(d.date) || d.date || "";
+    return Boolean(date) && date >= from && date <= todayDay;
   });
 }
 

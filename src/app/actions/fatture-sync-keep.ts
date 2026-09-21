@@ -23,7 +23,9 @@ import {
   fattureSyncKeepKindSchema,
   fattureSyncModalitaSchema,
   fattureSyncStopMonthSchema,
+  ficDocGiaInGestionale,
   filterFromStopMonth,
+  normalizeIsoDate,
   splitForwardRetro,
   todayIsoRome,
   type FattureSyncAnagraficaCreata,
@@ -84,6 +86,32 @@ const previewCacheSchema = z.object({
   stopMonth: fattureSyncStopMonthSchema.optional(),
 });
 
+type RegisteredDocHint = {
+  ficId: number | null;
+  numeroEsterno: string;
+  dataEmissione: string;
+  totale: number;
+};
+
+function mapRegisteredHints(
+  rows: Array<Record<string, unknown>> | null
+): RegisteredDocHint[] {
+  return (rows ?? []).map((r) => {
+    const ficRaw = Number(r.fic_id);
+    return {
+      ficId: Number.isFinite(ficRaw) && ficRaw > 0 ? ficRaw : null,
+      numeroEsterno: String(r.numero_documento_esterno ?? ""),
+      dataEmissione: normalizeIsoDate(String(r.data_emissione ?? "")),
+      totale: Number(r.totale) || 0,
+    };
+  });
+}
+
+function lastRegisteredIso(hints: RegisteredDocHint[]): string | null {
+  const dates = hints.map((h) => h.dataEmissione).filter(Boolean);
+  return dates.length ? dates.reduce((a, b) => (a > b ? a : b)) : null;
+}
+
 function docInScope(
   scope: Awaited<ReturnType<typeof resolveFiscaleDocScope>>,
   aziendaId: string | null,
@@ -122,23 +150,16 @@ async function listPendingMeta(
       fetchIssuedCreditNotes(null),
       supabase
         .from("fatture_emesse")
-        .select("fic_id, data_emissione")
+        .select("fic_id, data_emissione, numero_documento_esterno, totale")
         .is("deleted_at", null),
     ]);
     if (registeredRes.error) {
       return { success: false, error: registeredRes.error.message };
     }
-    const registeredFicIds = new Set(
-      (registeredRes.data ?? [])
-        .map((r) => Number((r as { fic_id?: number | null }).fic_id))
-        .filter((n) => Number.isFinite(n) && n > 0)
+    const registeredHints = mapRegisteredHints(
+      (registeredRes.data ?? []) as Array<Record<string, unknown>>
     );
-    const dates = (registeredRes.data ?? [])
-      .map((r) => String((r as { data_emissione?: string }).data_emissione ?? ""))
-      .filter((d) => /^\d{4}-\d{2}-\d{2}$/.test(d));
-    const lastRegisteredDate = dates.length
-      ? dates.reduce((a, b) => (a > b ? a : b))
-      : null;
+    const lastRegisteredDate = lastRegisteredIso(registeredHints);
 
     const emesseScope = skipScope
       ? { skip: true as const, dateFloor: null, ownedIds: null }
@@ -149,12 +170,12 @@ async function listPendingMeta(
 
     const pending: FattureSyncPendingMeta[] = [];
     for (const d of invoices) {
-      if (registeredFicIds.has(d.ficId)) continue;
+      if (ficDocGiaInGestionale(d, registeredHints)) continue;
       if (!skipScope && !docInScope(emesseScope, null, d.date)) continue;
       pending.push({
         ficId: d.ficId,
         kind: "emessa",
-        date: d.date || "",
+        date: normalizeIsoDate(d.date) || d.date || "",
         number: d.number,
         entityName: d.entityName,
         entityVat: d.entityVat,
@@ -162,12 +183,12 @@ async function listPendingMeta(
       });
     }
     for (const d of creditNotes) {
-      if (registeredFicIds.has(d.ficId)) continue;
+      if (ficDocGiaInGestionale(d, registeredHints)) continue;
       if (!skipScope && !docInScope(ncScope, null, d.date)) continue;
       pending.push({
         ficId: d.ficId,
         kind: "nota_credito",
-        date: d.date || "",
+        date: normalizeIsoDate(d.date) || d.date || "",
         number: d.number,
         entityName: d.entityName,
         entityVat: d.entityVat,
@@ -196,34 +217,27 @@ async function listPendingMeta(
     fetchReceivedInvoices(null),
     supabase
       .from("fatture_ricevute")
-      .select("fic_id, data_emissione")
+      .select("fic_id, data_emissione, numero_documento_esterno, totale")
       .is("deleted_at", null),
   ]);
   if (registeredRes.error) {
     return { success: false, error: registeredRes.error.message };
   }
-  const registeredFicIds = new Set(
-    (registeredRes.data ?? [])
-      .map((r) => Number((r as { fic_id?: number | null }).fic_id))
-      .filter((n) => Number.isFinite(n) && n > 0)
+  const registeredHints = mapRegisteredHints(
+    (registeredRes.data ?? []) as Array<Record<string, unknown>>
   );
-  const dates = (registeredRes.data ?? [])
-    .map((r) => String((r as { data_emissione?: string }).data_emissione ?? ""))
-    .filter((d) => /^\d{4}-\d{2}-\d{2}$/.test(d));
-  const lastRegisteredDate = dates.length
-    ? dates.reduce((a, b) => (a > b ? a : b))
-    : null;
+  const lastRegisteredDate = lastRegisteredIso(registeredHints);
   const scope = skipScope
     ? { skip: true as const, dateFloor: null, ownedIds: null }
     : await resolveFiscaleDocScope(supabase, "fiscale.fatture_ricevute");
   const pending: FattureSyncPendingMeta[] = [];
   for (const d of docs) {
-    if (registeredFicIds.has(d.ficId)) continue;
+    if (ficDocGiaInGestionale(d, registeredHints)) continue;
     if (!skipScope && !docInScope(scope, null, d.date)) continue;
     pending.push({
       ficId: d.ficId,
       kind: "ricevuta",
-      date: d.date || "",
+      date: normalizeIsoDate(d.date) || d.date || "",
       number: d.number,
       entityName: d.entityName,
       entityVat: d.entityVat,
@@ -505,11 +519,42 @@ async function runVeloceOnItems(input: {
   const tipo = input.kind === "ricevuta" ? "fornitore" : "cliente";
   const anagIds = new Set<string>();
 
+  async function giaRegistrataFic(ficId: number): Promise<boolean> {
+    const table = input.kind === "ricevuta" ? "fatture_ricevute" : "fatture_emesse";
+    const { data } = await (
+      input.supabase as {
+        from: (t: string) => {
+          select: (c: string) => {
+            eq: (c: string, v: number) => {
+              is: (c: string, v: null) => {
+                maybeSingle: () => Promise<{ data: { id?: string } | null }>;
+              };
+            };
+          };
+        };
+      }
+    )
+      .from(table)
+      .select("id")
+      .eq("fic_id", ficId)
+      .is("deleted_at", null)
+      .maybeSingle();
+    return Boolean(data?.id);
+  }
+
   for (let i = 0; i < input.items.length; i++) {
     const slim = input.items[i];
     input.onProgress?.(
       `Registro ${i + 1} di ${input.items.length} (${slim.numeroEsterno || slim.ficId})…`
     );
+    if (await giaRegistrataFic(slim.ficId)) {
+      skipped.push({
+        ficId: slim.ficId,
+        number: slim.numeroEsterno,
+        motivo: "già registrata",
+      });
+      continue;
+    }
     const item = await hydrateIfNeeded(slim);
     const vat = normalizeVatKey(item.entityVat || item.draft?.partitaIva || "");
     const cacheKey = vat || `${item.entityName}|${item.ficId}`;
@@ -545,12 +590,17 @@ async function runVeloceOnItems(input: {
       anagrafica: anag,
     });
     if (!saved.ok) {
+      const dup =
+        /duplicate|unique|fic_id/i.test(saved.error) ||
+        saved.error.toLowerCase().includes("già");
       skipped.push({
         ficId: item.ficId,
         number: item.numeroEsterno,
-        motivo: saved.error,
+        motivo: dup ? "già registrata" : saved.error,
       });
-      errors.push(`${item.numeroEsterno || item.ficId}: ${saved.error}`);
+      if (!dup) {
+        errors.push(`${item.numeroEsterno || item.ficId}: ${saved.error}`);
+      }
       continue;
     }
     registered += 1;

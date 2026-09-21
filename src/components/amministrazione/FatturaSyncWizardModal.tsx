@@ -4,7 +4,6 @@ import { useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
 import { FaSpinner } from "react-icons/fa6";
 import {
-  countFattureSyncPeriodoAction,
   finalizeFattureSyncRunAction,
   prepareFattureSyncPrecisaAction,
   previewFattureSyncAction,
@@ -122,12 +121,13 @@ export function FatturaSyncWizardModal({ kind, onClose, onDone }: Props) {
 
   async function refreshCount(month: string) {
     setLoadMsg("Conto le fatture del periodo…");
-    const res = await countFattureSyncPeriodoAction({ kind, stopMonth: month });
+    const res = await previewFattureSyncAction(kind);
     if (!res.success) {
       setError(res.error);
       return;
     }
-    setPeriodCount(res.count);
+    setPreview(res.preview);
+    setStopMonth(month);
     setError(null);
   }
 
@@ -151,12 +151,33 @@ export function FatturaSyncWizardModal({ kind, onClose, onDone }: Props) {
   );
 
   async function procedi() {
-    if (!stopMonth || !preview) return;
+    if (!stopMonth) return;
     setError(null);
+    setStep("forward");
+    setLoadMsg("Verifico le fatture ancora da sincronizzare…");
+    const fresh = await previewFattureSyncAction(kind);
+    if (!fresh.success) {
+      setError(fresh.error);
+      setStep("mesi");
+      return;
+    }
+    setPreview(fresh.preview);
+    const ancora = filterFromStopMonth(
+      fresh.preview.pending,
+      stopMonth,
+      fresh.preview.today
+    );
+    if (ancora.length === 0) {
+      setPeriodCount(0);
+      setForwardIds([]);
+      setRetroIds([]);
+      setStep("mesi");
+      return;
+    }
     const { forward, retro } = splitForwardRetro(
-      inPeriod,
-      preview.lastRegisteredDate,
-      preview.today
+      ancora,
+      fresh.preview.lastRegisteredDate,
+      fresh.preview.today
     );
     setForwardIds(forward.map((d) => d.ficId));
     setRetroIds(retro.map((d) => d.ficId));
@@ -187,9 +208,10 @@ export function FatturaSyncWizardModal({ kind, onClose, onDone }: Props) {
       setRegistered(tot);
       setAnagrafiche(anags);
       setFattureRegistrate(fatture);
-      if (res.skipped.length) {
+      const skippedNuove = res.skipped.filter((s) => s.motivo !== "già registrata");
+      if (skippedNuove.length) {
         setSkippedNote(
-          `${res.skipped.length} documenti non registrati nel tratto fino a oggi.`
+          `${skippedNuove.length} documenti non registrati nel tratto fino a oggi.`
         );
       }
     }
@@ -233,9 +255,10 @@ export function FatturaSyncWizardModal({ kind, onClose, onDone }: Props) {
       setRegistered(tot);
       setAnagrafiche(anags);
       setFattureRegistrate(fatture);
-      if (res.skipped.length) {
+      const skippedNuove = res.skipped.filter((s) => s.motivo !== "già registrata");
+      if (skippedNuove.length) {
         setSkippedNote((prev) =>
-          [prev, `${res.skipped.length} documenti saltati a ritroso.`]
+          [prev, `${skippedNuove.length} documenti saltati a ritroso.`]
             .filter(Boolean)
             .join(" ")
         );
@@ -340,11 +363,14 @@ export function FatturaSyncWizardModal({ kind, onClose, onDone }: Props) {
                 </p>
               )}
 
-              {years.length === 0 ? (
+              {years.length === 0 ||
+              preview.months.every((m) => !m.enabled) ? (
                 <p className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-800">
                   Nessuna fattura da sincronizzare.
                 </p>
-              ) : (
+              ) : null}
+
+              {years.length === 0 ? null : (
                 years.map(([year, months]) => (
                   <div key={year}>
                     <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-[var(--muted)]">
