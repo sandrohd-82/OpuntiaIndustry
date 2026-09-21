@@ -228,9 +228,31 @@ export function isDuplicateFicIdError(message: string): boolean {
   );
 }
 
+type SoftQueryError = { message: string };
+type SoftQueryList = PromiseLike<{
+  data: unknown[] | null;
+  error: SoftQueryError | null;
+}>;
+type SoftQueryOne = PromiseLike<{
+  data: { id?: string; numero_interno?: string } | null;
+  error: SoftQueryError | null;
+}>;
+
+type SoftFilter = {
+  is: (col: string, val: null) => SoftFilter & SoftQueryList;
+  order: (
+    col: string,
+    opts: { ascending: boolean }
+  ) => SoftFilter & SoftQueryList;
+  range: (from: number, to: number) => SoftQueryList;
+  in: (col: string, vals: number[]) => SoftFilter & SoftQueryList;
+  eq: (col: string, val: unknown) => SoftFilter;
+  maybeSingle: () => SoftQueryOne;
+};
+
 type SoftQueryClient = {
   from: (table: string) => {
-    select: (cols: string) => any;
+    select: (cols: string) => SoftFilter;
   };
 };
 
