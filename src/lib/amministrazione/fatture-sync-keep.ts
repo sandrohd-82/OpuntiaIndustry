@@ -216,6 +216,66 @@ export function findRegisteredHintForFicDoc(
   return null;
 }
 
+export function isDuplicateFicIdError(message: string): boolean {
+  const m = String(message ?? "").toLowerCase();
+  return (
+    m.includes("fatture_ricevute_fic_id_active_uidx") ||
+    m.includes("fatture_emesse_fic_id_active_uidx") ||
+    (m.includes("duplicate key") && m.includes("fic_id")) ||
+    (m.includes("unique") && m.includes("fic_id"))
+  );
+}
+
+type SoftQueryClient = {
+  from: (table: string) => {
+    select: (cols: string) => any;
+  };
+};
+
+/** PostgREST taglia a 1000: senza pagine le fatture già in DB spariscono dai hint. */
+export async function pageAllSoftRows(
+  supabase: unknown,
+  table: "fatture_ricevute" | "fatture_emesse",
+  columns: string
+): Promise<{ rows: Record<string, unknown>[]; error: string | null }> {
+  const client = supabase as SoftQueryClient;
+  const page = 1000;
+  const rows: Record<string, unknown>[] = [];
+  for (let from = 0; ; from += page) {
+    const { data, error } = await client
+      .from(table)
+      .select(columns)
+      .is("deleted_at", null)
+      .range(from, from + page - 1);
+    if (error) return { rows, error: error.message };
+    const batch = (data ?? []) as Record<string, unknown>[];
+    rows.push(...batch);
+    if (batch.length < page) break;
+  }
+  return { rows, error: null };
+}
+
+export async function findActiveFatturaIdByFicId(
+  supabase: unknown,
+  table: "fatture_ricevute" | "fatture_emesse",
+  ficId: number | null | undefined
+): Promise<{ id: string; numeroInterno: string } | null> {
+  const n = Number(ficId);
+  if (!Number.isFinite(n) || n <= 0) return null;
+  const client = supabase as SoftQueryClient;
+  const { data, error } = await client
+    .from(table)
+    .select("id, numero_interno")
+    .eq("fic_id", n)
+    .is("deleted_at", null)
+    .maybeSingle();
+  if (error || !data?.id) return null;
+  return {
+    id: String(data.id),
+    numeroInterno: String(data.numero_interno ?? ""),
+  };
+}
+
 export function monthStartIso(key: string): string {
   return `${key}-01`;
 }

@@ -26,7 +26,10 @@ import {
   ficDocGiaInGestionale,
   findRegisteredHintForFicDoc,
   filterFromStopMonth,
+  findActiveFatturaIdByFicId,
+  isDuplicateFicIdError,
   normalizeIsoDate,
+  pageAllSoftRows,
   splitForwardRetro,
   todayIsoRome,
   type FattureSyncAnagraficaCreata,
@@ -123,7 +126,9 @@ function mapRegisteredHints(
     return {
       id: String(r.id ?? ""),
       ficId: Number.isFinite(ficRaw) && ficRaw > 0 ? ficRaw : null,
-      numeroEsterno: String(r.numero_documento_esterno ?? ""),
+      numeroEsterno: String(
+        r.numero_documento_esterno ?? r.numero_fattura ?? ""
+      ),
       numeroInterno: String(r.numero_interno ?? ""),
       dataEmissione: normalizeIsoDate(String(r.data_emissione ?? "")),
       totale: Number(r.totale) || 0,
@@ -169,20 +174,19 @@ async function listPendingMeta(
   const today = todayIsoRome();
 
   if (kind === "emessa") {
-    const [invoices, creditNotes, registeredRes] = await Promise.all([
+    const [invoices, creditNotes, registeredPage] = await Promise.all([
       fetchIssuedInvoices(null),
       fetchIssuedCreditNotes(null),
-      supabase
-        .from("fatture_emesse")
-        .select("id, fic_id, data_emissione, numero_documento_esterno, numero_interno, totale")
-        .is("deleted_at", null),
+      pageAllSoftRows(
+        supabase,
+        "fatture_emesse",
+        "id, fic_id, data_emissione, numero_documento_esterno, numero_fattura, numero_interno, totale"
+      ),
     ]);
-    if (registeredRes.error) {
-      return { success: false, error: registeredRes.error.message };
+    if (registeredPage.error) {
+      return { success: false, error: registeredPage.error };
     }
-    const registeredHints = mapRegisteredHints(
-      (registeredRes.data ?? []) as Array<Record<string, unknown>>
-    );
+    const registeredHints = mapRegisteredHints(registeredPage.rows);
     const lastRegisteredDate = lastRegisteredIso(registeredHints);
 
     const emesseScope = skipScope
@@ -237,19 +241,18 @@ async function listPendingMeta(
     };
   }
 
-  const [docs, registeredRes] = await Promise.all([
+  const [docs, registeredPage] = await Promise.all([
     fetchReceivedInvoices(null),
-    supabase
-      .from("fatture_ricevute")
-      .select("id, fic_id, data_emissione, numero_documento_esterno, numero_interno, totale")
-      .is("deleted_at", null),
+    pageAllSoftRows(
+      supabase,
+      "fatture_ricevute",
+      "id, fic_id, data_emissione, numero_documento_esterno, numero_interno, totale"
+    ),
   ]);
-  if (registeredRes.error) {
-    return { success: false, error: registeredRes.error.message };
+  if (registeredPage.error) {
+    return { success: false, error: registeredPage.error };
   }
-  const registeredHints = mapRegisteredHints(
-    (registeredRes.data ?? []) as Array<Record<string, unknown>>
-  );
+  const registeredHints = mapRegisteredHints(registeredPage.rows);
   const lastRegisteredDate = lastRegisteredIso(registeredHints);
   const scope = skipScope
     ? { skip: true as const, dateFloor: null, ownedIds: null }
@@ -588,45 +591,23 @@ async function runVeloceOnItems(input: {
   const anagIds = new Set<string>();
   const tableHint =
     input.kind === "ricevuta" ? "fatture_ricevute" : "fatture_emesse";
-  const { data: existingRows } = await (
-    input.supabase as {
-      from: (t: string) => {
-        select: (c: string) => {
-          is: (c: string, v: null) => Promise<{
-            data: Array<Record<string, unknown>> | null;
-          }>;
-        };
-      };
-    }
-  )
-    .from(tableHint)
-    .select(
-      "id, fic_id, data_emissione, numero_documento_esterno, numero_interno, totale"
-    )
-    .is("deleted_at", null);
-  let hints = mapRegisteredHints(existingRows ?? []);
+  const hintCols =
+    tableHint === "fatture_emesse"
+      ? "id, fic_id, data_emissione, numero_documento_esterno, numero_fattura, numero_interno, totale"
+      : "id, fic_id, data_emissione, numero_documento_esterno, numero_interno, totale";
+  const existingPage = await pageAllSoftRows(input.supabase, tableHint, hintCols);
+  if (existingPage.error) {
+    return {
+      ...emptyVeloceResult(),
+      errors: [existingPage.error],
+    };
+  }
+  let hints = mapRegisteredHints(existingPage.rows);
 
   async function giaRegistrataFic(ficId: number): Promise<boolean> {
     const table = input.kind === "ricevuta" ? "fatture_ricevute" : "fatture_emesse";
-    const { data } = await (
-      input.supabase as {
-        from: (t: string) => {
-          select: (c: string) => {
-            eq: (c: string, v: number) => {
-              is: (c: string, v: null) => {
-                maybeSingle: () => Promise<{ data: { id?: string } | null }>;
-              };
-            };
-          };
-        };
-      }
-    )
-      .from(table)
-      .select("id")
-      .eq("fic_id", ficId)
-      .is("deleted_at", null)
-      .maybeSingle();
-    return Boolean(data?.id);
+    const hit = await findActiveFatturaIdByFicId(input.supabase, table, ficId);
+    return Boolean(hit?.id);
   }
 
   for (let i = 0; i < input.items.length; i++) {
@@ -736,8 +717,37 @@ async function runVeloceOnItems(input: {
     });
     if (!saved.ok) {
       const dup =
+        isDuplicateFicIdError(saved.error) ||
         /duplicate|unique|fic_id/i.test(saved.error) ||
         saved.error.toLowerCase().includes("già");
+      if (dup) {
+        const existing = await findActiveFatturaIdByFicId(
+          input.supabase,
+          tableHint,
+          item.ficId
+        );
+        if (existing) {
+          hints = [
+            ...hints,
+            {
+              id: existing.id,
+              ficId: item.ficId,
+              numeroEsterno: item.numeroEsterno,
+              numeroInterno: existing.numeroInterno,
+              dataEmissione: item.dataEmissione,
+              totale: item.amountGross,
+            },
+          ];
+          registered += 1;
+          fattureRegistrate.push({
+            numero: item.numeroEsterno || existing.numeroInterno,
+            ragioneSociale: anag.ragioneSociale,
+            partitaIva: anag.partitaIva,
+            importo: item.amountGross,
+          });
+          continue;
+        }
+      }
       if (
         input.stopOnEccezione &&
         !dup &&

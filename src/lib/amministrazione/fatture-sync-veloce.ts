@@ -20,7 +20,11 @@ import {
 } from "@/lib/amministrazione/fatture-sync";
 import { buildNumeroInternoFattura } from "@/lib/amministrazione/fatture";
 import { writeAuditLog } from "@/lib/audit";
-import type { FattureSyncAnagraficaCreata } from "@/lib/amministrazione/fatture-sync-keep";
+import {
+  findActiveFatturaIdByFicId,
+  isDuplicateFicIdError,
+  type FattureSyncAnagraficaCreata,
+} from "@/lib/amministrazione/fatture-sync-keep";
 import type {
   ClienteInsert,
   ClienteRow,
@@ -454,6 +458,39 @@ export async function registraFatturaVeloce(input: {
     };
   }
 
+  const tableFattura =
+    item.kind === "ricevuta" ? "fatture_ricevute" : "fatture_emesse";
+  const already = await findActiveFatturaIdByFicId(
+    supabase,
+    tableFattura,
+    item.ficId
+  );
+  if (already) {
+    return {
+      ok: true,
+      id: already.id,
+      numero: item.numeroEsterno || already.numeroInterno,
+      importo: xmlTotale,
+    };
+  }
+
+  async function recoverDuplicateFic(): Promise<
+    { ok: true; id: string; numero: string; importo: number } | null
+  > {
+    const hit = await findActiveFatturaIdByFicId(
+      supabase,
+      tableFattura,
+      item.ficId
+    );
+    if (!hit) return null;
+    return {
+      ok: true,
+      id: hit.id,
+      numero: item.numeroEsterno || hit.numeroInterno,
+      importo: xmlTotale,
+    };
+  }
+
   try {
     const seq = await nextSeqFatturaWithClient(
       supabase,
@@ -510,6 +547,10 @@ export async function registraFatturaVeloce(input: {
         .select("id")
         .single();
       if (error || !data) {
+        if (error && isDuplicateFicIdError(error.message)) {
+          const recovered = await recoverDuplicateFic();
+          if (recovered) return recovered;
+        }
         return { ok: false, error: error?.message ?? "Salvataggio emessa fallito." };
       }
       const { error: righeErr } = await (
@@ -614,6 +655,10 @@ export async function registraFatturaVeloce(input: {
       .select("id")
       .single();
     if (error || !data) {
+      if (error && isDuplicateFicIdError(error.message)) {
+        const recovered = await recoverDuplicateFic();
+        if (recovered) return recovered;
+      }
       return { ok: false, error: error?.message ?? "Salvataggio ricevuta fallito." };
     }
     const { error: righeErr } = await (

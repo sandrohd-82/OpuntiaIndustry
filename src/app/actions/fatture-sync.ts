@@ -14,6 +14,7 @@ import {
   type FatturaSyncQueueItem,
   type RegisteredFatturaHint,
 } from "@/lib/amministrazione/fatture-sync";
+import { pageAllSoftRows } from "@/lib/amministrazione/fatture-sync-keep";
 import {
   companyNamesMatch,
   vatKeysMatch,
@@ -182,27 +183,26 @@ export async function startFattureEmesseSyncAction(): Promise<FattureSyncStartRe
   // Rinumerazione spostata a fine/pausa sync (UI board): non bloccare l'apertura coda.
 
   const supabase = await createClient();
-  const [invoices, creditNotes, clientiRes, registeredRes] =
+  const [invoices, creditNotes, clientiRes, registeredPage] =
     await Promise.all([
       fetchIssuedInvoices(null),
       fetchIssuedCreditNotes(null),
       supabase.from("clienti").select("*").is("deleted_at", null),
-      supabase
-        .from("fatture_emesse")
-        .select(
-          "id, fic_id, numero_interno, numero_documento_esterno, numero_fattura, cliente_id, cliente_codice_targa, data_emissione, totale, tipo_documento, origine"
-        )
-        .is("deleted_at", null),
+      pageAllSoftRows(
+        supabase,
+        "fatture_emesse",
+        "id, fic_id, numero_interno, numero_documento_esterno, numero_fattura, cliente_id, cliente_codice_targa, data_emissione, totale, tipo_documento, origine"
+      ),
     ]);
 
   if (clientiRes.error) {
     return { success: false, error: clientiRes.error.message };
   }
-  if (registeredRes.error) {
-    return { success: false, error: registeredRes.error.message };
+  if (registeredPage.error) {
+    return { success: false, error: registeredPage.error };
   }
 
-  const registeredRows = registeredRes.data ?? [];
+  const registeredRows = registeredPage.rows;
   const registeredFicIds = new Set(
     registeredRows
       .map((r) => Number(r.fic_id))
@@ -490,22 +490,21 @@ export async function startFattureRicevuteSyncAction(): Promise<FattureSyncStart
   }
 
   const supabase = await createClient();
-  const [docs, fornitoriRes, registeredRes] = await Promise.all([
+  const [docs, fornitoriRes, registeredPage] = await Promise.all([
     fetchReceivedInvoices(null),
     supabase.from("fornitori").select("*").is("deleted_at", null),
-    supabase
-      .from("fatture_ricevute")
-      .select(
-        "id, numero_interno, numero_documento_esterno, fornitore_id, data_emissione, totale, fic_id"
-      )
-      .is("deleted_at", null),
+    pageAllSoftRows(
+      supabase,
+      "fatture_ricevute",
+      "id, numero_interno, numero_documento_esterno, fornitore_id, data_emissione, totale, fic_id"
+    ),
   ]);
 
   if (fornitoriRes.error) {
     return { success: false, error: fornitoriRes.error.message };
   }
-  if (registeredRes.error) {
-    return { success: false, error: registeredRes.error.message };
+  if (registeredPage.error) {
+    return { success: false, error: registeredPage.error };
   }
 
   const fornitori = (fornitoriRes.data ?? []) as FornitoreRow[];
@@ -522,9 +521,8 @@ export async function startFattureRicevuteSyncAction(): Promise<FattureSyncStart
     if (cf && !byVat.has(cf)) byVat.set(cf, f);
   }
 
-  const registeredHints: RegisteredFatturaHint[] = (
-    registeredRes.data ?? []
-  ).map((r) => {
+  const registeredHints: RegisteredFatturaHint[] = registeredPage.rows.map(
+    (r) => {
     const forn = fornitoreById.get(String(r.fornitore_id));
     return {
       id: String(r.id),
@@ -887,25 +885,22 @@ export async function listPendingFicInvoicesForClienteAction(input: {
   }
 
   const supabase = await createClient();
-  const [clienteRes, registeredRes, invoices] = await Promise.all([
+  const [clienteRes, registeredPage, invoices] = await Promise.all([
     supabase
       .from("clienti")
       .select("*")
       .eq("id", input.clienteId)
       .is("deleted_at", null)
       .maybeSingle(),
-    supabase
-      .from("fatture_emesse")
-      .select("fic_id")
-      .is("deleted_at", null),
+    pageAllSoftRows(supabase, "fatture_emesse", "fic_id"),
     fetchIssuedInvoices(null),
   ]);
 
   if (clienteRes.error) {
     return { success: false, error: clienteRes.error.message };
   }
-  if (registeredRes.error) {
-    return { success: false, error: registeredRes.error.message };
+  if (registeredPage.error) {
+    return { success: false, error: registeredPage.error };
   }
   const cliente = clienteRes.data as ClienteRow | null;
   if (!cliente) {
@@ -923,7 +918,7 @@ export async function listPendingFicInvoicesForClienteAction(input: {
   }
 
   const registeredFicIds = new Set(
-    (registeredRes.data ?? [])
+    registeredPage.rows
       .map((r) => Number(r.fic_id))
       .filter((n) => Number.isFinite(n) && n > 0)
   );

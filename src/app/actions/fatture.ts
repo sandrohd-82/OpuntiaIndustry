@@ -37,6 +37,10 @@ import {
   loadOwnedAziendaIds,
   resolveScopeMode,
 } from "@/lib/auth/data-scope-enforce";
+import {
+  findActiveFatturaIdByFicId,
+  isDuplicateFicIdError,
+} from "@/lib/amministrazione/fatture-sync-keep";
 import { createClient } from "@/lib/supabase/server";
 import type {
   FatturaEmessaDilazioneInsert,
@@ -88,6 +92,17 @@ function assertScartoFicOk(input: {
 export type FattureActionResult =
   | { success: true; fattura: Fattura }
   | { success: false; error: string };
+
+async function fatturaGiaRegistrataPerFic(
+  kind: FatturaKind,
+  ficId: number | null | undefined
+): Promise<FattureActionResult | null> {
+  const table = kind === "ricevuta" ? "fatture_ricevute" : "fatture_emesse";
+  const supabase = await createClient();
+  const hit = await findActiveFatturaIdByFicId(supabase, table, ficId);
+  if (!hit) return null;
+  return getFatturaByIdAction(kind, hit.id);
+}
 
 type SupabaseServer = Awaited<ReturnType<typeof createClient>>;
 
@@ -1017,6 +1032,10 @@ export async function createFatturaAction(
     };
   }
   const input = parsed.data;
+  if (input.ficId) {
+    const existing = await fatturaGiaRegistrataPerFic(kind, input.ficId);
+    if (existing) return existing;
+  }
   const totals = calcolaTotaliFattura({
     righe: input.righe,
     spedizione: input.spedizione,
@@ -1121,6 +1140,15 @@ export async function createFatturaAction(
         .select("*")
         .single();
       if (error || !data) {
+        if (error && isDuplicateFicIdError(error.message) && input.ficId) {
+          const existing = await fatturaGiaRegistrataPerFic(kind, input.ficId);
+          if (existing) return existing;
+          return {
+            success: false,
+            error:
+              "Questa fattura FiC è già presente in gestionale. Non può essere registrata due volte.",
+          };
+        }
         return {
           success: false,
           error: error?.message ?? "Salvataggio fattura non riuscito.",
@@ -1378,6 +1406,15 @@ export async function createFatturaAction(
       .select("*")
       .single();
     if (error || !data) {
+      if (error && isDuplicateFicIdError(error.message) && input.ficId) {
+        const existing = await fatturaGiaRegistrataPerFic(kind, input.ficId);
+        if (existing) return existing;
+        return {
+          success: false,
+          error:
+            "Questa fattura FiC è già presente in gestionale. Non può essere registrata due volte.",
+        };
+      }
       return {
         success: false,
         error: error?.message ?? "Salvataggio fattura non riuscito.",
