@@ -2,11 +2,7 @@ import { NextResponse } from "next/server";
 import { isUnrestrictedSuperadmin } from "@/lib/auth/roles";
 import { getAuthContext, userCanAccessArea } from "@/lib/auth/session";
 import { isConfigStato, parseProfileStatoOperativo } from "@/lib/auth/stato-operativo";
-import {
-  queryDettaglioOccupazionePosto,
-  queryOccupazioniPerProdotto,
-  queryRiepilogoOccupazionePosti,
-} from "@/lib/magazzino/posto-occupazione-query";
+import { queryMappaLateralePostoConDati } from "@/lib/magazzino/posto-mappa-query";
 import type { AreaSlug } from "@/types/database";
 
 export const runtime = "nodejs";
@@ -41,31 +37,13 @@ export async function GET(request: Request) {
         { status: 401 }
       );
     }
-    const url = new URL(request.url);
-    const prodottoId = url.searchParams.get("prodottoId") ?? "";
-    const lotti = (url.searchParams.get("lotti") ?? "")
-      .split(",")
-      .map((s) => s.trim())
-      .filter(Boolean);
-    if (prodottoId || lotti.length) {
-      const res = await queryOccupazioniPerProdotto(prodottoId, lotti);
-      return NextResponse.json(res, { status: res.success ? 200 : 400 });
-    }
-    const idsRaw = url.searchParams.get("ids") ?? "";
-    const ids = idsRaw
-      .split(",")
-      .map((s) => s.trim())
-      .filter(Boolean);
-    if (ids.length) {
-      const res = await queryRiepilogoOccupazionePosti(ids);
-      return NextResponse.json(res, { status: res.success ? 200 : 400 });
-    }
-    const ubicazioneId = url.searchParams.get("ubicazioneId") ?? "";
-    const res = await queryDettaglioOccupazionePosto(ubicazioneId);
+    const ubicazioneId =
+      new URL(request.url).searchParams.get("ubicazioneId") ?? "";
+    const res = await queryMappaLateralePostoConDati(ubicazioneId);
     return NextResponse.json(res, { status: res.success ? 200 : 400 });
   } catch (err) {
     const message =
-      err instanceof Error ? err.message : "Occupazione non disponibile.";
+      err instanceof Error ? err.message : "Mappa non disponibile.";
     return NextResponse.json({ success: false, error: message }, { status: 500 });
   }
 }

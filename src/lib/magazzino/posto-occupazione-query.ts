@@ -1,8 +1,10 @@
 import {
+  etichettaPalletESacchi,
   pesoOccupazioneKg,
   riepilogoOccupazionePosto,
   targaProdottoOccupazione,
   type DettaglioElencoPosto,
+  type OccupazioneLottoPianta,
   type PostoElementoTipo,
   type PostoOccupazione,
   type PostoPesoModo,
@@ -236,4 +238,178 @@ export async function queryRiepilogoOccupazionePosti(
     };
   }
   return { success: true, perPosto };
+}
+
+export async function queryOccupazioniPerProdotto(
+  prodottoId: string,
+  lotti: string[] = []
+): Promise<
+  | { success: true; perLotto: Record<string, OccupazioneLottoPianta> }
+  | { success: false; error: string }
+> {
+  const perLotto: Record<string, OccupazioneLottoPianta> = {};
+  if (!prodottoId && !lotti.length) return { success: true, perLotto };
+
+  let db: ReturnType<typeof createServiceClient>;
+  try {
+    db = createServiceClient();
+  } catch {
+    return { success: false, error: "Occupazione non disponibile." };
+  }
+
+  const rows: OccRow[] = [];
+  const seen = new Set<string>();
+  const pushRows = (list: OccRow[]) => {
+    for (const r of list) {
+      if (seen.has(r.id)) continue;
+      seen.add(r.id);
+      rows.push(r);
+    }
+  };
+
+  if (prodottoId) {
+    const { data, error } = await db
+      .from("magazzino_posto_occupazioni")
+      .select(OCC_SELECT)
+      .eq("prodotto_id", prodottoId)
+      .eq("stato", "attivo")
+      .is("deleted_at", null);
+    if (error) return { success: false, error: error.message };
+    pushRows((data ?? []) as OccRow[]);
+  }
+
+  const lottiClean = [...new Set(lotti.map((s) => s.trim()).filter(Boolean))];
+  const CHUNK = 80;
+  for (let i = 0; i < lottiClean.length; i += CHUNK) {
+    const part = lottiClean.slice(i, i + CHUNK);
+    const { data, error } = await db
+      .from("magazzino_posto_occupazioni")
+      .select(OCC_SELECT)
+      .in("lotto_interno_codice", part)
+      .eq("stato", "attivo")
+      .is("deleted_at", null);
+    if (error) return { success: false, error: error.message };
+    pushRows((data ?? []) as OccRow[]);
+  }
+
+  if (!rows.length) return { success: true, perLotto };
+
+  const occIds = rows.map((r) => r.id);
+  const ubiIds = [...new Set(rows.map((r) => r.ubicazione_id))];
+  const prodottoIds = [
+    ...new Set(rows.map((r) => r.prodotto_id).filter(Boolean)),
+  ] as string[];
+  if (prodottoId) prodottoIds.push(prodottoId);
+
+  const els: Array<ElRow & { occupazione_id: string }> = [];
+  for (let i = 0; i < occIds.length; i += CHUNK) {
+    const part = occIds.slice(i, i + CHUNK);
+    const { data, error } = await db
+      .from("magazzino_posto_elementi")
+      .select("id, numero, peso_kg, scan_token, occupazione_id")
+      .in("occupazione_id", part)
+      .is("deleted_at", null);
+    if (error) return { success: false, error: error.message };
+    els.push(...((data ?? []) as Array<ElRow & { occupazione_id: string }>));
+  }
+
+  const [{ data: ubis }, { data: prods }] = await Promise.all([
+    db
+      .from("magazzino_ubicazioni")
+      .select("id, codice, nome")
+      .in("id", ubiIds)
+      .is("deleted_at", null),
+    prodottoIds.length
+      ? db.from("prodotti_propri").select("id, codice").in("id", prodottoIds)
+      : Promise.resolve({ data: [] as Array<{ id: string; codice: string }> }),
+  ]);
+
+  const ubiById = new Map(
+    ((ubis ?? []) as Array<{ id: string; codice: string; nome: string }>).map(
+      (u) => [u.id, u]
+    )
+  );
+  const codiceByProd = new Map(
+    ((prods ?? []) as Array<{ id: string; codice: string }>).map((p) => [
+      p.id,
+      p.codice,
+    ])
+  );
+  const elsByOcc = new Map<string, ElRow[]>();
+  for (const e of els) {
+    const list = elsByOcc.get(e.occupazione_id) ?? [];
+    list.push(e);
+    elsByOcc.set(e.occupazione_id, list);
+  }
+
+  const codiceProdottoFallback = prodottoId
+    ? codiceByProd.get(prodottoId) ?? ""
+    : "";
+
+  for (const row of rows) {
+    const occ = mapOccupazione(row, elsByOcc.get(row.id) ?? []);
+    const lotto = (occ.lottoInternoCodice || "").trim();
+    if (!lotto) continue;
+    const codice =
+      (occ.prodottoId ? codiceByProd.get(occ.prodottoId) : "") ||
+      codiceProdottoFallback;
+    const targa = targaProdottoOccupazione(occ, codice);
+    const ubi = ubiById.get(occ.ubicazioneId);
+    const nEl = occ.quantitaElementi ?? occ.elementi.length;
+    const tipoSacco = occ.imballaggioNome || (
+      occ.tipoElemento === "confezione" ? "Cartone" : "Sacco"
+    );
+    const acc =
+      perLotto[lotto] ??
+      ({
+        lottoInterno: lotto,
+        prodottoId: occ.prodottoId || prodottoId,
+        prodottoCodice: codice,
+        riepilogo: "",
+        palletCount: 0,
+        elementiCount: 0,
+        righe: [],
+      } satisfies OccupazioneLottoPianta);
+    acc.palletCount += 1;
+    acc.elementiCount += Math.max(0, nEl);
+    if (occ.elementi.length) {
+      for (const el of occ.elementi) {
+        acc.righe.push({
+          elementoId: el.id,
+          occupazioneId: occ.id,
+          ubicazioneId: occ.ubicazioneId,
+          postoCodice: ubi?.codice || "",
+          postoNome: ubi?.nome || "",
+          codiceElemento: el.numero,
+          codicePallet: occ.codicePallet,
+          pesoKg: el.pesoKg,
+          tipoSacco,
+          targa,
+          lottoInterno: lotto,
+        });
+      }
+    } else {
+      acc.righe.push({
+        elementoId: occ.id,
+        occupazioneId: occ.id,
+        ubicazioneId: occ.ubicazioneId,
+        postoCodice: ubi?.codice || "",
+        postoNome: ubi?.nome || "",
+        codiceElemento: occ.codicePallet,
+        codicePallet: occ.codicePallet,
+        pesoKg: pesoOccupazioneKg(occ),
+        tipoSacco,
+        targa,
+        lottoInterno: lotto,
+      });
+    }
+    acc.riepilogo = etichettaPalletESacchi(
+      acc.palletCount,
+      acc.elementiCount,
+      occ.tipoElemento
+    );
+    perLotto[lotto] = acc;
+  }
+
+  return { success: true, perLotto };
 }

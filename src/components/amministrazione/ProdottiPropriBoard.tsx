@@ -389,6 +389,7 @@ export function ProdottiPropriBoard({
                 {showGiacenza && lottiAperti[m.id] ? (
                   <ProdottiPropriLottiExpand
                     prodottoId={m.id}
+                    prodottoCodice={m.codice}
                     colSpan={elencoColSpan}
                   />
                 ) : null}

@@ -178,6 +178,53 @@ export type RiepilogoElencoPosto = {
   testo: string;
 };
 
+export type ConfezionamentoPiantaRiga = {
+  elementoId: string;
+  occupazioneId: string;
+  ubicazioneId: string;
+  postoCodice: string;
+  postoNome: string;
+  codiceElemento: string;
+  codicePallet: string;
+  pesoKg: number | null;
+  tipoSacco: string;
+  targa: string;
+  lottoInterno: string;
+};
+
+export type OccupazioneLottoPianta = {
+  lottoInterno: string;
+  prodottoId: string;
+  prodottoCodice: string;
+  riepilogo: string;
+  palletCount: number;
+  elementiCount: number;
+  righe: ConfezionamentoPiantaRiga[];
+};
+
+export function etichettaPalletESacchi(
+  palletCount: number,
+  elementiCount: number,
+  tipoElemento?: PostoElementoTipo | null
+): string {
+  const p = Math.max(0, palletCount);
+  const n = Math.max(0, elementiCount);
+  const isolamento = tipoElemento !== "confezione";
+  const palletTxt = p === 1 ? "1 pallet" : `${p} pallet`;
+  const elTxt =
+    n === 1
+      ? isolamento
+        ? "1 sacco"
+        : "1 cartone"
+      : isolamento
+        ? `${n} sacchi`
+        : `${n} cartoni`;
+  if (!p && !n) return "";
+  if (!p) return elTxt;
+  if (!n) return palletTxt;
+  return `${palletTxt} e ${elTxt}`;
+}
+
 export function pesoOccupazioneKg(occ: PostoOccupazione): number | null {
   const pesoEl = occ.elementi.reduce((s, e) => s + (e.pesoKg ?? 0), 0);
   const n =
@@ -333,4 +380,27 @@ export async function fetchRiepilogoOccupazionePosti(
     Object.assign(perPosto, data.perPosto);
   }
   return { success: true, perPosto };
+}
+
+export async function fetchOccupazioniPiantaProdotto(
+  prodottoId: string,
+  lotti: string[] = []
+): Promise<
+  | { success: true; perLotto: Record<string, OccupazioneLottoPianta> }
+  | { success: false; error: string }
+> {
+  if (!prodottoId) return { success: true, perLotto: {} };
+  const q = new URLSearchParams({ prodottoId });
+  if (lotti.length) q.set("lotti", lotti.filter(Boolean).join(","));
+  const data = await fetchOccupazioneJson<
+    | { success: true; perLotto: Record<string, OccupazioneLottoPianta> }
+    | { success: false; error?: string }
+  >(`/api/magazzino/posto-occupazione?${q}`, 20000);
+  if (!data.success) {
+    return {
+      success: false,
+      error: data.error || "Occupazione non disponibile.",
+    };
+  }
+  return data;
 }
