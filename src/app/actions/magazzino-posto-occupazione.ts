@@ -554,7 +554,7 @@ export async function listRiepilogoElencoPostiAction(
     perPosto[row.ubicazione_id] = {
       targa: targaProdottoOccupazione(occ, codice),
       quantitaTotaleKg: pesoOccupazioneKg(occ),
-      testo: riepilogoOccupazionePosto(occ),
+      testo: riepilogoOccupazionePosto(occ, codice),
     };
   }
   return { success: true, perPosto };

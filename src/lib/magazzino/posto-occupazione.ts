@@ -211,8 +211,11 @@ function formatKgRiepilogo(n: number): string {
   return Number.isInteger(t) ? String(t) : String(t);
 }
 
-/** Testo sull’area cliccata: 1 Pallet 5 sacchetti peso totale 550kg codice pallet … */
-export function riepilogoOccupazionePosto(occ: PostoOccupazione): string {
+/** Righe sul box cliccato: 1 pallet / 8 sacchetti / X kg tot. / Prod. NDRi */
+export function righeOccupazionePosto(
+  occ: PostoOccupazione,
+  codiceProdotto?: string | null
+): string[] {
   const nEl = occ.quantitaElementi ?? occ.elementi.length;
   const isolamento = occ.tipoElemento === "isolamento";
   const tipo =
@@ -223,19 +226,20 @@ export function riepilogoOccupazionePosto(occ: PostoOccupazione): string {
       : isolamento
         ? "sacchetti"
         : "cartoni";
-  const pesoElementi = occ.elementi.reduce((s, e) => s + (e.pesoKg ?? 0), 0);
-  const peso =
-    occ.pesoModo === "complessivo" && occ.pesoComplessivoKg != null
-      ? Number(occ.pesoComplessivoKg)
-      : pesoElementi > 0
-        ? pesoElementi
-        : Number(occ.kgAllocati ?? 0);
-  const parti = ["1 Pallet", `${Math.max(0, nEl)} ${tipo}`];
-  const kg = formatKgRiepilogo(peso);
-  if (kg) parti.push(`peso totale ${kg}kg`);
-  const codice = occ.codicePallet.trim();
-  if (codice) parti.push(`codice pallet ${codice}`);
-  return parti.join(" ");
+  const peso = pesoOccupazioneKg(occ);
+  const kg = peso != null ? formatKgRiepilogo(peso) : "";
+  const targa = targaProdottoOccupazione(occ, codiceProdotto);
+  const righe = ["1 pallet", `${Math.max(0, nEl)} ${tipo}`];
+  if (kg) righe.push(`${kg} kg tot.`);
+  if (targa) righe.push(`Prod. ${targa}`);
+  return righe;
+}
+
+export function riepilogoOccupazionePosto(
+  occ: PostoOccupazione,
+  codiceProdotto?: string | null
+): string {
+  return righeOccupazionePosto(occ, codiceProdotto).join("\n");
 }
 
 export function etichettaPayloadPallet(codicePallet: string): string {

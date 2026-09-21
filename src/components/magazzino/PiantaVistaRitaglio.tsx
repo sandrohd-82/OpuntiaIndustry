@@ -339,12 +339,17 @@ export function PiantaVistaRitaglio({
                   offsetY: foto.offsetY,
                 })
               : null;
-            const occTxt = testoOcc(a.ubicazioneId);
+            const occRighe =
+              cap.occupazione === "occupato"
+                ? testoOcc(a.ubicazioneId)
+                    .split(/\n/)
+                    .map((s) => s.trim())
+                    .filter(Boolean)
+                : ["Libero"];
             const dettaglioRighe = [
               targa,
               a.nome.trim() && a.nome.trim() !== targa ? a.nome.trim() : "",
-              cap.occupazione === "occupato" ? "Occupato" : "Libero",
-              cap.occupazione === "occupato" ? occTxt : "",
+              ...occRighe,
             ].filter(Boolean);
             return (
               <g
@@ -569,7 +574,15 @@ function PostoOverlay({
               onOccupa?.();
             }}
           >
-            {loading ? "Occupato…" : testo?.trim() || "Occupato"}
+            {(testo || "")
+              .split(/\n/)
+              .map((s) => s.trim())
+              .filter(Boolean)
+              .map((riga) => (
+                <p key={riga} className="leading-tight">
+                  {riga}
+                </p>
+              ))}
           </button>
         ) : (
           <div className="flex flex-col items-center gap-1">
