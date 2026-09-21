@@ -12,7 +12,9 @@ import {
   composeLottoAgrinsicilia,
   composeLottoBozza,
   digitsFromDataLotto,
+  formatDataLotto,
   formatPartialDate,
+  isValidLottoAgrinsicilia,
   parseLottoAgrinsicilia,
   parseLottoBozza,
   stripTargaFornitore,
@@ -21,13 +23,46 @@ import {
 import { isValidLottoIngressoMp } from "@/lib/produzione/fogli-ingresso-mp";
 import { SelectMenu } from "@/components/ui/SelectMenu";
 
+type CodiceMpOpt = {
+  lotto: string;
+  fornitoreTarga: string;
+  fornitoreLabel: string;
+  materiaPrima: string;
+};
+
 type Props = {
   targaProdotto: string;
   prodottoLabel: string;
   initialLotto?: string;
+  /** Codice MP inventario generato in questa sessione (non è ancora in anagrafica). */
+  initialMpInventario?: string;
+  onMpInventario?: (codice: string) => void;
+  /** Lotto già componibile (es. dopo genera MP inventario): resta in form anche chiudendo. */
+  onDraftLotto?: (lotto: string) => void;
   onClose: () => void;
   onConfirm: (lotto: string) => void;
 };
+
+function mpInventarioOpt(codice: string, fornitoreTarga = "INV"): CodiceMpOpt {
+  return {
+    lotto: codice,
+    fornitoreTarga,
+    fornitoreLabel: "Inventario (senza storico)",
+    materiaPrima: "Inventario",
+  };
+}
+
+function mergeCodiciMp(base: CodiceMpOpt[], extra: CodiceMpOpt[]): CodiceMpOpt[] {
+  const seen = new Set<string>();
+  const out: CodiceMpOpt[] = [];
+  for (const row of [...extra, ...base]) {
+    const key = row.lotto.trim().toUpperCase();
+    if (!key || seen.has(key)) continue;
+    seen.add(key);
+    out.push(row);
+  }
+  return out;
+}
 
 function emptyParti(targaProdotto: string): LottoAgrinsiciliaParti {
   return {
@@ -48,26 +83,42 @@ export function LottoAgrinsiciliaModal({
   targaProdotto,
   prodottoLabel,
   initialLotto,
+  initialMpInventario,
+  onMpInventario,
+  onDraftLotto,
   onClose,
   onConfirm,
 }: Props) {
   const titleId = useId();
-  const parsedInitial = parseLottoAgrinsicilia(initialLotto ?? "");
-  const [parti, setParti] = useState<LottoAgrinsiciliaParti>(
-    parsedInitial
-      ? { ...parsedInitial, targaProdotto }
-      : emptyParti(targaProdotto)
+  const parsedInitial =
+    parseLottoAgrinsicilia(initialLotto ?? "") ??
+    (initialLotto
+      ? parseLottoBozza(initialLotto, targaProdotto)
+      : null);
+  const seedMp = (
+    parsedInitial?.ddt ||
+    initialMpInventario ||
+    ""
+  ).trim();
+  const extraMpRef = useRef<CodiceMpOpt[]>(
+    seedMp ? [mpInventarioOpt(seedMp, parsedInitial?.targaFornitore || "INV")] : []
   );
+  const [parti, setParti] = useState<LottoAgrinsiciliaParti>(() => {
+    if (parsedInitial && (parsedInitial.ddt || parsedInitial.dataInizio)) {
+      return {
+        ...emptyParti(targaProdotto),
+        ...parsedInitial,
+        targaProdotto,
+        ddt: seedMp || parsedInitial.ddt,
+      };
+    }
+    return seedMp
+      ? { ...emptyParti(targaProdotto), ddt: seedMp }
+      : emptyParti(targaProdotto);
+  });
   const [fornitori, setFornitori] = useState<FornitoreTargaMagazzino[]>([]);
-  const [codiciMp, setCodiciMp] = useState<
-    Array<{
-      lotto: string;
-      fornitoreTarga: string;
-      fornitoreLabel: string;
-      materiaPrima: string;
-    }>
-  >([]);
-  const [codiceMpSel, setCodiceMpSel] = useState("");
+  const [codiciMp, setCodiciMp] = useState<CodiceMpOpt[]>(() => extraMpRef.current);
+  const [codiceMpSel, setCodiceMpSel] = useState(seedMp);
   const [listsReady, setListsReady] = useState(false);
   const [generaMpBusy, setGeneraMpBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -102,10 +153,9 @@ export function LottoAgrinsiciliaModal({
     ]).then(([f, m, p]) => {
       if (f.success) setFornitori(f.items);
       if (m.success) {
-        setCodiciMp(m.items);
-        if (parsedInitial?.ddt) setCodiceMpSel(parsedInitial.ddt);
+        setCodiciMp((cur) => mergeCodiciMp(m.items, [...extraMpRef.current, ...cur]));
       }
-      if (p.success && !parsedInitial?.progressivo) {
+      if (p.success) {
         setParti((cur) =>
           cur.progressivo ? cur : { ...cur, progressivo: p.progressivo }
         );
@@ -179,41 +229,58 @@ export function LottoAgrinsiciliaModal({
       return;
     }
     const codice = res.codice;
-    setCodiciMp((cur) =>
-      cur.some((x) => x.lotto === codice)
-        ? cur
-        : [
-            {
-              lotto: codice,
-              fornitoreTarga: parti.targaFornitore || "INV",
-              fornitoreLabel: "Inventario (senza storico)",
-              materiaPrima: "Inventario",
-            },
-            ...cur,
-          ]
-    );
+    const forn = parti.targaFornitore || "INV";
+    const dataDigits = digitsFromDataLotto(parti.dataInizio);
+    const dataInizio =
+      dataDigits.length === 6
+        ? formatPartialDate(dataDigits)
+        : formatDataLotto(new Date());
+    const opt = mpInventarioOpt(codice, forn);
+    extraMpRef.current = mergeCodiciMp(extraMpRef.current, [opt]);
+    setCodiciMp((cur) => mergeCodiciMp(cur, [opt]));
     setCodiceMpSel(codice);
-    patch({
+    setPartiLocked({
+      ...parti,
       ddt: codice,
-      targaFornitore: parti.targaFornitore || "INV",
+      targaFornitore: forn,
+      dataInizio,
+      progressivo: parti.progressivo || "001",
     });
+    onMpInventario?.(codice);
+    const draft = composeLottoAgrinsicilia({
+      ...parti,
+      targaProdotto,
+      ddt: codice,
+      targaFornitore: forn,
+      dataInizio,
+      progressivo: parti.progressivo || "001",
+    });
+    if (draft && isValidLottoAgrinsicilia(draft)) {
+      onDraftLotto?.(draft);
+    }
   }
 
   function confirm() {
-    if (parti.ddt && !isValidLottoIngressoMp(parti.ddt)) {
+    const next = {
+      ...parti,
+      targaProdotto,
+      ddt: (parti.ddt || codiceMpSel || seedMp).trim(),
+    };
+    const out = composeLottoAgrinsicilia(next);
+    if (out && isValidLottoAgrinsicilia(out)) {
+      onMpInventario?.(next.ddt);
+      onConfirm(out);
+      return;
+    }
+    if (next.ddt && !isValidLottoIngressoMp(next.ddt)) {
       setError(
         "Codice MP lavorata non valido: serve GGMMAA + 5 cifre esadecimali (es. 12092600001)."
       );
       return;
     }
-    const out = composeLottoAgrinsicilia({ ...parti, targaProdotto });
-    if (!out) {
-      setError(
-        "Completa data, fornitore, codice MP lavorata (GGMMAA + 5 hex) e progressivo."
-      );
-      return;
-    }
-    onConfirm(out);
+    setError(
+      "Completa data, fornitore, codice MP lavorata (GGMMAA + 5 hex) e progressivo. Poi usa «Usa questo lotto»."
+    );
   }
 
   return (
@@ -347,19 +414,24 @@ export function LottoAgrinsiciliaModal({
           <SelectMenu
             loading={!listsReady}
             placeholder="Seleziona lotto ingresso MP"
-            value={codiceMpSel}
+            value={codiceMpSel || parti.ddt}
             onChange={(e) => {
               const lotto = e.target.value;
               setCodiceMpSel(lotto);
+              if (!lotto) return;
               const row = codiciMp.find((l) => l.lotto === lotto);
-              if (!row) return;
               patch({
-                targaFornitore: row.fornitoreTarga || parti.targaFornitore,
-                ddt: row.lotto,
+                targaFornitore: row?.fornitoreTarga || parti.targaFornitore || "INV",
+                ddt: lotto,
               });
             }}
           >
-            {codiciMp.map((l) => (
+            {mergeCodiciMp(
+              codiciMp,
+              (codiceMpSel || parti.ddt)
+                ? [mpInventarioOpt(codiceMpSel || parti.ddt, parti.targaFornitore || "INV")]
+                : []
+            ).map((l) => (
               <option key={l.lotto} value={l.lotto}>
                 {l.lotto} · {l.materiaPrima} · {l.fornitoreLabel}
               </option>
@@ -416,15 +488,21 @@ export function LottoAgrinsiciliaModal({
             <SelectMenu
               loading={!listsReady}
               placeholder="Seleziona fornitore materia prima"
-              value={
-                fornitori.some((f) => f.targaSenzaF === parti.targaFornitore)
-                  ? parti.targaFornitore
-                  : ""
-              }
+              value={parti.targaFornitore}
               onChange={(e) =>
                 patch({ targaFornitore: stripTargaFornitore(e.target.value) })
               }
             >
+              {!fornitori.some((f) => f.targaSenzaF === "INV") ? (
+                <option value="INV">INV — Inventario / settaggio magazzino</option>
+              ) : null}
+              {parti.targaFornitore &&
+              parti.targaFornitore !== "INV" &&
+              !fornitori.some((f) => f.targaSenzaF === parti.targaFornitore) ? (
+                <option value={parti.targaFornitore}>
+                  {parti.targaFornitore} — (inserito)
+                </option>
+              ) : null}
               {fornitori.map((f) => (
                 <option key={f.id} value={f.targaSenzaF}>
                   {f.targaSenzaF} — {f.ragioneSociale}

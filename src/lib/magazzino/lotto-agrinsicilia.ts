@@ -88,13 +88,50 @@ export function composeLottoAgrinsicilia(
   return `${LOTTO_AGRINSICILIA_PREFIX}${data}/${prod}/${forn}/${ddt}-${prog}`;
 }
 
+function decodeLottoRaw(raw: string): string {
+  const s = String(raw ?? "").replace(/\s+/g, "").trim();
+  if (!s) return "";
+  if (!/%2F/i.test(s) && !/%2D/i.test(s)) return s;
+  try {
+    return decodeURIComponent(s).replace(/\s+/g, "").trim();
+  } catch {
+    return s;
+  }
+}
+
 export function parseLottoAgrinsicilia(
   raw: string
 ): LottoAgrinsiciliaParti | null {
-  const s = String(raw ?? "").replace(/\s+/g, "").trim();
+  const s = decodeLottoRaw(raw);
   if (!s) return null;
+  const body = s.replace(/^L-/i, "");
+  const parts = body.split("/");
+  if (parts.length >= 4) {
+    const dataInizio = parts[0];
+    const targaProdotto = parts[1];
+    const targaFornitore = stripTargaFornitore(parts[2]);
+    const rest = parts.slice(3).join("/");
+    const dash = rest.lastIndexOf("-");
+    const ddt = dash > 0 ? rest.slice(0, dash) : rest;
+    const progRaw = dash > 0 ? rest.slice(dash + 1) : "";
+    if (
+      /^\d{2}\.\d{2}\.\d{2}$/.test(dataInizio) &&
+      targaProdotto &&
+      targaFornitore &&
+      ddt &&
+      /^\d{1,3}$/.test(progRaw)
+    ) {
+      return {
+        dataInizio,
+        targaProdotto,
+        targaFornitore,
+        ddt,
+        progressivo: padProgressivo(progRaw),
+      };
+    }
+  }
   const m = s.match(
-    /^L-(\d{2}\.\d{2}\.\d{2})\/([^/]+)\/([^/]+)\/(.+)-(\d{2,3})$/i
+    /^L-(\d{2}\.\d{2}\.\d{2})\/([^/]+)\/([^/]+)\/(.+)-(\d{1,3})$/i
   );
   if (!m) return null;
   return {

@@ -16,7 +16,11 @@ import { ConfezionamentoBlocchiEditor } from "@/components/magazzino/Confezionam
 import { LottoAgrinsiciliaModal } from "@/components/magazzino/LottoAgrinsiciliaModal";
 import { emptyConfezionamentoDraft } from "@/lib/amministrazione/imballaggi-spedizioni";
 import type { ConfezionamentoDraft, ImballaggioVoce } from "@/lib/amministrazione/imballaggi-spedizioni";
-import { lottoMaskPlaceholder } from "@/lib/magazzino/lotto-agrinsicilia";
+import {
+  isValidLottoAgrinsicilia,
+  lottoMaskPlaceholder,
+  parseLottoAgrinsicilia,
+} from "@/lib/magazzino/lotto-agrinsicilia";
 import { stampaSchedaLottoUscita } from "@/lib/produzione/stampa-scheda-lotto-uscita";
 import {
   formatQuantitaCarico,
@@ -50,6 +54,7 @@ export function MagazzinoInserisciQuantitaBoard() {
   const [quantita, setQuantita] = useState<number | "">("");
   const [unitaMisura, setUnitaMisura] = useState<MagazzinoCaricoUnita>("kg");
   const [lottoCodice, setLottoCodice] = useState("");
+  const [mpInventario, setMpInventario] = useState("");
   const [lottoOpen, setLottoOpen] = useState(false);
   const [collegaFoglio, setCollegaFoglio] = useState(true);
   const [foglioId, setFoglioId] = useState("");
@@ -116,7 +121,11 @@ export function MagazzinoInserisciQuantitaBoard() {
     const qn = Number(rawQ);
     if (Number.isFinite(qn) && qn > 0) setQuantita(qn);
     const lotto = searchParams.get("lotto")?.trim() ?? "";
-    if (lotto) setLottoCodice(lotto);
+    if (lotto) {
+      setLottoCodice(lotto);
+      const parsed = parseLottoAgrinsicilia(lotto);
+      if (parsed?.ddt) setMpInventario(parsed.ddt);
+    }
     const foglioCodice = searchParams.get("foglio")?.trim() ?? "";
     if (foglioCodice) {
       const foglio = fogli.find((f) => f.codice === foglioCodice);
@@ -185,6 +194,13 @@ export function MagazzinoInserisciQuantitaBoard() {
       setError("Apri la composizione e conferma il lotto di lavorazione.");
       return;
     }
+    if (!isValidLottoAgrinsicilia(lottoCodice)) {
+      setError(
+        "Lotto non valido. Apri la composizione, genera o seleziona il Codice MP e clicca «Usa questo lotto»."
+      );
+      setLottoOpen(true);
+      return;
+    }
     if (!rimandaCi && confDraft.nodi.length === 0) {
       setError(
         "Aggiungi almeno un blocco di confezionamento, oppure spunta «Completa in un secondo momento»."
@@ -230,6 +246,7 @@ export function MagazzinoInserisciQuantitaBoard() {
       );
       setQuantita("");
       setLottoCodice("");
+      setMpInventario("");
       setLottoUscita(null);
       setNote("");
       setConfDraft(emptyConfezionamentoDraft());
@@ -591,9 +608,14 @@ export function MagazzinoInserisciQuantitaBoard() {
           targaProdotto={selected.codice}
           prodottoLabel={`${selected.codice} — ${selected.nome}`}
           initialLotto={lottoCodice}
+          initialMpInventario={mpInventario}
+          onMpInventario={setMpInventario}
+          onDraftLotto={setLottoCodice}
           onClose={() => setLottoOpen(false)}
           onConfirm={(lotto) => {
             setLottoCodice(lotto);
+            const parsed = parseLottoAgrinsicilia(lotto);
+            if (parsed?.ddt) setMpInventario(parsed.ddt);
             setLottoOpen(false);
           }}
         />
