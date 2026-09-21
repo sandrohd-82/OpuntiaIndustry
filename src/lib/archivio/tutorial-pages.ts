@@ -219,7 +219,7 @@ export const PAGE_EXTRAS: Record<string, TutorialBlock[]> = {
   "/app/action/aree/essiccatori": [
     {
       type: "p",
-      text: "Il fulmine apre le azioni immediate di quell’essiccatore. Avvio richiede consenso bruciatore On, % bruciatore (manopola 8:00 azzurro → 16:00 rosso), consenso ventola On e % ventilazione (8:00 grigio → 16:00 azzurro). I 4 messaggi IoT restano in coda fino al collegamento del dispositivo. Lo spostamento dei sensori lo fa solo il Super Admin non impersonato.",
+      text: "Il fulmine apre le azioni immediate di quell’essiccatore. Avvio richiede consenso bruciatore On, setpoint temperatura uscita bruciatore 35–70 °C (manopola azzurro→rosso; la % la regola il sistema dalla sonda TEMP-BRUC), consenso ventola On e % ventilazione (grigio→azzurro). I 4 messaggi IoT restano in coda fino al collegamento del dispositivo. Lo spostamento dei sensori lo fa solo il Super Admin non impersonato.",
     },
   ],
   "/app/magazzino/mappa": [

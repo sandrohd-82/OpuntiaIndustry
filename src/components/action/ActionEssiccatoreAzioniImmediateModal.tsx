@@ -11,6 +11,9 @@ import {
   VENT_TO,
 } from "@/components/action/ClockArcPercentGauge";
 import {
+  TEMP_BRUCIATORE_DEFAULT_C,
+  TEMP_BRUCIATORE_MAX_C,
+  TEMP_BRUCIATORE_MIN_C,
   etichettaMessaggio,
   type ActionEssiccatoreAzione,
 } from "@/lib/action/azioni-immediate";
@@ -75,7 +78,9 @@ export function ActionEssiccatoreAzioniImmediateModal({
 }: Props) {
   const titleId = useId();
   const [consensoBruciatore, setConsensoBruciatore] = useState(false);
-  const [percBruciatore, setPercBruciatore] = useState(0);
+  const [tempBruciatoreC, setTempBruciatoreC] = useState(
+    TEMP_BRUCIATORE_DEFAULT_C
+  );
   const [consensoVentola, setConsensoVentola] = useState(false);
   const [percVentilazione, setPercVentilazione] = useState(0);
   const [error, setError] = useState<string | null>(null);
@@ -103,7 +108,7 @@ export function ActionEssiccatoreAzioniImmediateModal({
       const res = await avviaEssiccatoreAction({
         essiccatoreId: essiccatore.id,
         consensoBruciatore,
-        percBruciatore,
+        tempBruciatoreC,
         consensoVentola,
         percVentilazione,
       });
@@ -174,8 +179,10 @@ export function ActionEssiccatoreAzioniImmediateModal({
             <>
               <p className="text-sm text-[var(--muted)]">
                 Quattro settaggi, quattro messaggi IoT. I consensi devono
-                passare a On per l’accensione. Il dispositivo sarà collegato in
-                seguito: i comandi restano in coda.
+                passare a On per l’accensione. Imposti la temperatura di uscita
+                bruciatore (35–70 °C): la percentuale la regola il sistema dalla
+                sonda TEMP-BRUC, in funzione della ventilazione. Il dispositivo
+                sarà collegato in seguito.
               </p>
 
               <div className="grid gap-4 md:grid-cols-2">
@@ -191,9 +198,13 @@ export function ActionEssiccatoreAzioniImmediateModal({
                     onColorClass="bg-orange-500"
                   />
                   <ClockArcPercentGauge
-                    label="Percentuale bruciatore"
-                    value={percBruciatore}
-                    onChange={setPercBruciatore}
+                    label="Temperatura uscita bruciatore"
+                    value={tempBruciatoreC}
+                    onChange={setTempBruciatoreC}
+                    min={TEMP_BRUCIATORE_MIN_C}
+                    max={TEMP_BRUCIATORE_MAX_C}
+                    unit="°C"
+                    ticks={[35, 45, 55, 65, 70]}
                     fromColor={BURNER_FROM}
                     toColor={BURNER_TO}
                   />

@@ -1,15 +1,21 @@
 "use client";
 
-import { useCallback, useEffect, useId, useRef } from "react";
+import { useCallback, useEffect, useId, useMemo, useRef } from "react";
 
 type Rgb = readonly [number, number, number];
 
+export type ClockArcUnit = "%" | "°C";
+
 type Props = {
   value: number;
-  onChange: (percent: number) => void;
+  onChange: (value: number) => void;
   fromColor: Rgb;
   toColor: Rgb;
   label: string;
+  min?: number;
+  max?: number;
+  unit?: ClockArcUnit;
+  ticks?: readonly number[];
   disabled?: boolean;
 };
 
@@ -28,8 +34,18 @@ const START_DEG = START_HOUR * 30;
 const ARC_SPAN_DEG = HOURS_SPAN * 30;
 const END_DEG_NORM = ((START_DEG + ARC_SPAN_DEG) % 360 + 360) % 360;
 
-function clampPercent(n: number) {
-  return Math.min(100, Math.max(0, Math.round(n)));
+function clampValue(n: number, min: number, max: number) {
+  return Math.min(max, Math.max(min, Math.round(n)));
+}
+
+function valueToRatio(value: number, min: number, max: number) {
+  if (max <= min) return 0;
+  return (clampValue(value, min, max) - min) / (max - min);
+}
+
+function ratioToValue(ratio: number, min: number, max: number) {
+  const t = Math.min(1, Math.max(0, ratio));
+  return Math.round(min + t * (max - min));
 }
 
 function degToRad(deg: number) {
@@ -44,11 +60,11 @@ function clockPoint(clockDeg: number, radius = R) {
   };
 }
 
-function percentToClockDeg(percent: number) {
-  return START_DEG + (clampPercent(percent) / 100) * ARC_SPAN_DEG;
+function ratioToClockDeg(ratio: number) {
+  return START_DEG + Math.min(1, Math.max(0, ratio)) * ARC_SPAN_DEG;
 }
 
-function clockDegToPercent(clockDeg: number) {
+function clockDegToRatio(clockDeg: number) {
   const deg = ((clockDeg % 360) + 360) % 360;
   let along: number;
   if (deg >= START_DEG) {
@@ -60,25 +76,27 @@ function clockDegToPercent(clockDeg: number) {
     along = deg < midGap ? ARC_SPAN_DEG : 0;
   }
   along = Math.min(ARC_SPAN_DEG, Math.max(0, along));
-  return Math.round((along / ARC_SPAN_DEG) * 100);
+  return along / ARC_SPAN_DEG;
 }
 
-function pointToPercent(clientX: number, clientY: number, svg: SVGSVGElement) {
+function pointToValue(
+  clientX: number,
+  clientY: number,
+  svg: SVGSVGElement,
+  min: number,
+  max: number
+) {
   const rect = svg.getBoundingClientRect();
   const x = ((clientX - rect.left) / rect.width) * SVG_W;
   const y = ((clientY - rect.top) / rect.height) * SVG_H;
   let clockDeg = (Math.atan2(x - CX, -(y - CY)) * 180) / Math.PI;
   if (clockDeg < 0) clockDeg += 360;
-  return clockDegToPercent(clockDeg);
+  return ratioToValue(clockDegToRatio(clockDeg), min, max);
 }
 
-function describeClockArc(
-  startPercent: number,
-  endPercent: number,
-  radius: number
-) {
-  const startDeg = percentToClockDeg(startPercent);
-  const endDeg = percentToClockDeg(endPercent);
+function describeClockArc(startRatio: number, endRatio: number, radius: number) {
+  const startDeg = ratioToClockDeg(startRatio);
+  const endDeg = ratioToClockDeg(endRatio);
   const start = clockPoint(startDeg, radius);
   const end = clockPoint(endDeg, radius);
   const delta = endDeg - startDeg;
@@ -94,7 +112,14 @@ function lerpColor(from: Rgb, to: Rgb, t: number): string {
   return `rgb(${r}, ${g}, ${b})`;
 }
 
-const PERCENT_TICKS = [0, 25, 50, 75, 100] as const;
+function formatTick(value: number, unit: ClockArcUnit) {
+  return unit === "°C" ? `${value}°` : `${value}%`;
+}
+
+function defaultTicks(min: number, max: number): number[] {
+  if (min === 0 && max === 100) return [0, 25, 50, 75, 100];
+  return [0, 0.25, 0.5, 0.75, 1].map((t) => Math.round(min + t * (max - min)));
+}
 
 export const BURNER_FROM: Rgb = [56, 189, 248];
 export const BURNER_TO: Rgb = [239, 68, 68];
@@ -107,22 +132,32 @@ export function ClockArcPercentGauge({
   fromColor,
   toColor,
   label,
+  min = 0,
+  max = 100,
+  unit = "%",
+  ticks,
   disabled = false,
 }: Props) {
   const svgRef = useRef<SVGSVGElement | null>(null);
   const dragging = useRef(false);
   const labelId = useId();
-  const knob = clockPoint(percentToClockDeg(value));
-  const knobColor = lerpColor(fromColor, toColor, value / 100);
+  const ratio = valueToRatio(value, min, max);
+  const knob = clockPoint(ratioToClockDeg(ratio));
+  const knobColor = lerpColor(fromColor, toColor, ratio);
+  const tickValues = useMemo(
+    () => (ticks && ticks.length ? [...ticks] : defaultTicks(min, max)),
+    [ticks, min, max]
+  );
+  const display = unit === "°C" ? `${value}°C` : `${value}%`;
 
   const updateFromPointer = useCallback(
     (clientX: number, clientY: number) => {
       if (disabled) return;
       const svg = svgRef.current;
       if (!svg) return;
-      onChange(pointToPercent(clientX, clientY, svg));
+      onChange(pointToValue(clientX, clientY, svg, min, max));
     },
-    [disabled, onChange]
+    [disabled, onChange, min, max]
   );
 
   useEffect(() => {
@@ -149,10 +184,10 @@ export function ClockArcPercentGauge({
         className={`h-auto w-full select-none ${disabled ? "opacity-50" : "touch-none"}`}
         role="slider"
         aria-labelledby={labelId}
-        aria-valuemin={0}
-        aria-valuemax={100}
+        aria-valuemin={min}
+        aria-valuemax={max}
         aria-valuenow={value}
-        aria-valuetext={`${value} percento`}
+        aria-valuetext={display}
         tabIndex={disabled ? -1 : 0}
         onPointerDown={(e) => {
           if (disabled) return;
@@ -162,25 +197,25 @@ export function ClockArcPercentGauge({
         }}
         onKeyDown={(e) => {
           if (disabled) return;
-          const step = e.shiftKey ? 10 : 1;
+          const step = e.shiftKey ? 5 : 1;
           if (e.key === "ArrowRight" || e.key === "ArrowUp") {
             e.preventDefault();
-            onChange(clampPercent(value + step));
+            onChange(clampValue(value + step, min, max));
           } else if (e.key === "ArrowLeft" || e.key === "ArrowDown") {
             e.preventDefault();
-            onChange(clampPercent(value - step));
+            onChange(clampValue(value - step, min, max));
           } else if (e.key === "Home") {
             e.preventDefault();
-            onChange(0);
+            onChange(min);
           } else if (e.key === "End") {
             e.preventDefault();
-            onChange(100);
+            onChange(max);
           }
         }}
       >
         {Array.from({ length: SEGMENTS }, (_, i) => {
-          const a = (i / SEGMENTS) * 100;
-          const b = Math.min(100, ((i + 1.2) / SEGMENTS) * 100);
+          const a = i / SEGMENTS;
+          const b = Math.min(1, (i + 1.2) / SEGMENTS);
           const t = (i + 0.5) / SEGMENTS;
           return (
             <path
@@ -195,12 +230,13 @@ export function ClockArcPercentGauge({
           );
         })}
 
-        {PERCENT_TICKS.map((percent) => {
-          const inner = clockPoint(percentToClockDeg(percent), R - 16);
-          const outer = clockPoint(percentToClockDeg(percent), R + 16);
-          const labelPt = clockPoint(percentToClockDeg(percent), R + 30);
+        {tickValues.map((tick) => {
+          const tickRatio = valueToRatio(tick, min, max);
+          const inner = clockPoint(ratioToClockDeg(tickRatio), R - 16);
+          const outer = clockPoint(ratioToClockDeg(tickRatio), R + 16);
+          const labelPt = clockPoint(ratioToClockDeg(tickRatio), R + 30);
           return (
-            <g key={percent}>
+            <g key={tick}>
               <line
                 x1={inner.x}
                 y1={inner.y}
@@ -217,7 +253,7 @@ export function ClockArcPercentGauge({
                 fontSize="11"
                 fontWeight="600"
               >
-                {percent}%
+                {formatTick(tick, unit)}
               </text>
             </g>
           );
@@ -239,7 +275,7 @@ export function ClockArcPercentGauge({
           {label}
         </p>
         <p className="text-4xl font-bold tabular-nums tracking-tight" style={{ color: knobColor }}>
-          {value}%
+          {display}
         </p>
       </div>
     </div>

@@ -14,7 +14,7 @@ import { requireAreaAccess } from "@/lib/areas/guard";
 import { createServiceClient } from "@/lib/supabase/server";
 
 const AZIONE_COLS =
-  "id, essiccatore_id, azione_key, versione, documento_stato, consenso_bruciatore, perc_bruciatore, consenso_ventola, perc_ventilazione, iot_stato, created_at";
+  "id, essiccatore_id, azione_key, versione, documento_stato, consenso_bruciatore, temp_bruciatore_c, consenso_ventola, perc_ventilazione, iot_stato, created_at";
 
 type AzioneRow = {
   id: string;
@@ -23,7 +23,7 @@ type AzioneRow = {
   versione: number;
   documento_stato: ActionEssiccatoreAzione["documentoStato"];
   consenso_bruciatore: boolean;
-  perc_bruciatore: number;
+  temp_bruciatore_c: number;
   consenso_ventola: boolean;
   perc_ventilazione: number;
   iot_stato: IotStatoMessaggio;
@@ -63,7 +63,7 @@ function mapAzione(
     versione: row.versione,
     documentoStato: row.documento_stato,
     consensoBruciatore: row.consenso_bruciatore,
-    percBruciatore: row.perc_bruciatore,
+    tempBruciatoreC: row.temp_bruciatore_c,
     consensoVentola: row.consenso_ventola,
     percVentilazione: row.perc_ventilazione,
     iotStato: row.iot_stato,
@@ -102,7 +102,7 @@ export async function avviaEssiccatoreAction(
       versione: 1,
       documento_stato: "eseguito",
       consenso_bruciatore: parsed.data.consensoBruciatore,
-      perc_bruciatore: parsed.data.percBruciatore,
+      temp_bruciatore_c: parsed.data.tempBruciatoreC,
       consenso_ventola: parsed.data.consensoVentola,
       perc_ventilazione: parsed.data.percVentilazione,
       iot_stato: "in_attesa_dispositivo",
@@ -162,12 +162,12 @@ export async function avviaEssiccatoreAction(
     entity_id: item.id,
     action: "create",
     actor_id: auth.actorUserId,
-    summary: `Avvio ${ess.nome}: bruciatore ${item.percBruciatore}%, ventilazione ${item.percVentilazione}%`,
+    summary: `Avvio ${ess.nome}: setpoint ${item.tempBruciatoreC}°C, ventilazione ${item.percVentilazione}%`,
     payload: {
       essiccatoreId: item.essiccatoreId,
       azioneKey: item.azioneKey,
       consensoBruciatore: item.consensoBruciatore,
-      percBruciatore: item.percBruciatore,
+      tempBruciatoreC: item.tempBruciatoreC,
       consensoVentola: item.consensoVentola,
       percVentilazione: item.percVentilazione,
       comandi: item.messaggi.map((m) => m.comando),

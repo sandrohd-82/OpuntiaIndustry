@@ -4,9 +4,14 @@ import { ACTION_ESSICCATORE_IDS } from "@/lib/action/essiccatori";
 export const AZIONE_IMMEDIATA_KEYS = ["avvio"] as const;
 export type AzioneImmediataKey = (typeof AZIONE_IMMEDIATA_KEYS)[number];
 
+export const TEMP_BRUCIATORE_MIN_C = 35;
+export const TEMP_BRUCIATORE_MAX_C = 70;
+export const TEMP_BRUCIATORE_DEFAULT_C = 50;
+export const SONDA_USCITA_BRUCIATORE = "TEMP-BRUC";
+
 export const IOT_CANALI = [
   "consenso_bruciatore",
-  "perc_bruciatore",
+  "temp_bruciatore",
   "consenso_ventola",
   "perc_ventilazione",
 ] as const;
@@ -44,7 +49,7 @@ export type ActionEssiccatoreAzione = {
   versione: number;
   documentoStato: (typeof DOCUMENTO_STATI_AZIONE)[number];
   consensoBruciatore: boolean;
-  percBruciatore: number;
+  tempBruciatoreC: number;
   consensoVentola: boolean;
   percVentilazione: number;
   iotStato: IotStatoMessaggio;
@@ -56,7 +61,11 @@ export const avvioEssiccatoreInputSchema = z
   .object({
     essiccatoreId: z.enum(ACTION_ESSICCATORE_IDS),
     consensoBruciatore: z.boolean(),
-    percBruciatore: z.number().int().min(0).max(100),
+    tempBruciatoreC: z
+      .number()
+      .int()
+      .min(TEMP_BRUCIATORE_MIN_C)
+      .max(TEMP_BRUCIATORE_MAX_C),
     consensoVentola: z.boolean(),
     percVentilazione: z.number().int().min(0).max(100),
   })
@@ -99,9 +108,13 @@ export function buildMessaggiAvvio(
       sortOrder: 1,
     },
     {
-      canale: "perc_bruciatore",
-      comando: `BURNER_PERCENT:${input.percBruciatore}`,
-      payload: { percent: input.percBruciatore },
+      canale: "temp_bruciatore",
+      comando: `BURNER_TEMP:${input.tempBruciatoreC}`,
+      payload: {
+        celsius: input.tempBruciatoreC,
+        sonda: SONDA_USCITA_BRUCIATORE,
+        regolazione: "mantieni_setpoint",
+      },
       sortOrder: 2,
     },
     {
@@ -121,7 +134,7 @@ export function buildMessaggiAvvio(
 
 export const IOT_CANALE_LABELS: Record<IotCanaleAvvio, string> = {
   consenso_bruciatore: "Consenso bruciatore",
-  perc_bruciatore: "Percentuale bruciatore",
+  temp_bruciatore: "Temperatura uscita bruciatore",
   consenso_ventola: "Consenso ventola",
   perc_ventilazione: "Percentuale ventilazione",
 };
@@ -133,6 +146,13 @@ export function etichettaMessaggio(m: {
 }): string {
   if (m.canale === "consenso_bruciatore" || m.canale === "consenso_ventola") {
     return `${IOT_CANALE_LABELS[m.canale]} → ${m.payload.on ? "On" : "Off"}`;
+  }
+  if (m.canale === "temp_bruciatore") {
+    const c =
+      typeof m.payload.celsius === "number"
+        ? `${m.payload.celsius}°C`
+        : m.comando;
+    return `${IOT_CANALE_LABELS[m.canale]} → ${c}`;
   }
   const pct =
     typeof m.payload.percent === "number" ? `${m.payload.percent}%` : m.comando;
