@@ -609,6 +609,37 @@ export async function enrichReceivedDocument(
   };
 }
 
+/** Dettaglio di una ricevuta per ID FiC, senza riascoltare tutta la lista. */
+export async function fetchReceivedDocumentById(
+  ficId: number
+): Promise<FicDocumentNormalized | null> {
+  const id = Number(ficId);
+  if (!Number.isFinite(id) || id <= 0) return null;
+  try {
+    const stub: FicDocumentNormalized = {
+      ficId: id,
+      type: "received",
+      number: "",
+      entityName: "",
+      entityVat: "",
+      amountGross: 0,
+      date: null,
+      dueDate: null,
+      status: "not_paid",
+      raw: {},
+    };
+    const enriched = await enrichReceivedDocument(stub);
+    return enriched.ficId > 0 ? enriched : null;
+  } catch (e) {
+    console.error(
+      "[fic] fetchReceivedDocumentById",
+      id,
+      e instanceof Error ? e.message : e
+    );
+    return null;
+  }
+}
+
 async function listAllPages(
   path: string,
   baseQuery: Record<string, string | number | undefined>,

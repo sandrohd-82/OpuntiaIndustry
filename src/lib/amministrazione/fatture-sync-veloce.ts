@@ -127,9 +127,10 @@ export async function ensureAnagraficaDaFic(input: {
   const vat = normalizeVatKey(input.partitaIva);
   const cf = normalizeVatKey(input.codiceFiscale || input.partitaIva);
   if (!nome) return { error: "Ragione sociale mancante." };
-  if (!vat) {
+  if (!vat && cf.length < 11) {
     return { error: "Partita IVA mancante: non creo anagrafiche senza P.IVA." };
   }
+  const vatKey = vat || cf;
 
   const table = input.tipo === "fornitore" ? "fornitori" : "clienti";
   const { data, error } = await (
@@ -148,7 +149,7 @@ export async function ensureAnagraficaDaFic(input: {
 
   const rows = data ?? [];
   const byVat = rows.find((r) =>
-    vatOrCfMatch(vat, String(r.partita_iva ?? ""), String(r.codice_fiscale ?? ""))
+    vatOrCfMatch(vatKey, String(r.partita_iva ?? ""), String(r.codice_fiscale ?? ""))
   );
   if (byVat) {
     return {
@@ -165,7 +166,7 @@ export async function ensureAnagraficaDaFic(input: {
   );
   if (nameHit) {
     const hitVat = normalizeVatKey(String(nameHit.partita_iva ?? ""));
-    if (hitVat && hitVat !== vat) {
+    if (hitVat && hitVat !== vatKey) {
       return {
         error: `Ragione sociale già usata da ${String(nameHit.codice_targa)} con P.IVA diversa: non creo doppioni.`,
       };
@@ -186,8 +187,8 @@ export async function ensureAnagraficaDaFic(input: {
   const codiceTarga = nextSequentialCodiceTarga(prefix, used);
   const sedeA = input.draft?.sedeAmministrativa ?? emptySede;
   const sedeM = input.draft?.sedeMagazzino ?? emptySede;
-  const pivaStore = input.partitaIva.trim() || vat;
-  const cfStore = (input.codiceFiscale || input.partitaIva || vat).trim() || vat;
+  const pivaStore = input.partitaIva.trim() || vatKey;
+  const cfStore = (input.codiceFiscale || input.partitaIva || vatKey).trim() || vatKey;
 
   if (input.tipo === "fornitore") {
     const insert: FornitoreInsert = {

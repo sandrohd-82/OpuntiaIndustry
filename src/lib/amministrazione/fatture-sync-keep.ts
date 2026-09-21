@@ -143,7 +143,26 @@ export function monthKeyFromIso(iso: string): string | null {
   return day ? day.slice(0, 7) : null;
 }
 
-/** FiC già in gestionale: stesso fic_id, oppure stesso numero + data/importo. */
+function compactNumeroFattura(value: string): string {
+  return normalizeFatturaNumeroEsterno(value).replace(/[^A-Z0-9]/g, "");
+}
+
+function numeriCompatibili(a: string, b: string): boolean {
+  if (!a || !b) return false;
+  if (a === b) return true;
+  return a.length >= 4 && b.length >= 4 && (a.endsWith(b) || b.endsWith(a));
+}
+
+export type FatturaSyncRegisteredHint = {
+  id?: string;
+  ficId: number | null;
+  numeroEsterno: string;
+  numeroInterno?: string;
+  dataEmissione: string;
+  totale: number;
+};
+
+/** FiC già in gestionale: fic_id, oppure numero+data/anno+importo (anche inserita a mano). */
 export function ficDocGiaInGestionale(
   doc: {
     ficId: number;
@@ -151,34 +170,50 @@ export function ficDocGiaInGestionale(
     date: string | null;
     amountGross: number;
   },
-  registered: Array<{
-    ficId: number | null;
-    numeroEsterno: string;
-    dataEmissione: string;
-    totale: number;
-  }>
+  registered: FatturaSyncRegisteredHint[]
 ): boolean {
-  if (
-    registered.some(
-      (r) => r.ficId != null && Number.isFinite(r.ficId) && r.ficId === doc.ficId
-    )
-  ) {
-    return true;
-  }
-  const num = normalizeFatturaNumeroEsterno(doc.number);
+  return Boolean(findRegisteredHintForFicDoc(doc, registered));
+}
+
+export function findRegisteredHintForFicDoc(
+  doc: {
+    ficId: number;
+    number: string;
+    date: string | null;
+    amountGross: number;
+  },
+  registered: FatturaSyncRegisteredHint[]
+): FatturaSyncRegisteredHint | null {
+  const byFic = registered.find(
+    (r) => r.ficId != null && Number.isFinite(r.ficId) && r.ficId === doc.ficId
+  );
+  if (byFic) return byFic;
+
+  const num = compactNumeroFattura(doc.number);
   const date = normalizeIsoDate(doc.date);
-  if (!num) return false;
-  return registered.some((r) => {
-    if (normalizeFatturaNumeroEsterno(r.numeroEsterno) !== num) return false;
+  const amount = Math.abs(Number(doc.amountGross) || 0);
+
+  for (const r of registered) {
+    const rNum = compactNumeroFattura(r.numeroEsterno);
+    const rInt = compactNumeroFattura(r.numeroInterno ?? "");
+    const sameNum =
+      numeriCompatibili(num, rNum) || numeriCompatibili(num, rInt);
+    if (!sameNum && !num) continue;
     const rDate = normalizeIsoDate(r.dataEmissione);
-    if (date && rDate && date === rDate) return true;
-    if (date && rDate && date.slice(0, 7) === rDate.slice(0, 7)) {
-      const a = Math.abs(Number(doc.amountGross) || 0);
-      const b = Math.abs(Number(r.totale) || 0);
-      if (a > 0 && b > 0 && Math.abs(a - b) <= 0.05) return true;
-    }
-    return false;
-  });
+    const rAmt = Math.abs(Number(r.totale) || 0);
+    const sameAmt = amount > 0 && rAmt > 0 && Math.abs(amount - rAmt) <= 0.05;
+    const sameDay = Boolean(date && rDate && date === rDate);
+    const sameMonth = Boolean(
+      date && rDate && date.slice(0, 7) === rDate.slice(0, 7)
+    );
+    const sameYear = Boolean(
+      date && rDate && date.slice(0, 4) === rDate.slice(0, 4)
+    );
+    if (sameNum && sameDay) return r;
+    if (sameNum && sameMonth && sameAmt) return r;
+    if (sameNum && sameYear && sameAmt) return r;
+  }
+  return null;
 }
 
 export function monthStartIso(key: string): string {

@@ -24,6 +24,7 @@ import {
   fattureSyncModalitaSchema,
   fattureSyncStopMonthSchema,
   ficDocGiaInGestionale,
+  findRegisteredHintForFicDoc,
   filterFromStopMonth,
   normalizeIsoDate,
   splitForwardRetro,
@@ -52,6 +53,7 @@ import {
   enrichReceivedDocument,
   fetchIssuedCreditNotes,
   fetchIssuedInvoices,
+  fetchReceivedDocumentById,
   fetchReceivedInvoices,
   getFicConfig,
 } from "@/lib/fic";
@@ -105,8 +107,10 @@ const previewCacheSchema = z.object({
 });
 
 type RegisteredDocHint = {
+  id: string;
   ficId: number | null;
   numeroEsterno: string;
+  numeroInterno: string;
   dataEmissione: string;
   totale: number;
 };
@@ -117,8 +121,10 @@ function mapRegisteredHints(
   return (rows ?? []).map((r) => {
     const ficRaw = Number(r.fic_id);
     return {
+      id: String(r.id ?? ""),
       ficId: Number.isFinite(ficRaw) && ficRaw > 0 ? ficRaw : null,
       numeroEsterno: String(r.numero_documento_esterno ?? ""),
+      numeroInterno: String(r.numero_interno ?? ""),
       dataEmissione: normalizeIsoDate(String(r.data_emissione ?? "")),
       totale: Number(r.totale) || 0,
     };
@@ -168,7 +174,7 @@ async function listPendingMeta(
       fetchIssuedCreditNotes(null),
       supabase
         .from("fatture_emesse")
-        .select("fic_id, data_emissione, numero_documento_esterno, totale")
+        .select("id, fic_id, data_emissione, numero_documento_esterno, numero_interno, totale")
         .is("deleted_at", null),
     ]);
     if (registeredRes.error) {
@@ -235,7 +241,7 @@ async function listPendingMeta(
     fetchReceivedInvoices(null),
     supabase
       .from("fatture_ricevute")
-      .select("fic_id, data_emissione, numero_documento_esterno, totale")
+      .select("id, fic_id, data_emissione, numero_documento_esterno, numero_interno, totale")
       .is("deleted_at", null),
   ]);
   if (registeredRes.error) {
@@ -494,19 +500,27 @@ async function buildItemsFromFicIds(
     return items;
   }
 
-  const docs = await fetchReceivedInvoices(null);
+  const listed = await fetchReceivedInvoices(null);
+  const byList = new Map(listed.map((d) => [d.ficId, d]));
   const items: FatturaSyncQueueItem[] = [];
-  for (const d of docs) {
-    if (!idSet.has(d.ficId)) continue;
-    let enriched = d;
-    try {
-      enriched = await enrichReceivedDocument(d);
-    } catch (e) {
-      console.error(
-        "[fatture-sync-keep] enrich ricevuta",
-        d.ficId,
-        e instanceof Error ? e.message : e
-      );
+  for (const ficId of idSet) {
+    let enriched = byList.get(ficId) ?? null;
+    if (!enriched) {
+      enriched = await fetchReceivedDocumentById(ficId);
+    } else {
+      try {
+        enriched = await enrichReceivedDocument(enriched);
+      } catch (e) {
+        console.error(
+          "[fatture-sync-keep] enrich ricevuta",
+          ficId,
+          e instanceof Error ? e.message : e
+        );
+      }
+    }
+    if (!enriched) {
+      console.error("[fatture-sync-keep] ricevuta FiC non scaricata", ficId);
+      continue;
     }
     items.push(
       buildFatturaSyncQueueItem({
@@ -519,6 +533,40 @@ async function buildItemsFromFicIds(
     );
   }
   return items;
+}
+
+async function collegaFicIdEsistente(input: {
+  supabase: unknown;
+  kind: FattureSyncKeepKind;
+  fatturaId: string;
+  ficId: number;
+  userId: string;
+}): Promise<boolean> {
+  if (!input.fatturaId) return false;
+  const table = input.kind === "ricevuta" ? "fatture_ricevute" : "fatture_emesse";
+  const { error } = await (
+    input.supabase as {
+      from: (t: string) => {
+        update: (v: Record<string, unknown>) => {
+          eq: (c: string, v: string) => {
+            is: (c: string, v: null) => Promise<{ error: { message: string } | null }>;
+          };
+        };
+      };
+    }
+  )
+    .from(table)
+    .update({
+      fic_id: input.ficId,
+      updated_by: input.userId,
+    })
+    .eq("id", input.fatturaId)
+    .is("deleted_at", null);
+  if (error) {
+    console.error("[fatture-sync-keep] collega fic_id", error.message);
+    return false;
+  }
+  return true;
 }
 
 async function runVeloceOnItems(input: {
@@ -538,6 +586,25 @@ async function runVeloceOnItems(input: {
   let registered = 0;
   const tipo = input.kind === "ricevuta" ? "fornitore" : "cliente";
   const anagIds = new Set<string>();
+  const tableHint =
+    input.kind === "ricevuta" ? "fatture_ricevute" : "fatture_emesse";
+  const { data: existingRows } = await (
+    input.supabase as {
+      from: (t: string) => {
+        select: (c: string) => {
+          is: (c: string, v: null) => Promise<{
+            data: Array<Record<string, unknown>> | null;
+          }>;
+        };
+      };
+    }
+  )
+    .from(tableHint)
+    .select(
+      "id, fic_id, data_emissione, numero_documento_esterno, numero_interno, totale"
+    )
+    .is("deleted_at", null);
+  let hints = mapRegisteredHints(existingRows ?? []);
 
   async function giaRegistrataFic(ficId: number): Promise<boolean> {
     const table = input.kind === "ricevuta" ? "fatture_ricevute" : "fatture_emesse";
@@ -576,6 +643,45 @@ async function runVeloceOnItems(input: {
       continue;
     }
     const item = await hydrateIfNeeded(slim);
+    const hitEsistente = findRegisteredHintForFicDoc(
+      {
+        ficId: item.ficId,
+        number: item.numeroEsterno,
+        date: item.dataEmissione,
+        amountGross: item.amountGross,
+      },
+      hints
+    );
+    if (hitEsistente) {
+      if (!hitEsistente.ficId && hitEsistente.id) {
+        const linked = await collegaFicIdEsistente({
+          supabase: input.supabase,
+          kind: input.kind,
+          fatturaId: hitEsistente.id,
+          ficId: item.ficId,
+          userId: input.userId,
+        });
+        if (linked) {
+          hints = hints.map((h) =>
+            h.id === hitEsistente.id ? { ...h, ficId: item.ficId } : h
+          );
+          registered += 1;
+          fattureRegistrate.push({
+            numero: item.numeroEsterno || hitEsistente.numeroInterno || "",
+            ragioneSociale: item.entityName,
+            partitaIva: item.entityVat,
+            importo: item.amountGross,
+          });
+          continue;
+        }
+      }
+      skipped.push({
+        ficId: item.ficId,
+        number: item.numeroEsterno,
+        motivo: "già registrata",
+      });
+      continue;
+    }
     const eccezioneMotivo = item.eccezioneMotivo?.trim() || null;
     if (eccezioneMotivo && input.stopOnEccezione) {
       return finishVeloce({
@@ -653,6 +759,37 @@ async function runVeloceOnItems(input: {
           },
           remainingFicIds: input.items.slice(i + 1).map((x) => x.ficId),
         });
+      }
+      const hitDopo = findRegisteredHintForFicDoc(
+        {
+          ficId: item.ficId,
+          number: item.numeroEsterno,
+          date: item.dataEmissione,
+          amountGross: item.amountGross,
+        },
+        hints
+      );
+      if (hitDopo?.id && !hitDopo.ficId) {
+        const linked = await collegaFicIdEsistente({
+          supabase: input.supabase,
+          kind: input.kind,
+          fatturaId: hitDopo.id,
+          ficId: item.ficId,
+          userId: input.userId,
+        });
+        if (linked) {
+          hints = hints.map((h) =>
+            h.id === hitDopo.id ? { ...h, ficId: item.ficId } : h
+          );
+          registered += 1;
+          fattureRegistrate.push({
+            numero: item.numeroEsterno || hitDopo.numeroInterno || "",
+            ragioneSociale: anag.ragioneSociale,
+            partitaIva: anag.partitaIva,
+            importo: item.amountGross,
+          });
+          continue;
+        }
       }
       skipped.push({
         ficId: item.ficId,
@@ -738,6 +875,13 @@ export async function runFattureSyncVeloceAction(input: {
   const ordered = ids
     .map((id) => byId.get(id))
     .filter((it): it is FatturaSyncQueueItem => Boolean(it));
+  if (ordered.length === 0) {
+    return {
+      success: false,
+      error:
+        "Documento FiC non scaricato (Gennaio o altri mesi a ritroso). Riprova la sincronizzazione.",
+    };
+  }
   const supabase = await createClient();
   const result = await runVeloceOnItems({
     kind: kind.data,
