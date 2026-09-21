@@ -1,9 +1,13 @@
 import {
+  pesoOccupazioneKg,
+  riepilogoOccupazionePosto,
+  targaProdottoOccupazione,
   type DettaglioElencoPosto,
   type PostoElementoTipo,
   type PostoOccupazione,
   type PostoPesoModo,
   type ProdottoLottoElenco,
+  type RiepilogoElencoPosto,
 } from "@/lib/magazzino/posto-occupazione";
 import { createServiceClient } from "@/lib/supabase/server";
 
@@ -149,4 +153,87 @@ export async function queryDettaglioOccupazionePosto(
     }
   }
   return { success: true, dettaglio: { occupazione: occ, prodotto } };
+}
+
+export async function queryRiepilogoOccupazionePosti(
+  ubicazioneIds: string[]
+): Promise<
+  | { success: true; perPosto: Record<string, RiepilogoElencoPosto> }
+  | { success: false; error: string }
+> {
+  const ids = [...new Set(ubicazioneIds.filter(Boolean))];
+  const perPosto: Record<string, RiepilogoElencoPosto> = {};
+  if (!ids.length) return { success: true, perPosto };
+
+  let db: ReturnType<typeof createServiceClient>;
+  try {
+    db = createServiceClient();
+  } catch {
+    return { success: false, error: "Occupazione non disponibile." };
+  }
+
+  const rows: OccRow[] = [];
+  const CHUNK = 80;
+  for (let i = 0; i < ids.length; i += CHUNK) {
+    const part = ids.slice(i, i + CHUNK);
+    const { data, error } = await db
+      .from("magazzino_posto_occupazioni")
+      .select(OCC_SELECT)
+      .in("ubicazione_id", part)
+      .eq("stato", "attivo")
+      .is("deleted_at", null);
+    if (error) return { success: false, error: error.message };
+    rows.push(...((data ?? []) as OccRow[]));
+  }
+  if (!rows.length) return { success: true, perPosto };
+
+  const occIds = rows.map((r) => r.id);
+  const prodottoIds = [
+    ...new Set(rows.map((r) => r.prodotto_id).filter(Boolean)),
+  ] as string[];
+
+  const els: Array<ElRow & { occupazione_id: string }> = [];
+  for (let i = 0; i < occIds.length; i += CHUNK) {
+    const part = occIds.slice(i, i + CHUNK);
+    const { data, error } = await db
+      .from("magazzino_posto_elementi")
+      .select("id, numero, peso_kg, scan_token, occupazione_id")
+      .in("occupazione_id", part)
+      .is("deleted_at", null);
+    if (error) return { success: false, error: error.message };
+    els.push(
+      ...((data ?? []) as Array<ElRow & { occupazione_id: string }>)
+    );
+  }
+
+  let prods: Array<{ id: string; codice: string }> = [];
+  if (prodottoIds.length) {
+    const { data, error } = await db
+      .from("prodotti_propri")
+      .select("id, codice")
+      .in("id", prodottoIds);
+    if (error) return { success: false, error: error.message };
+    prods = (data ?? []) as Array<{ id: string; codice: string }>;
+  }
+
+  const elsByOcc = new Map<string, ElRow[]>();
+  for (const e of els) {
+    const list = elsByOcc.get(e.occupazione_id) ?? [];
+    list.push(e);
+    elsByOcc.set(e.occupazione_id, list);
+  }
+  const codiceByProd = new Map(prods.map((p) => [p.id, p.codice]));
+
+  for (const row of rows) {
+    const occ = mapOccupazione(row, elsByOcc.get(row.id) ?? []);
+    const codice = row.prodotto_id
+      ? codiceByProd.get(row.prodotto_id) ?? ""
+      : "";
+    perPosto[row.ubicazione_id] = {
+      targa: targaProdottoOccupazione(occ, codice),
+      quantitaTotaleKg: pesoOccupazioneKg(occ),
+      testo: riepilogoOccupazionePosto(occ, codice),
+    };
+  }
+  return { success: true, perPosto };
 }

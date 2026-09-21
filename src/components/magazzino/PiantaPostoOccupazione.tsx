@@ -2,7 +2,6 @@
 
 import { useEffect, useMemo, useState } from "react";
 import {
-  getOccupazionePostoAction,
   liberaPostoAction,
   listImballaggiPostoAction,
   listLottiDaSistemareAction,
@@ -15,6 +14,7 @@ import { PiantaStampaEtichetteModal } from "@/components/magazzino/PiantaStampaE
 import {
   etichettaPayloadElemento,
   etichettaPayloadPallet,
+  fetchDettaglioOccupazionePosto,
   type ImballaggioPostoOpt,
   type LottoDaSistemare,
   type PostoOccupazione,
@@ -80,23 +80,28 @@ export function PiantaPostoOccupazione({
     let live = true;
     void (async () => {
       setLoading(true);
-      const [o, cat, amm, lot] = await Promise.all([
-        getOccupazionePostoAction(posto.ubicazioneId),
+      const [o, cat, amm] = await Promise.all([
+        fetchDettaglioOccupazionePosto(posto.ubicazioneId),
         listImballaggiPostoAction(),
         listMovimentazioniPostoAction(posto.ubicazioneId),
-        listLottiDaSistemareAction(),
       ]);
       if (!live) return;
-      if (o.success) setOcc(o.occupazione);
+      if (o.success) setOcc(o.dettaglio.occupazione);
       else setErrore(o.error);
       if (cat.success) setElementiCat(cat.elementi);
       if (amm.success) {
         setMovimenti(amm.voci);
         if (amm.voci[0] && !movId) setMovId(amm.voci[0].id);
       }
-      if (lot.success) setLotti(lot.lotti);
-      else setErrore(lot.error);
       setLoading(false);
+      void listLottiDaSistemareAction()
+        .then((lot) => {
+          if (!live) return;
+          if (lot.success) setLotti(lot.lotti);
+        })
+        .catch(() => {
+          /* elenco lotti solo per nuova occupazione */
+        });
     })();
     return () => {
       live = false;

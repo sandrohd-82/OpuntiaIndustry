@@ -1,14 +1,15 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { dettaglioElencoPostoAction } from "@/app/actions/magazzino-posto-occupazione";
 import { fetchFotoPosto } from "@/lib/magazzino/posto-foto";
 import { PiantaPostoFotoCarousel } from "@/components/magazzino/PiantaPostoFotoCarousel";
 import {
+  fetchDettaglioOccupazionePosto,
   formatKgIt,
   pesoOccupazioneKg,
   targaProdottoOccupazione,
   type DettaglioElencoPosto,
+  type RiepilogoElencoPosto,
 } from "@/lib/magazzino/posto-occupazione";
 import type { PostoFoto } from "@/lib/magazzino/posto-foto";
 import type { UbicazioneCapienza } from "@/lib/magazzino/ubicazioni";
@@ -91,15 +92,17 @@ export function PiantaElencoPostoDettaglio({
   occupato,
   capienza,
   movNomi,
+  riepilogo,
 }: {
   ubicazioneId: string;
   postoCodice: string;
   occupato: boolean;
   capienza: UbicazioneCapienza;
   movNomi: string[];
+  riepilogo?: RiepilogoElencoPosto;
 }) {
   const [det, setDet] = useState<DettaglioElencoPosto | null>(null);
-  const [load, setLoad] = useState(occupato);
+  const [load, setLoad] = useState(occupato && !riepilogo);
   const [errore, setErrore] = useState("");
 
   useEffect(() => {
@@ -110,16 +113,22 @@ export function PiantaElencoPostoDettaglio({
     }
     let live = true;
     setLoad(true);
-    void dettaglioElencoPostoAction(ubicazioneId).then((res) => {
-      if (!live) return;
-      setLoad(false);
-      if (!res.success) {
-        setErrore(res.error);
-        return;
-      }
-      setDet(res.dettaglio);
-      setErrore("");
-    });
+    void fetchDettaglioOccupazionePosto(ubicazioneId)
+      .then((res) => {
+        if (!live) return;
+        setLoad(false);
+        if (!res.success) {
+          setErrore(res.error);
+          return;
+        }
+        setDet(res.dettaglio);
+        setErrore("");
+      })
+      .catch(() => {
+        if (!live) return;
+        setLoad(false);
+        setErrore("Occupazione non disponibile.");
+      });
     return () => {
       live = false;
     };
@@ -151,7 +160,7 @@ export function PiantaElencoPostoDettaglio({
     );
   }
 
-  if (load) {
+  if (load && !det && !riepilogo) {
     return (
       <div className="ml-8 py-2 pl-4">
         <ElencoFotoPosto ubicazioneId={ubicazioneId} postoCodice={postoCodice} />
@@ -159,7 +168,7 @@ export function PiantaElencoPostoDettaglio({
       </div>
     );
   }
-  if (errore) {
+  if (errore && !det?.occupazione && !riepilogo?.testo?.trim()) {
     return (
       <div className="ml-8 py-2 pl-4">
         <ElencoFotoPosto ubicazioneId={ubicazioneId} postoCodice={postoCodice} />
@@ -169,6 +178,28 @@ export function PiantaElencoPostoDettaglio({
   }
   const occ = det?.occupazione;
   if (!occ) {
+    if (riepilogo?.testo?.trim()) {
+      return (
+        <div className="ml-8 border-l-2 border-green-800 py-2 pl-4">
+          <ElencoFotoPosto
+            ubicazioneId={ubicazioneId}
+            postoCodice={postoCodice}
+          />
+          <p className="text-sm font-semibold text-green-900">
+            Materiale caricato
+          </p>
+          <ul className="mt-2 space-y-1">
+            {riga("Targa", riepilogo.targa || "—")}
+            {riga("Quantità totale", formatKgIt(riepilogo.quantitaTotaleKg))}
+          </ul>
+          <div className="mt-2 space-y-0.5 text-sm text-slate-800">
+            {riepilogo.testo.split(/\n/).map((rigaTesto) => (
+              <p key={rigaTesto}>{rigaTesto}</p>
+            ))}
+          </div>
+        </div>
+      );
+    }
     return (
       <div className="ml-8 py-2 pl-4">
         <ElencoFotoPosto ubicazioneId={ubicazioneId} postoCodice={postoCodice} />

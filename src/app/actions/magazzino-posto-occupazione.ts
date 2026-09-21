@@ -7,10 +7,7 @@ import { createServiceClient } from "@/lib/supabase/server";
 import {
   generaCodiceRandom,
   occupaPostoSchema,
-  pesoOccupazioneKg,
   rettificaOccupazionePostoSchema,
-  riepilogoOccupazionePosto,
-  targaProdottoOccupazione,
   type DettaglioElencoPosto,
   type ImballaggioPostoOpt,
   type LottoDaSistemare,
@@ -19,9 +16,12 @@ import {
   type PostoElementoTipo,
   type PostoOccupazione,
   type PostoPesoModo,
-  type ProdottoLottoElenco,
   type RiepilogoElencoPosto,
 } from "@/lib/magazzino/posto-occupazione";
+import {
+  queryDettaglioOccupazionePosto,
+  queryRiepilogoOccupazionePosti,
+} from "@/lib/magazzino/posto-occupazione-query";
 
 const CATALOG_PROPRIO = "prodotto_proprio";
 
@@ -406,32 +406,9 @@ export async function getOccupazionePostoAction(
   | { success: true; occupazione: PostoOccupazione | null }
   | { success: false; error: string }
 > {
-  await requireAnyAreaAccess(["magazzino", "strumenti", "amministrazione"]);
-  if (!ubicazioneId) return { success: true, occupazione: null };
-  const supabase = createServiceClient();
-  const { data, error } = await supabase
-    .from("magazzino_posto_occupazioni")
-    .select(OCC_SELECT)
-    .eq("ubicazione_id", ubicazioneId)
-    .eq("stato", "attivo")
-    .is("deleted_at", null)
-    .maybeSingle();
-  if (error) return { success: false, error: error.message };
-  if (!data) return { success: true, occupazione: null };
-  const row = data as Parameters<typeof mapOccupazione>[0];
-  const { data: els } = await supabase
-    .from("magazzino_posto_elementi")
-    .select("id, numero, peso_kg, scan_token, sort_order")
-    .eq("occupazione_id", row.id)
-    .is("deleted_at", null)
-    .order("sort_order", { ascending: true });
-  return {
-    success: true,
-    occupazione: mapOccupazione(
-      row,
-      (els ?? []) as Parameters<typeof mapOccupazione>[1]
-    ),
-  };
+  const res = await queryDettaglioOccupazionePosto(ubicazioneId);
+  if (!res.success) return res;
+  return { success: true, occupazione: res.dettaglio.occupazione };
 }
 
 export async function dettaglioElencoPostoAction(
@@ -440,57 +417,7 @@ export async function dettaglioElencoPostoAction(
   | { success: true; dettaglio: DettaglioElencoPosto }
   | { success: false; error: string }
 > {
-  await requireAnyAreaAccess(["magazzino", "strumenti", "amministrazione"]);
-  if (!ubicazioneId) {
-    return { success: true, dettaglio: { occupazione: null, prodotto: null } };
-  }
-  const occRes = await getOccupazionePostoAction(ubicazioneId);
-  if (!occRes.success) return occRes;
-  const occ = occRes.occupazione;
-  if (!occ) {
-    return { success: true, dettaglio: { occupazione: null, prodotto: null } };
-  }
-  const db = createServiceClient();
-  let prodotto: ProdottoLottoElenco | null = null;
-  if (occ.prodottoId) {
-    const { data } = await db
-      .from("prodotti_propri")
-      .select("id, codice, nome")
-      .eq("id", occ.prodottoId)
-      .maybeSingle();
-    if (data) {
-      const p = data as { id: string; codice: string; nome: string };
-      prodotto = { id: p.id, codice: p.codice, nome: p.nome };
-    }
-  }
-  if (!prodotto && occ.lottoInternoCodice) {
-    const { data: mov } = await db
-      .from("magazzino_movimenti")
-      .select("prodotto_id, prodotto_codice")
-      .eq("catalog_kind", CATALOG_PROPRIO)
-      .eq("lotto_codice", occ.lottoInternoCodice)
-      .is("deleted_at", null)
-      .limit(1)
-      .maybeSingle();
-    const mid = (mov as { prodotto_id?: string } | null)?.prodotto_id;
-    const codiceMov = String(
-      (mov as { prodotto_codice?: string } | null)?.prodotto_codice ?? ""
-    ).trim();
-    if (mid) {
-      const { data } = await db
-        .from("prodotti_propri")
-        .select("id, codice, nome")
-        .eq("id", mid)
-        .maybeSingle();
-      if (data) {
-        const p = data as { id: string; codice: string; nome: string };
-        prodotto = { id: p.id, codice: p.codice || codiceMov, nome: p.nome };
-      } else if (codiceMov) {
-        prodotto = { id: mid, codice: codiceMov, nome: "" };
-      }
-    }
-  }
-  return { success: true, dettaglio: { occupazione: occ, prodotto } };
+  return queryDettaglioOccupazionePosto(ubicazioneId);
 }
 
 export async function listRiepilogoElencoPostiAction(
@@ -499,65 +426,7 @@ export async function listRiepilogoElencoPostiAction(
   | { success: true; perPosto: Record<string, RiepilogoElencoPosto> }
   | { success: false; error: string }
 > {
-  await requireAnyAreaAccess(["magazzino", "strumenti", "amministrazione"]);
-  const ids = [...new Set(ubicazioneIds.filter(Boolean))];
-  const perPosto: Record<string, RiepilogoElencoPosto> = {};
-  if (!ids.length) return { success: true, perPosto };
-
-  const db = createServiceClient();
-  const { data, error } = await db
-    .from("magazzino_posto_occupazioni")
-    .select(OCC_SELECT)
-    .in("ubicazione_id", ids)
-    .eq("stato", "attivo")
-    .is("deleted_at", null);
-  if (error) return { success: false, error: error.message };
-  const rows = (data ?? []) as Parameters<typeof mapOccupazione>[0][];
-  if (!rows.length) return { success: true, perPosto };
-
-  const occIds = rows.map((r) => r.id);
-  const prodottoIds = [
-    ...new Set(rows.map((r) => r.prodotto_id).filter(Boolean)),
-  ] as string[];
-
-  const [{ data: els }, { data: prods }] = await Promise.all([
-    db
-      .from("magazzino_posto_elementi")
-      .select("id, numero, peso_kg, scan_token, occupazione_id")
-      .in("occupazione_id", occIds)
-      .is("deleted_at", null),
-    prodottoIds.length
-      ? db.from("prodotti_propri").select("id, codice").in("id", prodottoIds)
-      : Promise.resolve({ data: [] as Array<{ id: string; codice: string }> }),
-  ]);
-
-  const elsByOcc = new Map<string, Parameters<typeof mapOccupazione>[1]>();
-  for (const e of (els ?? []) as Array<
-    Parameters<typeof mapOccupazione>[1][number] & { occupazione_id: string }
-  >) {
-    const list = elsByOcc.get(e.occupazione_id) ?? [];
-    list.push(e);
-    elsByOcc.set(e.occupazione_id, list);
-  }
-  const codiceByProd = new Map(
-    ((prods ?? []) as Array<{ id: string; codice: string }>).map((p) => [
-      p.id,
-      p.codice,
-    ])
-  );
-
-  for (const row of rows) {
-    const occ = mapOccupazione(row, elsByOcc.get(row.id) ?? []);
-    const codice = row.prodotto_id
-      ? codiceByProd.get(row.prodotto_id) ?? ""
-      : "";
-    perPosto[row.ubicazione_id] = {
-      targa: targaProdottoOccupazione(occ, codice),
-      quantitaTotaleKg: pesoOccupazioneKg(occ),
-      testo: riepilogoOccupazionePosto(occ, codice),
-    };
-  }
-  return { success: true, perPosto };
+  return queryRiepilogoOccupazionePosti(ubicazioneIds);
 }
 
 export async function occupaPostoAction(

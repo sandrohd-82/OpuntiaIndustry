@@ -3,12 +3,12 @@
 import { useEffect, useId, useState } from "react";
 import { createPortal } from "react-dom";
 import { FaPrint } from "react-icons/fa6";
-import { dettaglioElencoPostoAction } from "@/app/actions/magazzino-posto-occupazione";
 import { BarcodePreview } from "@/components/magazzino/BarcodePreview";
 import {
   POSTO_ELEMENTO_TIPO_LABEL,
   etichettaPayloadElemento,
   etichettaPayloadPallet,
+  fetchDettaglioOccupazionePosto,
   type PostoOccupazione,
   type ProdottoLottoElenco,
 } from "@/lib/magazzino/posto-occupazione";
@@ -45,17 +45,23 @@ export function PiantaStampaEtichetteModal({
   useEffect(() => {
     let live = true;
     setLoad(true);
-    void dettaglioElencoPostoAction(ubicazioneId).then((res) => {
-      if (!live) return;
-      setLoad(false);
-      if (!res.success) {
-        setErrore(res.error);
-        return;
-      }
-      setOcc(res.dettaglio.occupazione);
-      setProdotto(res.dettaglio.prodotto);
-      setErrore("");
-    });
+    void fetchDettaglioOccupazionePosto(ubicazioneId)
+      .then((res) => {
+        if (!live) return;
+        setLoad(false);
+        if (!res.success) {
+          setErrore(res.error);
+          return;
+        }
+        setOcc(res.dettaglio.occupazione);
+        setProdotto(res.dettaglio.prodotto);
+        setErrore("");
+      })
+      .catch(() => {
+        if (!live) return;
+        setLoad(false);
+        setErrore("Occupazione non disponibile.");
+      });
     return () => {
       live = false;
     };

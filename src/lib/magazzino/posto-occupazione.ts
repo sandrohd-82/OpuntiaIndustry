@@ -253,33 +253,84 @@ export function etichettaPayloadElemento(
   return `EL:${codicePallet.trim().toUpperCase()}:${numero.trim().toUpperCase()}`;
 }
 
+async function fetchOccupazioneJson<T extends { success: boolean; error?: string }>(
+  url: string,
+  timeoutMs = 15000
+): Promise<T | { success: false; error: string }> {
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), timeoutMs);
+  try {
+    const res = await fetch(url, {
+      credentials: "include",
+      cache: "no-store",
+      signal: ctrl.signal,
+    });
+    const data = (await res.json().catch(() => null)) as T | null;
+    if (!data || !("success" in data)) {
+      return { success: false, error: "Occupazione non disponibile." };
+    }
+    return data;
+  } catch (e) {
+    const aborted = e instanceof Error && e.name === "AbortError";
+    return {
+      success: false,
+      error: aborted
+        ? "Lettura occupazione troppo lenta. Riprova."
+        : "Occupazione non disponibile.",
+    };
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 export async function fetchDettaglioOccupazionePosto(
   ubicazioneId: string
 ): Promise<
   | { success: true; dettaglio: DettaglioElencoPosto }
   | { success: false; error: string }
 > {
-  try {
-    const q = new URLSearchParams({ ubicazioneId });
-    const res = await fetch(`/api/magazzino/posto-occupazione?${q}`, {
-      credentials: "include",
-      cache: "no-store",
-    });
-    const data = (await res.json().catch(() => null)) as
-      | { success: true; dettaglio: DettaglioElencoPosto }
+  if (!ubicazioneId) {
+    return { success: true, dettaglio: { occupazione: null, prodotto: null } };
+  }
+  const q = new URLSearchParams({ ubicazioneId });
+  const data = await fetchOccupazioneJson<
+    | { success: true; dettaglio: DettaglioElencoPosto }
+    | { success: false; error?: string }
+  >(`/api/magazzino/posto-occupazione?${q}`);
+  if (!data.success) {
+    return {
+      success: false,
+      error: data.error || "Occupazione non disponibile.",
+    };
+  }
+  return data;
+}
+
+export async function fetchRiepilogoOccupazionePosti(
+  ubicazioneIds: string[]
+): Promise<
+  | { success: true; perPosto: Record<string, RiepilogoElencoPosto> }
+  | { success: false; error: string }
+> {
+  const ids = [...new Set(ubicazioneIds.filter(Boolean))];
+  const perPosto: Record<string, RiepilogoElencoPosto> = {};
+  if (!ids.length) return { success: true, perPosto };
+
+  const CHUNK = 50;
+  for (let i = 0; i < ids.length; i += CHUNK) {
+    const chunk = ids.slice(i, i + CHUNK);
+    const q = new URLSearchParams({ ids: chunk.join(",") });
+    const data = await fetchOccupazioneJson<
+      | { success: true; perPosto: Record<string, RiepilogoElencoPosto> }
       | { success: false; error?: string }
-      | null;
-    if (!data || !("success" in data) || !data.success) {
+    >(`/api/magazzino/posto-occupazione?${q}`, 20000);
+    if (!data.success) {
       return {
         success: false,
-        error:
-          data && "error" in data && data.error
-            ? data.error
-            : "Occupazione non disponibile.",
+        error: data.error || "Occupazione non disponibile.",
       };
     }
-    return data;
-  } catch {
-    return { success: false, error: "Occupazione non disponibile." };
+    Object.assign(perPosto, data.perPosto);
   }
+  return { success: true, perPosto };
 }

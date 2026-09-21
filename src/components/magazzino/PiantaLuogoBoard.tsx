@@ -21,9 +21,9 @@ import {
 import {
   listImballaggiPostoAction,
   listMovimentazioniPostiAction,
-  listRiepilogoElencoPostiAction,
 } from "@/app/actions/magazzino-posto-occupazione";
 import {
+  fetchRiepilogoOccupazionePosti,
   formatKgIt,
   type ImballaggioPostoOpt,
   type RiepilogoElencoPosto,
@@ -159,10 +159,14 @@ export function PiantaLuogoBoard({ luogo }: { luogo: PiantaLuogoPagina }) {
       return;
     }
     let live = true;
-    void listRiepilogoElencoPostiAction(ids).then((res) => {
-      if (!live || !res.success) return;
-      setRiepilogoPosti(res.perPosto);
-    });
+    void fetchRiepilogoOccupazionePosti(ids)
+      .then((res) => {
+        if (!live || !res.success) return;
+        setRiepilogoPosti(res.perPosto);
+      })
+      .catch(() => {
+        /* la GET API risponde sempre; non lasciare il box vuoto per un throw */
+      });
     return () => {
       live = false;
     };
@@ -758,6 +762,7 @@ export function PiantaLuogoBoard({ luogo }: { luogo: PiantaLuogoPagina }) {
                           occupato={occupato}
                           capienza={capienza}
                           movNomi={movNomiPerPosto[a.id] ?? []}
+                          riepilogo={riepilogoPosti[a.id]}
                         />
                       </td>
                     </tr>
