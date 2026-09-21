@@ -25,6 +25,11 @@ import {
   segmentoGuidaDest,
   segmentiCalcoDest,
 } from "@/lib/magazzino/riferimenti";
+import {
+  isVistaDallAlto,
+  rettangoloFotoNelBox,
+  type PostoFotoPrincipale,
+} from "@/lib/magazzino/posto-foto";
 
 function fontTarga(width: number, height: number, testo: string): number {
   const lato = Math.min(width, height);
@@ -94,6 +99,7 @@ export function PiantaVistaRitaglio({
   onSettaggio,
   onOccupa,
   onSettaggioAnchor,
+  fotoPrincipali,
 }: {
   mappa: MappaMagazzino;
   accese?: Set<string>;
@@ -104,6 +110,7 @@ export function PiantaVistaRitaglio({
   onSettaggio?: (ubicazioneId: string) => void;
   onOccupa?: (ubicazioneId: string) => void;
   onSettaggioAnchor?: (rect: DOMRect | null) => void;
+  fotoPrincipali?: Record<string, PostoFotoPrincipale>;
 }) {
   const extra = (mappa.riferimenti ?? []).flatMap((g) => estremiCalcoDest(g));
   const box = ritaglioDisegnoMappa(mappa.linee, mappa.aree ?? [], extra);
@@ -121,6 +128,10 @@ export function PiantaVistaRitaglio({
     width: number;
     height: number;
   } | null>(null);
+  const [dettaglioFoto, setDettaglioFoto] = useState<Set<string>>(
+    () => new Set()
+  );
+  const mostraFoto = !isVistaDallAlto(mappa.vistaEtichetta || "");
 
   const syncOverlay = useCallback(() => {
     const svg = svgRef.current;
@@ -146,10 +157,22 @@ export function PiantaVistaRitaglio({
   }, [syncOverlay]);
 
   function onClick(e: MouseEvent<SVGSVGElement>) {
-    if (!onSeleziona) return;
     const p = puntoSvg(e.currentTarget, e.clientX, e.clientY);
     if (!p) return;
     const hit = hitArea(mappa.aree ?? [], p.x, p.y);
+    if (
+      mostraFoto &&
+      hit?.ubicazioneId &&
+      fotoPrincipali?.[hit.ubicazioneId]
+    ) {
+      setDettaglioFoto((prev) => {
+        const next = new Set(prev);
+        if (next.has(hit.ubicazioneId)) next.delete(hit.ubicazioneId);
+        else next.add(hit.ubicazioneId);
+        return next;
+      });
+    }
+    if (!onSeleziona) return;
     onSeleziona(hit?.ubicazioneId || null);
   }
 
@@ -174,6 +197,23 @@ export function PiantaVistaRitaglio({
                 <feMergeNode in="SourceGraphic" />
               </feMerge>
             </filter>
+            {mostraFoto
+              ? (mappa.aree ?? []).map((a) =>
+                  fotoPrincipali?.[a.ubicazioneId] ? (
+                    <clipPath
+                      key={`foto-clip-${a.id}`}
+                      id={`foto-clip-${mappa.id}-${a.id}`}
+                    >
+                      <rect
+                        x={a.x}
+                        y={a.y}
+                        width={a.width}
+                        height={a.height}
+                      />
+                    </clipPath>
+                  ) : null
+                )
+              : null}
           </defs>
           <rect
             x={box.x}
@@ -254,6 +294,30 @@ export function PiantaVistaRitaglio({
               accesa,
               primaria,
             });
+            const foto = mostraFoto
+              ? fotoPrincipali?.[a.ubicazioneId]
+              : undefined;
+            const mostraDettaglio = Boolean(
+              foto && dettaglioFoto.has(a.ubicazioneId)
+            );
+            const clipId = `foto-clip-${mappa.id}-${a.id}`;
+            const fit = foto
+              ? rettangoloFotoNelBox({
+                  x: a.x,
+                  y: a.y,
+                  width: a.width,
+                  height: a.height,
+                  fitScale: foto.fitScale,
+                  offsetX: foto.offsetX,
+                  offsetY: foto.offsetY,
+                })
+              : null;
+            const dettaglioRighe = [
+              targa,
+              a.nome.trim() && a.nome.trim() !== targa ? a.nome.trim() : "",
+              cap.occupazione === "occupato" ? "Occupato" : "Libero",
+              primaria && occupazioneTesto ? occupazioneTesto : "",
+            ].filter(Boolean);
             return (
               <g
                 key={a.id}
@@ -264,11 +328,59 @@ export function PiantaVistaRitaglio({
                   y={a.y}
                   width={a.width}
                   height={a.height}
-                  fill={stile.fill}
+                  fill={foto && !mostraDettaglio ? "#ffffff" : stile.fill}
                   stroke={stile.stroke}
                   strokeWidth={stile.strokeWidth}
                 />
-                {primaria ? null : (
+                {foto && fit && !mostraDettaglio ? (
+                  <image
+                    href={foto.url}
+                    x={fit.x}
+                    y={fit.y}
+                    width={fit.width}
+                    height={fit.height}
+                    preserveAspectRatio="xMidYMid slice"
+                    clipPath={`url(#${clipId})`}
+                    pointerEvents="none"
+                  />
+                ) : null}
+                {mostraDettaglio ? (
+                  <g pointerEvents="none">
+                    <rect
+                      x={a.x}
+                      y={a.y}
+                      width={a.width}
+                      height={a.height}
+                      fill="#ffffff"
+                    />
+                    {dettaglioRighe.map((riga, i) => (
+                      <text
+                        key={`${a.id}-d-${i}`}
+                        x={a.x + a.width / 2}
+                        y={
+                          a.y +
+                          a.height / 2 +
+                          (i - (dettaglioRighe.length - 1) / 2) *
+                            Math.max(10, a.height * 0.18)
+                        }
+                        textAnchor="middle"
+                        dominantBaseline="central"
+                        fill="#0f172a"
+                        fontSize={Math.max(
+                          8,
+                          Math.min(
+                            i === 0 ? fontTarga(a.width, a.height, riga) : 11,
+                            a.width * 0.22
+                          )
+                        )}
+                        fontWeight={i === 0 ? 700 : 600}
+                      >
+                        {riga}
+                      </text>
+                    ))}
+                  </g>
+                ) : null}
+                {!foto && !primaria ? (
                   <text
                     x={a.x + a.width / 2}
                     y={a.y + a.height / 2}
@@ -281,7 +393,7 @@ export function PiantaVistaRitaglio({
                   >
                     {targa}
                   </text>
-                )}
+                ) : null}
               </g>
             );
           })}
@@ -299,7 +411,11 @@ export function PiantaVistaRitaglio({
             />
           ))}
         </svg>
-        {primaria && overlay && overlay.width > 4 && overlay.height > 4 ? (
+        {primaria &&
+        overlay &&
+        overlay.width > 4 &&
+        overlay.height > 4 &&
+        !(mostraFoto && fotoPrincipali?.[primaria.ubicazioneId]) ? (
           <PostoOverlay
             area={primaria}
             box={overlay}

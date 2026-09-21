@@ -39,6 +39,9 @@ import {
 import { PiantaPostoOccupazione } from "@/components/magazzino/PiantaPostoOccupazione";
 import { PiantaPostoNuvola } from "@/components/magazzino/PiantaPostoNuvola";
 import { PiantaStampaEtichetteModal } from "@/components/magazzino/PiantaStampaEtichetteModal";
+import { PiantaPostoFotoModal } from "@/components/magazzino/PiantaPostoFotoModal";
+import { listFotoPrincipaliPostiAction } from "@/app/actions/magazzino-posto-foto";
+import type { PostoFotoPrincipale } from "@/lib/magazzino/posto-foto";
 
 function muoviVista(
   list: MappaMagazzino[],
@@ -85,6 +88,17 @@ export function PiantaLuogoBoard({ luogo }: { luogo: PiantaLuogoPagina }) {
     Record<string, RiepilogoElencoPosto>
   >({});
   const [riepilogoRev, setRiepilogoRev] = useState(0);
+  const [fotoPrincipali, setFotoPrincipali] = useState<
+    Record<string, PostoFotoPrincipale>
+  >({});
+  const [fotoRev, setFotoRev] = useState(0);
+  const [modificaFoto, setModificaFoto] = useState<{
+    ubicazioneId: string;
+    postoCodice: string;
+    postoNome: string;
+    boxW: number;
+    boxH: number;
+  } | null>(null);
   const [stampaPosto, setStampaPosto] = useState<{
     ubicazioneId: string;
     postoCodice: string;
@@ -153,6 +167,22 @@ export function PiantaLuogoBoard({ luogo }: { luogo: PiantaLuogoPagina }) {
       live = false;
     };
   }, [postiIdsKey, riepilogoRev]);
+
+  useEffect(() => {
+    const ids = postiIdsKey ? postiIdsKey.split(",") : [];
+    if (!ids.length) {
+      setFotoPrincipali({});
+      return;
+    }
+    let live = true;
+    void listFotoPrincipaliPostiAction(ids).then((res) => {
+      if (!live || !res.success) return;
+      setFotoPrincipali(res.perPosto);
+    });
+    return () => {
+      live = false;
+    };
+  }, [postiIdsKey, fotoRev]);
 
   useEffect(() => {
     let live = true;
@@ -449,6 +479,7 @@ export function PiantaLuogoBoard({ luogo }: { luogo: PiantaLuogoPagina }) {
                 mappa={m}
                 accese={accese}
                 primariaId={selezionata}
+                fotoPrincipali={fotoPrincipali}
                 onSeleziona={modificaSequenza ? undefined : selezionaSolo}
                 occupazioneTesto={occTesto}
                 occupazioneLoading={occLoad}
@@ -669,6 +700,17 @@ export function PiantaLuogoBoard({ luogo }: { luogo: PiantaLuogoPagina }) {
                         <button
                           type="button"
                           className="rounded-lg border border-slate-400 bg-white px-2 py-1 text-xs font-medium text-slate-800"
+                          onClick={() => {
+                            const box = src ?? tutteAree.find((x) => x.ubicazioneId === a.id);
+                            setSelezionata(a.id);
+                            setModificaFoto({
+                              ubicazioneId: a.id,
+                              postoCodice: a.codice,
+                              postoNome: a.nome,
+                              boxW: box?.width ?? 160,
+                              boxH: box?.height ?? 110,
+                            });
+                          }}
                         >
                           Modifica
                         </button>
@@ -718,6 +760,7 @@ export function PiantaLuogoBoard({ luogo }: { luogo: PiantaLuogoPagina }) {
                       <td colSpan={9} className="px-3 py-2">
                         <PiantaElencoPostoDettaglio
                           ubicazioneId={a.id}
+                          postoCodice={a.codice}
                           occupato={occupato}
                           capienza={capienza}
                           movNomi={movNomiPerPosto[a.id] ?? []}
@@ -739,6 +782,17 @@ export function PiantaLuogoBoard({ luogo }: { luogo: PiantaLuogoPagina }) {
           postoCodice={stampaPosto.postoCodice}
           postoNome={stampaPosto.postoNome}
           onClose={() => setStampaPosto(null)}
+        />
+      ) : null}
+      {modificaFoto ? (
+        <PiantaPostoFotoModal
+          ubicazioneId={modificaFoto.ubicazioneId}
+          postoCodice={modificaFoto.postoCodice}
+          postoNome={modificaFoto.postoNome}
+          boxW={modificaFoto.boxW}
+          boxH={modificaFoto.boxH}
+          onClose={() => setModificaFoto(null)}
+          onCambio={() => setFotoRev((n) => n + 1)}
         />
       ) : null}
     </div>

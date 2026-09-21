@@ -2,12 +2,15 @@
 
 import { useEffect, useState } from "react";
 import { dettaglioElencoPostoAction } from "@/app/actions/magazzino-posto-occupazione";
+import { listFotoPostoAction } from "@/app/actions/magazzino-posto-foto";
+import { PiantaPostoFotoCarousel } from "@/components/magazzino/PiantaPostoFotoCarousel";
 import {
   formatKgIt,
   pesoOccupazioneKg,
   targaProdottoOccupazione,
   type DettaglioElencoPosto,
 } from "@/lib/magazzino/posto-occupazione";
+import type { PostoFoto } from "@/lib/magazzino/posto-foto";
 import type { UbicazioneCapienza } from "@/lib/magazzino/ubicazioni";
 
 function misura(v: number | null, u: string): string {
@@ -24,13 +27,73 @@ function riga(label: string, value: string) {
   );
 }
 
+function ElencoFotoPosto({
+  ubicazioneId,
+  postoCodice,
+}: {
+  ubicazioneId: string;
+  postoCodice: string;
+}) {
+  const [foto, setFoto] = useState<PostoFoto[]>([]);
+  const [carousel, setCarousel] = useState<string | null>(null);
+
+  useEffect(() => {
+    let live = true;
+    void listFotoPostoAction(ubicazioneId).then((res) => {
+      if (!live || !res.success) return;
+      setFoto(res.foto);
+    });
+    return () => {
+      live = false;
+    };
+  }, [ubicazioneId]);
+
+  if (!foto.length) return null;
+
+  return (
+    <div className="mb-3">
+      <p className="mb-2 text-xs font-semibold uppercase text-slate-500">
+        Foto del posto
+      </p>
+      <div className="flex flex-wrap gap-3">
+        {foto.map((f) => (
+          <button
+            key={f.id}
+            type="button"
+            className="overflow-hidden rounded-lg border border-slate-300 bg-white shadow-sm"
+            onClick={() => setCarousel(f.id)}
+            title={f.isPrincipale ? "Foto principale — apri" : "Apri foto"}
+          >
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src={f.url}
+              alt={f.fileName}
+              className="h-32 w-40 object-cover"
+            />
+          </button>
+        ))}
+      </div>
+      {carousel ? (
+        <PiantaPostoFotoCarousel
+          foto={foto}
+          startId={carousel}
+          titolo={`Posto ${postoCodice}`}
+          onClose={() => setCarousel(null)}
+        />
+      ) : null}
+    </div>
+  );
+}
+
 export function PiantaElencoPostoDettaglio({
   ubicazioneId,
+  postoCodice,
   occupato,
   capienza,
   movNomi,
 }: {
   ubicazioneId: string;
+  postoCodice: string;
   occupato: boolean;
   capienza: UbicazioneCapienza;
   movNomi: string[];
@@ -67,6 +130,7 @@ export function PiantaElencoPostoDettaglio({
   if (!occupato) {
     return (
       <div className="ml-8 border-l-2 border-teal-200 py-2 pl-4">
+        <ElencoFotoPosto ubicazioneId={ubicazioneId} postoCodice={postoCodice} />
         <p className="text-sm font-semibold text-teal-800">Posto disponibile</p>
         <ul className="mt-2 space-y-1">
           {riga("Peso massimo", misura(capienza.pesoMaxKg, "kg"))}
@@ -89,20 +153,29 @@ export function PiantaElencoPostoDettaglio({
 
   if (load) {
     return (
-      <p className="ml-8 py-2 pl-4 text-sm text-slate-500">
-        Caricamento materiale…
-      </p>
+      <div className="ml-8 py-2 pl-4">
+        <ElencoFotoPosto ubicazioneId={ubicazioneId} postoCodice={postoCodice} />
+        <p className="text-sm text-slate-500">Caricamento materiale…</p>
+      </div>
     );
   }
   if (errore) {
-    return <p className="ml-8 py-2 pl-4 text-sm text-red-700">{errore}</p>;
+    return (
+      <div className="ml-8 py-2 pl-4">
+        <ElencoFotoPosto ubicazioneId={ubicazioneId} postoCodice={postoCodice} />
+        <p className="text-sm text-red-700">{errore}</p>
+      </div>
+    );
   }
   const occ = det?.occupazione;
   if (!occ) {
     return (
-      <p className="ml-8 py-2 pl-4 text-sm text-slate-600">
-        Occupato, ma senza scheda materiale.
-      </p>
+      <div className="ml-8 py-2 pl-4">
+        <ElencoFotoPosto ubicazioneId={ubicazioneId} postoCodice={postoCodice} />
+        <p className="text-sm text-slate-600">
+          Occupato, ma senza scheda materiale.
+        </p>
+      </div>
     );
   }
   const prod = det?.prodotto;
@@ -112,6 +185,7 @@ export function PiantaElencoPostoDettaglio({
     occ.tipoElemento === "isolamento" ? "Sacchetto / isolamento" : "Cartone / confezione";
   return (
     <div className="ml-8 border-l-2 border-green-800 py-2 pl-4">
+      <ElencoFotoPosto ubicazioneId={ubicazioneId} postoCodice={postoCodice} />
       <p className="text-sm font-semibold text-green-900">Materiale caricato</p>
       <ul className="mt-2 space-y-1">
         {riga(
