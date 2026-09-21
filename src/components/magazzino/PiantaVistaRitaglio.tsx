@@ -321,15 +321,15 @@ export function PiantaVistaRitaglio({
             return (
               <g
                 key={a.id}
-                filter={accesa ? `url(#${glowId})` : undefined}
+                filter={accesa && !mostraDettaglio ? `url(#${glowId})` : undefined}
               >
                 <rect
                   x={a.x}
                   y={a.y}
                   width={a.width}
                   height={a.height}
-                  fill={foto && !mostraDettaglio ? "#ffffff" : stile.fill}
-                  stroke={stile.stroke}
+                  fill={foto || mostraDettaglio ? "#ffffff" : stile.fill}
+                  stroke={mostraDettaglio ? "#334155" : stile.stroke}
                   strokeWidth={stile.strokeWidth}
                 />
                 {foto && fit && !mostraDettaglio ? (
@@ -353,7 +353,9 @@ export function PiantaVistaRitaglio({
                       height={a.height}
                       fill="#ffffff"
                     />
-                    {dettaglioRighe.map((riga, i) => (
+                    {primaria && a.ubicazioneId === primaria.ubicazioneId
+                      ? null
+                      : dettaglioRighe.map((riga, i) => (
                       <text
                         key={`${a.id}-d-${i}`}
                         x={a.x + a.width / 2}
@@ -365,7 +367,7 @@ export function PiantaVistaRitaglio({
                         }
                         textAnchor="middle"
                         dominantBaseline="central"
-                        fill="#0f172a"
+                        fill={i === 0 ? "#111827" : "#334155"}
                         fontSize={Math.max(
                           8,
                           Math.min(
@@ -415,11 +417,13 @@ export function PiantaVistaRitaglio({
         overlay &&
         overlay.width > 4 &&
         overlay.height > 4 &&
-        !(mostraFoto && fotoPrincipali?.[primaria.ubicazioneId]) ? (
+        (!(mostraFoto && fotoPrincipali?.[primaria.ubicazioneId]) ||
+          dettaglioFoto.has(primaria.ubicazioneId)) ? (
           <PostoOverlay
             area={primaria}
             box={overlay}
             occupato={capienzaDi(primaria).occupazione === "occupato"}
+            suBianco={dettaglioFoto.has(primaria.ubicazioneId)}
             haSettaggi={postoHaSettaggi(primaria)}
             testo={occupazioneTesto ?? null}
             loading={Boolean(occupazioneLoading)}
@@ -447,6 +451,7 @@ function PostoOverlay({
   area,
   box,
   occupato,
+  suBianco = false,
   haSettaggi,
   testo,
   loading,
@@ -457,6 +462,7 @@ function PostoOverlay({
   area: MappaAreaDisegnata;
   box: { left: number; top: number; width: number; height: number };
   occupato: boolean;
+  suBianco?: boolean;
   haSettaggi: boolean;
   testo: string | null;
   loading: boolean;
@@ -465,7 +471,7 @@ function PostoOverlay({
   onOccupa?: () => void;
 }) {
   const targa = area.codice.trim() || area.nome.trim() || "Posto";
-  const chiaro = occupato;
+  const testoScuro = suBianco || !occupato;
   const pad = Math.max(3, Math.min(8, Math.round(Math.min(box.width, box.height) * 0.08)));
   return (
     <div
@@ -479,7 +485,7 @@ function PostoOverlay({
     >
       <p
         className={`absolute truncate font-bold leading-none ${
-          chiaro ? "text-emerald-50" : "text-teal-950"
+          testoScuro ? "text-slate-900" : "text-emerald-50"
         }`}
         title={targa}
         style={{
@@ -498,11 +504,11 @@ function PostoOverlay({
           title="Info settaggio"
           aria-label={`Info settaggio ${targa}`}
           className={`pointer-events-auto absolute bg-transparent p-0 text-[13px] font-bold italic leading-none underline-offset-2 hover:underline ${
-            chiaro
-              ? "text-emerald-50"
-              : haSettaggi
-                ? "text-teal-900"
-                : "text-teal-800/80"
+            testoScuro
+              ? haSettaggi
+                ? "text-slate-800"
+                : "text-slate-600"
+              : "text-emerald-50"
           }`}
           style={{ top: pad, right: pad }}
           onClick={(e) => {
@@ -515,7 +521,7 @@ function PostoOverlay({
       ) : null}
       <div
         className={`absolute flex flex-col items-center justify-center text-center font-semibold leading-snug ${
-          chiaro ? "text-emerald-50" : "text-teal-950"
+          testoScuro ? "text-slate-700" : "text-emerald-50"
         }`}
         style={{
           top: pad + 18,
