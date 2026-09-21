@@ -35,7 +35,15 @@ export default async function LoginPage({ searchParams }: Props) {
         <div className="mt-6">
           <LoginForm />
         </div>
-        <p className="mt-6 text-center text-sm text-[var(--muted)]">
+        <p className="mt-4 text-center text-sm">
+          <Link
+            href="/recupero-password"
+            className="text-[var(--primary)] hover:underline"
+          >
+            Password dimenticata?
+          </Link>
+        </p>
+        <p className="mt-4 text-center text-sm text-[var(--muted)]">
           <Link href="/" className="hover:text-[var(--foreground)]">
             Torna alla home
           </Link>

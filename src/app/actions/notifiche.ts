@@ -48,6 +48,108 @@ export async function countUnreadNotificheAction(tipo?: string): Promise<{
   };
 }
 
+export type NotificaInboxRiga = {
+  id: string;
+  tipo: string;
+  title: string;
+  body: string;
+  href: string;
+  entityId: string | null;
+  payload: Record<string, unknown>;
+  readAt: string | null;
+  createdAt: string;
+};
+
+export async function listNotificheAction(filtro: "tutte" | "lette" | "non_lette" = "tutte"): Promise<
+  | { success: true; items: NotificaInboxRiga[] }
+  | { success: false; error: string }
+> {
+  const auth = await getAuthContext();
+  if (!auth?.isSecondFactorVerified) {
+    return { success: false, error: "Non autenticato" };
+  }
+  const supabase = await createClient();
+  let q = supabase
+    .from("app_notifiche")
+    .select("id, tipo, title, body, href, entity_id, payload, read_at, created_at")
+    .eq("recipient_id", auth.userId)
+    .is("deleted_at", null)
+    .order("created_at", { ascending: false })
+    .limit(200);
+  if (filtro === "lette") q = q.not("read_at", "is", null);
+  if (filtro === "non_lette") q = q.is("read_at", null);
+  const { data, error } = await q;
+  if (error) return { success: false, error: error.message };
+  return {
+    success: true,
+    items: (data ?? []).map((row) => ({
+      id: String(row.id),
+      tipo: String(row.tipo ?? ""),
+      title: String(row.title ?? ""),
+      body: String(row.body ?? ""),
+      href: String(row.href ?? "/app/notifiche"),
+      entityId: row.entity_id ? String(row.entity_id) : null,
+      payload:
+        row.payload && typeof row.payload === "object"
+          ? (row.payload as Record<string, unknown>)
+          : {},
+      readAt: row.read_at ? String(row.read_at) : null,
+      createdAt: String(row.created_at ?? ""),
+    })),
+  };
+}
+
+export async function markNotificaReadByIdAction(
+  id: string
+): Promise<{ success: true } | { success: false; error: string }> {
+  const auth = await getAuthContext();
+  if (!auth?.isSecondFactorVerified) {
+    return { success: false, error: "Non autenticato" };
+  }
+  const parsed = z.string().uuid().safeParse(id);
+  if (!parsed.success) return { success: false, error: "Notifica non valida." };
+  const supabase = await createClient();
+  const now = new Date().toISOString();
+  const { error } = await supabase
+    .from("app_notifiche")
+    .update({
+      read_at: now,
+      read_by: auth.userId,
+      updated_by: auth.userId,
+    })
+    .eq("id", parsed.data)
+    .eq("recipient_id", auth.userId)
+    .is("deleted_at", null)
+    .is("read_at", null);
+  if (error) return { success: false, error: error.message };
+  return { success: true };
+}
+
+export async function deleteNotificaAction(
+  id: string
+): Promise<{ success: true } | { success: false; error: string }> {
+  const auth = await getAuthContext();
+  if (!auth?.isSecondFactorVerified) {
+    return { success: false, error: "Non autenticato" };
+  }
+  const parsed = z.string().uuid().safeParse(id);
+  if (!parsed.success) return { success: false, error: "Notifica non valida." };
+  const supabase = await createClient();
+  const now = new Date().toISOString();
+  const { error } = await supabase
+    .from("app_notifiche")
+    .update({
+      deleted_at: now,
+      deleted_by: auth.userId,
+      updated_by: auth.userId,
+    })
+    .eq("id", parsed.data)
+    .eq("recipient_id", auth.userId)
+    .is("deleted_at", null);
+  if (error) return { success: false, error: error.message };
+  return { success: true };
+}
+
 export async function markNotificheReadAction(input: {
   tipo?: string;
   entityId?: string;

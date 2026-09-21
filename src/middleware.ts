@@ -29,8 +29,9 @@ export async function middleware(request: NextRequest) {
   const isVerifyPage = pathname === VERIFY_PATH;
   const isAppArea = pathname.startsWith("/app");
   const isPrimoAccesso = pathname.startsWith("/primo-accesso");
+  const isRecuperoPassword = pathname.startsWith("/recupero-password");
 
-  if (isPrimoAccesso) {
+  if (isPrimoAccesso || isRecuperoPassword) {
     return supabaseResponse;
   }
 

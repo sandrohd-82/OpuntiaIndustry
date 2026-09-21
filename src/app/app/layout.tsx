@@ -49,6 +49,11 @@ import {
 import { isTestImpersonation } from "@/lib/areas/guard";
 import type { UserArea } from "@/types/database";
 
+function isSharedInboxPath(pathname: string): boolean {
+  const current = normalizeAppPath(pathname);
+  return current === "/app/notifiche" || current.startsWith("/app/notifiche/");
+}
+
 function isAlreadyOnOrUnder(
   pathname: string,
   target: string,
@@ -112,7 +117,9 @@ export default async function AppLayout({
   const pathname = headerList.get("x-pathname") || "/app/dashboard";
   const pageKey = resolvePageKey(pathname);
 
-  if (
+  if (isSharedInboxPath(pathname)) {
+    /* inbox comune: visibile a ogni sessione autenticata */
+  } else if (
     applyPageFilter &&
     !testMenuMode &&
     ((isFiscalePath(pageKey) && !authSettings.fiscaleUnlocked) ||
@@ -146,6 +153,7 @@ export default async function AppLayout({
     applyPageFilter &&
     !testMenuMode &&
     auth.impersonating &&
+    !isSharedInboxPath(pathname) &&
     !isNavPathVisible(pageKey, pageAccess);
 
   const menuAreas = testMenuMode

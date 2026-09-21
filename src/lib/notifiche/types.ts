@@ -7,6 +7,7 @@ export const NOTIFICA_TIPI = [
   "chat",
   "scadenza",
   "avviso",
+  "sicurezza",
 ] as const;
 
 export type NotificaTipo = (typeof NOTIFICA_TIPI)[number];
@@ -18,6 +19,7 @@ export const NOTIFICA_TIPO_LABELS: Record<NotificaTipo, string> = {
   chat: "Chat",
   scadenza: "Scadenze",
   avviso: "Sveglia",
+  sicurezza: "Sicurezza",
 };
 
 export const NOTIFICA_TIPO_TITLES: Record<NotificaTipo, string> = {
@@ -27,6 +29,7 @@ export const NOTIFICA_TIPO_TITLES: Record<NotificaTipo, string> = {
   chat: "Nuovo messaggio in Chat",
   scadenza: "Scadenza",
   avviso: "Sveglia",
+  sicurezza: "Richiesta reset password",
 };
 
 export const createNotificaSchema = z.object({

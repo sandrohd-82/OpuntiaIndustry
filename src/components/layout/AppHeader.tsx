@@ -1,5 +1,6 @@
 import { signOut } from "@/app/actions/auth";
 import type { ReactNode } from "react";
+import { NotificheBell } from "@/components/layout/NotificheBell";
 
 type Props = {
   title: string;
@@ -19,6 +20,7 @@ export function AppHeader({ title, subtitle, actions }: Props) {
       </div>
       <div className="flex items-center gap-2">
         {actions}
+        <NotificheBell />
         <form action={signOut}>
           <button
             type="submit"
