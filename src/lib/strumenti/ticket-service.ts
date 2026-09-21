@@ -2,6 +2,8 @@ import { writeAuditLog } from "@/lib/audit";
 import { requireAnyAreaAccess } from "@/lib/areas/guard";
 import { isSuperadminProfile } from "@/lib/auth/roles";
 import { userCanAccessArea } from "@/lib/auth/session";
+import { loadTicketAddettoUserId, notifyTicketNuovo } from "@/lib/strumenti/ticket-notify";
+import type { TicketUrgenza } from "@/lib/strumenti/ticket";
 import { createServiceClient } from "@/lib/supabase/server";
 import {
   TICKET_BUCKET,
@@ -18,7 +20,7 @@ import type { TicketAllegatoBytes } from "@/lib/strumenti/ticket-bytes";
 
 type AuthBag = Awaited<ReturnType<typeof requireAnyAreaAccess>>["auth"];
 
-function canGestire(auth: AuthBag): boolean {
+function canGestireRuolo(auth: AuthBag): boolean {
   return (
     isSuperadminProfile(auth.profile) ||
     userCanAccessArea(auth.areas, "amministrazione")
@@ -30,7 +32,10 @@ async function gate() {
     "strumenti",
     "amministrazione",
   ]);
-  return { auth, admin: canGestire(auth), db: createServiceClient() };
+  const db = createServiceClient();
+  const addettoId = await loadTicketAddettoUserId();
+  const admin = canGestireRuolo(auth) || addettoId === auth.userId;
+  return { auth, admin, db };
 }
 
 async function ensureTicketBucket(
@@ -148,12 +153,13 @@ export async function creaTicketConAllegati(input: {
       created_by: auth.userId,
       updated_by: auth.userId,
     })
-    .select("id")
+    .select("id, codice")
     .single();
   if (error || !created) {
     return { success: false, error: error?.message ?? "Ticket non creato." };
   }
   const ticketId = (created as { id: string }).id;
+  const codice = String((created as { codice?: string }).codice ?? "");
   const files = [...input.files];
   if (input.audio) files.push(input.audio);
   const tipo =
@@ -200,6 +206,13 @@ export async function creaTicketConAllegati(input: {
       urgenza: parsed.data.urgenza,
       fileCount: input.files.length,
     },
+  });
+  void notifyTicketNuovo({
+    actorId: auth.userId,
+    ticketId,
+    codice,
+    titolo,
+    urgenza: parsed.data.urgenza as TicketUrgenza,
   });
   return { success: true, ticketId, messaggioId: (msg as { id: string }).id };
 }

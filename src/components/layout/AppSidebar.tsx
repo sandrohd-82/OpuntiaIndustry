@@ -40,6 +40,7 @@ import {
 import {
   applyDaProcessareBadge,
   applyPnAttivitaUnreadBadge,
+  applyTicketUrgenzaBadge,
   filterNavByAdminOnly,
   filterNavBySuperAdminOnly,
   isNavBranch,
@@ -81,6 +82,9 @@ import {
   listWebmailMenuAccountsAction,
   setImpersonatedWebmailAreaAccessAction,
 } from "@/app/actions/webmail";
+import { getTicketNavBadgeAction } from "@/app/actions/strumenti-ticket-impostazioni";
+import { TicketUrgenzaDots } from "@/components/strumenti/TicketUrgenzaDots";
+import { TICKET_NAV_EVENT } from "@/lib/strumenti/ticket-nav";
 import { ChatUnreadBadge } from "@/components/chat/ChatUnreadBadge";
 import { ChatSidebarNav } from "@/components/chat/ChatSidebarNav";
 import { WebmailSidebarNav } from "@/components/webmail/WebmailSidebarNav";
@@ -248,6 +252,9 @@ function Chevron({ open }: { open: boolean }) {
 }
 
 function NavBadgeDot({ badge }: { badge: NavBadge }) {
+  if (badge.kind === "ticket-urgenze") {
+    return <TicketUrgenzaDots stacks={badge.stacks} />;
+  }
   if (badge.kind === "status") {
     return (
       <span
@@ -550,6 +557,9 @@ export function AppSidebar({
   );
   const [daProcessareCount, setDaProcessareCount] = useState(0);
   const [pnAttivitaUnread, setPnAttivitaUnread] = useState(0);
+  const [ticketStacks, setTicketStacks] = useState<
+    Array<{ urgenza: string; count: number }>
+  >([]);
   const sortedAreas = useMemo(() => sortAreasForSidebar(areas), [areas]);
   const showWeb = useMemo(
     () =>
@@ -653,6 +663,43 @@ export function AppSidebar({
       window.removeEventListener("focus", loadUnread);
     };
   }, [hasPn, userId]);
+
+  const hasStrumenti = areas.some((a) => a.slug === "strumenti");
+  useEffect(() => {
+    if (!hasStrumenti) {
+      setTicketStacks([]);
+      return;
+    }
+    let cancelled = false;
+    function loadTicketBadge() {
+      void getTicketNavBadgeAction()
+        .then((res) => {
+          if (cancelled || !res.success) return;
+          setTicketStacks(res.visible ? res.stacks : []);
+        })
+        .catch(() => {
+          /* badge opzionale */
+        });
+    }
+    loadTicketBadge();
+    const supabase = createClient();
+    const channel = supabase
+      .channel(`strumenti-ticket-nav-${userId}`)
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "strumenti_ticket" },
+        loadTicketBadge
+      )
+      .subscribe();
+    window.addEventListener(TICKET_NAV_EVENT, loadTicketBadge);
+    window.addEventListener("focus", loadTicketBadge);
+    return () => {
+      cancelled = true;
+      void supabase.removeChannel(channel);
+      window.removeEventListener(TICKET_NAV_EVENT, loadTicketBadge);
+      window.removeEventListener("focus", loadTicketBadge);
+    };
+  }, [hasStrumenti, userId]);
 
   useEffect(() => {
     let cancelled = false;
@@ -1019,7 +1066,9 @@ export function AppSidebar({
                       treeSectionsFiltered,
                       pnAttivitaUnread
                     )
-                  : treeSectionsFiltered;
+                  : area.slug === "strumenti" && treeSectionsFiltered
+                    ? applyTicketUrgenzaBadge(treeSectionsFiltered, ticketStacks)
+                    : treeSectionsFiltered;
             const toneChildren = toneChildrenForArea(area.slug);
             const areaTone = testMenuMode
               ? area.slug === "webmail" && webmailGrantTone
@@ -1073,7 +1122,9 @@ export function AppSidebar({
                             count: pnAttivitaUnread,
                             title: "Attività in cui sei stato coinvolto",
                           }
-                        : undefined
+                        : area.slug === "strumenti" && ticketStacks.length > 0
+                          ? { kind: "ticket-urgenze", stacks: ticketStacks }
+                          : undefined
                     }
                     extra={extra}
                     tone={areaTone}

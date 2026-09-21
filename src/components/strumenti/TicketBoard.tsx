@@ -27,7 +27,9 @@ import {
   TicketAllegatiAnteprima,
   ticketFileToAnteprima,
 } from "@/components/strumenti/TicketAllegatiAnteprima";
+import { TicketImpostazioniPanel } from "@/components/strumenti/TicketImpostazioniPanel";
 import { caricaFileTicketLatoClient } from "@/lib/strumenti/ticket-upload-client";
+import { notifyTicketNav } from "@/lib/strumenti/ticket-nav";
 import {
   TICKET_CATEGORIA_META,
   TICKET_CATEGORIE,
@@ -291,6 +293,7 @@ export function TicketBoard({ mode }: Props) {
       setError(created.error);
       return;
     }
+    notifyTicketNav();
     setLoadMsg("Ticket creato. Invio allegati…");
     const daCaricare = allegatiNuovo.map((a) => a.file);
     if (audioBlob) {
@@ -432,6 +435,7 @@ export function TicketBoard({ mode }: Props) {
       return;
     }
     setSel(null);
+    notifyTicketNav();
     await caricaElenco();
   }
 
@@ -664,6 +668,8 @@ export function TicketBoard({ mode }: Props) {
       {error && !sel ? (
         <p className="text-sm text-red-700">{error}</p>
       ) : null}
+
+      {!archivio ? <TicketImpostazioniPanel /> : null}
 
       {!archivio ? (
         <section className="rounded-xl border border-[var(--border)] bg-[var(--card)] p-4">

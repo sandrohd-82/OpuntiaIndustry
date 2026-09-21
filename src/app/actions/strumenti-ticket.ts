@@ -6,6 +6,7 @@ import { requireAnyAreaAccess } from "@/lib/areas/guard";
 import { formatOperatorShortName } from "@/lib/auth/operator-short-name";
 import { isSuperadminProfile } from "@/lib/auth/roles";
 import { userCanAccessArea } from "@/lib/auth/session";
+import { loadTicketAddettoUserId, notifyTicketNuovo } from "@/lib/strumenti/ticket-notify";
 import { createClient, createServiceClient } from "@/lib/supabase/server";
 import {
   TICKET_BUCKET,
@@ -32,7 +33,7 @@ const TICKET_COLS =
 
 type AuthBag = Awaited<ReturnType<typeof requireAnyAreaAccess>>["auth"];
 
-function canGestire(auth: AuthBag): boolean {
+function canGestireRuolo(auth: AuthBag): boolean {
   return (
     isSuperadminProfile(auth.profile) ||
     userCanAccessArea(auth.areas, "amministrazione")
@@ -44,7 +45,10 @@ async function gateTicket() {
     "strumenti",
     "amministrazione",
   ]);
-  return { auth, admin: canGestire(auth), db: createServiceClient() };
+  const db = createServiceClient();
+  const addettoId = await loadTicketAddettoUserId();
+  const admin = canGestireRuolo(auth) || addettoId === auth.userId;
+  return { auth, admin, db };
 }
 
 function revalidateTicket() {
@@ -457,12 +461,13 @@ export async function createTicketAction(
       created_by: auth.userId,
       updated_by: auth.userId,
     })
-    .select("id")
+    .select("id, codice")
     .single();
   if (error || !created) {
     return { success: false, error: error?.message ?? "Ticket non creato." };
   }
   const ticketId = (created as { id: string }).id;
+  const codice = String((created as { codice?: string }).codice ?? "");
   const tipo =
     audioFile && files.length
       ? "misto"
@@ -503,6 +508,13 @@ export async function createTicketAction(
       categoria: parsed.data.categoria,
       urgenza: parsed.data.urgenza,
     },
+  });
+  void notifyTicketNuovo({
+    actorId: auth.userId,
+    ticketId,
+    codice,
+    titolo,
+    urgenza: parsed.data.urgenza,
   });
   revalidateTicket();
   return getTicketAction(ticketId);
