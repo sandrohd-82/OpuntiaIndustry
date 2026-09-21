@@ -154,6 +154,9 @@ export function ProcessiStoricoBoard() {
                     {selected.deprecatoNote
                       ? ` · ${selected.deprecatoNote}`
                       : ""}
+                    {selected.funzioni.length > 0
+                      ? ` · ${selected.funzioni.map((f) => f.etichetta).join(" · ")}`
+                      : ""}
                   </p>
                 </div>
                 <button

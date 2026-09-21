@@ -199,6 +199,49 @@ async function loadFunzioniByAttivita(
   return map;
 }
 
+async function loadFunzioniByProcesso(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  processoIds: string[]
+): Promise<Map<string, AttivitaFunzioneLink[]>> {
+  const map = new Map<string, AttivitaFunzioneLink[]>();
+  if (processoIds.length === 0) return map;
+  const { data } = await supabase
+    .from("produzione_processo_funzioni")
+    .select(
+      "processo_id, funzione_key, percorso, area_label, etichetta, spiegazione, tipo, avvio, sort_order"
+    )
+    .in("processo_id", processoIds)
+    .is("deleted_at", null)
+    .order("sort_order", { ascending: true });
+  for (const row of (data ?? []) as Array<{
+    processo_id: string;
+    funzione_key: string;
+    percorso: string;
+    area_label: string;
+    etichetta: string;
+    spiegazione: string;
+    tipo: string;
+    avvio: string;
+  }>) {
+    const live = resolveFunzioniDaKeys([row.funzione_key]);
+    const fromCatalog = live.success ? live.items[0] : null;
+    const link: AttivitaFunzioneLink = fromCatalog ?? {
+      key: row.funzione_key,
+      area: row.area_label,
+      etichetta: row.etichetta,
+      spiegazione: row.spiegazione,
+      percorso: row.percorso,
+      tipo:
+        row.tipo === "azione" || row.tipo === "inline" ? row.tipo : "pagina",
+      avvio: row.avvio === "inline_pesata" ? "inline_pesata" : "navigate",
+    };
+    const list = map.get(row.processo_id) ?? [];
+    list.push(link);
+    map.set(row.processo_id, list);
+  }
+  return map;
+}
+
 async function loadPassiByProcesso(
   supabase: Awaited<ReturnType<typeof createClient>>,
   processoIds: string[],
@@ -331,12 +374,11 @@ export async function listProcessiPerFoglioAction(
     postoNome.set(p.id, p.nome);
   }
 
-  const passiByProcesso = await loadPassiByProcesso(
-    supabase,
-    procRows.map((p) => p.id),
-    areaNome,
-    postoNome
-  );
+  const processoIds = procRows.map((p) => p.id);
+  const [passiByProcesso, funzioniByProcesso] = await Promise.all([
+    loadPassiByProcesso(supabase, processoIds, areaNome, postoNome),
+    loadFunzioniByProcesso(supabase, processoIds),
+  ]);
 
   const { data: esecuzioni } = await supabase
     .from("produzione_foglio_processi")
@@ -369,11 +411,13 @@ export async function listProcessiPerFoglioAction(
 
   const items: FoglioProcessoDisponibile[] = procRows.map((p) => {
     const passi = passiByProcesso.get(p.id) ?? [];
-    const hasPesata = passi.some(
-      (step) =>
-        step.scripts.some((s) => s.funzione === "pesata") ||
-        step.funzioni.some((f) => f.avvio === "inline_pesata")
-    );
+    const funzioni = funzioniByProcesso.get(p.id) ?? [];
+    const hasPesata =
+      passi.some(
+        (step) =>
+          step.scripts.some((s) => s.funzione === "pesata") ||
+          step.funzioni.some((f) => f.avvio === "inline_pesata")
+      ) || funzioni.some((f) => f.avvio === "inline_pesata");
     const esec = esecByProcesso.get(p.id) ?? null;
     const pesate = esec ? (pesateByEsec.get(esec.id) ?? []) : [];
     const kgCaricati = pesate.reduce((sum, x) => sum + x.kg, 0);
@@ -385,6 +429,7 @@ export async function listProcessiPerFoglioAction(
       areaId: p.area_id,
       areaNome: p.area_id ? (areaNome.get(p.area_id) ?? "") : "",
       passi,
+      funzioni,
       hasPesata,
       esecuzione: esec ? mapEsecuzione(esec, kgCaricati) : null,
       pesate,

@@ -306,6 +306,115 @@ async function syncAttivitaFunzioni(
   return { success: true };
 }
 
+function mapFunzioneLink(row: {
+  funzione_key: string;
+  percorso: string;
+  area_label: string;
+  etichetta: string;
+  spiegazione: string;
+  tipo: string;
+  avvio: string;
+}): AttivitaFunzioneLink {
+  const live = resolveFunzioniDaKeys([row.funzione_key]);
+  const fromCatalog = live.success ? live.items[0] : null;
+  return (
+    fromCatalog ?? {
+      key: row.funzione_key,
+      area: row.area_label,
+      etichetta: row.etichetta,
+      spiegazione: row.spiegazione,
+      percorso: row.percorso,
+      tipo: row.tipo === "azione" || row.tipo === "inline" ? row.tipo : "pagina",
+      avvio: row.avvio === "inline_pesata" ? "inline_pesata" : "navigate",
+    }
+  );
+}
+
+async function loadFunzioniByProcesso(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  processoIds: string[]
+): Promise<Map<string, AttivitaFunzioneLink[]>> {
+  const map = new Map<string, AttivitaFunzioneLink[]>();
+  if (processoIds.length === 0) return map;
+  const { data } = await supabase
+    .from("produzione_processo_funzioni")
+    .select(
+      "processo_id, funzione_key, percorso, area_label, etichetta, spiegazione, tipo, avvio, sort_order"
+    )
+    .in("processo_id", processoIds)
+    .is("deleted_at", null)
+    .order("sort_order", { ascending: true });
+  for (const row of (data ?? []) as Array<{
+    processo_id: string;
+    funzione_key: string;
+    percorso: string;
+    area_label: string;
+    etichetta: string;
+    spiegazione: string;
+    tipo: string;
+    avvio: string;
+  }>) {
+    const list = map.get(row.processo_id) ?? [];
+    list.push(mapFunzioneLink(row));
+    map.set(row.processo_id, list);
+  }
+  return map;
+}
+
+async function syncProcessoFunzioni(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  processoId: string,
+  funzioneKeys: string[],
+  userId: string
+): Promise<{ success: true } | { success: false; error: string }> {
+  const resolved = resolveFunzioniDaKeys(funzioneKeys);
+  if (!resolved.success) return resolved;
+  const now = new Date().toISOString();
+  const { error: softErr } = await supabase
+    .from("produzione_processo_funzioni")
+    .update({
+      deleted_at: now,
+      deleted_by: userId,
+      updated_by: userId,
+    })
+    .eq("processo_id", processoId)
+    .is("deleted_at", null);
+  if (softErr) return { success: false, error: softErr.message };
+  if (resolved.items.length === 0) return { success: true };
+  const { error } = await supabase
+    .from("produzione_processo_funzioni")
+    .insert(
+      resolved.items.map((f, index) => ({
+        processo_id: processoId,
+        funzione_key: f.key,
+        percorso: f.percorso,
+        area_label: f.area,
+        etichetta: f.etichetta,
+        spiegazione: f.spiegazione,
+        tipo: f.tipo,
+        avvio: f.avvio,
+        sort_order: index + 1,
+        versione: 1,
+        documento_stato: "registrato",
+        created_by: userId,
+        updated_by: userId,
+      }))
+    );
+  if (error) return { success: false, error: error.message };
+  return { success: true };
+}
+
+async function attachFunzioniToProcessi(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  items: Processo[]
+): Promise<Processo[]> {
+  const map = await loadFunzioniByProcesso(
+    supabase,
+    items.map((p) => p.id)
+  );
+  return items.map((p) => ({ ...p, funzioni: map.get(p.id) ?? [] }));
+}
+
 function mapAttivita(row: AttivitaRow, luoghi: Luoghi): ProcessoAttivita {
   const areaId = row.area_id ?? null;
   const postoId = row.posto_id ?? null;
@@ -359,6 +468,7 @@ function mapProcesso(
     sostituitoDaNome: sostituto?.nome ?? "",
     createdAt: row.created_at,
     passiCount,
+    funzioni: [],
   };
 }
 
@@ -971,12 +1081,15 @@ async function listProcessiByCollocazione(
   ]);
   return {
     success: true,
-    items: rows.map((r) =>
-      mapProcesso(
-        r,
-        luoghi,
-        counts.get(r.id) ?? 0,
-        r.sostituito_da ? (sostituti.get(r.sostituito_da) ?? null) : null
+    items: await attachFunzioniToProcessi(
+      supabase,
+      rows.map((r) =>
+        mapProcesso(
+          r,
+          luoghi,
+          counts.get(r.id) ?? 0,
+          r.sostituito_da ? (sostituti.get(r.sostituito_da) ?? null) : null
+        )
       )
     ),
   };
@@ -1019,14 +1132,17 @@ export async function getProcessoAction(
     loadLuoghi(supabase),
     loadSostituti(supabase, [row]),
   ]);
-  return {
-    success: true,
-    item: mapProcesso(
+  const [item] = await attachFunzioniToProcessi(supabase, [
+    mapProcesso(
       row,
       luoghi,
       passiRes.passi.length,
       row.sostituito_da ? (sostituti.get(row.sostituito_da) ?? null) : null
     ),
+  ]);
+  return {
+    success: true,
+    item: item ?? mapProcesso(row, luoghi, passiRes.passi.length),
     passi: passiRes.passi,
   };
 }
@@ -1076,21 +1192,30 @@ export async function createProcessoAction(
     return { success: false, error: error.message };
   }
   const luoghi = await loadLuoghi(supabase);
-  const item = mapProcesso(data as ProcessoRow, luoghi, 0);
+  const created = mapProcesso(data as ProcessoRow, luoghi, 0);
+  const funzioni = await syncProcessoFunzioni(
+    supabase,
+    created.id,
+    parsed.data.funzioneKeys,
+    auth.userId
+  );
+  if (!funzioni.success) return funzioni;
+  const [item] = await attachFunzioniToProcessi(supabase, [created]);
   void writeAuditLog({
     entity_type: "produzione_processi",
-    entity_id: item.id,
+    entity_id: created.id,
     action: "create",
     actor_id: auth.userId,
-    summary: `Creato processo ${item.codice}`,
+    summary: `Creato processo ${created.codice}`,
     payload: {
-      codice: item.codice,
-      nome: item.nome,
+      codice: created.codice,
+      nome: created.nome,
       versione: 1,
-      area_id: item.areaId,
+      area_id: created.areaId,
+      funzione_keys: parsed.data.funzioneKeys,
     },
   });
-  return { success: true, item };
+  return { success: true, item: item ?? created };
 }
 
 export async function updateProcessoAction(
@@ -1144,25 +1269,35 @@ export async function updateProcessoAction(
     }
     return { success: false, error: error.message };
   }
+  const funzioni = await syncProcessoFunzioni(
+    supabase,
+    id,
+    parsed.data.funzioneKeys,
+    auth.userId
+  );
+  if (!funzioni.success) return funzioni;
   const [counts, luoghi] = await Promise.all([
     countPassiByProcesso(supabase, [id]),
     loadLuoghi(supabase),
   ]);
-  const item = mapProcesso(data as ProcessoRow, luoghi, counts.get(id) ?? 0);
+  const [item] = await attachFunzioniToProcessi(supabase, [
+    mapProcesso(data as ProcessoRow, luoghi, counts.get(id) ?? 0),
+  ]);
   void writeAuditLog({
     entity_type: "produzione_processi",
-    entity_id: item.id,
+    entity_id: id,
     action: "update",
     actor_id: auth.userId,
-    summary: `Aggiornato processo ${item.codice}`,
+    summary: `Aggiornato processo ${(item ?? data).codice}`,
     payload: {
-      codice: item.codice,
-      nome: item.nome,
-      versione: item.versione,
-      area_id: item.areaId,
+      codice: item?.codice,
+      nome: item?.nome,
+      versione: item?.versione,
+      area_id: item?.areaId,
+      funzione_keys: parsed.data.funzioneKeys,
     },
   });
-  return { success: true, item };
+  return { success: true, item: item ?? mapProcesso(data as ProcessoRow, luoghi, counts.get(id) ?? 0) };
 }
 
 export async function deprecaProcessoAction(

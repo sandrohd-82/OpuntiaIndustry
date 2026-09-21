@@ -24,6 +24,7 @@ import {
   updateProcessoAction,
 } from "@/app/actions/produzione-processi";
 import { SoftDeleteConfirmModal } from "@/components/amministrazione/SoftDeleteConfirmModal";
+import { FunzioniGestionaleField } from "@/components/produzione/FunzioniGestionaleField";
 import { ProcessoAttivitaCreateModal } from "@/components/produzione/ProcessoAttivitaCreateModal";
 import type { ProduzioneArea } from "@/lib/produzione/aree-posti";
 import {
@@ -74,6 +75,7 @@ export function ProcessiBoard({ startCreate = false }: ProcessiBoardProps) {
   const [descrizione, setDescrizione] = useState("");
   const [note, setNote] = useState("");
   const [areaId, setAreaId] = useState("");
+  const [funzioneKeys, setFunzioneKeys] = useState<string[]>([]);
 
   const selected = useMemo(
     () => items.find((p) => p.id === selectedId) ?? null,
@@ -163,6 +165,7 @@ export function ProcessiBoard({ startCreate = false }: ProcessiBoardProps) {
     setDescrizione(p?.descrizione ?? "");
     setNote(p?.note ?? "");
     setAreaId(p?.areaId ?? "");
+    setFunzioneKeys(p?.funzioni.map((f) => f.key) ?? []);
   }
 
   function openCreate() {
@@ -204,6 +207,7 @@ export function ProcessiBoard({ startCreate = false }: ProcessiBoardProps) {
         note,
         attivo: true,
         areaId: areaId || null,
+        funzioneKeys,
       };
       if (creating) {
         const res = await createProcessoAction(payload);
@@ -213,6 +217,7 @@ export function ProcessiBoard({ startCreate = false }: ProcessiBoardProps) {
         }
         setCreating(false);
         setEditing(res.item);
+        setFunzioneKeys(res.item.funzioni.map((f) => f.key));
         setSelectedId(res.item.id);
         setPassi([]);
         setDraftPassi([]);
@@ -383,6 +388,9 @@ export function ProcessiBoard({ startCreate = false }: ProcessiBoardProps) {
                   <p className="mt-0.5 text-sm font-medium">{p.nome}</p>
                   <p className="mt-1 text-xs text-[var(--muted)]">
                     {p.areaNome || "Nessuna area"} · {p.passiCount} attività
+                    {p.funzioni.length > 0
+                      ? ` · ${p.funzioni.length} funzioni`
+                      : ""}
                   </p>
                 </div>
                 <div
@@ -475,6 +483,10 @@ export function ProcessiBoard({ startCreate = false }: ProcessiBoardProps) {
                     className="w-full rounded-lg border border-[var(--border)] px-3 py-2 text-sm"
                   />
                 </label>
+                <FunzioniGestionaleField
+                  value={funzioneKeys}
+                  onChange={setFunzioneKeys}
+                />
               </div>
 
               {editing ? (
@@ -740,6 +752,16 @@ export function ProcessiBoard({ startCreate = false }: ProcessiBoardProps) {
                   <dt className="text-xs text-[var(--muted)]">Versione</dt>
                   <dd>{selected.versione}</dd>
                 </div>
+                {selected.funzioni.length > 0 ? (
+                  <div>
+                    <dt className="text-xs text-[var(--muted)]">
+                      Funzioni del processo
+                    </dt>
+                    <dd>
+                      {selected.funzioni.map((f) => f.etichetta).join(" · ")}
+                    </dd>
+                  </div>
+                ) : null}
               </dl>
               <div>
                 <h4 className="mb-2 text-xs font-semibold uppercase tracking-wide text-[var(--muted)]">

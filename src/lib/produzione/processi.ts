@@ -109,6 +109,7 @@ export type Processo = {
   sostituitoDaNome: string;
   createdAt: string;
   passiCount: number;
+  funzioni: AttivitaFunzioneLink[];
 };
 
 export type ProcessoPasso = {
@@ -206,6 +207,7 @@ export const processoInputSchema = z.object({
   note: z.string().trim().max(2000).optional().default(""),
   attivo: z.boolean().optional().default(true),
   areaId: optionalUuid,
+  funzioneKeys: funzioneKeysSchema,
 });
 
 export const deprecaProcessoSchema = z.object({

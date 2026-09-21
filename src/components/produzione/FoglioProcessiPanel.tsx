@@ -221,6 +221,35 @@ export function FoglioProcessiPanel({ foglio, filtraAreaId }: Props) {
                         {item.descrizione}
                       </p>
                     ) : null}
+                    {item.funzioni.length > 0 ? (
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="text-xs font-medium text-[var(--muted)]">
+                          Funzioni del processo
+                        </span>
+                        {item.funzioni
+                          .filter((f) => f.avvio === "navigate")
+                          .map((f) => {
+                            const href = buildFunzioneHref(f, {
+                              foglioId: foglio.id,
+                              processoId: item.processoId,
+                              ritorno:
+                                typeof window !== "undefined"
+                                  ? window.location.pathname
+                                  : null,
+                            });
+                            if (!href) return null;
+                            return (
+                              <Link
+                                key={f.key}
+                                href={href}
+                                className="inline-flex rounded-md border border-[var(--border)] px-2 py-0.5 text-xs font-medium text-[var(--primary)] hover:bg-slate-50"
+                              >
+                                {etichettaAvvioFunzione(f)}
+                              </Link>
+                            );
+                          })}
+                      </div>
+                    ) : null}
                     <ol className="space-y-1 text-sm">
                       {item.passi.map((passo, index) => (
                         <li key={passo.id}>

@@ -1,4 +1,5 @@
 import { z } from "zod";
+import type { AttivitaFunzioneLink } from "@/lib/produzione/funzioni-gestionale";
 import type { ProcessoPasso } from "@/lib/produzione/processi";
 
 export const FOGLIO_ESECUZIONE_STATI = [
@@ -32,6 +33,7 @@ export type FoglioProcessoDisponibile = {
   areaId: string | null;
   areaNome: string;
   passi: ProcessoPasso[];
+  funzioni: AttivitaFunzioneLink[];
   hasPesata: boolean;
   esecuzione: FoglioProcessoEsecuzione | null;
   pesate: FoglioPesata[];

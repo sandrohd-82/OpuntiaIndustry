@@ -201,13 +201,13 @@ export const PAGE_EXTRAS: Record<string, TutorialBlock[]> = {
   "/app/produzione/processi-e-attivita/elenco-processi": [
     {
       type: "p",
-      text: "Catalogo processi (spesso PX-…). Hanno versione e stato documento (bozza / approvato / chiuso). Se un processo non si usa più non si cancella: si depreca e va nello Storico in Archivio.",
+      text: "Catalogo processi (spesso PX-…). Hanno versione e stato documento (bozza / approvato / chiuso). In creazione e modifica si collegano le funzioni reali del gestionale (come sulle attività): sul foglio l’operatore le avvia dal processo. Se un processo non si usa più non si cancella: si depreca e va nello Storico in Archivio.",
     },
   ],
   "/app/produzione/processi-e-attivita/elenco-attivita": [
     {
       type: "p",
-      text: "Attività di processo (spesso AP-…). Stessa logica ISO: versione, stato, deprecazione con traccia. Si riusano sui fogli.",
+      text: "Attività di processo (spesso AP-…). Stessa logica ISO: versione, stato, deprecazione con traccia. Si collegano funzioni del gestionale (es. prelievo) e si riusano sui fogli; le funzioni si possono collegare anche al processo.",
     },
   ],
   "/app/produzione/gestione-aree/elenco": [
