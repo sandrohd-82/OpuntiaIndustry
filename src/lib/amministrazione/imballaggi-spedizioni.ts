@@ -286,6 +286,11 @@ export type ConfezionamentoDraft = {
   nodi: ConfezionamentoNodoDraft[];
   coerenzaIgnorata: boolean;
   note: string;
+  /** Allineamento pianta: peso per elemento o complessivo (solo carico magazzino). */
+  pesoModo?: "per_elemento" | "complessivo";
+  pesiElementiKg?: Array<number | "">;
+  pesoComplessivoKg?: number | "" | null;
+  pesoMotivazione?: string;
 };
 
 export function emptyConfezionamentoDraft(): ConfezionamentoDraft {
@@ -296,6 +301,10 @@ export function emptyConfezionamentoDraft(): ConfezionamentoDraft {
     nodi: [],
     coerenzaIgnorata: false,
     note: "",
+    pesoModo: "per_elemento",
+    pesiElementiKg: [],
+    pesoComplessivoKg: "",
+    pesoMotivazione: "",
   };
 }
 
@@ -454,6 +463,12 @@ export const confezionamentoDraftSchema = z.object({
   nodi: z.array(confezionamentoNodoSchema),
   coerenzaIgnorata: z.boolean(),
   note: z.string(),
+  pesoModo: z.enum(["per_elemento", "complessivo"]).optional(),
+  pesiElementiKg: z.array(z.union([z.number(), z.literal("")])).optional(),
+  pesoComplessivoKg: z
+    .union([z.number(), z.null(), z.literal("")])
+    .optional(),
+  pesoMotivazione: z.string().optional(),
 });
 
 export function updateNodoInTree(

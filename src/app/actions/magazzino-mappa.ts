@@ -1703,7 +1703,7 @@ export async function listUbicazioniRiponibiliAction(): Promise<
   const supabase = await createClient();
   const { data, error } = await supabase
     .from("magazzino_ubicazioni")
-    .select("id, codice, nome, parent_id, luogo_nome")
+    .select("id, codice, nome, parent_id, luogo_nome, occupazione_stato")
     .eq("tipo", "riponibile")
     .is("deleted_at", null)
     .order("luogo_nome", { ascending: true })
@@ -1715,12 +1715,21 @@ export async function listUbicazioniRiponibiliAction(): Promise<
     nome: string;
     parent_id: string | null;
     luogo_nome: string;
+    occupazione_stato?: string | null;
   }[];
   const byId = new Map(rows.map((r) => [r.id, r]));
   return {
     success: true,
     items: rows.map((r) => {
       const parent = r.parent_id ? byId.get(r.parent_id) : null;
+      const occupazione =
+        r.occupazione_stato === "occupato" ? "occupato" : "libero";
+      const base = etichettaUbicazione(
+        r.codice,
+        r.nome,
+        parent?.codice,
+        r.luogo_nome
+      );
       return {
         id: r.id,
         codice: r.codice,
@@ -1730,12 +1739,9 @@ export async function listUbicazioniRiponibiliAction(): Promise<
         luogoNome: r.luogo_nome,
         mappaOrigineId: null,
         vistaOrigine: "",
-        etichetta: etichettaUbicazione(
-          r.codice,
-          r.nome,
-          parent?.codice,
-          r.luogo_nome
-        ),
+        occupazione,
+        etichetta:
+          occupazione === "occupato" ? `${base} · occupato` : base,
       };
     }),
   };

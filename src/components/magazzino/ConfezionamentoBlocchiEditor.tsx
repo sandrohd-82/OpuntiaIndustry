@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect } from "react";
 import { FaLink, FaPlus, FaTrash } from "react-icons/fa6";
 import { ClearableNumberInput } from "@/components/ui/ClearableNumberInput";
 import {
@@ -15,6 +16,10 @@ import {
   type ConfezionamentoDraft,
   type ImballaggioVoce,
 } from "@/lib/amministrazione/imballaggi-spedizioni";
+import {
+  pesiAllineatiAQty,
+  qtyElementiPianta,
+} from "@/lib/magazzino/occupazione-da-carico";
 
 type ProdottoMini = { id: string; codice: string; nome: string };
 
@@ -102,10 +107,11 @@ export function ConfezionamentoBlocchiEditor({
   onChange,
   catalogo,
   prodotto: _prodotto,
-  kgCarico: _kgCarico,
+  kgCarico,
   rimanda,
   onRimandaChange,
   showRimanda = true,
+  alignPianta = false,
 }: {
   conf: ConfezionamentoDraft;
   onChange: (next: ConfezionamentoDraft) => void;
@@ -115,8 +121,28 @@ export function ConfezionamentoBlocchiEditor({
   rimanda: boolean;
   onRimandaChange: (v: boolean) => void;
   showRimanda?: boolean;
+  /** Stessi campi della pianta: movimentazione, elementi, pesi. */
+  alignPianta?: boolean;
 }) {
   const blocchi = nodiToBlocchi(conf.nodi);
+  const qtyPianta = qtyElementiPianta(conf);
+  const pesoModo = conf.pesoModo === "complessivo" ? "complessivo" : "per_elemento";
+  const pesi = conf.pesiElementiKg ?? [];
+
+  useEffect(() => {
+    if (!alignPianta || rimanda) return;
+    const next = pesiAllineatiAQty(qtyPianta, conf.pesiElementiKg, kgCarico);
+    const same =
+      next.length === (conf.pesiElementiKg?.length ?? 0) &&
+      next.every((v, i) => v === (conf.pesiElementiKg ?? [])[i]);
+    if (same && conf.pesoModo) return;
+    onChange({
+      ...conf,
+      pesoModo: conf.pesoModo ?? "per_elemento",
+      pesiElementiKg: next,
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [alignPianta, rimanda, qtyPianta, kgCarico]);
   const movVoci = filterVociForMagazzinoStadio(catalogo, "movimentazione");
   const confVoci = filterVociForMagazzinoStadio(catalogo, "confezione");
   const isoVoci = filterVociForMagazzinoStadio(catalogo, "isolamento");
@@ -138,10 +164,9 @@ export function ConfezionamentoBlocchiEditor({
         Confezionamento a blocchi
       </legend>
       <p className="text-xs text-[var(--muted)]">
-        Ogni blocco è autonomo. Aggiungi movimentazione (una sola, es. pallet),
-        confezione e isolamento con le quantità. «Collega» = le confezioni
-        hanno l’isolamento dentro (es. 4 cartoni × 4 sacchi = 4 colli).
-        Senza collega restano elementi separati sullo stesso blocco.
+        {alignPianta
+          ? "Stessi dati della pianta: un blocco con movimentazione (es. pallet), confezione o isolamento, quantità e pesi. Il posto scelto risulterà occupato."
+          : "Ogni blocco è autonomo. Aggiungi movimentazione (una sola, es. pallet), confezione e isolamento con le quantità. «Collega» = le confezioni hanno l’isolamento dentro (es. 4 cartoni × 4 sacchi = 4 colli). Senza collega restano elementi separati sullo stesso blocco."}
       </p>
 
       <div className="flex flex-wrap items-center justify-between gap-2">
@@ -339,6 +364,98 @@ export function ConfezionamentoBlocchiEditor({
           <span className="font-medium">Riepilogo: </span>
           {blocchi.map((b, i) => formatBloccoRiepilogo(b, i + 1)).join(" · ")}
         </p>
+      ) : null}
+
+      {alignPianta && !rimanda ? (
+        <div className="space-y-2 rounded-lg border border-emerald-200 bg-emerald-50/70 p-3">
+          <p className="text-sm font-medium text-emerald-950">
+            Peso in pianta (come occupazione posto)
+          </p>
+          <div className="flex flex-wrap gap-2">
+            <button
+              type="button"
+              onClick={() => onChange({ ...conf, pesoModo: "per_elemento" })}
+              className={`rounded-lg border px-2 py-1 text-xs font-semibold ${
+                pesoModo === "per_elemento"
+                  ? "border-emerald-900 bg-emerald-800 text-white"
+                  : "border-slate-300 bg-white"
+              }`}
+            >
+              Peso per elemento
+            </button>
+            <button
+              type="button"
+              onClick={() => onChange({ ...conf, pesoModo: "complessivo" })}
+              className={`rounded-lg border px-2 py-1 text-xs font-semibold ${
+                pesoModo === "complessivo"
+                  ? "border-emerald-900 bg-emerald-800 text-white"
+                  : "border-slate-300 bg-white"
+              }`}
+            >
+              Peso complessivo movimentazione
+            </button>
+          </div>
+          {pesoModo === "per_elemento" ? (
+            qtyPianta < 1 ? (
+              <p className="text-xs text-amber-900">
+                Aggiungi movimentazione e il numero di confezioni o isolamenti:
+                compariranno i pesi elemento.
+              </p>
+            ) : (
+              <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+                {Array.from({ length: qtyPianta }, (_, i) => (
+                  <label key={i} className="text-xs">
+                    Peso elemento {i + 1} (kg)
+                    <input
+                      type="number"
+                      min={0.001}
+                      step="any"
+                      value={pesi[i] ?? ""}
+                      onChange={(e) => {
+                        const next = [...pesi];
+                        while (next.length < qtyPianta) next.push("");
+                        next[i] =
+                          e.target.value === "" ? "" : Number(e.target.value);
+                        onChange({ ...conf, pesiElementiKg: next });
+                      }}
+                      className="mt-0.5 w-full rounded border border-emerald-200 bg-white px-2 py-1 text-sm"
+                    />
+                  </label>
+                ))}
+              </div>
+            )
+          ) : (
+            <div className="grid gap-2 sm:grid-cols-2">
+              <label className="text-xs">
+                Peso complessivo (kg)
+                <input
+                  type="number"
+                  min={0.001}
+                  step="any"
+                  value={conf.pesoComplessivoKg ?? ""}
+                  onChange={(e) =>
+                    onChange({
+                      ...conf,
+                      pesoComplessivoKg:
+                        e.target.value === "" ? "" : Number(e.target.value),
+                    })
+                  }
+                  className="mt-0.5 w-full rounded border border-emerald-200 bg-white px-2 py-1 text-sm"
+                />
+              </label>
+              <label className="text-xs">
+                Motivazione (obbligatoria)
+                <input
+                  value={conf.pesoMotivazione ?? ""}
+                  onChange={(e) =>
+                    onChange({ ...conf, pesoMotivazione: e.target.value })
+                  }
+                  className="mt-0.5 w-full rounded border border-emerald-200 bg-white px-2 py-1 text-sm"
+                />
+              </label>
+            </div>
+          )}
+        </div>
       ) : null}
 
       {showRimanda ? (

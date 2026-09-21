@@ -67,6 +67,7 @@ export type UbicazioneElenco = {
   visteDisegno?: string[];
   /** Id fogli dove questo posto è disegnato (Dentro usa gli altri fogli). */
   mappeDisegno?: string[];
+  occupazione?: UbicazioneOccupazione;
 };
 
 export function etichettaUbicazione(

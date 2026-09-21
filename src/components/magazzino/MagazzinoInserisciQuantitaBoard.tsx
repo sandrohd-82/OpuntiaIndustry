@@ -21,6 +21,7 @@ import {
   lottoMaskPlaceholder,
   parseLottoAgrinsicilia,
 } from "@/lib/magazzino/lotto-agrinsicilia";
+import { occupazioneInputDaCarico } from "@/lib/magazzino/occupazione-da-carico";
 import { stampaSchedaLottoUscita } from "@/lib/produzione/stampa-scheda-lotto-uscita";
 import {
   formatQuantitaCarico,
@@ -201,7 +202,24 @@ export function MagazzinoInserisciQuantitaBoard() {
       setLottoOpen(true);
       return;
     }
-    if (!rimandaCi && confDraft.nodi.length === 0) {
+    const postoScelto = Boolean(ubicazioneId && !rimandaUbi);
+    const postoGiaOccupato =
+      ubicazioni.find((u) => u.id === ubicazioneId)?.occupazione ===
+      "occupato";
+    if (postoScelto && !postoGiaOccupato) {
+      const mapped = occupazioneInputDaCarico({
+        ubicazioneId,
+        prodottoId,
+        lottoInternoCodice: lottoCodice,
+        lottoEsternoId: null,
+        draft: confDraft,
+        note,
+      });
+      if (!mapped.ok) {
+        setError(mapped.error);
+        return;
+      }
+    } else if (!rimandaCi && confDraft.nodi.length === 0) {
       setError(
         "Aggiungi almeno un blocco di confezionamento, oppure spunta «Completa in un secondo momento»."
       );
@@ -218,7 +236,7 @@ export function MagazzinoInserisciQuantitaBoard() {
         foglioId: collegaFoglio ? foglioId || null : null,
         motivoSenzaFoglio: collegaFoglio ? null : motivo,
         note,
-        rimandaConfezIsolamento: rimandaCi,
+        rimandaConfezIsolamento: postoScelto ? false : rimandaCi,
         ubicazioneId: rimandaUbi ? null : ubicazioneId || null,
         rimandaUbicazione: rimandaUbi || !ubicazioneId,
         confezionamento: confDraft,
@@ -242,6 +260,12 @@ export function MagazzinoInserisciQuantitaBoard() {
           result.foglioMpCodice
             ? ` Foglio Codice MP Lavorata ${result.foglioMpCodice} archiviato (Storico / Archivio).`
             : ""
+        }${
+          result.occupazionePostoCodice
+            ? ` Posto occupato in pianta (pallet ${result.occupazionePostoCodice}).`
+            : result.occupazioneErrore
+              ? ` Carico ok, ma la pianta non è stata occupata: ${result.occupazioneErrore}`
+              : ""
         }${lottoMsg}`
       );
       setQuantita("");
@@ -396,21 +420,28 @@ export function MagazzinoInserisciQuantitaBoard() {
         <fieldset className="space-y-2 rounded-lg border border-[var(--border)] p-3">
           <legend className="px-1 text-sm font-medium">Posto in magazzino</legend>
           <p className="text-xs text-[var(--muted)]">
-            Registrazione del posto riponibile (colonna + ripiano). Si può completare dopo: la
-            quantità si salva comunque.
+            Se scegli un posto (es. E1) alla registrazione risulta occupato in
+            pianta, con la stessa movimentazione, confezioni e pesi di sotto.
           </p>
           <label className="flex items-start gap-2 text-sm">
             <input
               type="checkbox"
               checked={rimandaUbi}
-              onChange={(e) => setRimandaUbi(e.target.checked)}
+              onChange={(e) => {
+                setRimandaUbi(e.target.checked);
+                if (e.target.checked) setUbicazioneId("");
+              }}
             />
             <span>Completa il posto in un secondo momento</span>
           </label>
           {!rimandaUbi ? (
             <select
               value={ubicazioneId}
-              onChange={(e) => setUbicazioneId(e.target.value)}
+              onChange={(e) => {
+                const id = e.target.value;
+                setUbicazioneId(id);
+                if (id) setRimandaCi(false);
+              }}
               className="w-full rounded-lg border border-[var(--border)] bg-white px-3 py-2 text-sm"
             >
               <option value="">Seleziona posto (facoltativo)</option>
@@ -427,6 +458,8 @@ export function MagazzinoInserisciQuantitaBoard() {
           conf={confDraft}
           onChange={setConfDraft}
           catalogo={catalogoImballaggi}
+          alignPianta={Boolean(ubicazioneId && !rimandaUbi)}
+          showRimanda={!ubicazioneId || rimandaUbi}
           prodotto={
             selected
               ? { id: selected.id, codice: selected.codice, nome: selected.nome }

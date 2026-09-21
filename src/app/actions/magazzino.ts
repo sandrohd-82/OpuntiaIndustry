@@ -44,8 +44,11 @@ import {
   isValidLottoIngressoMp,
   prefixLottoDaData,
 } from "@/lib/produzione/fogli-ingresso-mp";
-import { createClient } from "@/lib/supabase/server";
+import { createClient, createServiceClient } from "@/lib/supabase/server";
 import { ensureFoglioMpInventarioDaCarico } from "@/app/actions/produzione-ingresso-mp";
+import { occupaPostoAction } from "@/app/actions/magazzino-posto-occupazione";
+import { occupazioneInputDaCarico } from "@/lib/magazzino/occupazione-da-carico";
+import type { OccupaPostoInput } from "@/lib/magazzino/posto-occupazione";
 
 type GiacenzaRow = {
   id: string;
@@ -968,6 +971,8 @@ export async function movimentoManualeAgrinsiciliaAction(
       foglioMpCodice: string | null;
       lottoUscitaCodice: string | null;
       lottoUscitaCodiceCambiato: boolean;
+      occupazionePostoCodice: string | null;
+      occupazioneErrore: string | null;
     }
   | { success: false; error: string }
 > {
@@ -1076,6 +1081,51 @@ export async function movimentoManualeAgrinsiciliaAction(
   }
 
   const qtyStock = quantitaStockDaCarico(input.quantita, input.unitaMisura);
+  let occupaInput: OccupaPostoInput | null = null;
+  if (input.ubicazioneId && !input.rimandaUbicazione) {
+    const svc = createServiceClient();
+    const { data: attiva } = await svc
+      .from("magazzino_posto_occupazioni")
+      .select("id, prodotto_id, lotto_interno_codice")
+      .eq("ubicazione_id", input.ubicazioneId)
+      .eq("stato", "attivo")
+      .is("deleted_at", null)
+      .maybeSingle();
+    const sameLotto =
+      Boolean(attiva) &&
+      (attiva as { prodotto_id?: string | null }).prodotto_id ===
+        input.prodottoId &&
+      String(
+        (attiva as { lotto_interno_codice?: string | null })
+          .lotto_interno_codice ?? ""
+      ).trim() === lottoCodice;
+    if (attiva && !sameLotto) {
+      return {
+        success: false,
+        error:
+          "Il posto è già occupato in pianta da un altro lotto. Scegline uno libero oppure liberalo prima.",
+      };
+    }
+    if (!attiva) {
+      if (input.rimandaConfezIsolamento || !input.confezionamento) {
+        return {
+          success: false,
+          error:
+            "Con il posto selezionato il confezionamento è obbligatorio: viene scritto in pianta.",
+        };
+      }
+      const mapped = occupazioneInputDaCarico({
+        ubicazioneId: input.ubicazioneId,
+        prodottoId: input.prodottoId,
+        lottoInternoCodice: lottoCodice,
+        lottoEsternoId,
+        draft: input.confezionamento,
+        note: input.note,
+      });
+      if (!mapped.ok) return { success: false, error: mapped.error };
+      occupaInput = mapped.occupa;
+    }
+  }
   const unitaScheda = unitaSchedaProdotto({
     schedaUm: (prodotto as { unita_misura?: string | null }).unita_misura,
     prodottoCodice: prodotto.codice,
@@ -1224,6 +1274,42 @@ export async function movimentoManualeAgrinsiciliaAction(
     },
   });
 
+  let occupazionePostoCodice: string | null = null;
+  let occupazioneErrore: string | null = null;
+  if (occupaInput) {
+    const occRes = await occupaPostoAction(occupaInput, {
+      lottoGiaCaricato: {
+        prodottoId: input.prodottoId,
+        prodottoCodice: prodotto.codice,
+        prodottoNome: prodotto.nome,
+        lottoInterno: lottoCodice,
+        lottoEsternoId,
+        lottoEsternoCodice: lottoUscitaCodice,
+        kgCaricati: qtyStock,
+        kgSistemati: 0,
+        kgDaSistemare: qtyStock,
+      },
+    });
+    if (occRes.success) {
+      occupazionePostoCodice = occRes.occupazione.codicePallet;
+      void writeAuditLog({
+        entity_type: "magazzino_posto_occupazioni",
+        entity_id: occRes.occupazione.id,
+        action: "create",
+        actor_id: auth.userId,
+        summary: `Occupazione pianta da carico magazzino · lotto ${lottoCodice} · pallet ${occRes.occupazione.codicePallet}`,
+        payload: {
+          movimento_id: mov.id,
+          ubicazione_id: occupaInput.ubicazioneId,
+          codice_pallet: occRes.occupazione.codicePallet,
+          lotto_codice: lottoCodice,
+        },
+      });
+    } else {
+      occupazioneErrore = occRes.error;
+    }
+  }
+
   return {
     success: true,
     giacenzaKg: dopo,
@@ -1231,6 +1317,8 @@ export async function movimentoManualeAgrinsiciliaAction(
     foglioMpCodice: foglioMp?.codice ?? null,
     lottoUscitaCodice,
     lottoUscitaCodiceCambiato,
+    occupazionePostoCodice,
+    occupazioneErrore,
   };
 }
 

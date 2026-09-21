@@ -430,7 +430,8 @@ export async function listRiepilogoElencoPostiAction(
 }
 
 export async function occupaPostoAction(
-  raw: OccupaPostoInput
+  raw: OccupaPostoInput,
+  opts?: { lottoGiaCaricato?: LottoDaSistemare }
 ): Promise<
   | { success: true; occupazione: PostoOccupazione }
   | { success: false; error: string }
@@ -508,18 +509,21 @@ export async function occupaPostoAction(
   }
   const tipoElemento = el.stadio as PostoElementoTipo;
 
-  const lottiRes = await listLottiDaSistemareAction();
-  if (!lottiRes.success) return lottiRes;
-  const interno = input.lottoInternoCodice?.trim() || "";
-  const esternoId = input.lottoEsternoId?.trim() || "";
-  const lotto = lottiRes.lotti.find((l) => {
-    if (input.prodottoId && l.prodottoId !== input.prodottoId) return false;
-    if (interno && esternoId) {
-      return l.lottoInterno === interno && l.lottoEsternoId === esternoId;
-    }
-    if (interno) return l.lottoInterno === interno;
-    return Boolean(esternoId && l.lottoEsternoId === esternoId);
-  });
+  let lotto: LottoDaSistemare | undefined = opts?.lottoGiaCaricato;
+  if (!lotto) {
+    const lottiRes = await listLottiDaSistemareAction();
+    if (!lottiRes.success) return lottiRes;
+    const interno = input.lottoInternoCodice?.trim() || "";
+    const esternoId = input.lottoEsternoId?.trim() || "";
+    lotto = lottiRes.lotti.find((l) => {
+      if (input.prodottoId && l.prodottoId !== input.prodottoId) return false;
+      if (interno && esternoId) {
+        return l.lottoInterno === interno && l.lottoEsternoId === esternoId;
+      }
+      if (interno) return l.lottoInterno === interno;
+      return Boolean(esternoId && l.lottoEsternoId === esternoId);
+    });
+  }
   if (!lotto) {
     return {
       success: false,
