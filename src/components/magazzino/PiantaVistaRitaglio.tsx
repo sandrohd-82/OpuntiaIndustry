@@ -2,6 +2,7 @@
 
 import {
   useCallback,
+  useEffect,
   useLayoutEffect,
   useMemo,
   useRef,
@@ -146,6 +147,15 @@ export function PiantaVistaRitaglio({
     return [...ids].sort().join(",");
   }, [dettaglioFoto, primaria?.ubicazioneId, mostraFoto, fotoPrincipali]);
 
+  useEffect(() => {
+    const sel = primaria?.ubicazioneId ?? null;
+    setDettaglioFoto((prev) => {
+      if (!prev.size) return prev;
+      if (sel && prev.has(sel)) return prev;
+      return new Set();
+    });
+  }, [primaria?.ubicazioneId]);
+
   const syncBoxes = useCallback(() => {
     const svg = svgRef.current;
     const host = hostRef.current;
@@ -187,17 +197,17 @@ export function PiantaVistaRitaglio({
     const p = puntoSvg(e.currentTarget, e.clientX, e.clientY);
     if (!p) return;
     const hit = hitArea(mappa.aree ?? [], p.x, p.y);
-    if (
+    const hitFoto =
       mostraFoto &&
-      hit?.ubicazioneId &&
-      fotoPrincipali?.[hit.ubicazioneId]
-    ) {
+      Boolean(hit?.ubicazioneId && fotoPrincipali?.[hit.ubicazioneId]);
+    if (hitFoto && hit?.ubicazioneId) {
+      const id = hit.ubicazioneId;
       setDettaglioFoto((prev) => {
-        const next = new Set(prev);
-        if (next.has(hit.ubicazioneId)) next.delete(hit.ubicazioneId);
-        else next.add(hit.ubicazioneId);
-        return next;
+        if (prev.has(id)) return prev;
+        return new Set([id]);
       });
+    } else {
+      setDettaglioFoto(new Set());
     }
     if (!onSeleziona) return;
     onSeleziona(hit?.ubicazioneId || null);
