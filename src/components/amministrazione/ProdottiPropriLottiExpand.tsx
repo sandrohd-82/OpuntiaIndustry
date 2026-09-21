@@ -2,7 +2,6 @@
 
 import { Fragment, useEffect, useState } from "react";
 import Link from "next/link";
-import { FaChevronDown, FaChevronUp } from "react-icons/fa";
 import { listLottiAgrinsiciliaProdottoAction } from "@/app/actions/magazzino-lotti";
 import { PiantaPostoMappaModal } from "@/components/magazzino/PiantaPostoMappaModal";
 import {
@@ -35,7 +34,6 @@ export function ProdottiPropriLottiExpand({
   const [perLotto, setPerLotto] = useState<
     Record<string, OccupazioneLottoPianta>
   >({});
-  const [aperto, setAperto] = useState<string | null>(null);
   const [mappa, setMappa] = useState<{
     ubicazioneId: string;
     postoCodice: string;
@@ -94,13 +92,11 @@ export function ProdottiPropriLottiExpand({
                 <th className="pb-2 pr-3 font-medium">Fogli / lotto esterno</th>
                 <th className="pb-2 pr-3 font-medium">Confezione / isolamento</th>
                 <th className="pb-2 font-medium" />
-                <th className="w-10 pb-2" />
               </tr>
             </thead>
             <tbody>
               {lotti.map((l) => {
                 const pianta = perLotto[l.lottoCodice];
-                const apertoLotto = aperto === l.lottoCodice;
                 return (
                   <Fragment key={l.lottoCodice}>
                     <tr className="border-t border-slate-200">
@@ -136,124 +132,94 @@ export function ProdottiPropriLottiExpand({
                           Dettaglio
                         </Link>
                       </td>
-                      <td className="py-2 text-right">
-                        <button
-                          type="button"
-                          aria-expanded={apertoLotto}
-                          aria-label={
-                            apertoLotto
-                              ? "Chiudi confezionamenti"
-                              : "Apri confezionamenti in pianta"
-                          }
-                          onClick={() =>
-                            setAperto((id) =>
-                              id === l.lottoCodice ? null : l.lottoCodice
-                            )
-                          }
-                          className="inline-flex h-7 w-7 items-center justify-center rounded-md text-slate-700 hover:bg-white"
-                        >
-                          {apertoLotto ? (
-                            <FaChevronUp size={12} />
+                    </tr>
+                    <tr className="bg-white/80">
+                      <td colSpan={5} className="pb-3 pl-8 pr-2 pt-0">
+                        <div className="border-l-2 border-emerald-700 pl-3">
+                          {!pianta?.righe.length ? (
+                            <p className="py-1 text-xs text-slate-500">
+                              Nessun sacco o cartone caricato in pianta per
+                              questo lotto
+                              {prodottoCodice ? ` · ${prodottoCodice}` : ""}.
+                            </p>
                           ) : (
-                            <FaChevronDown size={12} />
+                            <div className="space-y-3 py-1">
+                              {gruppiPostoDaRighe(pianta.righe).map((g) => (
+                                <div key={g.ubicazioneId || g.postoCodice}>
+                                  <div className="mb-1 flex flex-wrap items-baseline justify-between gap-2">
+                                    <p className="text-xs font-semibold text-slate-900">
+                                      Posto {g.postoCodice || "—"}
+                                      {g.postoNome &&
+                                      g.postoNome !== g.postoCodice
+                                        ? ` — ${g.postoNome}`
+                                        : ""}
+                                      <span className="ml-2 font-normal text-slate-600">
+                                        · Peso totale{" "}
+                                        {formatKgIt(g.pesoTotaleKg)}
+                                        {g.movimentazione
+                                          ? ` · ${g.movimentazione}`
+                                          : ""}
+                                      </span>
+                                    </p>
+                                    <button
+                                      type="button"
+                                      onClick={() =>
+                                        setMappa({
+                                          ubicazioneId: g.ubicazioneId,
+                                          postoCodice: g.postoCodice,
+                                        })
+                                      }
+                                      className="rounded-md border border-emerald-800 bg-white px-2 py-0.5 text-[11px] font-medium text-emerald-950 hover:bg-emerald-50"
+                                    >
+                                      Mostra in mappa
+                                    </button>
+                                  </div>
+                                  <table className="w-full text-left text-xs">
+                                    <thead>
+                                      <tr className="text-[10px] uppercase tracking-wide text-slate-500">
+                                        <th className="pb-1 pr-2 font-medium">
+                                          Codice
+                                        </th>
+                                        <th className="pb-1 pr-2 font-medium">
+                                          Peso
+                                        </th>
+                                        <th className="pb-1 pr-2 font-medium">
+                                          Tipo
+                                        </th>
+                                        <th className="pb-1 font-medium">
+                                          Codice
+                                        </th>
+                                      </tr>
+                                    </thead>
+                                    <tbody>
+                                      {g.righe.map((r) => (
+                                        <tr
+                                          key={r.elementoId}
+                                          className="border-t border-slate-100"
+                                        >
+                                          <td className="py-1.5 pr-2 font-mono font-semibold">
+                                            {r.codiceElemento}
+                                          </td>
+                                          <td className="py-1.5 pr-2 tabular-nums">
+                                            {formatKgIt(r.pesoKg)}
+                                          </td>
+                                          <td className="py-1.5 pr-2">
+                                            {r.tipoSacco}
+                                          </td>
+                                          <td className="py-1.5 font-mono">
+                                            {r.targa || prodottoCodice || "—"}
+                                          </td>
+                                        </tr>
+                                      ))}
+                                    </tbody>
+                                  </table>
+                                </div>
+                              ))}
+                            </div>
                           )}
-                        </button>
+                        </div>
                       </td>
                     </tr>
-                    {apertoLotto ? (
-                      <tr className="border-t border-slate-200 bg-white/80">
-                        <td colSpan={6} className="py-2 pl-8 pr-2">
-                          <div className="border-l-2 border-emerald-700 pl-3">
-                            <p className="mb-1.5 text-[10px] font-semibold uppercase tracking-wide text-emerald-800">
-                              Confezionamenti in pianta
-                              {prodottoCodice ? ` · ${prodottoCodice}` : ""}
-                            </p>
-                            {!pianta?.righe.length ? (
-                              <p className="text-xs text-slate-500">
-                                Nessun sacco o cartone caricato in pianta per
-                                questo lotto.
-                              </p>
-                            ) : (
-                              <div className="space-y-3">
-                                {gruppiPostoDaRighe(pianta.righe).map((g) => (
-                                  <div key={g.ubicazioneId || g.postoCodice}>
-                                    <div className="mb-1 flex flex-wrap items-baseline justify-between gap-2">
-                                      <p className="text-xs font-semibold text-slate-900">
-                                        Posto {g.postoCodice || "—"}
-                                        {g.postoNome &&
-                                        g.postoNome !== g.postoCodice
-                                          ? ` — ${g.postoNome}`
-                                          : ""}
-                                        <span className="ml-2 font-normal text-slate-600">
-                                          · Peso totale{" "}
-                                          {formatKgIt(g.pesoTotaleKg)}
-                                          {g.movimentazione
-                                            ? ` · ${g.movimentazione}`
-                                            : ""}
-                                        </span>
-                                      </p>
-                                      <button
-                                        type="button"
-                                        onClick={() =>
-                                          setMappa({
-                                            ubicazioneId: g.ubicazioneId,
-                                            postoCodice: g.postoCodice,
-                                          })
-                                        }
-                                        className="rounded-md border border-emerald-800 bg-white px-2 py-0.5 text-[11px] font-medium text-emerald-950 hover:bg-emerald-50"
-                                      >
-                                        Mostra in mappa
-                                      </button>
-                                    </div>
-                                    <table className="w-full text-left text-xs">
-                                      <thead>
-                                        <tr className="text-[10px] uppercase tracking-wide text-slate-500">
-                                          <th className="pb-1 pr-2 font-medium">
-                                            Codice
-                                          </th>
-                                          <th className="pb-1 pr-2 font-medium">
-                                            Peso
-                                          </th>
-                                          <th className="pb-1 pr-2 font-medium">
-                                            Tipo
-                                          </th>
-                                          <th className="pb-1 font-medium">
-                                            Codice
-                                          </th>
-                                        </tr>
-                                      </thead>
-                                      <tbody>
-                                        {g.righe.map((r) => (
-                                          <tr
-                                            key={r.elementoId}
-                                            className="border-t border-slate-100"
-                                          >
-                                            <td className="py-1.5 pr-2 font-mono font-semibold">
-                                              {r.codiceElemento}
-                                            </td>
-                                            <td className="py-1.5 pr-2 tabular-nums">
-                                              {formatKgIt(r.pesoKg)}
-                                            </td>
-                                            <td className="py-1.5 pr-2">
-                                              {r.tipoSacco}
-                                            </td>
-                                            <td className="py-1.5 font-mono">
-                                              {r.targa ||
-                                                prodottoCodice ||
-                                                "—"}
-                                            </td>
-                                          </tr>
-                                        ))}
-                                      </tbody>
-                                    </table>
-                                  </div>
-                                ))}
-                              </div>
-                            )}
-                          </div>
-                        </td>
-                      </tr>
-                    ) : null}
                   </Fragment>
                 );
               })}
