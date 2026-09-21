@@ -12,8 +12,8 @@ import {
 } from "@/app/actions/fatture-sync-keep";
 import { FatturaSyncQueueModal } from "@/components/amministrazione/FatturaSyncQueueModal";
 import {
-  filterFromStopMonth,
-  labelMeseIt,
+  filterFromMonths,
+  labelMesiIt,
   raggruppaFatturePerAzienda,
   splitForwardRetro,
   type FattureSyncAnagraficaCreata,
@@ -54,7 +54,7 @@ export function FatturaSyncWizardModal({ kind, onClose, onDone }: Props) {
   const [loadMsg, setLoadMsg] = useState("Cerco le fatture su Fatture in Cloud…");
   const [error, setError] = useState<string | null>(null);
   const [preview, setPreview] = useState<FattureSyncPreview | null>(null);
-  const [stopMonth, setStopMonth] = useState<string | null>(null);
+  const [stopMonths, setStopMonths] = useState<string[]>([]);
   const [periodCount, setPeriodCount] = useState<number | null>(null);
   const [forwardIds, setForwardIds] = useState<number[]>([]);
   const [retroIds, setRetroIds] = useState<number[]>([]);
@@ -102,7 +102,11 @@ export function FatturaSyncWizardModal({ kind, onClose, onDone }: Props) {
         return;
       }
       setPreview(res.preview);
-      setStopMonth(res.preview.defaultStopMonth);
+      const def = res.preview.defaultStopMonth;
+      const defOk =
+        Boolean(def) &&
+        res.preview.months.some((m) => m.key === def && m.enabled);
+      setStopMonths(defOk && def ? [def] : []);
       setStep("mesi");
     })();
     return () => {
@@ -111,12 +115,17 @@ export function FatturaSyncWizardModal({ kind, onClose, onDone }: Props) {
   }, [kind]);
 
   const inPeriod: FattureSyncPendingMeta[] = useMemo(() => {
-    if (!preview || !stopMonth) return [];
-    return filterFromStopMonth(preview.pending, stopMonth, preview.today);
-  }, [preview, stopMonth]);
+    if (!preview || !stopMonths.length) return [];
+    return filterFromMonths(preview.pending, stopMonths, preview.today);
+  }, [preview, stopMonths]);
+
+  const stopMonth = stopMonths.length
+    ? [...stopMonths].sort().join(",")
+    : null;
+  const mesiLabel = labelMesiIt(stopMonths);
 
   useEffect(() => {
-    if (!preview || !stopMonth) {
+    if (!preview || !stopMonths.length) {
       setPeriodCount(null);
       return;
     }
@@ -128,17 +137,13 @@ export function FatturaSyncWizardModal({ kind, onClose, onDone }: Props) {
     setPeriodCount(inPeriod.length);
     setForwardIds(forward.map((d) => d.ficId));
     setRetroIds(retro.map((d) => d.ficId));
-  }, [preview, stopMonth, inPeriod]);
+  }, [preview, stopMonths, inPeriod]);
 
-  async function refreshCount(month: string) {
-    setLoadMsg("Conto le fatture del periodo…");
-    const res = await previewFattureSyncAction(kind);
-    if (!res.success) {
-      setError(res.error);
-      return;
-    }
-    setPreview(res.preview);
-    setStopMonth(month);
+  function toggleMese(key: string) {
+    setStopMonths((prev) => {
+      if (prev.includes(key)) return prev.filter((k) => k !== key);
+      return [...prev, key].sort();
+    });
     setError(null);
   }
 
@@ -298,9 +303,9 @@ export function FatturaSyncWizardModal({ kind, onClose, onDone }: Props) {
       return;
     }
     setPreview(fresh.preview);
-    const ancora = filterFromStopMonth(
+    const ancora = filterFromMonths(
       fresh.preview.pending,
-      stopMonth,
+      stopMonths,
       fresh.preview.today
     );
     if (ancora.length === 0) {
@@ -427,7 +432,7 @@ export function FatturaSyncWizardModal({ kind, onClose, onDone }: Props) {
             {kind === "ricevuta" ? "fatture ricevute" : "fatture emesse"}
           </h2>
           <p className="mt-0.5 text-xs text-[var(--muted)]">
-            Prima il tratto fino a oggi, poi a ritroso fino al mese scelto.
+            Prima il tratto fino a oggi, poi a ritroso sui mesi scelti.
           </p>
         </header>
 
@@ -445,8 +450,9 @@ export function FatturaSyncWizardModal({ kind, onClose, onDone }: Props) {
           {step === "mesi" && preview ? (
             <>
               <p className="text-sm text-slate-700">
-                Seleziona il <strong>mese di arresto</strong> a ritroso. I mesi
-                senza fatture da sincronizzare restano spenti.
+                Seleziona <strong>uno o più mesi</strong> da sincronizzare.
+                I mesi senza fatture restano spenti. Clicca di nuovo per
+                deselezionare.
               </p>
               {preview.lastRegisteredDate ? (
                 <p className="text-xs text-[var(--muted)]">
@@ -465,7 +471,31 @@ export function FatturaSyncWizardModal({ kind, onClose, onDone }: Props) {
                 <p className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-800">
                   Nessuna fattura da sincronizzare.
                 </p>
-              ) : null}
+              ) : (
+                <div className="flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setStopMonths(
+                        preview.months
+                          .filter((m) => m.enabled)
+                          .map((m) => m.key)
+                          .sort()
+                      )
+                    }
+                    className="rounded-md border border-[var(--border)] bg-white px-2.5 py-1 text-xs font-medium text-slate-700 hover:bg-slate-50"
+                  >
+                    Seleziona tutti
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setStopMonths([])}
+                    className="rounded-md border border-[var(--border)] bg-white px-2.5 py-1 text-xs font-medium text-slate-700 hover:bg-slate-50"
+                  >
+                    Deseleziona
+                  </button>
+                </div>
+              )}
 
               {years.length === 0 ? null : (
                 years.map(([year, months]) => (
@@ -475,23 +505,33 @@ export function FatturaSyncWizardModal({ kind, onClose, onDone }: Props) {
                     </p>
                     <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
                       {months.map((m) => {
-                        const selected = stopMonth === m.key;
+                        const selected = stopMonths.includes(m.key);
                         return (
                           <button
                             key={m.key}
                             type="button"
                             disabled={!m.enabled}
-                            onClick={() => {
-                              setStopMonth(m.key);
-                              void refreshCount(m.key);
-                            }}
+                            aria-pressed={selected}
+                            onClick={() => toggleMese(m.key)}
                             className={`rounded-lg border px-3 py-2 text-left text-sm disabled:cursor-not-allowed disabled:opacity-40 ${
                               selected
                                 ? "border-emerald-700 bg-emerald-50 text-emerald-950"
                                 : "border-[var(--border)] bg-white hover:bg-slate-50"
                             }`}
                           >
-                            <span className="block font-medium">{m.label}</span>
+                            <span className="flex items-center gap-1.5 font-medium">
+                              <span
+                                className={`inline-flex h-3.5 w-3.5 shrink-0 items-center justify-center rounded border text-[9px] ${
+                                  selected
+                                    ? "border-emerald-700 bg-emerald-700 text-white"
+                                    : "border-slate-300 bg-white text-transparent"
+                                }`}
+                                aria-hidden
+                              >
+                                ✓
+                              </span>
+                              {m.label}
+                            </span>
                             <span className="text-xs text-[var(--muted)]">
                               {m.enabled
                                 ? `${m.pendingCount} da sincronizzare`
@@ -505,10 +545,10 @@ export function FatturaSyncWizardModal({ kind, onClose, onDone }: Props) {
                 ))
               )}
 
-              {stopMonth && periodCount != null ? (
+              {stopMonths.length && periodCount != null ? (
                 <p className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-950">
-                  Trovate <strong>{periodCount}</strong> fatture da{" "}
-                  <strong>{labelMeseIt(stopMonth)}</strong> a oggi
+                  Trovate <strong>{periodCount}</strong> fatture nei mesi{" "}
+                  <strong>{mesiLabel}</strong>
                   {forwardIds.length
                     ? ` · ${forwardIds.length} nel tratto fino a oggi`
                     : ""}
@@ -534,7 +574,7 @@ export function FatturaSyncWizardModal({ kind, onClose, onDone }: Props) {
               </p>
               <p className="text-sm text-slate-700">
                 Come vuoi registrare le <strong>{retroIds.length}</strong> fatture
-                a ritroso fino a {stopMonth ? labelMeseIt(stopMonth) : "—"}?
+                a ritroso ({mesiLabel || "—"})?
               </p>
               <ul className="list-disc space-y-1 pl-5 text-sm text-slate-700">
                 <li>
@@ -707,7 +747,7 @@ export function FatturaSyncWizardModal({ kind, onClose, onDone }: Props) {
               </button>
               <button
                 type="button"
-                disabled={!stopMonth || !periodCount}
+                disabled={!stopMonths.length || !periodCount}
                 onClick={() => void procedi()}
                 className="rounded-lg bg-[var(--primary)] px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
               >

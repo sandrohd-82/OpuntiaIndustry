@@ -111,7 +111,7 @@ export const fattureSyncKeepKindSchema = z.enum(["emessa", "ricevuta"]);
 export const fattureSyncModalitaSchema = z.enum(["precisa", "veloce", "keep"]);
 export const fattureSyncStopMonthSchema = z
   .string()
-  .regex(/^\d{4}-\d{2}$/, "Mese non valido");
+  .regex(/^(\d{4}-\d{2})(,\d{4}-\d{2})*$/, "Mesi non validi");
 
 const MESI_IT = [
   "gennaio",
@@ -220,12 +220,52 @@ export function filterFromStopMonth(
   stopMonth: string,
   today: string
 ): FattureSyncPendingMeta[] {
-  const from = monthStartIso(stopMonth);
+  const months = stopMonth
+    .split(",")
+    .map((k) => k.trim())
+    .filter((k) => /^\d{4}-\d{2}$/.test(k));
+  if (months.length === 0) return [];
+  if (months.length > 1) {
+    return filterFromMonths(docs, months, today);
+  }
+  const from = monthStartIso(months[0]!);
   const todayDay = normalizeIsoDate(today) || today;
   return docs.filter((d) => {
     const date = normalizeIsoDate(d.date) || d.date || "";
     return Boolean(date) && date >= from && date <= todayDay;
   });
+}
+
+export function filterFromMonths(
+  docs: FattureSyncPendingMeta[],
+  months: string[],
+  today: string
+): FattureSyncPendingMeta[] {
+  const set = new Set(
+    months.filter((k) => /^\d{4}-\d{2}$/.test(k))
+  );
+  if (!set.size) return [];
+  const todayDay = normalizeIsoDate(today) || today;
+  return docs.filter((d) => {
+    const date = normalizeIsoDate(d.date) || d.date || "";
+    const key = monthKeyFromIso(date);
+    return Boolean(date) && date <= todayDay && Boolean(key && set.has(key));
+  });
+}
+
+export function labelMesiIt(keys: string[]): string {
+  return [...keys]
+    .filter((k) => /^\d{4}-\d{2}$/.test(k))
+    .sort()
+    .map(labelMeseIt)
+    .join(", ");
+}
+
+export function stopMonthsAuditValue(keys: string[]): string | null {
+  const list = [...keys]
+    .filter((k) => /^\d{4}-\d{2}$/.test(k))
+    .sort();
+  return list.length ? list.join(",") : null;
 }
 
 export function buildMonthOptions(
