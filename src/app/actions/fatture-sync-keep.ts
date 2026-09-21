@@ -30,6 +30,7 @@ import {
   isDuplicateFicIdError,
   normalizeIsoDate,
   pageAllSoftRows,
+  dropPendingGiaInDb,
   splitForwardRetro,
   todayIsoRome,
   type FattureSyncAnagraficaCreata,
@@ -170,6 +171,7 @@ async function listPendingMeta(
 
   const supabase = (opts?.supabase ??
     (await createClient())) as Awaited<ReturnType<typeof createClient>>;
+  const hintClient = createServiceClient();
   const skipScope = Boolean(opts?.skipScope);
   const today = todayIsoRome();
 
@@ -178,7 +180,7 @@ async function listPendingMeta(
       fetchIssuedInvoices(null),
       fetchIssuedCreditNotes(null),
       pageAllSoftRows(
-        supabase,
+        hintClient,
         "fatture_emesse",
         "id, fic_id, data_emissione, numero_documento_esterno, numero_fattura, numero_interno, totale"
       ),
@@ -224,19 +226,29 @@ async function listPendingMeta(
       });
     }
 
-    const { forward, retro } = splitForwardRetro(pending, lastRegisteredDate, today);
-    const months = buildMonthOptions(pending, today);
+    const pendingClean = await dropPendingGiaInDb(
+      hintClient,
+      "fatture_emesse",
+      pending
+    );
+    const { forward, retro } = splitForwardRetro(
+      pendingClean,
+      lastRegisteredDate,
+      today
+    );
+    const months = buildMonthOptions(pendingClean, today);
     return {
       success: true,
       preview: {
         lastRegisteredDate,
         today,
-        pending,
+        pending: pendingClean,
         months,
         defaultStopMonth: defaultStopMonth(months),
         forwardCount: forward.length,
         retroCount: retro.length,
-        skippedAlreadyRegistered: invoices.length + creditNotes.length - pending.length,
+        skippedAlreadyRegistered:
+          invoices.length + creditNotes.length - pendingClean.length,
       },
     };
   }
@@ -244,7 +256,7 @@ async function listPendingMeta(
   const [docs, registeredPage] = await Promise.all([
     fetchReceivedInvoices(null),
     pageAllSoftRows(
-      supabase,
+      hintClient,
       "fatture_ricevute",
       "id, fic_id, data_emissione, numero_documento_esterno, numero_interno, totale"
     ),
@@ -271,19 +283,28 @@ async function listPendingMeta(
       amountGross: d.amountGross,
     });
   }
-  const { forward, retro } = splitForwardRetro(pending, lastRegisteredDate, today);
-  const months = buildMonthOptions(pending, today);
+  const pendingClean = await dropPendingGiaInDb(
+    hintClient,
+    "fatture_ricevute",
+    pending
+  );
+  const { forward, retro } = splitForwardRetro(
+    pendingClean,
+    lastRegisteredDate,
+    today
+  );
+  const months = buildMonthOptions(pendingClean, today);
   return {
     success: true,
     preview: {
       lastRegisteredDate,
       today,
-      pending,
+      pending: pendingClean,
       months,
       defaultStopMonth: defaultStopMonth(months),
       forwardCount: forward.length,
       retroCount: retro.length,
-      skippedAlreadyRegistered: docs.length - pending.length,
+      skippedAlreadyRegistered: docs.length - pendingClean.length,
     },
   };
 }

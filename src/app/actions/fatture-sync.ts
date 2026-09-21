@@ -14,7 +14,10 @@ import {
   type FatturaSyncQueueItem,
   type RegisteredFatturaHint,
 } from "@/lib/amministrazione/fatture-sync";
-import { pageAllSoftRows } from "@/lib/amministrazione/fatture-sync-keep";
+import {
+  existingFicIdsInTable,
+  pageAllSoftRows,
+} from "@/lib/amministrazione/fatture-sync-keep";
 import {
   companyNamesMatch,
   vatKeysMatch,
@@ -37,7 +40,7 @@ import {
   getFicConfig,
   type FicDocumentNormalized,
 } from "@/lib/fic";
-import { createClient } from "@/lib/supabase/server";
+import { createClient, createServiceClient } from "@/lib/supabase/server";
 import type { ClienteRow, FornitoreRow } from "@/types/database";
 
 function resolveFornitoreForDoc(
@@ -260,6 +263,17 @@ export async function startFattureEmesseSyncAction(): Promise<FattureSyncStartRe
       d.date
     );
   });
+  {
+    const already = await existingFicIdsInTable(
+      createServiceClient(),
+      "fatture_emesse",
+      [...pendingInvoices, ...pendingCredits].map((d) => d.ficId)
+    );
+    if (already.size) {
+      pendingInvoices = pendingInvoices.filter((d) => !already.has(d.ficId));
+      pendingCredits = pendingCredits.filter((d) => !already.has(d.ficId));
+    }
+  }
 
   /** Auto-link match forti (manuale senza fic_id ↔ FiC). */
   let autoLinkedCount = 0;
@@ -548,6 +562,16 @@ export async function startFattureRicevuteSyncAction(): Promise<FattureSyncStart
     const existing = resolveFornitoreForDoc(d, byVat, fornitori);
     return docInFiscaleScope(ricevuteScope, existing?.id ?? null, d.date);
   });
+  {
+    const already = await existingFicIdsInTable(
+      createServiceClient(),
+      "fatture_ricevute",
+      pending.map((d) => d.ficId)
+    );
+    if (already.size) {
+      pending = pending.filter((d) => !already.has(d.ficId));
+    }
+  }
   const stillPending: FicDocumentNormalized[] = [];
   const weakDupByFicId = new Map<number, FatturaSyncDuplicateCandidate>();
 

@@ -184,9 +184,11 @@ export function findRegisteredHintForFicDoc(
   },
   registered: FatturaSyncRegisteredHint[]
 ): FatturaSyncRegisteredHint | null {
-  const byFic = registered.find(
-    (r) => r.ficId != null && Number.isFinite(r.ficId) && r.ficId === doc.ficId
-  );
+  const docFic = Number(doc.ficId);
+  const byFic = registered.find((r) => {
+    const n = Number(r.ficId);
+    return Number.isFinite(n) && n > 0 && n === docFic;
+  });
   if (byFic) return byFic;
 
   const num = compactNumeroFattura(doc.number);
@@ -232,7 +234,7 @@ type SoftQueryClient = {
   };
 };
 
-/** PostgREST taglia a 1000: senza pagine le fatture già in DB spariscono dai hint. */
+/** PostgREST taglia a 1000: senza pagine e senza ORDER BY si perdono righe. */
 export async function pageAllSoftRows(
   supabase: unknown,
   table: "fatture_ricevute" | "fatture_emesse",
@@ -246,6 +248,7 @@ export async function pageAllSoftRows(
       .from(table)
       .select(columns)
       .is("deleted_at", null)
+      .order("id", { ascending: true })
       .range(from, from + page - 1);
     if (error) return { rows, error: error.message };
     const batch = (data ?? []) as Record<string, unknown>[];
@@ -253,6 +256,54 @@ export async function pageAllSoftRows(
     if (batch.length < page) break;
   }
   return { rows, error: null };
+}
+
+/** Controllo puntuale: i fic_id già in tabella non devono restare in coda. */
+export async function existingFicIdsInTable(
+  supabase: unknown,
+  table: "fatture_ricevute" | "fatture_emesse",
+  ficIds: number[]
+): Promise<Set<number>> {
+  const found = new Set<number>();
+  const unique = [
+    ...new Set(
+      ficIds
+        .map((n) => Number(n))
+        .filter((n) => Number.isFinite(n) && n > 0)
+    ),
+  ];
+  if (!unique.length) return found;
+  const client = supabase as SoftQueryClient;
+  const chunkSize = 200;
+  for (let i = 0; i < unique.length; i += chunkSize) {
+    const chunk = unique.slice(i, i + chunkSize);
+    const { data, error } = await client
+      .from(table)
+      .select("fic_id")
+      .in("fic_id", chunk)
+      .is("deleted_at", null);
+    if (error) continue;
+    for (const row of (data ?? []) as Array<{ fic_id?: unknown }>) {
+      const n = Number(row.fic_id);
+      if (Number.isFinite(n) && n > 0) found.add(n);
+    }
+  }
+  return found;
+}
+
+export async function dropPendingGiaInDb(
+  supabase: unknown,
+  table: "fatture_ricevute" | "fatture_emesse",
+  pending: FattureSyncPendingMeta[]
+): Promise<FattureSyncPendingMeta[]> {
+  if (!pending.length) return pending;
+  const have = await existingFicIdsInTable(
+    supabase,
+    table,
+    pending.map((p) => p.ficId)
+  );
+  if (!have.size) return pending;
+  return pending.filter((p) => !have.has(Number(p.ficId)));
 }
 
 export async function findActiveFatturaIdByFicId(
