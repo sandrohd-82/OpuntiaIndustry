@@ -3,7 +3,10 @@
 import { Fragment, useEffect, useState } from "react";
 import Link from "next/link";
 import { listLottiAgrinsiciliaProdottoAction } from "@/app/actions/magazzino-lotti";
+import { ActionGate } from "@/components/layout/ActionAccessProvider";
 import { PiantaPostoMappaModal } from "@/components/magazzino/PiantaPostoMappaModal";
+import { AZ } from "@/lib/auth/action-access";
+import { hrefInserisciQuantita } from "@/lib/magazzino/inserisci-quantita-href";
 import {
   fetchOccupazioniPiantaProdotto,
   formatKgIt,
@@ -125,12 +128,33 @@ export function ProdottiPropriLottiExpand({
                         )}
                       </td>
                       <td className="py-2 text-right">
-                        <Link
-                          href={lottoHref(l)}
-                          className="font-medium text-[var(--primary)] hover:underline"
-                        >
-                          Dettaglio
-                        </Link>
+                        <div className="flex flex-wrap items-center justify-end gap-2">
+                          <ActionGate
+                            actionKey={AZ.inserisciQuantitaAgrinsicilia}
+                          >
+                            <Link
+                              href={hrefInserisciQuantita({
+                                prodottoId: l.prodottoId,
+                                quantita: l.quantitaKg,
+                                unita: "kg",
+                                lotto: l.lottoCodice,
+                                foglioCodice: l.foglioCodice,
+                                ubicazioneId:
+                                  pianta?.righe.find((r) => r.ubicazioneId)
+                                    ?.ubicazioneId ?? null,
+                              })}
+                              className="font-medium text-emerald-800 hover:underline"
+                            >
+                              Modifica quantità
+                            </Link>
+                          </ActionGate>
+                          <Link
+                            href={lottoHref(l)}
+                            className="font-medium text-[var(--primary)] hover:underline"
+                          >
+                            Dettaglio
+                          </Link>
+                        </div>
                       </td>
                     </tr>
                     <tr className="bg-white/80">

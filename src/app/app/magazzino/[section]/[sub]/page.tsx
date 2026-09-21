@@ -152,7 +152,13 @@ export default async function MagazzinoSubPage({ params }: Props) {
       <>
         <AppHeader title={page.label} subtitle={page.description} />
         <div className="p-6">
-          <MagazzinoInserisciQuantitaBoard />
+          <Suspense
+            fallback={
+              <p className="text-sm text-[var(--muted)]">Caricamento…</p>
+            }
+          >
+            <MagazzinoInserisciQuantitaBoard />
+          </Suspense>
         </div>
       </>
     );

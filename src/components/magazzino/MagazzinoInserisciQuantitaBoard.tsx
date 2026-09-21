@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import {
   listFogliApertiMagazzinoAction,
   listMovimentiAgrinsiciliaAction,
@@ -21,6 +22,7 @@ import {
   formatQuantitaCarico,
   MAGAZZINO_CARICO_UNITA_OPTIONS,
   MOTIVO_SENZA_FOGLIO_LABEL,
+  parseUnitaCarico,
   quantitaStockDaCarico,
   unitaStockDaCarico,
   type FoglioApertoOption,
@@ -39,6 +41,8 @@ type ProdottoOpt = {
 };
 
 export function MagazzinoInserisciQuantitaBoard() {
+  const searchParams = useSearchParams();
+  const prefillDone = useRef(false);
   const [prodotti, setProdotti] = useState<ProdottoOpt[]>([]);
   const [fogli, setFogli] = useState<FoglioApertoOption[]>([]);
   const [movimenti, setMovimenti] = useState<MovimentoAgrinsiciliaRiga[]>([]);
@@ -93,6 +97,40 @@ export function MagazzinoInserisciQuantitaBoard() {
   useEffect(() => {
     void reload().finally(() => setReady(true));
   }, []);
+
+  useEffect(() => {
+    if (!ready || prefillDone.current) return;
+    const prodotto = searchParams.get("prodotto")?.trim() ?? "";
+    if (!prodotto) {
+      prefillDone.current = true;
+      return;
+    }
+    const hit = prodotti.find((p) => p.id === prodotto);
+    if (!hit) return;
+    prefillDone.current = true;
+    setProdottoId(hit.id);
+    const um =
+      parseUnitaCarico(searchParams.get("unita")) ?? hit.unitaScheda;
+    setUnitaMisura(um);
+    const rawQ = searchParams.get("q")?.replace(",", ".") ?? "";
+    const qn = Number(rawQ);
+    if (Number.isFinite(qn) && qn > 0) setQuantita(qn);
+    const lotto = searchParams.get("lotto")?.trim() ?? "";
+    if (lotto) setLottoCodice(lotto);
+    const foglioCodice = searchParams.get("foglio")?.trim() ?? "";
+    if (foglioCodice) {
+      const foglio = fogli.find((f) => f.codice === foglioCodice);
+      if (foglio) {
+        setCollegaFoglio(true);
+        setFoglioId(foglio.id);
+      }
+    }
+    const ubi = searchParams.get("ubi")?.trim() ?? "";
+    if (ubi && ubicazioni.some((u) => u.id === ubi)) {
+      setUbicazioneId(ubi);
+      setRimandaUbi(false);
+    }
+  }, [ready, prodotti, fogli, ubicazioni, searchParams]);
 
   const selected = useMemo(
     () => prodotti.find((p) => p.id === prodottoId) ?? null,
@@ -225,6 +263,16 @@ export function MagazzinoInserisciQuantitaBoard() {
             può bypassare solo per inventario o rivisita di ordine, con
             motivazione tracciata.
           </p>
+          {searchParams.get("da") === "elenco" && prodottoId ? (
+            <p className="mt-2 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-900">
+              Parametri precompilati dall’elenco quantità
+              {selected
+                ? ` · ${selected.codice} — ${selected.nome}`
+                : ""}
+              {lottoCodice ? ` · lotto ${lottoCodice}` : ""}. Controlla la
+              quantità prima di registrare.
+            </p>
+          ) : null}
         </div>
 
         <label className="block text-sm">

@@ -1,6 +1,7 @@
 "use client";
 
 import { Fragment, useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 import { usePathname, useSearchParams } from "next/navigation";
 import { ActionGate } from "@/components/layout/ActionAccessProvider";
 import { AZ } from "@/lib/auth/action-access";
@@ -30,6 +31,10 @@ import {
 } from "@/lib/amministrazione/prodotti-propri";
 import { exportProdottiPropriPdf } from "@/lib/amministrazione/prodotti-propri-pdf";
 import type { CatalogoSettore } from "@/lib/amministrazione/prodotti-settori";
+import {
+  hrefInserisciQuantita,
+  quantitaInputDaStock,
+} from "@/lib/magazzino/inserisci-quantita-href";
 import {
   formatQuantitaCarico,
   unitaStockDaCarico,
@@ -334,7 +339,26 @@ export function ProdottiPropriBoard({
                     {m.note || "—"}
                   </td>
                   <td className="px-4 py-3 text-right">
-                    <div className="inline-flex items-center gap-1 justify-end">
+                    <div className="inline-flex flex-wrap items-center justify-end gap-1">
+                      {showGiacenza ? (
+                        <ActionGate actionKey={AZ.inserisciQuantitaAgrinsicilia}>
+                          <Link
+                            href={hrefInserisciQuantita({
+                              prodottoId: m.id,
+                              unita: giacenze[m.id]?.unitaScheda,
+                              quantita: giacenze[m.id]
+                                ? quantitaInputDaStock(
+                                    giacenze[m.id].giacenzaKg,
+                                    giacenze[m.id].unitaScheda
+                                  )
+                                : null,
+                            })}
+                            className="inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-xs font-medium text-emerald-800 hover:bg-emerald-50"
+                          >
+                            Modifica quantità
+                          </Link>
+                        </ActionGate>
+                      ) : null}
                       <button
                         type="button"
                         onClick={() => {
