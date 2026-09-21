@@ -386,6 +386,7 @@ export async function queryOccupazioniPerProdotto(
           tipoSacco,
           targa,
           lottoInterno: lotto,
+          movimentazioneNome: occ.movimentazioneNome || "",
         });
       }
     } else {
@@ -401,6 +402,7 @@ export async function queryOccupazioniPerProdotto(
         tipoSacco,
         targa,
         lottoInterno: lotto,
+        movimentazioneNome: occ.movimentazioneNome || "",
       });
     }
     acc.riepilogo = etichettaPalletESacchi(

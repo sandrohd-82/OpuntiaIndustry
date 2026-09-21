@@ -190,7 +190,56 @@ export type ConfezionamentoPiantaRiga = {
   tipoSacco: string;
   targa: string;
   lottoInterno: string;
+  movimentazioneNome: string;
 };
+
+export type GruppoPostoPianta = {
+  ubicazioneId: string;
+  postoCodice: string;
+  postoNome: string;
+  movimentazione: string;
+  pesoTotaleKg: number | null;
+  righe: ConfezionamentoPiantaRiga[];
+};
+
+export function gruppiPostoDaRighe(
+  righe: ConfezionamentoPiantaRiga[]
+): GruppoPostoPianta[] {
+  const map = new Map<string, GruppoPostoPianta>();
+  for (const r of righe) {
+    const key = r.ubicazioneId || r.occupazioneId;
+    const prev = map.get(key);
+    if (!prev) {
+      map.set(key, {
+        ubicazioneId: r.ubicazioneId,
+        postoCodice: r.postoCodice,
+        postoNome: r.postoNome,
+        movimentazione: r.movimentazioneNome.trim(),
+        pesoTotaleKg: null,
+        righe: [r],
+      });
+      continue;
+    }
+    prev.righe.push(r);
+    const mov = r.movimentazioneNome.trim();
+    if (mov && !prev.movimentazione.split(", ").includes(mov)) {
+      prev.movimentazione = prev.movimentazione
+        ? `${prev.movimentazione}, ${mov}`
+        : mov;
+    }
+  }
+  const out = [...map.values()];
+  for (const g of out) {
+    const tot = g.righe.reduce((s, r) => s + (Number(r.pesoKg) || 0), 0);
+    g.pesoTotaleKg = tot > 0 ? Math.round(tot * 1000) / 1000 : null;
+  }
+  return out.sort((a, b) =>
+    (a.postoCodice || a.ubicazioneId).localeCompare(
+      b.postoCodice || b.ubicazioneId,
+      "it"
+    )
+  );
+}
 
 export type OccupazioneLottoPianta = {
   lottoInterno: string;
