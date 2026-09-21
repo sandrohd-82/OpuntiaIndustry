@@ -94,13 +94,7 @@ function lerpColor(from: Rgb, to: Rgb, t: number): string {
   return `rgb(${r}, ${g}, ${b})`;
 }
 
-const HOUR_TICKS = [
-  { hour: "8:00", percent: 0 },
-  { hour: "10:00", percent: 25 },
-  { hour: "12:00", percent: 50 },
-  { hour: "14:00", percent: 75 },
-  { hour: "16:00", percent: 100 },
-] as const;
+const PERCENT_TICKS = [0, 25, 50, 75, 100] as const;
 
 export const BURNER_FROM: Rgb = [56, 189, 248];
 export const BURNER_TO: Rgb = [239, 68, 68];
@@ -201,12 +195,12 @@ export function ClockArcPercentGauge({
           );
         })}
 
-        {HOUR_TICKS.map((tick) => {
-          const inner = clockPoint(percentToClockDeg(tick.percent), R - 16);
-          const outer = clockPoint(percentToClockDeg(tick.percent), R + 16);
-          const labelPt = clockPoint(percentToClockDeg(tick.percent), R + 30);
+        {PERCENT_TICKS.map((percent) => {
+          const inner = clockPoint(percentToClockDeg(percent), R - 16);
+          const outer = clockPoint(percentToClockDeg(percent), R + 16);
+          const labelPt = clockPoint(percentToClockDeg(percent), R + 30);
           return (
-            <g key={tick.hour}>
+            <g key={percent}>
               <line
                 x1={inner.x}
                 y1={inner.y}
@@ -220,10 +214,10 @@ export function ClockArcPercentGauge({
                 y={labelPt.y + 4}
                 textAnchor="middle"
                 fill="#475569"
-                fontSize="10"
+                fontSize="11"
                 fontWeight="600"
               >
-                {tick.hour}
+                {percent}%
               </text>
             </g>
           );
@@ -246,9 +240,6 @@ export function ClockArcPercentGauge({
         </p>
         <p className="text-4xl font-bold tabular-nums tracking-tight" style={{ color: knobColor }}>
           {value}%
-        </p>
-        <p className="text-[11px] text-slate-500">
-          8:00 = 0% · 16:00 = 100%
         </p>
       </div>
     </div>
