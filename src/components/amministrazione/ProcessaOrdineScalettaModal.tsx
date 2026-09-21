@@ -3,6 +3,7 @@
 import { useEffect, useId, useMemo, useState } from "react";
 import { processOrdineInScalettaAction } from "@/app/actions/ordini";
 import { listAttivitaByProdottoAction } from "@/app/actions/attivita";
+import { anteprimaLottoProduzioneMagazzinoAction } from "@/app/actions/lotto-produzione-magazzino";
 import {
   calcolaConsegnaOrdineAction,
   getGiacenzaProdottoAction,
@@ -52,6 +53,9 @@ export function ProcessaOrdineScalettaModal({
   const isCamp = ordine.tipo === "campionatura";
   const riga = ordine.righe[0];
   const [lottoCodice, setLottoCodice] = useState(riga?.lottoCodice ?? "");
+  const [lottoAuto, setLottoAuto] = useState(false);
+  const [lottoMsg, setLottoMsg] = useState<string | null>(null);
+  const [lottoLoading, setLottoLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [calcolo, setCalcolo] = useState<CapacitaCalcoloResult | null>(null);
@@ -108,6 +112,52 @@ export function ProcessaOrdineScalettaModal({
     () => giacenze.length > 0 && giacenze.every((g) => g.ok),
     [giacenze]
   );
+
+  useEffect(() => {
+    if (!usaMagazzino || !riga?.prodottoId) {
+      setLottoMsg(null);
+      setLottoAuto(false);
+      return;
+    }
+    let cancelled = false;
+    setLottoLoading(true);
+    void anteprimaLottoProduzioneMagazzinoAction({
+      prodottoId: riga.prodottoId,
+      richiestaKg: quantitaInUnitaBase(riga.quantita, riga.unitaMisura),
+      prodottoNome: `${riga.prodottoCodice} — ${riga.prodottoNome}`,
+    })
+      .then((res) => {
+        if (cancelled) return;
+        if (!res.success) {
+          setLottoMsg(res.error);
+          setLottoAuto(false);
+          return;
+        }
+        setLottoCodice(res.anteprima.lottoCodice);
+        setLottoMsg(res.anteprima.messaggio);
+        setLottoAuto(true);
+      })
+      .catch((err: unknown) => {
+        if (cancelled) return;
+        setLottoAuto(false);
+        setLottoMsg(
+          err instanceof Error ? err.message : "Calcolo lotto non disponibile."
+        );
+      })
+      .finally(() => {
+        if (!cancelled) setLottoLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    usaMagazzino,
+    riga?.prodottoId,
+    riga?.prodottoCodice,
+    riga?.prodottoNome,
+    riga?.quantita,
+    riga?.unitaMisura,
+  ]);
 
   useEffect(() => {
     if (!riga?.prodottoId) return;
@@ -260,7 +310,7 @@ export function ProcessaOrdineScalettaModal({
 
   const puoLavorazione =
     !isCamp && fonte === "lavorazione" && !!calcolo && !!riga;
-  const puoMagazzino = usaMagazzino && magazzinoOk && !!riga;
+  const puoMagazzino = usaMagazzino && magazzinoOk && !!riga && !lottoLoading;
 
   return (
     <div
@@ -364,11 +414,24 @@ export function ProcessaOrdineScalettaModal({
             <span className="mb-1 block font-medium">Numero di lotto</span>
             <input
               type="text"
-              value={lottoCodice}
-              onChange={(e) => setLottoCodice(e.target.value)}
-              placeholder="Facoltativo — se già assegnato"
-              className="w-full rounded-lg border border-[var(--border)] bg-white px-3 py-2 font-mono text-sm outline-none focus:border-[var(--primary)]"
+              value={lottoLoading ? "" : lottoCodice}
+              onChange={(e) => {
+                setLottoAuto(false);
+                setLottoCodice(e.target.value);
+              }}
+              readOnly={lottoAuto || lottoLoading}
+              placeholder={
+                lottoLoading
+                  ? "Calcolo lotto da magazzino…"
+                  : "Lotto esterno da magazzino"
+              }
+              className="w-full rounded-lg border border-[var(--border)] bg-white px-3 py-2 font-mono text-sm outline-none focus:border-[var(--primary)] read-only:bg-slate-50"
             />
+            {lottoMsg ? (
+              <span className="mt-1 block text-xs text-[var(--muted)]">
+                {lottoMsg}
+              </span>
+            ) : null}
           </label>
         ) : null}
 

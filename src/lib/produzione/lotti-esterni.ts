@@ -194,6 +194,14 @@ export const compositoCreateSchema = z.object({
     .array(z.string().uuid())
     .min(2, "Servono almeno due lotti per un lotto inclusivo."),
   note: z.string().max(500).optional(),
+  componenti: z
+    .array(
+      z.object({
+        lottoId: z.string().uuid(),
+        quantitaKg: z.number().nonnegative(),
+      })
+    )
+    .optional(),
 });
 
 export const lottoUscitaAnteprima = z

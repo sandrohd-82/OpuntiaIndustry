@@ -147,7 +147,12 @@ export async function anteprimaLottoUscitaAction(): Promise<
   | { success: true; codice: string; settimana: number; anno: number }
   | { success: false; error: string }
 > {
-  await requireAnyAreaAccess(["strumenti", "produzione", "magazzino"]);
+  await requireAnyAreaAccess([
+    "strumenti",
+    "produzione",
+    "magazzino",
+    "amministrazione",
+  ]);
   const supabase = await createClient();
   const next = await nextCodiceUscita(supabase, new Date());
   return {
@@ -167,7 +172,12 @@ export async function creaLottoUscitaAlSalvataggio(input: {
   | { success: true; lotto: LottoEsterno; codiceCambiato: boolean }
   | { success: false; error: string }
 > {
-  await requireAnyAreaAccess(["strumenti", "produzione", "magazzino"]);
+  await requireAnyAreaAccess([
+    "strumenti",
+    "produzione",
+    "magazzino",
+    "amministrazione",
+  ]);
   const supabase = await createClient();
   const preferito = (input.codicePreferito ?? "").trim().toUpperCase();
   const preferitoOk = preferito && isValidLottoUscita(preferito);
@@ -545,7 +555,12 @@ export async function creaLottoUscitaCompositoAction(
 ): Promise<
   { success: true; lotto: LottoEsterno } | { success: false; error: string }
 > {
-  const { auth } = await requireAnyAreaAccess(["strumenti", "produzione"]);
+  const { auth } = await requireAnyAreaAccess([
+    "strumenti",
+    "produzione",
+    "magazzino",
+    "amministrazione",
+  ]);
   const parsed = compositoCreateSchema.safeParse(raw);
   if (!parsed.success) {
     return { success: false, error: parsed.error.issues[0]?.message ?? "Dati non validi." };
@@ -615,10 +630,15 @@ export async function creaLottoUscitaCompositoAction(
   if (!created) {
     return { success: false, error: lastError };
   }
+  const qtyById = new Map(
+    (parsed.data.componenti ?? []).map((c) => [c.lottoId, c.quantitaKg])
+  );
   const { error: cErr } = await supabase.from("lotti_esterni_componenti").insert(
     rows.map((r, i) => ({
       lotto_composito_id: created.id,
       lotto_componente_id: r.id,
+      quantita: qtyById.has(r.id) ? qtyById.get(r.id) : null,
+      unita: "kg",
       sort_order: i,
       created_by: auth.userId,
       updated_by: auth.userId,

@@ -1,6 +1,7 @@
 "use server";
 
 import { createClient } from "@/lib/supabase/server";
+import { assegnaLottoProduzioneDaMagazzino } from "@/app/actions/lotto-produzione-magazzino";
 import { calcolaConsegnaOrdineAction } from "@/app/actions/produzione-capacita";
 import {
   buildNumeroInternoOrdine,
@@ -1380,6 +1381,42 @@ export async function processOrdineInScalettaAction(
     };
   }
 
+  const lottiPerRiga: Array<{
+    rigaId: string;
+    lottoCodice: string;
+    payload: Record<string, unknown>;
+  }> = [];
+  if (usaMagazzino) {
+    for (const r of existing.righe) {
+      if (
+        !r.prodottoId ||
+        !r.id ||
+        r.id.startsWith("riga-") ||
+        r.id.startsWith("tmp-")
+      ) {
+        continue;
+      }
+      const assegnato = await assegnaLottoProduzioneDaMagazzino({
+        prodottoId: r.prodottoId,
+        richiestaKg: quantitaInUnitaBase(r.quantita, r.unitaMisura),
+        prodottoNome: `${r.prodottoCodice} — ${r.prodottoNome}`,
+        userId: auth.userId,
+        persist: true,
+      });
+      if (!assegnato.success) return assegnato;
+      lottiPerRiga.push({
+        rigaId: r.id,
+        lottoCodice: assegnato.anteprima.lottoCodice,
+        payload: {
+          mode: assegnato.anteprima.mode,
+          lotto_esterno_id: assegnato.anteprima.lottoEsternoId,
+          lotti_interni: assegnato.anteprima.lottiInterni,
+          messaggio: assegnato.anteprima.messaggio,
+        },
+      });
+    }
+  }
+
   const supabase = await createClient();
   const nowIso = new Date().toISOString();
   const linea =
@@ -1415,20 +1452,16 @@ export async function processOrdineInScalettaAction(
 
   if (error) return { success: false, error: error.message };
 
-  const lottoCodice = (input.lottoCodice ?? "").trim();
-  if (
-    existing.tipo === "campionatura" &&
-    riga.id &&
-    !riga.id.startsWith("riga-") &&
-    !riga.id.startsWith("tmp-")
-  ) {
+  const lottoCodice =
+    lottiPerRiga[0]?.lottoCodice ?? (input.lottoCodice ?? "").trim();
+  for (const item of lottiPerRiga) {
     const { error: lottoErr } = await supabase
       .from("ordini_righe")
       .update({
-        lotto_codice: lottoCodice,
+        lotto_codice: item.lottoCodice,
         updated_at: nowIso,
       })
-      .eq("id", riga.id)
+      .eq("id", item.rigaId)
       .eq("ordine_id", existing.id);
     if (lottoErr) {
       return { success: false, error: lottoErr.message };
@@ -1463,6 +1496,11 @@ export async function processOrdineInScalettaAction(
       giorni_produzione: giorniProduzione,
       data_consegna: input.dataConsegnaCalendario,
       lotto_codice: lottoCodice || null,
+      lotti_prelievo: lottiPerRiga.map((l) => ({
+        riga_id: l.rigaId,
+        lotto_codice: l.lottoCodice,
+        ...l.payload,
+      })),
       giacenza_kg: calcRes.giacenzaKg,
     },
   });

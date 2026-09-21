@@ -2,6 +2,7 @@
 
 import { useEffect, useId, useMemo, useState } from "react";
 import { processCampionaturaInProduzioneAction } from "@/app/actions/campionature";
+import { anteprimaLottoProduzioneMagazzinoAction } from "@/app/actions/lotto-produzione-magazzino";
 import { getGiacenzaProdottoAction } from "@/app/actions/produzione-capacita";
 import {
   formatKgLt,
@@ -37,6 +38,9 @@ export function ProcessaCampionaturaProduzioneModal({
   const [lottoCodice, setLottoCodice] = useState(
     item.righe[0]?.lottoCodice ?? ""
   );
+  const [lottoAuto, setLottoAuto] = useState(false);
+  const [lottoMsg, setLottoMsg] = useState<string | null>(null);
+  const [lottoLoading, setLottoLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [giacenze, setGiacenze] = useState<GiacenzaRiga[]>([]);
@@ -76,6 +80,51 @@ export function ProcessaCampionaturaProduzioneModal({
     () => giacenze.length > 0 && giacenze.every((g) => g.ok),
     [giacenze]
   );
+
+  useEffect(() => {
+    const righe = item.righe.filter((r) => r.prodottoId);
+    if (righe.length === 0) return;
+    let cancelled = false;
+    setLottoLoading(true);
+    void Promise.all(
+      righe.map((r) =>
+        anteprimaLottoProduzioneMagazzinoAction({
+          prodottoId: r.prodottoId,
+          richiestaKg: quantitaRichiestaInBaseKg(r.quantita, r.unitaMisura) ?? r.quantita,
+          prodottoNome: `${r.prodottoCodice} — ${r.prodottoNome}`,
+        })
+      )
+    )
+      .then((results) => {
+        if (cancelled) return;
+        const fail = results.find((r) => !r.success);
+        if (fail && !fail.success) {
+          setLottoMsg(fail.error);
+          setLottoAuto(false);
+          return;
+        }
+        const ok = results.flatMap((r) => (r.success ? [r.anteprima] : []));
+        const first = ok[0];
+        if (first) {
+          setLottoCodice(first.lottoCodice);
+          setLottoAuto(true);
+        }
+        setLottoMsg(ok.map((a) => a.messaggio).join(" "));
+      })
+      .catch((err: unknown) => {
+        if (cancelled) return;
+        setLottoAuto(false);
+        setLottoMsg(
+          err instanceof Error ? err.message : "Calcolo lotto non disponibile."
+        );
+      })
+      .finally(() => {
+        if (!cancelled) setLottoLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [item.righe]);
 
   async function onConfirm() {
     if (!magazzinoOk) {
@@ -170,11 +219,24 @@ export function ProcessaCampionaturaProduzioneModal({
           <span className="mb-1 block font-medium">Numero di lotto</span>
           <input
             type="text"
-            value={lottoCodice}
-            onChange={(e) => setLottoCodice(e.target.value)}
-            placeholder="Facoltativo — se già assegnato"
-            className="w-full rounded-lg border border-[var(--border)] bg-white px-3 py-2 font-mono text-sm outline-none focus:border-[var(--primary)]"
+            value={lottoLoading ? "" : lottoCodice}
+            onChange={(e) => {
+              setLottoAuto(false);
+              setLottoCodice(e.target.value);
+            }}
+            readOnly={lottoAuto || lottoLoading}
+            placeholder={
+              lottoLoading
+                ? "Calcolo lotto da magazzino…"
+                : "Lotto esterno da magazzino"
+            }
+            className="w-full rounded-lg border border-[var(--border)] bg-white px-3 py-2 font-mono text-sm outline-none focus:border-[var(--primary)] read-only:bg-slate-50"
           />
+          {lottoMsg ? (
+            <span className="mt-1 block text-xs text-[var(--muted)]">
+              {lottoMsg}
+            </span>
+          ) : null}
         </label>
 
         {error ? (
@@ -193,7 +255,7 @@ export function ProcessaCampionaturaProduzioneModal({
           </button>
           <button
             type="button"
-            disabled={saving || !magazzinoOk}
+            disabled={saving || !magazzinoOk || lottoLoading}
             onClick={() => void onConfirm()}
             className="rounded-lg bg-[var(--primary)] px-4 py-2 text-sm font-medium text-white hover:bg-[var(--primary-hover)] disabled:opacity-50"
           >

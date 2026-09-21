@@ -13,6 +13,7 @@ import {
   type CampionaturaRiga,
 } from "@/lib/amministrazione/campionature";
 import { inferCarrierFromUrl } from "@/lib/shipping/tracking";
+import { assegnaLottoProduzioneDaMagazzino } from "@/app/actions/lotto-produzione-magazzino";
 import { getGiacenzaProdottoAction } from "@/app/actions/produzione-capacita";
 import {
   giacenzaCopreRichiesta,
@@ -749,7 +750,38 @@ export async function processCampionaturaInProduzioneAction(
   }
 
   const now = new Date().toISOString();
-  const lotto = parsed.data.lottoCodice.trim();
+  const lottiPerRiga: Array<{
+    rigaId: string;
+    lottoCodice: string;
+    payload: Record<string, unknown>;
+  }> = [];
+  for (const r of righe) {
+    if (!r.prodotto_id) continue;
+    const richiesta =
+      quantitaRichiestaInBaseKg(Number(r.quantita), r.unita_misura) ??
+      Number(r.quantita);
+    const assegnato = await assegnaLottoProduzioneDaMagazzino({
+      prodottoId: r.prodotto_id,
+      richiestaKg: richiesta,
+      prodottoNome: `${r.prodotto_codice} — ${r.prodotto_nome}`,
+      userId: gate.auth.userId,
+      persist: true,
+    });
+    if (!assegnato.success) return assegnato;
+    lottiPerRiga.push({
+      rigaId: r.id,
+      lottoCodice: assegnato.anteprima.lottoCodice,
+      payload: {
+        mode: assegnato.anteprima.mode,
+        lotto_esterno_id: assegnato.anteprima.lottoEsternoId,
+        lotti_interni: assegnato.anteprima.lottiInterni,
+        messaggio: assegnato.anteprima.messaggio,
+      },
+    });
+  }
+  const lotto =
+    lottiPerRiga[0]?.lottoCodice ?? parsed.data.lottoCodice.trim();
+
   const { error: updErr } = await supabase
     .from("campionature")
     .update({
@@ -761,15 +793,15 @@ export async function processCampionaturaInProduzioneAction(
     .is("deleted_at", null);
   if (updErr) return { success: false, error: updErr.message };
 
-  if (lotto && righe[0]?.id) {
+  for (const item of lottiPerRiga) {
     const { error: lottoErr } = await supabase
       .from("campionature_righe")
       .update({
-        lotto_codice: lotto,
+        lotto_codice: item.lottoCodice,
         updated_at: now,
         updated_by: gate.auth.userId,
       })
-      .eq("id", righe[0].id);
+      .eq("id", item.rigaId);
     if (lottoErr) return { success: false, error: lottoErr.message };
   }
 
@@ -784,6 +816,11 @@ export async function processCampionaturaInProduzioneAction(
       stato_a: "processata",
       approvvigionamento: "magazzino",
       lotto_codice: lotto || null,
+      lotti_prelievo: lottiPerRiga.map((l) => ({
+        riga_id: l.rigaId,
+        lotto_codice: l.lottoCodice,
+        ...l.payload,
+      })),
     },
   });
 
