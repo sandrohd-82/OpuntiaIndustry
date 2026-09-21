@@ -1,6 +1,9 @@
 import { randomUUID } from "crypto";
 import { writeAuditLog } from "@/lib/audit";
-import { requireAnyAreaAccess } from "@/lib/areas/guard";
+import { isTestImpersonation } from "@/lib/areas/guard";
+import { isUnrestrictedSuperadmin } from "@/lib/auth/roles";
+import { getAuthContext, userCanAccessArea } from "@/lib/auth/session";
+import type { AreaSlug } from "@/types/database";
 import {
   POSTO_FOTO_BUCKET,
   POSTO_FOTO_MAX_BYTES,
@@ -21,7 +24,24 @@ export async function salvaFotoPosto(input: {
   mime: string;
   bytes: Buffer;
 }): Promise<{ success: true; id: string } | { success: false; error: string }> {
-  const { auth } = await requireAnyAreaAccess(["magazzino", "amministrazione"]);
+  const auth = await getAuthContext();
+  if (!auth) {
+    return { success: false, error: "Accesso richiesto." };
+  }
+  const areeUpload: AreaSlug[] = [
+    "magazzino",
+    "strumenti",
+    "amministrazione",
+    "produzione",
+    "commerciale",
+  ];
+  if (
+    !isTestImpersonation(auth) &&
+    !isUnrestrictedSuperadmin(auth) &&
+    !areeUpload.some((s) => userCanAccessArea(auth.areas, s))
+  ) {
+    return { success: false, error: "Permesso insufficiente per caricare foto." };
+  }
   if (!input.ubicazioneId) {
     return { success: false, error: "Posto mancante." };
   }

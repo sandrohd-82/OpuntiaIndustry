@@ -1,7 +1,9 @@
 "use server";
 
 import { writeAuditLog } from "@/lib/audit";
-import { requireAnyAreaAccess } from "@/lib/areas/guard";
+import { isTestImpersonation } from "@/lib/areas/guard";
+import { isUnrestrictedSuperadmin } from "@/lib/auth/roles";
+import { getAuthContext, userCanAccessArea } from "@/lib/auth/session";
 import {
   POSTO_FOTO_BUCKET,
   POSTO_FOTO_MAX_PER_POSTO,
@@ -10,7 +12,39 @@ import {
   type PostoFoto,
   type PostoFotoPrincipale,
 } from "@/lib/magazzino/posto-foto";
-import { createClient, createServiceClient } from "@/lib/supabase/server";
+import { createServiceClient } from "@/lib/supabase/server";
+import type { AreaSlug } from "@/types/database";
+
+/** Stesse aree della pianta: niente redirect/notFound (la modale resterebbe in loading). */
+const POSTO_FOTO_AREE: AreaSlug[] = [
+  "magazzino",
+  "strumenti",
+  "amministrazione",
+  "produzione",
+  "commerciale",
+  "action",
+  "area-fiscale",
+  "promemorie-e-note",
+];
+
+async function requirePostoFoto(): Promise<
+  | { ok: true; userId: string }
+  | { ok: false; error: string }
+> {
+  const auth = await getAuthContext();
+  if (!auth) return { ok: false, error: "Accesso richiesto." };
+  if (isTestImpersonation(auth) || isUnrestrictedSuperadmin(auth)) {
+    return { ok: true, userId: auth.userId };
+  }
+  if (!POSTO_FOTO_AREE.some((s) => userCanAccessArea(auth.areas, s))) {
+    return { ok: false, error: "Permesso insufficiente per le foto del posto." };
+  }
+  return { ok: true, userId: auth.userId };
+}
+
+function tableAssente(message: string): boolean {
+  return /schema cache|does not exist|PGRST205|42P01/i.test(message);
+}
 
 const FOTO_SELECT =
   "id, ubicazione_id, storage_path, file_name, mime, is_principale, sort_order, fit_scale, offset_x, offset_y";
@@ -49,12 +83,19 @@ async function signedUrls(
 ): Promise<Map<string, string>> {
   const out = new Map<string, string>();
   if (!paths.length) return out;
-  const db = createServiceClient();
-  const { data } = await db.storage
-    .from(POSTO_FOTO_BUCKET)
-    .createSignedUrls(paths, 60 * 60);
-  for (const item of data ?? []) {
-    if (item.path && item.signedUrl) out.set(item.path, item.signedUrl);
+  try {
+    const db = createServiceClient();
+    const { data } = await db.storage
+      .from(POSTO_FOTO_BUCKET)
+      .createSignedUrls(paths, 60 * 60);
+    for (const item of data ?? []) {
+      if (item.path && item.signedUrl) out.set(item.path, item.signedUrl);
+    }
+  } catch (e) {
+    console.error(
+      "[posto-foto] signedUrls",
+      e instanceof Error ? e.message : e
+    );
   }
   return out;
 }
@@ -64,23 +105,34 @@ export async function listFotoPostoAction(
 ): Promise<
   { success: true; foto: PostoFoto[] } | { success: false; error: string }
 > {
-  await requireAnyAreaAccess(["magazzino", "strumenti", "amministrazione"]);
-  if (!ubicazioneId) return { success: true, foto: [] };
-  const supabase = await createClient();
-  const { data, error } = await supabase
-    .from("magazzino_posto_foto")
-    .select(FOTO_SELECT)
-    .eq("ubicazione_id", ubicazioneId)
-    .is("deleted_at", null)
-    .order("is_principale", { ascending: false })
-    .order("sort_order", { ascending: true });
-  if (error) return { success: false, error: error.message };
-  const rows = (data ?? []) as FotoRow[];
-  const urls = await signedUrls(rows.map((r) => r.storage_path));
-  return {
-    success: true,
-    foto: rows.map((r) => mapFoto(r, urls.get(r.storage_path) ?? "")),
-  };
+  try {
+    const gate = await requirePostoFoto();
+    if (!gate.ok) return { success: false, error: gate.error };
+    if (!ubicazioneId) return { success: true, foto: [] };
+    const supabase = createServiceClient();
+    const { data, error } = await supabase
+      .from("magazzino_posto_foto")
+      .select(FOTO_SELECT)
+      .eq("ubicazione_id", ubicazioneId)
+      .is("deleted_at", null)
+      .order("is_principale", { ascending: false })
+      .order("sort_order", { ascending: true });
+    if (error) {
+      if (tableAssente(error.message)) return { success: true, foto: [] };
+      return { success: false, error: error.message };
+    }
+    const rows = (data ?? []) as FotoRow[];
+    const urls = await signedUrls(rows.map((r) => r.storage_path));
+    return {
+      success: true,
+      foto: rows.map((r) => mapFoto(r, urls.get(r.storage_path) ?? "")),
+    };
+  } catch (e) {
+    return {
+      success: false,
+      error: e instanceof Error ? e.message : "Elenco foto non disponibile.",
+    };
+  }
 }
 
 export async function listFotoPrincipaliPostiAction(
@@ -89,18 +141,23 @@ export async function listFotoPrincipaliPostiAction(
   | { success: true; perPosto: Record<string, PostoFotoPrincipale> }
   | { success: false; error: string }
 > {
-  await requireAnyAreaAccess(["magazzino", "strumenti", "amministrazione"]);
+  try {
+  const gate = await requirePostoFoto();
+  if (!gate.ok) return { success: false, error: gate.error };
   const ids = [...new Set(ubicazioneIds.filter(Boolean))];
   const perPosto: Record<string, PostoFotoPrincipale> = {};
   if (!ids.length) return { success: true, perPosto };
-  const supabase = await createClient();
+  const supabase = createServiceClient();
   const { data, error } = await supabase
     .from("magazzino_posto_foto")
     .select(FOTO_SELECT)
     .in("ubicazione_id", ids)
     .eq("is_principale", true)
     .is("deleted_at", null);
-  if (error) return { success: false, error: error.message };
+  if (error) {
+    if (tableAssente(error.message)) return { success: true, perPosto };
+    return { success: false, error: error.message };
+  }
   const rows = (data ?? []) as FotoRow[];
   const urls = await signedUrls(rows.map((r) => r.storage_path));
   for (const r of rows) {
@@ -115,24 +172,31 @@ export async function listFotoPrincipaliPostiAction(
     };
   }
   return { success: true, perPosto };
+  } catch (e) {
+    return {
+      success: false,
+      error: e instanceof Error ? e.message : "Elenco foto non disponibile.",
+    };
+  }
 }
 
 export async function aggiornaFitFotoAction(
   raw: unknown
 ): Promise<{ success: true } | { success: false; error: string }> {
-  const { auth } = await requireAnyAreaAccess(["magazzino", "amministrazione"]);
+  const gate = await requirePostoFoto();
+  if (!gate.ok) return { success: false, error: gate.error };
   const parsed = aggiornaFitFotoSchema.safeParse(raw);
   if (!parsed.success) {
     return { success: false, error: parsed.error.issues[0]?.message ?? "Fit non valido." };
   }
-  const supabase = await createClient();
+  const supabase = createServiceClient();
   const { error } = await supabase
     .from("magazzino_posto_foto")
     .update({
       fit_scale: parsed.data.fitScale,
       offset_x: parsed.data.offsetX,
       offset_y: parsed.data.offsetY,
-      updated_by: auth.userId,
+      updated_by: gate.userId,
     })
     .eq("id", parsed.data.id)
     .is("deleted_at", null);
@@ -141,7 +205,7 @@ export async function aggiornaFitFotoAction(
     entity_type: "magazzino_posto_foto",
     entity_id: parsed.data.id,
     action: "update_fit",
-    actor_id: auth.userId,
+    actor_id: gate.userId,
     summary: `Ritaglio foto posto scala ${parsed.data.fitScale}`,
     payload: parsed.data,
   });
@@ -151,8 +215,9 @@ export async function aggiornaFitFotoAction(
 export async function impostaFotoPrincipaleAction(
   id: string
 ): Promise<{ success: true } | { success: false; error: string }> {
-  const { auth } = await requireAnyAreaAccess(["magazzino", "amministrazione"]);
-  const supabase = await createClient();
+  const gate = await requirePostoFoto();
+  if (!gate.ok) return { success: false, error: gate.error };
+  const supabase = createServiceClient();
   const { data, error } = await supabase
     .from("magazzino_posto_foto")
     .select("id, ubicazione_id")
@@ -164,19 +229,19 @@ export async function impostaFotoPrincipaleAction(
   if (!row) return { success: false, error: "Foto non trovata." };
   await supabase
     .from("magazzino_posto_foto")
-    .update({ is_principale: false, updated_by: auth.userId })
+    .update({ is_principale: false, updated_by: gate.userId })
     .eq("ubicazione_id", row.ubicazione_id)
     .is("deleted_at", null);
   const { error: upErr } = await supabase
     .from("magazzino_posto_foto")
-    .update({ is_principale: true, updated_by: auth.userId })
+    .update({ is_principale: true, updated_by: gate.userId })
     .eq("id", id);
   if (upErr) return { success: false, error: upErr.message };
   await writeAuditLog({
     entity_type: "magazzino_posto_foto",
     entity_id: id,
     action: "set_principale",
-    actor_id: auth.userId,
+    actor_id: gate.userId,
     summary: "Impostata foto principale del posto",
     payload: { ubicazione_id: row.ubicazione_id },
   });
@@ -186,8 +251,9 @@ export async function impostaFotoPrincipaleAction(
 export async function eliminaFotoPostoAction(
   id: string
 ): Promise<{ success: true } | { success: false; error: string }> {
-  const { auth } = await requireAnyAreaAccess(["magazzino", "amministrazione"]);
-  const supabase = await createClient();
+  const gate = await requirePostoFoto();
+  if (!gate.ok) return { success: false, error: gate.error };
+  const supabase = createServiceClient();
   const { data, error } = await supabase
     .from("magazzino_posto_foto")
     .select("id, ubicazione_id, is_principale")
@@ -205,9 +271,9 @@ export async function eliminaFotoPostoAction(
     .from("magazzino_posto_foto")
     .update({
       deleted_at: new Date().toISOString(),
-      deleted_by: auth.userId,
+      deleted_by: gate.userId,
       is_principale: false,
-      updated_by: auth.userId,
+      updated_by: gate.userId,
     })
     .eq("id", id);
   if (delErr) return { success: false, error: delErr.message };
@@ -224,7 +290,7 @@ export async function eliminaFotoPostoAction(
     if (nid) {
       await supabase
         .from("magazzino_posto_foto")
-        .update({ is_principale: true, updated_by: auth.userId })
+        .update({ is_principale: true, updated_by: gate.userId })
         .eq("id", nid);
     }
   }
@@ -232,7 +298,7 @@ export async function eliminaFotoPostoAction(
     entity_type: "magazzino_posto_foto",
     entity_id: id,
     action: "soft_delete",
-    actor_id: auth.userId,
+    actor_id: gate.userId,
     summary: "Eliminata foto posto (soft delete)",
     payload: { ubicazione_id: row.ubicazione_id },
   });
@@ -242,7 +308,7 @@ export async function eliminaFotoPostoAction(
 export async function contaFotoPostoAction(
   ubicazioneId: string
 ): Promise<number> {
-  const supabase = await createClient();
+  const supabase = createServiceClient();
   const { count } = await supabase
     .from("magazzino_posto_foto")
     .select("id", { count: "exact", head: true })

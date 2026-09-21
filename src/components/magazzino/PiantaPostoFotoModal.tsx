@@ -52,20 +52,29 @@ export function PiantaPostoFotoModal({
 
   async function reload() {
     setLoad(true);
-    const res = await listFotoPostoAction(ubicazioneId);
-    setLoad(false);
-    if (!res.success) {
-      setErrore(res.error);
-      return;
-    }
-    setFoto(res.foto);
-    setErrore("");
-    const keep = res.foto.find((f) => f.id === selId) ?? res.foto[0] ?? null;
-    setSelId(keep?.id ?? null);
-    if (keep) {
-      setScale(keep.fitScale);
-      setOx(keep.offsetX);
-      setOy(keep.offsetY);
+    try {
+      const res = await listFotoPostoAction(ubicazioneId);
+      if (!res.success) {
+        setErrore(res.error);
+        setFoto([]);
+        return;
+      }
+      setFoto(res.foto);
+      setErrore("");
+      const keep = res.foto.find((f) => f.id === selId) ?? res.foto[0] ?? null;
+      setSelId(keep?.id ?? null);
+      if (keep) {
+        setScale(keep.fitScale);
+        setOx(keep.offsetX);
+        setOy(keep.offsetY);
+      }
+    } catch (e) {
+      setErrore(
+        e instanceof Error ? e.message : "Elenco foto non disponibile."
+      );
+      setFoto([]);
+    } finally {
+      setLoad(false);
     }
   }
 
@@ -194,9 +203,9 @@ export function PiantaPostoFotoModal({
         </div>
 
         {load ? (
-          <p className="mt-4 text-sm text-slate-600">Caricamento…</p>
-        ) : (
-          <div className="mt-4 grid gap-4 md:grid-cols-[1fr_16rem]">
+          <p className="mt-4 text-sm text-slate-600">Caricamento elenco…</p>
+        ) : null}
+        <div className="mt-4 grid gap-4 md:grid-cols-[1fr_16rem]">
             <div>
               <p className="mb-2 text-xs font-semibold uppercase text-slate-500">
                 Anteprima nel box
@@ -334,7 +343,6 @@ export function PiantaPostoFotoModal({
               </ul>
             </div>
           </div>
-        )}
 
         {busy ? <p className="mt-3 text-sm text-slate-600">{busy}</p> : null}
         {errore ? <p className="mt-3 text-sm text-red-700">{errore}</p> : null}
