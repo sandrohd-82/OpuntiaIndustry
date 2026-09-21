@@ -2,6 +2,7 @@ import {
   POSTO_ELEMENTO_TIPO_LABEL,
   etichettaPayloadElemento,
   etichettaPayloadPallet,
+  fetchDettaglioOccupazionePosto,
   formatKgIt,
   pesoOccupazioneKg,
   type PostoElemento,
@@ -243,4 +244,85 @@ ${pages.join("\n")}
 </html>`;
 
   openPrintHtml(html);
+}
+
+export async function stampaEtichettaPostoDaElenco(opts: {
+  ubicazioneId: string;
+  postoCodice?: string;
+  postoNome?: string;
+  prodottoFallback?: { codice: string; nome: string } | null;
+  /** Pallet cumulativo del posto, oppure un solo collo. */
+  mode: "pallet" | "collo";
+  elementoId?: string;
+  codiceElemento?: string;
+}): Promise<void> {
+  const res = await fetchDettaglioOccupazionePosto(opts.ubicazioneId);
+  if (!res.success) throw new Error(res.error);
+  const occ = res.dettaglio.occupazione;
+  if (!occ) {
+    throw new Error("Il posto non ha materiale da etichettare.");
+  }
+  const prodotto = res.dettaglio.prodotto ?? opts.prodottoFallback ?? null;
+
+  if (opts.mode === "pallet") {
+    if (occ.codicePallet.trim()) {
+      await stampaEtichettePosto({
+        occ,
+        prodotto,
+        postoCodice: opts.postoCodice,
+        postoNome: opts.postoNome,
+        includePallet: true,
+        elementi: [],
+      });
+      return;
+    }
+    if (occ.elementi.length) {
+      await stampaEtichettePosto({
+        occ,
+        prodotto,
+        postoCodice: opts.postoCodice,
+        postoNome: opts.postoNome,
+        includePallet: false,
+        elementi: occ.elementi,
+      });
+      return;
+    }
+    throw new Error("Nessuna etichetta pallet o collo su questo posto.");
+  }
+
+  const el =
+    occ.elementi.find(
+      (e) =>
+        (opts.elementoId && e.id === opts.elementoId) ||
+        (opts.codiceElemento &&
+          e.numero.trim().toUpperCase() ===
+            opts.codiceElemento.trim().toUpperCase())
+    ) ?? null;
+  if (el) {
+    await stampaEtichettePosto({
+      occ,
+      prodotto,
+      postoCodice: opts.postoCodice,
+      postoNome: opts.postoNome,
+      includePallet: false,
+      elementi: [el],
+    });
+    return;
+  }
+  if (
+    opts.codiceElemento &&
+    occ.codicePallet.trim().toUpperCase() ===
+      opts.codiceElemento.trim().toUpperCase()
+  ) {
+    await stampaEtichettePosto({
+      occ,
+      prodotto,
+      postoCodice: opts.postoCodice,
+      postoNome: opts.postoNome,
+      includePallet: true,
+      elementi: [],
+    });
+    return;
+  }
+  throw new Error("Confezione non trovata sul posto.");
 }

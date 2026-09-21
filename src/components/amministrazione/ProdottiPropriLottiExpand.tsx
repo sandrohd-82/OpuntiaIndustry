@@ -13,6 +13,7 @@ import {
   gruppiPostoDaRighe,
   type OccupazioneLottoPianta,
 } from "@/lib/magazzino/posto-occupazione";
+import { stampaEtichettaPostoDaElenco } from "@/lib/magazzino/stampa-etichette-posto";
 import type { LottoAgrinsiciliaElencoRiga } from "@/lib/magazzino/types";
 
 function lottoHref(row: LottoAgrinsiciliaElencoRiga): string {
@@ -41,6 +42,8 @@ export function ProdottiPropriLottiExpand({
     ubicazioneId: string;
     postoCodice: string;
   } | null>(null);
+  const [stampaKey, setStampaKey] = useState<string | null>(null);
+  const [stampaErrore, setStampaErrore] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -74,6 +77,42 @@ export function ProdottiPropriLottiExpand({
       cancelled = true;
     };
   }, [prodottoId]);
+
+  async function stampaEtichetta(opts: {
+    key: string;
+    ubicazioneId: string;
+    postoCodice: string;
+    postoNome: string;
+    mode: "pallet" | "collo";
+    elementoId?: string;
+    codiceElemento?: string;
+  }) {
+    if (!opts.ubicazioneId) {
+      setStampaErrore("Posto senza ubicazione: stampa non disponibile.");
+      return;
+    }
+    setStampaErrore(null);
+    setStampaKey(opts.key);
+    try {
+      await stampaEtichettaPostoDaElenco({
+        ubicazioneId: opts.ubicazioneId,
+        postoCodice: opts.postoCodice,
+        postoNome: opts.postoNome,
+        prodottoFallback: prodottoCodice
+          ? { codice: prodottoCodice, nome: "" }
+          : null,
+        mode: opts.mode,
+        elementoId: opts.elementoId,
+        codiceElemento: opts.codiceElemento,
+      });
+    } catch (e) {
+      setStampaErrore(
+        e instanceof Error ? e.message : "Stampa etichetta non riuscita."
+      );
+    } finally {
+      setStampaKey(null);
+    }
+  }
 
   return (
     <tr className="border-t border-[var(--border)] bg-slate-50/80">
@@ -168,6 +207,11 @@ export function ProdottiPropriLottiExpand({
                             </p>
                           ) : (
                             <div className="space-y-3 py-1">
+                              {stampaErrore ? (
+                                <p className="text-xs text-red-700">
+                                  {stampaErrore}
+                                </p>
+                              ) : null}
                               {gruppiPostoDaRighe(pianta.righe).map((g) => (
                                 <div key={g.ubicazioneId || g.postoCodice}>
                                   <div className="mb-1 flex flex-wrap items-baseline justify-between gap-2">
@@ -185,18 +229,38 @@ export function ProdottiPropriLottiExpand({
                                           : ""}
                                       </span>
                                     </p>
-                                    <button
-                                      type="button"
-                                      onClick={() =>
-                                        setMappa({
-                                          ubicazioneId: g.ubicazioneId,
-                                          postoCodice: g.postoCodice,
-                                        })
-                                      }
-                                      className="rounded-md border border-emerald-800 bg-white px-2 py-0.5 text-[11px] font-medium text-emerald-950 hover:bg-emerald-50"
-                                    >
-                                      Mostra in mappa
-                                    </button>
+                                    <div className="flex flex-col items-end gap-1">
+                                      <button
+                                        type="button"
+                                        onClick={() =>
+                                          setMappa({
+                                            ubicazioneId: g.ubicazioneId,
+                                            postoCodice: g.postoCodice,
+                                          })
+                                        }
+                                        className="rounded-md border border-emerald-800 bg-white px-2 py-0.5 text-[11px] font-medium text-emerald-950 hover:bg-emerald-50"
+                                      >
+                                        Mostra in mappa
+                                      </button>
+                                      <button
+                                        type="button"
+                                        disabled={stampaKey !== null}
+                                        onClick={() =>
+                                          void stampaEtichetta({
+                                            key: `posto:${g.ubicazioneId}`,
+                                            ubicazioneId: g.ubicazioneId,
+                                            postoCodice: g.postoCodice,
+                                            postoNome: g.postoNome,
+                                            mode: "pallet",
+                                          })
+                                        }
+                                        className="rounded-md border border-slate-300 bg-white px-2 py-0.5 text-[11px] font-medium text-slate-800 hover:bg-slate-50 disabled:opacity-60"
+                                      >
+                                        {stampaKey === `posto:${g.ubicazioneId}`
+                                          ? "Stampa…"
+                                          : "Stampa etichetta"}
+                                      </button>
+                                    </div>
                                   </div>
                                   <table className="w-full text-left text-xs">
                                     <thead>
@@ -210,9 +274,10 @@ export function ProdottiPropriLottiExpand({
                                         <th className="pb-1 pr-2 font-medium">
                                           Tipo
                                         </th>
-                                        <th className="pb-1 font-medium">
+                                        <th className="pb-1 pr-2 font-medium">
                                           Codice
                                         </th>
+                                        <th className="pb-1 font-medium" />
                                       </tr>
                                     </thead>
                                     <tbody>
@@ -230,8 +295,32 @@ export function ProdottiPropriLottiExpand({
                                           <td className="py-1.5 pr-2">
                                             {r.tipoSacco}
                                           </td>
-                                          <td className="py-1.5 font-mono">
+                                          <td className="py-1.5 pr-2 font-mono">
                                             {r.targa || prodottoCodice || "—"}
+                                          </td>
+                                          <td className="py-1.5 text-right">
+                                            <button
+                                              type="button"
+                                              disabled={stampaKey !== null}
+                                              onClick={() =>
+                                                void stampaEtichetta({
+                                                  key: `collo:${r.elementoId}`,
+                                                  ubicazioneId: r.ubicazioneId,
+                                                  postoCodice: r.postoCodice,
+                                                  postoNome: r.postoNome,
+                                                  mode: "collo",
+                                                  elementoId: r.elementoId,
+                                                  codiceElemento:
+                                                    r.codiceElemento,
+                                                })
+                                              }
+                                              className="rounded-md border border-slate-300 bg-white px-2 py-0.5 text-[11px] font-medium text-slate-800 hover:bg-slate-50 disabled:opacity-60"
+                                            >
+                                              {stampaKey ===
+                                              `collo:${r.elementoId}`
+                                                ? "Stampa…"
+                                                : "Stampa etichetta"}
+                                            </button>
                                           </td>
                                         </tr>
                                       ))}
