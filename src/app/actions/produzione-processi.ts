@@ -22,6 +22,10 @@ import {
 } from "@/lib/produzione/processi";
 import { createClient } from "@/lib/supabase/server";
 import {
+  resolveFunzioniDaKeys,
+  type AttivitaFunzioneLink,
+} from "@/lib/produzione/funzioni-gestionale";
+import {
   isScriptFunzione,
   type AttivitaScriptLink,
 } from "@/lib/script/catalogo";
@@ -159,11 +163,16 @@ async function attachScriptsToAttivita(
   supabase: Awaited<ReturnType<typeof createClient>>,
   items: ProcessoAttivita[]
 ): Promise<ProcessoAttivita[]> {
-  const scripts = await loadScriptsByAttivita(
-    supabase,
-    items.map((i) => i.id)
-  );
-  return items.map((i) => ({ ...i, scripts: scripts.get(i.id) ?? [] }));
+  const ids = items.map((i) => i.id);
+  const [scripts, funzioni] = await Promise.all([
+    loadScriptsByAttivita(supabase, ids),
+    loadFunzioniByAttivita(supabase, ids),
+  ]);
+  return items.map((i) => ({
+    ...i,
+    scripts: scripts.get(i.id) ?? [],
+    funzioni: funzioni.get(i.id) ?? [],
+  }));
 }
 
 async function syncAttivitaScripts(
@@ -211,6 +220,92 @@ async function syncAttivitaScripts(
   return { success: true };
 }
 
+async function loadFunzioniByAttivita(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  attivitaIds: string[]
+): Promise<Map<string, AttivitaFunzioneLink[]>> {
+  const map = new Map<string, AttivitaFunzioneLink[]>();
+  if (attivitaIds.length === 0) return map;
+  const { data } = await supabase
+    .from("produzione_processo_attivita_funzioni")
+    .select(
+      "attivita_id, funzione_key, percorso, area_label, etichetta, spiegazione, tipo, avvio, sort_order"
+    )
+    .in("attivita_id", attivitaIds)
+    .is("deleted_at", null)
+    .order("sort_order", { ascending: true });
+  for (const row of (data ?? []) as Array<{
+    attivita_id: string;
+    funzione_key: string;
+    percorso: string;
+    area_label: string;
+    etichetta: string;
+    spiegazione: string;
+    tipo: string;
+    avvio: string;
+  }>) {
+    const live = resolveFunzioniDaKeys([row.funzione_key]);
+    const fromCatalog = live.success ? live.items[0] : null;
+    const link: AttivitaFunzioneLink = fromCatalog ?? {
+      key: row.funzione_key,
+      area: row.area_label,
+      etichetta: row.etichetta,
+      spiegazione: row.spiegazione,
+      percorso: row.percorso,
+      tipo:
+        row.tipo === "azione" || row.tipo === "inline" ? row.tipo : "pagina",
+      avvio: row.avvio === "inline_pesata" ? "inline_pesata" : "navigate",
+    };
+    const list = map.get(row.attivita_id) ?? [];
+    list.push(link);
+    map.set(row.attivita_id, list);
+  }
+  return map;
+}
+
+async function syncAttivitaFunzioni(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  attivitaId: string,
+  funzioneKeys: string[],
+  userId: string
+): Promise<{ success: true } | { success: false; error: string }> {
+  const resolved = resolveFunzioniDaKeys(funzioneKeys);
+  if (!resolved.success) return resolved;
+  const now = new Date().toISOString();
+  const { error: softErr } = await supabase
+    .from("produzione_processo_attivita_funzioni")
+    .update({
+      deleted_at: now,
+      deleted_by: userId,
+      updated_by: userId,
+    })
+    .eq("attivita_id", attivitaId)
+    .is("deleted_at", null);
+  if (softErr) return { success: false, error: softErr.message };
+  if (resolved.items.length === 0) return { success: true };
+  const { error } = await supabase
+    .from("produzione_processo_attivita_funzioni")
+    .insert(
+      resolved.items.map((f, index) => ({
+        attivita_id: attivitaId,
+        funzione_key: f.key,
+        percorso: f.percorso,
+        area_label: f.area,
+        etichetta: f.etichetta,
+        spiegazione: f.spiegazione,
+        tipo: f.tipo,
+        avvio: f.avvio,
+        sort_order: index + 1,
+        versione: 1,
+        documento_stato: "registrato",
+        created_by: userId,
+        updated_by: userId,
+      }))
+    );
+  if (error) return { success: false, error: error.message };
+  return { success: true };
+}
+
 function mapAttivita(row: AttivitaRow, luoghi: Luoghi): ProcessoAttivita {
   const areaId = row.area_id ?? null;
   const postoId = row.posto_id ?? null;
@@ -230,6 +325,7 @@ function mapAttivita(row: AttivitaRow, luoghi: Luoghi): ProcessoAttivita {
     tempoOgniValore: Number(row.tempo_ogni_valore) || 1,
     tempoOgniUnita: parseTempoOgniUnita(row.tempo_ogni_unita),
     scripts: [],
+    funzioni: [],
     createdAt: row.created_at,
     deprecatoAt: row.deprecato_at ?? null,
     deprecatoBy: row.deprecato_by ?? null,
@@ -327,6 +423,7 @@ function mapPasso(row: PassoRow, luoghi: Luoghi): ProcessoPasso {
       row.produzione_processo_attivita?.tempo_ogni_unita
     ),
     scripts: [],
+    funzioni: [],
   };
 }
 
@@ -538,6 +635,13 @@ export async function createProcessoAttivitaAction(
     auth.userId
   );
   if (!scripts.success) return scripts;
+  const funzioni = await syncAttivitaFunzioni(
+    supabase,
+    created.id,
+    parsed.data.funzioneKeys,
+    auth.userId
+  );
+  if (!funzioni.success) return funzioni;
   const [item] = await attachScriptsToAttivita(supabase, [created]);
   void writeAuditLog({
     entity_type: "produzione_processo_attivita",
@@ -555,6 +659,7 @@ export async function createProcessoAttivitaAction(
       tempo_ogni_valore: created.tempoOgniValore,
       tempo_ogni_unita: created.tempoOgniUnita,
       script_ids: parsed.data.scriptIds,
+      funzione_keys: parsed.data.funzioneKeys,
     },
   });
   return { success: true, item: item ?? created };
@@ -635,6 +740,13 @@ export async function updateProcessoAttivitaAction(
     auth.userId
   );
   if (!scripts.success) return scripts;
+  const funzioni = await syncAttivitaFunzioni(
+    supabase,
+    updated.id,
+    parsed.data.funzioneKeys,
+    auth.userId
+  );
+  if (!funzioni.success) return funzioni;
   const [item] = await attachScriptsToAttivita(supabase, [updated]);
   void writeAuditLog({
     entity_type: "produzione_processo_attivita",
@@ -652,6 +764,7 @@ export async function updateProcessoAttivitaAction(
       tempo_ogni_valore: updated.tempoOgniValore,
       tempo_ogni_unita: updated.tempoOgniUnita,
       script_ids: parsed.data.scriptIds,
+      funzione_keys: parsed.data.funzioneKeys,
     },
   });
   return { success: true, item: item ?? updated };
@@ -1256,15 +1369,17 @@ async function listProcessoPassiInternal(
   const passi = ((data ?? []) as unknown as PassoRow[]).map((row) =>
     mapPasso(row, luoghi)
   );
-  const scripts = await loadScriptsByAttivita(
-    supabase,
-    passi.map((p) => p.attivitaId)
-  );
+  const ids = passi.map((p) => p.attivitaId);
+  const [scripts, funzioni] = await Promise.all([
+    loadScriptsByAttivita(supabase, ids),
+    loadFunzioniByAttivita(supabase, ids),
+  ]);
   return {
     success: true,
     passi: passi.map((p) => ({
       ...p,
       scripts: scripts.get(p.attivitaId) ?? [],
+      funzioni: funzioni.get(p.attivitaId) ?? [],
     })),
   };
 }

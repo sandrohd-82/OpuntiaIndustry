@@ -19,6 +19,10 @@ import {
   parseTempoOgniUnita,
   type ProcessoPasso,
 } from "@/lib/produzione/processi";
+import {
+  resolveFunzioniDaKeys,
+  type AttivitaFunzioneLink,
+} from "@/lib/produzione/funzioni-gestionale";
 import { isScriptFunzione, type AttivitaScriptLink } from "@/lib/script/catalogo";
 import { createClient } from "@/lib/supabase/server";
 
@@ -152,6 +156,49 @@ async function loadScriptsByAttivita(
   return map;
 }
 
+async function loadFunzioniByAttivita(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  attivitaIds: string[]
+): Promise<Map<string, AttivitaFunzioneLink[]>> {
+  const map = new Map<string, AttivitaFunzioneLink[]>();
+  if (attivitaIds.length === 0) return map;
+  const { data } = await supabase
+    .from("produzione_processo_attivita_funzioni")
+    .select(
+      "attivita_id, funzione_key, percorso, area_label, etichetta, spiegazione, tipo, avvio, sort_order"
+    )
+    .in("attivita_id", attivitaIds)
+    .is("deleted_at", null)
+    .order("sort_order", { ascending: true });
+  for (const row of (data ?? []) as Array<{
+    attivita_id: string;
+    funzione_key: string;
+    percorso: string;
+    area_label: string;
+    etichetta: string;
+    spiegazione: string;
+    tipo: string;
+    avvio: string;
+  }>) {
+    const live = resolveFunzioniDaKeys([row.funzione_key]);
+    const fromCatalog = live.success ? live.items[0] : null;
+    const link: AttivitaFunzioneLink = fromCatalog ?? {
+      key: row.funzione_key,
+      area: row.area_label,
+      etichetta: row.etichetta,
+      spiegazione: row.spiegazione,
+      percorso: row.percorso,
+      tipo:
+        row.tipo === "azione" || row.tipo === "inline" ? row.tipo : "pagina",
+      avvio: row.avvio === "inline_pesata" ? "inline_pesata" : "navigate",
+    };
+    const list = map.get(row.attivita_id) ?? [];
+    list.push(link);
+    map.set(row.attivita_id, list);
+  }
+  return map;
+}
+
 async function loadPassiByProcesso(
   supabase: Awaited<ReturnType<typeof createClient>>,
   processoIds: string[],
@@ -170,7 +217,10 @@ async function loadPassiByProcesso(
     .order("sort_order", { ascending: true });
   const rows = (data ?? []) as unknown as PassoQueryRow[];
   const attivitaIds = [...new Set(rows.map((r) => r.attivita_id))];
-  const scripts = await loadScriptsByAttivita(supabase, attivitaIds);
+  const [scripts, funzioni] = await Promise.all([
+    loadScriptsByAttivita(supabase, attivitaIds),
+    loadFunzioniByAttivita(supabase, attivitaIds),
+  ]);
   for (const row of rows) {
     const raw = row.produzione_processo_attivita;
     const att = Array.isArray(raw) ? raw[0] : raw;
@@ -194,6 +244,7 @@ async function loadPassiByProcesso(
       tempoOgniValore: Number(att?.tempo_ogni_valore) || 1,
       tempoOgniUnita: parseTempoOgniUnita(att?.tempo_ogni_unita),
       scripts: scripts.get(row.attivita_id) ?? [],
+      funzioni: funzioni.get(row.attivita_id) ?? [],
     };
     const list = map.get(row.processo_id) ?? [];
     list.push(passo);
@@ -318,8 +369,10 @@ export async function listProcessiPerFoglioAction(
 
   const items: FoglioProcessoDisponibile[] = procRows.map((p) => {
     const passi = passiByProcesso.get(p.id) ?? [];
-    const hasPesata = passi.some((step) =>
-      step.scripts.some((s) => s.funzione === "pesata")
+    const hasPesata = passi.some(
+      (step) =>
+        step.scripts.some((s) => s.funzione === "pesata") ||
+        step.funzioni.some((f) => f.avvio === "inline_pesata")
     );
     const esec = esecByProcesso.get(p.id) ?? null;
     const pesate = esec ? (pesateByEsec.get(esec.id) ?? []) : [];

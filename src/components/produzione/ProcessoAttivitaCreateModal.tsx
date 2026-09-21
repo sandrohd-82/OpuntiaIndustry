@@ -7,6 +7,7 @@ import {
   listProcessoAttivitaCodiciAction,
 } from "@/app/actions/produzione-processi";
 import { CopiaDaAttivitaField } from "@/components/produzione/CopiaDaAttivitaField";
+import { FunzioniGestionaleField } from "@/components/produzione/FunzioniGestionaleField";
 import { TempoMedioAttivitaFields } from "@/components/produzione/TempoMedioAttivitaFields";
 import type { ProduzioneArea } from "@/lib/produzione/aree-posti";
 import {
@@ -49,6 +50,7 @@ export function ProcessoAttivitaCreateModal({
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
   const [copiaDaId, setCopiaDaId] = useState("");
+  const [funzioneKeys, setFunzioneKeys] = useState<string[]>([]);
   const [codiciOccupati, setCodiciOccupati] = useState<string[]>([]);
 
   useEffect(() => {
@@ -65,6 +67,7 @@ export function ProcessoAttivitaCreateModal({
     setTempoOgniValore(1);
     setTempoOgniUnita("pz");
     setCopiaDaId("");
+    setFunzioneKeys([]);
     setError(null);
     void listProcessoAttivitaCodiciAction().then((res) => {
       if (res.success) setCodiciOccupati(res.codici);
@@ -86,6 +89,7 @@ export function ProcessoAttivitaCreateModal({
     setTempoMedioUnita(a.tempoMedioUnita);
     setTempoOgniValore(a.tempoOgniValore);
     setTempoOgniUnita(a.tempoOgniUnita);
+    setFunzioneKeys(a.funzioni.map((f) => f.key));
   }
 
   const postiDellArea = useMemo(() => {
@@ -110,6 +114,7 @@ export function ProcessoAttivitaCreateModal({
         tempoOgniValore,
         tempoOgniUnita,
         scriptIds: [],
+        funzioneKeys,
       });
       if (!res.success) {
         setError(res.error);
@@ -226,6 +231,10 @@ export function ProcessoAttivitaCreateModal({
             onUnitaChange={setTempoMedioUnita}
             onOgniValoreChange={setTempoOgniValore}
             onOgniUnitaChange={setTempoOgniUnita}
+          />
+          <FunzioniGestionaleField
+            value={funzioneKeys}
+            onChange={setFunzioneKeys}
           />
           <label className="text-sm sm:col-span-2">
             <span className="mb-1 block font-medium">Descrizione</span>

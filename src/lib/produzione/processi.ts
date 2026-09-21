@@ -1,4 +1,8 @@
 import { z } from "zod";
+import {
+  funzioneKeysSchema,
+  type AttivitaFunzioneLink,
+} from "@/lib/produzione/funzioni-gestionale";
 import type { AttivitaScriptLink } from "@/lib/script/catalogo";
 
 export const PROCESSO_DOCUMENTO_STATI = [
@@ -79,6 +83,7 @@ export type ProcessoAttivita = {
   tempoOgniValore: number;
   tempoOgniUnita: TempoOgniUnita;
   scripts: AttivitaScriptLink[];
+  funzioni: AttivitaFunzioneLink[];
   createdAt: string;
   deprecatoAt: string | null;
   deprecatoBy: string | null;
@@ -124,6 +129,7 @@ export type ProcessoPasso = {
   tempoOgniValore: number;
   tempoOgniUnita: TempoOgniUnita;
   scripts: AttivitaScriptLink[];
+  funzioni: AttivitaFunzioneLink[];
 };
 
 export const processoAttivitaInputSchema = z
@@ -140,6 +146,7 @@ export const processoAttivitaInputSchema = z
     tempoOgniValore: z.coerce.number().int().min(1).max(999999).default(1),
     tempoOgniUnita: z.enum(TEMPO_OGNI_UNITA).default("pz"),
     scriptIds: z.array(z.string().uuid()).optional().default([]),
+    funzioneKeys: funzioneKeysSchema,
   })
   .superRefine((data, ctx) => {
     if (data.postoId && !data.areaId) {

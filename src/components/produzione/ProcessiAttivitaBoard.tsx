@@ -22,6 +22,7 @@ import {
 import { SoftDeleteConfirmModal } from "@/components/amministrazione/SoftDeleteConfirmModal";
 import { CopiaDaAttivitaField } from "@/components/produzione/CopiaDaAttivitaField";
 import type { ProduzioneArea } from "@/lib/produzione/aree-posti";
+import { FunzioniGestionaleField } from "@/components/produzione/FunzioniGestionaleField";
 import { TempoMedioAttivitaFields } from "@/components/produzione/TempoMedioAttivitaFields";
 import {
   formatTempoMedio,
@@ -90,6 +91,7 @@ export function ProcessiAttivitaBoard({
   const [tempoOgniValore, setTempoOgniValore] = useState(1);
   const [tempoOgniUnita, setTempoOgniUnita] = useState<TempoOgniUnita>("pz");
   const [copiaDaId, setCopiaDaId] = useState("");
+  const [funzioneKeys, setFunzioneKeys] = useState<string[]>([]);
   const [codiciOccupati, setCodiciOccupati] = useState<string[]>([]);
   const [sort, setSort] = useState<SortState<AttivitaSortKey> | null>(null);
 
@@ -149,6 +151,7 @@ export function ProcessiAttivitaBoard({
     setTempoOgniValore(1);
     setTempoOgniUnita("pz");
     setCopiaDaId("");
+    setFunzioneKeys([]);
   }
 
   function applyCopiaDa(a: ProcessoAttivita) {
@@ -164,6 +167,7 @@ export function ProcessiAttivitaBoard({
     setTempoMedioUnita(a.tempoMedioUnita);
     setTempoOgniValore(a.tempoOgniValore);
     setTempoOgniUnita(a.tempoOgniUnita);
+    setFunzioneKeys(a.funzioni.map((f) => f.key));
   }
 
   function openCopy(a: ProcessoAttivita) {
@@ -187,6 +191,7 @@ export function ProcessiAttivitaBoard({
     setTempoOgniValore(a.tempoOgniValore);
     setTempoOgniUnita(a.tempoOgniUnita);
     setCopiaDaId("");
+    setFunzioneKeys(a.funzioni.map((f) => f.key));
   }
 
   function closeForm() {
@@ -216,6 +221,7 @@ export function ProcessiAttivitaBoard({
         tempoOgniValore,
         tempoOgniUnita,
         scriptIds: editing?.scripts.map((s) => s.id) ?? [],
+        funzioneKeys,
       };
       const res = editing
         ? await updateProcessoAttivitaAction(editing.id, payload)
@@ -363,6 +369,10 @@ export function ProcessiAttivitaBoard({
                 className="w-full rounded-lg border border-[var(--border)] px-3 py-2 text-sm"
               />
             </label>
+            <FunzioniGestionaleField
+              value={funzioneKeys}
+              onChange={setFunzioneKeys}
+            />
             <label className="inline-flex items-center gap-2 text-sm">
               <input
                 type="checkbox"
@@ -440,6 +450,11 @@ export function ProcessiAttivitaBoard({
                   {a.descrizione ? (
                     <div className="mt-0.5 text-xs text-[var(--muted)]">
                       {a.descrizione}
+                    </div>
+                  ) : null}
+                  {a.funzioni.length > 0 ? (
+                    <div className="mt-0.5 text-xs text-[var(--primary)]">
+                      {a.funzioni.map((f) => f.etichetta).join(" · ")}
                     </div>
                   ) : null}
                 </td>

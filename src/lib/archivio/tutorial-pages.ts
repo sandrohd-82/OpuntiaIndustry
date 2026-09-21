@@ -16,7 +16,6 @@ export const PLACEHOLDER_PATHS = new Set<string>([
   "/app/magazzino/materia-prima/nuovo-ingresso",
   "/app/magazzino/materia-prima/scartati-non-conformi",
   "/app/magazzino/prodotti-di-consumo/registra-nuovo",
-  "/app/magazzino/prodotti-agrinsicilia/preleva-quantita",
   "/app/magazzino/prodotti-agrinsicilia/scartati-non-conformi",
   "/app/magazzino/note-di-acquisto/nuova",
   "/app/area-fiscale/ddt/nuovo",
@@ -257,6 +256,12 @@ export const PAGE_EXTRAS: Record<string, TutorialBlock[]> = {
     {
       type: "p",
       text: "Scarico prodotti di consumo (scan). Stesso motore del carico, direzione opposta.",
+    },
+  ],
+  "/app/magazzino/prodotti-agrinsicilia/preleva-quantita": [
+    {
+      type: "p",
+      text: "Prelievo prodotti Agrinsicilia: scegli prodotto e lotto in giacenza, indica la quantità e registra lo scarico. Se arrivi da un processo in produzione, il foglio resta collegato e puoi tornare al foglio.",
     },
   ],
   "/app/magazzino/prodotti-agrinsicilia/inserisci-quantita": [

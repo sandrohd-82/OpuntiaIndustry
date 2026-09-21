@@ -316,6 +316,14 @@ export function ProcessiBoard({ startCreate = false }: ProcessiBoardProps) {
     );
   }
 
+  function passoFunzioni(attivitaId: string) {
+    return (
+      attivita.find((a) => a.id === attivitaId)?.funzioni ??
+      passi.find((x) => x.attivitaId === attivitaId)?.funzioni ??
+      []
+    );
+  }
+
   if (!ready) {
     return <p className="text-sm text-[var(--muted)]">Caricamento processi…</p>;
   }
@@ -508,6 +516,14 @@ export function ProcessiBoard({ startCreate = false }: ProcessiBoardProps) {
                                 Script:{" "}
                                 {passoScripts(p.attivitaId)
                                   .map((s) => s.nome)
+                                  .join(", ")}
+                              </span>
+                            ) : null}
+                            {passoFunzioni(p.attivitaId).length > 0 ? (
+                              <span className="ml-2 text-xs font-normal text-[var(--primary)]">
+                                Funzioni:{" "}
+                                {passoFunzioni(p.attivitaId)
+                                  .map((f) => f.etichetta)
                                   .join(", ")}
                               </span>
                             ) : null}

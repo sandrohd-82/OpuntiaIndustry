@@ -5,6 +5,7 @@ import { MateriePrimeBoard } from "@/components/amministrazione/MateriePrimeBoar
 import { ProdottiPropriBoard } from "@/components/amministrazione/ProdottiPropriBoard";
 import { MagazzinoProdottiBoard } from "@/components/magazzino/MagazzinoProdottiBoard";
 import { MagazzinoInserisciQuantitaBoard } from "@/components/magazzino/MagazzinoInserisciQuantitaBoard";
+import { MagazzinoPrelevaQuantitaBoard } from "@/components/magazzino/MagazzinoPrelevaQuantitaBoard";
 import { MagazzinoScanBoard } from "@/components/magazzino/MagazzinoScanBoard";
 import { NoteAcquistoBoard } from "@/components/magazzino/NoteAcquistoBoard";
 import { BarcodeGeneratoreBoard } from "@/components/magazzino/BarcodeGeneratoreBoard";
@@ -158,6 +159,23 @@ export default async function MagazzinoSubPage({ params }: Props) {
             }
           >
             <MagazzinoInserisciQuantitaBoard />
+          </Suspense>
+        </div>
+      </>
+    );
+  }
+
+  if (section === "prodotti-agrinsicilia" && sub === "preleva-quantita") {
+    return (
+      <>
+        <AppHeader title={page.label} subtitle={page.description} />
+        <div className="p-6">
+          <Suspense
+            fallback={
+              <p className="text-sm text-[var(--muted)]">Caricamento…</p>
+            }
+          >
+            <MagazzinoPrelevaQuantitaBoard />
           </Suspense>
         </div>
       </>

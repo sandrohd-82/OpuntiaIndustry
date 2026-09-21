@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useState, useTransition } from "react";
 import { upsertFoglioLavorazioneAction } from "@/app/actions/produzione-aree";
 import {
@@ -13,6 +14,10 @@ import {
   type FoglioProcessoDisponibile,
 } from "@/lib/produzione/foglio-processi";
 import type { FoglioLavorazione } from "@/lib/produzione/fogli-lavorazione";
+import {
+  buildFunzioneHref,
+  etichettaAvvioFunzione,
+} from "@/lib/produzione/funzioni-gestionale";
 import { formatTempoMedio } from "@/lib/produzione/processi";
 
 type Props = {
@@ -239,6 +244,34 @@ export function FoglioProcessiPanel({ foglio, filtraAreaId }: Props) {
                               {passo.scripts.map((s) => s.nome).join(", ")}
                             </span>
                           ) : null}
+                          {passo.funzioni.length > 0 ? (
+                            <span className="ml-2 text-xs text-[var(--primary)]">
+                              {passo.funzioni.map((f) => f.etichetta).join(" · ")}
+                            </span>
+                          ) : null}
+                          {passo.funzioni
+                            .filter((f) => f.avvio === "navigate")
+                            .map((f) => {
+                              const href = buildFunzioneHref(f, {
+                                foglioId: foglio.id,
+                                processoId: item.processoId,
+                                attivitaId: passo.attivitaId,
+                                ritorno:
+                                  typeof window !== "undefined"
+                                    ? window.location.pathname
+                                    : null,
+                              });
+                              if (!href) return null;
+                              return (
+                                <Link
+                                  key={f.key}
+                                  href={href}
+                                  className="ml-2 inline-flex rounded-md border border-[var(--border)] px-2 py-0.5 text-xs font-medium text-[var(--primary)] hover:bg-slate-50"
+                                >
+                                  {etichettaAvvioFunzione(f)}
+                                </Link>
+                              );
+                            })}
                         </li>
                       ))}
                       {item.passi.length === 0 ? (
