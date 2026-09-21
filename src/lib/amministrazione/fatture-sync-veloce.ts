@@ -378,7 +378,10 @@ export async function registraFatturaVeloce(input: {
   userId: string;
   item: FatturaSyncQueueItem;
   anagrafica: AnagraficaRisolta;
-}): Promise<{ ok: true; id: string } | { ok: false; error: string }> {
+}): Promise<
+  | { ok: true; id: string; numero: string; importo: number }
+  | { ok: false; error: string }
+> {
   const supabase = asSb(input.supabase);
   const item = input.item;
   const xmlTotale = roundMoney(Math.abs(Number(item.amountGross || item.totale) || 0));
@@ -508,7 +511,12 @@ export async function registraFatturaVeloce(input: {
           skip_catalogo: true,
         },
       });
-      return { ok: true, id: data.id };
+      return {
+        ok: true,
+        id: data.id,
+        numero: item.numeroEsterno || numeroInterno,
+        importo: totals.totale,
+      };
     }
 
     const totaleDocumento = xmlTotale > 0 ? xmlTotale : totals.totale;
@@ -609,7 +617,12 @@ export async function registraFatturaVeloce(input: {
         skip_catalogo: true,
       },
     });
-    return { ok: true, id: data.id };
+    return {
+      ok: true,
+      id: data.id,
+      numero: item.numeroEsterno || numeroInterno,
+      importo: totaleDocumento,
+    };
   } catch (e) {
     return {
       ok: false,

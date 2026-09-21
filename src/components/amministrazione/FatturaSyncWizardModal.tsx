@@ -15,11 +15,14 @@ import { FatturaSyncQueueModal } from "@/components/amministrazione/FatturaSyncQ
 import {
   filterFromStopMonth,
   labelMeseIt,
+  raggruppaFatturePerAzienda,
   splitForwardRetro,
   type FattureSyncAnagraficaCreata,
+  type FattureSyncFatturaRegistrata,
   type FattureSyncKeepKind,
   type FattureSyncPendingMeta,
 } from "@/lib/amministrazione/fatture-sync-keep";
+import { formatEuro } from "@/lib/amministrazione/fatture";
 import type { FatturaSyncQueueItem } from "@/lib/amministrazione/fatture-sync";
 
 type Step =
@@ -62,6 +65,9 @@ export function FatturaSyncWizardModal({ kind, onClose, onDone }: Props) {
   const [anagrafiche, setAnagrafiche] = useState<FattureSyncAnagraficaCreata[]>(
     []
   );
+  const [fattureRegistrate, setFattureRegistrate] = useState<
+    FattureSyncFatturaRegistrata[]
+  >([]);
   const [skippedNote, setSkippedNote] = useState<string | null>(null);
 
   const entityLabel = kind === "ricevuta" ? "fornitori" : "clienti";
@@ -139,6 +145,11 @@ export function FatturaSyncWizardModal({ kind, onClose, onDone }: Props) {
     });
   }
 
+  const gruppiAzienda = useMemo(
+    () => raggruppaFatturePerAzienda(fattureRegistrate, anagrafiche),
+    [fattureRegistrate, anagrafiche]
+  );
+
   async function procedi() {
     if (!stopMonth || !preview) return;
     setError(null);
@@ -152,6 +163,7 @@ export function FatturaSyncWizardModal({ kind, onClose, onDone }: Props) {
 
     let tot = registered;
     let anags = [...anagrafiche];
+    let fatture = [...fattureRegistrate];
 
     if (forward.length > 0) {
       setStep("forward");
@@ -171,8 +183,10 @@ export function FatturaSyncWizardModal({ kind, onClose, onDone }: Props) {
       }
       tot += res.registered;
       anags = [...anags, ...res.anagraficheCreate];
+      fatture = [...fatture, ...res.fattureRegistrate];
       setRegistered(tot);
       setAnagrafiche(anags);
+      setFattureRegistrate(fatture);
       if (res.skipped.length) {
         setSkippedNote(
           `${res.skipped.length} documenti non registrati nel tratto fino a oggi.`
@@ -188,6 +202,7 @@ export function FatturaSyncWizardModal({ kind, onClose, onDone }: Props) {
         stopMonth,
         fattureCount: tot,
         anagraficheCreate: anags,
+        fattureRegistrate: fatture,
       });
       setStep("resoconto");
       return;
@@ -214,8 +229,10 @@ export function FatturaSyncWizardModal({ kind, onClose, onDone }: Props) {
       }
       const tot = registered + res.registered;
       const anags = [...anagrafiche, ...res.anagraficheCreate];
+      const fatture = [...fattureRegistrate, ...res.fattureRegistrate];
       setRegistered(tot);
       setAnagrafiche(anags);
+      setFattureRegistrate(fatture);
       if (res.skipped.length) {
         setSkippedNote((prev) =>
           [prev, `${res.skipped.length} documenti saltati a ritroso.`]
@@ -230,6 +247,7 @@ export function FatturaSyncWizardModal({ kind, onClose, onDone }: Props) {
         stopMonth,
         fattureCount: tot,
         anagraficheCreate: anags,
+        fattureRegistrate: fatture,
       });
       setStep("resoconto");
       return;
@@ -255,6 +273,7 @@ export function FatturaSyncWizardModal({ kind, onClose, onDone }: Props) {
         stopMonth,
         fattureCount: registered,
         anagraficheCreate: [...anagrafiche, ...res.anagraficheCreate],
+        fattureRegistrate,
       });
       setStep("resoconto");
       return;
@@ -281,7 +300,7 @@ export function FatturaSyncWizardModal({ kind, onClose, onDone }: Props) {
       aria-modal
       aria-label="Sincronizza fatture"
     >
-      <div className="flex max-h-[92vh] w-full max-w-2xl flex-col overflow-hidden rounded-2xl bg-white shadow-xl">
+      <div className="flex max-h-[92vh] w-full max-w-3xl flex-col overflow-hidden rounded-2xl bg-white shadow-xl">
         <header className="border-b border-[var(--border)] px-5 py-3">
           <h2 className="text-base font-semibold">
             Sincronizza{" "}
@@ -424,7 +443,7 @@ export function FatturaSyncWizardModal({ kind, onClose, onDone }: Props) {
           ) : null}
 
           {step === "resoconto" ? (
-            <div className="space-y-3">
+            <div className="space-y-4">
               <p className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-900">
                 Sincronizzazione completata: <strong>{registered}</strong> fatture
                 registrate.
@@ -432,43 +451,105 @@ export function FatturaSyncWizardModal({ kind, onClose, onDone }: Props) {
               {skippedNote ? (
                 <p className="text-sm text-amber-900">{skippedNote}</p>
               ) : null}
+
               <div>
-                <p className="mb-2 text-sm font-medium">
-                  {entityLabel.charAt(0).toUpperCase() + entityLabel.slice(1)}{" "}
-                  registrati
-                </p>
-                {anagrafiche.length === 0 ? (
+                <p className="mb-2 text-sm font-medium">Fatture registrate</p>
+                {fattureRegistrate.length === 0 ? (
                   <p className="text-sm text-[var(--muted)]">
-                    Nessuna nuova anagrafica: tutte le P.IVA erano già in
-                    archivio.
+                    Nessuna fattura in elenco (registrazione precisa o nessun
+                    documento salvato).
                   </p>
                 ) : (
                   <div className="overflow-x-auto rounded-lg border border-[var(--border)]">
                     <table className="min-w-full text-left text-sm">
                       <thead className="bg-slate-50 text-xs uppercase text-[var(--muted)]">
                         <tr>
-                          <th className="px-3 py-2">R. sociale</th>
-                          <th className="px-3 py-2">P. IVA</th>
-                          <th className="px-3 py-2">Targa</th>
+                          <th className="px-3 py-2">N. fattura</th>
+                          <th className="px-3 py-2">Ragione sociale</th>
+                          <th className="px-3 py-2 text-right">Importo</th>
                         </tr>
                       </thead>
                       <tbody>
-                        {anagrafiche.map((a) => (
+                        {fattureRegistrate.map((f, i) => (
                           <tr
-                            key={`${a.tipo}-${a.codiceTarga}`}
+                            key={`${f.numero}-${f.partitaIva}-${i}`}
                             className="border-t border-[var(--border)]"
                           >
-                            <td className="px-3 py-2">{a.ragioneSociale}</td>
                             <td className="px-3 py-2 font-mono text-xs">
-                              {a.partitaIva}
+                              {f.numero || "—"}
                             </td>
-                            <td className="px-3 py-2 font-mono text-xs">
-                              {a.codiceTarga}
+                            <td className="px-3 py-2">{f.ragioneSociale || "—"}</td>
+                            <td className="px-3 py-2 text-right tabular-nums">
+                              {formatEuro(f.importo)}
                             </td>
                           </tr>
                         ))}
                       </tbody>
                     </table>
+                  </div>
+                )}
+              </div>
+
+              <div>
+                <p className="mb-2 text-sm font-medium">
+                  {entityLabel.charAt(0).toUpperCase() + entityLabel.slice(1)}{" "}
+                  registrati
+                </p>
+                {gruppiAzienda.length === 0 ? (
+                  <p className="text-sm text-[var(--muted)]">
+                    Nessuna anagrafica in questa sessione.
+                  </p>
+                ) : (
+                  <div className="space-y-3">
+                    {gruppiAzienda.map((g) => (
+                      <div
+                        key={`${g.partitaIva}-${g.ragioneSociale}`}
+                        className="overflow-hidden rounded-lg border border-[var(--border)]"
+                      >
+                        <div className="flex flex-wrap items-baseline justify-between gap-2 bg-slate-50 px-3 py-2">
+                          <p className="text-sm font-medium text-slate-900">
+                            {g.ragioneSociale || "—"}
+                            {g.nuova ? (
+                              <span className="ml-2 rounded bg-emerald-100 px-1.5 py-0.5 text-[10px] font-semibold uppercase text-emerald-800">
+                                Nuova
+                              </span>
+                            ) : null}
+                          </p>
+                          <p className="font-mono text-xs text-slate-600">
+                            P. IVA {g.partitaIva || "—"}
+                          </p>
+                        </div>
+                        {g.fatture.length ? (
+                          <table className="min-w-full text-left text-sm">
+                            <thead className="text-xs uppercase text-[var(--muted)]">
+                              <tr>
+                                <th className="px-3 py-1.5">N. fattura</th>
+                                <th className="px-3 py-1.5 text-right">Importo</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {g.fatture.map((f, i) => (
+                                <tr
+                                  key={`${f.numero}-${i}`}
+                                  className="border-t border-[var(--border)]"
+                                >
+                                  <td className="px-3 py-1.5 font-mono text-xs">
+                                    {f.numero || "—"}
+                                  </td>
+                                  <td className="px-3 py-1.5 text-right tabular-nums">
+                                    {formatEuro(f.importo)}
+                                  </td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        ) : (
+                          <p className="px-3 py-2 text-xs text-[var(--muted)]">
+                            Nessuna fattura collegata in questo elenco.
+                          </p>
+                        )}
+                      </div>
+                    ))}
                   </div>
                 )}
               </div>
@@ -535,6 +616,7 @@ export function FatturaSyncWizardModal({ kind, onClose, onDone }: Props) {
                 stopMonth,
                 fattureCount: registered + n,
                 anagraficheCreate: anagrafiche,
+                fattureRegistrate,
               });
               setPrecisaItems(null);
               setStep("resoconto");
@@ -549,6 +631,7 @@ export function FatturaSyncWizardModal({ kind, onClose, onDone }: Props) {
                 stopMonth,
                 fattureCount: registered,
                 anagraficheCreate: anagrafiche,
+                fattureRegistrate,
               });
               setPrecisaItems(null);
               setStep("resoconto");

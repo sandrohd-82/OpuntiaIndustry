@@ -27,6 +27,7 @@ import {
   splitForwardRetro,
   todayIsoRome,
   type FattureSyncAnagraficaCreata,
+  type FattureSyncFatturaRegistrata,
   type FattureSyncKeepKind,
   type FattureSyncMonthOption,
   type FattureSyncPendingMeta,
@@ -74,6 +75,7 @@ export type FattureSyncVeloceResult = {
   registered: number;
   skipped: FattureSyncSkipped[];
   anagraficheCreate: FattureSyncAnagraficaCreata[];
+  fattureRegistrate: FattureSyncFatturaRegistrata[];
   errors: string[];
 };
 
@@ -496,6 +498,7 @@ async function runVeloceOnItems(input: {
 }): Promise<FattureSyncVeloceResult> {
   const created: FattureSyncAnagraficaCreata[] = [];
   const skipped: FattureSyncSkipped[] = [];
+  const fattureRegistrate: FattureSyncFatturaRegistrata[] = [];
   const errors: string[] = [];
   const anagCache = new Map<string, Awaited<ReturnType<typeof ensureAnagraficaDaFic>>>();
   let registered = 0;
@@ -551,6 +554,12 @@ async function runVeloceOnItems(input: {
       continue;
     }
     registered += 1;
+    fattureRegistrate.push({
+      numero: saved.numero,
+      ragioneSociale: anag.ragioneSociale,
+      partitaIva: anag.partitaIva,
+      importo: saved.importo,
+    });
   }
 
   const sb = await createClient();
@@ -567,6 +576,7 @@ async function runVeloceOnItems(input: {
     registered,
     skipped,
     anagraficheCreate: created,
+    fattureRegistrate,
     errors,
   };
 }
@@ -587,6 +597,7 @@ export async function runFattureSyncVeloceAction(input: {
       registered: 0,
       skipped: [],
       anagraficheCreate: [],
+      fattureRegistrate: [],
       errors: [],
     };
   }
@@ -622,6 +633,7 @@ export async function runFattureSyncVeloceAction(input: {
       registered: result.registered,
       skipped: result.skipped.length,
       anagrafiche: result.anagraficheCreate.length,
+      fatture: result.fattureRegistrate,
       fase: input.fase,
     },
   });
@@ -686,6 +698,7 @@ export async function finalizeFattureSyncRunAction(input: {
   stopMonth?: string | null;
   fattureCount: number;
   anagraficheCreate: FattureSyncAnagraficaCreata[];
+  fattureRegistrate?: FattureSyncFatturaRegistrata[];
 }): Promise<{ success: true } | { success: false; error: string }> {
   const { auth } = await requireAreaAccess("amministrazione");
   const kind = fattureSyncKeepKindSchema.safeParse(input.kind);
@@ -707,6 +720,20 @@ export async function finalizeFattureSyncRunAction(input: {
     updated_by: auth.userId,
   });
   if (error) return { success: false, error: error.message };
+  await writeAuditLog({
+    entity_type: "fatture_sync_run",
+    entity_id: kind.data,
+    action: "sync_finalize",
+    actor_id: auth.userId,
+    summary: `Resoconto sync ${kind.data}: ${input.fattureCount} fatture`,
+    payload: {
+      modalita: mode.data,
+      fase: input.fase,
+      fattureCount: input.fattureCount,
+      anagrafiche: input.anagraficheCreate,
+      fatture: input.fattureRegistrate ?? [],
+    },
+  });
   if (kind.data === "emessa") await rinumeraTutteFattureEmesseAction();
   else await rinumeraTutteFattureRicevuteAction();
   return { success: true };

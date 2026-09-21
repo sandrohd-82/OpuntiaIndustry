@@ -31,6 +31,69 @@ export type FattureSyncAnagraficaCreata = {
   codiceTarga: string;
 };
 
+export type FattureSyncFatturaRegistrata = {
+  numero: string;
+  ragioneSociale: string;
+  partitaIva: string;
+  importo: number;
+};
+
+export type FattureSyncAziendaGruppo = {
+  ragioneSociale: string;
+  partitaIva: string;
+  nuova: boolean;
+  fatture: FattureSyncFatturaRegistrata[];
+};
+
+function chiaveAzienda(partitaIva: string, ragioneSociale: string): string {
+  const vat = partitaIva.replace(/\s+/g, "").toUpperCase();
+  if (vat) return `vat:${vat}`;
+  return `nome:${ragioneSociale.trim().toLowerCase()}`;
+}
+
+/** Fornitori/clienti del resoconto, raggruppati con le fatture appena registrate. */
+export function raggruppaFatturePerAzienda(
+  fatture: FattureSyncFatturaRegistrata[],
+  anagrafiche: FattureSyncAnagraficaCreata[]
+): FattureSyncAziendaGruppo[] {
+  const map = new Map<string, FattureSyncAziendaGruppo>();
+  for (const a of anagrafiche) {
+    const k = chiaveAzienda(a.partitaIva, a.ragioneSociale);
+    const prev = map.get(k);
+    if (prev) {
+      prev.nuova = true;
+      if (!prev.partitaIva) prev.partitaIva = a.partitaIva;
+      if (!prev.ragioneSociale) prev.ragioneSociale = a.ragioneSociale;
+    } else {
+      map.set(k, {
+        ragioneSociale: a.ragioneSociale,
+        partitaIva: a.partitaIva,
+        nuova: true,
+        fatture: [],
+      });
+    }
+  }
+  for (const f of fatture) {
+    const k = chiaveAzienda(f.partitaIva, f.ragioneSociale);
+    const prev = map.get(k);
+    if (prev) {
+      prev.fatture.push(f);
+      if (!prev.ragioneSociale) prev.ragioneSociale = f.ragioneSociale;
+      if (!prev.partitaIva) prev.partitaIva = f.partitaIva;
+    } else {
+      map.set(k, {
+        ragioneSociale: f.ragioneSociale,
+        partitaIva: f.partitaIva,
+        nuova: false,
+        fatture: [f],
+      });
+    }
+  }
+  return [...map.values()].sort((a, b) =>
+    a.ragioneSociale.localeCompare(b.ragioneSociale, "it")
+  );
+}
+
 export type FattureSyncSkipped = {
   ficId: number;
   number: string;
