@@ -77,10 +77,18 @@ export const PRODUZIONE_SECTIONS: readonly NavItem[] = [
     path: "/app/produzione/ordini",
     children: [
       {
-        slug: "scaletta",
-        label: "Metti in scaletta",
+        slug: "da-processare",
+        label: "Da processare",
         description:
-          "Processa gli ordini in attesa e inseriscili in scaletta produzione",
+          "Ordini inseriti da passare in produzione (solo Admin)",
+        path: "/app/produzione/ordini/da-processare",
+        adminOnly: true,
+      },
+      {
+        slug: "scaletta",
+        label: "In Scaletta",
+        description:
+          "Ordini in scaletta produzione, da collegare ai fogli di lavorazione",
         path: "/app/produzione/ordini/scaletta",
       },
     ],

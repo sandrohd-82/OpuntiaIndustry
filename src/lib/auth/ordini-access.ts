@@ -1,4 +1,4 @@
-import { notFound } from "next/navigation";
+import { redirect } from "next/navigation";
 import { requireAnyAreaAccess, requireAreaAccess } from "@/lib/areas/guard";
 import { isAdminLikeProfile } from "@/lib/auth/roles";
 
@@ -21,10 +21,12 @@ export async function requireOrdineProcessAccess() {
   return requireAnyAreaAccess(["amministrazione", "produzione"]);
 }
 
-/** Area Admin «Da processare»: passare in produzione. */
+/** Produzione → Ordini → Da processare (solo Admin). */
 export async function requireOrdiniDaProcessarePageAccess() {
-  const { auth } = await requireAreaAccess("amministrazione");
-  if (!isAdminLikeProfile(auth.profile)) notFound();
+  const { auth } = await requireAreaAccess("produzione");
+  if (!isAdminLikeProfile(auth.profile)) {
+    redirect("/app/produzione/ordini/scaletta");
+  }
   return { auth };
 }
 

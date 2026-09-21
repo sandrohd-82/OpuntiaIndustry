@@ -9,8 +9,10 @@ import { AreeElencoBoard } from "@/components/produzione/AreeElencoBoard";
 import { GestioneAreaBoard } from "@/components/produzione/GestioneAreaBoard";
 import { ProcessiAttivitaBoard } from "@/components/produzione/ProcessiAttivitaBoard";
 import { ProcessiBoard } from "@/components/produzione/ProcessiBoard";
+import { OrdiniDaProcessareBoard } from "@/components/amministrazione/OrdiniDaProcessareBoard";
 import { OrdiniProcessatiBoard } from "@/components/amministrazione/OrdiniProcessatiBoard";
 import { requireAreaAccess } from "@/lib/areas/guard";
+import { requireOrdiniDaProcessarePageAccess } from "@/lib/auth/ordini-access";
 import { resolveProduzioneDynamic } from "../../_resolve";
 
 type Props = {
@@ -142,6 +144,18 @@ export default async function ProduzioneSubPage({ params, searchParams }: Props)
         <AppHeader title={page.label} subtitle={page.description} />
         <div className="p-6">
           <FogliInEsecuzioneBoard />
+        </div>
+      </>
+    );
+  }
+
+  if (section === "ordini" && sub === "da-processare") {
+    await requireOrdiniDaProcessarePageAccess();
+    return (
+      <>
+        <AppHeader title={page.label} subtitle={page.description} />
+        <div className="p-6">
+          <OrdiniDaProcessareBoard />
         </div>
       </>
     );

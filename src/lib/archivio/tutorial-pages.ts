@@ -109,7 +109,7 @@ export const PAGE_EXTRAS: Record<string, TutorialBlock[]> = {
         "Scegli il cliente (targa C…).",
         "Scegli se è merce o campionatura.",
         "Aggiungi righe (prezzi da listino se c’è).",
-        "Salva: nasce Or-AA-TARGA/n e va verso «Da processare».",
+        "Salva: nasce Or-AA-TARGA/n e va verso Produzione → Ordini → Da processare.",
       ],
     },
   ],
@@ -117,6 +117,16 @@ export const PAGE_EXTRAS: Record<string, TutorialBlock[]> = {
     {
       type: "p",
       text: "Pagina riservata ad Admin / Super Admin. Qui gli ordini appena nati e le campionature «inserite» aspettano di essere processati (controllo, lotti, preparazione). Poi possono andare in scaletta produzione.",
+    },
+    {
+      type: "p",
+      text: "Ciclo ordine in sintesi: Inserito → Processato → Pronto spedizione → Inviato → (storico in Archivio).",
+    },
+  ],
+  "/app/produzione/ordini/da-processare": [
+    {
+      type: "p",
+      text: "In Produzione → Ordini → Da processare (Admin / Super Admin). Qui gli ordini appena nati e le campionature «inserite» aspettano di essere processati. Poi vanno in «In Scaletta».",
     },
     {
       type: "p",
@@ -186,7 +196,7 @@ export const PAGE_EXTRAS: Record<string, TutorialBlock[]> = {
   "/app/produzione/ordini/scaletta": [
     {
       type: "p",
-      text: "Ordini già processati in amministrazione, da mettere in coda di produzione e collegare ai fogli di lavorazione. È il ponte vendite → reparto.",
+      text: "Produzione → Ordini → In Scaletta. Ordini già processati, in coda di produzione, da collegare ai fogli di lavorazione. È il ponte vendite → reparto.",
     },
   ],
   "/app/produzione/processi-e-attivita/elenco-processi": [
@@ -440,7 +450,7 @@ export const TUTORIAL_EXTRA_ARTICLES: TutorialArticle[] = [
     blocks: [
       {
         type: "p",
-        text: "Ogni persona ha un profilo, delle aree (Amministrazione, Magazzino, …) e, se serve, delle pagine accese o spente. «Da processare» lo vedono solo Admin e Super Admin.",
+        text: "Ogni persona ha un profilo, delle aree (Amministrazione, Magazzino, …) e, se serve, delle pagine accese o spente. «Da processare» (Produzione → Ordini) lo vedono solo Admin e Super Admin.",
       },
       {
         type: "ul",

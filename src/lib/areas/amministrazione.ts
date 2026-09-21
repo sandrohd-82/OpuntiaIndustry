@@ -83,14 +83,6 @@ export const AMMINISTRAZIONE_SECTIONS: readonly NavItem[] = [
     ],
   },
   {
-    slug: "da-processare",
-    label: "Da processare",
-    description:
-      "Ordini inseriti da passare in produzione (solo Admin)",
-    path: "/app/amministrazione/ordini/da-processare",
-    adminOnly: true,
-  },
-  {
     slug: "statistiche",
     label: "Statistiche",
     description: "Dashboard e grafici amministrativi",

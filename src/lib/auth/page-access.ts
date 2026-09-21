@@ -194,6 +194,9 @@ export function resolvePageKey(pathname: string): string {
   const raw = normalizeAppPath(pathname);
   const aliased = commercialeLegacyPageKey(raw);
   if (aliased) return aliased;
+  if (raw === "/app/produzione/ordini/da-processare") {
+    return "/app/amministrazione/ordini/da-processare";
+  }
   if (!raw.startsWith("/app")) return "/app/dashboard";
 
   if (raw.startsWith("/app/webmail/caselle")) {

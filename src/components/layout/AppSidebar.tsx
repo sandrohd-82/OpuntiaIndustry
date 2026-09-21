@@ -1059,7 +1059,7 @@ export function AppSidebar({
                 )
               : null;
             const treeSections =
-              area.slug === "amministrazione" && treeSectionsFiltered
+              area.slug === "produzione" && treeSectionsFiltered
                 ? applyDaProcessareBadge(treeSectionsFiltered, daProcessareCount)
                 : area.slug === "promemorie-e-note" && treeSectionsFiltered
                   ? applyPnAttivitaUnreadBadge(

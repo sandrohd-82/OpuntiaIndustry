@@ -42,13 +42,13 @@ export default async function AmministrazioneSectionPage({ params }: Props) {
     redirect("/app/amministrazione/fornitori/elenco");
   }
   if (section === "da-processare") {
-    redirect("/app/amministrazione/ordini/da-processare");
+    redirect("/app/produzione/ordini/da-processare");
   }
   if (section === "elenco-ordini") {
     redirect("/app/commerciale/ordini/elenco");
   }
   if (section === "ordini") {
-    redirect("/app/amministrazione/ordini/da-processare");
+    redirect("/app/produzione/ordini/da-processare");
   }
 
   const item = AMMINISTRAZIONE_SECTIONS.find((s) => s.slug === section);

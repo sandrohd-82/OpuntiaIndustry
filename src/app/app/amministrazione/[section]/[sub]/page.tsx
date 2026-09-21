@@ -17,7 +17,6 @@ import {
   PortaleNewsletterBoard,
   PortaleRichiesteBoard,
 } from "@/components/amministrazione/PortaleLeadBoard";
-import { OrdiniDaProcessareBoard } from "@/components/amministrazione/OrdiniDaProcessareBoard";
 import { OrdiniElencoBoard } from "@/components/amministrazione/OrdiniElencoBoard";
 import { OrdiniRicevutiBoard } from "@/components/amministrazione/OrdiniRicevutiBoard";
 import { PreventiviBoard } from "@/components/amministrazione/PreventiviBoard";
@@ -28,7 +27,6 @@ import { AreaPlaceholder } from "@/components/areas/AreaPlaceholder";
 import { AppHeader } from "@/components/layout/AppHeader";
 import { resolveAmministrazionePage } from "@/lib/areas/amministrazione";
 import { requireAreaAccess } from "@/lib/areas/guard";
-import { requireOrdiniDaProcessarePageAccess } from "@/lib/auth/ordini-access";
 
 type Props = {
   params: Promise<{ section: string; sub: string }>;
@@ -79,7 +77,7 @@ export default async function AmministrazioneSubPage({ params }: Props) {
     redirect(map[sub] ?? "/app/amministrazione/statistiche");
   }
   if (section === "ordini" && sub === "ricevuti") {
-    redirect("/app/amministrazione/ordini/da-processare");
+    redirect("/app/produzione/ordini/da-processare");
   }
   if (section === "ordini" && sub === "evasi") {
     redirect("/app/amministrazione/ordini/elenco");
@@ -88,10 +86,13 @@ export default async function AmministrazioneSubPage({ params }: Props) {
     redirect("/app/amministrazione/ordini/nuovo");
   }
   if (section === "ordini" && sub === "processati") {
-    redirect("/app/amministrazione/ordini/da-processare");
+    redirect("/app/produzione/ordini/da-processare");
   }
   if (section === "da-processare") {
-    redirect("/app/amministrazione/ordini/da-processare");
+    redirect("/app/produzione/ordini/da-processare");
+  }
+  if (section === "ordini" && sub === "da-processare") {
+    redirect("/app/produzione/ordini/da-processare");
   }
   if (section === "elenco-ordini") {
     redirect("/app/amministrazione/ordini/elenco");
@@ -169,18 +170,6 @@ export default async function AmministrazioneSubPage({ params }: Props) {
         <AppHeader title={page.label} subtitle={page.description} />
         <div className="p-6">
           <OrdiniRicevutiBoard />
-        </div>
-      </>
-    );
-  }
-
-  if (section === "ordini" && sub === "da-processare") {
-    await requireOrdiniDaProcessarePageAccess();
-    return (
-      <>
-        <AppHeader title={page.label} subtitle={page.description} />
-        <div className="p-6">
-          <OrdiniDaProcessareBoard />
         </div>
       </>
     );
