@@ -2,11 +2,11 @@
 
 import { useEffect, useState } from "react";
 import {
-  dettaglioElencoPostoAction,
   listLottiDaSistemareAction,
   rettificaOccupazionePostoAction,
 } from "@/app/actions/magazzino-posto-occupazione";
 import {
+  fetchDettaglioOccupazionePosto,
   formatKgIt,
   pesoOccupazioneKg,
   targaProdottoOccupazione,
@@ -45,39 +45,56 @@ export function PiantaPostoFotoOccupazione({
   const [lottoKey, setLottoKey] = useState("");
   const [giustificazione, setGiustificazione] = useState("");
 
+  function applicaOcc(d: DettaglioElencoPosto) {
+    setDet(d);
+    const occ = d.occupazione;
+    if (!occ) return;
+    const q = occ.quantitaElementi ?? occ.elementi.length ?? 1;
+    setQty(String(Math.max(1, q)));
+    setPesoModo(occ.pesoModo);
+    setPesi(
+      occ.pesoModo === "per_elemento" && occ.elementi.length
+        ? occ.elementi.map((e) => (e.pesoKg != null ? String(e.pesoKg) : ""))
+        : Array.from({ length: Math.max(1, q) }, () => "")
+    );
+    setPesoTot(
+      occ.pesoComplessivoKg != null ? String(occ.pesoComplessivoKg) : ""
+    );
+    setNote(occ.note || "");
+    setLottoKey(
+      occ.prodottoId && occ.lottoInternoCodice
+        ? `${occ.prodottoId}|${occ.lottoInternoCodice}`
+        : occ.lottoEsternoId || ""
+    );
+  }
+
   async function reload() {
     setLoad(true);
-    const [d, lot] = await Promise.all([
-      dettaglioElencoPostoAction(ubicazioneId),
-      listLottiDaSistemareAction(),
-    ]);
-    setLoad(false);
-    if (!d.success) {
-      setErrore(d.error);
-      return;
+    try {
+      const d = await fetchDettaglioOccupazionePosto(ubicazioneId);
+      if (!d.success) {
+        setErrore(d.error);
+        setDet(null);
+        return;
+      }
+      setErrore("");
+      applicaOcc(d.dettaglio);
+    } catch (e) {
+      setErrore(
+        e instanceof Error ? e.message : "Occupazione non disponibile."
+      );
+      setDet(null);
+    } finally {
+      setLoad(false);
     }
-    setDet(d.dettaglio);
-    setErrore("");
-    if (lot.success) setLotti(lot.lotti);
-    const occ = d.dettaglio.occupazione;
-    if (occ) {
-      const q = occ.quantitaElementi ?? occ.elementi.length ?? 1;
-      setQty(String(Math.max(1, q)));
-      setPesoModo(occ.pesoModo);
-      setPesi(
-        occ.pesoModo === "per_elemento" && occ.elementi.length
-          ? occ.elementi.map((e) => (e.pesoKg != null ? String(e.pesoKg) : ""))
-          : Array.from({ length: Math.max(1, q) }, () => "")
-      );
-      setPesoTot(
-        occ.pesoComplessivoKg != null ? String(occ.pesoComplessivoKg) : ""
-      );
-      setNote(occ.note || "");
-      setLottoKey(
-        occ.prodottoId && occ.lottoInternoCodice
-          ? `${occ.prodottoId}|${occ.lottoInternoCodice}`
-          : occ.lottoEsternoId || ""
-      );
+  }
+
+  async function loadLotti() {
+    try {
+      const lot = await listLottiDaSistemareAction();
+      if (lot.success) setLotti(lot.lotti);
+    } catch {
+      /* elenco lotti solo in modifica */
     }
   }
 
@@ -176,7 +193,10 @@ export function PiantaPostoFotoOccupazione({
         {occ && !edit ? (
           <button
             type="button"
-            onClick={() => setEdit(true)}
+            onClick={() => {
+              setEdit(true);
+              if (!lotti.length) void loadLotti();
+            }}
             className="rounded-lg border border-green-800 bg-white px-3 py-1.5 text-sm font-medium text-green-950"
           >
             Modifica

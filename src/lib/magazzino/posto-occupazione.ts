@@ -247,3 +247,34 @@ export function etichettaPayloadElemento(
 ): string {
   return `EL:${codicePallet.trim().toUpperCase()}:${numero.trim().toUpperCase()}`;
 }
+
+export async function fetchDettaglioOccupazionePosto(
+  ubicazioneId: string
+): Promise<
+  | { success: true; dettaglio: DettaglioElencoPosto }
+  | { success: false; error: string }
+> {
+  try {
+    const q = new URLSearchParams({ ubicazioneId });
+    const res = await fetch(`/api/magazzino/posto-occupazione?${q}`, {
+      credentials: "include",
+      cache: "no-store",
+    });
+    const data = (await res.json().catch(() => null)) as
+      | { success: true; dettaglio: DettaglioElencoPosto }
+      | { success: false; error?: string }
+      | null;
+    if (!data || !("success" in data) || !data.success) {
+      return {
+        success: false,
+        error:
+          data && "error" in data && data.error
+            ? data.error
+            : "Occupazione non disponibile.",
+      };
+    }
+    return data;
+  } catch {
+    return { success: false, error: "Occupazione non disponibile." };
+  }
+}

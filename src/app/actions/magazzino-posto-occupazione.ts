@@ -3,7 +3,7 @@
 import { randomUUID } from "crypto";
 import { writeAuditLog } from "@/lib/audit";
 import { requireAnyAreaAccess } from "@/lib/areas/guard";
-import { createClient, createServiceClient } from "@/lib/supabase/server";
+import { createServiceClient } from "@/lib/supabase/server";
 import {
   generaCodiceRandom,
   occupaPostoSchema,
@@ -407,7 +407,7 @@ export async function getOccupazionePostoAction(
 > {
   await requireAnyAreaAccess(["magazzino", "strumenti", "amministrazione"]);
   if (!ubicazioneId) return { success: true, occupazione: null };
-  const supabase = await createClient();
+  const supabase = createServiceClient();
   const { data, error } = await supabase
     .from("magazzino_posto_occupazioni")
     .select(OCC_SELECT)

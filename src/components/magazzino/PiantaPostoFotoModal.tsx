@@ -97,15 +97,14 @@ export function PiantaPostoFotoModal({
     setOy(sel.offsetY);
   }, [sel?.id]);
 
-  async function carica(list: FileList | null) {
-    const raw = Array.from(list ?? []);
+  async function carica(raw: File[]) {
     const files = raw.filter(fileSembraFoto);
     if (!files.length) {
-      setErrore(
-        raw.length
-          ? "Il file selezionato non è un’immagine riconoscibile (JPG, PNG, WebP)."
-          : "Nessun file selezionato."
-      );
+      if (raw.length) {
+        setErrore(
+          "Il file selezionato non è un’immagine riconoscibile (JPG, PNG, WebP)."
+        );
+      }
       return;
     }
     setErrore("");
@@ -236,9 +235,10 @@ export function PiantaPostoFotoModal({
             multiple
             className="sr-only"
             onChange={(e) => {
-              const list = e.target.files;
+              const files = Array.from(e.target.files ?? []);
               e.target.value = "";
-              void carica(list);
+              if (!files.length) return;
+              void carica(files);
             }}
           />
           <button
