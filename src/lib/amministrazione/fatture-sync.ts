@@ -87,8 +87,72 @@ function asText(value: unknown): string {
   return typeof value === "string"
     ? value.trim()
     : value != null
-      ? String(value).trim()
-      : "";
+    ? String(value).trim()
+    : "";
+}
+
+/**
+ * Il DB impone prezzo_unitario ≥ 0 (sconto/reso = quantità negativa).
+ * FiC manda spesso sconti come prezzo negativo: senza questo la sync
+ * inserisce la testata, fallisce le righe, soft-delete e il mese resta pendente.
+ */
+export function sanitizeRigaPerVincoliDb(r: FatturaRiga): FatturaRiga {
+  let prezzo = Number(r.prezzoUnitario);
+  let qta = Number(r.quantita);
+  if (!Number.isFinite(prezzo)) prezzo = 0;
+  if (!Number.isFinite(qta) || qta === 0) qta = prezzo < 0 ? -1 : 1;
+  if (prezzo < 0) {
+    prezzo = Math.abs(prezzo);
+    qta = -qta;
+  }
+  let sconto = Number(r.scontoPercentuale);
+  if (!Number.isFinite(sconto)) sconto = 0;
+  sconto = Math.min(100, Math.max(0, sconto));
+  let iva = Number(r.ivaPercentuale ?? 22);
+  if (!Number.isFinite(iva)) iva = 22;
+  iva = Math.min(100, Math.max(0, iva));
+  return {
+    ...r,
+    prezzoUnitario: prezzo,
+    quantita: qta,
+    scontoPercentuale: sconto,
+    ivaPercentuale: iva,
+    unitaMisura: (r.unitaMisura || "NR").trim() || "NR",
+    importo: importoRiga(qta, prezzo, sconto),
+  };
+}
+
+export function rigaRispettaVincoliDb(r: FatturaRiga): boolean {
+  return (
+    Number.isFinite(r.prezzoUnitario) &&
+    r.prezzoUnitario >= 0 &&
+    Number.isFinite(r.quantita) &&
+    Number.isFinite(r.scontoPercentuale) &&
+    r.scontoPercentuale >= 0 &&
+    r.scontoPercentuale <= 100 &&
+    (r.ivaPercentuale == null ||
+      (r.ivaPercentuale >= 0 && r.ivaPercentuale <= 100))
+  );
+}
+
+export function rigaFallbackTotaleXml(input: {
+  numeroEsterno?: string;
+  importo: number;
+}): FatturaRiga {
+  const tot = Math.abs(Number(input.importo) || 0);
+  return {
+    prodottoId: null,
+    codice: "XML",
+    descrizione: input.numeroEsterno
+      ? `Documento ${input.numeroEsterno}`
+      : "Documento FiC",
+    quantita: 1,
+    unitaMisura: "NR",
+    prezzoUnitario: tot,
+    scontoPercentuale: 0,
+    ivaPercentuale: 22,
+    importo: tot,
+  };
 }
 
 /** Estrae righe prodotto da payload FiC (fieldset detailed) o XML SDI. */
@@ -124,17 +188,19 @@ export function extractRigheFromFicRaw(
       asNumber(r.vat ?? r.vat_rate ?? r.tax_rate ?? r.iva) || 22;
     const unitaMisura =
       asText(r.mu ?? r.measure ?? r.unit ?? r.unita_misura) || "NR";
-    righe.push({
-      prodottoId: null,
-      codice,
-      descrizione,
-      quantita,
-      unitaMisura,
-      prezzoUnitario,
-      scontoPercentuale,
-      ivaPercentuale,
-      importo: importoRiga(quantita, prezzoUnitario, scontoPercentuale),
-    });
+    righe.push(
+      sanitizeRigaPerVincoliDb({
+        prodottoId: null,
+        codice,
+        descrizione,
+        quantita,
+        unitaMisura,
+        prezzoUnitario,
+        scontoPercentuale,
+        ivaPercentuale,
+        importo: importoRiga(quantita, prezzoUnitario, scontoPercentuale),
+      })
+    );
   }
 
   if (righe.length === 0) {
@@ -175,7 +241,7 @@ function extractRigheFromSdiXml(raw: Record<string, unknown>): FatturaRiga[] {
       const ivaPercentuale =
         line.ivaPercentuale > 0 ? line.ivaPercentuale : 22;
       const unitaMisura = (line.unitaMisura || "NR").trim() || "NR";
-      return {
+      return sanitizeRigaPerVincoliDb({
         prodottoId: null,
         codice: "—",
         descrizione,
@@ -185,7 +251,7 @@ function extractRigheFromSdiXml(raw: Record<string, unknown>): FatturaRiga[] {
         scontoPercentuale,
         ivaPercentuale,
         importo: importoRiga(quantita, prezzoUnitario, scontoPercentuale),
-      };
+      });
     });
   } catch (e) {
     console.error(
@@ -674,10 +740,11 @@ export function buildFatturaSyncQueueItem(input: {
         ),
       }))
     : righeRaw;
+  const righeOk = righe.map(sanitizeRigaPerVincoliDb);
   const spedizione = extractSpedizioneFromFicRaw(input.doc.raw);
   const ivaPercentuale = extractIvaPercentFromFicRaw(input.doc.raw);
   const totals = calcolaTotaliFattura({
-    righe,
+    righe: righeOk,
     spedizione,
     spedizioneIvaApplicata: false,
     notaCredito: isNc,
@@ -710,7 +777,7 @@ export function buildFatturaSyncQueueItem(input: {
     imponibile: totals.imponibile,
     imposta: totals.imposta,
     totale: totals.totale || Math.abs(input.doc.amountGross),
-    righe,
+    righe: righeOk,
     anagraficaMode: input.existingId ? "existing" : "create",
     existingId: input.existingId,
     existingLabel: input.existingLabel,

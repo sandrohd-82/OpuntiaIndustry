@@ -20,6 +20,7 @@ import {
   type FattureSyncFatturaRegistrata,
   type FattureSyncKeepKind,
   type FattureSyncPendingMeta,
+  type FattureSyncSkipped,
 } from "@/lib/amministrazione/fatture-sync-keep";
 import { formatEuro } from "@/lib/amministrazione/fatture";
 import type { FatturaSyncQueueItem } from "@/lib/amministrazione/fatture-sync";
@@ -68,6 +69,7 @@ export function FatturaSyncWizardModal({ kind, onClose, onDone }: Props) {
     FattureSyncFatturaRegistrata[]
   >([]);
   const [skippedNote, setSkippedNote] = useState<string | null>(null);
+  const [skippedItems, setSkippedItems] = useState<FattureSyncSkipped[]>([]);
 
   const entityLabel = kind === "ricevuta" ? "fornitori" : "clienti";
 
@@ -209,6 +211,7 @@ export function FatturaSyncWizardModal({ kind, onClose, onDone }: Props) {
       setAnagrafiche(anags);
       setFattureRegistrate(fatture);
       const skippedNuove = res.skipped.filter((s) => s.motivo !== "già registrata");
+      setSkippedItems((prev) => [...prev, ...skippedNuove]);
       if (skippedNuove.length) {
         setSkippedNote(
           `${skippedNuove.length} documenti non registrati nel tratto fino a oggi.`
@@ -256,6 +259,7 @@ export function FatturaSyncWizardModal({ kind, onClose, onDone }: Props) {
       setAnagrafiche(anags);
       setFattureRegistrate(fatture);
       const skippedNuove = res.skipped.filter((s) => s.motivo !== "già registrata");
+      setSkippedItems((prev) => [...prev, ...skippedNuove]);
       if (skippedNuove.length) {
         setSkippedNote((prev) =>
           [prev, `${skippedNuove.length} documenti saltati a ritroso.`]
@@ -476,6 +480,21 @@ export function FatturaSyncWizardModal({ kind, onClose, onDone }: Props) {
               </p>
               {skippedNote ? (
                 <p className="text-sm text-amber-900">{skippedNote}</p>
+              ) : null}
+              {skippedItems.length ? (
+                <ul className="list-disc space-y-1 pl-5 text-sm text-amber-950">
+                  {skippedItems.map((s) => (
+                    <li key={`${s.ficId}-${s.number}`}>
+                      <span className="font-mono text-xs">
+                        {s.number || s.ficId}
+                      </span>
+                      {": "}
+                      {/prezzo_check/i.test(s.motivo)
+                        ? "riga con prezzo negativo da Fatture in Cloud (sconto): ritenta la sync, ora viene corretta."
+                        : s.motivo}
+                    </li>
+                  ))}
+                </ul>
               ) : null}
 
               <div>

@@ -11,7 +11,12 @@ import {
   companyNamesMatch,
   normalizeVatKey,
 } from "@/lib/amministrazione/fic-anagrafiche";
-import type { FatturaSyncQueueItem } from "@/lib/amministrazione/fatture-sync";
+import {
+  rigaFallbackTotaleXml,
+  rigaRispettaVincoliDb,
+  sanitizeRigaPerVincoliDb,
+  type FatturaSyncQueueItem,
+} from "@/lib/amministrazione/fatture-sync";
 import { buildNumeroInternoFattura } from "@/lib/amministrazione/fatture";
 import { writeAuditLog } from "@/lib/audit";
 import type { FattureSyncAnagraficaCreata } from "@/lib/amministrazione/fatture-sync-keep";
@@ -385,7 +390,13 @@ export async function registraFatturaVeloce(input: {
   const supabase = asSb(input.supabase);
   const item = input.item;
   const xmlTotale = roundMoney(Math.abs(Number(item.amountGross || item.totale) || 0));
-  const righe = righeVeloce(item, xmlTotale);
+  let righe = righeVeloce(item, xmlTotale).map(sanitizeRigaPerVincoliDb);
+  if (
+    !righe.length ||
+    righe.some((r) => !rigaRispettaVincoliDb(r))
+  ) {
+    righe = [rigaFallbackTotaleXml({ numeroEsterno: item.numeroEsterno, importo: xmlTotale })];
+  }
   const totals = calcolaTotaliFattura({
     righe,
     spedizione: item.spedizione,
@@ -474,7 +485,7 @@ export async function registraFatturaVeloce(input: {
           codice: r.codice,
           descrizione: r.descrizione,
           quantita: r.quantita,
-          prezzo_unitario: r.prezzoUnitario,
+          prezzo_unitario: Math.max(0, Number(r.prezzoUnitario) || 0),
           sconto_percentuale: r.scontoPercentuale,
           importo: r.importo,
           sort_order: i,
@@ -579,7 +590,7 @@ export async function registraFatturaVeloce(input: {
         descrizione: r.descrizione,
         quantita: r.quantita,
         unita_misura: r.unitaMisura || "NR",
-        prezzo_unitario: r.prezzoUnitario,
+        prezzo_unitario: Math.max(0, Number(r.prezzoUnitario) || 0),
         sconto_percentuale: r.scontoPercentuale,
         iva_percentuale: r.ivaPercentuale ?? item.ivaPercentuale ?? 22,
         importo: r.importo,
