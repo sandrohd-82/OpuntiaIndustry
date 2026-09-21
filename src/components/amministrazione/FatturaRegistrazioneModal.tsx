@@ -1842,7 +1842,7 @@ export function FatturaRegistrazioneModal({
         ? "Registrazione fattura emessa"
         : "Registrazione fattura ricevuta";
 
-  const zLayer = stackTop ? "z-[95]" : elevated ? "z-[80]" : "z-[60]";
+  const zLayer = stackTop ? "z-[140]" : elevated ? "z-[80]" : "z-[60]";
 
   const dialog = (
     <div

@@ -577,31 +577,23 @@ async function runVeloceOnItems(input: {
     }
     const item = await hydrateIfNeeded(slim);
     const eccezioneMotivo = item.eccezioneMotivo?.trim() || null;
-    if (eccezioneMotivo) {
-      if (input.stopOnEccezione) {
-        return finishVeloce({
-          created,
-          skipped,
-          fattureRegistrate,
-          errors,
-          registered,
-          anagIds,
-          kind: input.kind,
-          userId: input.userId,
-          eccezione: {
-            ficId: item.ficId,
-            number: item.numeroEsterno,
-            motivo: eccezioneMotivo,
-          },
-          remainingFicIds: input.items.slice(i + 1).map((x) => x.ficId),
-        });
-      }
-      skipped.push({
-        ficId: item.ficId,
-        number: item.numeroEsterno,
-        motivo: eccezioneMotivo,
+    if (eccezioneMotivo && input.stopOnEccezione) {
+      return finishVeloce({
+        created,
+        skipped,
+        fattureRegistrate,
+        errors,
+        registered,
+        anagIds,
+        kind: input.kind,
+        userId: input.userId,
+        eccezione: {
+          ficId: item.ficId,
+          number: item.numeroEsterno,
+          motivo: eccezioneMotivo,
+        },
+        remainingFicIds: input.items.slice(i + 1).map((x) => x.ficId),
       });
-      continue;
     }
     const vat = normalizeVatKey(item.entityVat || item.draft?.partitaIva || "");
     const cacheKey = vat || `${item.entityName}|${item.ficId}`;
@@ -752,7 +744,7 @@ export async function runFattureSyncVeloceAction(input: {
     items: ordered,
     userId: auth.userId,
     supabase,
-    stopOnEccezione: true,
+    stopOnEccezione: input.fase === "prospettiva",
   });
 
   await supabase.from("fatture_sync_run").insert({

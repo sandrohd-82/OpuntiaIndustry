@@ -43,6 +43,8 @@ type Props = {
     | Promise<boolean | string | { id: string } | void>;
   /** Sopra un’altra modale (es. sync clienti → passa a fornitori). */
   elevated?: boolean;
+  /** Sopra coda/wizard sync (registrazione tradizionale). */
+  stackTop?: boolean;
   /** Documento FiC da consultare durante la sync (PDF + XML). */
   ficDocument?: { kind: FatturaKind; ficId: number } | null;
 };
@@ -73,6 +75,7 @@ export function FornitoreFormModal({
   onClose,
   onSave,
   elevated = false,
+  stackTop = false,
   ficDocument = null,
 }: Props) {
   const titleId = useId();
@@ -348,9 +351,9 @@ export function FornitoreFormModal({
 
   return (
     <div
-      data-nested-modal={elevated ? "fornitore" : undefined}
+      data-nested-modal={elevated || stackTop ? "fornitore" : undefined}
       className={`fixed inset-0 flex items-start justify-center overflow-y-auto bg-slate-950/60 px-4 py-10 sm:py-14 ${
-        elevated ? "z-[90]" : "z-[60]"
+        stackTop ? "z-[140]" : elevated ? "z-[90]" : "z-[60]"
       }`}
       role="presentation"
       onClick={(e) => e.stopPropagation()}

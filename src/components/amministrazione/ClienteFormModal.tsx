@@ -493,9 +493,9 @@ export function ClienteFormModal({
 
   const dialog = (
     <div
-      data-nested-modal={elevated ? "cliente" : undefined}
+      data-nested-modal={elevated || stackTop ? "cliente" : undefined}
       className={`fixed inset-0 flex items-start justify-center overflow-y-auto bg-slate-950/60 px-4 py-10 sm:py-14 ${
-        stackTop ? "z-[110]" : elevated ? "z-[90]" : "z-[60]"
+        stackTop ? "z-[140]" : elevated ? "z-[90]" : "z-[60]"
       }`}
       role="presentation"
       onClick={(e) => e.stopPropagation()}

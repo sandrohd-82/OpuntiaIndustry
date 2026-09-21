@@ -456,7 +456,7 @@ export async function registraFatturaVeloce(input: {
           imponibile: totals.imponibile,
           iva_percentuale: totals.ivaPercentualePrevalente ?? item.ivaPercentuale,
           imposta: totals.imposta,
-          totale: totals.totale,
+          totale: xmlTotale > 0 ? xmlTotale : totals.totale,
           stato_pagamento: item.statoPagamento,
           documento_stato: "registrata",
           note: "Registrazione veloce FiC: totale allineato XML, senza catalogo magazzino.",
@@ -517,7 +517,7 @@ export async function registraFatturaVeloce(input: {
         summary: `Registrata ${numeroInterno} (veloce, no catalogo)`,
         payload: {
           fic_id: item.ficId,
-          totale: totals.totale,
+          totale: xmlTotale > 0 ? xmlTotale : totals.totale,
           totale_xml: xmlTotale,
           skip_catalogo: true,
         },
@@ -526,7 +526,7 @@ export async function registraFatturaVeloce(input: {
         ok: true,
         id: data.id,
         numero: item.numeroEsterno || numeroInterno,
-        importo: totals.totale,
+        importo: xmlTotale > 0 ? xmlTotale : totals.totale,
       };
     }
 

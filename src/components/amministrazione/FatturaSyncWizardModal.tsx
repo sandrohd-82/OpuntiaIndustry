@@ -247,7 +247,7 @@ export function FatturaSyncWizardModal({ kind, onClose, onDone }: Props) {
     setAnagrafiche(next.anags);
     setFattureRegistrate(next.fatture);
     applicaSkipped(res.skipped, fase === "prospettiva" ? "oggi" : "ritroso");
-    if (res.eccezione) {
+    if (res.eccezione && fase === "prospettiva") {
       const opened = await apriPrecisaPerEccezione(
         res.eccezione.ficId,
         res.eccezione.number,
@@ -740,7 +740,7 @@ export function FatturaSyncWizardModal({ kind, onClose, onDone }: Props) {
 
   return (
     <>
-      {createPortal(dialog, document.body)}
+      {step !== "precisa" ? createPortal(dialog, document.body) : null}
       {step === "precisa" && precisaItems && precisaItems.length > 0 ? (
         <FatturaSyncQueueModal
           items={precisaItems}

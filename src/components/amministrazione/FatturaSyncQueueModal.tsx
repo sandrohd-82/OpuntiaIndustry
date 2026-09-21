@@ -442,7 +442,7 @@ export function FatturaSyncQueueModal({
   const isRicevutaSync = kind === "ricevuta";
 
   const pauseBar = (
-    <div className="fixed inset-x-0 top-0 z-[110] flex flex-wrap items-center justify-between gap-3 border-b border-amber-200 bg-amber-50 px-4 py-2 shadow-sm">
+    <div className="fixed inset-x-0 top-0 z-[130] flex flex-wrap items-center justify-between gap-3 border-b border-amber-200 bg-amber-50 px-4 py-2 shadow-sm">
       <p className="min-w-0 flex-1 text-sm text-amber-950">
         {isRicevutaSync ? (
           <>
@@ -526,7 +526,7 @@ export function FatturaSyncQueueModal({
     return createPortal(
       <>
         {pauseBar}
-        <div className="fixed inset-0 z-[70] flex items-center justify-center bg-slate-950/60 p-4 pt-16">
+        <div className="fixed inset-0 z-[120] flex items-center justify-center bg-slate-950/60 p-4 pt-16">
           <div className="rounded-xl bg-white p-5 shadow-xl">
             <p className="text-sm">Nessuna fattura da registrare.</p>
             <button
@@ -544,7 +544,7 @@ export function FatturaSyncQueueModal({
   }
 
   const shell = (
-    <div className="fixed inset-0 z-[70] flex items-start justify-center overflow-y-auto bg-slate-950/50 px-4 py-8 pt-20">
+    <div className="fixed inset-0 z-[120] flex items-start justify-center overflow-y-auto bg-slate-950/50 px-4 py-8 pt-20">
       <div className="w-full max-w-lg rounded-xl border border-[var(--border)] bg-[var(--card)] p-5 shadow-xl">
         <p className="text-xs font-medium uppercase tracking-wide text-[var(--muted)]">
           Documento in revisione
@@ -880,7 +880,9 @@ export function FatturaSyncQueueModal({
         ? createPortal(
             <>
               {pauseBar}
-              {shell}
+              {step.type !== "fattura" && step.type !== "anagrafica-create"
+                ? shell
+                : null}
             </>,
             document.body
           )
@@ -891,6 +893,7 @@ export function FatturaSyncQueueModal({
         <ClienteFormModal
           mode="create"
           elevated
+          stackTop
           ficDocument={{ kind, ficId: current.ficId }}
           initial={draftToClientePreview(current.draft, current.proposedTarga)}
           onClose={onPaused}
@@ -946,6 +949,7 @@ export function FatturaSyncQueueModal({
         <FornitoreFormModal
           mode="create"
           elevated
+          stackTop
           ficDocument={{ kind, ficId: current.ficId }}
           initial={draftToFornitorePreview(
             current.draft,
@@ -1006,6 +1010,7 @@ export function FatturaSyncQueueModal({
         <FatturaRegistrazioneModal
           kind={kind}
           elevated
+          stackTop
           prefill={prefill}
           onPause={onPaused}
           onClose={() => {
