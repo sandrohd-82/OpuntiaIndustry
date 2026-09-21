@@ -365,6 +365,21 @@ export function normalizeVatKey(vat: string): string {
 }
 
 /**
+ * Stessa P.IVA/CF anche con zeri iniziali mancanti (es. 98610330 = 00098610330).
+ * Confronta solo chiavi numeriche fino a 11 cifre (P.IVA italiana).
+ */
+export function vatKeysMatch(a: string, b: string): boolean {
+  const na = normalizeVatKey(a);
+  const nb = normalizeVatKey(b);
+  if (!na || !nb) return false;
+  if (na === nb) return true;
+  if (!/^\d+$/.test(na) || !/^\d+$/.test(nb)) return false;
+  if (na.length > 11 || nb.length > 11) return false;
+  if (na.length !== 11 && nb.length !== 11) return false;
+  return na.padStart(11, "0") === nb.padStart(11, "0");
+}
+
+/**
  * Chiave ragione sociale per match fallback (es. "Bologna Fiere Spa" ≈ "BolognaFiere spa").
  * Rimuove forme societarie anche attaccate al nome (es. BolognaFiereSPA).
  */

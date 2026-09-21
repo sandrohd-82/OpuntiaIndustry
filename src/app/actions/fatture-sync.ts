@@ -14,7 +14,10 @@ import {
   type FatturaSyncQueueItem,
   type RegisteredFatturaHint,
 } from "@/lib/amministrazione/fatture-sync";
-import { companyNamesMatch } from "@/lib/amministrazione/fic-anagrafiche";
+import {
+  companyNamesMatch,
+  vatKeysMatch,
+} from "@/lib/amministrazione/fic-anagrafiche";
 import { nextSequentialCodiceTarga } from "@/lib/amministrazione/codice-targa";
 import { getUsedFornitoriCodiciTarga } from "@/app/actions/fornitori";
 import { writeAuditLog } from "@/lib/audit";
@@ -48,9 +51,10 @@ function resolveFornitoreForDoc(
       return byExact;
     }
     for (const f of fornitori) {
-      const piva = normalizeVatKey(f.partita_iva ?? "");
-      const cf = normalizeVatKey(f.codice_fiscale ?? "");
-      if (piva === vat || cf === vat) {
+      if (
+        vatKeysMatch(f.partita_iva ?? "", vat) ||
+        vatKeysMatch(f.codice_fiscale ?? "", vat)
+      ) {
         return f;
       }
     }
@@ -59,15 +63,24 @@ function resolveFornitoreForDoc(
   const name = (doc.entityName || "").trim();
   if (!name) return null;
   const exactKey = normalizeCompanyNameKey(name);
+  const vatOk = (f: FornitoreRow) => {
+    const piva = normalizeVatKey(f.partita_iva ?? "");
+    if (!piva) return true;
+    if (!vat) return true;
+    return vatKeysMatch(piva, vat) || vatKeysMatch(f.codice_fiscale ?? "", vat);
+  };
   if (exactKey) {
     for (const f of fornitori) {
-      if (normalizeCompanyNameKey(f.ragione_sociale ?? "") === exactKey) {
+      if (
+        normalizeCompanyNameKey(f.ragione_sociale ?? "") === exactKey &&
+        vatOk(f)
+      ) {
         return f;
       }
     }
   }
   for (const f of fornitori) {
-    if (companyNamesMatch(name, f.ragione_sociale ?? "")) {
+    if (companyNamesMatch(name, f.ragione_sociale ?? "") && vatOk(f)) {
       return f;
     }
   }

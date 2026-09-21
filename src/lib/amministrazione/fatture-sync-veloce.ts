@@ -10,6 +10,7 @@ import {
 import {
   companyNamesMatch,
   normalizeVatKey,
+  vatKeysMatch,
 } from "@/lib/amministrazione/fic-anagrafiche";
 import {
   rigaFallbackTotaleXml,
@@ -102,7 +103,20 @@ function vatOrCfMatch(
   rowCf: string | null | undefined
 ): boolean {
   if (!vat) return false;
-  return normalizeVatKey(rowVat ?? "") === vat || normalizeVatKey(rowCf ?? "") === vat;
+  return vatKeysMatch(rowVat ?? "", vat) || vatKeysMatch(rowCf ?? "", vat);
+}
+
+function uniqueVatFallback(
+  rows: Array<Record<string, unknown>>,
+  vatKey: string,
+  message: string | undefined
+): Record<string, unknown> | null {
+  if (!message || !/duplicate|unique|partita_iva/i.test(message)) return null;
+  return (
+    rows.find((r) =>
+      vatOrCfMatch(vatKey, String(r.partita_iva ?? ""), String(r.codice_fiscale ?? ""))
+    ) ?? null
+  );
 }
 
 export async function ensureAnagraficaDaFic(input: {
@@ -161,24 +175,27 @@ export async function ensureAnagraficaDaFic(input: {
     };
   }
 
-  const nameHit = rows.find((r) =>
+  const nameHits = rows.filter((r) =>
     companyNamesMatch(nome, String(r.ragione_sociale ?? ""))
   );
-  if (nameHit) {
-    const hitVat = normalizeVatKey(String(nameHit.partita_iva ?? ""));
-    if (hitVat && hitVat !== vatKey) {
-      return {
-        error: `Ragione sociale già usata da ${String(nameHit.codice_targa)} con P.IVA diversa: non creo doppioni.`,
-      };
-    }
+  const nameReuse = nameHits.find((r) => {
+    const hitVat = normalizeVatKey(String(r.partita_iva ?? ""));
+    const hitCf = normalizeVatKey(String(r.codice_fiscale ?? ""));
+    if (!hitVat) return true;
+    return vatKeysMatch(hitVat, vatKey) || vatKeysMatch(hitCf, vatKey);
+  });
+  if (nameReuse) {
     return {
-      id: String(nameHit.id),
-      ragioneSociale: String(nameHit.ragione_sociale ?? nome),
-      codiceTarga: String(nameHit.codice_targa ?? ""),
-      partitaIva: String(nameHit.partita_iva ?? input.partitaIva),
+      id: String(nameReuse.id),
+      ragioneSociale: String(nameReuse.ragione_sociale ?? nome),
+      codiceTarga: String(nameReuse.codice_targa ?? ""),
+      partitaIva: String(nameReuse.partita_iva ?? input.partitaIva),
       created: false,
     };
   }
+  const nomeSimileTarghe = nameHits
+    .map((r) => String(r.codice_targa ?? "").trim())
+    .filter(Boolean);
 
   const used = rows
     .map((r) => String(r.codice_targa ?? "").trim().toUpperCase())
@@ -235,6 +252,16 @@ export async function ensureAnagraficaDaFic(input: {
       .select("*")
       .single();
     if (insErr || !row) {
+      const existing = uniqueVatFallback(rows, vatKey, insErr?.message);
+      if (existing) {
+        return {
+          id: String(existing.id),
+          ragioneSociale: String(existing.ragione_sociale ?? nome),
+          codiceTarga: String(existing.codice_targa ?? ""),
+          partitaIva: String(existing.partita_iva ?? input.partitaIva),
+          created: false,
+        };
+      }
       return { error: insErr?.message ?? "Creazione fornitore non riuscita." };
     }
     await writeAuditLog({
@@ -247,6 +274,7 @@ export async function ensureAnagraficaDaFic(input: {
         codice_targa: row.codice_targa,
         ragione_sociale: row.ragione_sociale,
         partita_iva: row.partita_iva,
+        nome_simile_targhe: nomeSimileTarghe,
       },
     });
     return {
@@ -299,6 +327,16 @@ export async function ensureAnagraficaDaFic(input: {
     .select("*")
     .single();
   if (insErr || !row) {
+    const existing = uniqueVatFallback(rows, vatKey, insErr?.message);
+    if (existing) {
+      return {
+        id: String(existing.id),
+        ragioneSociale: String(existing.ragione_sociale ?? nome),
+        codiceTarga: String(existing.codice_targa ?? ""),
+        partitaIva: String(existing.partita_iva ?? pivaStore),
+        created: false,
+      };
+    }
     return { error: insErr?.message ?? "Creazione cliente non riuscita." };
   }
   await writeAuditLog({
@@ -311,6 +349,7 @@ export async function ensureAnagraficaDaFic(input: {
       codice_targa: row.codice_targa,
       ragione_sociale: row.ragione_sociale,
       partita_iva: row.partita_iva,
+      nome_simile_targhe: nomeSimileTarghe,
     },
   });
   return {
