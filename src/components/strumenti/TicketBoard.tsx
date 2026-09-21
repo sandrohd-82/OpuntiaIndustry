@@ -9,6 +9,7 @@ import {
   FaMicrophone,
   FaPaperclip,
   FaPaperPlane,
+  FaSpinner,
   FaStop,
   FaTimes,
   FaTrash,
@@ -76,23 +77,32 @@ function fmtQuando(iso: string) {
 
 function accodaAllegati(
   correnti: AllegatoLocale[],
-  incoming: FileList | null,
+  incoming: File[],
   onTroppi: () => void
 ): AllegatoLocale[] {
-  if (!incoming?.length) return correnti;
+  if (!incoming.length) return correnti;
   const next = [...correnti];
-  for (const file of Array.from(incoming)) {
+  for (const file of incoming) {
     if (next.length >= TICKET_MAX_FILE_PER_MSG) {
       onTroppi();
       break;
     }
     next.push({
-      id: crypto.randomUUID(),
+      id: `${file.name}-${file.size}-${file.lastModified}-${crypto.randomUUID()}`,
       file,
       previewUrl: URL.createObjectURL(file),
     });
   }
   return next;
+}
+
+function TicketLoadBar({ text }: { text: string }) {
+  return (
+    <div className="mt-2 flex items-center gap-2 rounded-lg border border-slate-300 bg-slate-50 px-3 py-2 text-sm text-slate-800">
+      <FaSpinner className="shrink-0 animate-spin" />
+      <span>{text}</span>
+    </div>
+  );
 }
 
 function revocaAnteprime(items: AllegatoLocale[]) {
@@ -116,6 +126,8 @@ export function TicketBoard({ mode }: Props) {
   const [q, setQ] = useState("");
   const [chatText, setChatText] = useState("");
   const [busy, setBusy] = useState(false);
+  const [loadMsg, setLoadMsg] = useState("");
+  const [picking, setPicking] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [recording, setRecording] = useState(false);
   const [audioBlob, setAudioBlob] = useState<Blob | null>(null);
@@ -179,8 +191,10 @@ export function TicketBoard({ mode }: Props) {
 
   async function apri(id: string) {
     setBusy(true);
+    setLoadMsg("Apertura ticket…");
     const res = await getTicketAction(id);
     setBusy(false);
+    setLoadMsg("");
     if (!res.success) {
       setError(res.error);
       return;
@@ -188,6 +202,37 @@ export function TicketBoard({ mode }: Props) {
     setSel(res.ticket);
     setCanGestire(res.canGestire);
     setError(null);
+  }
+
+  function prendiFile(picked: File[], dove: "nuovo" | "chat") {
+    if (!picked.length) {
+      setPicking(false);
+      return;
+    }
+    setPicking(false);
+    setLoadMsg(`Preparazione anteprima (${picked.length} file)…`);
+    const add = (cur: AllegatoLocale[]) =>
+      accodaAllegati(cur, picked, () =>
+        setError(`Massimo ${TICKET_MAX_FILE_PER_MSG} file per messaggio.`)
+      );
+    if (dove === "nuovo") setAllegatiNuovo(add);
+    else setAllegatiChat(add);
+    window.setTimeout(() => setLoadMsg(""), 250);
+  }
+
+  function apriPicker(input: HTMLInputElement | null) {
+    if (!input || picking || busy) return;
+    setPicking(true);
+    setLoadMsg("Attendo il file dal disco…");
+    input.click();
+    const fine = () => {
+      window.removeEventListener("focus", fine);
+      window.setTimeout(() => {
+        setPicking(false);
+        setLoadMsg((m) => (m === "Attendo il file dal disco…" ? "" : m));
+      }, 400);
+    };
+    window.addEventListener("focus", fine, { once: true });
   }
 
   function fermaRec() {
@@ -224,12 +269,14 @@ export function TicketBoard({ mode }: Props) {
 
   async function crea() {
     setBusy(true);
+    setLoadMsg("Apertura ticket…");
     setError(null);
     const testo =
       descrizione.trim() ||
       (audioBlob ? "Nota vocale" : allegatiNuovo.length ? "Vedi allegato" : "");
     if (!testo) {
       setBusy(false);
+      setLoadMsg("");
       setError("Scrivi qualcosa oppure allega un file.");
       return;
     }
@@ -240,9 +287,11 @@ export function TicketBoard({ mode }: Props) {
     });
     if (!created.success) {
       setBusy(false);
+      setLoadMsg("");
       setError(created.error);
       return;
     }
+    setLoadMsg("Ticket creato. Invio allegati…");
     const daCaricare = allegatiNuovo.map((a) => a.file);
     if (audioBlob) {
       daCaricare.push(
@@ -255,9 +304,11 @@ export function TicketBoard({ mode }: Props) {
       ticketId: created.ticketId,
       messaggioId: created.messaggioId,
       files: daCaricare,
+      onProgress: setLoadMsg,
     });
     if (up.error) {
       setBusy(false);
+      setLoadMsg("");
       setError(up.error);
       const loaded = await getTicketAction(created.ticketId);
       if (loaded.success) {
@@ -266,8 +317,10 @@ export function TicketBoard({ mode }: Props) {
       }
       return;
     }
+    setLoadMsg("Aggiorno il ticket…");
     const loaded = await getTicketAction(created.ticketId);
     setBusy(false);
+    setLoadMsg("");
     if (!loaded.success) {
       setError(loaded.error);
       return;
@@ -285,6 +338,7 @@ export function TicketBoard({ mode }: Props) {
   async function inviaChat() {
     if (!sel) return;
     setBusy(true);
+    setLoadMsg("Invio messaggio…");
     setError(null);
     const contenuto =
       chatText.trim() ||
@@ -295,6 +349,7 @@ export function TicketBoard({ mode }: Props) {
     });
     if (!sent.success) {
       setBusy(false);
+      setLoadMsg("");
       setError(sent.error);
       return;
     }
@@ -310,13 +365,17 @@ export function TicketBoard({ mode }: Props) {
       ticketId: sent.ticketId,
       messaggioId: sent.messaggioId,
       files: daCaricare,
+      onProgress: setLoadMsg,
     });
     if (up.error) {
       setBusy(false);
+      setLoadMsg("");
       setError(up.error);
     }
+    setLoadMsg("Aggiorno la chat…");
     const loaded = await getTicketAction(sent.ticketId);
     setBusy(false);
+    setLoadMsg("");
     if (!loaded.success) {
       setError(loaded.error);
       return;
@@ -547,10 +606,11 @@ export function TicketBoard({ mode }: Props) {
                         ) : null}
                         <button
                           type="button"
-                          onClick={() => chatFileRef.current?.click()}
-                          className="inline-flex items-center gap-1 rounded-lg border border-slate-300 bg-white px-2.5 py-1 text-xs"
+                          disabled={busy || picking}
+                          onClick={() => apriPicker(chatFileRef.current)}
+                          className="inline-flex items-center gap-1 rounded-lg border border-slate-300 bg-white px-2.5 py-1 text-xs disabled:opacity-60"
                         >
-                          <FaPaperclip /> Allega
+                          <FaPaperclip /> {picking ? "Attendo…" : "Allega"}
                         </button>
                         <input
                           ref={chatFileRef}
@@ -558,14 +618,9 @@ export function TicketBoard({ mode }: Props) {
                           multiple
                           className="sr-only"
                           onChange={(e) => {
-                            setAllegatiChat((cur) =>
-                              accodaAllegati(cur, e.target.files, () =>
-                                setError(
-                                  `Massimo ${TICKET_MAX_FILE_PER_MSG} file per messaggio.`
-                                )
-                              )
-                            );
+                            const picked = Array.from(e.target.files ?? []);
                             e.target.value = "";
+                            prendiFile(picked, "chat");
                           }}
                         />
                         <button
@@ -574,7 +629,7 @@ export function TicketBoard({ mode }: Props) {
                           onClick={() => void inviaChat()}
                           className="ml-auto inline-flex items-center gap-1.5 rounded-lg bg-slate-800 px-3 py-1.5 text-sm font-medium text-white disabled:opacity-60"
                         >
-                          <FaPaperPlane /> Invia
+                          <FaPaperPlane /> {busy ? "Salvo…" : "Invia"}
                         </button>
                       </div>
                       <TicketAllegatiAnteprima
@@ -589,6 +644,7 @@ export function TicketBoard({ mode }: Props) {
                           })
                         }
                       />
+                      {loadMsg && sel ? <TicketLoadBar text={loadMsg} /> : null}
                     </div>
                   ) : (
                     <p className="border-t border-slate-200 px-3 py-2 text-xs text-slate-500">
@@ -686,11 +742,12 @@ export function TicketBoard({ mode }: Props) {
             ) : null}
             <button
               type="button"
-              onClick={() => fileRef.current?.click()}
-              className="inline-flex items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-sm"
+              disabled={busy || picking}
+              onClick={() => apriPicker(fileRef.current)}
+              className="inline-flex items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-sm disabled:opacity-60"
             >
               <FaPaperclip />
-              Allega
+              {picking ? "Attendo…" : "Allega"}
             </button>
             <input
               ref={fileRef}
@@ -698,25 +755,21 @@ export function TicketBoard({ mode }: Props) {
               multiple
               className="sr-only"
               onChange={(e) => {
-                setAllegatiNuovo((cur) =>
-                  accodaAllegati(cur, e.target.files, () =>
-                    setError(
-                      `Massimo ${TICKET_MAX_FILE_PER_MSG} file per messaggio.`
-                    )
-                  )
-                );
+                const picked = Array.from(e.target.files ?? []);
                 e.target.value = "";
+                prendiFile(picked, "nuovo");
               }}
             />
             <button
               type="button"
-              disabled={busy}
+              disabled={busy || picking}
               onClick={() => void crea()}
               className="ml-auto rounded-lg bg-slate-800 px-3 py-1.5 text-sm font-medium text-white disabled:opacity-60"
             >
-              {busy ? "Invio…" : "Apri ticket"}
+              {busy ? "Salvo…" : "Apri ticket"}
             </button>
           </div>
+          {loadMsg && !sel ? <TicketLoadBar text={loadMsg} /> : null}
           {allegatiNuovo.length ? (
             <p className="mt-2 text-xs text-slate-700">
               {allegatiNuovo.length} file pronti:{" "}

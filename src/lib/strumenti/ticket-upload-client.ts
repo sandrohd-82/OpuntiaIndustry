@@ -48,10 +48,17 @@ export async function caricaFileTicketLatoClient(input: {
   ticketId: string;
   messaggioId: string;
   files: File[];
+  onProgress?: (msg: string) => void;
 }): Promise<{ error?: string }> {
   if (!input.files.length) return {};
   const sb = createClient();
+  const tot = input.files.length;
+  let i = 0;
   for (const file of input.files) {
+    i += 1;
+    input.onProgress?.(
+      `Caricamento allegato ${i}/${tot}: ${file.name || "file"}…`
+    );
     const prep = await preparaTicketUploadAction({
       ticketId: input.ticketId,
       messaggioId: input.messaggioId,
