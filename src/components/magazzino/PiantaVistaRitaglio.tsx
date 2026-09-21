@@ -333,16 +333,16 @@ export function PiantaVistaRitaglio({
                   strokeWidth={stile.strokeWidth}
                 />
                 {foto && fit && !mostraDettaglio ? (
-                  <image
-                    href={foto.url}
-                    x={fit.x}
-                    y={fit.y}
-                    width={fit.width}
-                    height={fit.height}
-                    preserveAspectRatio="xMidYMid slice"
-                    clipPath={`url(#${clipId})`}
-                    pointerEvents="none"
-                  />
+                  <g clipPath={`url(#${clipId})`} pointerEvents="none">
+                    <image
+                      href={foto.url}
+                      x={fit.x}
+                      y={fit.y}
+                      width={fit.width}
+                      height={fit.height}
+                      preserveAspectRatio="xMidYMid slice"
+                    />
+                  </g>
                 ) : null}
                 {mostraDettaglio ? (
                   <g pointerEvents="none">

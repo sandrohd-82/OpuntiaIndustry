@@ -24,7 +24,26 @@ export async function salvaFotoPosto(input: {
   fileName: string;
   mime: string;
   bytes: Buffer;
-}): Promise<{ success: true; id: string } | { success: false; error: string }> {
+}): Promise<
+  | {
+      success: true;
+      id: string;
+      foto: {
+        id: string;
+        ubicazioneId: string;
+        storagePath: string;
+        fileName: string;
+        mime: string;
+        isPrincipale: boolean;
+        sortOrder: number;
+        fitScale: number;
+        offsetX: number;
+        offsetY: number;
+        url: string;
+      };
+    }
+  | { success: false; error: string }
+> {
   const auth = await getAuthContext();
   if (!auth) {
     return { success: false, error: "Accesso richiesto." };
@@ -113,7 +132,7 @@ export async function salvaFotoPosto(input: {
     await db.storage.from(POSTO_FOTO_BUCKET).remove([path]);
     return { success: false, error: error.message };
   }
-  await writeAuditLog({
+  void writeAuditLog({
     entity_type: "magazzino_posto_foto",
     entity_id: id,
     action: "create",
@@ -125,5 +144,30 @@ export async function salvaFotoPosto(input: {
       fit_scale: POSTO_FOTO_SCALE_DEFAULT,
     },
   });
-  return { success: true, id };
+  let url = "";
+  try {
+    const signed = await db.storage
+      .from(POSTO_FOTO_BUCKET)
+      .createSignedUrl(path, 60 * 60);
+    url = signed.data?.signedUrl ?? "";
+  } catch {
+    /* l’elenco firmerà l’URL al prossimo giro */
+  }
+  return {
+    success: true,
+    id,
+    foto: {
+      id,
+      ubicazioneId: input.ubicazioneId,
+      storagePath: path,
+      fileName: input.fileName.slice(0, 180),
+      mime,
+      isPrincipale: isPrincipale,
+      sortOrder,
+      fitScale: POSTO_FOTO_SCALE_DEFAULT,
+      offsetX: 0,
+      offsetY: 0,
+      url,
+    },
+  };
 }

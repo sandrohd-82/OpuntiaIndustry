@@ -50,6 +50,20 @@ async function bitmapDaFile(file: File): Promise<ImageBitmap | HTMLImageElement>
   }
 }
 
+async function conTimeout<T>(p: Promise<T>, ms: number, msg: string): Promise<T> {
+  let t: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      p,
+      new Promise<T>((_, reject) => {
+        t = setTimeout(() => reject(new Error(msg)), ms);
+      }),
+    ]);
+  } finally {
+    if (t) clearTimeout(t);
+  }
+}
+
 /**
  * Se la foto è grande la riduce a JPEG; niente limite imposto all’utente.
  */
@@ -77,7 +91,11 @@ export async function preparaFotoPostoPerUpload(file: File): Promise<File> {
 
   let bmp: ImageBitmap | HTMLImageElement;
   try {
-    bmp = await bitmapDaFile(file);
+    bmp = await conTimeout(
+      bitmapDaFile(file),
+      12_000,
+      "Preparazione foto troppo lenta. Riprova con un JPG più piccolo."
+    );
   } catch (e) {
     if (giaOk) return file;
     throw e instanceof Error ? e : new Error("Immagine non leggibile.");

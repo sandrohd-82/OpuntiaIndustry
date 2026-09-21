@@ -4,7 +4,6 @@ import { useEffect, useId, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { FaSpinner } from "react-icons/fa6";
 import {
-  aggiornaFitFotoAction,
   eliminaFotoPostoAction,
   impostaFotoPrincipaleAction,
 } from "@/app/actions/magazzino-posto-foto";
@@ -126,9 +125,10 @@ export function PiantaPostoFotoModal({
         method: "POST",
         body: fd,
         credentials: "include",
+        signal: AbortSignal.timeout(55_000),
       });
       const data = (await res.json().catch(() => null)) as
-        | { success: true }
+        | { success: true; foto?: PostoFoto[] }
         | { success: false; error: string }
         | null;
       if (!data?.success) {
@@ -141,8 +141,20 @@ export function PiantaPostoFotoModal({
         );
         return;
       }
-      await reload();
+      const nuove = data.foto ?? [];
+      if (nuove.length) {
+        setFoto((prev) => {
+          const ids = new Set(nuove.map((f) => f.id));
+          return [...prev.filter((f) => !ids.has(f.id)), ...nuove];
+        });
+        const prima = nuove[0];
+        setSelId(prima.id);
+        setScale(prima.fitScale || POSTO_FOTO_SCALE_DEFAULT);
+        setOx(prima.offsetX || 0);
+        setOy(prima.offsetY || 0);
+      }
       onCambio();
+      void reload();
     } catch (e) {
       setErrore(e instanceof Error ? e.message : "Caricamento fallito.");
     } finally {
@@ -153,23 +165,43 @@ export function PiantaPostoFotoModal({
   async function salvaFit() {
     if (!sel) return;
     setBusy("Salvo ritaglio…");
-    const res = await aggiornaFitFotoAction({
-      id: sel.id,
-      fitScale: scale,
-      offsetX: ox,
-      offsetY: oy,
-    });
-    setBusy("");
-    if (!res.success) {
-      setErrore(res.error);
-      return;
+    setErrore("");
+    try {
+      const res = await fetch("/api/magazzino/posto-foto", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        signal: AbortSignal.timeout(20_000),
+        body: JSON.stringify({
+          id: sel.id,
+          fitScale: scale,
+          offsetX: ox,
+          offsetY: oy,
+        }),
+      });
+      const data = (await res.json().catch(() => null)) as
+        | { success: true }
+        | { success: false; error: string }
+        | null;
+      if (!data?.success) {
+        setErrore(
+          data && "error" in data ? data.error : "Ritaglio non salvato."
+        );
+        return;
+      }
+      setFoto((prev) =>
+        prev.map((f) =>
+          f.id === sel.id
+            ? { ...f, fitScale: scale, offsetX: ox, offsetY: oy }
+            : f
+        )
+      );
+      onCambio();
+    } catch (e) {
+      setErrore(e instanceof Error ? e.message : "Ritaglio non salvato.");
+    } finally {
+      setBusy("");
     }
-    setFoto((prev) =>
-      prev.map((f) =>
-        f.id === sel.id ? { ...f, fitScale: scale, offsetX: ox, offsetY: oy } : f
-      )
-    );
-    onCambio();
   }
 
   const fit = rettangoloFotoNelBox({

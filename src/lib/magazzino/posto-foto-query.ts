@@ -58,10 +58,16 @@ async function signedUrls(
   const out = new Map<string, string>();
   if (!paths.length) return out;
   try {
-    const { data } = await db.storage
+    const work = db.storage
       .from(POSTO_FOTO_BUCKET)
       .createSignedUrls(paths, 60 * 60);
-    for (const item of data ?? []) {
+    const timed = (await Promise.race([
+      work,
+      new Promise<{ data: null }>((resolve) =>
+        setTimeout(() => resolve({ data: null }), 8000)
+      ),
+    ])) as { data?: Array<{ path?: string; signedUrl?: string }> | null };
+    for (const item of timed.data ?? []) {
       if (item.path && item.signedUrl) out.set(item.path, item.signedUrl);
     }
   } catch (e) {

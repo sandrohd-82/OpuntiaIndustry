@@ -7,6 +7,8 @@ import {
   queryFotoPrincipali,
 } from "@/lib/magazzino/posto-foto-query";
 import { salvaFotoPosto } from "@/lib/magazzino/posto-foto-upload";
+import { aggiornaFitFotoSchema, type PostoFoto } from "@/lib/magazzino/posto-foto";
+import { createServiceClient } from "@/lib/supabase/server";
 import type { AreaSlug } from "@/types/database";
 
 export const runtime = "nodejs";
@@ -93,6 +95,7 @@ export async function POST(request: Request) {
       );
     }
     const ids: string[] = [];
+    const foto: PostoFoto[] = [];
     for (const raw of files) {
       const blob = raw as File;
       const bytes = Buffer.from(await blob.arrayBuffer());
@@ -106,11 +109,54 @@ export async function POST(request: Request) {
         return NextResponse.json(saved, { status: 400 });
       }
       ids.push(saved.id);
+      foto.push(saved.foto);
     }
-    return NextResponse.json({ success: true, ids });
+    return NextResponse.json({ success: true, ids, foto });
   } catch (err) {
     const message =
       err instanceof Error ? err.message : "Caricamento foto non riuscito.";
+    return NextResponse.json({ success: false, error: message }, { status: 500 });
+  }
+}
+
+export async function PATCH(request: Request) {
+  try {
+    if (!(await puoVedereFoto())) {
+      return NextResponse.json(
+        { success: false, error: "Accesso richiesto." },
+        { status: 401 }
+      );
+    }
+    const auth = await getAuthContext();
+    const body = (await request.json().catch(() => null)) as unknown;
+    const parsed = aggiornaFitFotoSchema.safeParse(body);
+    if (!parsed.success) {
+      return NextResponse.json(
+        { success: false, error: parsed.error.issues[0]?.message ?? "Fit non valido." },
+        { status: 400 }
+      );
+    }
+    const db = createServiceClient();
+    const { error } = await db
+      .from("magazzino_posto_foto")
+      .update({
+        fit_scale: parsed.data.fitScale,
+        offset_x: parsed.data.offsetX,
+        offset_y: parsed.data.offsetY,
+        updated_by: auth?.userId ?? null,
+      })
+      .eq("id", parsed.data.id)
+      .is("deleted_at", null);
+    if (error) {
+      return NextResponse.json(
+        { success: false, error: error.message },
+        { status: 400 }
+      );
+    }
+    return NextResponse.json({ success: true });
+  } catch (err) {
+    const message =
+      err instanceof Error ? err.message : "Ritaglio non salvato.";
     return NextResponse.json({ success: false, error: message }, { status: 500 });
   }
 }
