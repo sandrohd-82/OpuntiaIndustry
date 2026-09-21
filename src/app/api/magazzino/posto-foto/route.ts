@@ -1,8 +1,67 @@
 import { NextResponse } from "next/server";
+import { isUnrestrictedSuperadmin } from "@/lib/auth/roles";
+import { getAuthContext, userCanAccessArea } from "@/lib/auth/session";
+import { isConfigStato, parseProfileStatoOperativo } from "@/lib/auth/stato-operativo";
+import {
+  queryFotoPosto,
+  queryFotoPrincipali,
+} from "@/lib/magazzino/posto-foto-query";
 import { salvaFotoPosto } from "@/lib/magazzino/posto-foto-upload";
+import type { AreaSlug } from "@/types/database";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
+
+const AREE: AreaSlug[] = [
+  "magazzino",
+  "strumenti",
+  "amministrazione",
+  "produzione",
+  "commerciale",
+  "action",
+  "area-fiscale",
+  "promemorie-e-note",
+];
+
+async function puoVedereFoto(): Promise<boolean> {
+  const auth = await getAuthContext();
+  if (!auth) return false;
+  if (isUnrestrictedSuperadmin(auth)) return true;
+  if (
+    auth.impersonating &&
+    isConfigStato(parseProfileStatoOperativo(auth.profile.stato_operativo))
+  ) {
+    return true;
+  }
+  return AREE.some((s) => userCanAccessArea(auth.areas, s));
+}
+
+export async function GET(request: Request) {
+  try {
+    if (!(await puoVedereFoto())) {
+      return NextResponse.json(
+        { success: false, error: "Accesso richiesto." },
+        { status: 401 }
+      );
+    }
+    const url = new URL(request.url);
+    const ubicazioneId = url.searchParams.get("ubicazioneId") ?? "";
+    const idsRaw = url.searchParams.get("ids") ?? "";
+    if (ubicazioneId) {
+      const res = await queryFotoPosto(ubicazioneId);
+      return NextResponse.json(res, { status: res.success ? 200 : 400 });
+    }
+    if (idsRaw) {
+      const res = await queryFotoPrincipali(idsRaw.split(","));
+      return NextResponse.json(res, { status: res.success ? 200 : 400 });
+    }
+    return NextResponse.json({ success: true, foto: [] });
+  } catch (err) {
+    const message =
+      err instanceof Error ? err.message : "Elenco foto non disponibile.";
+    return NextResponse.json({ success: false, error: message }, { status: 500 });
+  }
+}
 
 export async function POST(request: Request) {
   try {

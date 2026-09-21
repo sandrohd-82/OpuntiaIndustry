@@ -40,8 +40,10 @@ import { PiantaPostoOccupazione } from "@/components/magazzino/PiantaPostoOccupa
 import { PiantaPostoNuvola } from "@/components/magazzino/PiantaPostoNuvola";
 import { PiantaStampaEtichetteModal } from "@/components/magazzino/PiantaStampaEtichetteModal";
 import { PiantaPostoFotoModal } from "@/components/magazzino/PiantaPostoFotoModal";
-import { listFotoPrincipaliPostiAction } from "@/app/actions/magazzino-posto-foto";
-import type { PostoFotoPrincipale } from "@/lib/magazzino/posto-foto";
+import {
+  fetchFotoPrincipaliPosti,
+  type PostoFotoPrincipale,
+} from "@/lib/magazzino/posto-foto";
 
 function muoviVista(
   list: MappaMagazzino[],
@@ -175,7 +177,7 @@ export function PiantaLuogoBoard({ luogo }: { luogo: PiantaLuogoPagina }) {
       return;
     }
     let live = true;
-    void listFotoPrincipaliPostiAction(ids).then((res) => {
+    void fetchFotoPrincipaliPosti(ids).then((res) => {
       if (!live || !res.success) return;
       setFotoPrincipali(res.perPosto);
     });

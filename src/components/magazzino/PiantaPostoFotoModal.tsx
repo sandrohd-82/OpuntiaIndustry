@@ -6,11 +6,11 @@ import {
   aggiornaFitFotoAction,
   eliminaFotoPostoAction,
   impostaFotoPrincipaleAction,
-  listFotoPostoAction,
 } from "@/app/actions/magazzino-posto-foto";
 import { PiantaPostoFotoCarousel } from "@/components/magazzino/PiantaPostoFotoCarousel";
 import {
   POSTO_FOTO_SCALE_DEFAULT,
+  fetchFotoPosto,
   rettangoloFotoNelBox,
   type PostoFoto,
 } from "@/lib/magazzino/posto-foto";
@@ -53,7 +53,7 @@ export function PiantaPostoFotoModal({
   async function reload() {
     setLoad(true);
     try {
-      const res = await listFotoPostoAction(ubicazioneId);
+      const res = await fetchFotoPosto(ubicazioneId);
       if (!res.success) {
         setErrore(res.error);
         setFoto([]);

@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { dettaglioElencoPostoAction } from "@/app/actions/magazzino-posto-occupazione";
-import { listFotoPostoAction } from "@/app/actions/magazzino-posto-foto";
+import { fetchFotoPosto } from "@/lib/magazzino/posto-foto";
 import { PiantaPostoFotoCarousel } from "@/components/magazzino/PiantaPostoFotoCarousel";
 import {
   formatKgIt,
@@ -39,7 +39,7 @@ function ElencoFotoPosto({
 
   useEffect(() => {
     let live = true;
-    void listFotoPostoAction(ubicazioneId).then((res) => {
+    void fetchFotoPosto(ubicazioneId).then((res) => {
       if (!live || !res.success) return;
       setFoto(res.foto);
     });

@@ -57,6 +57,81 @@ export function mimeFotoAmmesso(mime: string): boolean {
   return POSTO_FOTO_MIME.has(mime.toLowerCase().trim());
 }
 
+const UUID_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+export function isUbicazioneUuid(value: string): boolean {
+  return UUID_RE.test(value.trim());
+}
+
+function erroreFotoLeggibile(raw: string): string {
+  if (/Server Components|digest|omitted in production/i.test(raw)) {
+    return "Elenco foto non disponibile. Riprova.";
+  }
+  return raw || "Elenco foto non disponibile.";
+}
+
+export async function fetchFotoPosto(
+  ubicazioneId: string
+): Promise<
+  { success: true; foto: PostoFoto[] } | { success: false; error: string }
+> {
+  try {
+    const q = new URLSearchParams({ ubicazioneId });
+    const res = await fetch(`/api/magazzino/posto-foto?${q}`, {
+      credentials: "include",
+      cache: "no-store",
+    });
+    const data = (await res.json().catch(() => null)) as
+      | { success: true; foto: PostoFoto[] }
+      | { success: false; error?: string }
+      | null;
+    if (!data || !("success" in data) || !data.success) {
+      return {
+        success: false,
+        error: erroreFotoLeggibile(
+          data && "error" in data && data.error ? data.error : ""
+        ),
+      };
+    }
+    return data;
+  } catch {
+    return { success: false, error: "Elenco foto non disponibile." };
+  }
+}
+
+export async function fetchFotoPrincipaliPosti(
+  ubicazioneIds: string[]
+): Promise<
+  | { success: true; perPosto: Record<string, PostoFotoPrincipale> }
+  | { success: false; error: string }
+> {
+  try {
+    const ids = [...new Set(ubicazioneIds.filter(Boolean))];
+    if (!ids.length) return { success: true, perPosto: {} };
+    const q = new URLSearchParams({ ids: ids.join(",") });
+    const res = await fetch(`/api/magazzino/posto-foto?${q}`, {
+      credentials: "include",
+      cache: "no-store",
+    });
+    const data = (await res.json().catch(() => null)) as
+      | { success: true; perPosto: Record<string, PostoFotoPrincipale> }
+      | { success: false; error?: string }
+      | null;
+    if (!data || !("success" in data) || !data.success) {
+      return {
+        success: false,
+        error: erroreFotoLeggibile(
+          data && "error" in data && data.error ? data.error : ""
+        ),
+      };
+    }
+    return data;
+  } catch {
+    return { success: false, error: "Elenco foto non disponibile." };
+  }
+}
+
 export function rettangoloFotoNelBox(opts: {
   x: number;
   y: number;

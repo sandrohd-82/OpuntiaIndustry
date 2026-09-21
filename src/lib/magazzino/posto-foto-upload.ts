@@ -1,8 +1,8 @@
 import { randomUUID } from "crypto";
 import { writeAuditLog } from "@/lib/audit";
-import { isTestImpersonation } from "@/lib/areas/guard";
 import { isUnrestrictedSuperadmin } from "@/lib/auth/roles";
 import { getAuthContext, userCanAccessArea } from "@/lib/auth/session";
+import { isConfigStato, parseProfileStatoOperativo } from "@/lib/auth/stato-operativo";
 import type { AreaSlug } from "@/types/database";
 import {
   POSTO_FOTO_BUCKET,
@@ -36,7 +36,10 @@ export async function salvaFotoPosto(input: {
     "commerciale",
   ];
   if (
-    !isTestImpersonation(auth) &&
+    !(
+      auth.impersonating &&
+      isConfigStato(parseProfileStatoOperativo(auth.profile.stato_operativo))
+    ) &&
     !isUnrestrictedSuperadmin(auth) &&
     !areeUpload.some((s) => userCanAccessArea(auth.areas, s))
   ) {
