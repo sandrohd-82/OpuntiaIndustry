@@ -11,8 +11,8 @@ import {
   rimuoviElementoPostoAction,
 } from "@/app/actions/magazzino-posto-occupazione";
 import { BarcodePreview } from "@/components/magazzino/BarcodePreview";
+import { PiantaStampaEtichetteModal } from "@/components/magazzino/PiantaStampaEtichetteModal";
 import {
-  POSTO_ELEMENTO_TIPO_LABEL,
   etichettaPayloadElemento,
   etichettaPayloadPallet,
   type ImballaggioPostoOpt,
@@ -21,46 +21,6 @@ import {
   type PostoPesoModo,
 } from "@/lib/magazzino/posto-occupazione";
 import type { MappaAreaDisegnata } from "@/lib/magazzino/ubicazioni";
-
-function stampaEtichette(occ: PostoOccupazione) {
-  const w = window.open("", "_blank", "width=720,height=900");
-  if (!w) return;
-  const mov = occ.movimentazioneNome || "movimentazione";
-  const righe = [
-    `<h1>${mov} ${occ.codicePallet}</h1><p>${occ.imballaggioNome} · ${POSTO_ELEMENTO_TIPO_LABEL[occ.tipoElemento]}</p>`,
-    occ.lottoInternoCodice
-      ? `<p>Lotto interno: ${occ.lottoInternoCodice}</p>`
-      : "",
-    occ.lottoEsternoCodice
-      ? `<p>Lotto esterno: ${occ.lottoEsternoCodice}</p>`
-      : "",
-    occ.kgAllocati != null
-      ? `<p>Peso: ${occ.kgAllocati} kg${
-          occ.pesoModo === "complessivo" && occ.pesoMotivazione
-            ? ` · ${occ.pesoMotivazione}`
-            : ""
-        }</p>`
-      : "",
-    ...occ.elementi.map(
-      (e) =>
-        `<div class="etichetta"><h2>N. ${e.numero}</h2><p>${mov} ${occ.codicePallet}${
-          e.pesoKg != null ? ` · ${e.pesoKg} kg` : ""
-        }</p><p class="mono">${etichettaPayloadElemento(occ.codicePallet, e.numero)}</p></div>`
-    ),
-  ].join("");
-  w.document.write(`<!doctype html><html><head><title>Etichette ${occ.codicePallet}</title>
-<style>
-body{font-family:sans-serif;padding:16px}
-.etichetta{border:1px solid #111;padding:12px;margin:12px 0;page-break-inside:avoid}
-h1,h2{margin:0 0 8px} .mono{font-family:monospace;font-size:12px}
-@media print { button{display:none} }
-</style></head><body>
-<p>Stampa etichette: QR/barre. Chiudi dopo la stampa.</p>
-${righe}
-<button onclick="window.print()">Stampa</button>
-</body></html>`);
-  w.document.close();
-}
 
 export function PiantaPostoOccupazione({
   posto,
@@ -87,6 +47,7 @@ export function PiantaPostoOccupazione({
   const [motivo, setMotivo] = useState("");
   const [lottoKey, setLottoKey] = useState("");
   const [stampaId, setStampaId] = useState<string | null>(null);
+  const [stampaModal, setStampaModal] = useState(false);
 
   const qtyN = Math.max(1, Math.min(200, Math.round(Number(qty) || 1)));
   const movSel = movimenti.find((m) => m.id === movId) ?? null;
@@ -343,7 +304,7 @@ export function PiantaPostoOccupazione({
           <div className="flex flex-wrap gap-2">
             <button
               type="button"
-              onClick={() => stampaEtichette(occ)}
+              onClick={() => setStampaModal(true)}
               className="rounded-lg border border-green-800 bg-white px-3 py-1.5 text-sm font-medium text-green-950"
             >
               Stampa etichette
@@ -567,6 +528,15 @@ export function PiantaPostoOccupazione({
         </div>
       )}
       {errore ? <p className="mt-2 text-sm text-red-700">{errore}</p> : null}
+      {stampaModal && occ ? (
+        <PiantaStampaEtichetteModal
+          ubicazioneId={posto.ubicazioneId}
+          postoCodice={posto.codice}
+          postoNome={posto.nome}
+          occupazioneIniziale={occ}
+          onClose={() => setStampaModal(false)}
+        />
+      ) : null}
     </div>
   );
 }

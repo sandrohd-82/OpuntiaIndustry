@@ -35,6 +35,7 @@ import {
 } from "@/components/magazzino/PiantaPostoPannello";
 import { PiantaPostoOccupazione } from "@/components/magazzino/PiantaPostoOccupazione";
 import { PiantaPostoNuvola } from "@/components/magazzino/PiantaPostoNuvola";
+import { PiantaStampaEtichetteModal } from "@/components/magazzino/PiantaStampaEtichetteModal";
 
 function muoviVista(
   list: MappaMagazzino[],
@@ -77,6 +78,11 @@ export function PiantaLuogoBoard({ luogo }: { luogo: PiantaLuogoPagina }) {
   );
   const [catalogoMov, setCatalogoMov] = useState<ImballaggioPostoOpt[]>([]);
   const [apertoElenco, setApertoElenco] = useState<string | null>(null);
+  const [stampaPosto, setStampaPosto] = useState<{
+    ubicazioneId: string;
+    postoCodice: string;
+    postoNome: string;
+  } | null>(null);
   const serverOrdine = luogo.mappe.map((m) => m.id).join(",");
 
   useEffect(() => {
@@ -632,6 +638,13 @@ export function PiantaLuogoBoard({ luogo }: { luogo: PiantaLuogoPagina }) {
                         <button
                           type="button"
                           className="rounded-lg border border-slate-400 bg-white px-2 py-1 text-xs font-medium text-slate-800"
+                          onClick={() =>
+                            setStampaPosto({
+                              ubicazioneId: a.id,
+                              postoCodice: a.codice,
+                              postoNome: a.nome,
+                            })
+                          }
                         >
                           Stampa etichette
                         </button>
@@ -676,6 +689,15 @@ export function PiantaLuogoBoard({ luogo }: { luogo: PiantaLuogoPagina }) {
           </table>
         )}
       </div>
+
+      {stampaPosto ? (
+        <PiantaStampaEtichetteModal
+          ubicazioneId={stampaPosto.ubicazioneId}
+          postoCodice={stampaPosto.postoCodice}
+          postoNome={stampaPosto.postoNome}
+          onClose={() => setStampaPosto(null)}
+        />
+      ) : null}
     </div>
   );
 }
