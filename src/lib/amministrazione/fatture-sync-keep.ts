@@ -101,6 +101,12 @@ export type FattureSyncSkipped = {
   motivo: string;
 };
 
+export type FattureSyncEccezione = {
+  ficId: number;
+  number: string;
+  motivo: string;
+};
+
 export const fattureSyncKeepKindSchema = z.enum(["emessa", "ricevuta"]);
 export const fattureSyncModalitaSchema = z.enum(["precisa", "veloce", "keep"]);
 export const fattureSyncStopMonthSchema = z

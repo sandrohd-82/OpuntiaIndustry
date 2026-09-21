@@ -38,6 +38,7 @@ type Props = {
   onFinished: (registeredCount: number) => void;
   /** Interrompe la sync: le fatture già registrate restano; al prossimo Sincronizza riparti dalle rimanenti. */
   onPaused: () => void;
+  avviso?: string | null;
 };
 
 type Step =
@@ -48,7 +49,12 @@ type Step =
   | { type: "compensazione-nc" }
   | { type: "fattura" };
 
-export function FatturaSyncQueueModal({ items, onFinished, onPaused }: Props) {
+export function FatturaSyncQueueModal({
+  items,
+  onFinished,
+  onPaused,
+  avviso,
+}: Props) {
   const { addCliente } = useClienti();
   const { addFornitore } = useFornitori();
   const [queueItems, setQueueItems] = useState(items);
@@ -481,6 +487,9 @@ export function FatturaSyncQueueModal({ items, onFinished, onPaused }: Props) {
             ) : null}
             . <strong>Pausa</strong> interrompe: al prossimo Sincronizza riparti
             dai documenti non ancora registrati (NC incluse).
+            {avviso ? (
+              <span className="mt-1 block text-amber-950">{avviso}</span>
+            ) : null}
           </>
         )}
       </p>

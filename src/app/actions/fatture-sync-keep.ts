@@ -32,11 +32,14 @@ import {
   type FattureSyncFatturaRegistrata,
   type FattureSyncKeepKind,
   type FattureSyncMonthOption,
+  type FattureSyncEccezione,
   type FattureSyncPendingMeta,
   type FattureSyncSkipped,
 } from "@/lib/amministrazione/fatture-sync-keep";
 import {
   buildFatturaSyncQueueItem,
+  ECCEZIONE_SYNC_PREZZO_NEGATIVO,
+  isErroreVincoloRigaFattura,
   type FatturaSyncQueueItem,
 } from "@/lib/amministrazione/fatture-sync";
 import {
@@ -79,7 +82,22 @@ export type FattureSyncVeloceResult = {
   anagraficheCreate: FattureSyncAnagraficaCreata[];
   fattureRegistrate: FattureSyncFatturaRegistrata[];
   errors: string[];
+  eccezione: FattureSyncEccezione | null;
+  remainingFicIds: number[];
 };
+
+function emptyVeloceResult(): FattureSyncVeloceResult {
+  return {
+    success: true,
+    registered: 0,
+    skipped: [],
+    anagraficheCreate: [],
+    fattureRegistrate: [],
+    errors: [],
+    eccezione: null,
+    remainingFicIds: [],
+  };
+}
 
 const previewCacheSchema = z.object({
   kind: fattureSyncKeepKindSchema,
@@ -508,6 +526,8 @@ async function runVeloceOnItems(input: {
   items: FatturaSyncQueueItem[];
   userId: string;
   supabase: unknown;
+  /** Wizard: si ferma alla prima eccezione e lascia il resto in remainingFicIds. */
+  stopOnEccezione?: boolean;
   onProgress?: (msg: string) => void;
 }): Promise<FattureSyncVeloceResult> {
   const created: FattureSyncAnagraficaCreata[] = [];
@@ -556,6 +576,33 @@ async function runVeloceOnItems(input: {
       continue;
     }
     const item = await hydrateIfNeeded(slim);
+    const eccezioneMotivo = item.eccezioneMotivo?.trim() || null;
+    if (eccezioneMotivo) {
+      if (input.stopOnEccezione) {
+        return finishVeloce({
+          created,
+          skipped,
+          fattureRegistrate,
+          errors,
+          registered,
+          anagIds,
+          kind: input.kind,
+          userId: input.userId,
+          eccezione: {
+            ficId: item.ficId,
+            number: item.numeroEsterno,
+            motivo: eccezioneMotivo,
+          },
+          remainingFicIds: input.items.slice(i + 1).map((x) => x.ficId),
+        });
+      }
+      skipped.push({
+        ficId: item.ficId,
+        number: item.numeroEsterno,
+        motivo: eccezioneMotivo,
+      });
+      continue;
+    }
     const vat = normalizeVatKey(item.entityVat || item.draft?.partitaIva || "");
     const cacheKey = vat || `${item.entityName}|${item.ficId}`;
     let anag = anagCache.get(cacheKey);
@@ -593,6 +640,28 @@ async function runVeloceOnItems(input: {
       const dup =
         /duplicate|unique|fic_id/i.test(saved.error) ||
         saved.error.toLowerCase().includes("già");
+      if (
+        input.stopOnEccezione &&
+        !dup &&
+        isErroreVincoloRigaFattura(saved.error)
+      ) {
+        return finishVeloce({
+          created,
+          skipped,
+          fattureRegistrate,
+          errors,
+          registered,
+          anagIds,
+          kind: input.kind,
+          userId: input.userId,
+          eccezione: {
+            ficId: item.ficId,
+            number: item.numeroEsterno,
+            motivo: ECCEZIONE_SYNC_PREZZO_NEGATIVO,
+          },
+          remainingFicIds: input.items.slice(i + 1).map((x) => x.ficId),
+        });
+      }
       skipped.push({
         ficId: item.ficId,
         number: item.numeroEsterno,
@@ -612,22 +681,49 @@ async function runVeloceOnItems(input: {
     });
   }
 
+  return finishVeloce({
+    created,
+    skipped,
+    fattureRegistrate,
+    errors,
+    registered,
+    anagIds,
+    kind: input.kind,
+    userId: input.userId,
+    eccezione: null,
+    remainingFicIds: [],
+  });
+}
+
+async function finishVeloce(input: {
+  created: FattureSyncAnagraficaCreata[];
+  skipped: FattureSyncSkipped[];
+  fattureRegistrate: FattureSyncFatturaRegistrata[];
+  errors: string[];
+  registered: number;
+  anagIds: Set<string>;
+  kind: FattureSyncKeepKind;
+  userId: string;
+  eccezione: FattureSyncEccezione | null;
+  remainingFicIds: number[];
+}): Promise<FattureSyncVeloceResult> {
   const sb = await createClient();
-  for (const id of anagIds) {
+  for (const id of input.anagIds) {
     if (input.kind === "ricevuta") {
       await rinumeraFattureRicevuteFornitoreInternal(sb, input.userId, id);
     } else {
       await rinumeraFattureEmesseClienteInternal(sb, input.userId, id);
     }
   }
-
   return {
     success: true,
-    registered,
-    skipped,
-    anagraficheCreate: created,
-    fattureRegistrate,
-    errors,
+    registered: input.registered,
+    skipped: input.skipped,
+    anagraficheCreate: input.created,
+    fattureRegistrate: input.fattureRegistrate,
+    errors: input.errors,
+    eccezione: input.eccezione,
+    remainingFicIds: input.remainingFicIds,
   };
 }
 
@@ -642,23 +738,21 @@ export async function runFattureSyncVeloceAction(input: {
   if (!kind.success) return { success: false, error: "Tipo non valido." };
   const ids = [...new Set(input.ficIds.filter((n) => Number.isFinite(n) && n > 0))];
   if (ids.length === 0) {
-    return {
-      success: true,
-      registered: 0,
-      skipped: [],
-      anagraficheCreate: [],
-      fattureRegistrate: [],
-      errors: [],
-    };
+    return emptyVeloceResult();
   }
 
   const wanted = await buildItemsFromFicIds(kind.data, ids);
+  const byId = new Map(wanted.map((it) => [it.ficId, it]));
+  const ordered = ids
+    .map((id) => byId.get(id))
+    .filter((it): it is FatturaSyncQueueItem => Boolean(it));
   const supabase = await createClient();
   const result = await runVeloceOnItems({
     kind: kind.data,
-    items: wanted,
+    items: ordered,
     userId: auth.userId,
     supabase,
+    stopOnEccezione: true,
   });
 
   await supabase.from("fatture_sync_run").insert({
@@ -685,6 +779,7 @@ export async function runFattureSyncVeloceAction(input: {
       anagrafiche: result.anagraficheCreate.length,
       fatture: result.fattureRegistrate,
       fase: input.fase,
+      eccezione: result.eccezione,
     },
   });
   return result;

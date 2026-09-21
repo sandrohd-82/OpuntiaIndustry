@@ -70,7 +70,56 @@ export type FatturaSyncQueueItem = {
    * al momento (lazy hydrate) per non bloccare l'apertura coda.
    */
   needsHydration?: boolean;
+  /** Se valorizzato, la veloce si ferma e apre la registrazione tradizionale. */
+  eccezioneMotivo?: string | null;
 };
+
+export const ECCEZIONE_SYNC_PREZZO_NEGATIVO =
+  "Riga con prezzo negativo (sconto FiC): serve la registrazione tradizionale.";
+
+/** Casi che non vanno in veloce: solo questa fattura passa al flusso tradizionale. */
+export function motivoEccezioneSyncFic(
+  raw: Record<string, unknown> | null | undefined
+): string | null {
+  if (!raw) return null;
+  const xmlRaw =
+    (typeof raw.ei_raw === "string" && raw.ei_raw) ||
+    (typeof raw.e_invoice_xml === "string" && raw.e_invoice_xml) ||
+    (typeof raw.xml === "string" && raw.xml) ||
+    "";
+  const xml = xmlRaw ? extractXmlFromPossiblySigned(xmlRaw) : null;
+  if (xml) {
+    try {
+      const paper = parseFatturaPaXml(xml);
+      if (paper.righe.some((l) => Number(l.prezzo) < 0)) {
+        return ECCEZIONE_SYNC_PREZZO_NEGATIVO;
+      }
+    } catch {
+      /* XML incompleto: si valuta la lista FiC */
+    }
+  }
+  const items = Array.isArray(raw.items_list)
+    ? raw.items_list
+    : Array.isArray(raw.items)
+      ? raw.items
+      : Array.isArray(raw.products)
+        ? raw.products
+        : [];
+  for (const item of items) {
+    const r = asRecord(item);
+    const prezzo = asNumber(
+      r.net_price ?? r.price ?? r.gross_price ?? r.unit_price
+    );
+    if (prezzo < 0) return ECCEZIONE_SYNC_PREZZO_NEGATIVO;
+  }
+  return null;
+}
+
+export function isErroreVincoloRigaFattura(message: string): boolean {
+  return /prezzo_check|sconto_check|iva_check|violates check constraint/i.test(
+    message
+  );
+}
 
 function asRecord(value: unknown): Record<string, unknown> {
   return value && typeof value === "object" && !Array.isArray(value)
@@ -788,6 +837,7 @@ export function buildFatturaSyncQueueItem(input: {
       linked?.numeroEsterno || refs[0] || "",
     duplicateCandidate: input.duplicateCandidate ?? null,
     needsHydration: false,
+    eccezioneMotivo: motivoEccezioneSyncFic(input.doc.raw),
   };
 }
 

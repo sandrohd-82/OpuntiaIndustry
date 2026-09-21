@@ -70,6 +70,15 @@ export function FatturaSyncWizardModal({ kind, onClose, onDone }: Props) {
   >([]);
   const [skippedNote, setSkippedNote] = useState<string | null>(null);
   const [skippedItems, setSkippedItems] = useState<FattureSyncSkipped[]>([]);
+  const [precisaAvviso, setPrecisaAvviso] = useState<string | null>(null);
+  const [resumeVeloce, setResumeVeloce] = useState<{
+    ids: number[];
+    fase: "prospettiva" | "retroso" | "mista";
+    after: "avviso" | "resoconto";
+    tot: number;
+    anags: FattureSyncAnagraficaCreata[];
+    fatture: FattureSyncFatturaRegistrata[];
+  } | null>(null);
 
   const entityLabel = kind === "ricevuta" ? "fornitori" : "clienti";
 
@@ -152,6 +161,131 @@ export function FatturaSyncWizardModal({ kind, onClose, onDone }: Props) {
     [fattureRegistrate, anagrafiche]
   );
 
+  type AccVeloce = {
+    tot: number;
+    anags: FattureSyncAnagraficaCreata[];
+    fatture: FattureSyncFatturaRegistrata[];
+  };
+
+  function applicaSkipped(
+    skipped: { ficId: number; number: string; motivo: string }[],
+    dove: "oggi" | "ritroso"
+  ) {
+    const skippedNuove = skipped.filter((s) => s.motivo !== "già registrata");
+    if (!skippedNuove.length) return;
+    setSkippedItems((prev) => [...prev, ...skippedNuove]);
+    setSkippedNote((prev) =>
+      [
+        prev,
+        dove === "oggi"
+          ? `${skippedNuove.length} documenti non registrati nel tratto fino a oggi.`
+          : `${skippedNuove.length} documenti saltati a ritroso.`,
+      ]
+        .filter(Boolean)
+        .join(" ")
+    );
+  }
+
+  async function apriPrecisaPerEccezione(
+    ficId: number,
+    number: string,
+    motivo: string,
+    resume: NonNullable<typeof resumeVeloce>
+  ): Promise<boolean> {
+    setResumeVeloce(resume);
+    setPrecisaAvviso(
+      `Fattura ${number || ficId}: ${motivo} Dopo il salvataggio si riprende la modalità veloce.`
+    );
+    setLoadMsg("Preparo la registrazione tradizionale per il documento eccezionale…");
+    const prep = await prepareFattureSyncPrecisaAction({
+      kind,
+      ficIds: [ficId],
+    });
+    if (!prep.success) {
+      setError(prep.error);
+      return false;
+    }
+    mergeAnag(prep.anagraficheCreate);
+    if (!prep.items.length) {
+      setResumeVeloce(null);
+      return false;
+    }
+    setPrecisaItems(prep.items);
+    setStep("precisa");
+    return true;
+  }
+
+  async function eseguiVeloceEGestisci(
+    ids: number[],
+    fase: "prospettiva" | "retroso" | "mista",
+    after: "avviso" | "resoconto",
+    acc: AccVeloce
+  ): Promise<{ status: "paused" | "done" | "error"; acc: AccVeloce }> {
+    if (!ids.length) return { status: "done", acc };
+    setStep(fase === "prospettiva" ? "forward" : "veloce");
+    setLoadMsg(
+      fase === "prospettiva"
+        ? `Registro ${ids.length} fatture dall’ultima registrata a oggi…`
+        : `Registro a ritroso ${ids.length} fatture (modalità veloce)…`
+    );
+    const res = await runFattureSyncVeloceAction({
+      kind,
+      ficIds: ids,
+      stopMonth,
+      fase,
+    });
+    if (!res.success) {
+      setError(res.error);
+      return { status: "error", acc };
+    }
+    const next: AccVeloce = {
+      tot: acc.tot + res.registered,
+      anags: [...acc.anags, ...res.anagraficheCreate],
+      fatture: [...acc.fatture, ...res.fattureRegistrate],
+    };
+    setRegistered(next.tot);
+    setAnagrafiche(next.anags);
+    setFattureRegistrate(next.fatture);
+    applicaSkipped(res.skipped, fase === "prospettiva" ? "oggi" : "ritroso");
+    if (res.eccezione) {
+      const opened = await apriPrecisaPerEccezione(
+        res.eccezione.ficId,
+        res.eccezione.number,
+        res.eccezione.motivo,
+        {
+          ids: res.remainingFicIds,
+          fase,
+          after,
+          tot: next.tot,
+          anags: next.anags,
+          fatture: next.fatture,
+        }
+      );
+      return { status: opened ? "paused" : "error", acc: next };
+    }
+    return { status: "done", acc: next };
+  }
+
+  async function chiudiSessione(
+    acc: AccVeloce,
+    modalita: "precisa" | "veloce",
+    fase: "prospettiva" | "retroso" | "mista"
+  ) {
+    await finalizeFattureSyncRunAction({
+      kind,
+      modalita,
+      fase,
+      stopMonth,
+      fattureCount: acc.tot,
+      anagraficheCreate: acc.anags,
+      fattureRegistrate: acc.fatture,
+    });
+    setPrecisaItems(null);
+    setResumeVeloce(null);
+    setPrecisaAvviso(null);
+    setStep("resoconto");
+  }
+
   async function procedi() {
     if (!stopMonth) return;
     setError(null);
@@ -184,52 +318,29 @@ export function FatturaSyncWizardModal({ kind, onClose, onDone }: Props) {
     setForwardIds(forward.map((d) => d.ficId));
     setRetroIds(retro.map((d) => d.ficId));
 
-    let tot = registered;
-    let anags = [...anagrafiche];
-    let fatture = [...fattureRegistrate];
+    let acc: AccVeloce = {
+      tot: registered,
+      anags: [...anagrafiche],
+      fatture: [...fattureRegistrate],
+    };
 
     if (forward.length > 0) {
-      setStep("forward");
-      setLoadMsg(
-        `Registro ${forward.length} fatture dall’ultima registrata a oggi…`
+      const out = await eseguiVeloceEGestisci(
+        forward.map((d) => d.ficId),
+        "prospettiva",
+        retro.length ? "avviso" : "resoconto",
+        acc
       );
-      const res = await runFattureSyncVeloceAction({
-        kind,
-        ficIds: forward.map((d) => d.ficId),
-        stopMonth,
-        fase: "prospettiva",
-      });
-      if (!res.success) {
-        setError(res.error);
+      if (out.status === "paused") return;
+      if (out.status === "error") {
         setStep("mesi");
         return;
       }
-      tot += res.registered;
-      anags = [...anags, ...res.anagraficheCreate];
-      fatture = [...fatture, ...res.fattureRegistrate];
-      setRegistered(tot);
-      setAnagrafiche(anags);
-      setFattureRegistrate(fatture);
-      const skippedNuove = res.skipped.filter((s) => s.motivo !== "già registrata");
-      setSkippedItems((prev) => [...prev, ...skippedNuove]);
-      if (skippedNuove.length) {
-        setSkippedNote(
-          `${skippedNuove.length} documenti non registrati nel tratto fino a oggi.`
-        );
-      }
+      acc = out.acc;
     }
 
     if (retro.length === 0) {
-      await finalizeFattureSyncRunAction({
-        kind,
-        modalita: "veloce",
-        fase: "prospettiva",
-        stopMonth,
-        fattureCount: tot,
-        anagraficheCreate: anags,
-        fattureRegistrate: fatture,
-      });
-      setStep("resoconto");
+      await chiudiSessione(acc, "veloce", "prospettiva");
       return;
     }
 
@@ -239,44 +350,26 @@ export function FatturaSyncWizardModal({ kind, onClose, onDone }: Props) {
   async function avviaRetro(mode: "precisa" | "veloce") {
     setError(null);
     if (mode === "veloce") {
-      setStep("veloce");
-      setLoadMsg(`Registro a ritroso ${retroIds.length} fatture (modalità veloce)…`);
-      const res = await runFattureSyncVeloceAction({
-        kind,
-        ficIds: retroIds,
-        stopMonth,
-        fase: "retroso",
-      });
-      if (!res.success) {
-        setError(res.error);
+      const out = await eseguiVeloceEGestisci(
+        retroIds,
+        "retroso",
+        "resoconto",
+        {
+          tot: registered,
+          anags: [...anagrafiche],
+          fatture: [...fattureRegistrate],
+        }
+      );
+      if (out.status === "paused") return;
+      if (out.status === "error") {
         setStep("avviso");
         return;
       }
-      const tot = registered + res.registered;
-      const anags = [...anagrafiche, ...res.anagraficheCreate];
-      const fatture = [...fattureRegistrate, ...res.fattureRegistrate];
-      setRegistered(tot);
-      setAnagrafiche(anags);
-      setFattureRegistrate(fatture);
-      const skippedNuove = res.skipped.filter((s) => s.motivo !== "già registrata");
-      setSkippedItems((prev) => [...prev, ...skippedNuove]);
-      if (skippedNuove.length) {
-        setSkippedNote((prev) =>
-          [prev, `${skippedNuove.length} documenti saltati a ritroso.`]
-            .filter(Boolean)
-            .join(" ")
-        );
-      }
-      await finalizeFattureSyncRunAction({
-        kind,
-        modalita: "veloce",
-        fase: retroIds.length && forwardIds.length ? "mista" : "retroso",
-        stopMonth,
-        fattureCount: tot,
-        anagraficheCreate: anags,
-        fattureRegistrate: fatture,
-      });
-      setStep("resoconto");
+      await chiudiSessione(
+        out.acc,
+        "veloce",
+        retroIds.length && forwardIds.length ? "mista" : "retroso"
+      );
       return;
     }
 
@@ -651,35 +744,68 @@ export function FatturaSyncWizardModal({ kind, onClose, onDone }: Props) {
       {step === "precisa" && precisaItems && precisaItems.length > 0 ? (
         <FatturaSyncQueueModal
           items={precisaItems}
+          avviso={precisaAvviso}
           onFinished={(n) => {
             void (async () => {
-              setRegistered((x) => x + n);
-              await finalizeFattureSyncRunAction({
-                kind,
-                modalita: "precisa",
-                fase: forwardIds.length ? "mista" : "retroso",
-                stopMonth,
-                fattureCount: registered + n,
-                anagraficheCreate: anagrafiche,
-                fattureRegistrate,
-              });
+              const r = resumeVeloce;
+              const acc = {
+                tot: (r?.tot ?? registered) + n,
+                anags: r?.anags ?? anagrafiche,
+                fatture: r?.fatture ?? fattureRegistrate,
+              };
+              setRegistered(acc.tot);
+              setAnagrafiche(acc.anags);
+              setFattureRegistrate(acc.fatture);
               setPrecisaItems(null);
-              setStep("resoconto");
+              setPrecisaAvviso(null);
+              if (r && r.ids.length) {
+                const out = await eseguiVeloceEGestisci(
+                  r.ids,
+                  r.fase,
+                  r.after,
+                  acc
+                );
+                if (out.status === "paused") return;
+                if (out.status === "error") {
+                  await chiudiSessione(out.acc, "veloce", r.fase);
+                  return;
+                }
+                if (r.after === "avviso") {
+                  setResumeVeloce(null);
+                  setStep("avviso");
+                  return;
+                }
+                await chiudiSessione(
+                  out.acc,
+                  "veloce",
+                  forwardIds.length && retroIds.length ? "mista" : r.fase
+                );
+                return;
+              }
+              if (r?.after === "avviso") {
+                setResumeVeloce(null);
+                setStep("avviso");
+                return;
+              }
+              await chiudiSessione(
+                acc,
+                r ? "veloce" : "precisa",
+                forwardIds.length ? "mista" : "retroso"
+              );
             })();
           }}
           onPaused={() => {
             void (async () => {
-              await finalizeFattureSyncRunAction({
-                kind,
-                modalita: "precisa",
-                fase: "retroso",
-                stopMonth,
-                fattureCount: registered,
-                anagraficheCreate: anagrafiche,
-                fattureRegistrate,
-              });
-              setPrecisaItems(null);
-              setStep("resoconto");
+              const r = resumeVeloce;
+              await chiudiSessione(
+                {
+                  tot: r?.tot ?? registered,
+                  anags: r?.anags ?? anagrafiche,
+                  fatture: r?.fatture ?? fattureRegistrate,
+                },
+                r ? "veloce" : "precisa",
+                r?.fase ?? "retroso"
+              );
             })();
           }}
         />
