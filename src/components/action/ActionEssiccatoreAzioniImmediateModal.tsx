@@ -29,11 +29,13 @@ function ConsentSwitch({
   onChange,
   label,
   onColorClass,
+  disabled = false,
 }: {
   checked: boolean;
   onChange: (next: boolean) => void;
   label: string;
   onColorClass: string;
+  disabled?: boolean;
 }) {
   return (
     <div className="flex items-center justify-between gap-3">
@@ -43,8 +45,12 @@ function ConsentSwitch({
         role="switch"
         aria-checked={checked}
         aria-label={label}
-        onClick={() => onChange(!checked)}
-        className={`relative inline-flex h-9 w-[4.75rem] shrink-0 items-center rounded-full transition-colors duration-200 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sky-600 ${
+        disabled={disabled}
+        onClick={() => {
+          if (disabled) return;
+          onChange(!checked);
+        }}
+        className={`relative inline-flex h-9 w-[4.75rem] shrink-0 items-center rounded-full transition-colors duration-200 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sky-600 disabled:cursor-not-allowed disabled:opacity-50 ${
           checked ? onColorClass : "bg-slate-300"
         }`}
       >
@@ -81,8 +87,10 @@ export function ActionEssiccatoreAzioniImmediateModal({
   const [tempBruciatoreC, setTempBruciatoreC] = useState(
     TEMP_BRUCIATORE_DEFAULT_C
   );
+  const [tempImpostata, setTempImpostata] = useState(false);
   const [consensoVentola, setConsensoVentola] = useState(false);
   const [percVentilazione, setPercVentilazione] = useState(0);
+  const [ventImpostata, setVentImpostata] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [done, setDone] = useState<ActionEssiccatoreAzione | null>(null);
   const [pending, startTransition] = useTransition();
@@ -100,7 +108,25 @@ export function ActionEssiccatoreAzioniImmediateModal({
     };
   }, [onClose]);
 
-  const canAvvia = consensoBruciatore && consensoVentola && !pending;
+  const consensiSbloccati = tempImpostata && ventImpostata;
+  const canAvvia =
+    consensiSbloccati && consensoBruciatore && consensoVentola && !pending;
+
+  function impostaTemperatura(value: number) {
+    setTempBruciatoreC(value);
+    setTempImpostata(true);
+  }
+
+  function impostaVentilazione(value: number) {
+    setPercVentilazione(value);
+    if (value > 0) {
+      setVentImpostata(true);
+      return;
+    }
+    setVentImpostata(false);
+    setConsensoVentola(false);
+    setConsensoBruciatore(false);
+  }
 
   function submitAvvio() {
     setError(null);
@@ -178,11 +204,9 @@ export function ActionEssiccatoreAzioniImmediateModal({
           ) : (
             <>
               <p className="text-sm text-[var(--muted)]">
-                Quattro settaggi, quattro messaggi IoT. I consensi devono
-                passare a On per l’accensione. Imposti la temperatura di uscita
-                bruciatore (35–70 °C): la percentuale la regola il sistema dalla
-                sonda TEMP-BRUC, in funzione della ventilazione. Il dispositivo
-                sarà collegato in seguito.
+                Prima imposta Temperatura e Ventilazione, poi porta a On
+                entrambi i consensi. La percentuale bruciatore la regola il
+                sistema dalla sonda TEMP-BRUC.
               </p>
 
               <div className="grid gap-4 md:grid-cols-2">
@@ -191,22 +215,23 @@ export function ActionEssiccatoreAzioniImmediateModal({
                     <FaFire className="text-orange-600" />
                     Bruciatore
                   </div>
-                  <ConsentSwitch
-                    label="Consenso bruciatore"
-                    checked={consensoBruciatore}
-                    onChange={setConsensoBruciatore}
-                    onColorClass="bg-orange-500"
-                  />
                   <ClockArcPercentGauge
-                    label="Temperatura uscita bruciatore"
+                    label="Temperatura"
                     value={tempBruciatoreC}
-                    onChange={setTempBruciatoreC}
+                    onChange={impostaTemperatura}
                     min={TEMP_BRUCIATORE_MIN_C}
                     max={TEMP_BRUCIATORE_MAX_C}
                     unit="°C"
                     ticks={[35, 45, 55, 65, 70]}
                     fromColor={BURNER_FROM}
                     toColor={BURNER_TO}
+                  />
+                  <ConsentSwitch
+                    label="Consenso bruciatore"
+                    checked={consensoBruciatore}
+                    onChange={setConsensoBruciatore}
+                    onColorClass="bg-orange-500"
+                    disabled={!consensiSbloccati}
                   />
                 </section>
 
@@ -215,18 +240,19 @@ export function ActionEssiccatoreAzioniImmediateModal({
                     <FaFan className="text-sky-600" />
                     Ventola
                   </div>
+                  <ClockArcPercentGauge
+                    label="Ventilazione"
+                    value={percVentilazione}
+                    onChange={impostaVentilazione}
+                    fromColor={VENT_FROM}
+                    toColor={VENT_TO}
+                  />
                   <ConsentSwitch
                     label="Consenso ventola"
                     checked={consensoVentola}
                     onChange={setConsensoVentola}
                     onColorClass="bg-sky-500"
-                  />
-                  <ClockArcPercentGauge
-                    label="Percentuale ventilazione"
-                    value={percVentilazione}
-                    onChange={setPercVentilazione}
-                    fromColor={VENT_FROM}
-                    toColor={VENT_TO}
+                    disabled={!consensiSbloccati}
                   />
                 </section>
               </div>
@@ -237,10 +263,14 @@ export function ActionEssiccatoreAzioniImmediateModal({
                 </p>
               ) : null}
 
-              {!consensoBruciatore || !consensoVentola ? (
+              {!consensiSbloccati ? (
                 <p className="text-sm text-amber-800">
-                  Porta a On il consenso bruciatore e il consenso ventola per
-                  avviare.
+                  Imposta prima Temperatura e Ventilazione (sopra 0%). Poi
+                  potrai mettere On entrambi i consensi.
+                </p>
+              ) : !consensoBruciatore || !consensoVentola ? (
+                <p className="text-sm text-amber-800">
+                  Porta a On entrambi i consensi per avviare.
                 </p>
               ) : null}
 
