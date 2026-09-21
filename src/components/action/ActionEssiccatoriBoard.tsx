@@ -7,6 +7,7 @@ import {
   moveActionEssiccatoreSensoreAction,
   renameActionEssiccatoreSensoreAction,
 } from "@/app/actions/action-essiccatore-sensori";
+import { ActionEssiccatoreAzioniImmediateModal } from "@/components/action/ActionEssiccatoreAzioniImmediateModal";
 import { ActionEssiccatoreSensorFlags } from "@/components/action/ActionEssiccatoreSensorFlags";
 import { PdfFirstPageImage } from "@/components/action/PdfFirstPageImage";
 import { InfoHint } from "@/components/ui/InfoHint";
@@ -21,7 +22,13 @@ import type { ActionEssiccatoreSensore } from "@/lib/action/sensori";
 const iconBtn =
   "inline-flex h-9 w-9 items-center justify-center rounded-lg text-slate-600 hover:bg-slate-100 hover:text-slate-900";
 
-function EssiccatoreCommandIcons({ nome }: { nome: string }) {
+function EssiccatoreCommandIcons({
+  nome,
+  onImmediate,
+}: {
+  nome: string;
+  onImmediate: () => void;
+}) {
   return (
     <div className="flex justify-end gap-1 px-3 py-2">
       <button
@@ -29,6 +36,7 @@ function EssiccatoreCommandIcons({ nome }: { nome: string }) {
         className={iconBtn}
         title="Azione — comando immediato"
         aria-label={`Azione immediata su ${nome}`}
+        onClick={onImmediate}
       >
         <FaBolt size={16} />
       </button>
@@ -59,6 +67,7 @@ function EssiccatoreBox({
   onMove,
   onCommit,
   onRename,
+  onImmediate,
 }: {
   item: ActionEssiccatore;
   sensors: ActionEssiccatoreSensore[];
@@ -66,6 +75,7 @@ function EssiccatoreBox({
   onMove: (id: string, xPct: number, yPct: number) => void;
   onCommit: (id: string, xPct: number, yPct: number) => void;
   onRename: (id: string, nome: string) => void;
+  onImmediate: () => void;
 }) {
   return (
     <article className="relative flex flex-col overflow-visible rounded-xl border border-[var(--border)] bg-[var(--card)] shadow-sm">
@@ -120,7 +130,7 @@ function EssiccatoreBox({
         />
       </div>
       <div className="flex items-center justify-end px-3 py-2">
-        <EssiccatoreCommandIcons nome={item.nome} />
+        <EssiccatoreCommandIcons nome={item.nome} onImmediate={onImmediate} />
       </div>
     </article>
   );
@@ -135,6 +145,9 @@ export function ActionEssiccatoriBoard({ canPosition = false }: Props) {
   const [sensors, setSensors] = useState<ActionEssiccatoreSensore[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
+  const [immediateFor, setImmediateFor] = useState<ActionEssiccatore | null>(
+    null
+  );
 
   useEffect(() => {
     void listActionEssiccatoreSensoriAction().then((res) => {
@@ -217,9 +230,16 @@ export function ActionEssiccatoriBoard({ canPosition = false }: Props) {
             onMove={patchLocal}
             onCommit={commitMove}
             onRename={rename}
+            onImmediate={() => setImmediateFor(item)}
           />
         ))}
       </div>
+      {immediateFor ? (
+        <ActionEssiccatoreAzioniImmediateModal
+          essiccatore={immediateFor}
+          onClose={() => setImmediateFor(null)}
+        />
+      ) : null}
     </div>
   );
 }

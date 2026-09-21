@@ -219,7 +219,7 @@ export const PAGE_EXTRAS: Record<string, TutorialBlock[]> = {
   "/app/action/aree/essiccatori": [
     {
       type: "p",
-      text: "Comandi IoT sugli essiccatori (accendi/spegni, stato). Lo spostamento sulla mappa lo fa solo il Super Admin non impersonato. Il resto delle voci Action è ancora in costruzione.",
+      text: "Il fulmine apre le azioni immediate di quell’essiccatore. Avvio richiede consenso bruciatore On, % bruciatore (manopola 8:00 azzurro → 16:00 rosso), consenso ventola On e % ventilazione (8:00 grigio → 16:00 azzurro). I 4 messaggi IoT restano in coda fino al collegamento del dispositivo. Lo spostamento dei sensori lo fa solo il Super Admin non impersonato.",
     },
   ],
   "/app/magazzino/mappa": [
