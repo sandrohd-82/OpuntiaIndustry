@@ -482,6 +482,7 @@ export function PiantaLuogoBoard({ luogo }: { luogo: PiantaLuogoPagina }) {
                 accese={accese}
                 primariaId={selezionata}
                 fotoPrincipali={fotoPrincipali}
+                riepilogoPosti={riepilogoPosti}
                 onSeleziona={modificaSequenza ? undefined : selezionaSolo}
                 occupazioneTesto={occTesto}
                 occupazioneLoading={occLoad}

@@ -2,12 +2,19 @@
 
 import {
   useCallback,
+  useEffect,
   useLayoutEffect,
+  useMemo,
   useRef,
   useState,
   type MouseEvent,
-  type RefObject,
 } from "react";
+import { getOccupazionePostoAction } from "@/app/actions/magazzino-posto-occupazione";
+import {
+  formatKgIt,
+  riepilogoOccupazionePosto,
+  type RiepilogoElencoPosto,
+} from "@/lib/magazzino/posto-occupazione";
 import {
   ritaglioDisegnoMappa,
   type MappaMagazzino,
@@ -100,6 +107,7 @@ export function PiantaVistaRitaglio({
   onOccupa,
   onSettaggioAnchor,
   fotoPrincipali,
+  riepilogoPosti,
 }: {
   mappa: MappaMagazzino;
   accese?: Set<string>;
@@ -111,6 +119,7 @@ export function PiantaVistaRitaglio({
   onOccupa?: (ubicazioneId: string) => void;
   onSettaggioAnchor?: (rect: DOMRect | null) => void;
   fotoPrincipali?: Record<string, PostoFotoPrincipale>;
+  riepilogoPosti?: Record<string, RiepilogoElencoPosto>;
 }) {
   const extra = (mappa.riferimenti ?? []).flatMap((g) => estremiCalcoDest(g));
   const box = ritaglioDisegnoMappa(mappa.linee, mappa.aree ?? [], extra);
@@ -118,43 +127,81 @@ export function PiantaVistaRitaglio({
   const glowId = `posto-glow-${mappa.id}`;
   const hostRef = useRef<HTMLDivElement>(null);
   const svgRef = useRef<SVGSVGElement>(null);
-  const infoRef = useRef<HTMLButtonElement>(null);
   const primaria = (mappa.aree ?? []).find(
     (a) => a.ubicazioneId && a.ubicazioneId === primariaId
   );
-  const [overlay, setOverlay] = useState<{
-    left: number;
-    top: number;
-    width: number;
-    height: number;
-  } | null>(null);
+  const [boxes, setBoxes] = useState<
+    Record<string, { left: number; top: number; width: number; height: number }>
+  >({});
   const [dettaglioFoto, setDettaglioFoto] = useState<Set<string>>(
     () => new Set()
   );
+  const [occLocal, setOccLocal] = useState<Record<string, string>>({});
   const mostraFoto = !isVistaDallAlto(mappa.vistaEtichetta || "");
 
-  const syncOverlay = useCallback(() => {
+  const overlayIdsKey = useMemo(() => {
+    const ids = new Set<string>();
+    for (const id of dettaglioFoto) ids.add(id);
+    if (primaria?.ubicazioneId) {
+      const haFoto = Boolean(
+        mostraFoto && fotoPrincipali?.[primaria.ubicazioneId]
+      );
+      if (!haFoto || dettaglioFoto.has(primaria.ubicazioneId)) {
+        ids.add(primaria.ubicazioneId);
+      }
+    }
+    return [...ids].sort().join(",");
+  }, [dettaglioFoto, primaria?.ubicazioneId, mostraFoto, fotoPrincipali]);
+
+  const syncBoxes = useCallback(() => {
     const svg = svgRef.current;
     const host = hostRef.current;
-    if (!svg || !host || !primaria) {
-      setOverlay(null);
+    const ids = overlayIdsKey ? overlayIdsKey.split(",") : [];
+    if (!svg || !host || !ids.length) {
+      setBoxes({});
       return;
     }
-    setOverlay(areaCssBox(svg, host, primaria));
-  }, [primaria]);
+    const next: typeof boxes = {};
+    for (const a of mappa.aree ?? []) {
+      if (!a.ubicazioneId || !ids.includes(a.ubicazioneId)) continue;
+      const b = areaCssBox(svg, host, a);
+      if (b && b.width > 4 && b.height > 4) next[a.ubicazioneId] = b;
+    }
+    setBoxes(next);
+  }, [overlayIdsKey, mappa.aree]);
 
   useLayoutEffect(() => {
-    syncOverlay();
+    syncBoxes();
     const host = hostRef.current;
     if (!host) return;
-    const ro = new ResizeObserver(() => syncOverlay());
+    const ro = new ResizeObserver(() => syncBoxes());
     ro.observe(host);
-    window.addEventListener("resize", syncOverlay);
+    window.addEventListener("resize", syncBoxes);
     return () => {
       ro.disconnect();
-      window.removeEventListener("resize", syncOverlay);
+      window.removeEventListener("resize", syncBoxes);
     };
-  }, [syncOverlay]);
+  }, [syncBoxes]);
+
+  const detKey = [...dettaglioFoto].sort().join(",");
+  useEffect(() => {
+    const ids = detKey ? detKey.split(",") : [];
+    if (!ids.length) return;
+    let live = true;
+    for (const id of ids) {
+      void getOccupazionePostoAction(id).then((res) => {
+        if (!live || !res.success || !res.occupazione) return;
+        const occ = res.occupazione;
+        setOccLocal((prev) => ({
+          ...prev,
+          [id]: riepilogoOccupazionePosto(occ),
+        }));
+      });
+    }
+    return () => {
+      live = false;
+    };
+  }, [detKey]);
 
   function onClick(e: MouseEvent<SVGSVGElement>) {
     const p = puntoSvg(e.currentTarget, e.clientX, e.clientY);
@@ -312,11 +359,24 @@ export function PiantaVistaRitaglio({
                   offsetY: foto.offsetY,
                 })
               : null;
+            const occTxt =
+              (primaria && occupazioneTesto) ||
+              occLocal[a.ubicazioneId] ||
+              (riepilogoPosti?.[a.ubicazioneId]
+                ? [
+                    riepilogoPosti[a.ubicazioneId].targa,
+                    formatKgIt(
+                      riepilogoPosti[a.ubicazioneId].quantitaTotaleKg
+                    ),
+                  ]
+                    .filter((x) => x && x !== "—")
+                    .join(" · ")
+                : "");
             const dettaglioRighe = [
               targa,
               a.nome.trim() && a.nome.trim() !== targa ? a.nome.trim() : "",
               cap.occupazione === "occupato" ? "Occupato" : "Libero",
-              primaria && occupazioneTesto ? occupazioneTesto : "",
+              cap.occupazione === "occupato" ? occTxt : "",
             ].filter(Boolean);
             return (
               <g
@@ -353,7 +413,7 @@ export function PiantaVistaRitaglio({
                       height={a.height}
                       fill="#ffffff"
                     />
-                    {primaria && a.ubicazioneId === primaria.ubicazioneId
+                    {boxes[a.ubicazioneId]
                       ? null
                       : dettaglioRighe.map((riga, i) => (
                       <text
@@ -413,35 +473,52 @@ export function PiantaVistaRitaglio({
             />
           ))}
         </svg>
-        {primaria &&
-        overlay &&
-        overlay.width > 4 &&
-        overlay.height > 4 &&
-        (!(mostraFoto && fotoPrincipali?.[primaria.ubicazioneId]) ||
-          dettaglioFoto.has(primaria.ubicazioneId)) ? (
-          <PostoOverlay
-            area={primaria}
-            box={overlay}
-            occupato={capienzaDi(primaria).occupazione === "occupato"}
-            suBianco={dettaglioFoto.has(primaria.ubicazioneId)}
-            haSettaggi={postoHaSettaggi(primaria)}
-            testo={occupazioneTesto ?? null}
-            loading={Boolean(occupazioneLoading)}
-            infoRef={infoRef}
-            onSettaggio={
-              onSettaggio
-                ? () => {
-                    onSettaggio(primaria.ubicazioneId);
-                    const el = infoRef.current;
-                    onSettaggioAnchor?.(el ? el.getBoundingClientRect() : null);
-                  }
-                : undefined
-            }
-            onOccupa={
-              onOccupa ? () => onOccupa(primaria.ubicazioneId) : undefined
-            }
-          />
-        ) : null}
+        {(mappa.aree ?? []).map((a) => {
+          const box = a.ubicazioneId ? boxes[a.ubicazioneId] : undefined;
+          if (!a.ubicazioneId || !box) return null;
+          const suBianco = dettaglioFoto.has(a.ubicazioneId);
+          const haFoto = Boolean(mostraFoto && fotoPrincipali?.[a.ubicazioneId]);
+          if (haFoto && !suBianco) return null;
+          const testo =
+            (a.ubicazioneId === primariaId && occupazioneTesto) ||
+            occLocal[a.ubicazioneId] ||
+            (riepilogoPosti?.[a.ubicazioneId]
+              ? [
+                  riepilogoPosti[a.ubicazioneId].targa,
+                  formatKgIt(
+                    riepilogoPosti[a.ubicazioneId].quantitaTotaleKg
+                  ),
+                ]
+                  .filter((x) => x && x !== "—")
+                  .join(" · ")
+              : "") ||
+            null;
+          return (
+            <PostoOverlay
+              key={`ov-${mappa.id}-${a.id}`}
+              area={a}
+              box={box}
+              occupato={capienzaDi(a).occupazione === "occupato"}
+              suBianco={suBianco}
+              haSettaggi={postoHaSettaggi(a)}
+              testo={testo}
+              loading={
+                Boolean(occupazioneLoading) && a.ubicazioneId === primariaId
+              }
+              onSettaggio={
+                onSettaggio
+                  ? (rect) => {
+                      onSettaggio(a.ubicazioneId);
+                      onSettaggioAnchor?.(rect);
+                    }
+                  : undefined
+              }
+              onOccupa={
+                onOccupa ? () => onOccupa(a.ubicazioneId) : undefined
+              }
+            />
+          );
+        })}
       </div>
     </div>
   );
@@ -455,7 +532,6 @@ function PostoOverlay({
   haSettaggi,
   testo,
   loading,
-  infoRef,
   onSettaggio,
   onOccupa,
 }: {
@@ -466,8 +542,7 @@ function PostoOverlay({
   haSettaggi: boolean;
   testo: string | null;
   loading: boolean;
-  infoRef: RefObject<HTMLButtonElement | null>;
-  onSettaggio?: () => void;
+  onSettaggio?: (rect: DOMRect) => void;
   onOccupa?: () => void;
 }) {
   const targa = area.codice.trim() || area.nome.trim() || "Posto";
@@ -499,7 +574,6 @@ function PostoOverlay({
       </p>
       {onSettaggio ? (
         <button
-          ref={infoRef}
           type="button"
           title="Info settaggio"
           aria-label={`Info settaggio ${targa}`}
@@ -513,7 +587,7 @@ function PostoOverlay({
           style={{ top: pad, right: pad }}
           onClick={(e) => {
             e.stopPropagation();
-            onSettaggio();
+            onSettaggio?.(e.currentTarget.getBoundingClientRect());
           }}
         >
           i
