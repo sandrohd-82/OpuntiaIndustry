@@ -561,6 +561,7 @@ export function PiantaLuogoBoard({ luogo }: { luogo: PiantaLuogoPagina }) {
           <PiantaPostoOccupazione
             key={`occ-${posto.ubicazioneId}`}
             posto={posto}
+            riepilogo={riepilogoPosti[posto.ubicazioneId]}
             onCambioStato={(st) => setStato(posto.ubicazioneId, st)}
             onChiudi={() => setPannello(null)}
           />
