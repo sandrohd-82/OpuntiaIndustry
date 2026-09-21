@@ -19,14 +19,12 @@ import {
   type UbicazioneCapienza,
 } from "@/lib/magazzino/ubicazioni";
 import {
-  getOccupazionePostoAction,
   listImballaggiPostoAction,
   listMovimentazioniPostiAction,
   listRiepilogoElencoPostiAction,
 } from "@/app/actions/magazzino-posto-occupazione";
 import {
   formatKgIt,
-  riepilogoOccupazionePosto,
   type ImballaggioPostoOpt,
   type RiepilogoElencoPosto,
 } from "@/lib/magazzino/posto-occupazione";
@@ -241,21 +239,14 @@ export function PiantaLuogoBoard({ luogo }: { luogo: PiantaLuogoPagina }) {
       setOccLoad(false);
       return;
     }
-    let live = true;
-    setOccLoad(true);
-    void getOccupazionePostoAction(selezionata).then((res) => {
-      if (!live) return;
+    const cached = riepilogoPosti[selezionata]?.testo?.trim();
+    if (cached) {
+      setOccTesto(cached);
       setOccLoad(false);
-      if (res.success && res.occupazione) {
-        setOccTesto(riepilogoOccupazionePosto(res.occupazione));
-        return;
-      }
-      setOccTesto(null);
-    });
-    return () => {
-      live = false;
-    };
-  }, [selezionata, occupazioneSel]);
+      return;
+    }
+    setOccLoad(false);
+  }, [selezionata, occupazioneSel, riepilogoPosti]);
 
   const vistePosto = posto
     ? mappe

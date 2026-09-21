@@ -9,6 +9,7 @@ import {
   occupaPostoSchema,
   pesoOccupazioneKg,
   rettificaOccupazionePostoSchema,
+  riepilogoOccupazionePosto,
   targaProdottoOccupazione,
   type DettaglioElencoPosto,
   type ImballaggioPostoOpt,
@@ -553,6 +554,7 @@ export async function listRiepilogoElencoPostiAction(
     perPosto[row.ubicazione_id] = {
       targa: targaProdottoOccupazione(occ, codice),
       quantitaTotaleKg: pesoOccupazioneKg(occ),
+      testo: riepilogoOccupazionePosto(occ),
     };
   }
   return { success: true, perPosto };

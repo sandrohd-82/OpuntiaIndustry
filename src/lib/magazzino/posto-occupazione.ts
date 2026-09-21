@@ -175,6 +175,7 @@ export type DettaglioElencoPosto = {
 export type RiepilogoElencoPosto = {
   targa: string;
   quantitaTotaleKg: number | null;
+  testo: string;
 };
 
 export function pesoOccupazioneKg(occ: PostoOccupazione): number | null {

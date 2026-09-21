@@ -2,19 +2,13 @@
 
 import {
   useCallback,
-  useEffect,
   useLayoutEffect,
   useMemo,
   useRef,
   useState,
   type MouseEvent,
 } from "react";
-import { getOccupazionePostoAction } from "@/app/actions/magazzino-posto-occupazione";
-import {
-  formatKgIt,
-  riepilogoOccupazionePosto,
-  type RiepilogoElencoPosto,
-} from "@/lib/magazzino/posto-occupazione";
+import { type RiepilogoElencoPosto } from "@/lib/magazzino/posto-occupazione";
 import {
   ritaglioDisegnoMappa,
   type MappaMagazzino,
@@ -136,7 +130,6 @@ export function PiantaVistaRitaglio({
   const [dettaglioFoto, setDettaglioFoto] = useState<Set<string>>(
     () => new Set()
   );
-  const [occLocal, setOccLocal] = useState<Record<string, string>>({});
   const mostraFoto = !isVistaDallAlto(mappa.vistaEtichetta || "");
 
   const overlayIdsKey = useMemo(() => {
@@ -183,25 +176,12 @@ export function PiantaVistaRitaglio({
     };
   }, [syncBoxes]);
 
-  const detKey = [...dettaglioFoto].sort().join(",");
-  useEffect(() => {
-    const ids = detKey ? detKey.split(",") : [];
-    if (!ids.length) return;
-    let live = true;
-    for (const id of ids) {
-      void getOccupazionePostoAction(id).then((res) => {
-        if (!live || !res.success || !res.occupazione) return;
-        const occ = res.occupazione;
-        setOccLocal((prev) => ({
-          ...prev,
-          [id]: riepilogoOccupazionePosto(occ),
-        }));
-      });
+  function testoOcc(id: string): string {
+    if (id === primariaId && occupazioneTesto?.trim()) {
+      return occupazioneTesto.trim();
     }
-    return () => {
-      live = false;
-    };
-  }, [detKey]);
+    return (riepilogoPosti?.[id]?.testo || "").trim();
+  }
 
   function onClick(e: MouseEvent<SVGSVGElement>) {
     const p = puntoSvg(e.currentTarget, e.clientX, e.clientY);
@@ -359,19 +339,7 @@ export function PiantaVistaRitaglio({
                   offsetY: foto.offsetY,
                 })
               : null;
-            const occTxt =
-              (primaria && occupazioneTesto) ||
-              occLocal[a.ubicazioneId] ||
-              (riepilogoPosti?.[a.ubicazioneId]
-                ? [
-                    riepilogoPosti[a.ubicazioneId].targa,
-                    formatKgIt(
-                      riepilogoPosti[a.ubicazioneId].quantitaTotaleKg
-                    ),
-                  ]
-                    .filter((x) => x && x !== "—")
-                    .join(" · ")
-                : "");
+            const occTxt = testoOcc(a.ubicazioneId);
             const dettaglioRighe = [
               targa,
               a.nome.trim() && a.nome.trim() !== targa ? a.nome.trim() : "",
@@ -479,20 +447,7 @@ export function PiantaVistaRitaglio({
           const suBianco = dettaglioFoto.has(a.ubicazioneId);
           const haFoto = Boolean(mostraFoto && fotoPrincipali?.[a.ubicazioneId]);
           if (haFoto && !suBianco) return null;
-          const testo =
-            (a.ubicazioneId === primariaId && occupazioneTesto) ||
-            occLocal[a.ubicazioneId] ||
-            (riepilogoPosti?.[a.ubicazioneId]
-              ? [
-                  riepilogoPosti[a.ubicazioneId].targa,
-                  formatKgIt(
-                    riepilogoPosti[a.ubicazioneId].quantitaTotaleKg
-                  ),
-                ]
-                  .filter((x) => x && x !== "—")
-                  .join(" · ")
-              : "") ||
-            null;
+          const testo = testoOcc(a.ubicazioneId) || null;
           return (
             <PostoOverlay
               key={`ov-${mappa.id}-${a.id}`}
@@ -502,9 +457,7 @@ export function PiantaVistaRitaglio({
               suBianco={suBianco}
               haSettaggi={postoHaSettaggi(a)}
               testo={testo}
-              loading={
-                Boolean(occupazioneLoading) && a.ubicazioneId === primariaId
-              }
+              loading={false}
               onSettaggio={
                 onSettaggio
                   ? (rect) => {
