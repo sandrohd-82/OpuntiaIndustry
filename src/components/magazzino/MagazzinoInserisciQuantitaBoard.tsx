@@ -8,7 +8,10 @@ import {
   listProdottiPropriMagazzinoAction,
   movimentoManualeAgrinsiciliaAction,
 } from "@/app/actions/magazzino";
-import { listImballaggiCatalogoMagazzinoAction } from "@/app/actions/magazzino-lotti";
+import {
+  listImballaggiCatalogoMagazzinoAction,
+  listLottiAgrinsiciliaProdottoAction,
+} from "@/app/actions/magazzino-lotti";
 import { listUbicazioniRiponibiliAction } from "@/app/actions/magazzino-mappa";
 import { anteprimaLottoUscitaAction } from "@/app/actions/lotti-esterni";
 import { BarcodePreview } from "@/components/magazzino/BarcodePreview";
@@ -47,6 +50,9 @@ type ProdottoOpt = {
 
 export function MagazzinoInserisciQuantitaBoard() {
   const searchParams = useSearchParams();
+  const isModifica =
+    searchParams.get("modo") === "modifica" ||
+    searchParams.get("da") === "elenco";
   const prefillDone = useRef(false);
   const [prodotti, setProdotti] = useState<ProdottoOpt[]>([]);
   const [fogli, setFogli] = useState<FoglioApertoOption[]>([]);
@@ -126,6 +132,14 @@ export function MagazzinoInserisciQuantitaBoard() {
       setLottoCodice(lotto);
       const parsed = parseLottoAgrinsicilia(lotto);
       if (parsed?.ddt) setMpInventario(parsed.ddt);
+    } else if (isModifica) {
+      void listLottiAgrinsiciliaProdottoAction(hit.id).then((res) => {
+        if (!res.success || res.lotti.length !== 1) return;
+        const only = res.lotti[0];
+        setLottoCodice(only.lottoCodice);
+        const parsed = parseLottoAgrinsicilia(only.lottoCodice);
+        if (parsed?.ddt) setMpInventario(parsed.ddt);
+      });
     }
     const foglioCodice = searchParams.get("foglio")?.trim() ?? "";
     if (foglioCodice) {
@@ -140,7 +154,7 @@ export function MagazzinoInserisciQuantitaBoard() {
       setUbicazioneId(ubi);
       setRimandaUbi(false);
     }
-  }, [ready, prodotti, fogli, ubicazioni, searchParams]);
+  }, [ready, prodotti, fogli, ubicazioni, searchParams, isModifica]);
 
   const selected = useMemo(
     () => prodotti.find((p) => p.id === prodottoId) ?? null,
@@ -206,7 +220,7 @@ export function MagazzinoInserisciQuantitaBoard() {
     const postoGiaOccupato =
       ubicazioni.find((u) => u.id === ubicazioneId)?.occupazione ===
       "occupato";
-    if (postoScelto && !postoGiaOccupato) {
+    if (postoScelto && !postoGiaOccupato && !isModifica) {
       const mapped = occupazioneInputDaCarico({
         ubicazioneId,
         prodottoId,
@@ -219,7 +233,7 @@ export function MagazzinoInserisciQuantitaBoard() {
         setError(mapped.error);
         return;
       }
-    } else if (!rimandaCi && confDraft.nodi.length === 0) {
+    } else if (!isModifica && !rimandaCi && confDraft.nodi.length === 0) {
       setError(
         "Aggiungi almeno un blocco di confezionamento, oppure spunta «Completa in un secondo momento»."
       );
@@ -242,6 +256,7 @@ export function MagazzinoInserisciQuantitaBoard() {
         confezionamento: confDraft,
         associaLottoUscita: Boolean(lottoUscita),
         lottoUscitaAnteprima: lottoUscita?.codice ?? null,
+        modo: isModifica ? "modifica" : "inserisci",
       });
       if (!result.success) {
         setError(result.error);
@@ -253,30 +268,37 @@ export function MagazzinoInserisciQuantitaBoard() {
           : ` Lotto in uscita ${result.lottoUscitaCodice} registrato.`
         : "";
       setOk(
-        `Carico registrato. Giacenza attuale: ${formatQuantitaCarico(
-          result.giacenzaKg,
-          unitaStockDaCarico(selected?.unitaScheda ?? unitaMisura)
-        )}.${
-          result.foglioMpCodice
-            ? ` Foglio Codice MP Lavorata ${result.foglioMpCodice} archiviato (Storico / Archivio).`
-            : ""
-        }${
-          result.occupazionePostoCodice
-            ? ` Posto occupato in pianta (pallet ${result.occupazionePostoCodice}).`
-            : result.occupazioneErrore
-              ? ` Carico ok, ma la pianta non è stata occupata: ${result.occupazioneErrore}`
-              : ""
-        }${lottoMsg}`
+        isModifica
+          ? `Quantità aggiornata (non aggiunta). Giacenza attuale: ${formatQuantitaCarico(
+              result.giacenzaKg,
+              unitaStockDaCarico(selected?.unitaScheda ?? unitaMisura)
+            )}.${lottoMsg}`
+          : `Carico registrato. Giacenza attuale: ${formatQuantitaCarico(
+              result.giacenzaKg,
+              unitaStockDaCarico(selected?.unitaScheda ?? unitaMisura)
+            )}.${
+              result.foglioMpCodice
+                ? ` Foglio Codice MP Lavorata ${result.foglioMpCodice} archiviato (Storico / Archivio).`
+                : ""
+            }${
+              result.occupazionePostoCodice
+                ? ` Posto occupato in pianta (pallet ${result.occupazionePostoCodice}).`
+                : result.occupazioneErrore
+                  ? ` Carico ok, ma la pianta non è stata occupata: ${result.occupazioneErrore}`
+                  : ""
+            }${lottoMsg}`
       );
-      setQuantita("");
-      setLottoCodice("");
-      setMpInventario("");
-      setLottoUscita(null);
-      setNote("");
-      setConfDraft(emptyConfezionamentoDraft());
-      setRimandaCi(false);
-      setUbicazioneId("");
-      setRimandaUbi(false);
+      if (!isModifica) {
+        setQuantita("");
+        setLottoCodice("");
+        setMpInventario("");
+        setLottoUscita(null);
+        setNote("");
+        setConfDraft(emptyConfezionamentoDraft());
+        setRimandaCi(false);
+        setUbicazioneId("");
+        setRimandaUbi(false);
+      }
       await reload();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Salvataggio non riuscito.");
@@ -298,20 +320,22 @@ export function MagazzinoInserisciQuantitaBoard() {
         className="space-y-4 rounded-xl border border-[var(--border)] bg-[var(--card)] p-5"
       >
         <div>
-          <h3 className="text-base font-semibold">Carico manuale</h3>
+          <h3 className="text-base font-semibold">
+            {isModifica ? "Modifica quantità" : "Carico manuale"}
+          </h3>
           <p className="mt-1 text-sm text-[var(--muted)]">
-            Prodotto, quantità, lotto e foglio di lavorazione. Il foglio si
-            può bypassare solo per inventario o rivisita di ordine, con
-            motivazione tracciata.
+            {isModifica
+              ? "La quantità che inserisci sostituisce quella attuale del lotto. Per aggiungere merce nuova usa Inserisci quantità."
+              : "Prodotto, quantità, lotto e foglio di lavorazione. Il foglio si può bypassare solo per inventario o rivisita di ordine, con motivazione tracciata."}
           </p>
-          {searchParams.get("da") === "elenco" && prodottoId ? (
+          {isModifica && prodottoId ? (
             <p className="mt-2 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-900">
-              Parametri precompilati dall’elenco quantità
+              Modifica dalla scheda elenco
               {selected
                 ? ` · ${selected.codice} — ${selected.nome}`
                 : ""}
-              {lottoCodice ? ` · lotto ${lottoCodice}` : ""}. Controlla la
-              quantità prima di registrare.
+              {lottoCodice ? ` · lotto ${lottoCodice}` : ""}. Il valore nel
+              campo è la nuova giacenza, non un aggiunta.
             </p>
           ) : null}
         </div>
@@ -631,7 +655,11 @@ export function MagazzinoInserisciQuantitaBoard() {
             disabled={saving}
             className="rounded-lg bg-[var(--primary)] px-4 py-2 text-sm font-medium text-white hover:bg-[var(--primary-hover)] disabled:opacity-50"
           >
-            {saving ? "Registrazione…" : "Registra carico"}
+            {saving
+              ? "Salvataggio…"
+              : isModifica
+                ? "Salva modifica"
+                : "Registra carico"}
           </button>
         </div>
       </form>

@@ -28,6 +28,7 @@ export function hrefInserisciQuantita(p: InserisciQuantitaPrefill): string {
   const q = new URLSearchParams();
   q.set("prodotto", p.prodottoId);
   q.set("da", "elenco");
+  q.set("modo", "modifica");
   if (p.quantita != null && Number.isFinite(p.quantita) && p.quantita > 0) {
     q.set("q", String(p.quantita));
   }

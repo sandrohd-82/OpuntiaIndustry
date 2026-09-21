@@ -16,7 +16,10 @@ import {
   type ConfezionamentoNodoRow,
   type ImballaggioVoce,
 } from "@/lib/amministrazione/imballaggi-spedizioni";
-import { isMagazzinoCaricoUnita } from "@/lib/magazzino/types";
+import {
+  isMagazzinoCaricoUnita,
+  segnoQuantitaMovimento,
+} from "@/lib/magazzino/types";
 import type {
   ImballaggioMagazzinoOpt,
   LottoAgrinsiciliaDettaglio,
@@ -293,7 +296,7 @@ export async function listLottiAgrinsiciliaProdottoAction(
   const { data, error } = await supabase
     .from("magazzino_movimenti")
     .select(
-      "prodotto_id, lotto_codice, quantita_kg, created_at, confez_isolamento_rimandato, confezione_id, isolamento_id, foglio:produzione_fogli_lavorazione(codice), foglio_ingresso:produzione_fogli_ingresso_mp!foglio_ingresso_mp_id(codice), lotto_esterno:lotti_esterni!lotto_esterno_id(codice), confezione:imballaggi_voci!confezione_id(nome), isolamento:imballaggi_voci!isolamento_id(nome)"
+      "prodotto_id, lotto_codice, tipo, quantita_kg, created_at, confez_isolamento_rimandato, confezione_id, isolamento_id, foglio:produzione_fogli_lavorazione(codice), foglio_ingresso:produzione_fogli_ingresso_mp!foglio_ingresso_mp_id(codice), lotto_esterno:lotti_esterni!lotto_esterno_id(codice), confezione:imballaggi_voci!confezione_id(nome), isolamento:imballaggi_voci!isolamento_id(nome)"
     )
     .eq("catalog_kind", CATALOG_PROPRIO)
     .eq("prodotto_id", prodottoId)
@@ -316,7 +319,10 @@ export async function listLottiAgrinsiciliaProdottoAction(
     const conf = Array.isArray(r.confezione) ? r.confezione[0] : r.confezione;
     const iso = Array.isArray(r.isolamento) ? r.isolamento[0] : r.isolamento;
     const prev = byLotto.get(lotto);
-    const qty = Number(r.quantita_kg) || 0;
+    const qty = segnoQuantitaMovimento(
+      String(r.tipo ?? ""),
+      Number(r.quantita_kg) || 0
+    );
     const daCompletare =
       Boolean(r.confez_isolamento_rimandato) ||
       !r.confezione_id ||
@@ -337,9 +343,6 @@ export async function listLottiAgrinsiciliaProdottoAction(
         isolamentoNome: (iso as { nome?: string } | null)?.nome ?? null,
         daCompletareCi: daCompletare,
         confezionamentoRiepilogo: null,
-        kgSistemati: 0,
-        kgDaSistemare: qty,
-        postiEtichette: [],
       });
     } else {
       prev.quantitaKg = Math.round((prev.quantitaKg + qty) * 1000) / 1000;
@@ -386,46 +389,6 @@ export async function listLottiAgrinsiciliaProdottoAction(
       } else {
         row.daCompletareCi = false;
       }
-    }
-  }
-
-  if (lotti.length) {
-    const { data: alls } = await supabase
-      .from("magazzino_posto_allocazioni")
-      .select(
-        "prodotto_id, lotto_interno_codice, kg, ubicazione:magazzino_ubicazioni(codice, nome)"
-      )
-      .eq("prodotto_id", prodottoId)
-      .eq("stato", "attivo")
-      .is("deleted_at", null)
-      .in(
-        "lotto_interno_codice",
-        lotti.map((l) => l.lottoCodice)
-      );
-    for (const a of (alls ?? []) as Array<{
-      prodotto_id: string;
-      lotto_interno_codice: string;
-      kg: number;
-      ubicazione:
-        | { codice?: string; nome?: string }
-        | { codice?: string; nome?: string }[]
-        | null;
-    }>) {
-      const row = byLotto.get(a.lotto_interno_codice);
-      if (!row) continue;
-      const kg = Number(a.kg) || 0;
-      row.kgSistemati = Math.round((row.kgSistemati + kg) * 1000) / 1000;
-      const u = Array.isArray(a.ubicazione) ? a.ubicazione[0] : a.ubicazione;
-      const etichetta = [u?.codice, u?.nome].filter(Boolean).join(" — ");
-      if (etichetta) {
-        row.postiEtichette.push(
-          `${etichetta} (${kg.toLocaleString("it-IT")} kg)`
-        );
-      }
-    }
-    for (const row of lotti) {
-      row.kgDaSistemare =
-        Math.round((row.quantitaKg - row.kgSistemati) * 1000) / 1000;
     }
   }
 
@@ -649,7 +612,12 @@ export async function getLottoAgrinsiciliaDettaglioAction(input: {
   for (const m of movimenti) {
     timeline.push({
       at: m.created_at,
-      titolo: m.tipo === "carico" ? "Carico magazzino" : `Movimento ${m.tipo}`,
+      titolo:
+        m.tipo === "carico"
+          ? "Carico magazzino"
+          : m.tipo === "rettifica"
+            ? "Rettifica quantità"
+            : `Movimento ${m.tipo}`,
       dettaglio: `${m.quantita_kg} ${m.unita}${m.note ? ` · ${m.note}` : ""}`,
       operatore: nomi.get(m.created_by ?? "") ?? null,
     });
@@ -665,7 +633,10 @@ export async function getLottoAgrinsiciliaDettaglioAction(input: {
   timeline.sort((a, b) => a.at.localeCompare(b.at));
 
   const quantitaKg = Math.round(
-    movimenti.reduce((s, m) => s + (Number(m.quantita_kg) || 0), 0) * 1000
+    movimenti.reduce(
+      (s, m) => s + segnoQuantitaMovimento(m.tipo, Number(m.quantita_kg) || 0),
+      0
+    ) * 1000
   ) / 1000;
   const { data: header } = await supabase
     .from("magazzino_confezionamento")
@@ -791,17 +762,24 @@ export async function completaConfezIsolamentoLottoAction(input: {
   const supabase = await createClient();
   const { data: movs } = await supabase
     .from("magazzino_movimenti")
-    .select("id, quantita_kg")
+    .select("id, tipo, quantita_kg")
     .eq("catalog_kind", CATALOG_PROPRIO)
     .eq("prodotto_id", input.prodottoId)
     .eq("lotto_codice", input.lottoCodice)
     .is("deleted_at", null);
-  const movimenti = (movs ?? []) as Array<{ id: string; quantita_kg: number }>;
+  const movimenti = (movs ?? []) as Array<{
+    id: string;
+    tipo: string;
+    quantita_kg: number;
+  }>;
   if (!movimenti.length) {
     return { success: false, error: "Nessun movimento da aggiornare." };
   }
   const kgCarico = Math.round(
-    movimenti.reduce((s, m) => s + (Number(m.quantita_kg) || 0), 0) * 1000
+    movimenti.reduce(
+      (s, m) => s + segnoQuantitaMovimento(m.tipo, Number(m.quantita_kg) || 0),
+      0
+    ) * 1000
   ) / 1000;
   const saved = await upsertMagazzinoConfezionamentoLotto({
     prodottoId: input.prodottoId,

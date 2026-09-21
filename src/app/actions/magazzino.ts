@@ -13,6 +13,7 @@ import {
   movimentoManualeSchema,
   quantitaDaOrdinare,
   quantitaStockDaCarico,
+  segnoQuantitaMovimento,
   unitaSchedaProdotto,
   unitaStockDaCarico,
   updateMagazzinoProdottoSchema,
@@ -1013,10 +1014,45 @@ export async function movimentoManualeAgrinsiciliaAction(
     return { success: false, error: "Impossibile comporre il lotto." };
   }
 
+  const isModifica = input.modo === "modifica";
+
+  const { data: movLottoRows } = await supabase
+    .from("magazzino_movimenti")
+    .select("tipo, quantita_kg, foglio_id, motivo_senza_foglio, lotto_esterno_id")
+    .eq("catalog_kind", CATALOG_PROPRIO)
+    .eq("prodotto_id", input.prodottoId)
+    .eq("lotto_codice", lottoCodice)
+    .is("deleted_at", null)
+    .order("created_at", { ascending: true });
+  const lottoPrima = Math.round(
+    ((movLottoRows ?? []) as Array<{
+      tipo: string;
+      quantita_kg: number;
+    }>).reduce(
+      (s, m) => s + segnoQuantitaMovimento(m.tipo, Number(m.quantita_kg) || 0),
+      0
+    ) * 1000
+  ) / 1000;
+  const ultimoMovLotto = (
+    (movLottoRows ?? []) as Array<{
+      foglio_id?: string | null;
+      motivo_senza_foglio?: string | null;
+      lotto_esterno_id?: string | null;
+    }>
+  ).at(-1);
+
+  if (isModifica && lottoPrima <= 0 && !movLottoRows?.length) {
+    return {
+      success: false,
+      error:
+        "Modifica quantità: questo lotto non ha ancora giacenza. Per entrare merce usa Inserisci quantità.",
+    };
+  }
+
   let lottoEsternoId: string | null = null;
   let lottoUscitaCodice: string | null = null;
   let lottoUscitaCodiceCambiato = false;
-  if (input.associaLottoUscita) {
+  if (input.associaLottoUscita && !isModifica) {
     const { creaLottoUscitaAlSalvataggio } = await import(
       "@/app/actions/lotti-esterni"
     );
@@ -1054,7 +1090,7 @@ export async function movimentoManualeAgrinsiciliaAction(
   }
 
   let foglioMp: { id: string; codice: string } | null = null;
-  if (isValidLottoIngressoMp(lottoParti.ddt)) {
+  if (!isModifica && isValidLottoIngressoMp(lottoParti.ddt)) {
     const motivoLabel = input.collegaFoglio
       ? "Collegato a foglio di lavorazione"
       : input.motivoSenzaFoglio
@@ -1081,6 +1117,9 @@ export async function movimentoManualeAgrinsiciliaAction(
   }
 
   const qtyStock = quantitaStockDaCarico(input.quantita, input.unitaMisura);
+  const deltaStock = isModifica
+    ? Math.round((qtyStock - lottoPrima) * 1000) / 1000
+    : qtyStock;
   let occupaInput: OccupaPostoInput | null = null;
   if (input.ubicazioneId && !input.rimandaUbicazione) {
     const svc = createServiceClient();
@@ -1139,7 +1178,27 @@ export async function movimentoManualeAgrinsiciliaAction(
     .is("deleted_at", null)
     .maybeSingle();
   const prima = giac ? Number(giac.quantita_kg) || 0 : 0;
-  const dopo = Math.round((prima + qtyStock) * 1000) / 1000;
+  const dopo = Math.round((prima + deltaStock) * 1000) / 1000;
+  if (dopo < -0.0005) {
+    return {
+      success: false,
+      error:
+        "La quantità indicata ridurrebbe la giacenza sotto zero. Controlla il valore.",
+    };
+  }
+
+  if (isModifica && Math.abs(deltaStock) < 0.0005) {
+    return {
+      success: true,
+      giacenzaKg: prima,
+      movimentoId: "",
+      foglioMpCodice: null,
+      lottoUscitaCodice: null,
+      lottoUscitaCodiceCambiato: false,
+      occupazionePostoCodice: null,
+      occupazioneErrore: null,
+    };
+  }
 
   const giacPayload = {
     catalog_kind: CATALOG_PROPRIO,
@@ -1163,22 +1222,42 @@ export async function movimentoManualeAgrinsiciliaAction(
     if (error) return { success: false, error: error.message };
   }
 
+  const foglioIdMov =
+    input.collegaFoglio && input.foglioId
+      ? input.foglioId
+      : isModifica
+        ? ultimoMovLotto?.foglio_id ?? null
+        : null;
+  const motivoMov = foglioIdMov
+    ? null
+    : input.motivoSenzaFoglio ??
+      ultimoMovLotto?.motivo_senza_foglio ??
+      (isModifica ? "inventario" : null);
+  const noteMov = isModifica
+    ? (
+        input.note.trim() ||
+        `Rettifica quantità da elenco: lotto da ${lottoPrima} a ${qtyStock}`
+      )
+    : input.note.trim();
+
+  if (isModifica && !lottoEsternoId) {
+    lottoEsternoId = ultimoMovLotto?.lotto_esterno_id ?? null;
+  }
+
   const { data: mov, error: movErr } = await supabase
     .from("magazzino_movimenti")
     .insert({
       catalog_kind: CATALOG_PROPRIO,
       prodotto_id: input.prodottoId,
       prodotto_codice: prodotto.codice,
-      tipo: "carico",
-      quantita_kg: qtyStock,
+      tipo: isModifica ? "rettifica" : "carico",
+      quantita_kg: deltaStock,
       unita: input.unitaMisura,
       lotto_codice: lottoCodice,
-      foglio_id: input.collegaFoglio ? input.foglioId : null,
-      motivo_senza_foglio: input.collegaFoglio
-        ? null
-        : input.motivoSenzaFoglio,
-      riferimento: "carico-manuale",
-      note: input.note.trim(),
+      foglio_id: foglioIdMov,
+      motivo_senza_foglio: motivoMov,
+      riferimento: isModifica ? "rettifica-elenco" : "carico-manuale",
+      note: noteMov,
       foglio_ingresso_mp_id: foglioMp?.id ?? null,
       lotto_esterno_id: lottoEsternoId,
       confezione_id: input.confezioneId ?? null,
@@ -1206,7 +1285,11 @@ export async function movimentoManualeAgrinsiciliaAction(
   }
 
   let confezRiepilogo = "";
-  if (input.confezionamento || input.rimandaConfezIsolamento) {
+  const confNodi = input.confezionamento?.nodi?.length ?? 0;
+  if (
+    (!isModifica && (input.confezionamento || input.rimandaConfezIsolamento)) ||
+    (isModifica && confNodi > 0)
+  ) {
     const derived = input.confezionamento
       ? idsFromConfezionamento(input.confezionamento.nodi)
       : { confezioneId: null, isolamentoId: null };
@@ -1244,14 +1327,19 @@ export async function movimentoManualeAgrinsiciliaAction(
   void writeAuditLog({
     entity_type: "magazzino_movimenti",
     entity_id: mov.id,
-    action: "create",
+    action: isModifica ? "update" : "create",
     actor_id: auth.userId,
-    summary: `Carico manuale ${formatQuantitaCarico(qtyStock, input.unitaMisura)} · ${prodotto.codice} · lotto ${lottoCodice}`,
+    summary: isModifica
+      ? `Rettifica quantità ${formatQuantitaCarico(lottoPrima, input.unitaMisura)} → ${formatQuantitaCarico(qtyStock, input.unitaMisura)} · ${prodotto.codice} · lotto ${lottoCodice}`
+      : `Carico manuale ${formatQuantitaCarico(qtyStock, input.unitaMisura)} · ${prodotto.codice} · lotto ${lottoCodice}`,
     payload: {
       prodotto_id: input.prodottoId,
+      modo: isModifica ? "modifica" : "inserisci",
       quantita: input.quantita,
       unita: input.unitaMisura,
       quantita_stock: qtyStock,
+      delta_stock: deltaStock,
+      lotto_prima: lottoPrima,
       unita_stock: unitaStock,
       lotto_codice: lottoCodice,
       lotto_parti: lottoParti,
@@ -1307,6 +1395,37 @@ export async function movimentoManualeAgrinsiciliaAction(
       });
     } else {
       occupazioneErrore = occRes.error;
+    }
+  }
+
+  if (isModifica && Math.abs(deltaStock) >= 0.0005) {
+    const svcOcc = createServiceClient();
+    const { data: occLotto } = await svcOcc
+      .from("magazzino_posto_occupazioni")
+      .select("id, kg_allocati, peso_modo, peso_complessivo_kg")
+      .eq("prodotto_id", input.prodottoId)
+      .eq("lotto_interno_codice", lottoCodice)
+      .eq("stato", "attivo")
+      .is("deleted_at", null);
+    for (const occ of (occLotto ?? []) as Array<{
+      id: string;
+      kg_allocati: number | string | null;
+      peso_modo?: string | null;
+      peso_complessivo_kg?: number | string | null;
+    }>) {
+      const nextKg = Math.max(
+        0.001,
+        Math.round(qtyStock * 1000) / 1000
+      );
+      await svcOcc
+        .from("magazzino_posto_occupazioni")
+        .update({
+          kg_allocati: nextKg,
+          peso_complessivo_kg:
+            occ.peso_modo === "complessivo" ? nextKg : occ.peso_complessivo_kg,
+          updated_by: auth.userId,
+        })
+        .eq("id", occ.id);
     }
   }
 

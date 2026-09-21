@@ -278,6 +278,17 @@ export function formatQuantitaCarico(
   return `${q.toLocaleString("it-IT")} ${label}`;
 }
 
+/** Carico/produzione +, scarico −, rettifica con il segno già in quantita_kg. */
+export function segnoQuantitaMovimento(
+  tipo: string | null | undefined,
+  quantitaKg: number
+): number {
+  const q = Number(quantitaKg) || 0;
+  const t = String(tipo ?? "").toLowerCase();
+  if (t === "scarico" || t === "uscita_produzione") return -Math.abs(q);
+  return q;
+}
+
 export const movimentoManualeSchema = z
   .object({
     prodottoId: z.string().uuid("Seleziona un prodotto"),
@@ -309,8 +320,10 @@ export const movimentoManualeSchema = z
       .toUpperCase()
       .optional()
       .nullable(),
+    modo: z.enum(["inserisci", "modifica"]).optional().default("inserisci"),
   })
   .superRefine((val, ctx) => {
+    if (val.modo === "modifica") return;
     if (val.collegaFoglio && !val.foglioId) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
@@ -397,9 +410,6 @@ export type LottoAgrinsiciliaElencoRiga = {
   isolamentoNome: string | null;
   daCompletareCi: boolean;
   confezionamentoRiepilogo: string | null;
-  kgSistemati: number;
-  kgDaSistemare: number;
-  postiEtichette: string[];
 };
 
 export type LottoTimelineEvento = {
