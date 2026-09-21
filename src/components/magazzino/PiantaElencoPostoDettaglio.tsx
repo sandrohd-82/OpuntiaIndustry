@@ -6,6 +6,11 @@ import type {
   DettaglioElencoPosto,
   PostoOccupazione,
 } from "@/lib/magazzino/posto-occupazione";
+import { parseLottoAgrinsicilia } from "@/lib/magazzino/lotto-agrinsicilia";
+import {
+  formatKgIt,
+  pesoOccupazioneKg,
+} from "@/lib/magazzino/stampa-etichette-posto";
 import type { UbicazioneCapienza } from "@/lib/magazzino/ubicazioni";
 
 function misura(v: number | null, u: string): string {
@@ -22,16 +27,14 @@ function riga(label: string, value: string) {
   );
 }
 
-function pesoOccupazione(occ: PostoOccupazione): string {
-  const pesoEl = occ.elementi.reduce((s, e) => s + (e.pesoKg ?? 0), 0);
-  const n =
-    occ.pesoModo === "complessivo" && occ.pesoComplessivoKg != null
-      ? Number(occ.pesoComplessivoKg)
-      : pesoEl > 0
-        ? pesoEl
-        : Number(occ.kgAllocati ?? 0);
-  if (!Number.isFinite(n) || n <= 0) return "—";
-  return `${n.toLocaleString("it-IT")} kg`;
+function targaProdottoInserito(
+  occ: PostoOccupazione,
+  codice: string | undefined
+): string {
+  const daProdotto = (codice ?? "").trim();
+  if (daProdotto) return daProdotto;
+  const daLotto = parseLottoAgrinsicilia(occ.lottoInternoCodice || "");
+  return daLotto?.targaProdotto.trim() || "";
 }
 
 export function PiantaElencoPostoDettaglio({
@@ -116,6 +119,8 @@ export function PiantaElencoPostoDettaglio({
     );
   }
   const prod = det?.prodotto;
+  const targa = targaProdottoInserito(occ, prod?.codice);
+  const qtaTotale = formatKgIt(pesoOccupazioneKg(occ));
   const tipoEl =
     occ.tipoElemento === "isolamento" ? "Sacchetto / isolamento" : "Cartone / confezione";
   return (
@@ -124,10 +129,14 @@ export function PiantaElencoPostoDettaglio({
       <ul className="mt-2 space-y-1">
         {riga(
           "Tipo prodotto",
-          prod
-            ? `${prod.codice}${prod.nome ? ` — ${prod.nome}` : ""}`
-            : "—"
+          prod?.nome?.trim()
+            ? prod.nome
+            : prod?.codice
+              ? prod.codice
+              : "—"
         )}
+        {riga("Targa", targa || "—")}
+        {riga("Quantità totale", qtaTotale)}
         {riga("Lotto interno", occ.lottoInternoCodice || "—")}
         {riga("Lotto esterno", occ.lottoEsternoCodice || "—")}
         {riga("Movimentazione", occ.movimentazioneNome || "—")}
@@ -136,7 +145,7 @@ export function PiantaElencoPostoDettaglio({
           "Quantità elementi",
           occ.quantitaElementi != null ? String(occ.quantitaElementi) : "—"
         )}
-        {riga("Peso", pesoOccupazione(occ))}
+        {riga("Peso", qtaTotale)}
         {riga("Codice pallet", occ.codicePallet || "—")}
       </ul>
       {occ.elementi.length ? (
