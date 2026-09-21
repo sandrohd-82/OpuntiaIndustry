@@ -65,7 +65,19 @@ export async function GET(request: Request) {
 
 export async function POST(request: Request) {
   try {
-    const formData = await request.formData();
+    let formData: FormData;
+    try {
+      formData = await request.formData();
+    } catch {
+      return NextResponse.json(
+        {
+          success: false,
+          error:
+            "File troppo grande per il trasferimento. Il sistema la ridimensiona: riprova.",
+        },
+        { status: 413 }
+      );
+    }
     const ubicazioneId = String(formData.get("ubicazioneId") ?? "");
     const files = formData.getAll("file").filter((v) => v && typeof v !== "string");
     if (!ubicazioneId) {

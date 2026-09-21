@@ -794,7 +794,10 @@ export function PiantaLuogoBoard({ luogo }: { luogo: PiantaLuogoPagina }) {
           boxW={modificaFoto.boxW}
           boxH={modificaFoto.boxH}
           onClose={() => setModificaFoto(null)}
-          onCambio={() => setFotoRev((n) => n + 1)}
+          onCambio={() => {
+            setFotoRev((n) => n + 1);
+            setRiepilogoRev((n) => n + 1);
+          }}
         />
       ) : null}
     </div>

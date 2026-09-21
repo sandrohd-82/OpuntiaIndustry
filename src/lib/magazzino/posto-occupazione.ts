@@ -79,6 +79,40 @@ export const occupaPostoSchema = z
 
 export type OccupaPostoInput = z.infer<typeof occupaPostoSchema>;
 
+export const rettificaOccupazionePostoSchema = z
+  .object({
+    occupazioneId: z.string().uuid(),
+    giustificazione: z.string().trim().min(8).max(800),
+    quantitaElementi: z.number().int().min(1).max(200),
+    pesoModo: z.enum(POSTO_PESO_MODI),
+    pesiElementiKg: z.array(z.number().positive().max(100000)).max(200).optional(),
+    pesoComplessivoKg: z.number().positive().max(100000).nullable().optional(),
+    note: z.string().trim().max(500).optional(),
+    prodottoId: z.string().uuid().optional(),
+    lottoInternoCodice: z.string().trim().max(120).nullable().optional(),
+    lottoEsternoId: z.string().uuid().nullable().optional(),
+  })
+  .superRefine((v, ctx) => {
+    if (v.pesoModo === "per_elemento") {
+      const pesi = v.pesiElementiKg ?? [];
+      if (pesi.length !== v.quantitaElementi) {
+        ctx.addIssue({
+          code: "custom",
+          message: "Indica il peso di ogni elemento.",
+        });
+      }
+    } else if (v.pesoComplessivoKg == null) {
+      ctx.addIssue({
+        code: "custom",
+        message: "Indica il peso complessivo della movimentazione.",
+      });
+    }
+  });
+
+export type RettificaOccupazionePostoInput = z.infer<
+  typeof rettificaOccupazionePostoSchema
+>;
+
 export type PostoElemento = {
   id: string;
   numero: string;

@@ -2,15 +2,19 @@
 
 import { useEffect, useId, useRef, useState } from "react";
 import { createPortal } from "react-dom";
+import { FaSpinner } from "react-icons/fa6";
 import {
   aggiornaFitFotoAction,
   eliminaFotoPostoAction,
   impostaFotoPrincipaleAction,
 } from "@/app/actions/magazzino-posto-foto";
 import { PiantaPostoFotoCarousel } from "@/components/magazzino/PiantaPostoFotoCarousel";
+import { PiantaPostoFotoOccupazione } from "@/components/magazzino/PiantaPostoFotoOccupazione";
+import { preparaFotoPostoPerUpload } from "@/lib/magazzino/posto-foto-client";
 import {
   POSTO_FOTO_SCALE_DEFAULT,
   fetchFotoPosto,
+  fileSembraFoto,
   rettangoloFotoNelBox,
   type PostoFoto,
 } from "@/lib/magazzino/posto-foto";
@@ -44,6 +48,7 @@ export function PiantaPostoFotoModal({
   const [scale, setScale] = useState(POSTO_FOTO_SCALE_DEFAULT);
   const [ox, setOx] = useState(0);
   const [oy, setOy] = useState(0);
+  const fileRef = useRef<HTMLInputElement>(null);
   const drag = useRef<{ x: number; y: number; ox: number; oy: number } | null>(
     null
   );
@@ -93,31 +98,57 @@ export function PiantaPostoFotoModal({
   }, [sel?.id]);
 
   async function carica(list: FileList | null) {
-    const files = Array.from(list ?? []).filter((f) =>
-      f.type.startsWith("image/")
-    );
-    if (!files.length) return;
-    setBusy("Caricamento foto…");
-    setErrore("");
-    const fd = new FormData();
-    fd.set("ubicazioneId", ubicazioneId);
-    for (const f of files) fd.append("file", f, f.name);
-    const res = await fetch("/api/magazzino/posto-foto", {
-      method: "POST",
-      body: fd,
-      credentials: "include",
-    });
-    const data = (await res.json().catch(() => null)) as
-      | { success: true }
-      | { success: false; error: string }
-      | null;
-    setBusy("");
-    if (!data?.success) {
-      setErrore(data && "error" in data ? data.error : "Caricamento fallito.");
+    const raw = Array.from(list ?? []);
+    const files = raw.filter(fileSembraFoto);
+    if (!files.length) {
+      setErrore(
+        raw.length
+          ? "Il file selezionato non è un’immagine riconoscibile (JPG, PNG, WebP)."
+          : "Nessun file selezionato."
+      );
       return;
     }
-    await reload();
-    onCambio();
+    setErrore("");
+    try {
+      const pronti: File[] = [];
+      for (let i = 0; i < files.length; i += 1) {
+        setBusy(`Preparazione foto ${i + 1} di ${files.length}…`);
+        pronti.push(await preparaFotoPostoPerUpload(files[i]));
+      }
+      setBusy(
+        files.length > 1
+          ? `Invio ${files.length} foto…`
+          : "Invio foto in corso…"
+      );
+      const fd = new FormData();
+      fd.set("ubicazioneId", ubicazioneId);
+      for (const f of pronti) fd.append("file", f, f.name);
+      const res = await fetch("/api/magazzino/posto-foto", {
+        method: "POST",
+        body: fd,
+        credentials: "include",
+      });
+      const data = (await res.json().catch(() => null)) as
+        | { success: true }
+        | { success: false; error: string }
+        | null;
+      if (!data?.success) {
+        setErrore(
+          data && "error" in data
+            ? data.error
+            : res.status === 413
+              ? "File troppo grande per il trasferimento."
+              : "Caricamento fallito."
+        );
+        return;
+      }
+      await reload();
+      onCambio();
+    } catch (e) {
+      setErrore(e instanceof Error ? e.message : "Caricamento fallito.");
+    } finally {
+      setBusy("");
+    }
   }
 
   async function salvaFit() {
@@ -156,6 +187,7 @@ export function PiantaPostoFotoModal({
     <div
       className="fixed inset-0 z-[280] flex items-start justify-center overflow-y-auto bg-slate-950/60 px-4 py-8"
       onMouseDown={(e) => {
+        if (busy) return;
         if (e.target === e.currentTarget) onClose();
       }}
     >
@@ -163,34 +195,60 @@ export function PiantaPostoFotoModal({
         role="dialog"
         aria-modal
         aria-labelledby={titleId}
-        className="w-full max-w-3xl rounded-xl border border-[var(--border)] bg-white p-5 shadow-xl"
+        className="relative w-full max-w-3xl rounded-xl border border-[var(--border)] bg-white p-5 shadow-xl"
         onMouseDown={(e) => e.stopPropagation()}
       >
+        {busy ? (
+          <div
+            className="absolute inset-0 z-20 flex flex-col items-center justify-center gap-3 rounded-xl bg-white/85"
+            role="status"
+            aria-live="polite"
+            aria-busy="true"
+          >
+            <FaSpinner className="animate-spin text-2xl text-green-900" />
+            <p className="px-4 text-center text-sm font-medium text-slate-800">
+              {busy}
+            </p>
+            <p className="text-xs text-slate-500">Attendi, non è bloccato.</p>
+          </div>
+        ) : null}
         <h2 id={titleId} className="text-base font-semibold">
           Foto posto {postoCodice}
           {postoNome?.trim() ? ` — ${postoNome.trim()}` : ""}
         </h2>
         <p className="mt-1 text-sm text-[var(--muted)]">
-          All’upload la foto è circa il doppio del box. Ingrandisci, riduci e
-          trascina per centrarla. La principale si vede sulle viste laterali,
-          mai Dall’alto.
+          All’upload la foto è circa il doppio del box. Se è troppo grande viene
+          ridimensionata. Ingrandisci, riduci e trascina per centrarla. La
+          principale si vede sulle viste laterali, mai Dall’alto.
         </p>
 
+        {errore ? (
+          <p className="mt-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">
+            {errore}
+          </p>
+        ) : null}
+
         <div className="mt-4 flex flex-wrap gap-2">
-          <label className="cursor-pointer rounded-lg bg-green-900 px-3 py-1.5 text-sm font-medium text-white">
+          <input
+            ref={fileRef}
+            type="file"
+            accept="image/*,.jpg,.jpeg,.png,.webp,.bmp,.gif,.heic,.heif"
+            multiple
+            className="sr-only"
+            onChange={(e) => {
+              const list = e.target.files;
+              e.target.value = "";
+              void carica(list);
+            }}
+          />
+          <button
+            type="button"
+            disabled={Boolean(busy)}
+            onClick={() => fileRef.current?.click()}
+            className="rounded-lg bg-green-900 px-3 py-1.5 text-sm font-medium text-white disabled:opacity-60"
+          >
             Carica foto
-            <input
-              type="file"
-              accept="image/jpeg,image/png,image/webp"
-              multiple
-              className="hidden"
-              onChange={(e) => {
-                const list = e.target.files;
-                e.target.value = "";
-                void carica(list);
-              }}
-            />
-          </label>
+          </button>
           {sel ? (
             <button
               type="button"
@@ -344,14 +402,17 @@ export function PiantaPostoFotoModal({
             </div>
           </div>
 
-        {busy ? <p className="mt-3 text-sm text-slate-600">{busy}</p> : null}
-        {errore ? <p className="mt-3 text-sm text-red-700">{errore}</p> : null}
+        <PiantaPostoFotoOccupazione
+          ubicazioneId={ubicazioneId}
+          onCambio={onCambio}
+        />
 
         <div className="mt-5 flex justify-end">
           <button
             type="button"
             onClick={onClose}
-            className="rounded-lg border border-[var(--border)] px-4 py-2 text-sm"
+            disabled={Boolean(busy)}
+            className="rounded-lg border border-[var(--border)] px-4 py-2 text-sm disabled:opacity-60"
           >
             Chiudi
           </button>

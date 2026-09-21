@@ -8,11 +8,13 @@ import {
   generaCodiceRandom,
   occupaPostoSchema,
   pesoOccupazioneKg,
+  rettificaOccupazionePostoSchema,
   targaProdottoOccupazione,
   type DettaglioElencoPosto,
   type ImballaggioPostoOpt,
   type LottoDaSistemare,
   type OccupaPostoInput,
+  type RettificaOccupazionePostoInput,
   type PostoElementoTipo,
   type PostoOccupazione,
   type PostoPesoModo,
@@ -928,4 +930,285 @@ export async function rimuoviElementoPostoAction(
     },
   });
   return { success: true };
+}
+
+export async function rettificaOccupazionePostoAction(
+  raw: RettificaOccupazionePostoInput
+): Promise<
+  | { success: true; occupazione: PostoOccupazione }
+  | { success: false; error: string }
+> {
+  const { auth } = await requireAnyAreaAccess([
+    "magazzino",
+    "strumenti",
+    "amministrazione",
+  ]);
+  const parsed = rettificaOccupazionePostoSchema.safeParse(raw);
+  if (!parsed.success) {
+    return {
+      success: false,
+      error: parsed.error.issues[0]?.message ?? "Dati rettifica non validi.",
+    };
+  }
+  const input = parsed.data;
+  const supabase = createServiceClient();
+  const { data: row, error: rowErr } = await supabase
+    .from("magazzino_posto_occupazioni")
+    .select(`${OCC_SELECT}, versione`)
+    .eq("id", input.occupazioneId)
+    .eq("stato", "attivo")
+    .is("deleted_at", null)
+    .maybeSingle();
+  if (rowErr) return { success: false, error: rowErr.message };
+  if (!row) return { success: false, error: "Occupazione non trovata." };
+  const occRow = row as Parameters<typeof mapOccupazione>[0] & {
+    versione?: number;
+  };
+
+  const { data: els } = await supabase
+    .from("magazzino_posto_elementi")
+    .select("id, numero, peso_kg, scan_token, sort_order")
+    .eq("occupazione_id", occRow.id)
+    .is("deleted_at", null)
+    .order("sort_order", { ascending: true });
+  const esistenti = (els ?? []) as Array<{
+    id: string;
+    numero: string;
+    peso_kg: number | string | null;
+    scan_token: string;
+    sort_order: number;
+  }>;
+
+  const kg =
+    input.pesoModo === "complessivo"
+      ? Number(input.pesoComplessivoKg)
+      : (input.pesiElementiKg ?? []).reduce((s, n) => s + n, 0);
+  const kgRound = Math.round(kg * 1000) / 1000;
+  if (!(kgRound > 0)) {
+    return { success: false, error: "Il peso deve essere maggiore di zero." };
+  }
+
+  const interno = input.lottoInternoCodice?.trim() || occRow.lotto_interno_codice || "";
+  const esternoId = input.lottoEsternoId?.trim() || occRow.lotto_esterno_id || "";
+  const stessoLotto =
+    interno === (occRow.lotto_interno_codice || "") &&
+    esternoId === (occRow.lotto_esterno_id || "");
+
+  const lottiRes = await listLottiDaSistemareAction();
+  if (!lottiRes.success) return lottiRes;
+  let lotto = lottiRes.lotti.find((l) => {
+    if (input.prodottoId && l.prodottoId !== input.prodottoId) return false;
+    if (interno && esternoId) {
+      return l.lottoInterno === interno && l.lottoEsternoId === esternoId;
+    }
+    if (interno) return l.lottoInterno === interno;
+    return Boolean(esternoId && l.lottoEsternoId === esternoId);
+  });
+  if (!lotto && stessoLotto && occRow.prodotto_id) {
+    lotto = {
+      prodottoId: occRow.prodotto_id,
+      prodottoCodice: "",
+      prodottoNome: "",
+      lottoInterno: occRow.lotto_interno_codice || "",
+      lottoEsternoId: occRow.lotto_esterno_id,
+      lottoEsternoCodice: occRow.lotto_esterno_codice,
+      kgCaricati: 0,
+      kgSistemati: 0,
+      kgDaSistemare: Number(occRow.kg_allocati ?? 0),
+    };
+  }
+  if (!lotto) {
+    return {
+      success: false,
+      error: "Lotto non disponibile per la rettifica.",
+    };
+  }
+  const kgGiaQui = stessoLotto ? Number(occRow.kg_allocati ?? 0) : 0;
+  if (kgRound - (lotto.kgDaSistemare + kgGiaQui) > 0.0005) {
+    return {
+      success: false,
+      error: `Su questo lotto restano ${(lotto.kgDaSistemare + kgGiaQui).toLocaleString("it-IT")} kg utilizzabili.`,
+    };
+  }
+
+  const { data: ubi } = await supabase
+    .from("magazzino_ubicazioni")
+    .select("peso_max_kg")
+    .eq("id", occRow.ubicazione_id)
+    .maybeSingle();
+  const pesoMax = Number((ubi as { peso_max_kg?: number | null } | null)?.peso_max_kg);
+  if (Number.isFinite(pesoMax) && pesoMax > 0 && kgRound > pesoMax) {
+    return {
+      success: false,
+      error: `Il peso supera il massimo del posto (${pesoMax} kg).`,
+    };
+  }
+
+  const now = new Date().toISOString();
+  const qty = input.quantitaElementi;
+  const elementiOut: Array<{
+    id: string;
+    numero: string;
+    peso_kg: number | string | null;
+    scan_token: string;
+  }> = [];
+
+  if (input.pesoModo === "complessivo") {
+    if (esistenti.length) {
+      await supabase
+        .from("magazzino_posto_elementi")
+        .update({
+          deleted_at: now,
+          deleted_by: auth.userId,
+          updated_by: auth.userId,
+        })
+        .eq("occupazione_id", occRow.id)
+        .is("deleted_at", null);
+    }
+  } else {
+    const pesi = input.pesiElementiKg ?? [];
+    const keep = esistenti.slice(0, qty);
+    const extra = esistenti.slice(qty);
+    if (extra.length) {
+      await supabase
+        .from("magazzino_posto_elementi")
+        .update({
+          deleted_at: now,
+          deleted_by: auth.userId,
+          updated_by: auth.userId,
+        })
+        .in(
+          "id",
+          extra.map((e) => e.id)
+        );
+    }
+    for (let i = 0; i < keep.length; i += 1) {
+      const e = keep[i];
+      await supabase
+        .from("magazzino_posto_elementi")
+        .update({
+          peso_kg: pesi[i] ?? null,
+          sort_order: i,
+          updated_by: auth.userId,
+        })
+        .eq("id", e.id);
+      elementiOut.push({
+        id: e.id,
+        numero: e.numero,
+        peso_kg: pesi[i] ?? null,
+        scan_token: e.scan_token,
+      });
+    }
+    for (let i = keep.length; i < qty; i += 1) {
+      const numero = await codiceLibero(
+        supabase,
+        "magazzino_posto_elementi",
+        "numero",
+        5
+      );
+      const { data: elRow, error: elErr } = await supabase
+        .from("magazzino_posto_elementi")
+        .insert({
+          occupazione_id: occRow.id,
+          numero,
+          peso_kg: pesi[i] ?? null,
+          scan_token: randomUUID(),
+          sort_order: i,
+          created_by: auth.userId,
+          updated_by: auth.userId,
+        })
+        .select("id, numero, peso_kg, scan_token")
+        .single();
+      if (elErr || !elRow) {
+        return {
+          success: false,
+          error: elErr?.message ?? "Creazione elemento fallita.",
+        };
+      }
+      elementiOut.push(elRow as (typeof elementiOut)[number]);
+    }
+  }
+
+  const notaRettifica = `[Rettifica ${new Date().toLocaleDateString("it-IT")}] ${input.giustificazione.trim()}`;
+  const noteBase = (input.note ?? occRow.note ?? "").trim();
+  const note = noteBase
+    ? `${noteBase}\n${notaRettifica}`
+    : notaRettifica;
+
+  const { error: upErr } = await supabase
+    .from("magazzino_posto_occupazioni")
+    .update({
+      quantita_elementi: qty,
+      peso_modo: input.pesoModo,
+      peso_complessivo_kg:
+        input.pesoModo === "complessivo" ? kgRound : null,
+      peso_motivazione:
+        input.pesoModo === "complessivo" ? input.giustificazione.trim() : "",
+      prodotto_id: lotto.prodottoId,
+      kg_allocati: kgRound,
+      lotto_interno_codice: lotto.lottoInterno,
+      lotto_esterno_id: lotto.lottoEsternoId,
+      lotto_esterno_codice: lotto.lottoEsternoCodice,
+      note,
+      versione: Number(occRow.versione ?? 1) + 1,
+      updated_by: auth.userId,
+    })
+    .eq("id", occRow.id);
+  if (upErr) return { success: false, error: upErr.message };
+
+  const { error: allUp } = await supabase
+    .from("magazzino_posto_allocazioni")
+    .update({
+      prodotto_id: lotto.prodottoId,
+      lotto_interno_codice: lotto.lottoInterno,
+      lotto_esterno_id: lotto.lottoEsternoId,
+      lotto_esterno_codice: lotto.lottoEsternoCodice,
+      kg: kgRound,
+      updated_by: auth.userId,
+    })
+    .eq("occupazione_id", occRow.id)
+    .is("deleted_at", null);
+  if (allUp) return { success: false, error: allUp.message };
+
+  const occupazione = mapOccupazione(
+    {
+      ...occRow,
+      quantita_elementi: qty,
+      peso_modo: input.pesoModo,
+      peso_complessivo_kg:
+        input.pesoModo === "complessivo" ? kgRound : null,
+      peso_motivazione:
+        input.pesoModo === "complessivo" ? input.giustificazione.trim() : "",
+      prodotto_id: lotto.prodottoId,
+      kg_allocati: kgRound,
+      lotto_interno_codice: lotto.lottoInterno,
+      lotto_esterno_id: lotto.lottoEsternoId,
+      lotto_esterno_codice: lotto.lottoEsternoCodice,
+      note,
+    },
+    elementiOut
+  );
+  await writeAuditLog({
+    entity_type: "magazzino_posto_occupazioni",
+    entity_id: occRow.id,
+    action: "update",
+    actor_id: auth.userId,
+    summary: `Rettifica occupazione pallet ${occRow.codice_pallet}`,
+    payload: {
+      giustificazione: input.giustificazione.trim(),
+      prima: {
+        qty: occRow.quantita_elementi,
+        kg: occRow.kg_allocati,
+        lotto: occRow.lotto_interno_codice,
+        peso_modo: occRow.peso_modo,
+      },
+      dopo: {
+        qty,
+        kg: kgRound,
+        lotto: lotto.lottoInterno,
+        peso_modo: input.pesoModo,
+      },
+    },
+  });
+  return { success: true, occupazione };
 }

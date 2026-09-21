@@ -9,6 +9,7 @@ import {
   POSTO_FOTO_MAX_BYTES,
   POSTO_FOTO_MAX_PER_POSTO,
   POSTO_FOTO_SCALE_DEFAULT,
+  mimeDaBytes,
   mimeFotoAmmesso,
 } from "@/lib/magazzino/posto-foto";
 import { createServiceClient } from "@/lib/supabase/server";
@@ -48,12 +49,22 @@ export async function salvaFotoPosto(input: {
   if (!input.ubicazioneId) {
     return { success: false, error: "Posto mancante." };
   }
-  const mime = (input.mime || "image/jpeg").toLowerCase();
+  const detected = mimeDaBytes(input.bytes, (input.mime || "").toLowerCase());
+  if (detected === "image/heic") {
+    return {
+      success: false,
+      error: "Foto HEIC non supportata. Salvala come JPG o PNG e riprova.",
+    };
+  }
+  const mime = mimeFotoAmmesso(detected) ? detected : "image/jpeg";
   if (!mimeFotoAmmesso(mime)) {
     return { success: false, error: "Formato non ammesso: usa JPG, PNG o WebP." };
   }
   if (input.bytes.length > POSTO_FOTO_MAX_BYTES) {
-    return { success: false, error: "Immagine oltre 15 MB." };
+    return {
+      success: false,
+      error: "Immagine ancora troppo grande dopo il ritaglio. Riprova con un JPG.",
+    };
   }
   const db = createServiceClient();
   const { count } = await db
