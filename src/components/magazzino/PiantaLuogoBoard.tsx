@@ -22,10 +22,13 @@ import {
   getOccupazionePostoAction,
   listImballaggiPostoAction,
   listMovimentazioniPostiAction,
+  listRiepilogoElencoPostiAction,
 } from "@/app/actions/magazzino-posto-occupazione";
 import {
+  formatKgIt,
   riepilogoOccupazionePosto,
   type ImballaggioPostoOpt,
+  type RiepilogoElencoPosto,
 } from "@/lib/magazzino/posto-occupazione";
 import { PiantaElencoPostoDettaglio } from "@/components/magazzino/PiantaElencoPostoDettaglio";
 import { PiantaVistaRitaglio } from "@/components/magazzino/PiantaVistaRitaglio";
@@ -78,6 +81,10 @@ export function PiantaLuogoBoard({ luogo }: { luogo: PiantaLuogoPagina }) {
   );
   const [catalogoMov, setCatalogoMov] = useState<ImballaggioPostoOpt[]>([]);
   const [apertoElenco, setApertoElenco] = useState<string | null>(null);
+  const [riepilogoPosti, setRiepilogoPosti] = useState<
+    Record<string, RiepilogoElencoPosto>
+  >({});
+  const [riepilogoRev, setRiepilogoRev] = useState(0);
   const [stampaPosto, setStampaPosto] = useState<{
     ubicazioneId: string;
     postoCodice: string;
@@ -130,6 +137,22 @@ export function PiantaLuogoBoard({ luogo }: { luogo: PiantaLuogoPagina }) {
       live = false;
     };
   }, [postiIdsKey]);
+
+  useEffect(() => {
+    const ids = postiIdsKey ? postiIdsKey.split(",") : [];
+    if (!ids.length) {
+      setRiepilogoPosti({});
+      return;
+    }
+    let live = true;
+    void listRiepilogoElencoPostiAction(ids).then((res) => {
+      if (!live || !res.success) return;
+      setRiepilogoPosti(res.perPosto);
+    });
+    return () => {
+      live = false;
+    };
+  }, [postiIdsKey, riepilogoRev]);
 
   useEffect(() => {
     let live = true;
@@ -243,6 +266,14 @@ export function PiantaLuogoBoard({ luogo }: { luogo: PiantaLuogoPagina }) {
         ),
       }))
     );
+    if (occupazione === "libero") {
+      setRiepilogoPosti((prev) => {
+        const next = { ...prev };
+        delete next[ubicazioneId];
+        return next;
+      });
+    }
+    setRiepilogoRev((n) => n + 1);
   }
 
   function selezionaSolo(id: string | null) {
@@ -534,6 +565,8 @@ export function PiantaLuogoBoard({ luogo }: { luogo: PiantaLuogoPagina }) {
                 <th className="px-3 py-1.5 font-medium">Codice</th>
                 <th className="px-3 py-1.5 font-medium">Nome</th>
                 <th className="px-3 py-1.5 font-medium">Stato</th>
+                <th className="px-3 py-1.5 font-medium">Targa</th>
+                <th className="px-3 py-1.5 font-medium">Quantità totale</th>
                 <th className="px-3 py-1.5 font-medium">Settaggio</th>
                 <th className="px-3 py-1.5 font-medium">Occupazione</th>
                 <th className="px-3 py-1.5 font-medium">Azioni</th>
@@ -591,6 +624,16 @@ export function PiantaLuogoBoard({ luogo }: { luogo: PiantaLuogoPagina }) {
                         />
                         {occupato ? "Occupato" : "Libero"}
                       </span>
+                    </td>
+                    <td className="px-3 py-1.5 font-mono text-xs font-semibold text-slate-900">
+                      {occupato
+                        ? riepilogoPosti[a.id]?.targa || "—"
+                        : "—"}
+                    </td>
+                    <td className="px-3 py-1.5 text-sm font-medium text-slate-900">
+                      {occupato
+                        ? formatKgIt(riepilogoPosti[a.id]?.quantitaTotaleKg)
+                        : "—"}
                     </td>
                     <td className="px-3 py-1.5">
                       <button
@@ -672,7 +715,7 @@ export function PiantaLuogoBoard({ luogo }: { luogo: PiantaLuogoPagina }) {
                   </tr>
                   {aperto ? (
                     <tr className="border-t border-[var(--border)] bg-slate-50/80">
-                      <td colSpan={7} className="px-3 py-2">
+                      <td colSpan={9} className="px-3 py-2">
                         <PiantaElencoPostoDettaglio
                           ubicazioneId={a.id}
                           occupato={occupato}

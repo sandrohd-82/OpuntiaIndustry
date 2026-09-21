@@ -2,15 +2,12 @@
 
 import { useEffect, useState } from "react";
 import { dettaglioElencoPostoAction } from "@/app/actions/magazzino-posto-occupazione";
-import type {
-  DettaglioElencoPosto,
-  PostoOccupazione,
-} from "@/lib/magazzino/posto-occupazione";
-import { parseLottoAgrinsicilia } from "@/lib/magazzino/lotto-agrinsicilia";
 import {
   formatKgIt,
   pesoOccupazioneKg,
-} from "@/lib/magazzino/stampa-etichette-posto";
+  targaProdottoOccupazione,
+  type DettaglioElencoPosto,
+} from "@/lib/magazzino/posto-occupazione";
 import type { UbicazioneCapienza } from "@/lib/magazzino/ubicazioni";
 
 function misura(v: number | null, u: string): string {
@@ -25,16 +22,6 @@ function riga(label: string, value: string) {
       <span className="font-medium text-slate-900">{value}</span>
     </li>
   );
-}
-
-function targaProdottoInserito(
-  occ: PostoOccupazione,
-  codice: string | undefined
-): string {
-  const daProdotto = (codice ?? "").trim();
-  if (daProdotto) return daProdotto;
-  const daLotto = parseLottoAgrinsicilia(occ.lottoInternoCodice || "");
-  return daLotto?.targaProdotto.trim() || "";
 }
 
 export function PiantaElencoPostoDettaglio({
@@ -119,7 +106,7 @@ export function PiantaElencoPostoDettaglio({
     );
   }
   const prod = det?.prodotto;
-  const targa = targaProdottoInserito(occ, prod?.codice);
+  const targa = targaProdottoOccupazione(occ, prod?.codice);
   const qtaTotale = formatKgIt(pesoOccupazioneKg(occ));
   const tipoEl =
     occ.tipoElemento === "isolamento" ? "Sacchetto / isolamento" : "Cartone / confezione";

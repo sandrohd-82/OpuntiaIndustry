@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { parseLottoAgrinsicilia } from "@/lib/magazzino/lotto-agrinsicilia";
 
 export const POSTO_ELEMENTO_TIPI = ["isolamento", "confezione"] as const;
 export type PostoElementoTipo = (typeof POSTO_ELEMENTO_TIPI)[number];
@@ -136,6 +137,38 @@ export type DettaglioElencoPosto = {
   occupazione: PostoOccupazione | null;
   prodotto: ProdottoLottoElenco | null;
 };
+
+export type RiepilogoElencoPosto = {
+  targa: string;
+  quantitaTotaleKg: number | null;
+};
+
+export function pesoOccupazioneKg(occ: PostoOccupazione): number | null {
+  const pesoEl = occ.elementi.reduce((s, e) => s + (e.pesoKg ?? 0), 0);
+  const n =
+    occ.pesoModo === "complessivo" && occ.pesoComplessivoKg != null
+      ? Number(occ.pesoComplessivoKg)
+      : pesoEl > 0
+        ? pesoEl
+        : Number(occ.kgAllocati ?? 0);
+  if (!Number.isFinite(n) || n <= 0) return null;
+  return n;
+}
+
+export function formatKgIt(n: number | null | undefined): string {
+  if (n == null || !Number.isFinite(n) || n <= 0) return "—";
+  return `${n.toLocaleString("it-IT")} kg`;
+}
+
+export function targaProdottoOccupazione(
+  occ: PostoOccupazione,
+  codiceProdotto?: string | null
+): string {
+  const daProdotto = (codiceProdotto ?? "").trim();
+  if (daProdotto) return daProdotto;
+  const daLotto = parseLottoAgrinsicilia(occ.lottoInternoCodice || "");
+  return daLotto?.targaProdotto.trim() || "";
+}
 
 function formatKgRiepilogo(n: number): string {
   if (!Number.isFinite(n) || n <= 0) return "";

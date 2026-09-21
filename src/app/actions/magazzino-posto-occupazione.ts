@@ -7,6 +7,8 @@ import { createClient, createServiceClient } from "@/lib/supabase/server";
 import {
   generaCodiceRandom,
   occupaPostoSchema,
+  pesoOccupazioneKg,
+  targaProdottoOccupazione,
   type DettaglioElencoPosto,
   type ImballaggioPostoOpt,
   type LottoDaSistemare,
@@ -15,6 +17,7 @@ import {
   type PostoOccupazione,
   type PostoPesoModo,
   type ProdottoLottoElenco,
+  type RiepilogoElencoPosto,
 } from "@/lib/magazzino/posto-occupazione";
 
 const CATALOG_PROPRIO = "prodotto_proprio";
@@ -485,6 +488,72 @@ export async function dettaglioElencoPostoAction(
     }
   }
   return { success: true, dettaglio: { occupazione: occ, prodotto } };
+}
+
+export async function listRiepilogoElencoPostiAction(
+  ubicazioneIds: string[]
+): Promise<
+  | { success: true; perPosto: Record<string, RiepilogoElencoPosto> }
+  | { success: false; error: string }
+> {
+  await requireAnyAreaAccess(["magazzino", "strumenti", "amministrazione"]);
+  const ids = [...new Set(ubicazioneIds.filter(Boolean))];
+  const perPosto: Record<string, RiepilogoElencoPosto> = {};
+  if (!ids.length) return { success: true, perPosto };
+
+  const db = createServiceClient();
+  const { data, error } = await db
+    .from("magazzino_posto_occupazioni")
+    .select(OCC_SELECT)
+    .in("ubicazione_id", ids)
+    .eq("stato", "attivo")
+    .is("deleted_at", null);
+  if (error) return { success: false, error: error.message };
+  const rows = (data ?? []) as Parameters<typeof mapOccupazione>[0][];
+  if (!rows.length) return { success: true, perPosto };
+
+  const occIds = rows.map((r) => r.id);
+  const prodottoIds = [
+    ...new Set(rows.map((r) => r.prodotto_id).filter(Boolean)),
+  ] as string[];
+
+  const [{ data: els }, { data: prods }] = await Promise.all([
+    db
+      .from("magazzino_posto_elementi")
+      .select("id, numero, peso_kg, scan_token, occupazione_id")
+      .in("occupazione_id", occIds)
+      .is("deleted_at", null),
+    prodottoIds.length
+      ? db.from("prodotti_propri").select("id, codice").in("id", prodottoIds)
+      : Promise.resolve({ data: [] as Array<{ id: string; codice: string }> }),
+  ]);
+
+  const elsByOcc = new Map<string, Parameters<typeof mapOccupazione>[1]>();
+  for (const e of (els ?? []) as Array<
+    Parameters<typeof mapOccupazione>[1][number] & { occupazione_id: string }
+  >) {
+    const list = elsByOcc.get(e.occupazione_id) ?? [];
+    list.push(e);
+    elsByOcc.set(e.occupazione_id, list);
+  }
+  const codiceByProd = new Map(
+    ((prods ?? []) as Array<{ id: string; codice: string }>).map((p) => [
+      p.id,
+      p.codice,
+    ])
+  );
+
+  for (const row of rows) {
+    const occ = mapOccupazione(row, elsByOcc.get(row.id) ?? []);
+    const codice = row.prodotto_id
+      ? codiceByProd.get(row.prodotto_id) ?? ""
+      : "";
+    perPosto[row.ubicazione_id] = {
+      targa: targaProdottoOccupazione(occ, codice),
+      quantitaTotaleKg: pesoOccupazioneKg(occ),
+    };
+  }
+  return { success: true, perPosto };
 }
 
 export async function occupaPostoAction(

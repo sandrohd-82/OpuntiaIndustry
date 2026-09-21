@@ -2,26 +2,13 @@ import {
   POSTO_ELEMENTO_TIPO_LABEL,
   etichettaPayloadElemento,
   etichettaPayloadPallet,
+  formatKgIt,
+  pesoOccupazioneKg,
   type PostoElemento,
   type PostoOccupazione,
 } from "@/lib/magazzino/posto-occupazione";
 
-export function pesoOccupazioneKg(occ: PostoOccupazione): number | null {
-  const pesoEl = occ.elementi.reduce((s, e) => s + (e.pesoKg ?? 0), 0);
-  const n =
-    occ.pesoModo === "complessivo" && occ.pesoComplessivoKg != null
-      ? Number(occ.pesoComplessivoKg)
-      : pesoEl > 0
-        ? pesoEl
-        : Number(occ.kgAllocati ?? 0);
-  if (!Number.isFinite(n) || n <= 0) return null;
-  return n;
-}
-
-export function formatKgIt(n: number | null | undefined): string {
-  if (n == null || !Number.isFinite(n) || n <= 0) return "—";
-  return `${n.toLocaleString("it-IT")} kg`;
-}
+export { formatKgIt, pesoOccupazioneKg };
 
 function escapeHtml(value: string): string {
   return value
