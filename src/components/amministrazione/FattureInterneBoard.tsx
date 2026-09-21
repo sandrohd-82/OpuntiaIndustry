@@ -7,7 +7,7 @@ import {
   useState,
   useTransition,
 } from "react";
-import { FaArrowsRotate, FaCalculator, FaPlus } from "react-icons/fa6";
+import { FaArrowsRotate, FaCalculator, FaPlus, FaSpinner } from "react-icons/fa6";
 import {
   ActionGate,
   PrivilegedActionGate,
@@ -21,14 +21,18 @@ import {
   rinumeraTutteFattureEmesseAction,
   rinumeraTutteFattureRicevuteAction,
 } from "@/app/actions/fatture";
-import {
-  startFattureEmesseSyncAction,
-  startFattureRicevuteSyncAction,
-} from "@/app/actions/fatture-sync";
+import { startFattureEmesseSyncAction } from "@/app/actions/fatture-sync";
 import { ApriFatturaFicButton } from "@/components/amministrazione/ApriFatturaFicButton";
 import { ElaboraContabilitaModal } from "@/components/amministrazione/ElaboraContabilitaModal";
 import { FatturaRegistrazioneModal } from "@/components/amministrazione/FatturaRegistrazioneModal";
 import { FatturaSyncQueueModal } from "@/components/amministrazione/FatturaSyncQueueModal";
+import { FatturaSyncWizardModal } from "@/components/amministrazione/FatturaSyncWizardModal";
+import {
+  getFattureKeepSyncAction,
+  runFattureKeepSyncNowAction,
+  setFattureKeepSyncAction,
+} from "@/app/actions/fatture-sync-keep";
+import type { FattureSyncKeepKind } from "@/lib/amministrazione/fatture-sync-keep";
 import { DocumentiCatalogoQueueModal } from "@/components/amministrazione/DocumentiCatalogoQueueModal";
 import { listFattureDaAggiornareCatalogoAction } from "@/app/actions/catalogo-collega";
 import { SortableTh } from "@/components/ui/SortableTh";
@@ -129,6 +133,10 @@ export function FattureInterneBoard({ kind }: Props) {
   );
   const [syncInfo, setSyncInfo] = useState<string | null>(null);
   const [syncPending, startSyncTransition] = useTransition();
+  const [wizardOpen, setWizardOpen] = useState(false);
+  const [keepOn, setKeepOn] = useState(false);
+  const [keepBusy, setKeepBusy] = useState(false);
+  const [keepInfo, setKeepInfo] = useState<string | null>(null);
   const [elaboraOpen, setElaboraOpen] = useState(false);
   const [codaCatalogo, setCodaCatalogo] = useState<Fattura[] | null>(null);
   const [codaCatalogoInfo, setCodaCatalogoInfo] = useState<string | null>(null);
@@ -190,14 +198,66 @@ export function FattureInterneBoard({ kind }: Props) {
     setSort({ key: "dataEmissione", dir: "desc" });
   }, [kind]);
 
+  const keepKind: FattureSyncKeepKind | null =
+    kind === "emessa" || kind === "ricevuta" ? kind : null;
+
+  useEffect(() => {
+    if (!keepKind) return;
+    let cancelled = false;
+    void (async () => {
+      const res = await getFattureKeepSyncAction(keepKind);
+      if (cancelled || !res.success) return;
+      setKeepOn(res.state.enabled);
+      if (res.state.lastRunAt) {
+        setKeepInfo(
+          `Ultimo keep: ${new Date(res.state.lastRunAt).toLocaleString("it-IT")} · ${res.state.lastRunFatture} fatture`
+        );
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [keepKind]);
+
+  useEffect(() => {
+    if (!keepKind || !keepOn || wizardOpen) return;
+    const kindKeep = keepKind;
+    let cancelled = false;
+    async function tick() {
+      setKeepBusy(true);
+      const res = await runFattureKeepSyncNowAction(kindKeep);
+      if (cancelled) return;
+      setKeepBusy(false);
+      if (!res.success) {
+        setKeepInfo(res.error);
+        return;
+      }
+      if (res.registered > 0) {
+        setKeepInfo(
+          `Mantieni sincronizzato: +${res.registered} fatture fino a oggi.`
+        );
+        load();
+      }
+    }
+    void tick();
+    const id = window.setInterval(() => {
+      void tick();
+    }, 120_000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(id);
+    };
+  }, [keepKind, keepOn, wizardOpen, load]);
+
   function handleSync() {
     setError(null);
     setSyncInfo(null);
+    if (keepKind) {
+      setWizardOpen(true);
+      return;
+    }
     startSyncTransition(async () => {
-      const result =
-        kind === "ricevuta"
-          ? await startFattureRicevuteSyncAction()
-          : await startFattureEmesseSyncAction();
+      const result = await startFattureEmesseSyncAction();
       if (!result.success) {
         setError(result.error);
         return;
@@ -224,6 +284,26 @@ export function FattureInterneBoard({ kind }: Props) {
       setSyncInfo(parts.join(" "));
       setSyncItems(result.items);
     });
+  }
+
+  async function toggleKeep() {
+    if (!keepKind) return;
+    setKeepBusy(true);
+    const res = await setFattureKeepSyncAction({
+      kind: keepKind,
+      enabled: !keepOn,
+    });
+    setKeepBusy(false);
+    if (!res.success) {
+      setError(res.error);
+      return;
+    }
+    setKeepOn(res.state.enabled);
+    setKeepInfo(
+      res.state.enabled
+        ? "Mantieni sincronizzato attivo: allinea da ultima fattura a oggi."
+        : "Mantieni sincronizzato disattivato."
+    );
   }
 
   const entityLabel = kind === "ricevuta" ? "Fornitore" : "Cliente";
@@ -325,10 +405,29 @@ export function FattureInterneBoard({ kind }: Props) {
               Elabora contabilità
             </button>
           ) : null}
+          {keepKind ? (
+            <button
+              type="button"
+              onClick={() => void toggleKeep()}
+              disabled={keepBusy}
+              className={`inline-flex items-center gap-2 rounded-lg px-4 py-2.5 text-sm font-medium disabled:opacity-60 ${
+                keepOn
+                  ? "bg-emerald-700 text-white hover:bg-emerald-800"
+                  : "border border-[var(--border)] bg-white text-slate-800 hover:bg-slate-50"
+              }`}
+            >
+              {keepBusy ? (
+                <FaSpinner size={14} className="animate-spin" />
+              ) : (
+                <FaArrowsRotate size={14} />
+              )}
+              {keepOn ? "Mantieni sincronizzato · attivo" : "Mantieni sincronizzato"}
+            </button>
+          ) : null}
           <button
             type="button"
             onClick={handleSync}
-            disabled={syncPending}
+            disabled={syncPending || wizardOpen}
             className="inline-flex items-center gap-2 rounded-lg border border-[var(--border)] bg-white px-4 py-2.5 text-sm font-medium text-slate-800 hover:bg-slate-50 disabled:opacity-60"
           >
             <FaArrowsRotate
@@ -485,6 +584,12 @@ export function FattureInterneBoard({ kind }: Props) {
         ) : null}
       </div>
 
+      {keepInfo ? (
+        <p className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-900">
+          {keepInfo}
+        </p>
+      ) : null}
+
       {syncInfo ? (
         <p className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
           {syncInfo}
@@ -501,6 +606,17 @@ export function FattureInterneBoard({ kind }: Props) {
         <p className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">
           {error}
         </p>
+      ) : null}
+
+      {wizardOpen && keepKind ? (
+        <FatturaSyncWizardModal
+          kind={keepKind}
+          onClose={() => setWizardOpen(false)}
+          onDone={() => {
+            setWizardOpen(false);
+            load();
+          }}
+        />
       ) : null}
 
       {syncItems && syncItems.length > 0 ? (

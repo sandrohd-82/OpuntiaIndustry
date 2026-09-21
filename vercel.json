@@ -15,6 +15,10 @@
     {
       "path": "/api/cron/documentazioni-scadute",
       "schedule": "20 0 * * *"
+    },
+    {
+      "path": "/api/cron/fatture-keep-sync",
+      "schedule": "*/15 * * * *"
     }
   ]
 }

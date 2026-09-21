@@ -1797,6 +1797,42 @@ export type FatturaRicevutaInsert = {
 
 export type FatturaRicevutaUpdate = Partial<FatturaRicevutaInsert>;
 
+export type FattureSyncKeepKind = "emessa" | "ricevuta";
+
+export interface FattureSyncKeepRow {
+  id: string;
+  kind: FattureSyncKeepKind;
+  enabled: boolean;
+  last_run_at: string | null;
+  last_run_fatture: number;
+  last_error: string | null;
+  created_by: string | null;
+  updated_by: string | null;
+  created_at: string;
+  updated_at: string;
+  deleted_at: string | null;
+  deleted_by: string | null;
+}
+
+export interface FattureSyncRunRow {
+  id: string;
+  kind: FattureSyncKeepKind;
+  modalita: "precisa" | "veloce" | "keep";
+  fase: "prospettiva" | "retroso" | "mista";
+  stop_month: string | null;
+  from_date: string | null;
+  to_date: string | null;
+  fatture_count: number;
+  anagrafiche_create: unknown;
+  skipped: unknown;
+  status: "avviata" | "completata" | "errore" | "interrotta";
+  error: string | null;
+  created_by: string | null;
+  updated_by: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
 export interface FatturaRicevutaRigaRow {
   id: string;
   fattura_id: string;
