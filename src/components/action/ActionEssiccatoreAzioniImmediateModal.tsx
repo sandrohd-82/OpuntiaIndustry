@@ -10,7 +10,6 @@ import {
   VENT_FROM,
   VENT_TO,
 } from "@/components/action/ClockArcPercentGauge";
-import { IotMexExchangeLog } from "@/components/action/IotMexExchangeLog";
 import {
   TEMP_BRUCIATORE_DEFAULT_C,
   TEMP_BRUCIATORE_MAX_C,
@@ -22,6 +21,7 @@ import type { ActionEssiccatore } from "@/lib/action/essiccatori";
 type Props = {
   essiccatore: ActionEssiccatore;
   onClose: () => void;
+  onAvvioRegistrato: (azione: ActionEssiccatoreAzione) => void;
 };
 
 function ConsentSwitch({
@@ -81,6 +81,7 @@ function ConsentSwitch({
 export function ActionEssiccatoreAzioniImmediateModal({
   essiccatore,
   onClose,
+  onAvvioRegistrato,
 }: Props) {
   const titleId = useId();
   const [consensoBruciatore, setConsensoBruciatore] = useState(false);
@@ -92,7 +93,6 @@ export function ActionEssiccatoreAzioniImmediateModal({
   const [percVentilazione, setPercVentilazione] = useState(0);
   const [ventImpostata, setVentImpostata] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [done, setDone] = useState<ActionEssiccatoreAzione | null>(null);
   const [pending, startTransition] = useTransition();
 
   useEffect(() => {
@@ -142,7 +142,7 @@ export function ActionEssiccatoreAzioniImmediateModal({
         setError(res.error);
         return;
       }
-      setDone(res.item);
+      onAvvioRegistrato(res.item);
     });
   }
 
@@ -183,11 +183,7 @@ export function ActionEssiccatoreAzioniImmediateModal({
             </span>
           </div>
 
-          {done ? (
-            <IotMexExchangeLog azione={done} />
-          ) : (
-            <>
-              <p className="text-sm text-[var(--muted)]">
+          <p className="text-sm text-[var(--muted)]">
                 Prima imposta Temperatura e Ventilazione, poi porta a On
                 entrambi i consensi. La percentuale bruciatore la regola il
                 sistema dalla sonda TEMP-BRUC.
@@ -275,8 +271,6 @@ export function ActionEssiccatoreAzioniImmediateModal({
                   {pending ? "Registrazione…" : "Avvia essiccatore"}
                 </button>
               </div>
-            </>
-          )}
         </div>
       </div>
     </div>

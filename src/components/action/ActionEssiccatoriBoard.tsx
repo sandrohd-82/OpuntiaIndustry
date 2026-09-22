@@ -8,6 +8,7 @@ import {
   renameActionEssiccatoreSensoreAction,
 } from "@/app/actions/action-essiccatore-sensori";
 import { ActionEssiccatoreAzioniImmediateModal } from "@/components/action/ActionEssiccatoreAzioniImmediateModal";
+import { IotMexCommsPanel } from "@/components/action/IotMexCommsPanel";
 import { ActionEssiccatoreSensorFlags } from "@/components/action/ActionEssiccatoreSensorFlags";
 import { PdfFirstPageImage } from "@/components/action/PdfFirstPageImage";
 import { InfoHint } from "@/components/ui/InfoHint";
@@ -17,6 +18,10 @@ import {
   formatCapacitaKg,
   type ActionEssiccatore,
 } from "@/lib/action/essiccatori";
+import {
+  createSessioneAvvioComms,
+  type MexCommsSessione,
+} from "@/lib/action/iot-mex-comms";
 import type { ActionEssiccatoreSensore } from "@/lib/action/sensori";
 
 const iconBtn =
@@ -148,6 +153,7 @@ export function ActionEssiccatoriBoard({ canPosition = false }: Props) {
   const [immediateFor, setImmediateFor] = useState<ActionEssiccatore | null>(
     null
   );
+  const [comms, setComms] = useState<MexCommsSessione | null>(null);
 
   useEffect(() => {
     void listActionEssiccatoreSensoriAction().then((res) => {
@@ -238,7 +244,15 @@ export function ActionEssiccatoriBoard({ canPosition = false }: Props) {
         <ActionEssiccatoreAzioniImmediateModal
           essiccatore={immediateFor}
           onClose={() => setImmediateFor(null)}
+          onAvvioRegistrato={(azione) => {
+            const nome = immediateFor.nome;
+            setImmediateFor(null);
+            setComms(createSessioneAvvioComms(azione, nome));
+          }}
         />
+      ) : null}
+      {comms ? (
+        <IotMexCommsPanel sessione={comms} onChiudi={() => setComms(null)} />
       ) : null}
     </div>
   );

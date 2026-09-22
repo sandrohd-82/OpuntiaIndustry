@@ -231,7 +231,7 @@ export const PAGE_EXTRAS: Record<string, TutorialBlock[]> = {
   "/app/action/aree/essiccatori": [
     {
       type: "p",
-      text: "Il fulmine apre le azioni immediate. Prima Temperatura e Ventilazione, poi On su entrambi. Avvia mostra l’elenco Mex inviati (A01–A04) e le risposte attese (K01–K04) con checksum. Codifica in Archivio → IoT → Leggenda Mex. Lo spostamento dei sensori lo fa solo il Super Admin non impersonato.",
+      text: "Il fulmine apre le azioni immediate. Prima Temperatura e Ventilazione, poi On su entrambi. Avvia apre un pannello Mex non bloccante (titolo, frame, in attesa conferma). Click fuori lo riduce in basso a destra; click sul riquadro lo riporta al centro. Oggi la conferma è simulata e lenta. Codifica in Archivio → IoT → Leggenda Mex. Lo spostamento dei sensori lo fa solo il Super Admin non impersonato.",
     },
   ],
   "/app/magazzino/mappa": [
