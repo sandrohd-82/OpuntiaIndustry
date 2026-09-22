@@ -11,11 +11,15 @@ import {
   VENT_TO,
 } from "@/components/action/ClockArcPercentGauge";
 import {
-  TEMP_BRUCIATORE_DEFAULT_C,
   TEMP_BRUCIATORE_MAX_C,
   TEMP_BRUCIATORE_MIN_C,
   type ActionEssiccatoreAzione,
 } from "@/lib/action/azioni-immediate";
+import {
+  APPRENDIMENTO_FINESTRA_MIN,
+  prediciPercBruciatoreSeme,
+  ricettaInizialeAvvio,
+} from "@/lib/action/essiccatore-apprendimento";
 import type { ActionEssiccatore } from "@/lib/action/essiccatori";
 
 type Props = {
@@ -84,14 +88,17 @@ export function ActionEssiccatoreAzioniImmediateModal({
   onAvvioRegistrato,
 }: Props) {
   const titleId = useId();
+  const ricetta = ricettaInizialeAvvio();
   const [consensoBruciatore, setConsensoBruciatore] = useState(false);
   const [tempBruciatoreC, setTempBruciatoreC] = useState(
-    TEMP_BRUCIATORE_DEFAULT_C
+    ricetta.tempBruciatoreC
   );
-  const [tempImpostata, setTempImpostata] = useState(false);
+  const [tempImpostata, setTempImpostata] = useState(true);
   const [consensoVentola, setConsensoVentola] = useState(false);
-  const [percVentilazione, setPercVentilazione] = useState(0);
-  const [ventImpostata, setVentImpostata] = useState(false);
+  const [percVentilazione, setPercVentilazione] = useState(
+    ricetta.percVentilazione
+  );
+  const [ventImpostata, setVentImpostata] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
 
@@ -184,10 +191,29 @@ export function ActionEssiccatoreAzioniImmediateModal({
           </div>
 
           <p className="text-sm text-[var(--muted)]">
-                Prima imposta Temperatura e Ventilazione, poi porta a On
-                entrambi i consensi. La percentuale bruciatore la regola il
-                sistema dalla sonda TEMP-BRUC.
-              </p>
+            Partenza con ricetta iniziale. I consensi restano Off finché non li
+            metti On. Invio in sequenza: ventola, poi bruciatore.
+          </p>
+
+          <div className="rounded-lg border border-violet-200 bg-violet-50/70 px-3 py-2.5 text-sm text-violet-950">
+            <p className="font-semibold">Impostazione iniziale · apprendimento</p>
+            <p className="mt-1 text-xs leading-5 text-violet-900">
+              Ambiente {ricetta.tempAmbienteC}°C · carico non ancora collegato ·
+              ventola {percVentilazione}% · obiettivo {tempBruciatoreC}°C ·
+              apertura bruciatore prevista{" "}
+              <span className="font-semibold">
+                {prediciPercBruciatoreSeme({
+                  tempAmbienteC: ricetta.tempAmbienteC,
+                  percVentilazione,
+                  kgProdotto: ricetta.kgProdotto,
+                  tempObiettivoC: tempBruciatoreC,
+                })}
+                %
+              </span>
+              . Dopo {APPRENDIMENTO_FINESTRA_MIN} minuti di attività il sistema
+              confronterà la temperatura raggiunta e affinerà la %.
+            </p>
+          </div>
 
               <div className="grid gap-4 md:grid-cols-2">
                 <section className="rounded-xl border border-orange-100 bg-orange-50/40 p-3">

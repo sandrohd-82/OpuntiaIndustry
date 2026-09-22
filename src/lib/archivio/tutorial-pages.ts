@@ -231,7 +231,7 @@ export const PAGE_EXTRAS: Record<string, TutorialBlock[]> = {
   "/app/action/aree/essiccatori": [
     {
       type: "p",
-      text: "Il fulmine apre le azioni immediate. Prima Temperatura e Ventilazione, poi On su entrambi. Avvia apre un pannello Mex non bloccante (titolo, frame, in attesa conferma). Click fuori lo riduce in basso a destra; click sul riquadro lo riporta al centro. Oggi la conferma è simulata e lenta. Codifica in Archivio → IoT → Leggenda Mex. Lo spostamento dei sensori lo fa solo il Super Admin non impersonato.",
+      text: "Il fulmine apre le azioni immediate con ricetta iniziale. Avvia invia i Mex in cadenza di sicurezza: set ventola → attesa → On ventola → attesa → set temperatura → attesa → On bruciatore. Click fuori riduce lo scambio a un banner in basso (ultimo messaggio o attesa); click sul banner lo riporta al centro. Conferme ancora simulate. L’apprendimento (% bruciatore da ambiente, ventola, kg e temp a 5 min) è in preparazione. Codifica in Archivio → IoT → Leggenda Mex.",
     },
   ],
   "/app/magazzino/mappa": [

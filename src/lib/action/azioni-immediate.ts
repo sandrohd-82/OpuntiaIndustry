@@ -106,19 +106,31 @@ export function buildMessaggiAvvio(
     consensoVentola: input.consensoVentola,
     percVentilazione: input.percVentilazione,
   });
-  const [burnerOn, burnerTemp, fanOn, fanPower] = frames;
+  const [fanPower, fanOn, burnerTemp, burnerOn] = frames;
   return [
     {
-      canale: "consenso_bruciatore",
-      comando: burnerOn?.codice ?? "A01",
+      canale: "perc_ventilazione",
+      comando: fanPower?.codice ?? "A04",
       payload: {
-        on: input.consensoBruciatore,
-        mex: burnerOn?.hex ?? "",
-        codice: burnerOn?.codice ?? "A01",
-        uid: burnerOn?.uidHex ?? "",
-        cls: burnerOn?.cls ?? "I",
+        percent: input.percVentilazione,
+        mex: fanPower?.hex ?? "",
+        codice: fanPower?.codice ?? "A04",
+        uid: fanPower?.uidHex ?? "",
+        cls: fanPower?.cls ?? "I",
       },
       sortOrder: 1,
+    },
+    {
+      canale: "consenso_ventola",
+      comando: fanOn?.codice ?? "A03",
+      payload: {
+        on: input.consensoVentola,
+        mex: fanOn?.hex ?? "",
+        codice: fanOn?.codice ?? "A03",
+        uid: fanOn?.uidHex ?? "",
+        cls: fanOn?.cls ?? "I",
+      },
+      sortOrder: 2,
     },
     {
       canale: "temp_bruciatore",
@@ -132,29 +144,17 @@ export function buildMessaggiAvvio(
         uid: burnerTemp?.uidHex ?? "",
         cls: burnerTemp?.cls ?? "I",
       },
-      sortOrder: 2,
-    },
-    {
-      canale: "consenso_ventola",
-      comando: fanOn?.codice ?? "A03",
-      payload: {
-        on: input.consensoVentola,
-        mex: fanOn?.hex ?? "",
-        codice: fanOn?.codice ?? "A03",
-        uid: fanOn?.uidHex ?? "",
-        cls: fanOn?.cls ?? "I",
-      },
       sortOrder: 3,
     },
     {
-      canale: "perc_ventilazione",
-      comando: fanPower?.codice ?? "A04",
+      canale: "consenso_bruciatore",
+      comando: burnerOn?.codice ?? "A01",
       payload: {
-        percent: input.percVentilazione,
-        mex: fanPower?.hex ?? "",
-        codice: fanPower?.codice ?? "A04",
-        uid: fanPower?.uidHex ?? "",
-        cls: fanPower?.cls ?? "I",
+        on: input.consensoBruciatore,
+        mex: burnerOn?.hex ?? "",
+        codice: burnerOn?.codice ?? "A01",
+        uid: burnerOn?.uidHex ?? "",
+        cls: burnerOn?.cls ?? "I",
       },
       sortOrder: 4,
     },

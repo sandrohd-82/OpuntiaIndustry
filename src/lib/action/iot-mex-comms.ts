@@ -11,15 +11,20 @@ import {
 /** Tempi lenti di simulazione (ms). L’IoT reale sostituirà questi delay. */
 export const MEX_COMMS_SIM = {
   attesaConfermaMs: 3200,
-  mostraConfermaMs: 1500,
+  mostraConfermaMs: 1400,
 } as const;
 
-export type MexCommsFase = "attesa" | "confermato" | "completato";
+export type MexCommsFase =
+  | "attesa"
+  | "confermato"
+  | "completato"
+  | "blocco_sicurezza";
 
 export type MexCommsPasso = {
   id: string;
   titolo: string;
   frame: MexFrame;
+  richiedeVentolaOn: boolean;
 };
 
 export type MexCommsSessione = {
@@ -29,11 +34,12 @@ export type MexCommsSessione = {
   passi: MexCommsPasso[];
 };
 
-const ORDINE_AVVIO = [
-  MEX_CMD.BURNER_TEMP,
-  MEX_CMD.BURNER_CONSENT,
+/** Cadenza di sicurezza: set ventola → On ventola → set temperatura → On bruciatore. */
+export const ORDINE_SICUREZZA_AVVIO = [
   MEX_CMD.FAN_POWER,
   MEX_CMD.FAN_CONSENT,
+  MEX_CMD.BURNER_TEMP,
+  MEX_CMD.BURNER_CONSENT,
 ] as const;
 
 function outsDaAzione(azione: ActionEssiccatoreAzione): MexFrame[] {
@@ -55,6 +61,10 @@ function outsDaAzione(azione: ActionEssiccatoreAzione): MexFrame[] {
   });
 }
 
+function richiedeVentolaOn(cmd: number): boolean {
+  return cmd === MEX_CMD.BURNER_TEMP || cmd === MEX_CMD.BURNER_CONSENT;
+}
+
 export function createSessioneAvvioComms(
   azione: ActionEssiccatoreAzione,
   essiccatoreNome: string
@@ -62,13 +72,14 @@ export function createSessioneAvvioComms(
   const byCmd = new Map(outsDaAzione(azione).map((f) => [f.cmd, f]));
   const passi: MexCommsPasso[] = [];
 
-  ORDINE_AVVIO.forEach((cmd, i) => {
+  ORDINE_SICUREZZA_AVVIO.forEach((cmd, i) => {
     const frame = byCmd.get(cmd);
     if (!frame) return;
     passi.push({
       id: `${azione.id}-out-${i}`,
       titolo: titoloOperatoreMex(frame),
       frame,
+      richiedeVentolaOn: richiedeVentolaOn(cmd),
     });
   });
 
@@ -86,5 +97,13 @@ export function ackSimulato(out: MexFrame): MexCommsPasso {
     id: `ack-${out.codice}-${out.hex}`,
     titolo: titoloOperatoreMex(ack),
     frame: ack,
+    richiedeVentolaOn: false,
   };
+}
+
+/** Il bruciatore parte solo se la ventola è già confermata On. */
+export function ventolaOnConfermata(passi: MexCommsPasso[], finoA: number): boolean {
+  return passi.slice(0, finoA).some(
+    (p) => p.frame.cmd === MEX_CMD.FAN_CONSENT && p.frame.d0 === 1
+  );
 }

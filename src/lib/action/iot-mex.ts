@@ -261,20 +261,14 @@ export function encodeAvvioOut(input: {
 }): MexFrame[] {
   const uid = uidPerEssiccatore(input.essiccatoreId ?? "ess-a");
   const base = { cls: "I" as const, uid };
+  /** Sicurezza: mai bruciatore prima della ventola confermata On. */
   return [
     encodeMex({
       ...base,
       dir: "O",
       tipo: "A",
-      cmd: MEX_CMD.BURNER_CONSENT,
-      d0: onByte(input.consensoBruciatore),
-    }),
-    encodeMex({
-      ...base,
-      dir: "O",
-      tipo: "A",
-      cmd: MEX_CMD.BURNER_TEMP,
-      d0: input.tempBruciatoreC,
+      cmd: MEX_CMD.FAN_POWER,
+      d0: input.percVentilazione,
     }),
     encodeMex({
       ...base,
@@ -287,8 +281,15 @@ export function encodeAvvioOut(input: {
       ...base,
       dir: "O",
       tipo: "A",
-      cmd: MEX_CMD.FAN_POWER,
-      d0: input.percVentilazione,
+      cmd: MEX_CMD.BURNER_TEMP,
+      d0: input.tempBruciatoreC,
+    }),
+    encodeMex({
+      ...base,
+      dir: "O",
+      tipo: "A",
+      cmd: MEX_CMD.BURNER_CONSENT,
+      d0: onByte(input.consensoBruciatore),
     }),
   ];
 }
@@ -324,10 +325,10 @@ export function titoloOperatoreMex(frame: MexFrame): string {
       : "Conferma temperatura bruciatore";
   }
   if (frame.cmd === MEX_CMD.FAN_CONSENT) {
-    return "On / Off ventola";
+    return frame.d0 ? "On ventola" : "Off ventola";
   }
   if (frame.cmd === MEX_CMD.BURNER_CONSENT) {
-    return "On / Off bruciatore";
+    return frame.d0 ? "On bruciatore" : "Off bruciatore";
   }
   return titoloMex(frame);
 }
