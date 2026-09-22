@@ -286,30 +286,38 @@ export async function listLottiMagazzinoInserimentoAction(): Promise<
 > {
   await requireAnyAreaAccess(["amministrazione", "produzione", "magazzino"]);
   const supabase = createServiceClient();
-  const { data, error } = await supabase
-    .from("magazzino_movimenti")
-    .select(
-      "lotto_codice, tipo, quantita_kg, created_at, lotto_esterno_id, prodotto_id, prodotto_codice, lotto_esterno:lotti_esterni!lotto_esterno_id(id, codice), prodotto:prodotti_propri!prodotto_id(id, codice, nome)"
-    )
-    .eq("catalog_kind", CATALOG_PROPRIO)
-    .is("deleted_at", null)
-    .not("lotto_codice", "is", null)
-    .order("created_at", { ascending: false });
-  if (error) return { success: false, error: error.message };
+  const pageSize = 1000;
+  const movimenti: Array<{
+    prodotto_id: string | null;
+    prodotto_codice: string | null;
+    lotto_codice: string | null;
+    lotto_esterno_id: string | null;
+    tipo: string;
+    quantita_kg: number;
+  }> = [];
+  for (let from = 0; ; from += pageSize) {
+    const { data, error } = await supabase
+      .from("magazzino_movimenti")
+      .select(
+        "prodotto_id, prodotto_codice, lotto_codice, lotto_esterno_id, tipo, quantita_kg"
+      )
+      .eq("catalog_kind", CATALOG_PROPRIO)
+      .is("deleted_at", null)
+      .not("lotto_codice", "is", null)
+      .range(from, from + pageSize - 1);
+    if (error) return { success: false, error: error.message };
+    const rows = (data ?? []) as typeof movimenti;
+    movimenti.push(...rows);
+    if (rows.length < pageSize) break;
+  }
 
   const byKey = new Map<string, LottoInserimentoOption>();
-  for (const r of (data ?? []) as Array<Record<string, unknown>>) {
+  const prodottoIds = new Set<string>();
+  const esternoIds = new Set<string>();
+  for (const r of movimenti) {
     const lotto = String(r.lotto_codice ?? "").trim();
-    const prodottoRel = Array.isArray(r.prodotto) ? r.prodotto[0] : r.prodotto;
-    const prod = (prodottoRel ?? null) as
-      | { id?: string; codice?: string; nome?: string }
-      | null;
-    const prodottoId = String(r.prodotto_id ?? prod?.id ?? "").trim();
+    const prodottoId = String(r.prodotto_id ?? "").trim();
     if (!lotto || !prodottoId) continue;
-    const esterno = Array.isArray(r.lotto_esterno)
-      ? r.lotto_esterno[0]
-      : r.lotto_esterno;
-    const ext = esterno as { codice?: string } | null;
     const qty = segnoQuantitaMovimento(
       String(r.tipo ?? ""),
       Number(r.quantita_kg) || 0
@@ -317,19 +325,63 @@ export async function listLottiMagazzinoInserimentoAction(): Promise<
     const key = `${prodottoId}::${lotto}`;
     const prev = byKey.get(key);
     if (!prev) {
+      prodottoIds.add(prodottoId);
+      if (r.lotto_esterno_id) esternoIds.add(r.lotto_esterno_id);
       byKey.set(key, {
         key,
         lottoInternoCodice: lotto,
-        lottoEsternoCodice: ext?.codice?.trim() || null,
+        lottoEsternoCodice: null,
         prodottoId,
-        prodottoCodice: String(prod?.codice ?? r.prodotto_codice ?? "").trim(),
-        prodottoNome: String(prod?.nome ?? "").trim(),
+        prodottoCodice: String(r.prodotto_codice ?? "").trim(),
+        prodottoNome: "",
         quantitaKg: qty,
       });
     } else {
       prev.quantitaKg = Math.round((prev.quantitaKg + qty) * 1000) / 1000;
-      if (!prev.lottoEsternoCodice && ext?.codice) {
-        prev.lottoEsternoCodice = ext.codice.trim();
+      if (!prev.prodottoCodice && r.prodotto_codice) {
+        prev.prodottoCodice = String(r.prodotto_codice).trim();
+      }
+      if (r.lotto_esterno_id) esternoIds.add(r.lotto_esterno_id);
+    }
+  }
+
+  if (prodottoIds.size) {
+    const { data: prodotti } = await supabase
+      .from("prodotti_propri")
+      .select("id, codice, nome")
+      .in("id", [...prodottoIds]);
+    const nomi = new Map(
+      ((prodotti ?? []) as Array<{ id: string; codice: string; nome: string }>).map(
+        (p) => [p.id, p]
+      )
+    );
+    for (const l of byKey.values()) {
+      const p = nomi.get(l.prodottoId);
+      if (!p) continue;
+      l.prodottoNome = p.nome ?? "";
+      if (!l.prodottoCodice) l.prodottoCodice = p.codice ?? "";
+    }
+  }
+
+  if (esternoIds.size) {
+    const { data: esterni } = await supabase
+      .from("lotti_esterni")
+      .select("id, codice")
+      .in("id", [...esternoIds])
+      .is("deleted_at", null);
+    const byEst = new Map(
+      ((esterni ?? []) as Array<{ id: string; codice: string }>).map((e) => [
+        e.id,
+        e.codice,
+      ])
+    );
+    for (const r of movimenti) {
+      const lotto = String(r.lotto_codice ?? "").trim();
+      const prodottoId = String(r.prodotto_id ?? "").trim();
+      if (!lotto || !prodottoId || !r.lotto_esterno_id) continue;
+      const opt = byKey.get(`${prodottoId}::${lotto}`);
+      if (opt && !opt.lottoEsternoCodice) {
+        opt.lottoEsternoCodice = byEst.get(r.lotto_esterno_id)?.trim() || null;
       }
     }
   }
