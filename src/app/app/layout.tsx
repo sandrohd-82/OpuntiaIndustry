@@ -25,6 +25,7 @@ import {
 } from "@/lib/auth/stato-operativo";
 import { getAuthContext, getUserAreas } from "@/lib/auth/session";
 import { loadAccessMaps } from "@/app/actions/page-access";
+import { IotMexCommsProvider } from "@/components/action/IotMexCommsProvider";
 import { ActionAccessProvider } from "@/components/layout/ActionAccessProvider";
 import { ImpostaAutorizzazioniButton } from "@/components/layout/ImpostaAutorizzazioniButton";
 import { SensitiveAuthProvider } from "@/components/layout/SensitiveAuthProvider";
@@ -219,6 +220,7 @@ export default async function AppLayout({
             isSuperadminProfile(auth.profile) && !auth.impersonating
           }
         >
+        <IotMexCommsProvider>
           {testMenuMode && canCreateProfiles ? (
             <div className="sticky top-0 z-30 flex items-center justify-end gap-3 border-b border-slate-200 bg-white/95 px-4 py-2 print:hidden">
               <ImpostaAutorizzazioniButton
@@ -243,6 +245,7 @@ export default async function AppLayout({
           ) : (
             children
           )}
+        </IotMexCommsProvider>
         </ActionAccessProvider>
       </div>
       {auth.welcomePending ? <WelcomeModal name={welcomeName} /> : null}

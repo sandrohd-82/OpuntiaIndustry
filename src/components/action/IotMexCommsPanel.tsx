@@ -188,6 +188,48 @@ function MexStringa({
   );
 }
 
+function stringaInFocus(
+  passi: MexCommsPasso[],
+  index: number,
+  fase: MexCommsFase,
+  sottoFase: SottoFase,
+  restaLabel: string
+): {
+  verso: Verso;
+  stato: StringaStato;
+  titolo: string;
+  hex: string;
+  extra?: string;
+} | null {
+  const passo = passi[index] ?? passi[passi.length - 1];
+  if (!passo) return null;
+  const st = statoStringhe(index, index, fase, sottoFase);
+  const ack = ackSimulato(passo.frame);
+  if (st.out === "focus" || st.out === "blocco") {
+    return {
+      verso: "out",
+      stato: st.out,
+      titolo: passo.titolo,
+      hex: passo.frame.hexSpaced,
+    };
+  }
+  if (st.inn === "focus" || st.inn === "blocco") {
+    return {
+      verso: "in",
+      stato: st.inn,
+      titolo: ack.titolo,
+      hex: ack.frame.hexSpaced,
+      extra: fase === "attesa" ? restaLabel : undefined,
+    };
+  }
+  return {
+    verso: "in",
+    stato: st.inn === "eseguita" ? "eseguita" : st.out,
+    titolo: st.inn === "eseguita" ? ack.titolo : passo.titolo,
+    hex: st.inn === "eseguita" ? ack.frame.hexSpaced : passo.frame.hexSpaced,
+  };
+}
+
 function ProcessoStringhe({
   passi,
   index,
@@ -398,7 +440,6 @@ export function IotMexCommsPanel({ sessione, onChiudi, onFine }: Props) {
   const mm = String(Math.floor(restaSec / 60)).padStart(2, "0");
   const ss = String(restaSec % 60).padStart(2, "0");
   const restaLabel = `${mm}:${ss}`;
-  const eseguiti = passi.filter((_, i) => i < index || fatto).length;
 
   const statoRiga = blocco
     ? "Blocco sicurezza"
@@ -417,58 +458,50 @@ export function IotMexCommsPanel({ sessione, onChiudi, onFine }: Props) {
       fase={fase}
       sottoFase={sottoFase}
       restaLabel={restaLabel}
-      compatto={docked}
       focusRef={(el) => {
         focusRowRef.current = el;
       }}
     />
   );
+  const focus = stringaInFocus(passi, index, fase, sottoFase, restaLabel);
 
   const node = docked ? (
-    <div
+    <button
       ref={bindPanel}
-      className="fixed bottom-0 left-1/2 z-[85] w-[min(36rem,calc(100vw-1.5rem))] -translate-x-1/2 overflow-hidden rounded-t-[2rem] border border-b-0 border-slate-200 bg-white shadow-[0_-10px_28px_rgba(15,23,42,0.18)] print:hidden"
+      type="button"
+      aria-label="Espandi scambio Mex"
+      className="fixed bottom-0 left-1/2 z-[85] w-[min(36rem,calc(100vw-1.5rem))] -translate-x-1/2 overflow-hidden rounded-t-[2rem] border border-b-0 border-slate-200 bg-white px-3 pb-2.5 pt-2 text-left shadow-[0_-10px_28px_rgba(15,23,42,0.18)] print:hidden"
+      onClick={() => setDocked(false)}
     >
-      <button
-        type="button"
-        aria-label="Espandi scambio Mex"
-        className="flex w-full items-center justify-between gap-3 px-4 py-3 text-left"
-        onClick={() => setDocked(false)}
-      >
-        <div className="min-w-0">
-          <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">
-            Cronologia Mex · {eseguiti}/{passi.length} eseguiti
-          </p>
-          <p className="truncate text-sm font-semibold text-slate-900">
-            {visibile.titolo}
-          </p>
-        </div>
-        <div className="flex shrink-0 items-center gap-2 text-xs font-medium">
-          {inAttesa && sottoFase === "invio" ? (
-            <>
-              <FaPaperPlane className="mex-string-focus-icon text-sky-600" size={12} />
-              <span className="text-sky-800">Invio</span>
-            </>
-          ) : inAttesa ? (
-            <>
-              <FaHourglassHalf className="mex-string-focus-icon text-amber-600" size={12} />
-              <span className="text-amber-800">Attesa {restaLabel}</span>
-            </>
-          ) : blocco ? (
-            <>
-              <FaBan className="text-red-600" size={12} />
-              <span className="text-red-800">{statoRiga}</span>
-            </>
-          ) : (
-            <>
-              <FaCircleCheck className="text-emerald-600" size={12} />
-              <span className="text-emerald-800">{statoRiga}</span>
-            </>
-          )}
-        </div>
-      </button>
-      <div className="max-h-44 overflow-y-auto px-3 pb-3">{processo}</div>
-    </div>
+      <div className="mb-1.5 flex items-center justify-between gap-2 px-0.5">
+        <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">
+          Mex · {passoN}/{passi.length} · {statoRiga}
+        </p>
+        {inAttesa && sottoFase === "invio" ? (
+          <FaPaperPlane className="mex-string-focus-icon shrink-0 text-sky-600" size={12} />
+        ) : inAttesa ? (
+          <span className="font-mono text-[11px] tabular-nums text-amber-800">
+            {restaLabel}
+          </span>
+        ) : blocco ? (
+          <FaBan className="shrink-0 text-red-600" size={12} />
+        ) : (
+          <FaCircleCheck className="shrink-0 text-emerald-600" size={12} />
+        )}
+      </div>
+      {focus ? (
+        <ol className="pointer-events-none">
+          <MexStringa
+            verso={focus.verso}
+            stato={focus.stato}
+            titolo={focus.titolo}
+            hex={focus.hex}
+            extra={focus.extra}
+            compatto
+          />
+        </ol>
+      ) : null}
+    </button>
   ) : (
     <div
       ref={bindPanel}

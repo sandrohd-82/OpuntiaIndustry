@@ -8,9 +8,9 @@ import {
   type MexFrame,
 } from "@/lib/action/iot-mex";
 
-/** Test grafica: il device finto risponde dopo 1 minuto. Poi IoT reale. */
+/** Test grafica: il device finto risponde dopo 10 secondi. Poi IoT reale. */
 export const MEX_COMMS_SIM = {
-  attesaConfermaMs: 60_000,
+  attesaConfermaMs: 10_000,
   mostraConfermaMs: 5000,
 } as const;
 
