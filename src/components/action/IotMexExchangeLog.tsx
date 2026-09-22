@@ -42,9 +42,9 @@ export function IotMexExchangeLog({
       <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-950">
         <p className="font-semibold">Avvio registrato · scambio Mex</p>
         <p className="mt-1 text-emerald-800">
-          Quattro messaggi in uscita (Action). Le risposte in ingresso restano
-          in attesa finché il dispositivo IoT non è collegato. Checksum stile
-          XBee già calcolato su ogni frame.
+          Quattro messaggi in uscita (Action). Stesso Mex per WiFi, XBee e
+          LoRa: classe I, UID 8 byte (SH+SL). Le risposte in ingresso restano
+          in attesa finché il dispositivo non è collegato.
         </p>
       </div>
 
@@ -80,11 +80,10 @@ export function IotMexExchangeLog({
                 {row.frame.hexSpaced}
               </p>
               <p className="text-[11px] text-slate-500">
-                LEN {row.frame.len} · CHK {row.frame.chk
-                  .toString(16)
-                  .toUpperCase()
-                  .padStart(2, "0")}{" "}
-                · {row.frame.valido ? "integrità ok" : "checksum non valido"}
+                CLS {row.frame.cls} · SH {row.frame.uidHigh} · SL{" "}
+                {row.frame.uidLow} · LEN {row.frame.len} · CHK{" "}
+                {row.frame.chk.toString(16).toUpperCase().padStart(2, "0")} ·{" "}
+                {row.frame.valido ? "integrità ok" : "checksum non valido"}
               </p>
             </li>
           );

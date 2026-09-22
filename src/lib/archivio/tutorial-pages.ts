@@ -201,13 +201,13 @@ export const PAGE_EXTRAS: Record<string, TutorialBlock[]> = {
   "/app/archivio/iot": [
     {
       type: "p",
-      text: "Spiega come master e device si parlano con Mex (frame 9 byte, checksum XBee). L’invio radio si collega dopo.",
+      text: "Un Mex unico (7E + classe + UID 8 byte SH/SL + comando + checksum) viaggia su WiFi, XBee o LoRa. Cambia solo l’involucro.",
     },
   ],
   "/app/archivio/iot/leggenda-mex": [
     {
       type: "p",
-      text: "Legenda dei messaggi Out/In: lettera tipo (A Action, R Request, K acK, S Sensor), comando, dati, checksum. Esempi già calcolati.",
+      text: "Legenda Out/In più l’esempio On bruciatore (A01) nei 3 scenari: JSON WiFi, telaio XBee 0x10, FRMPayload LoRa. Stesso hex Mex.",
     },
   ],
   "/app/produzione/processi-e-attivita/elenco-processi": [

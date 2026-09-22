@@ -99,7 +99,13 @@ export type MessaggioAvvioDraft = {
 export function buildMessaggiAvvio(
   input: AvvioEssiccatoreInput
 ): MessaggioAvvioDraft[] {
-  const frames = encodeAvvioOut(input);
+  const frames = encodeAvvioOut({
+    essiccatoreId: input.essiccatoreId,
+    consensoBruciatore: input.consensoBruciatore,
+    tempBruciatoreC: input.tempBruciatoreC,
+    consensoVentola: input.consensoVentola,
+    percVentilazione: input.percVentilazione,
+  });
   const [burnerOn, burnerTemp, fanOn, fanPower] = frames;
   return [
     {
@@ -109,6 +115,8 @@ export function buildMessaggiAvvio(
         on: input.consensoBruciatore,
         mex: burnerOn?.hex ?? "",
         codice: burnerOn?.codice ?? "A01",
+        uid: burnerOn?.uidHex ?? "",
+        cls: burnerOn?.cls ?? "I",
       },
       sortOrder: 1,
     },
@@ -121,6 +129,8 @@ export function buildMessaggiAvvio(
         regolazione: "mantieni_setpoint",
         mex: burnerTemp?.hex ?? "",
         codice: burnerTemp?.codice ?? "A02",
+        uid: burnerTemp?.uidHex ?? "",
+        cls: burnerTemp?.cls ?? "I",
       },
       sortOrder: 2,
     },
@@ -131,6 +141,8 @@ export function buildMessaggiAvvio(
         on: input.consensoVentola,
         mex: fanOn?.hex ?? "",
         codice: fanOn?.codice ?? "A03",
+        uid: fanOn?.uidHex ?? "",
+        cls: fanOn?.cls ?? "I",
       },
       sortOrder: 3,
     },
@@ -141,6 +153,8 @@ export function buildMessaggiAvvio(
         percent: input.percVentilazione,
         mex: fanPower?.hex ?? "",
         codice: fanPower?.codice ?? "A04",
+        uid: fanPower?.uidHex ?? "",
+        cls: fanPower?.cls ?? "I",
       },
       sortOrder: 4,
     },
