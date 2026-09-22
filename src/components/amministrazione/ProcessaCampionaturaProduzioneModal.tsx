@@ -311,6 +311,10 @@ export function ProcessaCampionaturaProduzioneModal({
 
             {righe.map((r) => {
               const match = haLottoRichiesto(r.prodottoId);
+              const consigliati = lotti.filter(
+                (l) => l.prodottoId === r.prodottoId
+              );
+              const altri = lotti.filter((l) => l.prodottoId !== r.prodottoId);
               return (
                 <label key={r.id} className="mt-4 block text-sm">
                   <span className="mb-1 block font-medium">
@@ -333,11 +337,24 @@ export function ProcessaCampionaturaProduzioneModal({
                         ? "Caricamento lotti…"
                         : "Seleziona un lotto a magazzino"}
                     </option>
-                    {lotti.map((l) => (
-                      <option key={l.key} value={l.key}>
-                        {labelLotto(l)}
-                      </option>
-                    ))}
+                    {consigliati.length ? (
+                      <optgroup label="Consigliati">
+                        {consigliati.map((l) => (
+                          <option key={l.key} value={l.key}>
+                            Consigliato · {labelLotto(l)}
+                          </option>
+                        ))}
+                      </optgroup>
+                    ) : null}
+                    {altri.length ? (
+                      <optgroup label="Altri lotti">
+                        {altri.map((l) => (
+                          <option key={l.key} value={l.key}>
+                            {labelLotto(l)}
+                          </option>
+                        ))}
+                      </optgroup>
+                    ) : null}
                   </select>
                   {match ? (
                     <span className="mt-1 block text-xs font-medium text-emerald-700">
