@@ -2,7 +2,11 @@
 
 import { createContext, useCallback, useContext, useState } from "react";
 import { IotMexCommsPanel } from "@/components/action/IotMexCommsPanel";
-import type { MexCommsSessione } from "@/lib/action/iot-mex-comms";
+import { IotMexEsitoAvviso } from "@/components/action/IotMexEsitoAvviso";
+import type {
+  MexCommsEsitoAvviso,
+  MexCommsSessione,
+} from "@/lib/action/iot-mex-comms";
 
 type Ctx = {
   avviaSessione: (sessione: MexCommsSessione) => void;
@@ -16,8 +20,16 @@ export function IotMexCommsProvider({
   children: React.ReactNode;
 }) {
   const [sessione, setSessione] = useState<MexCommsSessione | null>(null);
+  const [esito, setEsito] = useState<MexCommsEsitoAvviso | null>(null);
   const avviaSessione = useCallback((next: MexCommsSessione) => {
+    setEsito(null);
     setSessione(next);
+  }, []);
+  const chiudiSessione = useCallback(() => setSessione(null), []);
+  const chiudiEsito = useCallback(() => setEsito(null), []);
+  const fineSessione = useCallback((next: MexCommsEsitoAvviso) => {
+    setSessione(null);
+    setEsito(next);
   }, []);
 
   return (
@@ -26,8 +38,12 @@ export function IotMexCommsProvider({
       {sessione ? (
         <IotMexCommsPanel
           sessione={sessione}
-          onChiudi={() => setSessione(null)}
+          onChiudi={chiudiSessione}
+          onFine={fineSessione}
         />
+      ) : null}
+      {esito ? (
+        <IotMexEsitoAvviso esito={esito} onChiudi={chiudiEsito} />
       ) : null}
     </IotMexCommsContext.Provider>
   );

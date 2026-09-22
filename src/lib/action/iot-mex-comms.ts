@@ -20,6 +20,45 @@ export type MexCommsFase =
   | "completato"
   | "blocco_sicurezza";
 
+export type MexCommsEsitoLivello = "ok" | "attenzione" | "errore";
+
+export type MexCommsEsitoAvviso = {
+  livello: MexCommsEsitoLivello;
+  titolo: string;
+  testo: string;
+  essiccatoreNome: string;
+};
+
+export function esitoDaFineSessione(
+  fase: MexCommsFase,
+  passi: MexCommsPasso[],
+  essiccatoreNome: string
+): MexCommsEsitoAvviso | null {
+  if (fase === "blocco_sicurezza") {
+    return {
+      livello: "errore",
+      titolo: "Avvio interrotto",
+      testo: "Il processo si è fermato: il bruciatore non parte senza ventola On confermata.",
+      essiccatoreNome,
+    };
+  }
+  if (fase !== "completato") return null;
+  if (passi.length < ORDINE_SICUREZZA_AVVIO.length) {
+    return {
+      livello: "attenzione",
+      titolo: "Avvio incompleto",
+      testo: "Lo scambio è finito, ma manca almeno un messaggio della cadenza di sicurezza.",
+      essiccatoreNome,
+    };
+  }
+  return {
+    livello: "ok",
+    titolo: "Avvio confermato",
+    testo: "Tutti i messaggi sono stati confermati. La procedura è al 100%.",
+    essiccatoreNome,
+  };
+}
+
 export type MexCommsPasso = {
   id: string;
   titolo: string;

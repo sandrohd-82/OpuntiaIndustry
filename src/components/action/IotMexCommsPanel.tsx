@@ -6,8 +6,10 @@ import { FaCheck, FaMinus, FaXmark } from "react-icons/fa6";
 import { BusySpinner } from "@/components/ui/BusyIndicator";
 import {
   ackSimulato,
+  esitoDaFineSessione,
   MEX_COMMS_SIM,
   ventolaOnConfermata,
+  type MexCommsEsitoAvviso,
   type MexCommsFase,
   type MexCommsSessione,
 } from "@/lib/action/iot-mex-comms";
@@ -15,9 +17,10 @@ import {
 type Props = {
   sessione: MexCommsSessione;
   onChiudi: () => void;
+  onFine: (esito: MexCommsEsitoAvviso) => void;
 };
 
-export function IotMexCommsPanel({ sessione, onChiudi }: Props) {
+export function IotMexCommsPanel({ sessione, onChiudi, onFine }: Props) {
   const panelRef = useRef<HTMLElement | null>(null);
 
   function bindPanel(el: HTMLElement | null) {
@@ -108,6 +111,18 @@ export function IotMexCommsPanel({ sessione, onChiudi }: Props) {
   }, [sessione.id, passi]);
 
   useEffect(() => {
+    if (fase !== "completato" && fase !== "blocco_sicurezza") return;
+    const esito = esitoDaFineSessione(
+      fase,
+      passi,
+      sessione.essiccatoreNome
+    );
+    if (!esito) return;
+    const t = window.setTimeout(() => onFine(esito), 280);
+    return () => window.clearTimeout(t);
+  }, [fase, passi, sessione.essiccatoreNome, onFine]);
+
+  useEffect(() => {
     function onDoc(e: MouseEvent) {
       if (Date.now() < ignoreOutsideUntil.current) return;
       const el = panelRef.current;
@@ -151,12 +166,13 @@ export function IotMexCommsPanel({ sessione, onChiudi }: Props) {
       ref={bindPanel}
       type="button"
       aria-label="Espandi scambio Mex"
-      className="fixed inset-x-0 bottom-0 z-[85] flex items-center justify-between gap-3 border-t border-slate-200 bg-white px-4 py-3 text-left shadow-[0_-8px_28px_rgba(15,23,42,0.16)] print:hidden"
+      className="fixed bottom-0 left-1/2 z-[85] flex w-[min(32rem,calc(100vw-1.5rem))] -translate-x-1/2 items-center justify-between gap-3 rounded-t-[2rem] border border-b-0 border-slate-200 bg-white px-4 py-3 text-left shadow-[0_-10px_28px_rgba(15,23,42,0.18)] print:hidden"
       onClick={() => setDocked(false)}
     >
       <div className="min-w-0">
         <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">
-          Ultimo messaggio · {passoN}/{passi.length}
+          Ultimo messaggio · {passoN}/{passi.length} ·{" "}
+          {Math.round((passoN / Math.max(passi.length, 1)) * 100)}%
         </p>
         <p className="truncate text-sm font-semibold text-slate-900">
           {visibile.titolo}

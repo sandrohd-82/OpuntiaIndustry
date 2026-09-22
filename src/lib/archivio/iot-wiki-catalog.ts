@@ -147,7 +147,7 @@ function listIotWikiArticles(): TutorialArticle[] {
         },
         {
           type: "p",
-          text: "Il pannello Mex non è vincolante: click fuori lo riduce a banner in basso (ultimo messaggio o «in attesa conferma»). Click sul banner lo riporta al centro.",
+          text: "Il pannello Mex non è vincolante: click fuori lo riduce a un box in basso (un po’ più largo della modale, angoli alti arrotondati). A procedura 100% si chiude e compare un avviso: verde se ok, giallo se incompleto, rosso se il processo si è interrotto.",
         },
       ],
     }),
