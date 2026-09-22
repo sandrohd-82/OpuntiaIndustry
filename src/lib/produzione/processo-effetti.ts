@@ -164,14 +164,113 @@ export function effettoParametriToJson(
 export function labelEffettoTipo(tipo: ProcessoEffettoTipo): string {
   switch (tipo) {
     case "magazzino.consuma":
-      return "Magazzino · consuma";
+      return "Consuma da magazzino";
     case "magazzino.produce":
-      return "Magazzino · produce";
+      return "Produce in magazzino";
     case "essiccatore.carica_cestone":
-      return "Essiccatore · carica cestone";
+      return "Carica cestone essiccatore";
     default:
       return tipo;
   }
+}
+
+export type DomandaAvvioCampo = "qty" | "codiceMp" | "essiccatoreId";
+
+export type DomandaAvvioEffetto = {
+  campo: DomandaAvvioCampo;
+  etichetta: string;
+  obbligatorio: boolean;
+};
+
+/**
+ * Cosa chiedere quando il processo viene richiamato (non in anagrafica).
+ * Ogni tipo di effetto porta le sue domande.
+ */
+export function domandeAllAvvio(
+  def: Pick<ProcessoEffettoDef, "tipo" | "codiceMp" | "unita" | "essiccatoreId">
+): DomandaAvvioEffetto[] {
+  switch (def.tipo) {
+    case "magazzino.consuma":
+      return [
+        {
+          campo: "codiceMp",
+          etichetta: "Quale prodotto consumi da magazzino?",
+          obbligatorio: !def.codiceMp,
+        },
+        {
+          campo: "qty",
+          etichetta: `Quanti ${def.unita} vuoi consumare da magazzino?`,
+          obbligatorio: true,
+        },
+      ];
+    case "magazzino.produce":
+      return [
+        {
+          campo: "codiceMp",
+          etichetta: "Quale prodotto creerai in magazzino?",
+          obbligatorio: true,
+        },
+        {
+          campo: "qty",
+          etichetta: `Quanto prodotto (${def.unita}) produrrai per il magazzino?`,
+          obbligatorio: true,
+        },
+      ];
+    case "essiccatore.carica_cestone":
+      return [
+        {
+          campo: "essiccatoreId",
+          etichetta: "Quale essiccatore carichi?",
+          obbligatorio: !def.essiccatoreId,
+        },
+        {
+          campo: "qty",
+          etichetta: "Quanti kg carichi nel cestone?",
+          obbligatorio: true,
+        },
+      ];
+    default:
+      return [];
+  }
+}
+
+export const avvioEffettoRispostaSchema = z.object({
+  definizioneId: z.string().uuid("Effetto non valido."),
+  qty: z.number().positive("Indica la quantità."),
+  codiceMp: z.string().trim().max(32).optional().default(""),
+  essiccatoreId: optionalEssiccatoreId,
+});
+
+export type AvvioEffettoRisposta = z.infer<typeof avvioEffettoRispostaSchema>;
+
+export function validaRisposteAvvio(
+  defs: ProcessoEffettoDef[],
+  risposte: AvvioEffettoRisposta[]
+): string | null {
+  const byId = new Map(risposte.map((r) => [r.definizioneId, r]));
+  for (const def of defs) {
+    const r = byId.get(def.id);
+    if (!r) {
+      return `Rispondi alle domande di «${labelEffettoTipo(def.tipo)}».`;
+    }
+    for (const d of domandeAllAvvio(def)) {
+      if (!d.obbligatorio) continue;
+      if (d.campo === "qty" && !(r.qty > 0)) {
+        return d.etichetta;
+      }
+      if (d.campo === "codiceMp" && !r.codiceMp.trim() && !def.codiceMp) {
+        return d.etichetta;
+      }
+      if (
+        d.campo === "essiccatoreId" &&
+        !r.essiccatoreId.trim() &&
+        !def.essiccatoreId
+      ) {
+        return d.etichetta;
+      }
+    }
+  }
+  return null;
 }
 
 export function labelEffettoEsito(esito: ProcessoEffettoEsito): string {
@@ -205,7 +304,5 @@ export function formatEffettoDef(e: {
       ? `${head} · ${labelEssiccatoreEffetto(e.essiccatoreId)}`
       : `${head} · essiccatore in esecuzione`;
   }
-  return e.codiceMp
-    ? `${head} · ${e.codiceMp} (${e.unita})`
-    : `${head} · prodotto in esecuzione (${e.unita})`;
+  return e.codiceMp ? `${head} · ${e.codiceMp}` : head;
 }

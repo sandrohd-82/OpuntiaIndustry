@@ -19,6 +19,8 @@ import {
   parseEffettoParametri,
   parseEffettoUnita,
   registraEffettoEsecuzioneSchema,
+  validaRisposteAvvio,
+  type AvvioEffettoRisposta,
   type FoglioProcessoEffetto,
   type ProcessoEffettoDef,
 } from "@/lib/produzione/processo-effetti";
@@ -375,6 +377,7 @@ async function clonaEffettiSuEsecuzione(
     foglioId: string;
     processoId: string;
     kgObiettivo: number;
+    risposte: AvvioEffettoRisposta[];
     userId: string;
   }
 ): Promise<{ success: true } | { success: false; error: string }> {
@@ -393,10 +396,16 @@ async function clonaEffettiSuEsecuzione(
     sort_order: number;
   }>;
   if (defs.length === 0) return { success: true };
+  const rispostaByDef = new Map(
+    input.risposte.map((r) => [r.definizioneId, r])
+  );
   const rows = defs
     .map((d) => {
       if (!isProcessoEffettoTipo(d.tipo)) return null;
       const parsed = parseEffettoParametri(d.tipo, d.parametri);
+      const r = rispostaByDef.get(d.id);
+      const codiceMp = (r?.codiceMp || parsed.codiceMp).trim().toUpperCase();
+      const essiccatoreId = (r?.essiccatoreId || parsed.essiccatoreId).trim();
       return {
         definizione_id: d.id,
         esecuzione_id: input.esecuzioneId,
@@ -404,10 +413,10 @@ async function clonaEffettiSuEsecuzione(
         processo_id: input.processoId,
         tipo: d.tipo,
         parametri: d.parametri ?? {},
-        qty_prevista: input.kgObiettivo,
+        qty_prevista: r?.qty ?? input.kgObiettivo,
         unita: parsed.unita,
-        codice_mp: parsed.codiceMp,
-        essiccatore_id: parsed.essiccatoreId || null,
+        codice_mp: codiceMp,
+        essiccatore_id: essiccatoreId || null,
         esito: "previsto",
         note: d.note ?? "",
         documento_stato: "bozza",
@@ -632,6 +641,7 @@ export async function avviaEsecuzioneProcessoAction(raw: {
   foglioId: string;
   processoId: string;
   kgObiettivo: number;
+  effettiAvvio?: AvvioEffettoRisposta[];
 }): Promise<
   | { success: true; items: FoglioProcessoDisponibile[] }
   | { success: false; error: string }
@@ -681,13 +691,27 @@ export async function avviaEsecuzioneProcessoAction(raw: {
     };
   }
 
+  const effettiMap = await loadEffettiByProcesso(supabase, [
+    parsed.data.processoId,
+  ]);
+  const defs = effettiMap.get(parsed.data.processoId) ?? [];
+  const risposte = parsed.data.effettiAvvio ?? [];
+  if (defs.length > 0) {
+    const domandaErr = validaRisposteAvvio(defs, risposte);
+    if (domandaErr) return { success: false, error: domandaErr };
+  }
+
+  const kgDaEffetti = risposte.find((r) => r.qty > 0)?.qty ?? 0;
+  const kgObiettivo =
+    parsed.data.kgObiettivo > 0 ? parsed.data.kgObiettivo : kgDaEffetti;
+
   const { data: inserted, error } = await supabase
     .from("produzione_foglio_processi")
     .insert({
       foglio_id: parsed.data.foglioId,
       processo_id: parsed.data.processoId,
       stato: "in_corso",
-      kg_obiettivo: parsed.data.kgObiettivo,
+      kg_obiettivo: kgObiettivo,
       created_by: auth.userId,
       updated_by: auth.userId,
     })
@@ -699,7 +723,8 @@ export async function avviaEsecuzioneProcessoAction(raw: {
     esecuzioneId: (inserted as { id: string }).id,
     foglioId: parsed.data.foglioId,
     processoId: parsed.data.processoId,
-    kgObiettivo: parsed.data.kgObiettivo,
+    kgObiettivo,
+    risposte,
     userId: auth.userId,
   });
   if (!cloned.success) {
@@ -724,7 +749,8 @@ export async function avviaEsecuzioneProcessoAction(raw: {
     payload: {
       foglio_id: parsed.data.foglioId,
       processo_id: parsed.data.processoId,
-      kg_obiettivo: parsed.data.kgObiettivo,
+      kg_obiettivo: kgObiettivo,
+      effetti_avvio: risposte,
     },
   });
 

@@ -1,8 +1,9 @@
 import { z } from "zod";
 import type { AttivitaFunzioneLink } from "@/lib/produzione/funzioni-gestionale";
-import type {
-  FoglioProcessoEffetto,
-  ProcessoEffettoDef,
+import {
+  avvioEffettoRispostaSchema,
+  type FoglioProcessoEffetto,
+  type ProcessoEffettoDef,
 } from "@/lib/produzione/processo-effetti";
 import type { ProcessoPasso } from "@/lib/produzione/processi";
 
@@ -49,6 +50,7 @@ export const avviaEsecuzioneProcessoSchema = z.object({
   foglioId: z.string().uuid("Foglio non valido."),
   processoId: z.string().uuid("Processo non valido."),
   kgObiettivo: z.number().min(0, "Totale da caricare non valido."),
+  effettiAvvio: z.array(avvioEffettoRispostaSchema).max(20).optional().default([]),
 });
 
 export type AvviaEsecuzioneProcessoInput = z.infer<

@@ -219,7 +219,7 @@ export const PAGE_EXTRAS: Record<string, TutorialBlock[]> = {
   "/app/produzione/processi-e-attivita/elenco-processi": [
     {
       type: "p",
-      text: "Catalogo processi (spesso PX-…). Hanno versione e stato documento (bozza / approvato / chiuso). Si collegano le funzioni del gestionale e gli obiettivi/effetti (consuma o produce in magazzino, carica cestone essiccatore). Sul foglio l’operatore esegue le funzioni e registra le quantità degli effetti. Se un processo non si usa più non si cancella: si depreca e va nello Storico in Archivio.",
+      text: "Catalogo processi (spesso PX-…). In creazione si definiscono solo gli obiettivi/effetti (Consuma da magazzino, Produce in magazzino, Carica cestone). Quantità e prodotto il gestionale li chiede quando il processo viene richiamato sul foglio. Se un processo non si usa più non si cancella: si depreca e va nello Storico.",
     },
   ],
   "/app/produzione/processi-e-attivita/elenco-attivita": [

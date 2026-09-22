@@ -22,9 +22,13 @@ import {
 import { formatTempoMedio } from "@/lib/produzione/processi";
 import { ACTION_ESSICCATORI } from "@/lib/action/essiccatori";
 import {
+  domandeAllAvvio,
   formatEffettoDef,
   labelEffettoEsito,
+  labelEffettoTipo,
+  validaRisposteAvvio,
   type FoglioProcessoEffetto,
+  type ProcessoEffettoDef,
 } from "@/lib/produzione/processo-effetti";
 
 type Props = {
@@ -42,6 +46,9 @@ export function FoglioProcessiPanel({ foglio, filtraAreaId }: Props) {
   const [kgPesata, setKgPesata] = useState("");
   const [attivitaPesata, setAttivitaPesata] = useState("");
   const [effettoDraft, setEffettoDraft] = useState<
+    Record<string, { qty: string; codiceMp: string; essiccatoreId: string }>
+  >({});
+  const [avvioDraft, setAvvioDraft] = useState<
     Record<string, { qty: string; codiceMp: string; essiccatoreId: string }>
   >({});
 
@@ -122,24 +129,55 @@ export function FoglioProcessiPanel({ foglio, filtraAreaId }: Props) {
       };
     }
     setEffettoDraft(next);
+    const avvio: Record<
+      string,
+      { qty: string; codiceMp: string; essiccatoreId: string }
+    > = {};
+    for (const e of item?.effetti ?? []) {
+      avvio[e.id] = {
+        qty: "",
+        codiceMp: e.codiceMp,
+        essiccatoreId: e.essiccatoreId,
+      };
+    }
+    setAvvioDraft(avvio);
   }
 
-  function avvia(processoId: string, hasPesata: boolean) {
+  function avvia(item: FoglioProcessoDisponibile, hasPesata: boolean) {
     startTransition(async () => {
       const sync = await ensureFoglioDb();
       if (!sync.success) {
         setError(sync.error);
         return;
       }
+      const effettiAvvio = item.effetti.map((e) => {
+        const d = avvioDraft[e.id] ?? {
+          qty: "",
+          codiceMp: e.codiceMp,
+          essiccatoreId: e.essiccatoreId,
+        };
+        return {
+          definizioneId: e.id,
+          qty: Number(d.qty) || 0,
+          codiceMp: d.codiceMp,
+          essiccatoreId: d.essiccatoreId,
+        };
+      });
+      const domandaErr = validaRisposteAvvio(item.effetti, effettiAvvio);
+      if (domandaErr) {
+        setError(domandaErr);
+        return;
+      }
       const obiettivo = Number(kgObiettivo) || 0;
-      if (hasPesata && obiettivo <= 0) {
+      if (hasPesata && obiettivo <= 0 && effettiAvvio.every((e) => !(e.qty > 0))) {
         setError("Indica il totale da caricare (kg) prima di avviare.");
         return;
       }
       const res = await avviaEsecuzioneProcessoAction({
         foglioId: foglio.id,
-        processoId,
+        processoId: item.processoId,
         kgObiettivo: obiettivo,
+        effettiAvvio,
       });
       if (!res.success) {
         setError(res.error);
@@ -213,8 +251,9 @@ export function FoglioProcessiPanel({ foglio, filtraAreaId }: Props) {
     <div className="rounded-xl border border-[var(--border)] bg-[var(--card)] p-4">
       <h3 className="text-sm font-semibold">Processi sul foglio</h3>
       <p className="mt-1 text-xs text-[var(--muted)]">
-        Seleziona un processo in elenco. Se un’attività ha lo script Pesata, il
-        gestionale richiede e salva ogni peso (registro immutabile).
+        Seleziona un processo. All’avvio il gestionale chiede quantità e
+        prodotti dagli obiettivi/effetti. Se c’è lo script Pesata, ogni peso
+        resta in registro immutabile.
       </p>
       {error ? (
         <p className="mt-2 rounded-md border border-red-200 bg-red-50 px-2 py-1 text-xs text-red-800">
@@ -307,12 +346,23 @@ export function FoglioProcessiPanel({ foglio, filtraAreaId }: Props) {
                         </p>
                         {!esec
                           ? item.effetti.map((e) => (
-                              <p
+                              <AvvioEffettoDomande
                                 key={e.id}
-                                className="text-xs text-[var(--muted)]"
-                              >
-                                {formatEffettoDef(e)}
-                              </p>
+                                def={e}
+                                draft={
+                                  avvioDraft[e.id] ?? {
+                                    qty: "",
+                                    codiceMp: e.codiceMp,
+                                    essiccatoreId: e.essiccatoreId,
+                                  }
+                                }
+                                onChange={(next) =>
+                                  setAvvioDraft((prev) => ({
+                                    ...prev,
+                                    [e.id]: next,
+                                  }))
+                                }
+                              />
                             ))
                           : item.effettiEsecuzione.map((e) => {
                               const draft = effettoDraft[e.id] ?? {
@@ -497,7 +547,7 @@ export function FoglioProcessiPanel({ foglio, filtraAreaId }: Props) {
                         <button
                           type="button"
                           disabled={pending}
-                          onClick={() => avvia(item.processoId, item.hasPesata)}
+                          onClick={() => avvia(item, item.hasPesata)}
                           className="rounded-md bg-[var(--primary)] px-3 py-1.5 text-sm font-medium text-white disabled:opacity-50"
                         >
                           {pending ? "Avvio…" : "Avvia processo"}
@@ -588,6 +638,68 @@ export function FoglioProcessiPanel({ foglio, filtraAreaId }: Props) {
           })}
         </ul>
       )}
+    </div>
+  );
+}
+
+type AvvioDraft = {
+  qty: string;
+  codiceMp: string;
+  essiccatoreId: string;
+};
+
+function AvvioEffettoDomande({
+  def,
+  draft,
+  onChange,
+}: {
+  def: ProcessoEffettoDef;
+  draft: AvvioDraft;
+  onChange: (next: AvvioDraft) => void;
+}) {
+  const domande = domandeAllAvvio(def);
+  return (
+    <div className="space-y-2 rounded-md border border-[var(--border)] bg-slate-50 px-2 py-2">
+      <p className="text-xs font-medium">{labelEffettoTipo(def.tipo)}</p>
+      {domande.map((d) => (
+        <label key={d.campo} className="block text-xs text-[var(--muted)]">
+          {d.etichetta}
+          {d.campo === "qty" ? (
+            <input
+              type="number"
+              min={0}
+              step="0.001"
+              value={draft.qty}
+              onChange={(e) => onChange({ ...draft, qty: e.target.value })}
+              className="mt-1 w-full rounded-md border border-[var(--border)] px-2 py-1.5 text-sm"
+            />
+          ) : d.campo === "codiceMp" ? (
+            <input
+              value={draft.codiceMp}
+              onChange={(e) =>
+                onChange({ ...draft, codiceMp: e.target.value.toUpperCase() })
+              }
+              placeholder="es. NDRi"
+              className="mt-1 w-full rounded-md border border-[var(--border)] px-2 py-1.5 font-mono text-sm"
+            />
+          ) : (
+            <select
+              value={draft.essiccatoreId}
+              onChange={(e) =>
+                onChange({ ...draft, essiccatoreId: e.target.value })
+              }
+              className="mt-1 w-full rounded-md border border-[var(--border)] px-2 py-1.5 text-sm"
+            >
+              <option value="">Seleziona…</option>
+              {ACTION_ESSICCATORI.map((ess) => (
+                <option key={ess.id} value={ess.id}>
+                  {ess.nome}
+                </option>
+              ))}
+            </select>
+          )}
+        </label>
+      ))}
     </div>
   );
 }

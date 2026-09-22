@@ -1,14 +1,11 @@
 "use client";
 
 import { FaPlus, FaXmark } from "react-icons/fa6";
-import { ACTION_ESSICCATORI } from "@/lib/action/essiccatori";
 import {
   PROCESSO_EFFETTO_TIPI,
-  PROCESSO_EFFETTO_UNITA,
   labelEffettoTipo,
   type ProcessoEffettoDraft,
   type ProcessoEffettoTipo,
-  type ProcessoEffettoUnita,
 } from "@/lib/produzione/processo-effetti";
 
 type Props = {
@@ -45,13 +42,14 @@ export function ProcessoEffettiField({ value, onChange }: Props) {
         </button>
       </div>
       <p className="mb-2 text-xs text-[var(--muted)]">
-        Contratti che il gestionale esegue: consumare o produrre in magazzino,
-        caricare il cestone. Le quantità reali si registrano sul foglio.
+        Qui definisci solo cosa fa il processo (consuma, produce, carica
+        cestone). Quantità e prodotto te li chiede il gestionale quando
+        richiami il processo sul foglio.
       </p>
       {value.length === 0 ? (
         <p className="text-xs text-[var(--muted)]">
-          Nessuno. Esempio conversione: consuma NDRi + produce NDRa. Esempio
-          riempimento: carica cestone essiccatore.
+          Nessuno. Esempio conversione: Consuma da magazzino + Produce in
+          magazzino. Esempio riempimento: Carica cestone essiccatore.
         </p>
       ) : (
         <ul className="space-y-2">
@@ -67,13 +65,9 @@ export function ProcessoEffettiField({ value, onChange }: Props) {
                     const tipo = e.target.value as ProcessoEffettoTipo;
                     patch(index, {
                       tipo,
-                      unita: tipo === "essiccatore.carica_cestone" ? "kg" : row.unita,
-                      codiceMp:
-                        tipo === "essiccatore.carica_cestone" ? "" : row.codiceMp,
-                      essiccatoreId:
-                        tipo === "essiccatore.carica_cestone"
-                          ? row.essiccatoreId
-                          : "",
+                      unita: "kg",
+                      codiceMp: "",
+                      essiccatoreId: "",
                     });
                   }}
                   className="min-w-0 flex-1 rounded-lg border border-[var(--border)] px-2 py-1.5 text-sm"
@@ -93,50 +87,10 @@ export function ProcessoEffettiField({ value, onChange }: Props) {
                   <FaXmark size={12} />
                 </button>
               </div>
-              {row.tipo === "essiccatore.carica_cestone" ? (
-                <select
-                  value={row.essiccatoreId}
-                  onChange={(e) => patch(index, { essiccatoreId: e.target.value })}
-                  className="w-full rounded-lg border border-[var(--border)] px-2 py-1.5 text-sm"
-                >
-                  <option value="">Essiccatore in esecuzione</option>
-                  {ACTION_ESSICCATORI.map((e) => (
-                    <option key={e.id} value={e.id}>
-                      {e.nome}
-                    </option>
-                  ))}
-                </select>
-              ) : (
-                <div className="grid gap-2 sm:grid-cols-[1fr_auto]">
-                  <input
-                    value={row.codiceMp}
-                    onChange={(e) =>
-                      patch(index, { codiceMp: e.target.value.toUpperCase() })
-                    }
-                    placeholder="Targa MP (es. NDRi) — vuoto = in esecuzione"
-                    className="w-full rounded-lg border border-[var(--border)] px-2 py-1.5 font-mono text-sm"
-                  />
-                  <select
-                    value={row.unita}
-                    onChange={(e) =>
-                      patch(index, {
-                        unita: e.target.value as ProcessoEffettoUnita,
-                      })
-                    }
-                    className="rounded-lg border border-[var(--border)] px-2 py-1.5 text-sm"
-                  >
-                    {PROCESSO_EFFETTO_UNITA.map((u) => (
-                      <option key={u} value={u}>
-                        {u}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-              )}
               <input
                 value={row.note}
                 onChange={(e) => patch(index, { note: e.target.value })}
-                placeholder="Nota (opzionale)"
+                placeholder="Nota obiettivo (opzionale)"
                 className="w-full rounded-lg border border-[var(--border)] px-2 py-1.5 text-sm"
               />
             </li>
