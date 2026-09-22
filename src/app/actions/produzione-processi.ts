@@ -26,6 +26,12 @@ import {
   type AttivitaFunzioneLink,
 } from "@/lib/produzione/funzioni-gestionale";
 import {
+  effettoParametriToJson,
+  isProcessoEffettoTipo,
+  parseEffettoParametri,
+  type ProcessoEffettoDef,
+} from "@/lib/produzione/processo-effetti";
+import {
   isScriptFunzione,
   type AttivitaScriptLink,
 } from "@/lib/script/catalogo";
@@ -415,6 +421,110 @@ async function attachFunzioniToProcessi(
   return items.map((p) => ({ ...p, funzioni: map.get(p.id) ?? [] }));
 }
 
+function mapEffettoDef(row: {
+  id: string;
+  processo_id: string;
+  tipo: string;
+  parametri: unknown;
+  note: string | null;
+  sort_order: number;
+}): ProcessoEffettoDef | null {
+  if (!isProcessoEffettoTipo(row.tipo)) return null;
+  const parsed = parseEffettoParametri(row.tipo, row.parametri);
+  return {
+    id: row.id,
+    processoId: row.processo_id,
+    tipo: row.tipo,
+    codiceMp: parsed.codiceMp,
+    unita: parsed.unita,
+    essiccatoreId: parsed.essiccatoreId,
+    note: row.note ?? "",
+    sortOrder: row.sort_order,
+  };
+}
+
+async function loadEffettiByProcesso(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  processoIds: string[]
+): Promise<Map<string, ProcessoEffettoDef[]>> {
+  const map = new Map<string, ProcessoEffettoDef[]>();
+  if (processoIds.length === 0) return map;
+  const { data } = await supabase
+    .from("produzione_processo_effetti")
+    .select("id, processo_id, tipo, parametri, note, sort_order")
+    .in("processo_id", processoIds)
+    .is("deleted_at", null)
+    .order("sort_order", { ascending: true });
+  for (const row of (data ?? []) as Array<{
+    id: string;
+    processo_id: string;
+    tipo: string;
+    parametri: unknown;
+    note: string | null;
+    sort_order: number;
+  }>) {
+    const mapped = mapEffettoDef(row);
+    if (!mapped) continue;
+    const list = map.get(row.processo_id) ?? [];
+    list.push(mapped);
+    map.set(row.processo_id, list);
+  }
+  return map;
+}
+
+async function syncProcessoEffetti(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  processoId: string,
+  drafts: Array<{
+    tipo: ProcessoEffettoDef["tipo"];
+    codiceMp: string;
+    unita: ProcessoEffettoDef["unita"];
+    essiccatoreId: string;
+    note: string;
+  }>,
+  userId: string
+): Promise<{ success: true } | { success: false; error: string }> {
+  const now = new Date().toISOString();
+  const { error: softErr } = await supabase
+    .from("produzione_processo_effetti")
+    .update({
+      deleted_at: now,
+      deleted_by: userId,
+      updated_by: userId,
+    })
+    .eq("processo_id", processoId)
+    .is("deleted_at", null);
+  if (softErr) return { success: false, error: softErr.message };
+  if (drafts.length === 0) return { success: true };
+  const { error } = await supabase.from("produzione_processo_effetti").insert(
+    drafts.map((d, index) => ({
+      processo_id: processoId,
+      tipo: d.tipo,
+      parametri: effettoParametriToJson(d),
+      note: d.note.trim(),
+      sort_order: index + 1,
+      versione: 1,
+      documento_stato: "approvato",
+      created_by: userId,
+      updated_by: userId,
+    }))
+  );
+  if (error) return { success: false, error: error.message };
+  return { success: true };
+}
+
+async function decorateProcessi(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  items: Processo[]
+): Promise<Processo[]> {
+  const withFunz = await attachFunzioniToProcessi(supabase, items);
+  const map = await loadEffettiByProcesso(
+    supabase,
+    withFunz.map((p) => p.id)
+  );
+  return withFunz.map((p) => ({ ...p, effetti: map.get(p.id) ?? [] }));
+}
+
 function mapAttivita(row: AttivitaRow, luoghi: Luoghi): ProcessoAttivita {
   const areaId = row.area_id ?? null;
   const postoId = row.posto_id ?? null;
@@ -469,6 +579,7 @@ function mapProcesso(
     createdAt: row.created_at,
     passiCount,
     funzioni: [],
+    effetti: [],
   };
 }
 
@@ -1081,7 +1192,7 @@ async function listProcessiByCollocazione(
   ]);
   return {
     success: true,
-    items: await attachFunzioniToProcessi(
+    items: await decorateProcessi(
       supabase,
       rows.map((r) =>
         mapProcesso(
@@ -1132,7 +1243,7 @@ export async function getProcessoAction(
     loadLuoghi(supabase),
     loadSostituti(supabase, [row]),
   ]);
-  const [item] = await attachFunzioniToProcessi(supabase, [
+  const [item] = await decorateProcessi(supabase, [
     mapProcesso(
       row,
       luoghi,
@@ -1200,7 +1311,14 @@ export async function createProcessoAction(
     auth.userId
   );
   if (!funzioni.success) return funzioni;
-  const [item] = await attachFunzioniToProcessi(supabase, [created]);
+  const effetti = await syncProcessoEffetti(
+    supabase,
+    created.id,
+    parsed.data.effetti,
+    auth.userId
+  );
+  if (!effetti.success) return effetti;
+  const [item] = await decorateProcessi(supabase, [created]);
   void writeAuditLog({
     entity_type: "produzione_processi",
     entity_id: created.id,
@@ -1213,6 +1331,7 @@ export async function createProcessoAction(
       versione: 1,
       area_id: created.areaId,
       funzione_keys: parsed.data.funzioneKeys,
+      effetti: parsed.data.effetti,
     },
   });
   return { success: true, item: item ?? created };
@@ -1276,11 +1395,18 @@ export async function updateProcessoAction(
     auth.userId
   );
   if (!funzioni.success) return funzioni;
+  const effetti = await syncProcessoEffetti(
+    supabase,
+    id,
+    parsed.data.effetti,
+    auth.userId
+  );
+  if (!effetti.success) return effetti;
   const [counts, luoghi] = await Promise.all([
     countPassiByProcesso(supabase, [id]),
     loadLuoghi(supabase),
   ]);
-  const [item] = await attachFunzioniToProcessi(supabase, [
+  const [item] = await decorateProcessi(supabase, [
     mapProcesso(data as ProcessoRow, luoghi, counts.get(id) ?? 0),
   ]);
   void writeAuditLog({
@@ -1295,6 +1421,7 @@ export async function updateProcessoAction(
       versione: item?.versione,
       area_id: item?.areaId,
       funzione_keys: parsed.data.funzioneKeys,
+      effetti: parsed.data.effetti,
     },
   });
   return { success: true, item: item ?? mapProcesso(data as ProcessoRow, luoghi, counts.get(id) ?? 0) };

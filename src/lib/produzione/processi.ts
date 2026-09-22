@@ -3,6 +3,10 @@ import {
   funzioneKeysSchema,
   type AttivitaFunzioneLink,
 } from "@/lib/produzione/funzioni-gestionale";
+import {
+  processoEffettiInputSchema,
+  type ProcessoEffettoDef,
+} from "@/lib/produzione/processo-effetti";
 import type { AttivitaScriptLink } from "@/lib/script/catalogo";
 
 export const PROCESSO_DOCUMENTO_STATI = [
@@ -110,6 +114,7 @@ export type Processo = {
   createdAt: string;
   passiCount: number;
   funzioni: AttivitaFunzioneLink[];
+  effetti: ProcessoEffettoDef[];
 };
 
 export type ProcessoPasso = {
@@ -208,6 +213,7 @@ export const processoInputSchema = z.object({
   attivo: z.boolean().optional().default(true),
   areaId: optionalUuid,
   funzioneKeys: funzioneKeysSchema,
+  effetti: processoEffettiInputSchema,
 });
 
 export const deprecaProcessoSchema = z.object({

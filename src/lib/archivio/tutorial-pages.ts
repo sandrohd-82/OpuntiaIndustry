@@ -219,7 +219,7 @@ export const PAGE_EXTRAS: Record<string, TutorialBlock[]> = {
   "/app/produzione/processi-e-attivita/elenco-processi": [
     {
       type: "p",
-      text: "Catalogo processi (spesso PX-…). Hanno versione e stato documento (bozza / approvato / chiuso). In creazione e modifica si collegano le funzioni reali del gestionale (come sulle attività): sul foglio l’operatore le avvia dal processo. Se un processo non si usa più non si cancella: si depreca e va nello Storico in Archivio.",
+      text: "Catalogo processi (spesso PX-…). Hanno versione e stato documento (bozza / approvato / chiuso). Si collegano le funzioni del gestionale e gli obiettivi/effetti (consuma o produce in magazzino, carica cestone essiccatore). Sul foglio l’operatore esegue le funzioni e registra le quantità degli effetti. Se un processo non si usa più non si cancella: si depreca e va nello Storico in Archivio.",
     },
   ],
   "/app/produzione/processi-e-attivita/elenco-attivita": [
@@ -237,7 +237,7 @@ export const PAGE_EXTRAS: Record<string, TutorialBlock[]> = {
   "/app/action/aree/essiccatori": [
     {
       type: "p",
-      text: "Il fulmine apre Avvio. Kg (foglio di lavoro, oggi 0), aria e umidità (sonde TEMP-AMB / UMID-AMB, storico in DB) sono automatici. Imposti temperatura, ventola e i due On. Action stima la % bruciatore e la esegue in cadenza di sicurezza. Wiki in Archivio → IoT → Wiki.",
+      text: "Il fulmine apre Avvio. I kg arrivano dai carichi cestone registrati sul foglio (effetto essiccatore.carica_cestone). Aria e umidità dalle sonde TEMP-AMB / UMID-AMB. Imposti temperatura, ventola e i due On. Wiki in Archivio → IoT → Wiki.",
     },
   ],
   "/app/magazzino/mappa": [

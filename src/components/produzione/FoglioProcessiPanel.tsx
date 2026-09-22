@@ -6,6 +6,7 @@ import { upsertFoglioLavorazioneAction } from "@/app/actions/produzione-aree";
 import {
   avviaEsecuzioneProcessoAction,
   listProcessiPerFoglioAction,
+  registraEffettoEsecuzioneAction,
   registraPesataAction,
 } from "@/app/actions/produzione-foglio-processi";
 import {
@@ -19,6 +20,12 @@ import {
   etichettaAvvioFunzione,
 } from "@/lib/produzione/funzioni-gestionale";
 import { formatTempoMedio } from "@/lib/produzione/processi";
+import { ACTION_ESSICCATORI } from "@/lib/action/essiccatori";
+import {
+  formatEffettoDef,
+  labelEffettoEsito,
+  type FoglioProcessoEffetto,
+} from "@/lib/produzione/processo-effetti";
 
 type Props = {
   foglio: FoglioLavorazione;
@@ -34,6 +41,9 @@ export function FoglioProcessiPanel({ foglio, filtraAreaId }: Props) {
   const [kgObiettivo, setKgObiettivo] = useState("");
   const [kgPesata, setKgPesata] = useState("");
   const [attivitaPesata, setAttivitaPesata] = useState("");
+  const [effettoDraft, setEffettoDraft] = useState<
+    Record<string, { qty: string; codiceMp: string; essiccatoreId: string }>
+  >({});
 
   function applyItems(next: FoglioProcessoDisponibile[]) {
     const filtered = filtraAreaId
@@ -100,6 +110,18 @@ export function FoglioProcessiPanel({ foglio, filtraAreaId }: Props) {
     setAttivitaPesata(firstPesata?.attivitaId ?? "");
     setKgObiettivo(item?.esecuzione ? String(item.esecuzione.kgObiettivo) : "");
     setKgPesata("");
+    const next: Record<
+      string,
+      { qty: string; codiceMp: string; essiccatoreId: string }
+    > = {};
+    for (const e of item?.effettiEsecuzione ?? []) {
+      next[e.id] = {
+        qty: e.qtyPrevista > 0 ? String(e.qtyPrevista) : "",
+        codiceMp: e.codiceMp,
+        essiccatoreId: e.essiccatoreId,
+      };
+    }
+    setEffettoDraft(next);
   }
 
   function avvia(processoId: string, hasPesata: boolean) {
@@ -150,6 +172,33 @@ export function FoglioProcessiPanel({ foglio, filtraAreaId }: Props) {
       }
       setError(null);
       setKgPesata("");
+      applyItems(res.items);
+    });
+  }
+
+  function registraEffetto(effetto: FoglioProcessoEffetto) {
+    startTransition(async () => {
+      const draft = effettoDraft[effetto.id] ?? {
+        qty: "",
+        codiceMp: effetto.codiceMp,
+        essiccatoreId: effetto.essiccatoreId,
+      };
+      const qty = Number(draft.qty);
+      if (!(qty > 0)) {
+        setError("Indica la quantità effettiva dell’effetto.");
+        return;
+      }
+      const res = await registraEffettoEsecuzioneAction({
+        effettoEsecuzioneId: effetto.id,
+        qty,
+        codiceMp: draft.codiceMp,
+        essiccatoreId: draft.essiccatoreId,
+      });
+      if (!res.success) {
+        setError(res.error);
+        return;
+      }
+      setError(null);
       applyItems(res.items);
     });
   }
@@ -248,6 +297,126 @@ export function FoglioProcessiPanel({ foglio, filtraAreaId }: Props) {
                               </Link>
                             );
                           })}
+                      </div>
+                    ) : null}
+                    {(esec ? item.effettiEsecuzione : item.effetti).length >
+                    0 ? (
+                      <div className="space-y-2">
+                        <p className="text-xs font-medium text-[var(--muted)]">
+                          Obiettivi / effetti
+                        </p>
+                        {!esec
+                          ? item.effetti.map((e) => (
+                              <p
+                                key={e.id}
+                                className="text-xs text-[var(--muted)]"
+                              >
+                                {formatEffettoDef(e)}
+                              </p>
+                            ))
+                          : item.effettiEsecuzione.map((e) => {
+                              const draft = effettoDraft[e.id] ?? {
+                                qty:
+                                  e.qtyPrevista > 0
+                                    ? String(e.qtyPrevista)
+                                    : "",
+                                codiceMp: e.codiceMp,
+                                essiccatoreId: e.essiccatoreId,
+                              };
+                              return (
+                                <div
+                                  key={e.id}
+                                  className="rounded-md border border-[var(--border)] bg-slate-50 px-2 py-2"
+                                >
+                                  <p className="text-xs font-medium">
+                                    {formatEffettoDef(e)} ·{" "}
+                                    {labelEffettoEsito(e.esito)}
+                                    {e.qtyEffettiva != null
+                                      ? ` · ${formatKg(e.qtyEffettiva)} ${e.unita}`
+                                      : ""}
+                                  </p>
+                                  {esec.stato === "in_corso" &&
+                                  e.esito === "previsto" ? (
+                                    <div className="mt-2 flex flex-wrap items-end gap-2">
+                                      <label className="text-xs text-[var(--muted)]">
+                                        Quantità ({e.unita})
+                                        <input
+                                          type="number"
+                                          min={0}
+                                          step="0.001"
+                                          value={draft.qty}
+                                          onChange={(ev) =>
+                                            setEffettoDraft((prev) => ({
+                                              ...prev,
+                                              [e.id]: {
+                                                ...draft,
+                                                qty: ev.target.value,
+                                              },
+                                            }))
+                                          }
+                                          className="mt-1 w-28 rounded-md border border-[var(--border)] px-2 py-1.5 text-sm"
+                                        />
+                                      </label>
+                                      {e.tipo !==
+                                      "essiccatore.carica_cestone" ? (
+                                        <label className="text-xs text-[var(--muted)]">
+                                          Targa MP
+                                          <input
+                                            value={draft.codiceMp}
+                                            onChange={(ev) =>
+                                              setEffettoDraft((prev) => ({
+                                                ...prev,
+                                                [e.id]: {
+                                                  ...draft,
+                                                  codiceMp:
+                                                    ev.target.value.toUpperCase(),
+                                                },
+                                              }))
+                                            }
+                                            className="mt-1 w-28 rounded-md border border-[var(--border)] px-2 py-1.5 font-mono text-sm"
+                                          />
+                                        </label>
+                                      ) : (
+                                        <label className="text-xs text-[var(--muted)]">
+                                          Essiccatore
+                                          <select
+                                            value={draft.essiccatoreId}
+                                            onChange={(ev) =>
+                                              setEffettoDraft((prev) => ({
+                                                ...prev,
+                                                [e.id]: {
+                                                  ...draft,
+                                                  essiccatoreId: ev.target.value,
+                                                },
+                                              }))
+                                            }
+                                            className="mt-1 rounded-md border border-[var(--border)] px-2 py-1.5 text-sm"
+                                          >
+                                            <option value="">Seleziona…</option>
+                                            {ACTION_ESSICCATORI.map((ess) => (
+                                              <option
+                                                key={ess.id}
+                                                value={ess.id}
+                                              >
+                                                {ess.nome}
+                                              </option>
+                                            ))}
+                                          </select>
+                                        </label>
+                                      )}
+                                      <button
+                                        type="button"
+                                        disabled={pending}
+                                        onClick={() => registraEffetto(e)}
+                                        className="rounded-md bg-[var(--primary)] px-3 py-1.5 text-sm font-medium text-white disabled:opacity-50"
+                                      >
+                                        Registra
+                                      </button>
+                                    </div>
+                                  ) : null}
+                                </div>
+                              );
+                            })}
                       </div>
                     ) : null}
                     <ol className="space-y-1 text-sm">

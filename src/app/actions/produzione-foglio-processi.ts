@@ -15,6 +15,14 @@ import {
   type FoglioEsecuzioneStato,
 } from "@/lib/produzione/foglio-processi";
 import {
+  isProcessoEffettoTipo,
+  parseEffettoParametri,
+  parseEffettoUnita,
+  registraEffettoEsecuzioneSchema,
+  type FoglioProcessoEffetto,
+  type ProcessoEffettoDef,
+} from "@/lib/produzione/processo-effetti";
+import {
   parseTempoMedioUnita,
   parseTempoOgniUnita,
   type ProcessoPasso,
@@ -242,6 +250,180 @@ async function loadFunzioniByProcesso(
   return map;
 }
 
+function mapEffettoDefRow(row: {
+  id: string;
+  processo_id: string;
+  tipo: string;
+  parametri: unknown;
+  note: string | null;
+  sort_order: number;
+}): ProcessoEffettoDef | null {
+  if (!isProcessoEffettoTipo(row.tipo)) return null;
+  const parsed = parseEffettoParametri(row.tipo, row.parametri);
+  return {
+    id: row.id,
+    processoId: row.processo_id,
+    tipo: row.tipo,
+    codiceMp: parsed.codiceMp,
+    unita: parsed.unita,
+    essiccatoreId: parsed.essiccatoreId,
+    note: row.note ?? "",
+    sortOrder: row.sort_order,
+  };
+}
+
+async function loadEffettiByProcesso(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  processoIds: string[]
+): Promise<Map<string, ProcessoEffettoDef[]>> {
+  const map = new Map<string, ProcessoEffettoDef[]>();
+  if (processoIds.length === 0) return map;
+  const { data } = await supabase
+    .from("produzione_processo_effetti")
+    .select("id, processo_id, tipo, parametri, note, sort_order")
+    .in("processo_id", processoIds)
+    .is("deleted_at", null)
+    .order("sort_order", { ascending: true });
+  for (const row of (data ?? []) as Array<{
+    id: string;
+    processo_id: string;
+    tipo: string;
+    parametri: unknown;
+    note: string | null;
+    sort_order: number;
+  }>) {
+    const mapped = mapEffettoDefRow(row);
+    if (!mapped) continue;
+    const list = map.get(row.processo_id) ?? [];
+    list.push(mapped);
+    map.set(row.processo_id, list);
+  }
+  return map;
+}
+
+type EffettoEsecRow = {
+  id: string;
+  definizione_id: string | null;
+  esecuzione_id: string;
+  tipo: string;
+  parametri: unknown;
+  qty_prevista: number | string;
+  qty_effettiva: number | string | null;
+  unita: string;
+  codice_mp: string;
+  lotto_codice: string;
+  essiccatore_id: string | null;
+  esito: string;
+  note: string | null;
+  eseguito_at: string | null;
+};
+
+function mapEffettoEsecuzione(row: EffettoEsecRow): FoglioProcessoEffetto | null {
+  if (!isProcessoEffettoTipo(row.tipo)) return null;
+  const parsed = parseEffettoParametri(row.tipo, row.parametri);
+  const esito =
+    row.esito === "eseguito" ||
+    row.esito === "annullato" ||
+    row.esito === "errore"
+      ? row.esito
+      : "previsto";
+  return {
+    id: row.id,
+    definizioneId: row.definizione_id,
+    tipo: row.tipo,
+    codiceMp: (row.codice_mp || parsed.codiceMp).trim(),
+    unita: parseEffettoUnita(row.unita || parsed.unita),
+    essiccatoreId: (row.essiccatore_id || parsed.essiccatoreId).trim(),
+    qtyPrevista: Number(row.qty_prevista) || 0,
+    qtyEffettiva:
+      row.qty_effettiva == null ? null : Number(row.qty_effettiva) || null,
+    lottoCodice: row.lotto_codice ?? "",
+    esito,
+    note: row.note ?? "",
+    eseguitoAt: row.eseguito_at,
+  };
+}
+
+async function loadEffettiByEsecuzione(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  esecuzioneIds: string[]
+): Promise<Map<string, FoglioProcessoEffetto[]>> {
+  const map = new Map<string, FoglioProcessoEffetto[]>();
+  if (esecuzioneIds.length === 0) return map;
+  const { data } = await supabase
+    .from("produzione_foglio_processo_effetti")
+    .select(
+      "id, definizione_id, esecuzione_id, tipo, parametri, qty_prevista, qty_effettiva, unita, codice_mp, lotto_codice, essiccatore_id, esito, note, eseguito_at"
+    )
+    .in("esecuzione_id", esecuzioneIds)
+    .is("deleted_at", null)
+    .order("created_at", { ascending: true });
+  for (const row of (data ?? []) as EffettoEsecRow[]) {
+    const mapped = mapEffettoEsecuzione(row);
+    if (!mapped) continue;
+    const list = map.get(row.esecuzione_id) ?? [];
+    list.push(mapped);
+    map.set(row.esecuzione_id, list);
+  }
+  return map;
+}
+
+async function clonaEffettiSuEsecuzione(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  input: {
+    esecuzioneId: string;
+    foglioId: string;
+    processoId: string;
+    kgObiettivo: number;
+    userId: string;
+  }
+): Promise<{ success: true } | { success: false; error: string }> {
+  const { data, error } = await supabase
+    .from("produzione_processo_effetti")
+    .select("id, tipo, parametri, note, sort_order")
+    .eq("processo_id", input.processoId)
+    .is("deleted_at", null)
+    .order("sort_order", { ascending: true });
+  if (error) return { success: false, error: error.message };
+  const defs = (data ?? []) as Array<{
+    id: string;
+    tipo: string;
+    parametri: unknown;
+    note: string | null;
+    sort_order: number;
+  }>;
+  if (defs.length === 0) return { success: true };
+  const rows = defs
+    .map((d) => {
+      if (!isProcessoEffettoTipo(d.tipo)) return null;
+      const parsed = parseEffettoParametri(d.tipo, d.parametri);
+      return {
+        definizione_id: d.id,
+        esecuzione_id: input.esecuzioneId,
+        foglio_id: input.foglioId,
+        processo_id: input.processoId,
+        tipo: d.tipo,
+        parametri: d.parametri ?? {},
+        qty_prevista: input.kgObiettivo,
+        unita: parsed.unita,
+        codice_mp: parsed.codiceMp,
+        essiccatore_id: parsed.essiccatoreId || null,
+        esito: "previsto",
+        note: d.note ?? "",
+        documento_stato: "bozza",
+        created_by: input.userId,
+        updated_by: input.userId,
+      };
+    })
+    .filter((row): row is NonNullable<typeof row> => Boolean(row));
+  if (rows.length === 0) return { success: true };
+  const { error: insErr } = await supabase
+    .from("produzione_foglio_processo_effetti")
+    .insert(rows);
+  if (insErr) return { success: false, error: insErr.message };
+  return { success: true };
+}
+
 async function loadPassiByProcesso(
   supabase: Awaited<ReturnType<typeof createClient>>,
   processoIds: string[],
@@ -375,10 +557,12 @@ export async function listProcessiPerFoglioAction(
   }
 
   const processoIds = procRows.map((p) => p.id);
-  const [passiByProcesso, funzioniByProcesso] = await Promise.all([
-    loadPassiByProcesso(supabase, processoIds, areaNome, postoNome),
-    loadFunzioniByProcesso(supabase, processoIds),
-  ]);
+  const [passiByProcesso, funzioniByProcesso, effettiByProcesso] =
+    await Promise.all([
+      loadPassiByProcesso(supabase, processoIds, areaNome, postoNome),
+      loadFunzioniByProcesso(supabase, processoIds),
+      loadEffettiByProcesso(supabase, processoIds),
+    ]);
 
   const { data: esecuzioni } = await supabase
     .from("produzione_foglio_processi")
@@ -409,9 +593,12 @@ export async function listProcessiPerFoglioAction(
     }
   }
 
+  const effettiByEsec = await loadEffettiByEsecuzione(supabase, esecIds);
+
   const items: FoglioProcessoDisponibile[] = procRows.map((p) => {
     const passi = passiByProcesso.get(p.id) ?? [];
     const funzioni = funzioniByProcesso.get(p.id) ?? [];
+    const effetti = effettiByProcesso.get(p.id) ?? [];
     const hasPesata =
       passi.some(
         (step) =>
@@ -430,6 +617,8 @@ export async function listProcessiPerFoglioAction(
       areaNome: p.area_id ? (areaNome.get(p.area_id) ?? "") : "",
       passi,
       funzioni,
+      effetti,
+      effettiEsecuzione: esec ? (effettiByEsec.get(esec.id) ?? []) : [],
       hasPesata,
       esecuzione: esec ? mapEsecuzione(esec, kgCaricati) : null,
       pesate,
@@ -505,6 +694,26 @@ export async function avviaEsecuzioneProcessoAction(raw: {
     .select("id")
     .single();
   if (error) return { success: false, error: error.message };
+
+  const cloned = await clonaEffettiSuEsecuzione(supabase, {
+    esecuzioneId: (inserted as { id: string }).id,
+    foglioId: parsed.data.foglioId,
+    processoId: parsed.data.processoId,
+    kgObiettivo: parsed.data.kgObiettivo,
+    userId: auth.userId,
+  });
+  if (!cloned.success) {
+    await supabase
+      .from("produzione_foglio_processi")
+      .update({
+        stato: "annullato",
+        deleted_at: new Date().toISOString(),
+        deleted_by: auth.userId,
+        updated_by: auth.userId,
+      })
+      .eq("id", (inserted as { id: string }).id);
+    return cloned;
+  }
 
   void writeAuditLog({
     entity_type: "produzione_foglio_processi",
@@ -652,4 +861,128 @@ export async function registraPesataAction(raw: {
   });
 
   return listProcessiPerFoglioAction(e.foglio_id);
+}
+
+export async function registraEffettoEsecuzioneAction(
+  raw: unknown
+): Promise<
+  | { success: true; items: FoglioProcessoDisponibile[] }
+  | { success: false; error: string }
+> {
+  const { auth } = await requireAreaAccess("produzione");
+  const parsed = registraEffettoEsecuzioneSchema.safeParse(raw);
+  if (!parsed.success) {
+    return {
+      success: false,
+      error: parsed.error.issues[0]?.message ?? "Effetto non valido.",
+    };
+  }
+  const supabase = await createClient();
+  const { data: row, error } = await supabase
+    .from("produzione_foglio_processo_effetti")
+    .select(
+      "id, esecuzione_id, foglio_id, processo_id, tipo, parametri, codice_mp, essiccatore_id, esito, deleted_at"
+    )
+    .eq("id", parsed.data.effettoEsecuzioneId)
+    .is("deleted_at", null)
+    .maybeSingle();
+  if (error) return { success: false, error: error.message };
+  if (!row) return { success: false, error: "Effetto non trovato." };
+  const effetto = row as {
+    id: string;
+    esecuzione_id: string;
+    foglio_id: string;
+    processo_id: string;
+    tipo: string;
+    parametri: unknown;
+    codice_mp: string;
+    essiccatore_id: string | null;
+    esito: string;
+  };
+  if (!isProcessoEffettoTipo(effetto.tipo)) {
+    return { success: false, error: "Tipo effetto non valido." };
+  }
+  if (effetto.esito === "eseguito") {
+    return { success: false, error: "Questo effetto è già stato registrato." };
+  }
+  const { data: esec } = await supabase
+    .from("produzione_foglio_processi")
+    .select("id, stato")
+    .eq("id", effetto.esecuzione_id)
+    .is("deleted_at", null)
+    .maybeSingle();
+  if (!esec || (esec as { stato: string }).stato !== "in_corso") {
+    return { success: false, error: "L'esecuzione non è in corso." };
+  }
+  const foglioOk = await assertFoglioAperto(supabase, effetto.foglio_id);
+  if (!foglioOk.success) return foglioOk;
+
+  const fromDef = parseEffettoParametri(effetto.tipo, effetto.parametri);
+  const codiceMp = (
+    parsed.data.codiceMp ||
+    effetto.codice_mp ||
+    fromDef.codiceMp
+  )
+    .trim()
+    .toUpperCase();
+  const essiccatoreId = (
+    parsed.data.essiccatoreId ||
+    effetto.essiccatore_id ||
+    fromDef.essiccatoreId
+  ).trim();
+
+  if (
+    (effetto.tipo === "magazzino.consuma" ||
+      effetto.tipo === "magazzino.produce") &&
+    !codiceMp
+  ) {
+    return {
+      success: false,
+      error: "Indica la targa prodotto (es. NDRi) da muovere.",
+    };
+  }
+  if (effetto.tipo === "essiccatore.carica_cestone" && !essiccatoreId) {
+    return {
+      success: false,
+      error: "Seleziona l’essiccatore da caricare.",
+    };
+  }
+
+  const now = new Date().toISOString();
+  const { error: updErr } = await supabase
+    .from("produzione_foglio_processo_effetti")
+    .update({
+      qty_effettiva: parsed.data.qty,
+      codice_mp: codiceMp,
+      lotto_codice: parsed.data.lottoCodice.trim(),
+      essiccatore_id: essiccatoreId || null,
+      esito: "eseguito",
+      documento_stato: "approvato",
+      note: parsed.data.note.trim(),
+      eseguito_at: now,
+      eseguito_by: auth.userId,
+      updated_by: auth.userId,
+    })
+    .eq("id", effetto.id)
+    .is("deleted_at", null);
+  if (updErr) return { success: false, error: updErr.message };
+
+  void writeAuditLog({
+    entity_type: "produzione_foglio_processo_effetti",
+    entity_id: effetto.id,
+    action: "update",
+    actor_id: auth.userId,
+    summary: `Registrato effetto ${effetto.tipo} ${parsed.data.qty} sul foglio`,
+    payload: {
+      foglio_id: effetto.foglio_id,
+      processo_id: effetto.processo_id,
+      tipo: effetto.tipo,
+      qty: parsed.data.qty,
+      codice_mp: codiceMp,
+      essiccatore_id: essiccatoreId,
+      lotto_codice: parsed.data.lottoCodice,
+    },
+  });
+
+  return listProcessiPerFoglioAction(effetto.foglio_id);
 }

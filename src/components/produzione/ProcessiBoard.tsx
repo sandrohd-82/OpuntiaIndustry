@@ -25,6 +25,7 @@ import {
 } from "@/app/actions/produzione-processi";
 import { SoftDeleteConfirmModal } from "@/components/amministrazione/SoftDeleteConfirmModal";
 import { FunzioniGestionaleField } from "@/components/produzione/FunzioniGestionaleField";
+import { ProcessoEffettiField } from "@/components/produzione/ProcessoEffettiField";
 import { ProcessoAttivitaCreateModal } from "@/components/produzione/ProcessoAttivitaCreateModal";
 import type { ProduzioneArea } from "@/lib/produzione/aree-posti";
 import {
@@ -34,6 +35,10 @@ import {
   type ProcessoAttivita,
   type ProcessoPasso,
 } from "@/lib/produzione/processi";
+import {
+  formatEffettoDef,
+  type ProcessoEffettoDraft,
+} from "@/lib/produzione/processo-effetti";
 
 type DraftPasso = {
   key: string;
@@ -76,6 +81,7 @@ export function ProcessiBoard({ startCreate = false }: ProcessiBoardProps) {
   const [note, setNote] = useState("");
   const [areaId, setAreaId] = useState("");
   const [funzioneKeys, setFunzioneKeys] = useState<string[]>([]);
+  const [effetti, setEffetti] = useState<ProcessoEffettoDraft[]>([]);
 
   const selected = useMemo(
     () => items.find((p) => p.id === selectedId) ?? null,
@@ -166,6 +172,15 @@ export function ProcessiBoard({ startCreate = false }: ProcessiBoardProps) {
     setNote(p?.note ?? "");
     setAreaId(p?.areaId ?? "");
     setFunzioneKeys(p?.funzioni.map((f) => f.key) ?? []);
+    setEffetti(
+      (p?.effetti ?? []).map((e) => ({
+        tipo: e.tipo,
+        codiceMp: e.codiceMp,
+        unita: e.unita,
+        essiccatoreId: e.essiccatoreId,
+        note: e.note,
+      }))
+    );
   }
 
   function openCreate() {
@@ -208,6 +223,7 @@ export function ProcessiBoard({ startCreate = false }: ProcessiBoardProps) {
         attivo: true,
         areaId: areaId || null,
         funzioneKeys,
+        effetti,
       };
       if (creating) {
         const res = await createProcessoAction(payload);
@@ -218,6 +234,15 @@ export function ProcessiBoard({ startCreate = false }: ProcessiBoardProps) {
         setCreating(false);
         setEditing(res.item);
         setFunzioneKeys(res.item.funzioni.map((f) => f.key));
+        setEffetti(
+          res.item.effetti.map((e) => ({
+            tipo: e.tipo,
+            codiceMp: e.codiceMp,
+            unita: e.unita,
+            essiccatoreId: e.essiccatoreId,
+            note: e.note,
+          }))
+        );
         setSelectedId(res.item.id);
         setPassi([]);
         setDraftPassi([]);
@@ -391,6 +416,9 @@ export function ProcessiBoard({ startCreate = false }: ProcessiBoardProps) {
                     {p.funzioni.length > 0
                       ? ` · ${p.funzioni.length} funzioni`
                       : ""}
+                    {p.effetti.length > 0
+                      ? ` · ${p.effetti.length} effetti`
+                      : ""}
                   </p>
                 </div>
                 <div
@@ -487,6 +515,7 @@ export function ProcessiBoard({ startCreate = false }: ProcessiBoardProps) {
                   value={funzioneKeys}
                   onChange={setFunzioneKeys}
                 />
+                <ProcessoEffettiField value={effetti} onChange={setEffetti} />
               </div>
 
               {editing ? (
@@ -759,6 +788,20 @@ export function ProcessiBoard({ startCreate = false }: ProcessiBoardProps) {
                     </dt>
                     <dd>
                       {selected.funzioni.map((f) => f.etichetta).join(" · ")}
+                    </dd>
+                  </div>
+                ) : null}
+                {selected.effetti.length > 0 ? (
+                  <div>
+                    <dt className="text-xs text-[var(--muted)]">
+                      Obiettivi / effetti
+                    </dt>
+                    <dd>
+                      <ul className="mt-1 space-y-1">
+                        {selected.effetti.map((e) => (
+                          <li key={e.id}>{formatEffettoDef(e)}</li>
+                        ))}
+                      </ul>
                     </dd>
                   </div>
                 ) : null}

@@ -149,7 +149,7 @@ async function loadUltimaLettura(
 async function loadCondizioniAuto(
   essiccatoreId: string
 ): Promise<CondizioniAvvioAuto> {
-  const kg = kgDaFoglioLavorazione(essiccatoreId);
+  const kg = await kgDaFoglioLavorazione(essiccatoreId);
   const temp = await loadUltimaLettura(essiccatoreId, "TEMP-AMB");
   const umid = await loadUltimaLettura(essiccatoreId, "UMID-AMB");
   const haClima = Boolean(temp || umid);

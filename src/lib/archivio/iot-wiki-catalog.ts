@@ -166,7 +166,7 @@ function listIotWikiArticles(): TutorialArticle[] {
         },
         {
           type: "note",
-          text: "In Avvio non si digitano kg, aria e umidità. TEMP-AMB e UMID-AMB arrivano periodicamente dalla sonda e restano in action_essiccatore_sensor_letture (storico/statistiche). I kg arriveranno dal foglio di lavoro (carichi nel cestone); oggi, senza foglio, il carico è 0 kg (scarico libero).",
+          text: "In Avvio non si digitano kg, aria e umidità. TEMP-AMB e UMID-AMB arrivano periodicamente dalla sonda e restano in action_essiccatore_sensor_letture. I kg sono la somma degli effetti essiccatore.carica_cestone eseguiti sul foglio; senza carichi il carico è 0 kg (scarico libero).",
         },
         {
           type: "h",
