@@ -83,6 +83,53 @@ body {
   }
 }
 
+@keyframes mex-focus-glow {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 rgba(245, 158, 11, 0.12);
+    filter: brightness(1);
+  }
+  50% {
+    box-shadow: 0 0 0 10px rgba(245, 158, 11, 0.06);
+    filter: brightness(1.06);
+  }
+}
+
+@keyframes mex-focus-fade {
+  0%,
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.38;
+    transform: scale(0.94);
+  }
+}
+
+@keyframes mex-string-on {
+  from {
+    opacity: 0.35;
+    transform: translateX(-6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+.mex-string-focus {
+  animation: mex-focus-glow 1.5s ease-in-out infinite;
+}
+
+.mex-string-focus-icon {
+  animation: mex-focus-fade 1.25s ease-in-out infinite;
+}
+
+.mex-string-on {
+  animation: mex-string-on 0.35s ease-out;
+}
+
 /* Paper Invoice / commercialista / etichette barcode — stampa solo il root dedicato */
 @media print {
   body * {
