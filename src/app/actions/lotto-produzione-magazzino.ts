@@ -6,9 +6,11 @@ import { segnoQuantitaMovimento } from "@/lib/magazzino/types";
 import {
   messaggioLottoProduzione,
   selezionaLottiPerRichiesta,
+  type LottoInserimentoOption,
   type LottoMagazzinoPrelievo,
   type LottoPrelievoUsato,
   type ModoLottoProduzione,
+  type ProcessoInserimentoOption,
 } from "@/lib/produzione/lotto-produzione-magazzino";
 import { createServiceClient } from "@/lib/supabase/server";
 import {
@@ -274,6 +276,95 @@ export async function assegnaLottoProduzioneDaMagazzino(input: {
       composito.lotto.codice,
       composito.lotto.id,
       true
+    ),
+  };
+}
+
+export async function listLottiMagazzinoInserimentoAction(): Promise<
+  | { success: true; lotti: LottoInserimentoOption[] }
+  | { success: false; error: string }
+> {
+  await requireAnyAreaAccess(["amministrazione", "produzione", "magazzino"]);
+  const supabase = createServiceClient();
+  const { data, error } = await supabase
+    .from("magazzino_movimenti")
+    .select(
+      "lotto_codice, tipo, quantita_kg, created_at, lotto_esterno_id, prodotto_id, prodotto_codice, lotto_esterno:lotti_esterni!lotto_esterno_id(id, codice), prodotto:prodotti_propri!prodotto_id(id, codice, nome)"
+    )
+    .eq("catalog_kind", CATALOG_PROPRIO)
+    .is("deleted_at", null)
+    .not("lotto_codice", "is", null)
+    .order("created_at", { ascending: false });
+  if (error) return { success: false, error: error.message };
+
+  const byKey = new Map<string, LottoInserimentoOption>();
+  for (const r of (data ?? []) as Array<Record<string, unknown>>) {
+    const lotto = String(r.lotto_codice ?? "").trim();
+    const prodottoRel = Array.isArray(r.prodotto) ? r.prodotto[0] : r.prodotto;
+    const prod = (prodottoRel ?? null) as
+      | { id?: string; codice?: string; nome?: string }
+      | null;
+    const prodottoId = String(r.prodotto_id ?? prod?.id ?? "").trim();
+    if (!lotto || !prodottoId) continue;
+    const esterno = Array.isArray(r.lotto_esterno)
+      ? r.lotto_esterno[0]
+      : r.lotto_esterno;
+    const ext = esterno as { codice?: string } | null;
+    const qty = segnoQuantitaMovimento(
+      String(r.tipo ?? ""),
+      Number(r.quantita_kg) || 0
+    );
+    const key = `${prodottoId}::${lotto}`;
+    const prev = byKey.get(key);
+    if (!prev) {
+      byKey.set(key, {
+        key,
+        lottoInternoCodice: lotto,
+        lottoEsternoCodice: ext?.codice?.trim() || null,
+        prodottoId,
+        prodottoCodice: String(prod?.codice ?? r.prodotto_codice ?? "").trim(),
+        prodottoNome: String(prod?.nome ?? "").trim(),
+        quantitaKg: qty,
+      });
+    } else {
+      prev.quantitaKg = Math.round((prev.quantitaKg + qty) * 1000) / 1000;
+      if (!prev.lottoEsternoCodice && ext?.codice) {
+        prev.lottoEsternoCodice = ext.codice.trim();
+      }
+    }
+  }
+
+  const lotti = [...byKey.values()]
+    .filter((l) => l.quantitaKg > 1e-9)
+    .sort((a, b) => {
+      const c = a.prodottoCodice.localeCompare(b.prodottoCodice, "it");
+      if (c !== 0) return c;
+      return a.lottoInternoCodice.localeCompare(b.lottoInternoCodice);
+    });
+  return { success: true, lotti };
+}
+
+export async function listProcessiInserimentoProduzioneAction(): Promise<
+  | { success: true; processi: ProcessoInserimentoOption[] }
+  | { success: false; error: string }
+> {
+  await requireAnyAreaAccess(["amministrazione", "produzione"]);
+  const supabase = createServiceClient();
+  const { data, error } = await supabase
+    .from("produzione_processi")
+    .select("id, codice, nome")
+    .is("deleted_at", null)
+    .is("deprecato_at", null)
+    .order("codice", { ascending: true });
+  if (error) return { success: false, error: error.message };
+  return {
+    success: true,
+    processi: ((data ?? []) as Array<{ id: string; codice: string; nome: string }>).map(
+      (p) => ({
+        id: p.id,
+        codice: p.codice,
+        nome: p.nome,
+      })
     ),
   };
 }

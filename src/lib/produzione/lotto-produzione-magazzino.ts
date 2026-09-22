@@ -1,5 +1,21 @@
 /** Prelievo lotti da magazzino per inserimento in produzione (ISO 9001 §8.5.2). */
 
+export type LottoInserimentoOption = {
+  key: string;
+  lottoInternoCodice: string;
+  lottoEsternoCodice: string | null;
+  prodottoId: string;
+  prodottoCodice: string;
+  prodottoNome: string;
+  quantitaKg: number;
+};
+
+export type ProcessoInserimentoOption = {
+  id: string;
+  codice: string;
+  nome: string;
+};
+
 export type LottoMagazzinoPrelievo = {
   lottoInternoCodice: string;
   quantitaKg: number;
