@@ -2,7 +2,10 @@
 
 import { useEffect, useId, useState, useTransition } from "react";
 import { FaBolt, FaFan, FaFire } from "react-icons/fa6";
-import { avviaEssiccatoreAction } from "@/app/actions/action-essiccatore-azioni";
+import {
+  avviaEssiccatoreAction,
+  listMlCampioniAction,
+} from "@/app/actions/action-essiccatore-azioni";
 import {
   ClockArcPercentGauge,
   BURNER_FROM,
@@ -17,8 +20,9 @@ import {
 } from "@/lib/action/azioni-immediate";
 import {
   APPRENDIMENTO_FINESTRA_MIN,
-  prediciPercBruciatoreSeme,
+  CAMPIONI_DIDATTICI,
   ricettaInizialeAvvio,
+  type MlCampione,
 } from "@/lib/action/essiccatore-apprendimento";
 import type { ActionEssiccatore } from "@/lib/action/essiccatori";
 
@@ -88,19 +92,30 @@ export function ActionEssiccatoreAzioniImmediateModal({
   onAvvioRegistrato,
 }: Props) {
   const titleId = useId();
-  const ricetta = ricettaInizialeAvvio();
+  const [campioni, setCampioni] = useState<MlCampione[]>(CAMPIONI_DIDATTICI);
   const [consensoBruciatore, setConsensoBruciatore] = useState(false);
-  const [tempBruciatoreC, setTempBruciatoreC] = useState(
-    ricetta.tempBruciatoreC
-  );
+  const [tempBruciatoreC, setTempBruciatoreC] = useState(50);
   const [tempImpostata, setTempImpostata] = useState(true);
   const [consensoVentola, setConsensoVentola] = useState(false);
-  const [percVentilazione, setPercVentilazione] = useState(
-    ricetta.percVentilazione
-  );
+  const [percVentilazione, setPercVentilazione] = useState(40);
   const [ventImpostata, setVentImpostata] = useState(true);
+  const [kgProdotto, setKgProdotto] = useState(0);
+  const [tempAmbienteC, setTempAmbienteC] = useState(20);
+  const [umiditaAmbientePct, setUmiditaAmbientePct] = useState(50);
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
+
+  const ricetta = ricettaInizialeAvvio(
+    {
+      essiccatoreId: essiccatore.id,
+      kgProdotto,
+      tempAmbienteC,
+      umiditaAmbientePct,
+      percVentilazione,
+      tempObiettivoC: tempBruciatoreC,
+    },
+    campioni
+  );
 
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
@@ -114,6 +129,12 @@ export function ActionEssiccatoreAzioniImmediateModal({
       document.body.style.overflow = prev;
     };
   }, [onClose]);
+
+  useEffect(() => {
+    void listMlCampioniAction(essiccatore.id).then((res) => {
+      if (res.success && res.items.length) setCampioni(res.items);
+    });
+  }, [essiccatore.id]);
 
   const consensiSbloccati = tempImpostata && ventImpostata;
   const canAvvia =
@@ -144,6 +165,9 @@ export function ActionEssiccatoreAzioniImmediateModal({
         tempBruciatoreC,
         consensoVentola,
         percVentilazione,
+        kgProdotto,
+        tempAmbienteC,
+        umiditaAmbientePct,
       });
       if (!res.success) {
         setError(res.error);
@@ -191,27 +215,68 @@ export function ActionEssiccatoreAzioniImmediateModal({
           </div>
 
           <p className="text-sm text-[var(--muted)]">
-            Partenza con ricetta iniziale. I consensi restano Off finché non li
-            metti On. Invio in sequenza: ventola, poi bruciatore.
+            Kg e clima cambiano la % bruciatore di partenza. Invio: ventola,
+            attesa, On ventola, temperatura, apertura stimata, On bruciatore.
           </p>
 
-          <div className="rounded-lg border border-violet-200 bg-violet-50/70 px-3 py-2.5 text-sm text-violet-950">
-            <p className="font-semibold">Impostazione iniziale · apprendimento</p>
-            <p className="mt-1 text-xs leading-5 text-violet-900">
-              Ambiente {ricetta.tempAmbienteC}°C · carico non ancora collegato ·
-              ventola {percVentilazione}% · obiettivo {tempBruciatoreC}°C ·
-              apertura bruciatore prevista{" "}
-              <span className="font-semibold">
-                {prediciPercBruciatoreSeme({
-                  tempAmbienteC: ricetta.tempAmbienteC,
-                  percVentilazione,
-                  kgProdotto: ricetta.kgProdotto,
-                  tempObiettivoC: tempBruciatoreC,
-                })}
-                %
+          <div className="grid gap-3 sm:grid-cols-3">
+            <label className="block text-sm">
+              <span className="text-xs font-medium text-slate-600">
+                Carico in essiccatore (kg)
               </span>
-              . Dopo {APPRENDIMENTO_FINESTRA_MIN} minuti di attività il sistema
-              confronterà la temperatura raggiunta e affinerà la %.
+              <input
+                type="number"
+                min={0}
+                max={8000}
+                value={kgProdotto}
+                onChange={(e) => setKgProdotto(Number(e.target.value) || 0)}
+                className="mt-1 w-full rounded-lg border border-slate-300 px-2 py-1.5 text-sm"
+              />
+            </label>
+            <label className="block text-sm">
+              <span className="text-xs font-medium text-slate-600">
+                Aria ingresso (°C)
+              </span>
+              <input
+                type="number"
+                min={-15}
+                max={55}
+                step={0.5}
+                value={tempAmbienteC}
+                onChange={(e) => setTempAmbienteC(Number(e.target.value))}
+                className="mt-1 w-full rounded-lg border border-slate-300 px-2 py-1.5 text-sm"
+              />
+            </label>
+            <label className="block text-sm">
+              <span className="text-xs font-medium text-slate-600">
+                Umidità ingresso (%)
+              </span>
+              <input
+                type="number"
+                min={0}
+                max={100}
+                value={umiditaAmbientePct}
+                onChange={(e) =>
+                  setUmiditaAmbientePct(Number(e.target.value) || 0)
+                }
+                className="mt-1 w-full rounded-lg border border-slate-300 px-2 py-1.5 text-sm"
+              />
+            </label>
+          </div>
+
+          <div className="rounded-lg border border-violet-200 bg-violet-50/70 px-3 py-2.5 text-sm text-violet-950">
+            <p className="font-semibold">Partenza stimata · apprendimento A+</p>
+            <p className="mt-1 text-xs leading-5 text-violet-900">
+              {kgProdotto === 0
+                ? "Scarico libero (vuoto)."
+                : `Effetto tappo da ${kgProdotto.toLocaleString("it-IT")} kg.`}{" "}
+              Aria {tempAmbienteC}°C / {umiditaAmbientePct}% UR · ventola{" "}
+              {percVentilazione}% · obiettivo {tempBruciatoreC}°C · apertura{" "}
+              <span className="font-semibold">
+                {ricetta.percBruciatorePrevista}%
+              </span>
+              . {ricetta.stima.spiegazione} Dopo {APPRENDIMENTO_FINESTRA_MIN}{" "}
+              minuti si misura la temperatura tenuta e si affina.
             </p>
           </div>
 

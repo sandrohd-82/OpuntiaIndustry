@@ -13,6 +13,7 @@ export const SONDA_USCITA_BRUCIATORE = "TEMP-BRUC";
 export const IOT_CANALI = [
   "consenso_bruciatore",
   "temp_bruciatore",
+  "perc_bruciatore",
   "consenso_ventola",
   "perc_ventilazione",
 ] as const;
@@ -53,6 +54,10 @@ export type ActionEssiccatoreAzione = {
   tempBruciatoreC: number;
   consensoVentola: boolean;
   percVentilazione: number;
+  kgProdotto: number;
+  tempAmbienteC: number;
+  umiditaAmbientePct: number;
+  percBruciatorePrevista: number;
   iotStato: IotStatoMessaggio;
   createdAt: string;
   messaggi: ActionEssiccatoreIotMessaggio[];
@@ -69,6 +74,9 @@ export const avvioEssiccatoreInputSchema = z
       .max(TEMP_BRUCIATORE_MAX_C),
     consensoVentola: z.boolean(),
     percVentilazione: z.number().int().min(0).max(100),
+    kgProdotto: z.number().min(0).max(8000),
+    tempAmbienteC: z.number().min(-15).max(55),
+    umiditaAmbientePct: z.number().int().min(0).max(100),
   })
   .superRefine((data, ctx) => {
     if (!data.consensoBruciatore) {
@@ -89,6 +97,19 @@ export const avvioEssiccatoreInputSchema = z
 
 export type AvvioEssiccatoreInput = z.infer<typeof avvioEssiccatoreInputSchema>;
 
+export const condizioneStimaSchema = z.object({
+  essiccatoreId: z.enum(ACTION_ESSICCATORE_IDS),
+  tempBruciatoreC: z
+    .number()
+    .int()
+    .min(TEMP_BRUCIATORE_MIN_C)
+    .max(TEMP_BRUCIATORE_MAX_C),
+  percVentilazione: z.number().int().min(0).max(100),
+  kgProdotto: z.number().min(0).max(8000),
+  tempAmbienteC: z.number().min(-15).max(55),
+  umiditaAmbientePct: z.number().int().min(0).max(100),
+});
+
 export type MessaggioAvvioDraft = {
   canale: IotCanaleAvvio;
   comando: string;
@@ -97,7 +118,7 @@ export type MessaggioAvvioDraft = {
 };
 
 export function buildMessaggiAvvio(
-  input: AvvioEssiccatoreInput
+  input: AvvioEssiccatoreInput & { percBruciatore: number }
 ): MessaggioAvvioDraft[] {
   const frames = encodeAvvioOut({
     essiccatoreId: input.essiccatoreId,
@@ -105,8 +126,9 @@ export function buildMessaggiAvvio(
     tempBruciatoreC: input.tempBruciatoreC,
     consensoVentola: input.consensoVentola,
     percVentilazione: input.percVentilazione,
+    percBruciatore: input.percBruciatore,
   });
-  const [fanPower, fanOn, burnerTemp, burnerOn] = frames;
+  const [fanPower, fanOn, burnerTemp, burnerPower, burnerOn] = frames;
   return [
     {
       canale: "perc_ventilazione",
@@ -147,6 +169,19 @@ export function buildMessaggiAvvio(
       sortOrder: 3,
     },
     {
+      canale: "perc_bruciatore",
+      comando: burnerPower?.codice ?? "A05",
+      payload: {
+        percent: input.percBruciatore,
+        fonte: "ml_vicini",
+        mex: burnerPower?.hex ?? "",
+        codice: burnerPower?.codice ?? "A05",
+        uid: burnerPower?.uidHex ?? "",
+        cls: burnerPower?.cls ?? "I",
+      },
+      sortOrder: 4,
+    },
+    {
       canale: "consenso_bruciatore",
       comando: burnerOn?.codice ?? "A01",
       payload: {
@@ -156,7 +191,7 @@ export function buildMessaggiAvvio(
         uid: burnerOn?.uidHex ?? "",
         cls: burnerOn?.cls ?? "I",
       },
-      sortOrder: 4,
+      sortOrder: 5,
     },
   ];
 }
@@ -164,6 +199,7 @@ export function buildMessaggiAvvio(
 export const IOT_CANALE_LABELS: Record<IotCanaleAvvio, string> = {
   consenso_bruciatore: "Consenso bruciatore",
   temp_bruciatore: "Temperatura uscita bruciatore",
+  perc_bruciatore: "Apertura bruciatore (stima)",
   consenso_ventola: "Consenso ventola",
   perc_ventilazione: "Percentuale ventilazione",
 };

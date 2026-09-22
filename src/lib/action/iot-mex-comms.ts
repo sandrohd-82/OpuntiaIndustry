@@ -39,6 +39,7 @@ export const ORDINE_SICUREZZA_AVVIO = [
   MEX_CMD.FAN_POWER,
   MEX_CMD.FAN_CONSENT,
   MEX_CMD.BURNER_TEMP,
+  MEX_CMD.BURNER_POWER,
   MEX_CMD.BURNER_CONSENT,
 ] as const;
 
@@ -50,7 +51,7 @@ function outsDaAzione(azione: ActionEssiccatoreAzione): MexFrame[] {
     })
     .filter((f): f is MexFrame => Boolean(f));
 
-  if (stored.length === 4) return stored;
+  if (stored.length >= 4) return stored;
 
   return encodeAvvioOut({
     essiccatoreId: azione.essiccatoreId,
@@ -58,11 +59,16 @@ function outsDaAzione(azione: ActionEssiccatoreAzione): MexFrame[] {
     tempBruciatoreC: azione.tempBruciatoreC,
     consensoVentola: azione.consensoVentola,
     percVentilazione: azione.percVentilazione,
+    percBruciatore: azione.percBruciatorePrevista ?? 20,
   });
 }
 
 function richiedeVentolaOn(cmd: number): boolean {
-  return cmd === MEX_CMD.BURNER_TEMP || cmd === MEX_CMD.BURNER_CONSENT;
+  return (
+    cmd === MEX_CMD.BURNER_TEMP ||
+    cmd === MEX_CMD.BURNER_POWER ||
+    cmd === MEX_CMD.BURNER_CONSENT
+  );
 }
 
 export function createSessioneAvvioComms(

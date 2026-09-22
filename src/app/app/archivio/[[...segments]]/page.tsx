@@ -21,6 +21,7 @@ import {
   ArchivioIotFunzionamentoBoard,
   ArchivioIotLeggendaMexBoard,
 } from "@/components/archivio/ArchivioIotLeggendaMexBoard";
+import { ArchivioIotWikiBoard } from "@/components/archivio/ArchivioIotWikiBoard";
 import { ArchivioTutorialBoard } from "@/components/archivio/ArchivioTutorialBoard";
 import { AreaPlaceholder } from "@/components/areas/AreaPlaceholder";
 import {
@@ -111,6 +112,19 @@ export default async function ArchivioCatchAllPage({ params }: Props) {
           />
           <div className="p-6">
             <ArchivioIotLeggendaMexBoard />
+          </div>
+        </>
+      );
+    }
+    if (segments[1] === "wiki" && !segments[2]) {
+      return (
+        <>
+          <AppHeader
+            title="Wiki IoT"
+            subtitle="Protocollo Mex, sicurezza, apprendimento A+ e riferimento API — cerca le schede"
+          />
+          <div className="p-6">
+            <ArchivioIotWikiBoard />
           </div>
         </>
       );

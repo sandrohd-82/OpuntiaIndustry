@@ -52,6 +52,7 @@ export const MEX_CMD = {
   BURNER_TEMP: 0x02,
   FAN_CONSENT: 0x03,
   FAN_POWER: 0x04,
+  BURNER_POWER: 0x05,
   SENSOR: 0x10,
 } as const;
 
@@ -258,10 +259,12 @@ export function encodeAvvioOut(input: {
   tempBruciatoreC: number;
   consensoVentola: boolean;
   percVentilazione: number;
+  percBruciatore?: number;
 }): MexFrame[] {
   const uid = uidPerEssiccatore(input.essiccatoreId ?? "ess-a");
   const base = { cls: "I" as const, uid };
-  /** Sicurezza: mai bruciatore prima della ventola confermata On. */
+  const percBruciatore = input.percBruciatore ?? 20;
+  /** Sicurezza: ventola On, poi temperatura, % bruciatore, On bruciatore. */
   return [
     encodeMex({
       ...base,
@@ -283,6 +286,13 @@ export function encodeAvvioOut(input: {
       tipo: "A",
       cmd: MEX_CMD.BURNER_TEMP,
       d0: input.tempBruciatoreC,
+    }),
+    encodeMex({
+      ...base,
+      dir: "O",
+      tipo: "A",
+      cmd: MEX_CMD.BURNER_POWER,
+      d0: percBruciatore,
     }),
     encodeMex({
       ...base,
@@ -319,6 +329,11 @@ export function titoloOperatoreMex(frame: MexFrame): string {
   if (frame.cmd === MEX_CMD.FAN_POWER) {
     return frame.dir === "O" ? "Imposta potenza ventola" : "Conferma potenza ventola";
   }
+  if (frame.cmd === MEX_CMD.BURNER_POWER) {
+    return frame.dir === "O"
+      ? "Imposta apertura bruciatore"
+      : "Conferma apertura bruciatore";
+  }
   if (frame.cmd === MEX_CMD.BURNER_TEMP) {
     return frame.dir === "O"
       ? "Imposta temperatura bruciatore"
@@ -347,7 +362,7 @@ export function dettaglioValore(frame: MexFrame): string {
     }
     return `${uid} · ${frame.d0}°C`;
   }
-  if (frame.cmd === MEX_CMD.FAN_POWER) {
+  if (frame.cmd === MEX_CMD.FAN_POWER || frame.cmd === MEX_CMD.BURNER_POWER) {
     if (frame.tipo === "K") {
       return `${uid} · Ricezione ${frame.d0 ? "true" : "false"} · ${frame.d1}%`;
     }
@@ -366,6 +381,7 @@ export function buildMexLogAvvio(azione: {
   tempBruciatoreC: number;
   consensoVentola: boolean;
   percVentilazione: number;
+  percBruciatorePrevista?: number;
   messaggi: Array<{ payload: Record<string, unknown> }>;
 }): MexLogRiga[] {
   const stored = azione.messaggi
@@ -376,7 +392,7 @@ export function buildMexLogAvvio(azione: {
     .filter((f): f is MexFrame => Boolean(f));
 
   const outs =
-    stored.length === 4
+    stored.length >= 4
       ? stored
       : encodeAvvioOut({
           essiccatoreId: azione.essiccatoreId,
@@ -384,6 +400,7 @@ export function buildMexLogAvvio(azione: {
           tempBruciatoreC: azione.tempBruciatoreC,
           consensoVentola: azione.consensoVentola,
           percVentilazione: azione.percVentilazione,
+          percBruciatore: azione.percBruciatorePrevista,
         });
 
   const rows: MexLogRiga[] = [];
@@ -601,6 +618,15 @@ export const MEX_LEGGENDA: MexLeggendaVoce[] = [
   ),
   voce(
     "O",
+    "A",
+    MEX_CMD.BURNER_POWER,
+    "Apertura bruciatore",
+    "Percentuale di partenza stimata dai campioni",
+    "Classe I. D0 = % 0–100. Si invia solo dopo ventola On.",
+    26
+  ),
+  voce(
+    "O",
     "R",
     MEX_CMD.SENSOR,
     "Richiesta sensore",
@@ -647,6 +673,16 @@ export const MEX_LEGGENDA: MexLeggendaVoce[] = [
     "Classe C. D1 = percentuale confermata.",
     0x01,
     40
+  ),
+  voce(
+    "I",
+    "K",
+    MEX_CMD.BURNER_POWER,
+    "Risposta apertura bruciatore",
+    "true/false ricezione + % impostata",
+    "Classe C. D1 = percentuale bruciatore confermata.",
+    0x01,
+    26
   ),
   voce(
     "I",

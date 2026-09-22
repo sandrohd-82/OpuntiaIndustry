@@ -210,6 +210,12 @@ export const PAGE_EXTRAS: Record<string, TutorialBlock[]> = {
       text: "Legenda Out/In più l’esempio On bruciatore (A01) nei 3 scenari: JSON WiFi, telaio XBee 0x10, FRMPayload LoRa. Stesso hex Mex.",
     },
   ],
+  "/app/archivio/iot/wiki": [
+    {
+      type: "p",
+      text: "Wiki IoT (come il Tutorial): ricerca schede su frame Mex, tre mezzi, cadenza di sicurezza, apprendimento A+ (kg, aria ingresso, umidità) e API A01–A05. Esempio numerico 40°C / ventola 70% con inverno+tappo vs estate+vuoto.",
+    },
+  ],
   "/app/produzione/processi-e-attivita/elenco-processi": [
     {
       type: "p",
@@ -231,7 +237,7 @@ export const PAGE_EXTRAS: Record<string, TutorialBlock[]> = {
   "/app/action/aree/essiccatori": [
     {
       type: "p",
-      text: "Il fulmine apre le azioni immediate con ricetta iniziale. Avvia invia i Mex in cadenza di sicurezza: set ventola → attesa → On ventola → attesa → set temperatura → attesa → On bruciatore. Click fuori riduce lo scambio a un banner in basso (ultimo messaggio o attesa); click sul banner lo riporta al centro. Conferme ancora simulate. L’apprendimento (% bruciatore da ambiente, ventola, kg e temp a 5 min) è in preparazione. Codifica in Archivio → IoT → Leggenda Mex.",
+      text: "Il fulmine apre Avvio: kg, aria ingresso (°C e umidità), temperatura e ventola. Action stima la % bruciatore con la media dei campioni vicini e la esegue (A05) nella cadenza di sicurezza. Click fuori riduce lo scambio a banner in basso. Spiegazioni in Archivio → IoT → Wiki.",
     },
   ],
   "/app/magazzino/mappa": [

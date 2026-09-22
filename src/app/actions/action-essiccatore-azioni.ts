@@ -3,18 +3,25 @@
 import { writeAuditLog } from "@/lib/audit";
 import {
   avvioEssiccatoreInputSchema,
+  condizioneStimaSchema,
   buildMessaggiAvvio,
   type ActionEssiccatoreAzione,
   type ActionEssiccatoreIotMessaggio,
   type IotCanaleAvvio,
   type IotStatoMessaggio,
 } from "@/lib/action/azioni-immediate";
+import {
+  CAMPIONI_DIDATTICI,
+  stimaPercBruciatore,
+  type MlCampione,
+  type StimaBruciatore,
+} from "@/lib/action/essiccatore-apprendimento";
 import { ACTION_ESSICCATORI } from "@/lib/action/essiccatori";
 import { requireAreaAccess } from "@/lib/areas/guard";
 import { createServiceClient } from "@/lib/supabase/server";
 
 const AZIONE_COLS =
-  "id, essiccatore_id, azione_key, versione, documento_stato, consenso_bruciatore, temp_bruciatore_c, consenso_ventola, perc_ventilazione, iot_stato, created_at";
+  "id, essiccatore_id, azione_key, versione, documento_stato, consenso_bruciatore, temp_bruciatore_c, consenso_ventola, perc_ventilazione, kg_prodotto, temp_ambiente_c, umidita_ambiente_pct, perc_bruciatore_prevista, iot_stato, created_at";
 
 type AzioneRow = {
   id: string;
@@ -26,6 +33,10 @@ type AzioneRow = {
   temp_bruciatore_c: number;
   consenso_ventola: boolean;
   perc_ventilazione: number;
+  kg_prodotto: number | string;
+  temp_ambiente_c: number | string;
+  umidita_ambiente_pct: number;
+  perc_bruciatore_prevista: number;
   iot_stato: IotStatoMessaggio;
   created_at: string;
 };
@@ -39,6 +50,23 @@ type MessaggioRow = {
   sort_order: number;
   stato: IotStatoMessaggio;
 };
+
+type CampioneRow = {
+  id: string;
+  essiccatore_id: string;
+  kg_prodotto: number | string;
+  temp_ambiente_c: number | string;
+  umidita_ambiente_pct: number;
+  perc_ventilazione: number;
+  perc_bruciatore: number;
+  temp_obiettivo_c: number;
+  temp_tenuta_c: number | string;
+  note: string | null;
+};
+
+function num(v: number | string): number {
+  return typeof v === "number" ? v : Number(v);
+}
 
 function mapMessaggio(row: MessaggioRow): ActionEssiccatoreIotMessaggio {
   return {
@@ -66,9 +94,80 @@ function mapAzione(
     tempBruciatoreC: row.temp_bruciatore_c,
     consensoVentola: row.consenso_ventola,
     percVentilazione: row.perc_ventilazione,
+    kgProdotto: num(row.kg_prodotto),
+    tempAmbienteC: num(row.temp_ambiente_c),
+    umiditaAmbientePct: row.umidita_ambiente_pct,
+    percBruciatorePrevista: row.perc_bruciatore_prevista,
     iotStato: row.iot_stato,
     createdAt: row.created_at,
     messaggi: [...messaggi].sort((a, b) => a.sortOrder - b.sortOrder),
+  };
+}
+
+function mapCampione(row: CampioneRow): MlCampione {
+  return {
+    id: row.id,
+    essiccatoreId: row.essiccatore_id,
+    kgProdotto: num(row.kg_prodotto),
+    tempAmbienteC: num(row.temp_ambiente_c),
+    umiditaAmbientePct: row.umidita_ambiente_pct,
+    percVentilazione: row.perc_ventilazione,
+    percBruciatore: row.perc_bruciatore,
+    tempObiettivoC: row.temp_obiettivo_c,
+    tempTenutaC: num(row.temp_tenuta_c),
+    note: row.note ?? "",
+  };
+}
+
+async function loadCampioni(essiccatoreId?: string): Promise<MlCampione[]> {
+  const supabase = createServiceClient();
+  let q = supabase
+    .from("action_essiccatore_ml_campioni")
+    .select(
+      "id, essiccatore_id, kg_prodotto, temp_ambiente_c, umidita_ambiente_pct, perc_ventilazione, perc_bruciatore, temp_obiettivo_c, temp_tenuta_c, note"
+    )
+    .is("deleted_at", null)
+    .eq("esito", "stabile")
+    .eq("documento_stato", "approvato");
+  if (essiccatoreId) q = q.eq("essiccatore_id", essiccatoreId);
+  const { data, error } = await q;
+  if (error || !data?.length) {
+    return CAMPIONI_DIDATTICI.filter((c) =>
+      essiccatoreId ? c.essiccatoreId === essiccatoreId : true
+    );
+  }
+  return (data as CampioneRow[]).map(mapCampione);
+}
+
+export async function listMlCampioniAction(essiccatoreId?: string): Promise<
+  { success: true; items: MlCampione[] } | { success: false; error: string }
+> {
+  await requireAreaAccess("action");
+  return { success: true, items: await loadCampioni(essiccatoreId) };
+}
+
+export async function stimaAvvioEssiccatoreAction(raw: unknown): Promise<
+  { success: true; stima: StimaBruciatore } | { success: false; error: string }
+> {
+  await requireAreaAccess("action");
+  const parsed = condizioneStimaSchema.safeParse(raw);
+  if (!parsed.success) {
+    return { success: false, error: "Condizioni di stima non valide." };
+  }
+  const campioni = await loadCampioni(parsed.data.essiccatoreId);
+  return {
+    success: true,
+    stima: stimaPercBruciatore(
+      {
+        essiccatoreId: parsed.data.essiccatoreId,
+        kgProdotto: parsed.data.kgProdotto,
+        tempAmbienteC: parsed.data.tempAmbienteC,
+        umiditaAmbientePct: parsed.data.umiditaAmbientePct,
+        percVentilazione: parsed.data.percVentilazione,
+        tempObiettivoC: parsed.data.tempBruciatoreC,
+      },
+      campioni
+    ),
   };
 }
 
@@ -91,7 +190,23 @@ export async function avviaEssiccatoreAction(
     return { success: false, error: "Essiccatore non trovato." };
   }
 
-  const drafts = buildMessaggiAvvio(parsed.data);
+  const campioni = await loadCampioni(parsed.data.essiccatoreId);
+  const stima = stimaPercBruciatore(
+    {
+      essiccatoreId: parsed.data.essiccatoreId,
+      kgProdotto: parsed.data.kgProdotto,
+      tempAmbienteC: parsed.data.tempAmbienteC,
+      umiditaAmbientePct: parsed.data.umiditaAmbientePct,
+      percVentilazione: parsed.data.percVentilazione,
+      tempObiettivoC: parsed.data.tempBruciatoreC,
+    },
+    campioni
+  );
+
+  const drafts = buildMessaggiAvvio({
+    ...parsed.data,
+    percBruciatore: stima.percBruciatore,
+  });
   const supabase = createServiceClient();
 
   const { data: azioneRow, error: azioneErr } = await supabase
@@ -105,6 +220,10 @@ export async function avviaEssiccatoreAction(
       temp_bruciatore_c: parsed.data.tempBruciatoreC,
       consenso_ventola: parsed.data.consensoVentola,
       perc_ventilazione: parsed.data.percVentilazione,
+      kg_prodotto: parsed.data.kgProdotto,
+      temp_ambiente_c: parsed.data.tempAmbienteC,
+      umidita_ambiente_pct: parsed.data.umiditaAmbientePct,
+      perc_bruciatore_prevista: stima.percBruciatore,
       iot_stato: "in_attesa_dispositivo",
       created_by: auth.userId,
       updated_by: auth.userId,
@@ -148,7 +267,7 @@ export async function avviaEssiccatoreAction(
       .eq("id", azione.id);
     return {
       success: false,
-      error: msgErr?.message ?? "I 4 messaggi IoT non sono stati registrati.",
+      error: msgErr?.message ?? "I messaggi IoT non sono stati registrati.",
     };
   }
 
@@ -162,16 +281,16 @@ export async function avviaEssiccatoreAction(
     entity_id: item.id,
     action: "create",
     actor_id: auth.actorUserId,
-    summary: `Avvio ${ess.nome}: setpoint ${item.tempBruciatoreC}°C, ventilazione ${item.percVentilazione}%`,
+    summary: `Avvio ${ess.nome}: ${item.tempBruciatoreC}°C, ventola ${item.percVentilazione}%, bruciatore ${stima.percBruciatore}% (${stima.fonte}), ${item.kgProdotto} kg, aria ${item.tempAmbienteC}°C/${item.umiditaAmbientePct}%`,
     payload: {
       essiccatoreId: item.essiccatoreId,
-      azioneKey: item.azioneKey,
-      consensoBruciatore: item.consensoBruciatore,
-      tempBruciatoreC: item.tempBruciatoreC,
-      consensoVentola: item.consensoVentola,
-      percVentilazione: item.percVentilazione,
+      kgProdotto: item.kgProdotto,
+      tempAmbienteC: item.tempAmbienteC,
+      umiditaAmbientePct: item.umiditaAmbientePct,
+      percBruciatorePrevista: stima.percBruciatore,
+      fonteStima: stima.fonte,
+      vicini: stima.vicini.length,
       comandi: item.messaggi.map((m) => m.comando),
-      iotStato: item.iotStato,
     },
   });
 

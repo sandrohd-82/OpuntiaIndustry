@@ -29,6 +29,13 @@ export const ARCHIVIO_SECTIONS: readonly NavItem[] = [
           "Codifica, significato, checksum e esempi dei messaggi inviati e ricevuti",
         path: "/app/archivio/iot/leggenda-mex",
       },
+      {
+        slug: "wiki",
+        label: "Wiki",
+        description:
+          "Documentazione IoT / Action: protocollo, sicurezza, apprendimento e API",
+        path: "/app/archivio/iot/wiki",
+      },
     ],
   },
   {
