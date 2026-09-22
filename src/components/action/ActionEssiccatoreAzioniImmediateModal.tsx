@@ -128,7 +128,7 @@ export function ActionEssiccatoreAzioniImmediateModal({
   const [kgManuale, setKgManuale] = useState<number | null>(null);
   const [kgManualeConfermato, setKgManualeConfermato] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [hintOn, setHintOn] = useState(false);
+  const [hintOn, setHintOn] = useState(true);
   const [pending, startTransition] = useTransition();
   const lastAct = useRef(Date.now());
   const kgInputRef = useRef<HTMLInputElement>(null);
@@ -299,13 +299,7 @@ export function ActionEssiccatoreAzioniImmediateModal({
           </div>
 
           <div className="grid gap-3 sm:grid-cols-3">
-            <div
-              className={`rounded-lg border bg-slate-50 px-3 py-2 ${
-                hint("carico")
-                  ? `border-amber-400 ${HINT}`
-                  : "border-slate-200"
-              }`}
-            >
+            <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2">
               <div className="flex items-start justify-between gap-2">
                 <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">
                   Carico cestone
@@ -370,10 +364,12 @@ export function ActionEssiccatoreAzioniImmediateModal({
                   title="Conferma 0 kg"
                   aria-label="Conferma carico cestone 0 kg"
                   onClick={confermaKgZero}
-                  className={`shrink-0 rounded p-1 ${
+                  className={`inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md border ${
                     kgManualeConfermato && kgManuale === 0 && !kgEdit
-                      ? "bg-emerald-600 text-white"
-                      : "text-emerald-600 hover:bg-emerald-50"
+                      ? "border-emerald-600 bg-emerald-600 text-white"
+                      : hint("carico")
+                        ? `border-emerald-500 bg-emerald-50 text-emerald-700 ${HINT}`
+                        : "border-emerald-400 bg-white text-emerald-600 hover:bg-emerald-50"
                   }`}
                 >
                   <FaCheck size={12} />
