@@ -310,37 +310,22 @@ export function ActionEssiccatoreAzioniImmediateModal({
                 <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">
                   Carico cestone
                 </p>
-                <div className="flex items-center gap-0.5">
-                  <button
-                    type="button"
-                    title="Modifica carico"
-                    aria-label="Modifica carico cestone"
-                    onClick={() => {
-                      setKgEdit(true);
-                      setKgManuale(kgProdotto);
-                    }}
-                    className={`rounded p-1 hover:bg-white ${
-                      kgEdit
-                        ? "bg-white text-slate-800 ring-1 ring-slate-300"
-                        : "text-slate-500 hover:text-slate-800"
-                    }`}
-                  >
-                    <FaPencil size={11} />
-                  </button>
-                  <button
-                    type="button"
-                    title="Conferma 0 kg"
-                    aria-label="Conferma carico cestone 0 kg"
-                    onClick={confermaKgZero}
-                    className={`rounded p-1 ${
-                      kgManualeConfermato && kgManuale === 0 && !kgEdit
-                        ? "bg-emerald-600 text-white"
-                        : "text-emerald-600 hover:bg-emerald-50"
-                    }`}
-                  >
-                    <FaCheck size={12} />
-                  </button>
-                </div>
+                <button
+                  type="button"
+                  title="Modifica carico"
+                  aria-label="Modifica carico cestone"
+                  onClick={() => {
+                    setKgEdit(true);
+                    setKgManuale(kgProdotto);
+                  }}
+                  className={`rounded p-1 hover:bg-white ${
+                    kgEdit
+                      ? "bg-white text-slate-800 ring-1 ring-slate-300"
+                      : "text-slate-500 hover:text-slate-800"
+                  }`}
+                >
+                  <FaPencil size={11} />
+                </button>
               </div>
               {kgEdit ? (
                 <div className="mt-1 flex items-center gap-2">
@@ -370,15 +355,30 @@ export function ActionEssiccatoreAzioniImmediateModal({
                   {kgProdotto.toLocaleString("it-IT")} kg
                 </p>
               )}
-              <p className="mt-1 text-[11px] leading-4 text-slate-500">
-                {kgManualeConfermato && kgManuale === 0
-                  ? "0 kg confermati."
-                  : kgManualeConfermato
-                    ? "Carico immediato (manuale)."
-                    : kgDaFoglio
-                      ? auto?.kgNota
-                      : "Visto verde = 0 kg. Matita = altra quantità."}
-              </p>
+              <div className="mt-1 flex items-end justify-between gap-2">
+                <p className="text-[11px] leading-4 text-slate-500">
+                  {kgManualeConfermato && kgManuale === 0
+                    ? "0 kg confermati."
+                    : kgManualeConfermato
+                      ? "Carico immediato (manuale)."
+                      : kgDaFoglio
+                        ? auto?.kgNota
+                        : "Visto verde = 0 kg. Matita = altra quantità."}
+                </p>
+                <button
+                  type="button"
+                  title="Conferma 0 kg"
+                  aria-label="Conferma carico cestone 0 kg"
+                  onClick={confermaKgZero}
+                  className={`shrink-0 rounded p-1 ${
+                    kgManualeConfermato && kgManuale === 0 && !kgEdit
+                      ? "bg-emerald-600 text-white"
+                      : "text-emerald-600 hover:bg-emerald-50"
+                  }`}
+                >
+                  <FaCheck size={12} />
+                </button>
+              </div>
             </div>
             <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2">
               <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">
