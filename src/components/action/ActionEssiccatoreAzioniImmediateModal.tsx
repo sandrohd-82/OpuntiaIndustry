@@ -4,6 +4,7 @@ import { useEffect, useId, useState, useTransition } from "react";
 import { FaBolt, FaFan, FaFire } from "react-icons/fa6";
 import {
   avviaEssiccatoreAction,
+  getCondizioniAvvioAutoAction,
   listMlCampioniAction,
 } from "@/app/actions/action-essiccatore-azioni";
 import {
@@ -24,6 +25,7 @@ import {
   ricettaInizialeAvvio,
   type MlCampione,
 } from "@/lib/action/essiccatore-apprendimento";
+import type { CondizioniAvvioAuto } from "@/lib/action/essiccatore-condizioni-auto";
 import type { ActionEssiccatore } from "@/lib/action/essiccatori";
 
 type Props = {
@@ -99,12 +101,13 @@ export function ActionEssiccatoreAzioniImmediateModal({
   const [consensoVentola, setConsensoVentola] = useState(false);
   const [percVentilazione, setPercVentilazione] = useState(40);
   const [ventImpostata, setVentImpostata] = useState(true);
-  const [kgProdotto, setKgProdotto] = useState(0);
-  const [tempAmbienteC, setTempAmbienteC] = useState(20);
-  const [umiditaAmbientePct, setUmiditaAmbientePct] = useState(50);
+  const [auto, setAuto] = useState<CondizioniAvvioAuto | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
 
+  const kgProdotto = auto?.kgProdotto ?? 0;
+  const tempAmbienteC = auto?.tempAmbienteC ?? 20;
+  const umiditaAmbientePct = auto?.umiditaAmbientePct ?? 50;
   const ricetta = ricettaInizialeAvvio(
     {
       essiccatoreId: essiccatore.id,
@@ -133,6 +136,9 @@ export function ActionEssiccatoreAzioniImmediateModal({
   useEffect(() => {
     void listMlCampioniAction(essiccatore.id).then((res) => {
       if (res.success && res.items.length) setCampioni(res.items);
+    });
+    void getCondizioniAvvioAutoAction(essiccatore.id).then((res) => {
+      if (res.success) setAuto(res.condizioni);
     });
   }, [essiccatore.id]);
 
@@ -165,9 +171,6 @@ export function ActionEssiccatoreAzioniImmediateModal({
         tempBruciatoreC,
         consensoVentola,
         percVentilazione,
-        kgProdotto,
-        tempAmbienteC,
-        umiditaAmbientePct,
       });
       if (!res.success) {
         setError(res.error);
@@ -215,60 +218,60 @@ export function ActionEssiccatoreAzioniImmediateModal({
           </div>
 
           <p className="text-sm text-[var(--muted)]">
-            Kg e clima cambiano la % bruciatore di partenza. Invio: ventola,
-            attesa, On ventola, temperatura, apertura stimata, On bruciatore.
+            Carico, aria e umidità li rileva il sistema. Tu imposti solo
+            temperatura, ventola e i due On.
           </p>
 
           <div className="grid gap-3 sm:grid-cols-3">
-            <label className="block text-sm">
-              <span className="text-xs font-medium text-slate-600">
-                Carico in essiccatore (kg)
-              </span>
-              <input
-                type="number"
-                min={0}
-                max={8000}
-                value={kgProdotto}
-                onChange={(e) => setKgProdotto(Number(e.target.value) || 0)}
-                className="mt-1 w-full rounded-lg border border-slate-300 px-2 py-1.5 text-sm"
-              />
-            </label>
-            <label className="block text-sm">
-              <span className="text-xs font-medium text-slate-600">
-                Aria ingresso (°C)
-              </span>
-              <input
-                type="number"
-                min={-15}
-                max={55}
-                step={0.5}
-                value={tempAmbienteC}
-                onChange={(e) => setTempAmbienteC(Number(e.target.value))}
-                className="mt-1 w-full rounded-lg border border-slate-300 px-2 py-1.5 text-sm"
-              />
-            </label>
-            <label className="block text-sm">
-              <span className="text-xs font-medium text-slate-600">
-                Umidità ingresso (%)
-              </span>
-              <input
-                type="number"
-                min={0}
-                max={100}
-                value={umiditaAmbientePct}
-                onChange={(e) =>
-                  setUmiditaAmbientePct(Number(e.target.value) || 0)
-                }
-                className="mt-1 w-full rounded-lg border border-slate-300 px-2 py-1.5 text-sm"
-              />
-            </label>
+            <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2">
+              <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">
+                Carico essiccatore
+              </p>
+              <p className="mt-0.5 text-sm font-semibold tabular-nums">
+                {kgProdotto.toLocaleString("it-IT")} kg
+              </p>
+              <p className="mt-1 text-[11px] leading-4 text-slate-500">
+                {auto?.kgNota ?? "Dal foglio di lavoro (in arrivo)."}
+              </p>
+            </div>
+            <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2">
+              <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">
+                Aria ingresso
+              </p>
+              <p className="mt-0.5 text-sm font-semibold tabular-nums">
+                {tempAmbienteC}°C
+              </p>
+              <p className="mt-1 text-[11px] leading-4 text-slate-500">
+                Sonda TEMP-AMB
+                {auto?.climaLettoAt
+                  ? ` · ${new Date(auto.climaLettoAt).toLocaleString("it-IT")}`
+                  : ""}
+                {auto?.climaFonte === "assente"
+                  ? " · in attesa della sonda"
+                  : ""}
+              </p>
+            </div>
+            <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2">
+              <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">
+                Umidità
+              </p>
+              <p className="mt-0.5 text-sm font-semibold tabular-nums">
+                {umiditaAmbientePct}%
+              </p>
+              <p className="mt-1 text-[11px] leading-4 text-slate-500">
+                Sonda UMID-AMB · storico in DB
+                {auto?.climaFonte === "assente"
+                  ? " · in attesa della sonda"
+                  : ""}
+              </p>
+            </div>
           </div>
 
           <div className="rounded-lg border border-violet-200 bg-violet-50/70 px-3 py-2.5 text-sm text-violet-950">
             <p className="font-semibold">Partenza stimata · apprendimento A+</p>
             <p className="mt-1 text-xs leading-5 text-violet-900">
               {kgProdotto === 0
-                ? "Scarico libero (vuoto)."
+                ? "Scarico libero (vuoto) finché il foglio non registra i kg."
                 : `Effetto tappo da ${kgProdotto.toLocaleString("it-IT")} kg.`}{" "}
               Aria {tempAmbienteC}°C / {umiditaAmbientePct}% UR · ventola{" "}
               {percVentilazione}% · obiettivo {tempBruciatoreC}°C · apertura{" "}

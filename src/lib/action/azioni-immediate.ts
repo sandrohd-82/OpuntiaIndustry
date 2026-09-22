@@ -74,9 +74,6 @@ export const avvioEssiccatoreInputSchema = z
       .max(TEMP_BRUCIATORE_MAX_C),
     consensoVentola: z.boolean(),
     percVentilazione: z.number().int().min(0).max(100),
-    kgProdotto: z.number().min(0).max(8000),
-    tempAmbienteC: z.number().min(-15).max(55),
-    umiditaAmbientePct: z.number().int().min(0).max(100),
   })
   .superRefine((data, ctx) => {
     if (!data.consensoBruciatore) {
@@ -105,9 +102,6 @@ export const condizioneStimaSchema = z.object({
     .min(TEMP_BRUCIATORE_MIN_C)
     .max(TEMP_BRUCIATORE_MAX_C),
   percVentilazione: z.number().int().min(0).max(100),
-  kgProdotto: z.number().min(0).max(8000),
-  tempAmbienteC: z.number().min(-15).max(55),
-  umiditaAmbientePct: z.number().int().min(0).max(100),
 });
 
 export type MessaggioAvvioDraft = {

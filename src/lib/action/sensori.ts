@@ -14,12 +14,20 @@ export const ACTION_SENSORE_CATALOGO = [
     sort: 1,
   },
   {
+    codice: "UMID-AMB",
+    nome: "Umidità Ambientale",
+    unita: "%",
+    xPct: 50,
+    yPct: 18,
+    sort: 2,
+  },
+  {
     codice: "TEMP-BRUC",
     nome: "Temperatura Uscita Bruciatore",
     unita: "°C",
     xPct: 82,
     yPct: 22,
-    sort: 2,
+    sort: 3,
   },
   {
     codice: "PRESS-SOFF",
@@ -27,7 +35,7 @@ export const ACTION_SENSORE_CATALOGO = [
     unita: "Bar",
     xPct: 18,
     yPct: 78,
-    sort: 3,
+    sort: 4,
   },
   {
     codice: "PESO",
@@ -35,7 +43,7 @@ export const ACTION_SENSORE_CATALOGO = [
     unita: "Kg",
     xPct: 82,
     yPct: 78,
-    sort: 4,
+    sort: 5,
   },
 ] as const;
 

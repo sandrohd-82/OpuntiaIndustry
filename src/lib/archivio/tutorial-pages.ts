@@ -237,7 +237,7 @@ export const PAGE_EXTRAS: Record<string, TutorialBlock[]> = {
   "/app/action/aree/essiccatori": [
     {
       type: "p",
-      text: "Il fulmine apre Avvio: kg, aria ingresso (°C e umidità), temperatura e ventola. Action stima la % bruciatore con la media dei campioni vicini e la esegue (A05) nella cadenza di sicurezza. Click fuori riduce lo scambio a banner in basso. Spiegazioni in Archivio → IoT → Wiki.",
+      text: "Il fulmine apre Avvio. Kg (foglio di lavoro, oggi 0), aria e umidità (sonde TEMP-AMB / UMID-AMB, storico in DB) sono automatici. Imposti temperatura, ventola e i due On. Action stima la % bruciatore e la esegue in cadenza di sicurezza. Wiki in Archivio → IoT → Wiki.",
     },
   ],
   "/app/magazzino/mappa": [

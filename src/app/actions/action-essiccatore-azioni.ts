@@ -12,10 +12,16 @@ import {
 } from "@/lib/action/azioni-immediate";
 import {
   CAMPIONI_DIDATTICI,
+  SEME_TEMP_AMBIENTE_C,
+  SEME_UMIDITA_PCT,
   stimaPercBruciatore,
   type MlCampione,
   type StimaBruciatore,
 } from "@/lib/action/essiccatore-apprendimento";
+import {
+  kgDaFoglioLavorazione,
+  type CondizioniAvvioAuto,
+} from "@/lib/action/essiccatore-condizioni-auto";
 import { ACTION_ESSICCATORI } from "@/lib/action/essiccatori";
 import { requireAreaAccess } from "@/lib/areas/guard";
 import { createServiceClient } from "@/lib/supabase/server";
@@ -119,6 +125,59 @@ function mapCampione(row: CampioneRow): MlCampione {
   };
 }
 
+async function loadUltimaLettura(
+  essiccatoreId: string,
+  codice: string
+): Promise<{ valore: number; lettoAt: string } | null> {
+  const supabase = createServiceClient();
+  const { data, error } = await supabase
+    .from("action_essiccatore_sensor_letture")
+    .select("valore_num, letto_at")
+    .eq("essiccatore_id", essiccatoreId)
+    .eq("sensore_codice", codice)
+    .is("deleted_at", null)
+    .order("letto_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (error || !data) return null;
+  return {
+    valore: Number(data.valore_num),
+    lettoAt: String(data.letto_at),
+  };
+}
+
+async function loadCondizioniAuto(
+  essiccatoreId: string
+): Promise<CondizioniAvvioAuto> {
+  const kg = kgDaFoglioLavorazione(essiccatoreId);
+  const temp = await loadUltimaLettura(essiccatoreId, "TEMP-AMB");
+  const umid = await loadUltimaLettura(essiccatoreId, "UMID-AMB");
+  const haClima = Boolean(temp || umid);
+  return {
+    essiccatoreId,
+    kgProdotto: kg.kg,
+    kgFonte: kg.fonte,
+    kgNota: kg.nota,
+    tempAmbienteC: temp?.valore ?? SEME_TEMP_AMBIENTE_C,
+    umiditaAmbientePct: Math.round(umid?.valore ?? SEME_UMIDITA_PCT),
+    climaFonte: haClima ? "sonda" : "assente",
+    climaLettoAt: temp?.lettoAt ?? umid?.lettoAt ?? null,
+    climaNota: haClima
+      ? "Ultima lettura sonde TEMP-AMB e UMID-AMB."
+      : "Nessuna lettura clima in archivio. In attesa della sonda periodica.",
+  };
+}
+
+export async function getCondizioniAvvioAutoAction(
+  essiccatoreId: string
+): Promise<
+  | { success: true; condizioni: CondizioniAvvioAuto }
+  | { success: false; error: string }
+> {
+  await requireAreaAccess("action");
+  return { success: true, condizioni: await loadCondizioniAuto(essiccatoreId) };
+}
+
 async function loadCampioni(essiccatoreId?: string): Promise<MlCampione[]> {
   const supabase = createServiceClient();
   let q = supabase
@@ -154,15 +213,16 @@ export async function stimaAvvioEssiccatoreAction(raw: unknown): Promise<
   if (!parsed.success) {
     return { success: false, error: "Condizioni di stima non valide." };
   }
+  const auto = await loadCondizioniAuto(parsed.data.essiccatoreId);
   const campioni = await loadCampioni(parsed.data.essiccatoreId);
   return {
     success: true,
     stima: stimaPercBruciatore(
       {
         essiccatoreId: parsed.data.essiccatoreId,
-        kgProdotto: parsed.data.kgProdotto,
-        tempAmbienteC: parsed.data.tempAmbienteC,
-        umiditaAmbientePct: parsed.data.umiditaAmbientePct,
+        kgProdotto: auto.kgProdotto,
+        tempAmbienteC: auto.tempAmbienteC,
+        umiditaAmbientePct: auto.umiditaAmbientePct,
         percVentilazione: parsed.data.percVentilazione,
         tempObiettivoC: parsed.data.tempBruciatoreC,
       },
@@ -190,13 +250,14 @@ export async function avviaEssiccatoreAction(
     return { success: false, error: "Essiccatore non trovato." };
   }
 
+  const auto = await loadCondizioniAuto(parsed.data.essiccatoreId);
   const campioni = await loadCampioni(parsed.data.essiccatoreId);
   const stima = stimaPercBruciatore(
     {
       essiccatoreId: parsed.data.essiccatoreId,
-      kgProdotto: parsed.data.kgProdotto,
-      tempAmbienteC: parsed.data.tempAmbienteC,
-      umiditaAmbientePct: parsed.data.umiditaAmbientePct,
+      kgProdotto: auto.kgProdotto,
+      tempAmbienteC: auto.tempAmbienteC,
+      umiditaAmbientePct: auto.umiditaAmbientePct,
       percVentilazione: parsed.data.percVentilazione,
       tempObiettivoC: parsed.data.tempBruciatoreC,
     },
@@ -220,9 +281,9 @@ export async function avviaEssiccatoreAction(
       temp_bruciatore_c: parsed.data.tempBruciatoreC,
       consenso_ventola: parsed.data.consensoVentola,
       perc_ventilazione: parsed.data.percVentilazione,
-      kg_prodotto: parsed.data.kgProdotto,
-      temp_ambiente_c: parsed.data.tempAmbienteC,
-      umidita_ambiente_pct: parsed.data.umiditaAmbientePct,
+      kg_prodotto: auto.kgProdotto,
+      temp_ambiente_c: auto.tempAmbienteC,
+      umidita_ambiente_pct: auto.umiditaAmbientePct,
       perc_bruciatore_prevista: stima.percBruciatore,
       iot_stato: "in_attesa_dispositivo",
       created_by: auth.userId,
@@ -285,8 +346,10 @@ export async function avviaEssiccatoreAction(
     payload: {
       essiccatoreId: item.essiccatoreId,
       kgProdotto: item.kgProdotto,
+      kgFonte: auto.kgFonte,
       tempAmbienteC: item.tempAmbienteC,
       umiditaAmbientePct: item.umiditaAmbientePct,
+      climaFonte: auto.climaFonte,
       percBruciatorePrevista: stima.percBruciatore,
       fonteStima: stima.fonte,
       vicini: stima.vicini.length,
