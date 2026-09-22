@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useId, useMemo, useState } from "react";
+import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { FaPlus, FaTrash } from "react-icons/fa6";
 import {
   createOrdineWizardAction,
@@ -25,6 +25,13 @@ import { AziendaOrdineSelect } from "@/components/amministrazione/AziendaOrdineS
 import { ConsegnaCalendarioModal } from "@/components/amministrazione/ConsegnaCalendarioModal";
 import { ProdottoProprioFormModal } from "@/components/amministrazione/ProdottoProprioFormModal";
 import { ReferentiPickerField } from "@/components/amministrazione/ReferentiPickerField";
+import { SpedizioneMailComposeModal } from "@/components/amministrazione/SpedizioneMailComposeModal";
+import { SpedizioneMailPanel } from "@/components/amministrazione/SpedizioneMailPanel";
+import {
+  generaCorpoMailSpedizioneAction,
+  upsertPrenotazioneSpedizioneMailAction,
+} from "@/app/actions/spedizione-mail";
+import type { SpedizioneMailPrenotazione } from "@/lib/amministrazione/spedizione-mail";
 import {
   ClearableNumberInput,
   numberOrZero,
@@ -150,6 +157,23 @@ export function OrdineNuovoWizardModal({
   const [step, setStep] = useState<Step>(1);
   const [formError, setFormError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  const spedDraft = useRef({
+    trackingUrl: "",
+    letteraViaPath: "",
+    letteraViaName: "",
+    allegati: [] as Array<{ path: string; name: string; contentType: string }>,
+    allegaTracking: true,
+    allegaLettera: false,
+    allegaFile: false,
+    destinatarioEmail: "",
+  });
+  const [composeAfter, setComposeAfter] = useState<{
+    prenotazione: SpedizioneMailPrenotazione;
+    subject: string;
+    bodyText: string;
+    to: string;
+    ordine: Ordine;
+  } | null>(null);
 
   const [anagraficaFonte, setAnagraficaFonte] =
     useState<AnagraficaOrdineFonte>("cliente");
@@ -588,7 +612,7 @@ export function OrdineNuovoWizardModal({
     });
   }
 
-  async function submit() {
+  async function submit(modoMail?: "prenota" | "compila") {
     if (!prodotto) return;
     if (anagraficaFonte === "possibile" && !possibileClienteId) return;
     if (anagraficaFonte === "cliente" && !clienteId) return;
@@ -652,6 +676,44 @@ export function OrdineNuovoWizardModal({
       if (!result.success) {
         setFormError(result.error);
         return;
+      }
+      if (modoMail) {
+        const d = spedDraft.current;
+        const testo = await generaCorpoMailSpedizioneAction({
+          cliente: clienteNome,
+          numero: result.ordine.numeroInterno,
+          prodotti: `${prodotto.codice} ${quantitaInserita} ${umEffettiva}`,
+          trackingUrl: d.trackingUrl,
+          haLettera: d.allegaLettera && Boolean(d.letteraViaPath),
+        });
+        if (testo.success) {
+          const up = await upsertPrenotazioneSpedizioneMailAction({
+            entityType: "ordine",
+            entityId: result.ordine.id,
+            trackingUrl: d.trackingUrl,
+            letteraViaPath: d.letteraViaPath,
+            letteraViaName: d.letteraViaName,
+            allegati: d.allegati,
+            allegaTracking: d.allegaTracking,
+            allegaLettera: d.allegaLettera,
+            allegaFile: d.allegaFile,
+            destinatarioEmail: d.destinatarioEmail,
+            oggetto: testo.subject,
+            corpo: testo.bodyText,
+            modo: modoMail,
+          });
+          if (up.success && up.apriBozza) {
+            setComposeAfter({
+              prenotazione: up.item,
+              subject: testo.subject,
+              bodyText: testo.bodyText,
+              to: d.destinatarioEmail,
+              ordine: result.ordine,
+            });
+            return;
+          }
+          if (!up.success) setFormError(up.error);
+        }
       }
       onSaved(result.ordine);
     } catch (err) {
@@ -1720,6 +1782,27 @@ export function OrdineNuovoWizardModal({
             </div>
           )}
 
+          {step === 6 ? (
+            <div className="mt-4">
+              <SpedizioneMailPanel
+                entityType="ordine"
+                entityId=""
+                clienteNome={clienteNome}
+                numero={numeroInterno || "ordine"}
+                prodotti={
+                  prodotto
+                    ? `${prodotto.codice} ${quantitaInserita} ${umEffettiva}`
+                    : ""
+                }
+                destEmailDefault=""
+                onDraftChange={(d) => {
+                  spedDraft.current = d;
+                }}
+                onNeedEntity={(modo) => void submit(modo)}
+              />
+            </div>
+          ) : null}
+
           {formError ? (
             <p className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
               {formError}
@@ -1845,6 +1928,25 @@ export function OrdineNuovoWizardModal({
             );
             setDataConsegnaCalendario(dataConsegna);
             setCalendarioOpen(false);
+          }}
+        />
+      ) : null}
+
+      {composeAfter ? (
+        <SpedizioneMailComposeModal
+          prenotazione={composeAfter.prenotazione}
+          subject={composeAfter.subject}
+          bodyText={composeAfter.bodyText}
+          to={composeAfter.to}
+          onClose={() => {
+            const o = composeAfter.ordine;
+            setComposeAfter(null);
+            onSaved(o);
+          }}
+          onInviata={() => {
+            const o = composeAfter.ordine;
+            setComposeAfter(null);
+            onSaved(o);
           }}
         />
       ) : null}

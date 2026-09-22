@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useId, useState, type FormEvent } from "react";
+import { useEffect, useId, useRef, useState, type FormEvent } from "react";
 import { FaEnvelopeOpen, FaPlus, FaTrash, FaXmark } from "react-icons/fa6";
 import { getWebmailMessaggioTextAction } from "@/app/actions/webmail";
 import { WebmailHtmlBody } from "@/components/webmail/WebmailHtmlBody";
@@ -8,6 +8,13 @@ import {
   createCampionaturaAction,
   previewNumeroCampionaturaAction,
 } from "@/app/actions/campionature";
+import {
+  generaCorpoMailSpedizioneAction,
+  upsertPrenotazioneSpedizioneMailAction,
+} from "@/app/actions/spedizione-mail";
+import { SpedizioneMailComposeModal } from "@/components/amministrazione/SpedizioneMailComposeModal";
+import { SpedizioneMailPanel } from "@/components/amministrazione/SpedizioneMailPanel";
+import type { SpedizioneMailPrenotazione } from "@/lib/amministrazione/spedizione-mail";
 import { AziendaTimelineModal } from "@/components/amministrazione/AziendaTimelineModal";
 import { AziendaOrdineSelect } from "@/components/amministrazione/AziendaOrdineSelect";
 import { CampionaturaAltroPostoModal } from "@/components/amministrazione/CampionaturaAltroPostoModal";
@@ -91,6 +98,23 @@ export function CampionaturaFormModal({ onClose, onSaved }: Props) {
   } | null>(null);
   const [altroPostoOpen, setAltroPostoOpen] = useState(false);
   const [note, setNote] = useState("");
+  const spedDraft = useRef({
+    trackingUrl: "",
+    letteraViaPath: "",
+    letteraViaName: "",
+    allegati: [] as Array<{ path: string; name: string; contentType: string }>,
+    allegaTracking: true,
+    allegaLettera: false,
+    allegaFile: false,
+    destinatarioEmail: "",
+  });
+  const [composeAfter, setComposeAfter] = useState<{
+    prenotazione: SpedizioneMailPrenotazione;
+    subject: string;
+    bodyText: string;
+    to: string;
+    item: Campionatura;
+  } | null>(null);
   const [righe, setRighe] = useState<DraftRiga[]>([emptyRiga()]);
   const [numeroPreview, setNumeroPreview] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
@@ -175,8 +199,7 @@ export function CampionaturaFormModal({ onClose, onSaved }: Props) {
     );
   }
 
-  async function onSubmit(e: FormEvent) {
-    e.preventDefault();
+  async function persistCampionatura(modoMail?: "prenota" | "compila") {
     if (
       anagraficaFonte === "possibile"
         ? !possibileClienteId || !cliente
@@ -262,6 +285,53 @@ export function CampionaturaFormModal({ onClose, onSaved }: Props) {
         setFormError(result.error);
         return;
       }
+      if (modoMail) {
+        const d = spedDraft.current;
+        const testo = await generaCorpoMailSpedizioneAction({
+          cliente: result.item.cliente,
+          numero: result.item.numeroInterno,
+          prodotti: result.item.righe
+            .map((r) => `${r.prodottoCodice} ${r.quantita} ${r.unitaMisura}`)
+            .join(", "),
+          trackingUrl: d.trackingUrl,
+          haLettera: d.allegaLettera && Boolean(d.letteraViaPath),
+        });
+        if (!testo.success) {
+          setFormError(testo.error);
+          onSaved(result.item);
+          return;
+        }
+        const up = await upsertPrenotazioneSpedizioneMailAction({
+          entityType: "campionatura",
+          entityId: result.item.id,
+          trackingUrl: d.trackingUrl,
+          letteraViaPath: d.letteraViaPath,
+          letteraViaName: d.letteraViaName,
+          allegati: d.allegati,
+          allegaTracking: d.allegaTracking,
+          allegaLettera: d.allegaLettera,
+          allegaFile: d.allegaFile,
+          destinatarioEmail: d.destinatarioEmail || cliente.email,
+          oggetto: testo.subject,
+          corpo: testo.bodyText,
+          modo: modoMail,
+        });
+        if (!up.success) {
+          setFormError(up.error);
+          onSaved(result.item);
+          return;
+        }
+        if (up.apriBozza) {
+          setComposeAfter({
+            prenotazione: up.item,
+            subject: testo.subject,
+            bodyText: testo.bodyText,
+            to: d.destinatarioEmail || cliente.email,
+            item: result.item,
+          });
+          return;
+        }
+      }
       onSaved(result.item);
     } catch (err) {
       setFormError(
@@ -270,6 +340,11 @@ export function CampionaturaFormModal({ onClose, onSaved }: Props) {
     } finally {
       setSaving(false);
     }
+  }
+
+  async function onSubmit(e: FormEvent) {
+    e.preventDefault();
+    await persistCampionatura();
   }
 
   return (
@@ -659,6 +734,25 @@ export function CampionaturaFormModal({ onClose, onSaved }: Props) {
             </label>
           ) : null}
 
+          <SpedizioneMailPanel
+            entityType="campionatura"
+            entityId=""
+            clienteNome={cliente?.ragioneSociale ?? ""}
+            numero={numeroPreview ?? "campionatura"}
+            prodotti={righe
+              .map((r) => {
+                const p = prodotti.find((x) => x.id === r.prodottoId);
+                return p ? `${p.codice} ${r.quantita} ${r.unitaMisura}` : "";
+              })
+              .filter(Boolean)
+              .join(", ")}
+            destEmailDefault={cliente?.email ?? ""}
+            onDraftChange={(d) => {
+              spedDraft.current = d;
+            }}
+            onNeedEntity={(modo) => void persistCampionatura(modo)}
+          />
+
           <label className="block text-sm">
             <span className="mb-1 block font-medium">Note</span>
             <textarea
@@ -817,6 +911,25 @@ export function CampionaturaFormModal({ onClose, onSaved }: Props) {
         <CampionaturaMailPreviewModal
           mail={mail}
           onClose={() => setMailPreviewOpen(false)}
+        />
+      ) : null}
+
+      {composeAfter ? (
+        <SpedizioneMailComposeModal
+          prenotazione={composeAfter.prenotazione}
+          subject={composeAfter.subject}
+          bodyText={composeAfter.bodyText}
+          to={composeAfter.to}
+          onClose={() => {
+            const item = composeAfter.item;
+            setComposeAfter(null);
+            onSaved(item);
+          }}
+          onInviata={() => {
+            const item = composeAfter.item;
+            setComposeAfter(null);
+            onSaved(item);
+          }}
         />
       ) : null}
     </div>

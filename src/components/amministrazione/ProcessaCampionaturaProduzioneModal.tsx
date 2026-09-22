@@ -19,6 +19,8 @@ import {
   labelImballaggioVoce,
   type ImballaggioVoce,
 } from "@/lib/amministrazione/imballaggi-spedizioni";
+import { SpedizioneMailPanel } from "@/components/amministrazione/SpedizioneMailPanel";
+import { getClienteEmailSpedizioneAction } from "@/app/actions/spedizione-mail";
 import type {
   LottoInserimentoOption,
   ProcessoInserimentoOption,
@@ -96,6 +98,7 @@ export function ProcessaCampionaturaProduzioneModal({
     confId: "",
     isoId: "",
   });
+  const [destEmail, setDestEmail] = useState("");
 
   const righe = useMemo(
     () => item.righe.filter((r) => r.prodottoId),
@@ -159,6 +162,12 @@ export function ProcessaCampionaturaProduzioneModal({
       cancelled = true;
     };
   }, [righe]);
+
+  useEffect(() => {
+    void getClienteEmailSpedizioneAction(item.clienteId).then((res) => {
+      if (res.success) setDestEmail(res.email);
+    });
+  }, [item.clienteId]);
 
   useEffect(() => {
     if (step < 2) return;
@@ -239,11 +248,6 @@ export function ProcessaCampionaturaProduzioneModal({
       return;
     }
     setStep(3);
-  }
-
-  function nomeVoce(id: string, elenco: ImballaggioVoce[]): string {
-    const v = elenco.find((x) => x.id === id);
-    return v ? labelImballaggioVoce(v) : "—";
   }
 
   return (
@@ -563,46 +567,25 @@ export function ProcessaCampionaturaProduzioneModal({
 
         {step === 3 ? (
           <div className="mt-4 space-y-3 text-sm">
-            {righe.map((r) => {
-              const lot = lottoDi(r.id);
-              const ok = conforme(r.id, r.prodottoId);
-              const proc = processi.find((p) => p.id === processoPerRiga[r.id]);
-              return (
-                <div
-                  key={r.id}
-                  className="rounded-lg border border-[var(--border)] px-3 py-2"
-                >
-                  <p className="font-medium">
-                    {r.prodottoCodice} · lotto {lot?.lottoInternoCodice ?? "—"}
-                  </p>
-                  <p className="mt-1 text-slate-600">
-                    {ok
-                      ? "Lotto conforme al prodotto richiesto."
-                      : `Processo: ${proc ? `${proc.codice} — ${proc.nome}` : "—"}`}
-                  </p>
-                </div>
-              );
-            })}
-            <p>
+            <p className="text-xs text-slate-500">
               Lavorazione {dataLavorazione} · Confezionamento{" "}
               {dataConfezionamento}
+              {righe[0]
+                ? ` · ${righe[0].prodottoCodice} · lotto ${
+                    lottoDi(righe[0].id)?.lottoInternoCodice ?? "—"
+                  }`
+                : ""}
             </p>
-            <p className="text-slate-600">
-              Movimentazione:{" "}
-              {pack.serveMov ? nomeVoce(pack.movId, movVoci) : "non necessaria"}
-              {" · "}
-              Confezione:{" "}
-              {pack.serveConf
-                ? nomeVoce(pack.confId, confVoci)
-                : "non necessaria"}
-              {" · "}
-              Isolamento:{" "}
-              {pack.serveIso ? nomeVoce(pack.isoId, isoVoci) : "non necessario"}
-            </p>
-            <p className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-600">
-              I dati dello step restano in bozza. La campionatura non viene
-              ancora chiusa come processata.
-            </p>
+            <SpedizioneMailPanel
+              entityType="campionatura"
+              entityId={item.id}
+              clienteNome={item.cliente}
+              numero={item.numeroInterno}
+              prodotti={righe
+                .map((r) => `${r.prodottoCodice} ${r.quantita} ${r.unitaMisura}`)
+                .join(", ")}
+              destEmailDefault={destEmail}
+            />
           </div>
         ) : null}
 
@@ -647,7 +630,7 @@ export function ProcessaCampionaturaProduzioneModal({
               onClick={onClose}
               className="rounded-lg bg-[var(--primary)] px-4 py-2 text-sm font-medium text-white hover:bg-[var(--primary-hover)]"
             >
-              Avanti
+              Chiudi
             </button>
           )}
         </div>
