@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { ACTION_ESSICCATORE_IDS } from "@/lib/action/essiccatori";
+import { encodeAvvioOut } from "@/lib/action/iot-mex";
 
 export const AZIONE_IMMEDIATA_KEYS = ["avvio"] as const;
 export type AzioneImmediataKey = (typeof AZIONE_IMMEDIATA_KEYS)[number];
@@ -98,35 +99,49 @@ export type MessaggioAvvioDraft = {
 export function buildMessaggiAvvio(
   input: AvvioEssiccatoreInput
 ): MessaggioAvvioDraft[] {
+  const frames = encodeAvvioOut(input);
+  const [burnerOn, burnerTemp, fanOn, fanPower] = frames;
   return [
     {
       canale: "consenso_bruciatore",
-      comando: input.consensoBruciatore
-        ? "BURNER_CONSENT_ON"
-        : "BURNER_CONSENT_OFF",
-      payload: { on: input.consensoBruciatore },
+      comando: burnerOn?.codice ?? "A01",
+      payload: {
+        on: input.consensoBruciatore,
+        mex: burnerOn?.hex ?? "",
+        codice: burnerOn?.codice ?? "A01",
+      },
       sortOrder: 1,
     },
     {
       canale: "temp_bruciatore",
-      comando: `BURNER_TEMP:${input.tempBruciatoreC}`,
+      comando: burnerTemp?.codice ?? "A02",
       payload: {
         celsius: input.tempBruciatoreC,
         sonda: SONDA_USCITA_BRUCIATORE,
         regolazione: "mantieni_setpoint",
+        mex: burnerTemp?.hex ?? "",
+        codice: burnerTemp?.codice ?? "A02",
       },
       sortOrder: 2,
     },
     {
       canale: "consenso_ventola",
-      comando: input.consensoVentola ? "FAN_CONSENT_ON" : "FAN_CONSENT_OFF",
-      payload: { on: input.consensoVentola },
+      comando: fanOn?.codice ?? "A03",
+      payload: {
+        on: input.consensoVentola,
+        mex: fanOn?.hex ?? "",
+        codice: fanOn?.codice ?? "A03",
+      },
       sortOrder: 3,
     },
     {
       canale: "perc_ventilazione",
-      comando: `VENT_PERCENT:${input.percVentilazione}`,
-      payload: { percent: input.percVentilazione },
+      comando: fanPower?.codice ?? "A04",
+      payload: {
+        percent: input.percVentilazione,
+        mex: fanPower?.hex ?? "",
+        codice: fanPower?.codice ?? "A04",
+      },
       sortOrder: 4,
     },
   ];

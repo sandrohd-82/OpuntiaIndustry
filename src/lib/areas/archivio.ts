@@ -16,6 +16,22 @@ export const ARCHIVIO_SECTIONS: readonly NavItem[] = [
     path: "/app/archivio/tutorial",
   },
   {
+    slug: "iot",
+    label: "IoT",
+    description:
+      "Protocollo Mex: funzionamento dei messaggi master ↔ dispositivi",
+    path: "/app/archivio/iot",
+    children: [
+      {
+        slug: "leggenda-mex",
+        label: "Leggenda Mex",
+        description:
+          "Codifica, significato, checksum e esempi dei messaggi inviati e ricevuti",
+        path: "/app/archivio/iot/leggenda-mex",
+      },
+    ],
+  },
+  {
     slug: "amministrazione",
     label: "Amministrazione",
     description: "Storico ordini, registro accessi e documentazioni archiviate",
@@ -284,7 +300,9 @@ export function filterArchivioNavByAccess(
     have.has("amministrazione") ||
     have.has("commerciale");
   return sections.filter((item) => {
-    if (item.slug === "tutorial") return have.has("archivio");
+    if (item.slug === "tutorial" || item.slug === "iot") {
+      return have.has("archivio");
+    }
     if (item.slug === "webmail") return webmailOk;
     if (item.slug === "strumenti") {
       return have.has("strumenti") || have.has("amministrazione");

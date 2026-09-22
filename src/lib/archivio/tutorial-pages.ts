@@ -198,6 +198,18 @@ export const PAGE_EXTRAS: Record<string, TutorialBlock[]> = {
       text: "Produzione → Ordini → In Scaletta. Ordini già processati, in coda di produzione, da collegare ai fogli di lavorazione. È il ponte vendite → reparto.",
     },
   ],
+  "/app/archivio/iot": [
+    {
+      type: "p",
+      text: "Spiega come master e device si parlano con Mex (frame 9 byte, checksum XBee). L’invio radio si collega dopo.",
+    },
+  ],
+  "/app/archivio/iot/leggenda-mex": [
+    {
+      type: "p",
+      text: "Legenda dei messaggi Out/In: lettera tipo (A Action, R Request, K acK, S Sensor), comando, dati, checksum. Esempi già calcolati.",
+    },
+  ],
   "/app/produzione/processi-e-attivita/elenco-processi": [
     {
       type: "p",
@@ -219,7 +231,7 @@ export const PAGE_EXTRAS: Record<string, TutorialBlock[]> = {
   "/app/action/aree/essiccatori": [
     {
       type: "p",
-      text: "Il fulmine apre le azioni immediate di quell’essiccatore. Avvio richiede consenso bruciatore On, setpoint temperatura uscita bruciatore 35–70 °C (manopola azzurro→rosso; la % la regola il sistema dalla sonda TEMP-BRUC), consenso ventola On e % ventilazione (grigio→azzurro). I 4 messaggi IoT restano in coda fino al collegamento del dispositivo. Lo spostamento dei sensori lo fa solo il Super Admin non impersonato.",
+      text: "Il fulmine apre le azioni immediate. Prima Temperatura e Ventilazione, poi On su entrambi. Avvia mostra l’elenco Mex inviati (A01–A04) e le risposte attese (K01–K04) con checksum. Codifica in Archivio → IoT → Leggenda Mex. Lo spostamento dei sensori lo fa solo il Super Admin non impersonato.",
     },
   ],
   "/app/magazzino/mappa": [

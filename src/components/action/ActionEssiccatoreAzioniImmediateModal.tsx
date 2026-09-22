@@ -10,11 +10,11 @@ import {
   VENT_FROM,
   VENT_TO,
 } from "@/components/action/ClockArcPercentGauge";
+import { IotMexExchangeLog } from "@/components/action/IotMexExchangeLog";
 import {
   TEMP_BRUCIATORE_DEFAULT_C,
   TEMP_BRUCIATORE_MAX_C,
   TEMP_BRUCIATORE_MIN_C,
-  etichettaMessaggio,
   type ActionEssiccatoreAzione,
 } from "@/lib/action/azioni-immediate";
 import type { ActionEssiccatore } from "@/lib/action/essiccatori";
@@ -184,23 +184,7 @@ export function ActionEssiccatoreAzioniImmediateModal({
           </div>
 
           {done ? (
-            <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-950">
-              <p className="font-semibold">Avvio registrato</p>
-              <p className="mt-1 text-emerald-800">
-                Quattro messaggi IoT in attesa del dispositivo (configurazione
-                successiva).
-              </p>
-              <ol className="mt-3 list-decimal space-y-1 pl-5">
-                {done.messaggi.map((m) => (
-                  <li key={m.id}>
-                    <span className="font-medium">{etichettaMessaggio(m)}</span>
-                    <span className="ml-2 font-mono text-xs text-emerald-800">
-                      {m.comando}
-                    </span>
-                  </li>
-                ))}
-              </ol>
-            </div>
+            <IotMexExchangeLog azione={done} />
           ) : (
             <>
               <p className="text-sm text-[var(--muted)]">

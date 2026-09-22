@@ -74,7 +74,7 @@ export const TUTORIAL_CORE_ARTICLES: TutorialArticle[] = [
           ["Area Fiscale", "Fatture, banca, commercialista (lucchetto)"],
           ["Gestionale Fornitori", "Portale collaborativo (in costruzione)"],
           ["Impostazioni", "2FA e profilo fiscale (solo admin)"],
-          ["Archivio", "Storici chiusi + questo Tutorial"],
+          ["Archivio", "Storici chiusi, Tutorial e IoT (Leggenda Mex)"],
         ],
       },
       {

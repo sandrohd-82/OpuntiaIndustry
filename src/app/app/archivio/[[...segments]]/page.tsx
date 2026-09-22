@@ -17,6 +17,10 @@ import { MagazzinoProdottiBoard } from "@/components/magazzino/MagazzinoProdotti
 import { NoteAcquistoBoard } from "@/components/magazzino/NoteAcquistoBoard";
 import { WebmailBoard } from "@/components/commerciale/WebmailBoard";
 import { AppHeader } from "@/components/layout/AppHeader";
+import {
+  ArchivioIotFunzionamentoBoard,
+  ArchivioIotLeggendaMexBoard,
+} from "@/components/archivio/ArchivioIotLeggendaMexBoard";
 import { ArchivioTutorialBoard } from "@/components/archivio/ArchivioTutorialBoard";
 import { AreaPlaceholder } from "@/components/areas/AreaPlaceholder";
 import {
@@ -81,6 +85,37 @@ export default async function ArchivioCatchAllPage({ params }: Props) {
         </div>
       </>
     );
+  }
+
+  if (segments[0] === "iot") {
+    await requireAreaAccess("archivio");
+    if (segments.length === 1) {
+      return (
+        <>
+          <AppHeader
+            title="IoT"
+            subtitle="Funzionamento dei messaggi Mex fra gestionale e dispositivi"
+          />
+          <div className="p-6">
+            <ArchivioIotFunzionamentoBoard />
+          </div>
+        </>
+      );
+    }
+    if (segments[1] === "leggenda-mex" && !segments[2]) {
+      return (
+        <>
+          <AppHeader
+            title="Leggenda Mex"
+            subtitle="Codifica, significato e checksum dei messaggi inviati e ricevuti"
+          />
+          <div className="p-6">
+            <ArchivioIotLeggendaMexBoard />
+          </div>
+        </>
+      );
+    }
+    notFound();
   }
 
   if (!source) notFound();
