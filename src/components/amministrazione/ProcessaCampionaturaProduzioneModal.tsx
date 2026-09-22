@@ -1,6 +1,8 @@
 "use client";
 
 import { useEffect, useId, useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
+import { passaCampionaturaInScalettaAction } from "@/app/actions/campionature";
 import { FaCheck } from "react-icons/fa6";
 import { listImballaggiVociAction } from "@/app/actions/imballaggi-spedizioni";
 import {
@@ -72,10 +74,12 @@ function labelLotto(l: LottoInserimentoOption): string {
 export function ProcessaCampionaturaProduzioneModal({
   item,
   onClose,
-  onSaved: _onSaved,
+  onSaved,
 }: Props) {
   const titleId = useId();
+  const router = useRouter();
   const [step, setStep] = useState<Step>(1);
+  const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [giacenze, setGiacenze] = useState<GiacenzaRiga[]>([]);
   const [lotti, setLotti] = useState<LottoInserimentoOption[]>([]);
@@ -250,6 +254,51 @@ export function ProcessaCampionaturaProduzioneModal({
     setStep(3);
   }
 
+  async function passaInScaletta() {
+    setError(null);
+    const payload = righe.map((r) => {
+      const lot = lottoDi(r.id);
+      const ok = conforme(r.id, r.prodottoId);
+      const proc = processi.find((p) => p.id === processoPerRiga[r.id]);
+      return {
+        rigaId: r.id,
+        lottoInternoCodice: lot?.lottoInternoCodice ?? "",
+        lottoProdottoId: lot?.prodottoId ?? r.prodottoId,
+        lottoProdottoCodice: lot?.prodottoCodice ?? r.prodottoCodice,
+        conforme: ok,
+        processoId: ok ? null : processoPerRiga[r.id] || null,
+        processoCodice: proc?.codice ?? "",
+        processoNome: proc?.nome ?? "",
+      };
+    });
+    if (payload.some((p) => !p.lottoInternoCodice)) {
+      setError("Seleziona un lotto per ogni riga.");
+      return;
+    }
+    setSaving(true);
+    try {
+      const res = await passaCampionaturaInScalettaAction({
+        campionaturaId: item.id,
+        dataLavorazione,
+        dataConfezionamento,
+        righe: payload,
+        pack: {
+          movimentazioneId: pack.serveMov ? pack.movId || null : null,
+          confezioneId: pack.serveConf ? pack.confId || null : null,
+          isolamentoId: pack.serveIso ? pack.isoId || null : null,
+        },
+      });
+      if (!res.success) {
+        setError(res.error);
+        return;
+      }
+      onSaved(res.item);
+      router.push("/app/produzione/ordini/scaletta");
+    } finally {
+      setSaving(false);
+    }
+  }
+
   return (
     <div
       className="fixed inset-0 z-[60] flex items-start justify-center overflow-y-auto bg-slate-950/60 px-4 py-8"
@@ -273,7 +322,7 @@ export function ProcessaCampionaturaProduzioneModal({
             ? " · Lotto"
             : step === 2
               ? " · Conformità e confezionamento"
-              : " · Riepilogo"}
+              : " · Spedizione"}
         </p>
 
         {step === 1 ? (
@@ -631,10 +680,11 @@ export function ProcessaCampionaturaProduzioneModal({
           ) : (
             <button
               type="button"
-              onClick={onClose}
-              className="rounded-lg bg-[var(--primary)] px-4 py-2 text-sm font-medium text-white hover:bg-[var(--primary-hover)]"
+              disabled={saving}
+              onClick={() => void passaInScaletta()}
+              className="rounded-lg bg-[var(--primary)] px-4 py-2 text-sm font-medium text-white hover:bg-[var(--primary-hover)] disabled:opacity-50"
             >
-              Chiudi
+              {saving ? "Salvataggio…" : "Passa in scaletta"}
             </button>
           )}
         </div>

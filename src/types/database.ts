@@ -1102,6 +1102,7 @@ export interface ProduzioneCalendarioImpegnoRow {
   id: string;
   data_giorno: string;
   ordine_id: string | null;
+  campionatura_id?: string | null;
   linea_codice: string | null;
   etichetta: string;
   note: string;
@@ -1117,6 +1118,7 @@ export type ProduzioneCalendarioImpegnoInsert = {
   id?: string;
   data_giorno: string;
   ordine_id?: string | null;
+  campionatura_id?: string | null;
   linea_codice?: string | null;
   etichetta?: string;
   note?: string;
@@ -1345,6 +1347,9 @@ export interface CampionaturaRow {
   destinatario: string;
   indirizzo_spedizione: string;
   note: string;
+  data_lavorazione?: string | null;
+  data_confezionamento?: string | null;
+  produzione_snapshot?: Record<string, unknown>;
   stato: CampionaturaStatoDb;
   documento_stato: "bozza" | "approvato" | "chiuso";
   versione: number;

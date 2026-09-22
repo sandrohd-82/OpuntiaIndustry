@@ -226,4 +226,26 @@ export function formatIsoIt(iso: string): string {
   }
 }
 
+export function startOfWeekMon(iso: string): string {
+  const d = parseIso(iso);
+  const mon0 = (d.getDay() + 6) % 7;
+  d.setDate(d.getDate() - mon0);
+  return toIso(d);
+}
+
+export function weekDaysFrom(iso: string): string[] {
+  const start = startOfWeekMon(iso);
+  return Array.from({ length: 7 }, (_, i) => addDays(start, i));
+}
+
+export function addMonthsIso(iso: string, delta: number): string {
+  const d = parseIso(iso);
+  d.setMonth(d.getMonth() + delta);
+  return toIso(d);
+}
+
+export function todayIso(): string {
+  return toIso(new Date());
+}
+
 export { toIso as dateToIso, parseIso as parseIsoDate };

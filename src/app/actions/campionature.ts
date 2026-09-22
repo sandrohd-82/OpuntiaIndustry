@@ -12,6 +12,7 @@ import {
   type CampionaturaOrigine,
   type CampionaturaRiga,
 } from "@/lib/amministrazione/campionature";
+import { passaCampionaturaScalettaSchema } from "@/lib/amministrazione/scaletta-produzione";
 import { inferCarrierFromUrl } from "@/lib/shipping/tracking";
 import { assegnaLottoProduzioneDaMagazzino } from "@/app/actions/lotto-produzione-magazzino";
 import { getGiacenzaProdottoAction } from "@/app/actions/produzione-capacita";
@@ -836,6 +837,215 @@ export async function processCampionaturaInProduzioneAction(
     .order("sort_order", { ascending: true });
   if (!fresh) {
     return { success: false, error: "Processata ma non leggibile." };
+  }
+  return {
+    success: true,
+    item: mapCampionatura(
+      fresh as CampionaturaRow,
+      (freshRighe ?? []) as CampionaturaRigaRow[]
+    ),
+  };
+}
+
+/** Passa la campionatura in Scaletta Produzione (ISO 9001 §8.5.2). */
+export async function passaCampionaturaInScalettaAction(
+  raw: unknown
+): Promise<
+  { success: true; item: Campionatura } | { success: false; error: string }
+> {
+  const gate = await requireCampionaturaAccess("write");
+  if (!gate.ok) return { success: false, error: gate.error };
+  const parsed = passaCampionaturaScalettaSchema.safeParse(raw);
+  if (!parsed.success) {
+    return {
+      success: false,
+      error: parsed.error.issues[0]?.message ?? "Dati scaletta non validi.",
+    };
+  }
+  const d = parsed.data;
+  const supabase = await createClient();
+  const { data: row, error: readErr } = await supabase
+    .from("campionature")
+    .select("*")
+    .eq("id", d.campionaturaId)
+    .is("deleted_at", null)
+    .maybeSingle();
+  if (readErr || !row) {
+    return { success: false, error: readErr?.message ?? "Record non trovato." };
+  }
+  const header = row as CampionaturaRow;
+  if (header.stato !== "inserita" && header.stato !== "bozza") {
+    return {
+      success: false,
+      error: "Questa campionatura è già in scaletta o chiusa.",
+    };
+  }
+  const { data: righeData, error: righeErr } = await supabase
+    .from("campionature_righe")
+    .select("*")
+    .eq("campionatura_id", header.id)
+    .order("sort_order", { ascending: true });
+  if (righeErr) return { success: false, error: righeErr.message };
+  const righe = (righeData ?? []) as CampionaturaRigaRow[];
+  if (righe.length === 0) {
+    return { success: false, error: "Campionatura senza righe prodotto." };
+  }
+  for (const r of righe) {
+    const scelta = d.righe.find((x) => x.rigaId === r.id);
+    if (!scelta) {
+      return {
+        success: false,
+        error: `Manca il lotto per ${r.prodotto_codice}.`,
+      };
+    }
+    if (!scelta.conforme && !scelta.processoId) {
+      return {
+        success: false,
+        error: `Indica il processo di trasformazione per ${r.prodotto_codice}.`,
+      };
+    }
+  }
+
+  const now = new Date().toISOString();
+  const snapshot = {
+    data_lavorazione: d.dataLavorazione,
+    data_confezionamento: d.dataConfezionamento,
+    righe: d.righe,
+    pack: d.pack ?? {},
+  };
+
+  const { error: updErr } = await supabase
+    .from("campionature")
+    .update({
+      stato: "processata",
+      documento_stato: "approvato",
+      data_lavorazione: d.dataLavorazione,
+      data_confezionamento: d.dataConfezionamento,
+      produzione_snapshot: snapshot,
+      approved_at: now,
+      approved_by: gate.auth.userId,
+      versione: header.versione + 1,
+      updated_by: gate.auth.userId,
+    })
+    .eq("id", header.id)
+    .is("deleted_at", null);
+  if (updErr) return { success: false, error: updErr.message };
+
+  for (const scelta of d.righe) {
+    const { error: lottoErr } = await supabase
+      .from("campionature_righe")
+      .update({
+        lotto_codice: scelta.lottoInternoCodice,
+        updated_at: now,
+        updated_by: gate.auth.userId,
+      })
+      .eq("id", scelta.rigaId)
+      .eq("campionatura_id", header.id);
+    if (lottoErr) return { success: false, error: lottoErr.message };
+  }
+
+  await supabase
+    .from("produzione_calendario_impegni")
+    .update({
+      deleted_at: now,
+      deleted_by: gate.auth.userId,
+      updated_by: gate.auth.userId,
+    })
+    .eq("campionatura_id", header.id)
+    .is("deleted_at", null);
+
+  const prodotti = righe
+    .map((r) => r.prodotto_codice)
+    .filter(Boolean)
+    .join(", ");
+  const rowsImpegno: Array<{
+    data_giorno: string;
+    ordine_id: null;
+    campionatura_id: string;
+    linea_codice: null;
+    etichetta: string;
+    note: string;
+    created_by: string;
+    updated_by: string;
+  }> = [
+    {
+      data_giorno: d.dataLavorazione,
+      ordine_id: null,
+      campionatura_id: header.id,
+      linea_codice: null,
+      etichetta: `${header.numero_interno} · ${prodotti} · lavorazione`,
+      note: "lavorazione",
+      created_by: gate.auth.userId,
+      updated_by: gate.auth.userId,
+    },
+  ];
+  if (d.dataConfezionamento) {
+    rowsImpegno.push({
+      data_giorno: d.dataConfezionamento,
+      ordine_id: null,
+      campionatura_id: header.id,
+      linea_codice: null,
+      etichetta: `${header.numero_interno} · ${prodotti} · confezionamento`,
+      note: "confezionamento",
+      created_by: gate.auth.userId,
+      updated_by: gate.auth.userId,
+    });
+  }
+  for (const scelta of d.righe) {
+    if (scelta.conforme || !scelta.processoId) continue;
+    rowsImpegno.push({
+      data_giorno: d.dataLavorazione,
+      ordine_id: null,
+      campionatura_id: header.id,
+      linea_codice: null,
+      etichetta: `${header.numero_interno} · ${scelta.processoCodice || "trasformazione"}`,
+      note: `trasformazione:${scelta.processoCodice || scelta.processoId}`,
+      created_by: gate.auth.userId,
+      updated_by: gate.auth.userId,
+    });
+  }
+
+  const { error: impErr } = await supabase
+    .from("produzione_calendario_impegni")
+    .insert(rowsImpegno);
+  if (impErr) {
+    return {
+      success: false,
+      error: `Processata ma calendario: ${impErr.message}`,
+    };
+  }
+
+  await writeAuditLog({
+    entity_type: "campionature",
+    entity_id: header.id,
+    action: "ordine_inserisci_scaletta",
+    actor_id: gate.auth.userId,
+    summary: `Scaletta produzione per ${header.numero_interno}`,
+    payload: {
+      stato_da: header.stato,
+      stato_a: "processata",
+      data_lavorazione: d.dataLavorazione,
+      data_confezionamento: d.dataConfezionamento,
+      lotti: d.righe.map((r) => ({
+        riga_id: r.rigaId,
+        lotto: r.lottoInternoCodice,
+        processo_id: r.processoId ?? null,
+      })),
+    },
+  });
+
+  const { data: fresh } = await supabase
+    .from("campionature")
+    .select("*")
+    .eq("id", header.id)
+    .maybeSingle();
+  const { data: freshRighe } = await supabase
+    .from("campionature_righe")
+    .select("*")
+    .eq("campionatura_id", header.id)
+    .order("sort_order", { ascending: true });
+  if (!fresh) {
+    return { success: false, error: "In scaletta ma non leggibile." };
   }
   return {
     success: true,

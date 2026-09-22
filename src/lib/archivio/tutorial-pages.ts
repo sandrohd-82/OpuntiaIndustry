@@ -125,7 +125,7 @@ export const PAGE_EXTRAS: Record<string, TutorialBlock[]> = {
   "/app/produzione/ordini/da-processare": [
     {
       type: "p",
-      text: "In Produzione → Ordini → Da processare (Admin / Super Admin). Qui gli ordini appena nati e le campionature «inserite» aspettano di essere processati. Poi vanno in «In Scaletta».",
+      text: "In Produzione → Ordini → Da processare (Admin / Super Admin). Qui gli ordini appena nati e le campionature «inserite» aspettano di essere processati. Poi vanno in «Scaletta Produzione».",
     },
     {
       type: "p",
@@ -195,7 +195,7 @@ export const PAGE_EXTRAS: Record<string, TutorialBlock[]> = {
   "/app/produzione/ordini/scaletta": [
     {
       type: "p",
-      text: "Produzione → Ordini → In Scaletta. Ordini già processati, in coda di produzione, da collegare ai fogli di lavorazione. È il ponte vendite → reparto.",
+      text: "Produzione → Ordini → Scaletta Produzione. Calendario (mese / settimana / giorno) con il numero di lavorazioni per data e l’elenco attività raggruppato giorno per giorno. Ponte vendite → reparto.",
     },
   ],
   "/app/archivio/iot": [

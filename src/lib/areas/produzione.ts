@@ -86,9 +86,9 @@ export const PRODUZIONE_SECTIONS: readonly NavItem[] = [
       },
       {
         slug: "scaletta",
-        label: "In Scaletta",
+        label: "Scaletta Produzione",
         description:
-          "Ordini in scaletta produzione, da collegare ai fogli di lavorazione",
+          "Calendario lavorazioni e attività in scaletta, da collegare ai fogli",
         path: "/app/produzione/ordini/scaletta",
       },
     ],

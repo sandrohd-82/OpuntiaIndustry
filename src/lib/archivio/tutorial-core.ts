@@ -87,7 +87,7 @@ export const TUTORIAL_CORE_ARTICLES: TutorialArticle[] = [
           "Il produttore arriva → Foglio Ingresso MP (Produzione) → nasce il Codice MP.",
           "Si lavora → Foglio di lavorazione (Produzione).",
           "Si mette a stock → Magazzino, lotto L-… collegato al Codice MP.",
-          "Si vende → Ordine in Commerciale → Da processare / In Scaletta in Produzione → fattura in Area Fiscale.",
+          "Si vende → Ordine in Commerciale → Da processare / Scaletta Produzione → fattura in Area Fiscale.",
           "Quando è chiuso → Archivio (niente si butta via).",
         ],
       },
