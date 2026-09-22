@@ -568,6 +568,10 @@ export function ProcessaCampionaturaProduzioneModal({
         {step === 3 ? (
           <div className="mt-4 space-y-3 text-sm">
             <p className="text-xs text-slate-500">
+              Spedizione: tracking se già disponibile, oppure salva e resta in
+              attesa. La mail al cliente è facoltativa.
+            </p>
+            <p className="text-xs text-slate-500">
               Lavorazione {dataLavorazione} · Confezionamento{" "}
               {dataConfezionamento}
               {righe[0]

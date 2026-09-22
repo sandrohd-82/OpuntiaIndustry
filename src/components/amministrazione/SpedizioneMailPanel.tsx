@@ -22,7 +22,7 @@ type Props = {
   prodotti: string;
   destEmailDefault: string;
   onSaved?: (item: SpedizioneMailPrenotazione) => void;
-  onNeedEntity?: (modo: "prenota" | "compila") => void;
+  onNeedEntity?: (modo: "prenota" | "compila" | "salva") => void;
   onDraftChange?: (draft: {
     trackingUrl: string;
     letteraViaPath: string;
@@ -50,7 +50,8 @@ export function SpedizioneMailPanel({
   const [letteraPath, setLetteraPath] = useState("");
   const [letteraName, setLetteraName] = useState("");
   const [allegati, setAllegati] = useState<SpedizioneMailAllegato[]>([]);
-  const [allegaTracking, setAllegaTracking] = useState(true);
+  const [vuoleMail, setVuoleMail] = useState(false);
+  const [allegaTracking, setAllegaTracking] = useState(false);
   const [allegaLettera, setAllegaLettera] = useState(false);
   const [allegaFile, setAllegaFile] = useState(false);
   const [destEmail, setDestEmail] = useState(destEmailDefault);
@@ -111,9 +112,16 @@ export function SpedizioneMailPanel({
     setAllegaLettera(next.allegaLettera);
     setAllegaFile(next.allegaFile);
     setDestEmail(next.destinatarioEmail || destEmailDefault);
+    setVuoleMail(
+      next.stato === "inviata" ||
+        Boolean(next.oggetto) ||
+        next.allegaTracking ||
+        next.allegaLettera ||
+        next.allegaFile
+    );
   }
 
-  const mancaTracking = trackingMancante(allegaTracking, trackingUrl);
+  const mancaTracking = vuoleMail && trackingMancante(allegaTracking, trackingUrl);
 
   async function upload(kind: "lettera" | "file", file: File | undefined) {
     if (!file) return;
@@ -130,42 +138,48 @@ export function SpedizioneMailPanel({
       if (kind === "lettera") {
         setLetteraPath(res.path);
         setLetteraName(res.name);
-        setAllegaLettera(true);
+        if (vuoleMail) setAllegaLettera(true);
       } else {
         setAllegati((prev) => [
           ...prev,
           { path: res.path, name: res.name, contentType: res.contentType },
         ]);
-        setAllegaFile(true);
+        if (vuoleMail) setAllegaFile(true);
       }
     } finally {
       setUploading(false);
     }
   }
 
-  async function salva(modo: "prenota" | "compila") {
+  async function salva(modo: "prenota" | "compila" | "salva") {
     if (!entityId) {
       if (onNeedEntity) {
         onNeedEntity(modo);
         return;
       }
-      setError("Salva prima il documento, poi prenota o compila la mail.");
+      setError("Salva prima il documento, poi conferma la spedizione.");
       return;
     }
     setBusy(true);
     setError(null);
     setInfo(null);
     try {
-      const testo = await generaCorpoMailSpedizioneAction({
-        cliente: clienteNome,
-        numero,
-        prodotti,
-        trackingUrl,
-        haLettera: allegaLettera && Boolean(letteraPath),
-      });
-      if (!testo.success) {
-        setError(testo.error);
-        return;
+      let oggetto = "";
+      let corpo = "";
+      if (modo !== "salva") {
+        const testo = await generaCorpoMailSpedizioneAction({
+          cliente: clienteNome,
+          numero,
+          prodotti,
+          trackingUrl,
+          haLettera: allegaLettera && Boolean(letteraPath),
+        });
+        if (!testo.success) {
+          setError(testo.error);
+          return;
+        }
+        oggetto = testo.subject;
+        corpo = testo.bodyText;
       }
       const res = await upsertPrenotazioneSpedizioneMailAction({
         entityType,
@@ -174,12 +188,12 @@ export function SpedizioneMailPanel({
         letteraViaPath: letteraPath,
         letteraViaName: letteraName,
         allegati,
-        allegaTracking,
-        allegaLettera,
-        allegaFile,
-        destinatarioEmail: destEmail,
-        oggetto: testo.subject,
-        corpo: testo.bodyText,
+        allegaTracking: vuoleMail ? allegaTracking : false,
+        allegaLettera: vuoleMail ? allegaLettera : false,
+        allegaFile: vuoleMail ? allegaFile : false,
+        destinatarioEmail: vuoleMail ? destEmail : destEmail,
+        oggetto,
+        corpo,
         modo,
       });
       if (!res.success) {
@@ -188,12 +202,18 @@ export function SpedizioneMailPanel({
       }
       applyItem(res.item);
       onSaved?.(res.item);
-      if (res.apriBozza) {
+      if (res.apriBozza && oggetto) {
         setCompose({
           prenotazione: res.item,
-          subject: testo.subject,
-          bodyText: testo.bodyText,
+          subject: oggetto,
+          bodyText: corpo,
         });
+      } else if (modo === "salva") {
+        setInfo(
+          trackingUrl.trim()
+            ? "Tracking salvato. Nessuna mail da inviare."
+            : "Salvato. Il sistema resta in attesa del tracking."
+        );
       } else {
         setInfo(
           "Mail prenotata. Quando inserirai il tracking si aprirà la bozza già compilata."
@@ -214,10 +234,10 @@ export function SpedizioneMailPanel({
 
   return (
     <div className="space-y-3 rounded-lg border border-[var(--border)] px-3 py-3">
-      <p className="text-sm font-medium">Spedizione e mail al cliente</p>
+      <p className="text-sm font-medium">Spedizione</p>
       <p className="text-xs text-[var(--muted)]">
-        Tracking e lettera di via. Poi Compila mail oppure Prenota mail se il
-        tracking manca ancora.
+        Puoi inserire il tracking se ce l’hai, oppure salvare e lasciare il
+        sistema in attesa. La mail al cliente è facoltativa.
       </p>
 
       <label className="block text-sm">
@@ -226,7 +246,7 @@ export function SpedizioneMailPanel({
           type="url"
           value={trackingUrl}
           onChange={(e) => setTrackingUrl(e.target.value)}
-          placeholder="https://"
+          placeholder="https:// — se non c’è, si resta in attesa"
           className="w-full rounded-lg border border-[var(--border)] px-3 py-2 text-sm"
         />
       </label>
@@ -245,60 +265,94 @@ export function SpedizioneMailPanel({
         ) : null}
       </label>
 
-      <label className="block text-sm">
-        <span className="mb-1 block font-medium">Altri file</span>
-        <input
-          type="file"
-          onChange={(e) => void upload("file", e.target.files?.[0])}
-          className="w-full text-sm"
-        />
-        {allegati.length ? (
-          <span className="mt-1 block text-xs text-slate-600">
-            {allegati.map((a) => a.name).join(" · ")}
-          </span>
-        ) : null}
-      </label>
-
-      <div className="space-y-1.5 text-sm">
-        <p className="font-medium">Cosa vuoi allegare</p>
+      <fieldset className="space-y-2 text-sm">
+        <legend className="font-medium">Inviare una mail al cliente?</legend>
         <label className="flex items-center gap-2">
           <input
-            type="checkbox"
-            checked={allegaTracking}
-            onChange={(e) => setAllegaTracking(e.target.checked)}
+            type="radio"
+            name="vuole-mail"
+            checked={!vuoleMail}
+            onChange={() => setVuoleMail(false)}
           />
-          Tracking
+          No, non inviare
         </label>
         <label className="flex items-center gap-2">
           <input
-            type="checkbox"
-            checked={allegaLettera}
-            onChange={(e) => setAllegaLettera(e.target.checked)}
+            type="radio"
+            name="vuole-mail"
+            checked={vuoleMail}
+            onChange={() => {
+              setVuoleMail(true);
+              setAllegaTracking(true);
+            }}
           />
-          Documento di via
+          Sì, prepara l’invio
         </label>
-        <label className="flex items-center gap-2">
-          <input
-            type="checkbox"
-            checked={allegaFile}
-            onChange={(e) => setAllegaFile(e.target.checked)}
-          />
-          File in genere
-        </label>
-      </div>
+      </fieldset>
 
-      <label className="block text-sm">
-        <span className="mb-1 block font-medium">Email azienda</span>
-        <input
-          type="email"
-          value={destEmail}
-          onChange={(e) => setDestEmail(e.target.value)}
-          placeholder="commerciale@cliente.it"
-          className="w-full rounded-lg border border-[var(--border)] px-3 py-2 text-sm"
-        />
-      </label>
+      {vuoleMail ? (
+        <>
+          <label className="block text-sm">
+            <span className="mb-1 block font-medium">Altri file</span>
+            <input
+              type="file"
+              onChange={(e) => void upload("file", e.target.files?.[0])}
+              className="w-full text-sm"
+            />
+            {allegati.length ? (
+              <span className="mt-1 block text-xs text-slate-600">
+                {allegati.map((a) => a.name).join(" · ")}
+              </span>
+            ) : null}
+          </label>
 
-      {item?.stato === "prenotata" ? (
+          <div className="space-y-1.5 text-sm">
+            <p className="font-medium">Cosa vuoi allegare</p>
+            <label className="flex items-center gap-2">
+              <input
+                type="checkbox"
+                checked={allegaTracking}
+                onChange={(e) => setAllegaTracking(e.target.checked)}
+              />
+              Tracking
+            </label>
+            <label className="flex items-center gap-2">
+              <input
+                type="checkbox"
+                checked={allegaLettera}
+                onChange={(e) => setAllegaLettera(e.target.checked)}
+              />
+              Documento di via
+            </label>
+            <label className="flex items-center gap-2">
+              <input
+                type="checkbox"
+                checked={allegaFile}
+                onChange={(e) => setAllegaFile(e.target.checked)}
+              />
+              File in genere
+            </label>
+          </div>
+
+          <label className="block text-sm">
+            <span className="mb-1 block font-medium">Email azienda</span>
+            <input
+              type="email"
+              value={destEmail}
+              onChange={(e) => setDestEmail(e.target.value)}
+              placeholder="commerciale@cliente.it"
+              className="w-full rounded-lg border border-[var(--border)] px-3 py-2 text-sm"
+            />
+          </label>
+        </>
+      ) : null}
+
+      {item?.stato === "prenotata" && !vuoleMail ? (
+        <p className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-950">
+          In attesa del tracking.
+        </p>
+      ) : null}
+      {item?.stato === "prenotata" && vuoleMail ? (
         <p className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-950">
           Mail prenotata: manca il tracking. Inseriscilo e si apre la bozza.
         </p>
@@ -326,10 +380,23 @@ export function SpedizioneMailPanel({
 
       {item?.stato !== "inviata" ? (
         <div className="flex flex-wrap gap-2">
-          {mancaTracking ? (
+          {!vuoleMail ? (
             <button
               type="button"
-              disabled={busy || uploading || !entityId}
+              disabled={busy || uploading || (!entityId && !onNeedEntity)}
+              onClick={() => void salva("salva")}
+              className="rounded-lg bg-[var(--primary)] px-3 py-2 text-sm font-medium text-white hover:bg-[var(--primary-hover)] disabled:opacity-50"
+            >
+              {busy
+                ? "Salvataggio…"
+                : trackingUrl.trim()
+                  ? "Salva tracking"
+                  : "Salva e attendi tracking"}
+            </button>
+          ) : mancaTracking ? (
+            <button
+              type="button"
+              disabled={busy || uploading || (!entityId && !onNeedEntity)}
               onClick={() => void salva("prenota")}
               className="rounded-lg bg-amber-500 px-3 py-2 text-sm font-medium text-white hover:bg-amber-600 disabled:opacity-50"
             >
@@ -338,14 +405,14 @@ export function SpedizioneMailPanel({
           ) : (
             <button
               type="button"
-              disabled={busy || uploading || !entityId}
+              disabled={busy || uploading || (!entityId && !onNeedEntity)}
               onClick={() => void salva("compila")}
               className="rounded-lg bg-[var(--primary)] px-3 py-2 text-sm font-medium text-white hover:bg-[var(--primary-hover)] disabled:opacity-50"
             >
               {busy ? "Compilazione…" : "Compila mail"}
             </button>
           )}
-          {item?.stato === "prenotata" && trackingUrl.trim() ? (
+          {vuoleMail && item?.stato === "prenotata" && trackingUrl.trim() ? (
             <button
               type="button"
               disabled={busy}

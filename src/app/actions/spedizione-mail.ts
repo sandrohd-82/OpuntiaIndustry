@@ -128,23 +128,35 @@ export async function upsertPrenotazioneSpedizioneMailAction(
     };
   }
   const d = parsed.data;
-  if (d.allegaLettera && !d.letteraViaPath) {
-    return { success: false, error: "Carica la lettera di via oppure togli la spunta." };
-  }
-  if (d.allegaFile && d.allegati.length === 0) {
-    return { success: false, error: "Carica almeno un file oppure togli la spunta." };
-  }
-  if (d.modo === "prenota" && !trackingMancante(d.allegaTracking, d.trackingUrl)) {
-    return {
-      success: false,
-      error: "Prenota mail serve quando hai chiesto il tracking ma non è ancora caricato.",
-    };
-  }
-  if (d.modo === "compila" && trackingMancante(d.allegaTracking, d.trackingUrl)) {
-    return {
-      success: false,
-      error: "Manca il tracking. Usa Prenota mail oppure carica l’URL.",
-    };
+  if (d.modo !== "salva") {
+    if (d.allegaLettera && !d.letteraViaPath) {
+      return {
+        success: false,
+        error: "Carica la lettera di via oppure togli la spunta.",
+      };
+    }
+    if (d.allegaFile && d.allegati.length === 0) {
+      return {
+        success: false,
+        error: "Carica almeno un file oppure togli la spunta.",
+      };
+    }
+    if (
+      d.modo === "prenota" &&
+      !trackingMancante(d.allegaTracking, d.trackingUrl)
+    ) {
+      return {
+        success: false,
+        error:
+          "Prenota mail serve quando hai chiesto il tracking ma non è ancora caricato.",
+      };
+    }
+    if (d.modo === "compila" && trackingMancante(d.allegaTracking, d.trackingUrl)) {
+      return {
+        success: false,
+        error: "Manca il tracking. Usa Prenota mail oppure carica l’URL.",
+      };
+    }
   }
   if (d.trackingUrl) {
     try {
@@ -168,8 +180,11 @@ export async function upsertPrenotazioneSpedizioneMailAction(
 
   const now = new Date().toISOString();
   const mancaTracking = trackingMancante(d.allegaTracking, d.trackingUrl);
+  const attesaTracking = !d.trackingUrl.trim();
   const stato =
-    d.modo === "prenota" || mancaTracking ? "prenotata" : "pronta";
+    d.modo === "prenota" || (d.modo === "salva" && attesaTracking) || mancaTracking
+      ? "prenotata"
+      : "pronta";
   const payload = {
     entity_type: d.entityType,
     entity_id: d.entityId,
@@ -260,14 +275,19 @@ export async function upsertPrenotazioneSpedizioneMailAction(
     action: existing ? "update" : "create",
     actor_id: auth.userId,
     summary:
-      stato === "prenotata"
-        ? `Prenotata mail spedizione ${d.entityType} (manca tracking)`
-        : `Bozza mail spedizione ${d.entityType} pronta`,
+      d.modo === "salva"
+        ? attesaTracking
+          ? `Spedizione ${d.entityType} in attesa tracking`
+          : `Tracking spedizione ${d.entityType} salvato`
+        : stato === "prenotata"
+          ? `Prenotata mail spedizione ${d.entityType} (manca tracking)`
+          : `Bozza mail spedizione ${d.entityType} pronta`,
     payload: {
       entity_type: d.entityType,
       entity_id: d.entityId,
       stato,
       modo: d.modo,
+      vuole_mail: d.modo !== "salva",
       allega_tracking: d.allegaTracking,
       tracking: Boolean(d.trackingUrl),
     },
@@ -276,7 +296,7 @@ export async function upsertPrenotazioneSpedizioneMailAction(
   return {
     success: true,
     item,
-    apriBozza: d.modo === "compila" && !mancaTracking,
+    apriBozza: d.modo === "compila" && !mancaTracking && !attesaTracking,
   };
 }
 

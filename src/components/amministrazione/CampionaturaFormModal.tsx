@@ -103,7 +103,7 @@ export function CampionaturaFormModal({ onClose, onSaved }: Props) {
     letteraViaPath: "",
     letteraViaName: "",
     allegati: [] as Array<{ path: string; name: string; contentType: string }>,
-    allegaTracking: true,
+    allegaTracking: false,
     allegaLettera: false,
     allegaFile: false,
     destinatarioEmail: "",
@@ -199,7 +199,9 @@ export function CampionaturaFormModal({ onClose, onSaved }: Props) {
     );
   }
 
-  async function persistCampionatura(modoMail?: "prenota" | "compila") {
+  async function persistCampionatura(
+    modoMail?: "prenota" | "compila" | "salva"
+  ) {
     if (
       anagraficaFonte === "possibile"
         ? !possibileClienteId || !cliente
@@ -231,9 +233,13 @@ export function CampionaturaFormModal({ onClose, onSaved }: Props) {
         return;
       }
     }
-    if (origine === "storico" && trackingUrl.trim()) {
+    const trackingDaSalvare =
+      origine === "storico"
+        ? trackingUrl.trim()
+        : spedDraft.current.trackingUrl.trim();
+    if (trackingDaSalvare) {
       try {
-        const u = new URL(trackingUrl.trim());
+        const u = new URL(trackingDaSalvare);
         if (u.protocol !== "http:" && u.protocol !== "https:") {
           throw new Error("protocol");
         }
@@ -270,7 +276,7 @@ export function CampionaturaFormModal({ onClose, onSaved }: Props) {
         origine,
         dataInvio,
         mezzo,
-        trackingUrl: origine === "storico" ? trackingUrl.trim() : "",
+        trackingUrl: trackingDaSalvare,
         pnNotaId: origine === "storico" ? null : (nota?.id ?? null),
         webmailMessaggioId: origine === "storico" ? null : (mail?.id ?? null),
         spedizioneTipo: addressKey === "altro" ? "altro_posto" : "sede_azienda",
@@ -287,19 +293,25 @@ export function CampionaturaFormModal({ onClose, onSaved }: Props) {
       }
       if (modoMail) {
         const d = spedDraft.current;
-        const testo = await generaCorpoMailSpedizioneAction({
-          cliente: result.item.cliente,
-          numero: result.item.numeroInterno,
-          prodotti: result.item.righe
-            .map((r) => `${r.prodottoCodice} ${r.quantita} ${r.unitaMisura}`)
-            .join(", "),
-          trackingUrl: d.trackingUrl,
-          haLettera: d.allegaLettera && Boolean(d.letteraViaPath),
-        });
-        if (!testo.success) {
-          setFormError(testo.error);
-          onSaved(result.item);
-          return;
+        let oggetto = "";
+        let corpo = "";
+        if (modoMail !== "salva") {
+          const testo = await generaCorpoMailSpedizioneAction({
+            cliente: result.item.cliente,
+            numero: result.item.numeroInterno,
+            prodotti: result.item.righe
+              .map((r) => `${r.prodottoCodice} ${r.quantita} ${r.unitaMisura}`)
+              .join(", "),
+            trackingUrl: d.trackingUrl,
+            haLettera: d.allegaLettera && Boolean(d.letteraViaPath),
+          });
+          if (!testo.success) {
+            setFormError(testo.error);
+            onSaved(result.item);
+            return;
+          }
+          oggetto = testo.subject;
+          corpo = testo.bodyText;
         }
         const up = await upsertPrenotazioneSpedizioneMailAction({
           entityType: "campionatura",
@@ -308,12 +320,12 @@ export function CampionaturaFormModal({ onClose, onSaved }: Props) {
           letteraViaPath: d.letteraViaPath,
           letteraViaName: d.letteraViaName,
           allegati: d.allegati,
-          allegaTracking: d.allegaTracking,
-          allegaLettera: d.allegaLettera,
-          allegaFile: d.allegaFile,
+          allegaTracking: modoMail === "salva" ? false : d.allegaTracking,
+          allegaLettera: modoMail === "salva" ? false : d.allegaLettera,
+          allegaFile: modoMail === "salva" ? false : d.allegaFile,
           destinatarioEmail: d.destinatarioEmail || cliente.email,
-          oggetto: testo.subject,
-          corpo: testo.bodyText,
+          oggetto,
+          corpo,
           modo: modoMail,
         });
         if (!up.success) {
@@ -321,11 +333,11 @@ export function CampionaturaFormModal({ onClose, onSaved }: Props) {
           onSaved(result.item);
           return;
         }
-        if (up.apriBozza) {
+        if (up.apriBozza && oggetto) {
           setComposeAfter({
             prenotazione: up.item,
-            subject: testo.subject,
-            bodyText: testo.bodyText,
+            subject: oggetto,
+            bodyText: corpo,
             to: d.destinatarioEmail || cliente.email,
             item: result.item,
           });
@@ -344,7 +356,7 @@ export function CampionaturaFormModal({ onClose, onSaved }: Props) {
 
   async function onSubmit(e: FormEvent) {
     e.preventDefault();
-    await persistCampionatura();
+    await persistCampionatura("salva");
   }
 
   return (

@@ -162,7 +162,7 @@ export function OrdineNuovoWizardModal({
     letteraViaPath: "",
     letteraViaName: "",
     allegati: [] as Array<{ path: string; name: string; contentType: string }>,
-    allegaTracking: true,
+    allegaTracking: false,
     allegaLettera: false,
     allegaFile: false,
     destinatarioEmail: "",
@@ -612,7 +612,7 @@ export function OrdineNuovoWizardModal({
     });
   }
 
-  async function submit(modoMail?: "prenota" | "compila") {
+  async function submit(modoMail?: "prenota" | "compila" | "salva") {
     if (!prodotto) return;
     if (anagraficaFonte === "possibile" && !possibileClienteId) return;
     if (anagraficaFonte === "cliente" && !clienteId) return;
@@ -679,41 +679,50 @@ export function OrdineNuovoWizardModal({
       }
       if (modoMail) {
         const d = spedDraft.current;
-        const testo = await generaCorpoMailSpedizioneAction({
-          cliente: clienteNome,
-          numero: result.ordine.numeroInterno,
-          prodotti: `${prodotto.codice} ${quantitaInserita} ${umEffettiva}`,
-          trackingUrl: d.trackingUrl,
-          haLettera: d.allegaLettera && Boolean(d.letteraViaPath),
-        });
-        if (testo.success) {
-          const up = await upsertPrenotazioneSpedizioneMailAction({
-            entityType: "ordine",
-            entityId: result.ordine.id,
+        let oggetto = "";
+        let corpo = "";
+        if (modoMail !== "salva") {
+          const testo = await generaCorpoMailSpedizioneAction({
+            cliente: clienteNome,
+            numero: result.ordine.numeroInterno,
+            prodotti: `${prodotto.codice} ${quantitaInserita} ${umEffettiva}`,
             trackingUrl: d.trackingUrl,
-            letteraViaPath: d.letteraViaPath,
-            letteraViaName: d.letteraViaName,
-            allegati: d.allegati,
-            allegaTracking: d.allegaTracking,
-            allegaLettera: d.allegaLettera,
-            allegaFile: d.allegaFile,
-            destinatarioEmail: d.destinatarioEmail,
-            oggetto: testo.subject,
-            corpo: testo.bodyText,
-            modo: modoMail,
+            haLettera: d.allegaLettera && Boolean(d.letteraViaPath),
           });
-          if (up.success && up.apriBozza) {
-            setComposeAfter({
-              prenotazione: up.item,
-              subject: testo.subject,
-              bodyText: testo.bodyText,
-              to: d.destinatarioEmail,
-              ordine: result.ordine,
-            });
+          if (!testo.success) {
+            setFormError(testo.error);
+            onSaved(result.ordine);
             return;
           }
-          if (!up.success) setFormError(up.error);
+          oggetto = testo.subject;
+          corpo = testo.bodyText;
         }
+        const up = await upsertPrenotazioneSpedizioneMailAction({
+          entityType: "ordine",
+          entityId: result.ordine.id,
+          trackingUrl: d.trackingUrl,
+          letteraViaPath: d.letteraViaPath,
+          letteraViaName: d.letteraViaName,
+          allegati: d.allegati,
+          allegaTracking: modoMail === "salva" ? false : d.allegaTracking,
+          allegaLettera: modoMail === "salva" ? false : d.allegaLettera,
+          allegaFile: modoMail === "salva" ? false : d.allegaFile,
+          destinatarioEmail: d.destinatarioEmail,
+          oggetto,
+          corpo,
+          modo: modoMail,
+        });
+        if (up.success && up.apriBozza && oggetto) {
+          setComposeAfter({
+            prenotazione: up.item,
+            subject: oggetto,
+            bodyText: corpo,
+            to: d.destinatarioEmail,
+            ordine: result.ordine,
+          });
+          return;
+        }
+        if (!up.success) setFormError(up.error);
       }
       onSaved(result.ordine);
     } catch (err) {
@@ -1846,7 +1855,7 @@ export function OrdineNuovoWizardModal({
                   (tipoOrdine !== "campionatura" &&
                     !calcolo?.dataConsegnaStimata)
                 }
-                onClick={() => void submit()}
+                onClick={() => void submit("salva")}
                 className="rounded-lg bg-[var(--primary)] px-4 py-2 text-sm font-medium text-white hover:bg-[var(--primary-hover)] disabled:opacity-50"
               >
                 {saving ? "Salvataggio…" : "Salva ordine"}
