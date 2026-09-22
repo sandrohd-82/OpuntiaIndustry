@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { FaXmark } from "react-icons/fa6";
 import {
   etichettaAvvioFunzione,
@@ -16,6 +16,84 @@ type Props = {
   onConfirm: (keys: string[]) => void;
 };
 
+function normalizza(value: string): string {
+  return value
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase();
+}
+
+function tokensQuery(query: string): string[] {
+  return normalizza(query)
+    .split(/[\s/._-]+/)
+    .map((t) => t.trim())
+    .filter((t) => t.length > 0);
+}
+
+function punteggioRicerca(
+  f: FunzioneGestionale,
+  tokens: string[]
+): number | null {
+  if (tokens.length === 0) return 0;
+  const etichetta = normalizza(f.etichetta);
+  const area = normalizza(f.area);
+  const percorso = normalizza(f.percorso);
+  const spiegazione = normalizza(f.spiegazione);
+  const avvio = normalizza(etichettaAvvioFunzione(f));
+  let score = 0;
+  for (const token of tokens) {
+    if (etichetta === token) score += 100;
+    else if (etichetta.startsWith(token)) score += 70;
+    else if (etichetta.includes(token)) score += 40;
+    else if (avvio.includes(token)) score += 30;
+    else if (percorso.includes(token)) score += 20;
+    else if (area.includes(token)) score += 12;
+    else if (spiegazione.includes(token)) score += 8;
+    else return null;
+  }
+  return score;
+}
+
+function evidenzia(testo: string, tokens: string[]): ReactNode {
+  if (tokens.length === 0) return testo;
+  const source = testo;
+  const lower = normalizza(source);
+  const ranges: Array<{ start: number; end: number }> = [];
+  for (const token of tokens) {
+    let from = 0;
+    while (from <= lower.length - token.length) {
+      const at = lower.indexOf(token, from);
+      if (at < 0) break;
+      ranges.push({ start: at, end: at + token.length });
+      from = at + token.length;
+    }
+  }
+  if (ranges.length === 0) return testo;
+  ranges.sort((a, b) => a.start - b.start);
+  const merged: typeof ranges = [];
+  for (const r of ranges) {
+    const last = merged[merged.length - 1];
+    if (last && r.start <= last.end) last.end = Math.max(last.end, r.end);
+    else merged.push({ ...r });
+  }
+  const out: ReactNode[] = [];
+  let cursor = 0;
+  merged.forEach((r, i) => {
+    if (r.start > cursor) out.push(source.slice(cursor, r.start));
+    out.push(
+      <mark
+        key={`${r.start}-${i}`}
+        className="rounded-sm bg-amber-200 px-0.5 text-inherit"
+      >
+        {source.slice(r.start, r.end)}
+      </mark>
+    );
+    cursor = r.end;
+  });
+  if (cursor < source.length) out.push(source.slice(cursor));
+  return out;
+}
+
 export function FunzioniGestionalePickerModal({
   open,
   selectedKeys,
@@ -25,24 +103,34 @@ export function FunzioniGestionalePickerModal({
   const catalog = useMemo(() => listFunzioniGestionaleCatalogo(), []);
   const [query, setQuery] = useState("");
   const [draft, setDraft] = useState<string[]>(selectedKeys);
+  const listRef = useRef<HTMLDivElement>(null);
+  const searchRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     if (!open) return;
     setDraft(selectedKeys);
     setQuery("");
+    const t = window.setTimeout(() => searchRef.current?.focus(), 40);
+    return () => window.clearTimeout(t);
   }, [open, selectedKeys]);
 
-  const filtered = useMemo(() => {
-    const q = query.trim().toLowerCase();
-    const items = !q
-      ? catalog
-      : catalog.filter((f) => {
-          const hay =
-            `${f.area} ${f.etichetta} ${f.spiegazione} ${f.percorso} ${f.tipo}`.toLowerCase();
-          return hay.includes(q);
-        });
-    return groupFunzioniByArea(items);
-  }, [catalog, query]);
+  const tokens = useMemo(() => tokensQuery(query), [query]);
+  const hits = useMemo(() => {
+    if (tokens.length === 0) return catalog;
+    return catalog
+      .map((f) => ({ f, score: punteggioRicerca(f, tokens) }))
+      .filter((row): row is { f: FunzioneGestionale; score: number } =>
+        row.score != null
+      )
+      .sort((a, b) => b.score - a.score || a.f.etichetta.localeCompare(b.f.etichetta, "it"))
+      .map((row) => row.f);
+  }, [catalog, tokens]);
+
+  const filtered = useMemo(() => groupFunzioniByArea(hits), [hits]);
+
+  useEffect(() => {
+    listRef.current?.scrollTo({ top: 0 });
+  }, [query]);
 
   if (!open) return null;
 
@@ -88,24 +176,41 @@ export function FunzioniGestionalePickerModal({
 
         <div className="border-b border-[var(--border)] px-5 py-3">
           <input
+            ref={searchRef}
+            type="search"
+            autoComplete="off"
+            spellCheck={false}
             value={query}
+            onInput={(e) => setQuery((e.target as HTMLInputElement).value)}
             onChange={(e) => setQuery(e.target.value)}
-            placeholder="Cerca: prelievo, pesata, magazzino, percorso…"
+            onKeyDown={(e) => {
+              if (e.key === "Enter") e.preventDefault();
+            }}
+            placeholder="Scrivi e i risultati appaiono subito: prelievo, pesata…"
             className="w-full rounded-lg border border-[var(--border)] px-3 py-2 text-sm"
           />
           <p className="mt-1 text-xs text-[var(--muted)]">
-            {draft.length} selezionate · {catalog.length} funzioni in catalogo
+            {draft.length} selezionate
+            {tokens.length > 0
+              ? ` · ${hits.length} risultat${hits.length === 1 ? "o" : "i"} per «${query.trim()}»`
+              : ` · ${catalog.length} funzioni in catalogo`}
           </p>
         </div>
 
-        <div className="min-h-0 flex-1 overflow-y-auto px-5 py-3">
+        <div
+          ref={listRef}
+          className="min-h-0 flex-1 overflow-y-auto px-5 py-3"
+        >
           {filtered.length === 0 ? (
-            <p className="text-sm text-[var(--muted)]">Nessun risultato.</p>
+            <p className="text-sm text-[var(--muted)]">
+              Nessun risultato per «{query.trim()}».
+            </p>
           ) : (
             filtered.map((group) => (
               <section key={group.area} className="mb-4">
                 <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-[var(--muted)]">
                   {group.area}
+                  {tokens.length > 0 ? ` · ${group.items.length}` : ""}
                 </h3>
                 <ul className="space-y-2">
                   {group.items.map((f) => {
@@ -127,13 +232,13 @@ export function FunzioniGestionalePickerModal({
                           />
                           <span className="min-w-0 flex-1">
                             <span className="block text-sm font-medium">
-                              {f.etichetta}
+                              {evidenzia(f.etichetta, tokens)}
                             </span>
                             <span className="mt-0.5 block font-mono text-[11px] text-[var(--muted)]">
-                              {f.percorso}
+                              {evidenzia(f.percorso, tokens)}
                             </span>
                             <span className="mt-1 block text-xs text-[var(--muted)]">
-                              {f.spiegazione}
+                              {evidenzia(f.spiegazione, tokens)}
                             </span>
                             <span className="mt-1 inline-flex flex-wrap gap-1 text-[10px] uppercase tracking-wide text-[var(--muted)]">
                               <span>{labelTipo(f)}</span>
