@@ -6,7 +6,7 @@
 
 import { createServiceClient } from "@/lib/supabase/server";
 
-export type FonteKgAvvio = "foglio" | "foglio_assente";
+export type FonteKgAvvio = "foglio" | "foglio_assente" | "manuale";
 export type FonteClimaAvvio = "sonda" | "assente";
 
 export type CondizioniAvvioAuto = {
@@ -72,7 +72,9 @@ export function formatCondizioniAuto(c: CondizioniAvvioAuto): string {
   const kg =
     c.kgFonte === "foglio"
       ? `${c.kgProdotto.toLocaleString("it-IT")} kg dal foglio`
-      : "0 kg · foglio non collegato";
+      : c.kgFonte === "manuale"
+        ? `${c.kgProdotto.toLocaleString("it-IT")} kg manuali`
+        : "0 kg · foglio non collegato";
   const clima =
     c.climaFonte === "sonda"
       ? `${c.tempAmbienteC}°C / ${c.umiditaAmbientePct}% UR (sonda)`

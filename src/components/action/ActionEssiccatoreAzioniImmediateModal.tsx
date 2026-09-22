@@ -1,11 +1,10 @@
 "use client";
 
-import { useEffect, useId, useState, useTransition } from "react";
-import { FaBolt, FaFan, FaFire } from "react-icons/fa6";
+import { useEffect, useId, useRef, useState, useTransition } from "react";
+import { FaBolt, FaFan, FaFire, FaPencil } from "react-icons/fa6";
 import {
   avviaEssiccatoreAction,
   getCondizioniAvvioAutoAction,
-  listMlCampioniAction,
 } from "@/app/actions/action-essiccatore-azioni";
 import {
   ClockArcPercentGauge,
@@ -19,12 +18,6 @@ import {
   TEMP_BRUCIATORE_MIN_C,
   type ActionEssiccatoreAzione,
 } from "@/lib/action/azioni-immediate";
-import {
-  APPRENDIMENTO_FINESTRA_MIN,
-  CAMPIONI_DIDATTICI,
-  ricettaInizialeAvvio,
-  type MlCampione,
-} from "@/lib/action/essiccatore-apprendimento";
 import type { CondizioniAvvioAuto } from "@/lib/action/essiccatore-condizioni-auto";
 import type { ActionEssiccatore } from "@/lib/action/essiccatori";
 
@@ -34,56 +27,86 @@ type Props = {
   onAvvioRegistrato: (azione: ActionEssiccatoreAzione) => void;
 };
 
+type PassoAvvio =
+  | "carico"
+  | "temp"
+  | "vent"
+  | "on_ventola"
+  | "on_bruciatore"
+  | "avvia";
+
+const HINT =
+  "ring-2 ring-amber-400 shadow-[0_0_18px_rgba(245,158,11,0.55)] animate-pulse";
+const IDLE_MS = 5000;
+
 function ConsentSwitch({
   checked,
   onChange,
   label,
   onColorClass,
   disabled = false,
+  hint = false,
+  onDisabledClick,
 }: {
   checked: boolean;
   onChange: (next: boolean) => void;
   label: string;
   onColorClass: string;
   disabled?: boolean;
+  hint?: boolean;
+  onDisabledClick?: () => void;
 }) {
   return (
-    <div className="flex items-center justify-between gap-3">
+    <div
+      className={`flex items-center justify-between gap-3 rounded-lg px-1 py-1 ${
+        hint ? HINT : ""
+      }`}
+    >
       <span className="text-sm font-medium text-slate-800">{label}</span>
-      <button
-        type="button"
-        role="switch"
-        aria-checked={checked}
-        aria-label={label}
-        disabled={disabled}
-        onClick={() => {
-          if (disabled) return;
-          onChange(!checked);
+      <span
+        className="relative inline-flex"
+        onPointerDown={(e) => {
+          if (!disabled) return;
+          e.preventDefault();
+          e.stopPropagation();
+          onDisabledClick?.();
         }}
-        className={`relative inline-flex h-9 w-[4.75rem] shrink-0 items-center rounded-full transition-colors duration-200 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sky-600 disabled:cursor-not-allowed disabled:opacity-50 ${
-          checked ? onColorClass : "bg-slate-300"
-        }`}
       >
-        <span
-          className={`pointer-events-none absolute text-xs font-semibold uppercase tracking-wide text-white transition-opacity ${
-            checked ? "left-2 opacity-100" : "left-2 opacity-0"
+        <button
+          type="button"
+          role="switch"
+          aria-checked={checked}
+          aria-label={label}
+          disabled={disabled}
+          onClick={() => {
+            if (disabled) return;
+            onChange(!checked);
+          }}
+          className={`relative inline-flex h-9 w-[4.75rem] shrink-0 items-center rounded-full transition-colors duration-200 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sky-600 disabled:cursor-not-allowed disabled:opacity-50 ${
+            checked ? onColorClass : "bg-slate-300"
           }`}
         >
-          On
-        </span>
-        <span
-          className={`pointer-events-none absolute text-xs font-semibold uppercase tracking-wide text-slate-600 transition-opacity ${
-            checked ? "right-2 opacity-0" : "right-2.5 opacity-100"
-          }`}
-        >
-          Off
-        </span>
-        <span
-          className={`absolute top-0.5 h-8 w-8 rounded-full bg-white shadow-sm ring-1 ring-black/10 transition-transform duration-200 ${
-            checked ? "translate-x-[2.45rem]" : "translate-x-0.5"
-          }`}
-        />
-      </button>
+          <span
+            className={`pointer-events-none absolute text-xs font-semibold uppercase tracking-wide text-white transition-opacity ${
+              checked ? "left-2 opacity-100" : "left-2 opacity-0"
+            }`}
+          >
+            On
+          </span>
+          <span
+            className={`pointer-events-none absolute text-xs font-semibold uppercase tracking-wide text-slate-600 transition-opacity ${
+              checked ? "right-2 opacity-0" : "right-2.5 opacity-100"
+            }`}
+          >
+            Off
+          </span>
+          <span
+            className={`absolute top-0.5 h-8 w-8 rounded-full bg-white shadow-sm ring-1 ring-black/10 transition-transform duration-200 ${
+              checked ? "translate-x-[2.45rem]" : "translate-x-0.5"
+            }`}
+          />
+        </button>
+      </span>
     </div>
   );
 }
@@ -94,7 +117,6 @@ export function ActionEssiccatoreAzioniImmediateModal({
   onAvvioRegistrato,
 }: Props) {
   const titleId = useId();
-  const [campioni, setCampioni] = useState<MlCampione[]>(CAMPIONI_DIDATTICI);
   const [consensoBruciatore, setConsensoBruciatore] = useState(false);
   const [tempBruciatoreC, setTempBruciatoreC] = useState(50);
   const [tempImpostata, setTempImpostata] = useState(true);
@@ -102,23 +124,52 @@ export function ActionEssiccatoreAzioniImmediateModal({
   const [percVentilazione, setPercVentilazione] = useState(40);
   const [ventImpostata, setVentImpostata] = useState(true);
   const [auto, setAuto] = useState<CondizioniAvvioAuto | null>(null);
+  const [kgEdit, setKgEdit] = useState(false);
+  const [kgManuale, setKgManuale] = useState<number | null>(null);
+  const [kgManualeConfermato, setKgManualeConfermato] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [hintOn, setHintOn] = useState(false);
   const [pending, startTransition] = useTransition();
+  const lastAct = useRef(Date.now());
+  const kgInputRef = useRef<HTMLInputElement>(null);
 
-  const kgProdotto = auto?.kgProdotto ?? 0;
+  const kgDaFoglio = auto?.kgFonte === "foglio";
+  const kgProdotto =
+    kgManualeConfermato && kgManuale != null
+      ? kgManuale
+      : (auto?.kgProdotto ?? 0);
+  const kgPronto = kgDaFoglio || kgManualeConfermato;
   const tempAmbienteC = auto?.tempAmbienteC ?? 20;
   const umiditaAmbientePct = auto?.umiditaAmbientePct ?? 50;
-  const ricetta = ricettaInizialeAvvio(
-    {
-      essiccatoreId: essiccatore.id,
-      kgProdotto,
-      tempAmbienteC,
-      umiditaAmbientePct,
-      percVentilazione,
-      tempObiettivoC: tempBruciatoreC,
-    },
-    campioni
-  );
+
+  const consensiSbloccati = tempImpostata && ventImpostata;
+  const canAvvia =
+    kgPronto &&
+    consensiSbloccati &&
+    consensoBruciatore &&
+    consensoVentola &&
+    !pending;
+
+  const passo: PassoAvvio = !kgPronto
+    ? "carico"
+    : !tempImpostata
+      ? "temp"
+      : !ventImpostata
+        ? "vent"
+        : !consensoVentola
+          ? "on_ventola"
+          : !consensoBruciatore
+            ? "on_bruciatore"
+            : "avvia";
+
+  function noteActivity() {
+    lastAct.current = Date.now();
+    setHintOn(false);
+  }
+
+  function pingHint() {
+    setHintOn(true);
+  }
 
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
@@ -134,17 +185,21 @@ export function ActionEssiccatoreAzioniImmediateModal({
   }, [onClose]);
 
   useEffect(() => {
-    void listMlCampioniAction(essiccatore.id).then((res) => {
-      if (res.success && res.items.length) setCampioni(res.items);
-    });
     void getCondizioniAvvioAutoAction(essiccatore.id).then((res) => {
       if (res.success) setAuto(res.condizioni);
     });
   }, [essiccatore.id]);
 
-  const consensiSbloccati = tempImpostata && ventImpostata;
-  const canAvvia =
-    consensiSbloccati && consensoBruciatore && consensoVentola && !pending;
+  useEffect(() => {
+    const t = window.setInterval(() => {
+      if (Date.now() - lastAct.current >= IDLE_MS) setHintOn(true);
+    }, 400);
+    return () => window.clearInterval(t);
+  }, []);
+
+  useEffect(() => {
+    if (kgEdit) kgInputRef.current?.focus();
+  }, [kgEdit]);
 
   function impostaTemperatura(value: number) {
     setTempBruciatoreC(value);
@@ -162,7 +217,19 @@ export function ActionEssiccatoreAzioniImmediateModal({
     setConsensoBruciatore(false);
   }
 
+  function confermaKgManuale() {
+    const n = kgManuale ?? 0;
+    setKgManuale(n);
+    setKgManualeConfermato(true);
+    setKgEdit(false);
+  }
+
   function submitAvvio() {
+    if (!kgPronto) {
+      setError("Indica il carico essiccatore (matita) o attendi il foglio.");
+      pingHint();
+      return;
+    }
     setError(null);
     startTransition(async () => {
       const res = await avviaEssiccatoreAction({
@@ -171,6 +238,9 @@ export function ActionEssiccatoreAzioniImmediateModal({
         tempBruciatoreC,
         consensoVentola,
         percVentilazione,
+        ...(kgManualeConfermato && kgManuale != null
+          ? { kgManuale }
+          : {}),
       });
       if (!res.success) {
         setError(res.error);
@@ -179,6 +249,8 @@ export function ActionEssiccatoreAzioniImmediateModal({
       onAvvioRegistrato(res.item);
     });
   }
+
+  const hint = (p: PassoAvvio) => hintOn && passo === p;
 
   return (
     <div
@@ -192,6 +264,8 @@ export function ActionEssiccatoreAzioniImmediateModal({
         aria-labelledby={titleId}
         className="max-h-[92vh] w-full max-w-3xl overflow-y-auto rounded-xl border border-[var(--border)] bg-[var(--card)] shadow-xl"
         onClick={(e) => e.stopPropagation()}
+        onPointerDown={noteActivity}
+        onKeyDown={noteActivity}
       >
         <div className="flex items-center justify-between gap-3 border-b border-[var(--border)] px-4 py-3">
           <div>
@@ -217,21 +291,65 @@ export function ActionEssiccatoreAzioniImmediateModal({
             </span>
           </div>
 
-          <p className="text-sm text-[var(--muted)]">
-            Carico, aria e umidità li rileva il sistema. Tu imposti solo
-            temperatura, ventola e i due On.
-          </p>
-
           <div className="grid gap-3 sm:grid-cols-3">
-            <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2">
-              <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">
-                Carico essiccatore
-              </p>
-              <p className="mt-0.5 text-sm font-semibold tabular-nums">
-                {kgProdotto.toLocaleString("it-IT")} kg
-              </p>
+            <div
+              className={`rounded-lg border bg-slate-50 px-3 py-2 ${
+                hint("carico")
+                  ? `border-amber-400 ${HINT}`
+                  : "border-slate-200"
+              }`}
+            >
+              <div className="flex items-start justify-between gap-2">
+                <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">
+                  Carico essiccatore
+                </p>
+                <button
+                  type="button"
+                  title="Modifica carico"
+                  aria-label="Modifica carico essiccatore"
+                  onClick={() => {
+                    setKgEdit(true);
+                    setKgManuale(kgProdotto);
+                  }}
+                  className="rounded p-1 text-slate-500 hover:bg-white hover:text-slate-800"
+                >
+                  <FaPencil size={11} />
+                </button>
+              </div>
+              {kgEdit ? (
+                <div className="mt-1 flex items-center gap-2">
+                  <input
+                    ref={kgInputRef}
+                    type="number"
+                    min={0}
+                    max={8000}
+                    step={1}
+                    value={kgManuale ?? 0}
+                    onChange={(e) =>
+                      setKgManuale(Number(e.target.value) || 0)
+                    }
+                    onBlur={confermaKgManuale}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") {
+                        e.preventDefault();
+                        confermaKgManuale();
+                      }
+                    }}
+                    className="w-full rounded-md border border-slate-300 px-2 py-1 text-sm font-semibold tabular-nums"
+                  />
+                  <span className="text-xs text-slate-500">kg</span>
+                </div>
+              ) : (
+                <p className="mt-0.5 text-sm font-semibold tabular-nums">
+                  {kgProdotto.toLocaleString("it-IT")} kg
+                </p>
+              )}
               <p className="mt-1 text-[11px] leading-4 text-slate-500">
-                {auto?.kgNota ?? "Dal foglio di lavoro (in arrivo)."}
+                {kgManualeConfermato
+                  ? "Carico immediato (manuale)."
+                  : kgDaFoglio
+                    ? auto?.kgNota
+                    : "Obbligatorio: foglio di lavoro o matita."}
               </p>
             </div>
             <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2">
@@ -246,9 +364,6 @@ export function ActionEssiccatoreAzioniImmediateModal({
                 {auto?.climaLettoAt
                   ? ` · ${new Date(auto.climaLettoAt).toLocaleString("it-IT")}`
                   : ""}
-                {auto?.climaFonte === "assente"
-                  ? " · in attesa della sonda"
-                  : ""}
               </p>
             </div>
             <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2">
@@ -260,111 +375,107 @@ export function ActionEssiccatoreAzioniImmediateModal({
               </p>
               <p className="mt-1 text-[11px] leading-4 text-slate-500">
                 Sonda UMID-AMB · storico in DB
-                {auto?.climaFonte === "assente"
-                  ? " · in attesa della sonda"
-                  : ""}
               </p>
             </div>
           </div>
 
-          <div className="rounded-lg border border-violet-200 bg-violet-50/70 px-3 py-2.5 text-sm text-violet-950">
-            <p className="font-semibold">Partenza stimata · apprendimento A+</p>
-            <p className="mt-1 text-xs leading-5 text-violet-900">
-              {kgProdotto === 0
-                ? "Scarico libero (vuoto) finché il foglio non registra i kg."
-                : `Effetto tappo da ${kgProdotto.toLocaleString("it-IT")} kg.`}{" "}
-              Aria {tempAmbienteC}°C / {umiditaAmbientePct}% UR · ventola{" "}
-              {percVentilazione}% · obiettivo {tempBruciatoreC}°C · apertura{" "}
-              <span className="font-semibold">
-                {ricetta.percBruciatorePrevista}%
-              </span>
-              . {ricetta.stima.spiegazione} Dopo {APPRENDIMENTO_FINESTRA_MIN}{" "}
-              minuti si misura la temperatura tenuta e si affina.
-            </p>
+          <div className="grid gap-4 md:grid-cols-2">
+            <section
+              className={`rounded-xl border bg-orange-50/40 p-3 ${
+                hint("temp")
+                  ? `border-amber-400 ${HINT}`
+                  : "border-orange-100"
+              }`}
+            >
+              <div className="mb-1 flex items-center gap-2 text-sm font-semibold text-orange-950">
+                <FaFire className="text-orange-600" />
+                Bruciatore
+              </div>
+              <ClockArcPercentGauge
+                label="Temperatura"
+                value={tempBruciatoreC}
+                onChange={impostaTemperatura}
+                min={TEMP_BRUCIATORE_MIN_C}
+                max={TEMP_BRUCIATORE_MAX_C}
+                unit="°C"
+                ticks={[35, 45, 55, 65, 70]}
+                fromColor={BURNER_FROM}
+                toColor={BURNER_TO}
+              />
+              <ConsentSwitch
+                label="Consenso bruciatore"
+                checked={consensoBruciatore}
+                onChange={setConsensoBruciatore}
+                onColorClass="bg-orange-500"
+                disabled={!consensiSbloccati}
+                hint={hint("on_bruciatore")}
+                onDisabledClick={pingHint}
+              />
+            </section>
+
+            <section
+              className={`rounded-xl border bg-sky-50/40 p-3 ${
+                hint("vent") ? `border-amber-400 ${HINT}` : "border-sky-100"
+              }`}
+            >
+              <div className="mb-1 flex items-center gap-2 text-sm font-semibold text-sky-950">
+                <FaFan className="text-sky-600" />
+                Ventola
+              </div>
+              <ClockArcPercentGauge
+                label="Ventilazione"
+                value={percVentilazione}
+                onChange={impostaVentilazione}
+                fromColor={VENT_FROM}
+                toColor={VENT_TO}
+              />
+              <ConsentSwitch
+                label="Consenso ventola"
+                checked={consensoVentola}
+                onChange={setConsensoVentola}
+                onColorClass="bg-sky-500"
+                disabled={!consensiSbloccati}
+                hint={hint("on_ventola")}
+                onDisabledClick={pingHint}
+              />
+            </section>
           </div>
 
-              <div className="grid gap-4 md:grid-cols-2">
-                <section className="rounded-xl border border-orange-100 bg-orange-50/40 p-3">
-                  <div className="mb-1 flex items-center gap-2 text-sm font-semibold text-orange-950">
-                    <FaFire className="text-orange-600" />
-                    Bruciatore
-                  </div>
-                  <ClockArcPercentGauge
-                    label="Temperatura"
-                    value={tempBruciatoreC}
-                    onChange={impostaTemperatura}
-                    min={TEMP_BRUCIATORE_MIN_C}
-                    max={TEMP_BRUCIATORE_MAX_C}
-                    unit="°C"
-                    ticks={[35, 45, 55, 65, 70]}
-                    fromColor={BURNER_FROM}
-                    toColor={BURNER_TO}
-                  />
-                  <ConsentSwitch
-                    label="Consenso bruciatore"
-                    checked={consensoBruciatore}
-                    onChange={setConsensoBruciatore}
-                    onColorClass="bg-orange-500"
-                    disabled={!consensiSbloccati}
-                  />
-                </section>
+          {error ? (
+            <p className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">
+              {error}
+            </p>
+          ) : null}
 
-                <section className="rounded-xl border border-sky-100 bg-sky-50/40 p-3">
-                  <div className="mb-1 flex items-center gap-2 text-sm font-semibold text-sky-950">
-                    <FaFan className="text-sky-600" />
-                    Ventola
-                  </div>
-                  <ClockArcPercentGauge
-                    label="Ventilazione"
-                    value={percVentilazione}
-                    onChange={impostaVentilazione}
-                    fromColor={VENT_FROM}
-                    toColor={VENT_TO}
-                  />
-                  <ConsentSwitch
-                    label="Consenso ventola"
-                    checked={consensoVentola}
-                    onChange={setConsensoVentola}
-                    onColorClass="bg-sky-500"
-                    disabled={!consensiSbloccati}
-                  />
-                </section>
-              </div>
-
-              {error ? (
-                <p className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">
-                  {error}
-                </p>
-              ) : null}
-
-              {!consensiSbloccati ? (
-                <p className="text-sm text-amber-800">
-                  Imposta prima Temperatura e Ventilazione (sopra 0%). Poi
-                  potrai mettere On entrambi i consensi.
-                </p>
-              ) : !consensoBruciatore || !consensoVentola ? (
-                <p className="text-sm text-amber-800">
-                  Porta a On entrambi i consensi per avviare.
-                </p>
-              ) : null}
-
-              <div className="flex gap-2">
-                <button
-                  type="button"
-                  onClick={onClose}
-                  className="flex-1 rounded-lg border border-[var(--border)] py-2.5 text-sm font-medium hover:bg-slate-50"
-                >
-                  Annulla
-                </button>
-                <button
-                  type="button"
-                  disabled={!canAvvia}
-                  onClick={submitAvvio}
-                  className="flex-1 rounded-lg bg-amber-500 py-2.5 text-sm font-medium text-white hover:bg-amber-600 disabled:cursor-not-allowed disabled:opacity-60"
-                >
-                  {pending ? "Registrazione…" : "Avvia essiccatore"}
-                </button>
-              </div>
+          <div className="flex gap-2">
+            <button
+              type="button"
+              onClick={onClose}
+              className="flex-1 rounded-lg border border-[var(--border)] py-2.5 text-sm font-medium hover:bg-slate-50"
+            >
+              Annulla
+            </button>
+            <span
+              className="flex-1"
+              onPointerDown={(e) => {
+                if (canAvvia) return;
+                e.preventDefault();
+                e.stopPropagation();
+                pingHint();
+              }}
+            >
+              <button
+                type="button"
+                disabled={!canAvvia}
+                onClick={submitAvvio}
+                className={`w-full rounded-lg bg-amber-500 py-2.5 text-sm font-medium text-white hover:bg-amber-600 disabled:cursor-not-allowed disabled:opacity-60 ${
+                  hint("avvia") ? HINT : ""
+                }`}
+              >
+                {pending ? "Registrazione…" : "Avvia essiccatore"}
+              </button>
+            </span>
+          </div>
         </div>
       </div>
     </div>

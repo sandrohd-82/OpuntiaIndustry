@@ -251,11 +251,22 @@ export async function avviaEssiccatoreAction(
   }
 
   const auto = await loadCondizioniAuto(parsed.data.essiccatoreId);
+  const kgManuale = parsed.data.kgManuale;
+  const haManuale = typeof kgManuale === "number";
+  if (!haManuale && auto.kgFonte === "foglio_assente") {
+    return {
+      success: false,
+      error:
+        "Indica il carico essiccatore (icona matita) oppure collegalo dal foglio di lavoro.",
+    };
+  }
+  const kgProdotto = haManuale ? kgManuale : auto.kgProdotto;
+  const kgFonte = haManuale ? "manuale" : auto.kgFonte;
   const campioni = await loadCampioni(parsed.data.essiccatoreId);
   const stima = stimaPercBruciatore(
     {
       essiccatoreId: parsed.data.essiccatoreId,
-      kgProdotto: auto.kgProdotto,
+      kgProdotto,
       tempAmbienteC: auto.tempAmbienteC,
       umiditaAmbientePct: auto.umiditaAmbientePct,
       percVentilazione: parsed.data.percVentilazione,
@@ -281,7 +292,7 @@ export async function avviaEssiccatoreAction(
       temp_bruciatore_c: parsed.data.tempBruciatoreC,
       consenso_ventola: parsed.data.consensoVentola,
       perc_ventilazione: parsed.data.percVentilazione,
-      kg_prodotto: auto.kgProdotto,
+      kg_prodotto: kgProdotto,
       temp_ambiente_c: auto.tempAmbienteC,
       umidita_ambiente_pct: auto.umiditaAmbientePct,
       perc_bruciatore_prevista: stima.percBruciatore,
@@ -345,8 +356,8 @@ export async function avviaEssiccatoreAction(
     summary: `Avvio ${ess.nome}: ${item.tempBruciatoreC}°C, ventola ${item.percVentilazione}%, bruciatore ${stima.percBruciatore}% (${stima.fonte}), ${item.kgProdotto} kg, aria ${item.tempAmbienteC}°C/${item.umiditaAmbientePct}%`,
     payload: {
       essiccatoreId: item.essiccatoreId,
-      kgProdotto: item.kgProdotto,
-      kgFonte: auto.kgFonte,
+      kgProdotto: kgProdotto,
+      kgFonte,
       tempAmbienteC: item.tempAmbienteC,
       umiditaAmbientePct: item.umiditaAmbientePct,
       climaFonte: auto.climaFonte,
