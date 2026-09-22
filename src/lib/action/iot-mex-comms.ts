@@ -8,10 +8,10 @@ import {
   type MexFrame,
 } from "@/lib/action/iot-mex";
 
-/** Tempi lenti di simulazione (ms). L’IoT reale sostituirà questi delay. */
+/** Test grafica: il device finto risponde dopo 1 minuto. Poi IoT reale. */
 export const MEX_COMMS_SIM = {
-  attesaConfermaMs: 3200,
-  mostraConfermaMs: 1400,
+  attesaConfermaMs: 60_000,
+  mostraConfermaMs: 5000,
 } as const;
 
 export type MexCommsFase =

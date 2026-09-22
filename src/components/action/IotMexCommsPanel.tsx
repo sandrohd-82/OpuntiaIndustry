@@ -5,6 +5,7 @@ import { createPortal } from "react-dom";
 import { FaCheck, FaMinus, FaXmark } from "react-icons/fa6";
 import { BusySpinner } from "@/components/ui/BusyIndicator";
 import {
+  ackSimulato,
   MEX_COMMS_SIM,
   ventolaOnConfermata,
   type MexCommsFase,
@@ -27,6 +28,9 @@ export function IotMexCommsPanel({ sessione, onChiudi }: Props) {
   const [docked, setDocked] = useState(false);
   const [index, setIndex] = useState(0);
   const [fase, setFase] = useState<MexCommsFase>("attesa");
+  const [restaSec, setRestaSec] = useState(
+    Math.ceil(MEX_COMMS_SIM.attesaConfermaMs / 1000)
+  );
 
   const passi = sessione.passi;
   const visibile = passi[index] ?? passi[passi.length - 1];
@@ -40,7 +44,17 @@ export function IotMexCommsPanel({ sessione, onChiudi }: Props) {
     setDocked(false);
     setIndex(0);
     setFase("attesa");
+    setRestaSec(Math.ceil(MEX_COMMS_SIM.attesaConfermaMs / 1000));
   }, [sessione.id]);
+
+  useEffect(() => {
+    if (fase !== "attesa") return;
+    setRestaSec(Math.ceil(MEX_COMMS_SIM.attesaConfermaMs / 1000));
+    const t = window.setInterval(() => {
+      setRestaSec((s) => (s > 0 ? s - 1 : 0));
+    }, 1000);
+    return () => window.clearInterval(t);
+  }, [fase, index, sessione.id]);
 
   useEffect(() => {
     if (!passi.length) return;
@@ -117,8 +131,12 @@ export function IotMexCommsPanel({ sessione, onChiudi }: Props) {
   const inAttesa = fase === "attesa";
   const blocco = fase === "blocco_sicurezza";
   const fatto = fase === "completato";
+  const confermato = fase === "confermato" || fatto;
   const storico = passi.slice(0, fatto ? Math.max(passi.length - 1, 0) : index);
   const passoN = Math.min(index + 1, passi.length);
+  const risposta = visibile ? ackSimulato(visibile.frame) : null;
+  const mm = String(Math.floor(restaSec / 60)).padStart(2, "0");
+  const ss = String(restaSec % 60).padStart(2, "0");
 
   const statoRiga = blocco
     ? "Blocco sicurezza: bruciatore non inviato"
@@ -148,7 +166,9 @@ export function IotMexCommsPanel({ sessione, onChiudi }: Props) {
         {inAttesa ? (
           <>
             <BusySpinner />
-            <span className="text-amber-800">In attesa conferma</span>
+            <span className="text-amber-800">
+              In attesa conferma {mm}:{ss}
+            </span>
           </>
         ) : blocco ? (
           <span className="text-red-800">Blocco sicurezza</span>
@@ -200,9 +220,8 @@ export function IotMexCommsPanel({ sessione, onChiudi }: Props) {
 
       <div className="space-y-3 px-4 py-3">
         <p className="text-xs leading-5 text-slate-600">
-          Cadenza di sicurezza: set ventola → attesa → On ventola → attesa →
-          set temperatura → attesa → On bruciatore. Il bruciatore non parte
-          senza ventola On.
+          Test: il device finto risponde dopo 1 minuto. Cadenza: ventola → On
+          ventola → temperatura → apertura bruciatore → On bruciatore.
         </p>
 
         {storico.length ? (
@@ -245,7 +264,9 @@ export function IotMexCommsPanel({ sessione, onChiudi }: Props) {
             {inAttesa ? (
               <>
                 <BusySpinner className="h-4 w-4 border-[2.5px]" />
-                <span className="text-amber-900">In attesa conferma</span>
+                <span className="text-amber-900">
+                  In attesa conferma device {mm}:{ss}
+                </span>
               </>
             ) : blocco ? (
               <span className="text-red-800">{statoRiga}</span>
@@ -259,6 +280,20 @@ export function IotMexCommsPanel({ sessione, onChiudi }: Props) {
             )}
           </div>
         </div>
+
+        {confermato && risposta ? (
+          <div className="rounded-xl border border-emerald-200 bg-white px-3 py-3">
+            <p className="text-[10px] font-semibold uppercase tracking-wide text-emerald-700">
+              Risposta device (finta)
+            </p>
+            <p className="mt-0.5 text-sm font-semibold text-slate-900">
+              {risposta.titolo}
+            </p>
+            <p className="mt-2 break-all font-mono text-[11px] leading-5 tracking-wide text-slate-600">
+              {risposta.frame.hexSpaced}
+            </p>
+          </div>
+        ) : null}
       </div>
     </div>
   );
