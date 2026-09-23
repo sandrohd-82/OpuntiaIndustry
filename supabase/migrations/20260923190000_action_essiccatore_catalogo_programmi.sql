@@ -1,5 +1,10 @@
 -- Action Essiccatori: azioni registrate, programmate, processi (insieme di registrate).
 -- ISO 9001 §8.5.2 / 7.5: audit, soft delete, versione, stato documento. Mai delete fisico.
+-- Idempotente e lock-safe: se oggetti già presenti, non fa DROP POLICY/TRIGGER
+-- (evita deadlock 40P01 su AccessExclusiveLock in concorrenza con query aperte).
+
+set lock_timeout = '4s';
+set deadlock_timeout = '1s';
 
 -- ---------------------------------------------------------------------------
 -- Catalogo azioni registrate (riutilizzabili)
@@ -41,24 +46,52 @@ create index if not exists action_ess_reg_ess_idx
 comment on table public.action_essiccatore_registrate is
   'Catalogo azioni riutilizzabili per essiccatore. Un processo è un insieme di queste azioni.';
 
-drop trigger if exists action_ess_reg_updated_at on public.action_essiccatore_registrate;
-create trigger action_ess_reg_updated_at
-  before update on public.action_essiccatore_registrate
-  for each row execute function public.set_updated_at();
+do $$
+begin
+  if not exists (
+    select 1
+    from pg_trigger t
+    join pg_class c on c.oid = t.tgrelid
+    join pg_namespace n on n.oid = c.relnamespace
+    where n.nspname = 'public'
+      and c.relname = 'action_essiccatore_registrate'
+      and t.tgname = 'action_ess_reg_updated_at'
+      and not t.tgisinternal
+  ) then
+    create trigger action_ess_reg_updated_at
+      before update on public.action_essiccatore_registrate
+      for each row execute function public.set_updated_at();
+  end if;
 
-alter table public.action_essiccatore_registrate enable row level security;
+  if not exists (
+    select 1
+    from pg_class c
+    join pg_namespace n on n.oid = c.relnamespace
+    where n.nspname = 'public'
+      and c.relname = 'action_essiccatore_registrate'
+      and c.relrowsecurity
+  ) then
+    alter table public.action_essiccatore_registrate enable row level security;
+  end if;
 
-drop policy if exists action_ess_reg_all on public.action_essiccatore_registrate;
-create policy action_ess_reg_all
-  on public.action_essiccatore_registrate for all to authenticated
-  using (
-    public.has_area_access('action')
-    or public.has_area_access('produzione')
-    or public.is_superadmin()
-  )
-  with check (
-    public.has_area_access('action') or public.is_superadmin()
-  );
+  if not exists (
+    select 1 from pg_policies
+    where schemaname = 'public'
+      and tablename = 'action_essiccatore_registrate'
+      and policyname = 'action_ess_reg_all'
+  ) then
+    create policy action_ess_reg_all
+      on public.action_essiccatore_registrate for all to authenticated
+      using (
+        public.has_area_access('action')
+        or public.has_area_access('produzione')
+        or public.is_superadmin()
+      )
+      with check (
+        public.has_area_access('action') or public.is_superadmin()
+      );
+  end if;
+end $$;
 
 grant select, insert, update on table public.action_essiccatore_registrate to authenticated;
 grant all on table public.action_essiccatore_registrate to postgres, service_role;
@@ -101,24 +134,52 @@ create index if not exists action_ess_prog_ess_idx
 comment on table public.action_essiccatore_programmate is
   'Programmazione di un’azione registrata su essiccatore (data/ora). Soft delete + audit.';
 
-drop trigger if exists action_ess_prog_updated_at on public.action_essiccatore_programmate;
-create trigger action_ess_prog_updated_at
-  before update on public.action_essiccatore_programmate
-  for each row execute function public.set_updated_at();
+do $$
+begin
+  if not exists (
+    select 1
+    from pg_trigger t
+    join pg_class c on c.oid = t.tgrelid
+    join pg_namespace n on n.oid = c.relnamespace
+    where n.nspname = 'public'
+      and c.relname = 'action_essiccatore_programmate'
+      and t.tgname = 'action_ess_prog_updated_at'
+      and not t.tgisinternal
+  ) then
+    create trigger action_ess_prog_updated_at
+      before update on public.action_essiccatore_programmate
+      for each row execute function public.set_updated_at();
+  end if;
 
-alter table public.action_essiccatore_programmate enable row level security;
+  if not exists (
+    select 1
+    from pg_class c
+    join pg_namespace n on n.oid = c.relnamespace
+    where n.nspname = 'public'
+      and c.relname = 'action_essiccatore_programmate'
+      and c.relrowsecurity
+  ) then
+    alter table public.action_essiccatore_programmate enable row level security;
+  end if;
 
-drop policy if exists action_ess_prog_all on public.action_essiccatore_programmate;
-create policy action_ess_prog_all
-  on public.action_essiccatore_programmate for all to authenticated
-  using (
-    public.has_area_access('action')
-    or public.has_area_access('produzione')
-    or public.is_superadmin()
-  )
-  with check (
-    public.has_area_access('action') or public.is_superadmin()
-  );
+  if not exists (
+    select 1 from pg_policies
+    where schemaname = 'public'
+      and tablename = 'action_essiccatore_programmate'
+      and policyname = 'action_ess_prog_all'
+  ) then
+    create policy action_ess_prog_all
+      on public.action_essiccatore_programmate for all to authenticated
+      using (
+        public.has_area_access('action')
+        or public.has_area_access('produzione')
+        or public.is_superadmin()
+      )
+      with check (
+        public.has_area_access('action') or public.is_superadmin()
+      );
+  end if;
+end $$;
 
 grant select, insert, update on table public.action_essiccatore_programmate to authenticated;
 grant all on table public.action_essiccatore_programmate to postgres, service_role;
@@ -156,24 +217,52 @@ create index if not exists action_ess_proc_ess_idx
 comment on table public.action_essiccatore_processi is
   'Processo Action: insieme di azioni registrate in sequenza su un essiccatore.';
 
-drop trigger if exists action_ess_proc_updated_at on public.action_essiccatore_processi;
-create trigger action_ess_proc_updated_at
-  before update on public.action_essiccatore_processi
-  for each row execute function public.set_updated_at();
+do $$
+begin
+  if not exists (
+    select 1
+    from pg_trigger t
+    join pg_class c on c.oid = t.tgrelid
+    join pg_namespace n on n.oid = c.relnamespace
+    where n.nspname = 'public'
+      and c.relname = 'action_essiccatore_processi'
+      and t.tgname = 'action_ess_proc_updated_at'
+      and not t.tgisinternal
+  ) then
+    create trigger action_ess_proc_updated_at
+      before update on public.action_essiccatore_processi
+      for each row execute function public.set_updated_at();
+  end if;
 
-alter table public.action_essiccatore_processi enable row level security;
+  if not exists (
+    select 1
+    from pg_class c
+    join pg_namespace n on n.oid = c.relnamespace
+    where n.nspname = 'public'
+      and c.relname = 'action_essiccatore_processi'
+      and c.relrowsecurity
+  ) then
+    alter table public.action_essiccatore_processi enable row level security;
+  end if;
 
-drop policy if exists action_ess_proc_all on public.action_essiccatore_processi;
-create policy action_ess_proc_all
-  on public.action_essiccatore_processi for all to authenticated
-  using (
-    public.has_area_access('action')
-    or public.has_area_access('produzione')
-    or public.is_superadmin()
-  )
-  with check (
-    public.has_area_access('action') or public.is_superadmin()
-  );
+  if not exists (
+    select 1 from pg_policies
+    where schemaname = 'public'
+      and tablename = 'action_essiccatore_processi'
+      and policyname = 'action_ess_proc_all'
+  ) then
+    create policy action_ess_proc_all
+      on public.action_essiccatore_processi for all to authenticated
+      using (
+        public.has_area_access('action')
+        or public.has_area_access('produzione')
+        or public.is_superadmin()
+      )
+      with check (
+        public.has_area_access('action') or public.is_superadmin()
+      );
+  end if;
+end $$;
 
 grant select, insert, update on table public.action_essiccatore_processi to authenticated;
 grant all on table public.action_essiccatore_processi to postgres, service_role;
@@ -199,25 +288,52 @@ create unique index if not exists action_ess_proc_passi_ord_uidx
 comment on table public.action_essiccatore_processi_passi is
   'Passi di un processo: almeno due azioni registrate, in ordine.';
 
-drop trigger if exists action_ess_proc_passi_updated_at
-  on public.action_essiccatore_processi_passi;
-create trigger action_ess_proc_passi_updated_at
-  before update on public.action_essiccatore_processi_passi
-  for each row execute function public.set_updated_at();
+do $$
+begin
+  if not exists (
+    select 1
+    from pg_trigger t
+    join pg_class c on c.oid = t.tgrelid
+    join pg_namespace n on n.oid = c.relnamespace
+    where n.nspname = 'public'
+      and c.relname = 'action_essiccatore_processi_passi'
+      and t.tgname = 'action_ess_proc_passi_updated_at'
+      and not t.tgisinternal
+  ) then
+    create trigger action_ess_proc_passi_updated_at
+      before update on public.action_essiccatore_processi_passi
+      for each row execute function public.set_updated_at();
+  end if;
 
-alter table public.action_essiccatore_processi_passi enable row level security;
+  if not exists (
+    select 1
+    from pg_class c
+    join pg_namespace n on n.oid = c.relnamespace
+    where n.nspname = 'public'
+      and c.relname = 'action_essiccatore_processi_passi'
+      and c.relrowsecurity
+  ) then
+    alter table public.action_essiccatore_processi_passi enable row level security;
+  end if;
 
-drop policy if exists action_ess_proc_passi_all on public.action_essiccatore_processi_passi;
-create policy action_ess_proc_passi_all
-  on public.action_essiccatore_processi_passi for all to authenticated
-  using (
-    public.has_area_access('action')
-    or public.has_area_access('produzione')
-    or public.is_superadmin()
-  )
-  with check (
-    public.has_area_access('action') or public.is_superadmin()
-  );
+  if not exists (
+    select 1 from pg_policies
+    where schemaname = 'public'
+      and tablename = 'action_essiccatore_processi_passi'
+      and policyname = 'action_ess_proc_passi_all'
+  ) then
+    create policy action_ess_proc_passi_all
+      on public.action_essiccatore_processi_passi for all to authenticated
+      using (
+        public.has_area_access('action')
+        or public.has_area_access('produzione')
+        or public.is_superadmin()
+      )
+      with check (
+        public.has_area_access('action') or public.is_superadmin()
+      );
+  end if;
+end $$;
 
 grant select, insert, update on table public.action_essiccatore_processi_passi to authenticated;
 grant all on table public.action_essiccatore_processi_passi to postgres, service_role;
