@@ -252,7 +252,9 @@ export default async function ArchivioCatchAllPage({ params }: Props) {
       <>
         <AppHeader title={page.label} subtitle={page.description} />
         <div className="p-6">
-          <TicketBoard mode="archivio" />
+          <Suspense fallback={<p className="text-sm text-slate-600">Apro i ticket…</p>}>
+            <TicketBoard mode="archivio" />
+          </Suspense>
         </div>
       </>
     );

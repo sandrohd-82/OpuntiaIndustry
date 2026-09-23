@@ -2,8 +2,9 @@ export type NavBadge =
   | { kind: "status"; active: boolean }
   | { kind: "count"; count: number; title?: string }
   | {
-      kind: "ticket-urgenze";
-      stacks: Array<{ urgenza: string; count: number }>;
+      kind: "ticket-nav";
+      tickets: number;
+      messaggi: number;
     };
 
 export type NavLeaf = {
@@ -39,12 +40,14 @@ export function isNavBranch(item: NavItem): item is NavBranch {
   return "children" in item && Array.isArray(item.children);
 }
 
-export function applyTicketUrgenzaBadge(
+export function applyTicketNavBadge(
   items: readonly NavItem[],
-  stacks: Array<{ urgenza: string; count: number }>
+  messaggi: number
 ): NavItem[] {
   const badge: NavBadge | undefined =
-    stacks.length > 0 ? { kind: "ticket-urgenze", stacks } : undefined;
+    messaggi > 0
+      ? { kind: "ticket-nav", tickets: 0, messaggi }
+      : undefined;
   return items.map((item) => {
     if (item.slug !== "ticket") return item;
     return { ...item, badge };

@@ -1,7 +1,7 @@
-import { notFound } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 import { AppHeader } from "@/components/layout/AppHeader";
 import { MagazzinoMappaBoard } from "@/components/magazzino/MagazzinoMappaBoard";
-import { requireAreaAccess } from "@/lib/areas/guard";
+import { requireAnyAreaAccess, requireAreaAccess } from "@/lib/areas/guard";
 import { resolveStrumentiPage } from "@/lib/areas/strumenti";
 
 type Props = {
@@ -9,8 +9,13 @@ type Props = {
 };
 
 export default async function StrumentiEditorAreePage({ params }: Props) {
-  await requireAreaAccess("strumenti");
   const { section, id } = await params;
+  if (section === "ticket") {
+    await requireAnyAreaAccess(["strumenti", "amministrazione"]);
+    if (!/^[0-9a-f-]{36}$/i.test(id)) notFound();
+    redirect(`/app/strumenti/ticket?apri=${id}`);
+  }
+  await requireAreaAccess("strumenti");
   if (section !== "editor-aree") notFound();
   const page = resolveStrumentiPage([section]);
   if (!page) notFound();

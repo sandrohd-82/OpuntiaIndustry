@@ -6,7 +6,11 @@ import { requireAnyAreaAccess } from "@/lib/areas/guard";
 import { formatOperatorShortName } from "@/lib/auth/operator-short-name";
 import { isSuperadminProfile } from "@/lib/auth/roles";
 import { userCanAccessArea } from "@/lib/auth/session";
-import { loadTicketAddettoUserId, notifyTicketNuovo } from "@/lib/strumenti/ticket-notify";
+import {
+  loadTicketAddettoUserId,
+  notifyTicketMessaggio,
+  notifyTicketNuovo,
+} from "@/lib/strumenti/ticket-notify";
 import { createClient, createServiceClient } from "@/lib/supabase/server";
 import {
   TICKET_BUCKET,
@@ -55,6 +59,40 @@ async function gateTicket() {
 function revalidateTicket() {
   revalidatePath("/app/strumenti/ticket");
   revalidatePath("/app/archivio/strumenti/ticket");
+}
+
+async function markTicketNotificheLette(
+  db: ReturnType<typeof createServiceClient>,
+  userId: string,
+  ticketId: string
+) {
+  const { data } = await db
+    .from("app_notifiche")
+    .select("id, entity_id, entity_type, payload")
+    .eq("recipient_id", userId)
+    .eq("tipo", "sistema")
+    .is("read_at", null)
+    .is("deleted_at", null);
+  const ids = (data ?? [])
+    .filter((row) => {
+      if (String(row.entity_id ?? "") === ticketId) return true;
+      const payload =
+        row.payload && typeof row.payload === "object"
+          ? (row.payload as Record<string, unknown>)
+          : {};
+      return String(payload.ticketId ?? "") === ticketId;
+    })
+    .map((row) => String(row.id));
+  if (!ids.length) return;
+  const now = new Date().toISOString();
+  await db
+    .from("app_notifiche")
+    .update({
+      read_at: now,
+      read_by: userId,
+      updated_by: userId,
+    })
+    .in("id", ids);
 }
 
 function asCategoria(v: string): TicketCategoria {
@@ -372,6 +410,7 @@ export async function getTicketAction(
   const { auth, admin, isAddetto, db } = await gateTicket();
   const seen = await assertVede(db, auth, admin, ticketId);
   if (!seen.ok) return { success: false, error: seen.error };
+  await markTicketNotificheLette(db, auth.userId, ticketId);
   const { data: msgs, error: mErr } = await db
     .from("strumenti_ticket_messaggi")
     .select("id, ticket_id, contenuto, tipo, created_by, created_at")
@@ -597,6 +636,18 @@ export async function sendTicketMessaggioAction(
       })
       .eq("id", parsed.data.ticketId);
   }
+  const messaggioId = (msg as { id: string }).id;
+  void notifyTicketMessaggio({
+    actorId: auth.userId,
+    ticketId: parsed.data.ticketId,
+    messaggioId,
+    codice: String(seen.row.codice ?? ""),
+    titolo: String(seen.row.titolo ?? "Ticket"),
+    createdBy: seen.row.created_by ? String(seen.row.created_by) : null,
+    anteprima:
+      parsed.data.contenuto ||
+      (audioFile ? "Nota vocale" : files.length ? "Allegato" : ""),
+  });
   revalidateTicket();
   return getTicketAction(parsed.data.ticketId);
 }

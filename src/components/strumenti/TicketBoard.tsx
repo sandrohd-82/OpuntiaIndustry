@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import { createPortal } from "react-dom";
 import {
   FaBug,
@@ -29,6 +30,7 @@ import {
 } from "@/components/strumenti/TicketAllegatiAnteprima";
 import { TicketImpostazioniPanel } from "@/components/strumenti/TicketImpostazioniPanel";
 import { caricaFileTicketLatoClient } from "@/lib/strumenti/ticket-upload-client";
+import { notifyNotificheNav } from "@/lib/notifiche/nav-event";
 import { notifyTicketNav } from "@/lib/strumenti/ticket-nav";
 import {
   TICKET_CATEGORIA_META,
@@ -114,6 +116,8 @@ function revocaAnteprime(items: AllegatoLocale[]) {
 
 export function TicketBoard({ mode }: Props) {
   const archivio = mode === "archivio";
+  const searchParams = useSearchParams();
+  const apriId = searchParams.get("apri") ?? "";
   const [items, setItems] = useState<TicketRiga[]>([]);
   const [isAddetto, setIsAddetto] = useState(false);
   const [meId, setMeId] = useState<string | null>(null);
@@ -205,7 +209,15 @@ export function TicketBoard({ mode }: Props) {
     setSel(res.ticket);
     setIsAddetto(res.isAddetto);
     setError(null);
+    notifyTicketNav();
+    notifyNotificheNav();
   }
+
+  useEffect(() => {
+    if (!apriId || archivio) return;
+    void apri(apriId);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [apriId, archivio]);
 
   function prendiFile(picked: File[], dove: "nuovo" | "chat") {
     if (!picked.length) {
@@ -295,6 +307,7 @@ export function TicketBoard({ mode }: Props) {
       return;
     }
     notifyTicketNav();
+    notifyNotificheNav();
     setLoadMsg("Ticket creato. Invio allegati…");
     const daCaricare = allegatiNuovo.map((a) => a.file);
     if (audioBlob) {
@@ -390,6 +403,8 @@ export function TicketBoard({ mode }: Props) {
     setAllegatiChat([]);
     if (chatFileRef.current) chatFileRef.current.value = "";
     setSel(loaded.ticket);
+    notifyTicketNav();
+    notifyNotificheNav();
     await caricaElenco();
   }
 

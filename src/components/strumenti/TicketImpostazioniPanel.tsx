@@ -78,9 +78,9 @@ export function TicketImpostazioniPanel() {
         <div className="mt-3 space-y-3">
           <p className="text-sm text-slate-700">
             Operatore addetto alla risoluzione dei ticket. Solo a questa persona
-            arrivano le notifiche Windows e si accendono i pallini di urgenza
-            accanto a Ticket e Strumenti. I numeri cambiano solo quando nasce
-            un ticket o quando viene dichiarato risolto.
+            arriva la notifica di un nuovo ticket (pallino azzurro su Strumenti).
+            I messaggi in chat notificano la controparte e mostrano il numero
+            verde sulla riga Ticket.
           </p>
           <label className="block text-sm">
             <span className="mb-1 block text-xs font-medium text-slate-600">

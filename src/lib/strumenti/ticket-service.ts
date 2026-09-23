@@ -2,7 +2,11 @@ import { writeAuditLog } from "@/lib/audit";
 import { requireAnyAreaAccess } from "@/lib/areas/guard";
 import { isSuperadminProfile } from "@/lib/auth/roles";
 import { userCanAccessArea } from "@/lib/auth/session";
-import { loadTicketAddettoUserId, notifyTicketNuovo } from "@/lib/strumenti/ticket-notify";
+import {
+  loadTicketAddettoUserId,
+  notifyTicketMessaggio,
+  notifyTicketNuovo,
+} from "@/lib/strumenti/ticket-notify";
 import type { TicketUrgenza } from "@/lib/strumenti/ticket";
 import { createServiceClient } from "@/lib/supabase/server";
 import {
@@ -244,7 +248,7 @@ export async function inviaMessaggioConAllegati(input: {
   const { auth, admin, isAddetto, db } = await gate();
   const { data, error: seenErr } = await db
     .from("strumenti_ticket")
-    .select("id, created_by, archiviato_at, documento_stato")
+    .select("id, codice, titolo, created_by, archiviato_at, documento_stato")
     .eq("id", parsed.data.ticketId)
     .is("deleted_at", null)
     .maybeSingle();
@@ -252,6 +256,8 @@ export async function inviaMessaggioConAllegati(input: {
     return { success: false, error: "Ticket non trovato." };
   }
   const row = data as {
+    codice?: string;
+    titolo?: string;
     created_by?: string | null;
     archiviato_at?: string | null;
     documento_stato?: string;
@@ -306,10 +312,22 @@ export async function inviaMessaggioConAllegati(input: {
       })
       .eq("id", parsed.data.ticketId);
   }
+  const messaggioId = (msg as { id: string }).id;
+  void notifyTicketMessaggio({
+    actorId: auth.userId,
+    ticketId: parsed.data.ticketId,
+    messaggioId,
+    codice: String(row.codice ?? ""),
+    titolo: String(row.titolo ?? "Ticket"),
+    createdBy: row.created_by ? String(row.created_by) : null,
+    anteprima:
+      parsed.data.contenuto ||
+      (input.audio ? "Nota vocale" : input.files.length ? "Allegato" : ""),
+  });
   return {
     success: true,
     ticketId: parsed.data.ticketId,
-    messaggioId: (msg as { id: string }).id,
+    messaggioId,
   };
 }
 

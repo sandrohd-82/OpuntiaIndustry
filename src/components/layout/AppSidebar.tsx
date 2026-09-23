@@ -41,7 +41,7 @@ import {
 import {
   applyDaProcessareBadge,
   applyPnAttivitaUnreadBadge,
-  applyTicketUrgenzaBadge,
+  applyTicketNavBadge,
   filterNavByAdminOnly,
   filterNavBySuperAdminOnly,
   isNavBranch,
@@ -84,7 +84,7 @@ import {
   setImpersonatedWebmailAreaAccessAction,
 } from "@/app/actions/webmail";
 import { getTicketNavBadgeAction } from "@/app/actions/strumenti-ticket-impostazioni";
-import { TicketUrgenzaDots } from "@/components/strumenti/TicketUrgenzaDots";
+import { TicketNavDots } from "@/components/strumenti/TicketNavDots";
 import { TICKET_NAV_EVENT } from "@/lib/strumenti/ticket-nav";
 import { ChatUnreadBadge } from "@/components/chat/ChatUnreadBadge";
 import { ChatSidebarNav } from "@/components/chat/ChatSidebarNav";
@@ -256,8 +256,10 @@ function Chevron({ open }: { open: boolean }) {
 }
 
 function NavBadgeDot({ badge }: { badge: NavBadge }) {
-  if (badge.kind === "ticket-urgenze") {
-    return <TicketUrgenzaDots stacks={badge.stacks} />;
+  if (badge.kind === "ticket-nav") {
+    return (
+      <TicketNavDots tickets={badge.tickets} messaggi={badge.messaggi} />
+    );
   }
   if (badge.kind === "status") {
     return (
@@ -561,9 +563,10 @@ export function AppSidebar({
   );
   const [daProcessareCount, setDaProcessareCount] = useState(0);
   const [pnAttivitaUnread, setPnAttivitaUnread] = useState(0);
-  const [ticketStacks, setTicketStacks] = useState<
-    Array<{ urgenza: string; count: number }>
-  >([]);
+  const [ticketNav, setTicketNav] = useState({
+    tickets: 0,
+    messaggi: 0,
+  });
   const sortedAreas = useMemo(() => sortAreasForSidebar(areas), [areas]);
   const showWeb = useMemo(
     () =>
@@ -671,7 +674,7 @@ export function AppSidebar({
   const hasStrumenti = areas.some((a) => a.slug === "strumenti");
   useEffect(() => {
     if (!hasStrumenti) {
-      setTicketStacks([]);
+      setTicketNav({ tickets: 0, messaggi: 0 });
       return;
     }
     let cancelled = false;
@@ -679,7 +682,10 @@ export function AppSidebar({
       void getTicketNavBadgeAction()
         .then((res) => {
           if (cancelled || !res.success) return;
-          setTicketStacks(res.visible ? res.stacks : []);
+          setTicketNav({
+            tickets: res.tickets,
+            messaggi: res.messaggi,
+          });
         })
         .catch(() => {
           /* badge opzionale */
@@ -694,13 +700,25 @@ export function AppSidebar({
         { event: "*", schema: "public", table: "strumenti_ticket" },
         loadTicketBadge
       )
+      .on(
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: "app_notifiche",
+          filter: `recipient_id=eq.${userId}`,
+        },
+        loadTicketBadge
+      )
       .subscribe();
     window.addEventListener(TICKET_NAV_EVENT, loadTicketBadge);
+    window.addEventListener(NOTIFICHE_NAV_EVENT, loadTicketBadge);
     window.addEventListener("focus", loadTicketBadge);
     return () => {
       cancelled = true;
       void supabase.removeChannel(channel);
       window.removeEventListener(TICKET_NAV_EVENT, loadTicketBadge);
+      window.removeEventListener(NOTIFICHE_NAV_EVENT, loadTicketBadge);
       window.removeEventListener("focus", loadTicketBadge);
     };
   }, [hasStrumenti, userId]);
@@ -1071,7 +1089,10 @@ export function AppSidebar({
                       pnAttivitaUnread
                     )
                   : area.slug === "strumenti" && treeSectionsFiltered
-                    ? applyTicketUrgenzaBadge(treeSectionsFiltered, ticketStacks)
+                    ? applyTicketNavBadge(
+                        treeSectionsFiltered,
+                        ticketNav.messaggi
+                      )
                     : treeSectionsFiltered;
             const toneChildren = toneChildrenForArea(area.slug);
             const areaTone = testMenuMode
@@ -1126,8 +1147,13 @@ export function AppSidebar({
                             count: pnAttivitaUnread,
                             title: "Attività in cui sei stato coinvolto",
                           }
-                        : area.slug === "strumenti" && ticketStacks.length > 0
-                          ? { kind: "ticket-urgenze", stacks: ticketStacks }
+                        : area.slug === "strumenti" &&
+                            (ticketNav.tickets > 0 || ticketNav.messaggi > 0)
+                          ? {
+                              kind: "ticket-nav",
+                              tickets: ticketNav.tickets,
+                              messaggi: ticketNav.messaggi,
+                            }
                           : undefined
                     }
                     extra={extra}

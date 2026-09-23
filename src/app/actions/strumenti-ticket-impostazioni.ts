@@ -5,12 +5,7 @@ import { writeAuditLog } from "@/lib/audit";
 import { requireAnyAreaAccess } from "@/lib/areas/guard";
 import { formatOperatorShortName } from "@/lib/auth/operator-short-name";
 import { isUnrestrictedSuperadmin } from "@/lib/auth/roles";
-import {
-  stacksFromCounts,
-  type TicketUrgenzaStack,
-} from "@/lib/strumenti/ticket-nav";
 import { loadTicketAddettoUserId } from "@/lib/strumenti/ticket-notify";
-import type { TicketUrgenza } from "@/lib/strumenti/ticket";
 import { createClient, createServiceClient } from "@/lib/supabase/server";
 
 export type TicketOperatoreOption = {
@@ -27,10 +22,6 @@ export type TicketImpostazioni = {
 const addettoSchema = z.object({
   addettoUserId: z.string().uuid().nullable(),
 });
-
-function emptyCounts(): Record<TicketUrgenza, number> {
-  return { urgente: 0, poco_urgente: 0, non_urgente: 0 };
-}
 
 export async function getTicketImpostazioniAction(): Promise<
   | {
@@ -145,32 +136,35 @@ export async function salvaTicketAddettoAction(input: {
 }
 
 export async function getTicketNavBadgeAction(): Promise<
-  | { success: true; visible: boolean; stacks: TicketUrgenzaStack[] }
+  | { success: true; tickets: number; messaggi: number }
   | { success: false; error: string }
 > {
   const { auth } = await requireAnyAreaAccess(["strumenti", "amministrazione"]);
   const addetto = await loadTicketAddettoUserId();
-  if (!addetto || addetto !== auth.userId) {
-    return { success: true, visible: false, stacks: [] };
-  }
   const db = createServiceClient();
-  const { data, error } = await db
-    .from("strumenti_ticket")
-    .select("urgenza")
-    .is("deleted_at", null)
-    .is("archiviato_at", null)
-    .in("documento_stato", ["bozza", "in_carico"]);
-  if (error) return { success: false, error: error.message };
-  const counts = emptyCounts();
-  for (const row of data ?? []) {
-    const u = String((row as { urgenza?: string }).urgenza ?? "");
-    if (u === "urgente" || u === "poco_urgente" || u === "non_urgente") {
-      counts[u] += 1;
-    }
+  let tickets = 0;
+  if (addetto && addetto === auth.userId) {
+    const { count, error } = await db
+      .from("strumenti_ticket")
+      .select("id", { count: "exact", head: true })
+      .is("deleted_at", null)
+      .is("archiviato_at", null)
+      .in("documento_stato", ["bozza", "in_carico"]);
+    if (error) return { success: false, error: error.message };
+    tickets = count ?? 0;
   }
+  const { count: msgCount, error: msgErr } = await db
+    .from("app_notifiche")
+    .select("id", { count: "exact", head: true })
+    .eq("recipient_id", auth.userId)
+    .eq("tipo", "sistema")
+    .eq("entity_type", "strumenti_ticket_messaggio")
+    .is("deleted_at", null)
+    .is("read_at", null);
+  if (msgErr) return { success: false, error: msgErr.message };
   return {
     success: true,
-    visible: true,
-    stacks: stacksFromCounts(counts),
+    tickets,
+    messaggi: msgCount ?? 0,
   };
 }

@@ -1,3 +1,4 @@
+import { Suspense } from "react";
 import { notFound } from "next/navigation";
 import { BarcodeGeneratoreBoard } from "@/components/magazzino/BarcodeGeneratoreBoard";
 import { BarcodeRegistratiBoard } from "@/components/magazzino/BarcodeRegistratiBoard";
@@ -37,7 +38,11 @@ export default async function StrumentiSectionPage({ params }: Props) {
           <BarcodeRegistratiBoard catalogKind="prodotto_fornitore" />
         ) : null}
         {section === "editor-aree" ? <EditorAreeBoard /> : null}
-        {section === "ticket" ? <TicketBoard mode="viva" /> : null}
+        {section === "ticket" ? (
+          <Suspense fallback={<p className="text-sm text-slate-600">Apro i ticket…</p>}>
+            <TicketBoard mode="viva" />
+          </Suspense>
+        ) : null}
       </div>
     </>
   );
