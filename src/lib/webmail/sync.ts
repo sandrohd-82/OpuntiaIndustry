@@ -150,8 +150,10 @@ const WEBMAIL_SYNC_TIME_BUDGET_MS = 8_000;
 const WEBMAIL_DOWNLOAD_TIMEOUT_MS = 8_000;
 /** Oltre questa soglia non si scarica il MIME intero (timeout / memoria). */
 const WEBMAIL_IMPORT_MAX_BYTES = 2_000_000;
-const WEBMAIL_PART_TIMEOUT_MS = 22_000;
+const WEBMAIL_PART_TIMEOUT_MS = 12_000;
 const WEBMAIL_PART_ATTACH_MAX = 20 * 1024 * 1024;
+/** Newsletter da 15+ MB: basta l’inizio del MIME per testo/HTML. */
+const WEBMAIL_BODY_PART_MAX_BYTES = 400_000;
 
 /** Finestra UID recenti + attesa IDLE per «Mantieni sincronizzato». */
 export const WEBMAIL_LIVE_UID_WINDOW = 40;
@@ -486,11 +488,30 @@ type ImapLeafPart = {
   part: string;
   type: string;
   subtype: string;
+  encoding: string;
   size: number;
   disposition: string;
   filename: string;
   contentId: string;
 };
+
+function splitImapMime(type: string, subtype: string): {
+  type: string;
+  subtype: string;
+} {
+  const rawType = String(type ?? "").toLowerCase().trim();
+  const rawSub = String(subtype ?? "").toLowerCase().trim();
+  if (rawType.includes("/")) {
+    const [a, b] = rawType.split("/", 2);
+    return { type: a || "", subtype: rawSub || b || "" };
+  }
+  return { type: rawType, subtype: rawSub };
+}
+
+function isImapTextBodyPart(part: Pick<ImapLeafPart, "type" | "subtype">): boolean {
+  const { type, subtype } = splitImapMime(part.type, part.subtype);
+  return type === "text" && (subtype === "html" || subtype === "plain" || !subtype);
+}
 
 function flattenImapStructure(
   node: unknown,
@@ -499,8 +520,10 @@ function flattenImapStructure(
   if (!node || typeof node !== "object") return [];
   const n = node as Record<string, unknown>;
   const children = Array.isArray(n.childNodes) ? n.childNodes : [];
-  const type = String(n.type ?? "").toLowerCase();
-  const subtype = String(n.subtype ?? "").toLowerCase();
+  const { type, subtype } = splitImapMime(
+    String(n.type ?? ""),
+    String(n.subtype ?? "")
+  );
   const part = String(n.part ?? fallbackPart);
   const dispRaw = n.disposition;
   const disposition =
@@ -530,6 +553,7 @@ function flattenImapStructure(
       part,
       type,
       subtype,
+      encoding: String(n.encoding ?? "").toLowerCase(),
       size: Number.isFinite(size) ? size : 0,
       disposition,
       filename,
@@ -558,19 +582,102 @@ async function readableToBuffer(content: unknown): Promise<Buffer> {
 async function downloadImapPartBuffer(
   client: ImapFlow,
   uid: number,
-  part: string,
-  timeoutMs: number
+  part: string | undefined,
+  timeoutMs: number,
+  maxBytes = WEBMAIL_BODY_PART_MAX_BYTES
 ): Promise<Buffer> {
   const downloaded = await withTimeout(
-    client.download(uid, part, { uid: true }),
+    client.download(uid, part, {
+      uid: true,
+      maxBytes,
+    } as { uid: boolean; maxBytes: number }),
     timeoutMs,
-    `part ${part} UID ${uid}`
+    `part ${part || "RFC822"} UID ${uid}`
   );
   return readableToBuffer(
     downloaded && typeof downloaded === "object"
       ? (downloaded as { content?: unknown }).content
       : downloaded
   );
+}
+
+async function parseLooseMimePart(
+  buf: Buffer,
+  mime: string,
+  encoding?: string
+): Promise<{ html: string; text: string }> {
+  if (!buf.length) return { html: "", text: "" };
+  const head = buf.subarray(0, 1_200).toString("latin1");
+  const looksRfc =
+    /^(From |Return-Path:|Received:|MIME-Version:|Content-Type:|Subject:|To:|Date:|Message-ID:)/im.test(
+      head
+    );
+  const payload = looksRfc
+    ? buf
+    : Buffer.concat([
+        Buffer.from(
+          `MIME-Version: 1.0\r\nContent-Type: ${mime}; charset=utf-8\r\n${
+            encoding ? `Content-Transfer-Encoding: ${encoding}\r\n` : ""
+          }\r\n`
+        ),
+        buf,
+      ]);
+  try {
+    const parsed = await simpleParser(
+      payload as Parameters<typeof simpleParser>[0]
+    );
+    const html = typeof parsed.html === "string" ? parsed.html : "";
+    const text =
+      parsed.text?.trim() || (html ? extractPlainFromHtml(html) : "");
+    return { html, text };
+  } catch {
+    const raw = buf.toString("utf8");
+    const html = /<[a-z][\s\S]*>/i.test(raw) ? raw : "";
+    return { html, text: html ? extractPlainFromHtml(html) : raw };
+  }
+}
+
+async function downloadPartialRfc822(
+  client: ImapFlow,
+  uid: number,
+  timeoutMs: number
+): Promise<{ bodyHtml: string; bodyText: string } | null> {
+  try {
+    const msg = await withTimeout(
+      client.fetchOne(
+        uid,
+        { source: { start: 0, maxLength: WEBMAIL_BODY_PART_MAX_BYTES } },
+        { uid: true }
+      ),
+      timeoutMs,
+      `partial source UID ${uid}`
+    );
+    const source =
+      msg && typeof msg === "object" && "source" in msg
+        ? (msg as { source?: unknown }).source
+        : null;
+    const buf = await readableToBuffer(source);
+    if (!buf.length) return null;
+    const parsed = await parseLooseMimePart(buf, "text/plain");
+    if (!parsed.html && !parsed.text) return null;
+    return { bodyHtml: parsed.html, bodyText: parsed.text };
+  } catch {
+    try {
+      const buf = await downloadImapPartBuffer(
+        client,
+        uid,
+        undefined,
+        timeoutMs,
+        WEBMAIL_BODY_PART_MAX_BYTES
+      );
+      if (!buf.length) return null;
+      const parsed = await parseLooseMimePart(buf, "message/rfc822");
+      if (!parsed.html && !parsed.text) return null;
+      return { bodyHtml: parsed.html, bodyText: parsed.text };
+    } catch {
+      return null;
+    }
+  }
 }
 
 async function downloadMessageByParts(
@@ -583,39 +690,91 @@ async function downloadMessageByParts(
   attachments: Attachment[];
 } | null> {
   const timeoutMs = options?.timeoutMs ?? WEBMAIL_PART_TIMEOUT_MS;
-  const meta = await withTimeout(
-    client.fetchOne(uid, { bodyStructure: true }, { uid: true }),
-    8_000,
-    `structure UID ${uid}`
-  );
-  const structure =
-    meta && typeof meta === "object" && "bodyStructure" in meta
-      ? (meta as { bodyStructure?: unknown }).bodyStructure
-      : null;
+  let structure: unknown = null;
+  try {
+    const meta = await withTimeout(
+      client.fetchOne(uid, { bodyStructure: true }, { uid: true }),
+      8_000,
+      `structure UID ${uid}`
+    );
+    structure =
+      meta && typeof meta === "object" && "bodyStructure" in meta
+        ? (meta as { bodyStructure?: unknown }).bodyStructure
+        : null;
+  } catch {
+    structure = null;
+  }
   const parts = flattenImapStructure(structure);
-  if (!parts.length) return null;
 
   let bodyHtml = "";
   let bodyText = "";
   const attachments: Attachment[] = [];
 
-  const textParts = parts.filter(
-    (p) =>
-      p.type === "text" &&
-      (p.subtype === "html" || p.subtype === "plain") &&
-      p.disposition !== "attachment"
-  );
+  const textParts = parts
+    .filter((p) => isImapTextBodyPart(p))
+    .sort((a, b) => {
+      const aPlain = splitImapMime(a.type, a.subtype).subtype === "plain" ? 0 : 1;
+      const bPlain = splitImapMime(b.type, b.subtype).subtype === "plain" ? 0 : 1;
+      if (aPlain !== bPlain) return aPlain - bPlain;
+      return (a.size || 9e9) - (b.size || 9e9);
+    });
   const otherParts = parts.filter((p) => !textParts.includes(p));
+
+  const tryTextPart = async (p: {
+    part: string;
+    type: string;
+    subtype: string;
+    encoding?: string;
+  }) => {
+    const { subtype } = splitImapMime(p.type, p.subtype);
+    const mime = `text/${subtype || "plain"}`;
+    const buf = await downloadImapPartBuffer(
+      client,
+      uid,
+      p.part || "1",
+      timeoutMs,
+      WEBMAIL_BODY_PART_MAX_BYTES
+    );
+    if (!buf.length) return;
+    const parsed = await parseLooseMimePart(buf, mime, p.encoding);
+    if (subtype === "html" || parsed.html) {
+      if (parsed.html && !bodyHtml) bodyHtml = parsed.html;
+      if (parsed.text && !bodyText) bodyText = parsed.text;
+      return;
+    }
+    if (parsed.text && !bodyText) bodyText = parsed.text;
+  };
 
   for (const p of textParts) {
     try {
-      const buf = await downloadImapPartBuffer(client, uid, p.part, timeoutMs);
-      if (!buf.length) continue;
-      const text = buf.toString("utf8");
-      if (p.subtype === "html") bodyHtml = text;
-      else if (!bodyText) bodyText = text;
+      await tryTextPart(p);
+      if (bodyHtml && bodyText) break;
     } catch {
       /* parte testo non disponibile */
+    }
+  }
+
+  if (!bodyHtml && !bodyText) {
+    for (const part of ["1", "1.1", "1.2", "2", "TEXT"]) {
+      if (textParts.some((p) => p.part === part)) continue;
+      try {
+        await tryTextPart({
+          part,
+          type: "text",
+          subtype: part === "1.2" || part === "2" ? "html" : "plain",
+        });
+        if (bodyHtml || bodyText) break;
+      } catch {
+        /* candidata assente */
+      }
+    }
+  }
+
+  if (!bodyHtml && !bodyText) {
+    const partial = await downloadPartialRfc822(client, uid, timeoutMs);
+    if (partial) {
+      bodyHtml = partial.bodyHtml;
+      bodyText = partial.bodyText;
     }
   }
 
@@ -623,9 +782,16 @@ async function downloadMessageByParts(
     for (const p of otherParts) {
       if (p.size > WEBMAIL_PART_ATTACH_MAX) continue;
       try {
-        const buf = await downloadImapPartBuffer(client, uid, p.part, timeoutMs);
+        const buf = await downloadImapPartBuffer(
+          client,
+          uid,
+          p.part,
+          timeoutMs,
+          Math.min(WEBMAIL_PART_ATTACH_MAX, p.size || WEBMAIL_PART_ATTACH_MAX)
+        );
         if (!buf.length || buf.length > WEBMAIL_PART_ATTACH_MAX) continue;
-        const mime = `${p.type || "application"}/${p.subtype || "octet-stream"}`;
+        const { type, subtype } = splitImapMime(p.type, p.subtype);
+        const mime = `${type || "application"}/${subtype || "octet-stream"}`;
         attachments.push({
           filename: p.filename || `parte-${p.part}`,
           contentType: mime,
@@ -1277,6 +1443,74 @@ export async function resolveImapBoxForStoredFolder(
     return (await resolveImapSpamMailbox(client)) || "Junk";
   }
   return f;
+}
+
+function isSentLikeMailboxPath(path: string): boolean {
+  return /(sent|posta inviata|elementi inviati|inviata|inviate|inviati)/i.test(
+    path
+  );
+}
+
+const lastMailboxByClient = new WeakMap<ImapFlow, string>();
+
+async function acquireMailboxForUid(
+  client: ImapFlow,
+  stored: string,
+  uid: number
+): Promise<{ lock: { release: () => void }; box: string }> {
+  const primary = await resolveImapBoxForStoredFolder(client, stored);
+  const storedUpper = String(stored || "").trim().toUpperCase();
+  const listed = await listSelectableMailboxes(client);
+  const extras =
+    storedUpper === WEBMAIL_SENT_FOLDER || storedUpper === "SENT"
+      ? listed.map(mailboxPath).filter(isSentLikeMailboxPath)
+      : storedUpper === "JUNK" || storedUpper === "SPAM"
+        ? IMAP_SPAM_CANDIDATES
+        : [];
+  const lastOk = lastMailboxByClient.get(client);
+  const boxes = [
+    ...new Set(
+      [lastOk, primary, ...extras, stored].filter((b): b is string =>
+        Boolean(b)
+      )
+    ),
+  ];
+  let lastErr: unknown = new Error(
+    `UID ${uid} non trovato nelle cartelle IMAP.`
+  );
+  for (const box of boxes) {
+    let lock: { release: () => void } | undefined;
+    try {
+      lock = await client.getMailboxLock(box);
+    } catch (e) {
+      lastErr = e;
+      continue;
+    }
+    try {
+      const hit = await withTimeout(
+        client.fetchOne(uid, { uid: true, flags: true }, { uid: true }),
+        8_000,
+        `uid ${uid} in ${box}`
+      );
+      if (hit) {
+        lastMailboxByClient.set(client, box);
+        return { lock, box };
+      }
+      try {
+        lock.release();
+      } catch {
+        /* ignore */
+      }
+    } catch (e) {
+      lastErr = e;
+      try {
+        lock.release();
+      } catch {
+        /* ignore */
+      }
+    }
+  }
+  throw lastErr;
 }
 
 async function countMailboxMissing(
@@ -2548,25 +2782,11 @@ export async function reloadMessaggioBodyAndAttachments(input: {
   try {
     if (ownClient) await client.connect();
     const storedFolder = input.folder || "INBOX";
-    const folder = await resolveImapBoxForStoredFolder(client, storedFolder);
-    let lock;
-    try {
-      lock = await client.getMailboxLock(folder);
-    } catch (first) {
-      const storedUpper = storedFolder.trim().toUpperCase();
-      if (storedUpper === WEBMAIL_SENT_FOLDER || storedUpper === "SENT") {
-        for (const candidate of IMAP_SENT_CANDIDATES) {
-          if (candidate === folder) continue;
-          try {
-            lock = await client.getMailboxLock(candidate);
-            break;
-          } catch {
-            /* prova la successiva */
-          }
-        }
-      }
-      if (!lock) throw first;
-    }
+    const { lock } = await acquireMailboxForUid(
+      client,
+      storedFolder,
+      uidNum
+    );
     try {
       let size = 0;
       try {
@@ -2617,6 +2837,18 @@ export async function reloadMessaggioBodyAndAttachments(input: {
           (rawHtml ? extractPlainFromHtml(rawHtml) : "")
         ).slice(0, 500_000);
         attachments = parsed.attachments;
+      }
+
+      if (!bodyHtml && !bodyText) {
+        const partial = await downloadPartialRfc822(
+          client,
+          uidNum,
+          WEBMAIL_PART_TIMEOUT_MS
+        );
+        if (partial) {
+          bodyHtml = partial.bodyHtml;
+          bodyText = partial.bodyText;
+        }
       }
 
       if (!bodyHtml && !bodyText) {

@@ -4636,7 +4636,7 @@ export async function reloadWebmailMessaggioBodyAction(
   };
 }
 
-const RIPARA_PARZIALI_BATCH = 6;
+const RIPARA_PARZIALI_BATCH = 4;
 
 export async function countWebmailImportParzialiAction(): Promise<
   { success: true; totale: number } | { success: false; error: string }
@@ -4760,6 +4760,6 @@ export async function riparaWebmailImportParzialiAction(): Promise<
     success: true,
     riparate,
     rimanenti: count ?? 0,
-    errori,
+    errori: [...new Set(errori)],
   };
 }
