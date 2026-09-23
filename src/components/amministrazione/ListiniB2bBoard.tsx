@@ -20,7 +20,9 @@ import {
   updateListinoAction,
   upsertListinoRigaAction,
   upsertListinoRigaCondizioneAction,
+  softDeleteListinoRigaAction,
   softDeleteListinoRigaCondizioneAction,
+  allineaProdottiListinoInUsoAction,
   exportListinoBuildAction,
   exportListinoXlsxAction,
 } from "@/app/actions/listini";
@@ -84,7 +86,7 @@ const STATO_HELP: Record<ListinoStato, string> = {
   in_revisione:
     "Spunta ogni voce (o tutte insieme). Poi «OK, metti in uso» con conferma OTP.",
   in_uso:
-    "Listino ufficiale. Resta in vigore anche dopo «Dichiara obsoleto», finché un nuovo listino non va In Uso.",
+    "Listino ufficiale. Admin può aggiornare prezzi, aggiungere i prodotti nuovi o togliere una voce: ogni salvataggio alza la versione (V+1). Resta In Uso.",
   obsoleto:
     "Sostituito. Resta in storico. Non è più il listino vigente.",
   bozza_traduzione:
@@ -152,8 +154,10 @@ function rigaSortValue(
 }
 
 type DeleteTarget = {
-  scontoPct: number;
+  kind: "sconto" | "riga";
+  scontoPct?: number;
   imballaggioCodice?: string;
+  prodottoLabel?: string;
   onConfirm: () => void | Promise<void>;
 };
 
@@ -395,6 +399,7 @@ export function ListiniB2bBoard() {
   const [catalogNazioni, setCatalogNazioni] = useState<GeoNazione[]>([]);
   const [createNazioneIds, setCreateNazioneIds] = useState<string[]>([]);
   const [editNazioneIds, setEditNazioneIds] = useState<string[]>([]);
+  const [revisioneInfo, setRevisioneInfo] = useState<string | null>(null);
 
   const confezioni = useMemo(
     () => imballaggiPerCondizioneListino(imballaggi),
@@ -412,6 +417,12 @@ export function ListiniB2bBoard() {
       setItems(res.items);
       setIsAdmin(res.isAdmin);
     });
+  }
+
+  function noteRevisione(rev?: { versione: number; codice: string } | null) {
+    if (!rev) return;
+    setRevisioneInfo(`Listino aggiornato a ${rev.codice} (v${rev.versione}).`);
+    reloadListini();
   }
 
   async function reloadRighe(listinoId: string) {
@@ -456,7 +467,13 @@ export function ListiniB2bBoard() {
 
   const selected = items.find((i) => i.id === selectedId) ?? null;
   const isBozza = selected?.stato === "bozza";
+  const isInUsoMadre =
+    selected?.stato === "in_uso" && !selected.listinoOrigineId;
+  const canEditRighe = Boolean(isAdmin && (isBozza || isInUsoMadre));
   const inRevisione = selected?.stato === "in_revisione";
+  const versioneMostrata = selected
+    ? Math.max(selected.versione, parseListinoCodice(selected.codice).versione)
+    : 1;
   const incompleteCount = righe.filter((r) => !rigaListinoCompleta(r)).length;
   const checkCount = righe.filter((r) => r.revisioneApprovata).length;
   const allChecked = righe.length > 0 && checkCount === righe.length;
@@ -885,13 +902,15 @@ export function ListiniB2bBoard() {
                     : selected.nome}
               </h2>
               <p className="text-xs text-[var(--muted)]">
-                {STATO_LABEL[selected.stato]} · v{selected.versione}
+                {STATO_LABEL[selected.stato]} · v{versioneMostrata}
                 {selected.listinoOrigineId
                   ? ` · versione ${labelLingua(selected.locale)}`
                   : ""}
                 {isBozza
                   ? " · ogni campo è modificabile, poi Salva testata"
-                  : " · bloccato: i prezzi ufficiali non si cambiano qui"}
+                  : isInUsoMadre && isAdmin
+                    ? " · In Uso modificabile: ogni Salva alza V+1"
+                    : " · bloccato: i prezzi ufficiali non si cambiano qui"}
               </p>
               {selected.stato === "bozza_traduzione" ||
               selected.listinoOrigineId ? (
@@ -907,7 +926,7 @@ export function ListiniB2bBoard() {
                   <div className="mt-1">
                     <CodiceListinoField
                       slug={editCodice}
-                      versione={parseListinoCodice(selected.codice).versione}
+                      versione={versioneMostrata}
                       onSlugChange={setEditCodice}
                       disabled={!isBozza || pending}
                     />
@@ -1046,15 +1065,43 @@ export function ListiniB2bBoard() {
                     </button>
                   </>
                 ) : null}
-                {selected.stato === "in_uso" && isAdmin ? (
-                  <button
-                    type="button"
-                    disabled={pending}
-                    className="rounded-md border border-amber-300 bg-amber-50 px-3 py-1.5 text-xs font-medium text-amber-900"
-                    onClick={() => setObsoletoOpen(true)}
-                  >
-                    Dichiara obsoleto
-                  </button>
+                {isInUsoMadre && isAdmin ? (
+                  <>
+                    <button
+                      type="button"
+                      disabled={pending}
+                      className="rounded-md border border-emerald-300 bg-emerald-50 px-3 py-1.5 text-xs font-medium text-emerald-900 disabled:opacity-50"
+                      onClick={() =>
+                        startTransition(async () => {
+                          const res = await allineaProdottiListinoInUsoAction(
+                            selected.id
+                          );
+                          if (!res.success) {
+                            setError(res.error);
+                            return;
+                          }
+                          if (res.aggiunti <= 0) {
+                            setRevisioneInfo(
+                              "Nessun prodotto nuovo da aggiungere: il listino è già allineato al catalogo."
+                            );
+                            return;
+                          }
+                          noteRevisione(res.revisione);
+                          await reloadRighe(selected.id);
+                        })
+                      }
+                    >
+                      Allinea prodotti nuovi
+                    </button>
+                    <button
+                      type="button"
+                      disabled={pending}
+                      className="rounded-md border border-amber-300 bg-amber-50 px-3 py-1.5 text-xs font-medium text-amber-900"
+                      onClick={() => setObsoletoOpen(true)}
+                    >
+                      Dichiara obsoleto
+                    </button>
+                  </>
                 ) : null}
                 <InfoHint title={STATO_LABEL[selected.stato]}>
                   {STATO_HELP[selected.stato]}
@@ -1070,10 +1117,18 @@ export function ListiniB2bBoard() {
 
       {selected ? (
         <div className="space-y-3">
-          {isBozza && incompleteCount > 0 ? (
+          {revisioneInfo ? (
+            <p className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-900">
+              {revisioneInfo}
+            </p>
+          ) : null}
+          {(isBozza || isInUsoMadre) && incompleteCount > 0 ? (
             <p className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
               {incompleteCount} voci senza prezzo: imposta € oppure dichiara
               «fuori produzione» / «al momento non disponibile».
+              {isInUsoMadre
+                ? " Ogni Salva alza la versione del listino In Uso."
+                : ""}
             </p>
           ) : null}
           {inRevisione && isAdmin ? (
@@ -1226,7 +1281,7 @@ export function ListiniB2bBoard() {
                   <RigaBlock
                     key={r.id}
                     riga={r}
-                    editable={Boolean(isBozza && isAdmin)}
+                    editable={canEditRighe}
                     inRevisione={selected.stato === "in_revisione"}
                     isAdmin={isAdmin}
                     pending={pending}
@@ -1236,7 +1291,8 @@ export function ListiniB2bBoard() {
                       setDrafts((prev) => ({ ...prev, [r.id]: next }))
                     }
                     locale={selected.locale}
-                    onSaved={() => {
+                    onSaved={(rev) => {
+                      noteRevisione(rev);
                       if (selectedId) void reloadRighe(selectedId);
                     }}
                     onToggleCheck={(approvata) =>
@@ -1464,9 +1520,19 @@ export function ListiniB2bBoard() {
 
       {deleting ? (
         <ConfirmDeleteModal
-          title="Rimuovi condizione sconto"
-          message={`Togliere lo sconto ${deleting.scontoPct}% su ${deleting.imballaggioCodice ?? "confezione"} da questa riga? La rimozione si registra subito in bozza (soft delete, tracciata).`}
-          confirmLabel="Rimuovi dalla riga"
+          title={
+            deleting.kind === "riga"
+              ? "Rimuovi prodotto dal listino"
+              : "Rimuovi condizione sconto"
+          }
+          message={
+            deleting.kind === "riga"
+              ? `Togliere ${deleting.prodottoLabel ?? "questa voce"} dal listino? Resta in storico (soft delete). Se il listino è In Uso, la versione passa a V+1.`
+              : `Togliere lo sconto ${deleting.scontoPct}% su ${deleting.imballaggioCodice ?? "confezione"} da questa riga? Soft delete tracciato. Se il listino è In Uso, la versione passa a V+1.`
+          }
+          confirmLabel={
+            deleting.kind === "riga" ? "Rimuovi dal listino" : "Rimuovi dalla riga"
+          }
           busy={deletingBusy}
           onClose={() => {
             if (!deletingBusy) setDeleting(null);
@@ -1516,7 +1582,7 @@ function RigaBlock({
   draft: CondDraft;
   onDraftChange: (d: CondDraft) => void;
   locale: string;
-  onSaved: () => void;
+  onSaved: (rev?: { versione: number; codice: string }) => void;
   onError: (msg: string) => void;
   onAskDelete: (target: DeleteTarget) => void;
   altriRighe: ListinoRiga[];
@@ -1638,6 +1704,7 @@ function RigaBlock({
     setLocalConds((prev) => [...prev, next]);
     onDraftChange(emptyCond);
     setScontiOpen(true);
+    onSaved(saved.revisione);
   }
 
   async function copiaDaProdotto(sourceId: string) {
@@ -1798,6 +1865,7 @@ function RigaBlock({
         <td className="px-3 py-2">
           {editable ? (
             prodottoLocked ? (
+              <div className="flex flex-col items-start gap-1">
               <button
                 type="button"
                 disabled={pending}
@@ -1806,6 +1874,29 @@ function RigaBlock({
               >
                 Modifica
               </button>
+              <button
+                type="button"
+                disabled={pending}
+                className="text-xs font-medium text-red-700 underline"
+                onClick={() =>
+                  onAskDelete({
+                    kind: "riga",
+                    prodottoLabel:
+                      `${riga.prodottoCodice ?? ""} ${riga.prodottoNome ?? ""}`.trim(),
+                    onConfirm: async () => {
+                      const res = await softDeleteListinoRigaAction(riga.id);
+                      if (!res.success) {
+                        onError(res.error);
+                        throw new Error(res.error);
+                      }
+                      onSaved(res.revisione);
+                    },
+                  })
+                }
+              >
+                Rimuovi
+              </button>
+              </div>
             ) : (
               <button
                 type="button"
@@ -1860,7 +1951,7 @@ function RigaBlock({
                     );
                     setProdottoLocked(true);
                     clearRigaDraft(riga.id);
-                    onSaved();
+                    onSaved(res.revisione);
                   })
                 }
               >
@@ -1903,6 +1994,7 @@ function RigaBlock({
             const condId = asCondizioneId(c.id);
             const condKey = c.key;
             onAskDelete({
+              kind: "sconto",
               scontoPct: Number(c.scontoPct) || 0,
               imballaggioCodice: c.imballaggioCodice,
               onConfirm: async () => {
@@ -1912,6 +2004,7 @@ function RigaBlock({
                     onError(res.error);
                     throw new Error(res.error);
                   }
+                  onSaved(res.revisione);
                 }
                 setLocalConds((prev) =>
                   prev.filter((x) => x.key !== condKey && x.id !== condId)

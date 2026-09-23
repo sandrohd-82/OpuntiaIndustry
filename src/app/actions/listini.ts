@@ -704,20 +704,42 @@ async function generaVersioniLingua(
   return null;
 }
 
+type ListinoHeadWrite = {
+  id: string;
+  stato: string;
+  codice: string;
+  versione: number;
+  locale: string;
+  listino_origine_id: string | null;
+  nome: string;
+};
+
+export type ListinoRevisione = {
+  versione: number;
+  codice: string;
+};
+
+async function loadListinoHead(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  listinoId: string
+): Promise<ListinoHeadWrite | null> {
+  const { data, error } = await supabase
+    .from("listini")
+    .select("id, stato, codice, versione, locale, listino_origine_id, nome")
+    .eq("id", listinoId)
+    .is("deleted_at", null)
+    .maybeSingle();
+  if (error || !data) return null;
+  return data as ListinoHeadWrite;
+}
+
 async function requireListinoBozza(
   supabase: Awaited<ReturnType<typeof createClient>>,
   listinoId: string
 ): Promise<{ ok: true } | { ok: false; error: string }> {
-  const { data, error } = await supabase
-    .from("listini")
-    .select("id, stato")
-    .eq("id", listinoId)
-    .is("deleted_at", null)
-    .maybeSingle();
-  if (error || !data) {
-    return { ok: false, error: error?.message ?? "Listino non trovato" };
-  }
-  if ((data as { stato: string }).stato !== "bozza") {
+  const head = await loadListinoHead(supabase, listinoId);
+  if (!head) return { ok: false, error: "Listino non trovato" };
+  if (head.stato !== "bozza") {
     return {
       ok: false,
       error:
@@ -725,6 +747,208 @@ async function requireListinoBozza(
     };
   }
   return { ok: true };
+}
+
+async function requireListinoScrivibile(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  listinoId: string
+): Promise<
+  | { ok: true; head: ListinoHeadWrite; bumpVersione: boolean }
+  | { ok: false; error: string }
+> {
+  const head = await loadListinoHead(supabase, listinoId);
+  if (!head) return { ok: false, error: "Listino non trovato" };
+  if (head.listino_origine_id) {
+    return {
+      ok: false,
+      error:
+        "Le versioni in lingua non si modificano. Lavora sul listino In Uso italiano.",
+    };
+  }
+  if (head.stato === "bozza") {
+    return { ok: true, head, bumpVersione: false };
+  }
+  if (head.stato === "in_uso") {
+    return { ok: true, head, bumpVersione: true };
+  }
+  return {
+    ok: false,
+    error:
+      "Puoi modificare solo una bozza o il listino In Uso. Le revisioni e gli obsoleti restano bloccati.",
+  };
+}
+
+async function codiceListinoLibero(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  codice: string,
+  exceptId: string
+): Promise<boolean> {
+  const { data } = await supabase
+    .from("listini")
+    .select("id")
+    .is("deleted_at", null)
+    .neq("id", exceptId)
+    .ilike("codice", codice)
+    .maybeSingle();
+  return !data;
+}
+
+async function syncFigliDopoRevisioneInUso(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  master: ListinoHeadWrite,
+  slug: string,
+  nextV: number,
+  userId: string
+): Promise<string | null> {
+  const { data: children, error: cErr } = await supabase
+    .from("listini")
+    .select("id, locale, codice")
+    .eq("listino_origine_id", master.id)
+    .is("deleted_at", null);
+  if (cErr) return cErr.message;
+  const { data: masterRows, error: mErr } = await supabase
+    .from("listini_righe")
+    .select("prodotto_id, prezzo, unita_misura, disponibilita")
+    .eq("listino_id", master.id)
+    .is("deleted_at", null);
+  if (mErr) return mErr.message;
+  const masterByProdotto = new Map(
+    (
+      (masterRows ?? []) as Array<{
+        prodotto_id: string;
+        prezzo: number;
+        unita_misura: string;
+        disponibilita: string;
+      }>
+    ).map((r) => [r.prodotto_id, r])
+  );
+  const now = new Date().toISOString();
+
+  for (const ch of (children ?? []) as Array<{
+    id: string;
+    locale: string;
+    codice: string;
+  }>) {
+    const childCodice = buildListinoCodiceLocale(slug, ch.locale, nextV);
+    const { error: uErr } = await supabase
+      .from("listini")
+      .update({
+        versione: nextV,
+        codice: childCodice,
+        updated_by: userId,
+      })
+      .eq("id", ch.id);
+    if (uErr) return uErr.message;
+
+    const { data: childRows, error: crErr } = await supabase
+      .from("listini_righe")
+      .select("id, prodotto_id")
+      .eq("listino_id", ch.id)
+      .is("deleted_at", null);
+    if (crErr) return crErr.message;
+
+    for (const cr of (childRows ?? []) as Array<{
+      id: string;
+      prodotto_id: string;
+    }>) {
+      const src = masterByProdotto.get(cr.prodotto_id);
+      if (!src) {
+        const { error } = await supabase
+          .from("listini_righe")
+          .update({
+            deleted_at: now,
+            deleted_by: userId,
+            updated_by: userId,
+          })
+          .eq("id", cr.id)
+          .is("deleted_at", null);
+        if (error) return error.message;
+        continue;
+      }
+      const { error } = await supabase
+        .from("listini_righe")
+        .update({
+          prezzo: src.prezzo,
+          unita_misura: src.unita_misura,
+          disponibilita: src.disponibilita,
+          updated_by: userId,
+        })
+        .eq("id", cr.id);
+      if (error) return error.message;
+    }
+
+    const seedErr = await seedListinoProdotti(
+      supabase,
+      ch.id,
+      userId,
+      master.id
+    );
+    if (seedErr) return seedErr;
+  }
+  return null;
+}
+
+async function bumpListinoInUsoVersione(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  listinoId: string,
+  userId: string,
+  motivo: string,
+  extra?: Record<string, unknown>
+): Promise<ListinoRevisione | { error: string } | null> {
+  const head = await loadListinoHead(supabase, listinoId);
+  if (!head) return { error: "Listino non trovato" };
+  if (head.stato !== "in_uso") return null;
+
+  const parsed = parseListinoCodice(head.codice);
+  const slug = parsed.slug || listinoCodiceSlug(head.codice);
+  let nextV = Math.max(Number(head.versione) || 1, parsed.versione || 1) + 1;
+  let codice = buildListinoCodice(slug, nextV);
+  for (let i = 0; i < 40; i++) {
+    if (await codiceListinoLibero(supabase, codice, head.id)) break;
+    nextV += 1;
+    codice = buildListinoCodice(slug, nextV);
+  }
+  if (!(await codiceListinoLibero(supabase, codice, head.id))) {
+    return { error: "Impossibile assegnare il nuovo codice versione (V+1)." };
+  }
+
+  const { error } = await supabase
+    .from("listini")
+    .update({
+      versione: nextV,
+      codice,
+      updated_by: userId,
+    })
+    .eq("id", head.id)
+    .eq("stato", "in_uso")
+    .is("deleted_at", null);
+  if (error) return { error: error.message };
+
+  const syncErr = await syncFigliDopoRevisioneInUso(
+    supabase,
+    { ...head, codice, versione: nextV },
+    slug,
+    nextV,
+    userId
+  );
+  if (syncErr) return { error: syncErr };
+
+  await writeAuditLog({
+    entity_type: "listini",
+    entity_id: head.id,
+    action: "revise",
+    actor_id: userId,
+    summary: `Listino ${codice}: In Uso ${head.versione} → ${nextV} (${motivo})`,
+    payload: {
+      from: head.versione,
+      to: nextV,
+      codice_da: head.codice,
+      codice_a: codice,
+      motivo,
+      ...(extra ?? {}),
+    },
+  });
+  return { versione: nextV, codice };
 }
 
 export async function updateListinoAction(input: unknown): Promise<
@@ -1388,7 +1612,8 @@ async function loadCondizioniByRiga(
 }
 
 export async function upsertListinoRigaAction(input: unknown): Promise<
-  { success: true; item: ListinoRiga } | { success: false; error: string }
+  | { success: true; item: ListinoRiga; revisione?: ListinoRevisione }
+  | { success: false; error: string }
 > {
   const gate = await guardAmm();
   if (denied(gate)) return { success: false, error: gate.error };
@@ -1402,8 +1627,11 @@ export async function upsertListinoRigaAction(input: unknown): Promise<
   }
 
   const supabase = await createClient();
-  const bozza = await requireListinoBozza(supabase, parsed.data.listinoId);
-  if (!bozza.ok) return { success: false, error: bozza.error };
+  const writable = await requireListinoScrivibile(
+    supabase,
+    parsed.data.listinoId
+  );
+  if (!writable.ok) return { success: false, error: writable.error };
 
   const { data: existing } = await supabase
     .from("listini_righe")
@@ -1485,7 +1713,29 @@ export async function upsertListinoRigaAction(input: unknown): Promise<
   });
 
   const condizioni = (await loadCondizioniByRiga(supabase, [row.id])).get(row.id);
-  return { success: true, item: mapListinoRiga(row, undefined, condizioni) };
+  let revisione: ListinoRevisione | undefined;
+  if (writable.bumpVersione) {
+    const bumped = await bumpListinoInUsoVersione(
+      supabase,
+      parsed.data.listinoId,
+      auth.userId,
+      existing?.id ? "aggiornamento voce" : "aggiunta voce",
+      {
+        prodotto_id: parsed.data.prodottoId,
+        prezzo: parsed.data.prezzo,
+        disponibilita: parsed.data.disponibilita,
+      }
+    );
+    if (bumped && "error" in bumped) {
+      return { success: false, error: bumped.error };
+    }
+    if (bumped) revisione = bumped;
+  }
+  return {
+    success: true,
+    item: mapListinoRiga(row, undefined, condizioni),
+    revisione,
+  };
 }
 
 async function syncListinoRigaCondizioni(
@@ -1633,18 +1883,156 @@ async function syncListinoRigaCondizioni(
 }
 
 export async function softDeleteListinoRigaAction(
-  _id: string
-): Promise<{ success: true } | { success: false; error: string }> {
-  void _id;
+  id: string
+): Promise<
+  | { success: true; revisione?: ListinoRevisione }
+  | { success: false; error: string }
+> {
+  const gate = await guardAmm();
+  if (denied(gate)) return { success: false, error: gate.error };
+  const { auth } = gate;
+  const supabase = await createClient();
+  const { data: riga, error: rErr } = await supabase
+    .from("listini_righe")
+    .select("id, listino_id, prodotto_id")
+    .eq("id", id)
+    .is("deleted_at", null)
+    .maybeSingle();
+  if (rErr || !riga) {
+    return { success: false, error: rErr?.message ?? "Voce listino non trovata" };
+  }
+  const writable = await requireListinoScrivibile(
+    supabase,
+    (riga as { listino_id: string }).listino_id
+  );
+  if (!writable.ok) return { success: false, error: writable.error };
+
+  const now = new Date().toISOString();
+  const { error } = await supabase
+    .from("listini_righe")
+    .update({
+      deleted_at: now,
+      deleted_by: auth.userId,
+      updated_by: auth.userId,
+    })
+    .eq("id", id)
+    .is("deleted_at", null);
+  if (error) return { success: false, error: error.message };
+
+  await supabase
+    .from("listini_righe_condizioni")
+    .update({
+      deleted_at: now,
+      deleted_by: auth.userId,
+      updated_by: auth.userId,
+    })
+    .eq("listino_riga_id", id)
+    .is("deleted_at", null);
+
+  await writeAuditLog({
+    entity_type: "listini_righe",
+    entity_id: id,
+    action: "soft_delete",
+    actor_id: auth.userId,
+    summary: "Rimossa voce prodotto dal listino (soft delete)",
+    payload: {
+      listino_id: (riga as { listino_id: string }).listino_id,
+      prodotto_id: (riga as { prodotto_id: string }).prodotto_id,
+    },
+  });
+
+  let revisione: ListinoRevisione | undefined;
+  if (writable.bumpVersione) {
+    const bumped = await bumpListinoInUsoVersione(
+      supabase,
+      (riga as { listino_id: string }).listino_id,
+      auth.userId,
+      "rimozione voce",
+      { riga_id: id, prodotto_id: (riga as { prodotto_id: string }).prodotto_id }
+    );
+    if (bumped && "error" in bumped) {
+      return { success: false, error: bumped.error };
+    }
+    if (bumped) revisione = bumped;
+  }
+  return { success: true, revisione };
+}
+
+export async function allineaProdottiListinoInUsoAction(
+  listinoId: string
+): Promise<
+  | {
+      success: true;
+      aggiunti: number;
+      revisione?: ListinoRevisione;
+    }
+  | { success: false; error: string }
+> {
+  const gate = await guardAmm();
+  if (denied(gate)) return { success: false, error: gate.error };
+  const { auth } = gate;
+  const parsed = z.string().uuid().safeParse(listinoId);
+  if (!parsed.success) return { success: false, error: "Listino non valido" };
+  const supabase = await createClient();
+  const writable = await requireListinoScrivibile(supabase, parsed.data);
+  if (!writable.ok) return { success: false, error: writable.error };
+  if (writable.head.stato !== "in_uso") {
+    return {
+      success: false,
+      error: "L’allineamento catalogo si usa sul listino In Uso.",
+    };
+  }
+
+  const { data: before } = await supabase
+    .from("listini_righe")
+    .select("id")
+    .eq("listino_id", parsed.data)
+    .is("deleted_at", null);
+  const seedErr = await seedListinoProdotti(
+    supabase,
+    parsed.data,
+    auth.userId,
+    null
+  );
+  if (seedErr) return { success: false, error: seedErr };
+  const { data: after } = await supabase
+    .from("listini_righe")
+    .select("id")
+    .eq("listino_id", parsed.data)
+    .is("deleted_at", null);
+  const aggiunti = (after ?? []).length - (before ?? []).length;
+  if (aggiunti <= 0) {
+    return { success: true, aggiunti: 0 };
+  }
+
+  await writeAuditLog({
+    entity_type: "listini",
+    entity_id: parsed.data,
+    action: "update",
+    actor_id: auth.userId,
+    summary: `Allineati ${aggiunti} prodotti nuovi sul listino In Uso`,
+    payload: { aggiunti },
+  });
+
+  const bumped = await bumpListinoInUsoVersione(
+    supabase,
+    parsed.data,
+    auth.userId,
+    "allineamento prodotti",
+    { aggiunti }
+  );
+  if (bumped && "error" in bumped) {
+    return { success: false, error: bumped.error };
+  }
   return {
-    success: false,
-    error:
-      "Le voci prodotto non si eliminano. Dichiara «fuori produzione» o «al momento non disponibile».",
+    success: true,
+    aggiunti,
+    revisione: bumped ?? undefined,
   };
 }
 
 export async function upsertListinoRigaCondizioneAction(input: unknown): Promise<
-  | { success: true; item: ListinoRigaCondizione }
+  | { success: true; item: ListinoRigaCondizione; revisione?: ListinoRevisione }
   | { success: false; error: string }
 > {
   const gate = await guardAmm();
@@ -1668,11 +2056,11 @@ export async function upsertListinoRigaCondizioneAction(input: unknown): Promise
   if (rigaErr || !riga) {
     return { success: false, error: rigaErr?.message ?? "Riga listino non trovata" };
   }
-  const bozza = await requireListinoBozza(
+  const writable = await requireListinoScrivibile(
     supabase,
     (riga as { listino_id: string }).listino_id
   );
-  if (!bozza.ok) return { success: false, error: bozza.error };
+  if (!writable.ok) return { success: false, error: writable.error };
 
   const { data: stdLink } = await supabase
     .from("imballaggi_voci_prodotti")
@@ -1821,6 +2209,20 @@ export async function upsertListinoRigaCondizioneAction(input: unknown): Promise
     .select("codice, nome, nome_commerciale")
     .eq("id", row.imballaggio_voce_id)
     .maybeSingle();
+  let revisione: ListinoRevisione | undefined;
+  if (writable.bumpVersione) {
+    const bumped = await bumpListinoInUsoVersione(
+      supabase,
+      (riga as { listino_id: string }).listino_id,
+      auth.userId,
+      parsed.data.id ? "aggiornamento sconto" : "aggiunta sconto",
+      { sconto_pct: parsed.data.scontoPct }
+    );
+    if (bumped && "error" in bumped) {
+      return { success: false, error: bumped.error };
+    }
+    if (bumped) revisione = bumped;
+  }
   return {
     success: true,
     item: mapListinoRigaCondizione(
@@ -1834,12 +2236,16 @@ export async function upsertListinoRigaCondizioneAction(input: unknown): Promise
           }
         : undefined
     ),
+    revisione,
   };
 }
 
 export async function softDeleteListinoRigaCondizioneAction(
   id: string
-): Promise<{ success: true } | { success: false; error: string }> {
+): Promise<
+  | { success: true; revisione?: ListinoRevisione }
+  | { success: false; error: string }
+> {
   const gate = await guardAmm();
   if (denied(gate)) return { success: false, error: gate.error };
   const { auth } = gate;
@@ -1856,11 +2262,11 @@ export async function softDeleteListinoRigaCondizioneAction(
     .eq("id", (cond as { listino_riga_id: string }).listino_riga_id)
     .maybeSingle();
   if (!riga) return { success: false, error: "Riga listino non trovata" };
-  const bozza = await requireListinoBozza(
+  const writable = await requireListinoScrivibile(
     supabase,
     (riga as { listino_id: string }).listino_id
   );
-  if (!bozza.ok) return { success: false, error: bozza.error };
+  if (!writable.ok) return { success: false, error: writable.error };
 
   const { error } = await supabase
     .from("listini_righe_condizioni")
@@ -1880,7 +2286,22 @@ export async function softDeleteListinoRigaCondizioneAction(
     actor_id: auth.userId,
     summary: "Rimossa condizione sconto listino (soft delete)",
   });
-  return { success: true };
+
+  let revisione: ListinoRevisione | undefined;
+  if (writable.bumpVersione) {
+    const bumped = await bumpListinoInUsoVersione(
+      supabase,
+      (riga as { listino_id: string }).listino_id,
+      auth.userId,
+      "rimozione sconto",
+      { condizione_id: id }
+    );
+    if (bumped && "error" in bumped) {
+      return { success: false, error: bumped.error };
+    }
+    if (bumped) revisione = bumped;
+  }
+  return { success: true, revisione };
 }
 
 export type ProdottoCanale = {
