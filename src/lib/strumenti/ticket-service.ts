@@ -34,8 +34,9 @@ async function gate() {
   ]);
   const db = createServiceClient();
   const addettoId = await loadTicketAddettoUserId();
-  const admin = canGestireRuolo(auth) || addettoId === auth.userId;
-  return { auth, admin, db };
+  const isAddetto = Boolean(addettoId && addettoId === auth.userId);
+  const admin = canGestireRuolo(auth) || isAddetto;
+  return { auth, admin, isAddetto, db };
 }
 
 async function ensureTicketBucket(
@@ -240,7 +241,7 @@ export async function inviaMessaggioConAllegati(input: {
       error: "Gli allegati non sono arrivati al server. Riprova ad allegarli.",
     };
   }
-  const { auth, admin, db } = await gate();
+  const { auth, admin, isAddetto, db } = await gate();
   const { data, error: seenErr } = await db
     .from("strumenti_ticket")
     .select("id, created_by, archiviato_at, documento_stato")
@@ -262,7 +263,7 @@ export async function inviaMessaggioConAllegati(input: {
     return { success: false, error: "Il ticket è archiviato: chat chiusa." };
   }
   if (!parsed.data.contenuto && !input.audio && !input.files.length) {
-    return { success: false, error: "Scrivi un testo, un vocale o un file." };
+    return { success: false, error: "Il messaggio è vuoto." };
   }
   const tipo =
     input.audio && (input.files.length || parsed.data.contenuto)
@@ -296,7 +297,7 @@ export async function inviaMessaggioConAllegati(input: {
     files
   );
   if (up.error) return { success: false, error: up.error };
-  if (admin && String(row.documento_stato) === "bozza") {
+  if (isAddetto && String(row.documento_stato) === "bozza") {
     await db
       .from("strumenti_ticket")
       .update({

@@ -47,8 +47,9 @@ async function gateTicket() {
   ]);
   const db = createServiceClient();
   const addettoId = await loadTicketAddettoUserId();
-  const admin = canGestireRuolo(auth) || addettoId === auth.userId;
-  return { auth, admin, db };
+  const isAddetto = Boolean(addettoId && addettoId === auth.userId);
+  const admin = canGestireRuolo(auth) || isAddetto;
+  return { auth, admin, isAddetto, db };
 }
 
 function revalidateTicket() {
@@ -285,10 +286,16 @@ export async function listTicketAction(input: {
   q?: string;
   sort?: "recenti" | "urgenza" | "categoria";
 }): Promise<
-  | { success: true; items: TicketRiga[]; canGestire: boolean; meId: string }
+  | {
+      success: true;
+      items: TicketRiga[];
+      canGestire: boolean;
+      isAddetto: boolean;
+      meId: string;
+    }
   | { success: false; error: string }
 > {
-  const { auth, admin, db } = await gateTicket();
+  const { auth, admin, isAddetto, db } = await gateTicket();
   let q = db
     .from("strumenti_ticket")
     .select(TICKET_COLS)
@@ -347,16 +354,22 @@ export async function listTicketAction(input: {
         b.createdAt.localeCompare(a.createdAt)
     );
   }
-  return { success: true, items, canGestire: admin, meId: auth.userId };
+  return {
+    success: true,
+    items,
+    canGestire: admin,
+    isAddetto,
+    meId: auth.userId,
+  };
 }
 
 export async function getTicketAction(
   ticketId: string
 ): Promise<
-  | { success: true; ticket: TicketScheda; canGestire: boolean }
+  | { success: true; ticket: TicketScheda; canGestire: boolean; isAddetto: boolean }
   | { success: false; error: string }
 > {
-  const { auth, admin, db } = await gateTicket();
+  const { auth, admin, isAddetto, db } = await gateTicket();
   const seen = await assertVede(db, auth, admin, ticketId);
   if (!seen.ok) return { success: false, error: seen.error };
   const { data: msgs, error: mErr } = await db
@@ -412,6 +425,7 @@ export async function getTicketAction(
   return {
     success: true,
     canGestire: admin,
+    isAddetto,
     ticket: {
       ...mapRiga(seen.row, nomi, messaggi.length),
       messaggi,
@@ -422,7 +436,7 @@ export async function getTicketAction(
 export async function createTicketAction(
   formData: FormData
 ): Promise<
-  | { success: true; ticket: TicketScheda; canGestire: boolean }
+  | { success: true; ticket: TicketScheda; canGestire: boolean; isAddetto: boolean }
   | { success: false; error: string }
 > {
   const { auth, admin, db } = await gateTicket();
@@ -523,10 +537,10 @@ export async function createTicketAction(
 export async function sendTicketMessaggioAction(
   formData: FormData
 ): Promise<
-  | { success: true; ticket: TicketScheda; canGestire: boolean }
+  | { success: true; ticket: TicketScheda; canGestire: boolean; isAddetto: boolean }
   | { success: false; error: string }
 > {
-  const { auth, admin, db } = await gateTicket();
+  const { auth, admin, isAddetto, db } = await gateTicket();
   const parsed = ticketMessaggioSchema.safeParse({
     ticketId: String(formData.get("ticketId") ?? ""),
     contenuto: String(formData.get("contenuto") ?? ""),
@@ -542,7 +556,7 @@ export async function sendTicketMessaggioAction(
   const files = await filesDaFormData(formData);
   const audioFile = await normalizeUpload(formData.get("audio"));
   if (!parsed.data.contenuto && !audioFile && !files.length) {
-    return { success: false, error: "Scrivi un testo, un vocale o un file." };
+    return { success: false, error: "Il messaggio è vuoto." };
   }
   const tipo =
     audioFile && (files.length || parsed.data.contenuto)
@@ -574,7 +588,7 @@ export async function sendTicketMessaggioAction(
     [...files, ...(audioFile ? [audioFile] : [])]
   );
   if (up.error) return { success: false, error: up.error };
-  if (admin && String(seen.row.documento_stato) === "bozza") {
+  if (isAddetto && String(seen.row.documento_stato) === "bozza") {
     await db
       .from("strumenti_ticket")
       .update({
@@ -590,12 +604,15 @@ export async function sendTicketMessaggioAction(
 export async function prendiInCaricoTicketAction(
   ticketId: string
 ): Promise<
-  | { success: true; ticket: TicketScheda; canGestire: boolean }
+  | { success: true; ticket: TicketScheda; canGestire: boolean; isAddetto: boolean }
   | { success: false; error: string }
 > {
-  const { auth, admin, db } = await gateTicket();
-  if (!admin) {
-    return { success: false, error: "Solo Super Admin o Amministrazione." };
+  const { auth, admin, isAddetto, db } = await gateTicket();
+  if (!isAddetto) {
+    return {
+      success: false,
+      error: "Solo l'addetto alla risoluzione può prendere in carico il ticket.",
+    };
   }
   const seen = await assertVede(db, auth, admin, ticketId);
   if (!seen.ok) return { success: false, error: seen.error };
@@ -625,12 +642,15 @@ export async function prendiInCaricoTicketAction(
 export async function risolviArchiviaTicketAction(
   ticketId: string
 ): Promise<
-  | { success: true; ticket: TicketScheda; canGestire: boolean }
+  | { success: true; ticket: TicketScheda; canGestire: boolean; isAddetto: boolean }
   | { success: false; error: string }
 > {
-  const { auth, admin, db } = await gateTicket();
-  if (!admin) {
-    return { success: false, error: "Solo Super Admin o Amministrazione." };
+  const { auth, admin, isAddetto, db } = await gateTicket();
+  if (!isAddetto) {
+    return {
+      success: false,
+      error: "Solo l'addetto alla risoluzione può archiviare il ticket.",
+    };
   }
   const seen = await assertVede(db, auth, admin, ticketId);
   if (!seen.ok) return { success: false, error: seen.error };

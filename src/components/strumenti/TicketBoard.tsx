@@ -33,6 +33,7 @@ import { notifyTicketNav } from "@/lib/strumenti/ticket-nav";
 import {
   TICKET_CATEGORIA_META,
   TICKET_CATEGORIE,
+  TICKET_CHAT_PLACEHOLDER,
   TICKET_MAX_FILE_PER_MSG,
   TICKET_STATO_LABEL,
   TICKET_URGENZA_META,
@@ -114,7 +115,7 @@ function revocaAnteprime(items: AllegatoLocale[]) {
 export function TicketBoard({ mode }: Props) {
   const archivio = mode === "archivio";
   const [items, setItems] = useState<TicketRiga[]>([]);
-  const [canGestire, setCanGestire] = useState(false);
+  const [isAddetto, setIsAddetto] = useState(false);
   const [meId, setMeId] = useState<string | null>(null);
   const [sel, setSel] = useState<TicketScheda | null>(null);
   const [categoria, setCategoria] = useState<TicketCategoria>("bug");
@@ -169,7 +170,7 @@ export function TicketBoard({ mode }: Props) {
       return;
     }
     setItems(res.items);
-    setCanGestire(res.canGestire);
+    setIsAddetto(res.isAddetto);
     setMeId(res.meId);
     setError(null);
   }
@@ -202,7 +203,7 @@ export function TicketBoard({ mode }: Props) {
       return;
     }
     setSel(res.ticket);
-    setCanGestire(res.canGestire);
+    setIsAddetto(res.isAddetto);
     setError(null);
   }
 
@@ -316,7 +317,7 @@ export function TicketBoard({ mode }: Props) {
       const loaded = await getTicketAction(created.ticketId);
       if (loaded.success) {
         setSel(loaded.ticket);
-        setCanGestire(loaded.canGestire);
+        setIsAddetto(loaded.isAddetto);
       }
       return;
     }
@@ -334,7 +335,7 @@ export function TicketBoard({ mode }: Props) {
     setAllegatiNuovo([]);
     if (fileRef.current) fileRef.current.value = "";
     setSel(loaded.ticket);
-    setCanGestire(loaded.canGestire);
+    setIsAddetto(loaded.isAddetto);
     await caricaElenco();
   }
 
@@ -491,7 +492,7 @@ export function TicketBoard({ mode }: Props) {
                       <FaTrash /> Elimina
                     </button>
                   ) : null}
-                  {canGestire && !archivio ? (
+                  {isAddetto && !archivio ? (
                     <>
                       {sel.documentoStato === "bozza" ? (
                         <button
@@ -509,7 +510,7 @@ export function TicketBoard({ mode }: Props) {
                         onClick={() => void archiviaTkt()}
                         className="rounded-lg bg-slate-800 px-2.5 py-1 text-xs font-medium text-white"
                       >
-                        Risolvi e archivia
+                        Risolto, Archivia
                       </button>
                     </>
                   ) : null}
@@ -589,7 +590,7 @@ export function TicketBoard({ mode }: Props) {
                         value={chatText}
                         onChange={(e) => setChatText(e.target.value)}
                         rows={3}
-                        placeholder="Rispondi in chat…"
+                        placeholder={TICKET_CHAT_PLACEHOLDER}
                         className="w-full rounded-md border border-slate-300 px-2.5 py-2 text-sm"
                       />
                       <div className="mt-2 flex flex-wrap items-center gap-2">

@@ -62,11 +62,14 @@ export const TICKET_URGENZA_META: Record<
 };
 
 export const TICKET_STATO_LABEL: Record<TicketDocumentoStato, string> = {
-  bozza: "Bozza",
+  bozza: "Inserito",
   in_carico: "In carico",
   risolto: "Risolto",
   archiviato: "Archiviato",
 };
+
+export const TICKET_CHAT_PLACEHOLDER =
+  "Scrivi un testo, invia un vocale o allega un file";
 
 export type TicketFile = {
   id: string;
