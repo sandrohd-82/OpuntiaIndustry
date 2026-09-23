@@ -42,11 +42,15 @@ export function isNavBranch(item: NavItem): item is NavBranch {
 
 export function applyTicketNavBadge(
   items: readonly NavItem[],
-  messaggi: number
+  counts: { tickets: number; messaggi: number }
 ): NavItem[] {
   const badge: NavBadge | undefined =
-    messaggi > 0
-      ? { kind: "ticket-nav", tickets: 0, messaggi }
+    counts.tickets > 0 || counts.messaggi > 0
+      ? {
+          kind: "ticket-nav",
+          tickets: counts.tickets,
+          messaggi: counts.messaggi,
+        }
       : undefined;
   return items.map((item) => {
     if (item.slug !== "ticket") return item;

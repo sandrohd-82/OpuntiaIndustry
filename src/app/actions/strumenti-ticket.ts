@@ -249,6 +249,8 @@ function mapRiga(
     archiviatoAt: row.archiviato_at ? String(row.archiviato_at) : null,
     resolvedAt: row.resolved_at ? String(row.resolved_at) : null,
     messaggiCount,
+    messaggiNonLetti: 0,
+    ticketNuovo: false,
   };
 }
 
@@ -377,9 +379,43 @@ export async function listTicketAction(input: {
       counts.set(m.ticket_id, (counts.get(m.ticket_id) ?? 0) + 1);
     }
   }
-  let items = rows.map((r) =>
-    mapRiga(r, nomi, counts.get(String(r.id)) ?? 0)
-  );
+  const unreadMsg = new Map<string, number>();
+  const unreadTicket = new Set<string>();
+  {
+    const { data: notes } = await db
+      .from("app_notifiche")
+      .select("entity_type, entity_id, payload")
+      .eq("recipient_id", auth.userId)
+      .eq("tipo", "sistema")
+      .is("read_at", null)
+      .is("deleted_at", null)
+      .in("entity_type", ["strumenti_ticket", "strumenti_ticket_messaggio"]);
+    for (const n of notes ?? []) {
+      const payload =
+        n.payload && typeof n.payload === "object"
+          ? (n.payload as Record<string, unknown>)
+          : {};
+      const fromPayload = String(payload.ticketId ?? "").trim();
+      const tipo = String(n.entity_type ?? "");
+      const ticketId =
+        fromPayload ||
+        (tipo === "strumenti_ticket" ? String(n.entity_id ?? "") : "");
+      if (!ticketId) continue;
+      if (tipo === "strumenti_ticket_messaggio") {
+        unreadMsg.set(ticketId, (unreadMsg.get(ticketId) ?? 0) + 1);
+      } else {
+        unreadTicket.add(ticketId);
+      }
+    }
+  }
+  let items = rows.map((r) => {
+    const id = String(r.id);
+    return {
+      ...mapRiga(r, nomi, counts.get(id) ?? 0),
+      messaggiNonLetti: unreadMsg.get(id) ?? 0,
+      ticketNuovo: unreadTicket.has(id),
+    };
+  });
   if (input.sort === "urgenza") {
     const rank: Record<TicketUrgenza, number> = {
       urgente: 0,

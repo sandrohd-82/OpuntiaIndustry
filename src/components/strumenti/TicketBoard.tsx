@@ -31,7 +31,8 @@ import {
 import { TicketImpostazioniPanel } from "@/components/strumenti/TicketImpostazioniPanel";
 import { caricaFileTicketLatoClient } from "@/lib/strumenti/ticket-upload-client";
 import { notifyNotificheNav } from "@/lib/notifiche/nav-event";
-import { notifyTicketNav } from "@/lib/strumenti/ticket-nav";
+import { notifyTicketNav, TICKET_NAV_EVENT } from "@/lib/strumenti/ticket-nav";
+import { createClient } from "@/lib/supabase/client";
 import {
   TICKET_CATEGORIA_META,
   TICKET_CATEGORIE,
@@ -171,17 +172,67 @@ export function TicketBoard({ mode }: Props) {
     });
     if (!res.success) {
       setError(res.error);
-      return;
+      return null;
     }
     setItems(res.items);
     setIsAddetto(res.isAddetto);
     setMeId(res.meId);
     setError(null);
+    return res.items;
   }
 
+  const selIdRef = useRef<string | null>(null);
+  const selCountRef = useRef(0);
+  selIdRef.current = sel?.id ?? null;
+  selCountRef.current = sel?.messaggi.length ?? 0;
+
   useEffect(() => {
-    void caricaElenco();
-  }, [archivio, filtroCat, filtroUrg, sort]);
+    let cancelled = false;
+    async function syncLive() {
+      const list = await caricaElenco();
+      if (cancelled || !list) return;
+      const openId = selIdRef.current;
+      if (!openId || archivio) return;
+      const row = list.find((t) => t.id === openId);
+      const grew = (row?.messaggiCount ?? 0) > selCountRef.current;
+      if (!row?.messaggiNonLetti && !grew) return;
+      const det = await getTicketAction(openId);
+      if (cancelled || !det.success) return;
+      setSel((prev) => (prev && prev.id === openId ? det.ticket : prev));
+      notifyTicketNav();
+      notifyNotificheNav();
+    }
+    const onLive = () => {
+      void syncLive();
+    };
+    void syncLive();
+    const supabase = createClient();
+    const channel = supabase
+      .channel(`ticket-board-${mode}`)
+      .on(
+        "postgres_changes",
+        {
+          event: "INSERT",
+          schema: "public",
+          table: "strumenti_ticket_messaggi",
+        },
+        onLive
+      )
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "app_notifiche" },
+        onLive
+      )
+      .subscribe();
+    const poll = window.setInterval(onLive, 5000);
+    window.addEventListener(TICKET_NAV_EVENT, onLive);
+    return () => {
+      cancelled = true;
+      window.clearInterval(poll);
+      window.removeEventListener(TICKET_NAV_EVENT, onLive);
+      void supabase.removeChannel(channel);
+    };
+  }, [archivio, filtroCat, filtroUrg, sort, q, mode]);
 
   useEffect(() => {
     if (!sel) return;
@@ -894,10 +945,38 @@ export function TicketBoard({ mode }: Props) {
                 items.map((t) => (
                   <tr
                     key={t.id}
-                    className="cursor-pointer border-t border-[var(--border)] hover:bg-slate-50"
+                    className={`cursor-pointer border-t border-[var(--border)] hover:bg-slate-50 ${
+                      t.messaggiNonLetti > 0
+                        ? "bg-emerald-50/80"
+                        : t.ticketNuovo
+                          ? "bg-sky-50/70"
+                          : ""
+                    }`}
                     onClick={() => void apri(t.id)}
                   >
-                    <td className="px-2 py-2 font-mono text-xs">{t.codice}</td>
+                    <td className="relative px-2 py-2 font-mono text-xs">
+                      {t.messaggiNonLetti > 0 ? (
+                        <span
+                          className="absolute inset-y-0 left-0 w-1.5 bg-emerald-500"
+                          title={`${t.messaggiNonLetti} messaggi non letti`}
+                          aria-hidden
+                        />
+                      ) : t.ticketNuovo ? (
+                        <span
+                          className="absolute inset-y-0 left-0 w-1.5 bg-sky-400"
+                          title="Ticket nuovo"
+                          aria-hidden
+                        />
+                      ) : null}
+                      <span className="inline-flex items-center gap-1.5 pl-1.5">
+                        {t.codice}
+                        {t.messaggiNonLetti > 0 ? (
+                          <span className="inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-emerald-500 px-1 text-[10px] font-bold text-white">
+                            {t.messaggiNonLetti > 99 ? "99+" : t.messaggiNonLetti}
+                          </span>
+                        ) : null}
+                      </span>
+                    </td>
                     <td className="px-2 py-2">
                       <span className="inline-flex items-center gap-1.5">
                         <IconaCategoria cat={t.categoria} />

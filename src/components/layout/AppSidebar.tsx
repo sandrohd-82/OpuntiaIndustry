@@ -705,6 +705,15 @@ export function AppSidebar({
       .on(
         "postgres_changes",
         {
+          event: "INSERT",
+          schema: "public",
+          table: "strumenti_ticket_messaggi",
+        },
+        loadTicketBadge
+      )
+      .on(
+        "postgres_changes",
+        {
           event: "*",
           schema: "public",
           table: "app_notifiche",
@@ -713,11 +722,13 @@ export function AppSidebar({
         loadTicketBadge
       )
       .subscribe();
+    const poll = window.setInterval(loadTicketBadge, 5000);
     window.addEventListener(TICKET_NAV_EVENT, loadTicketBadge);
     window.addEventListener(NOTIFICHE_NAV_EVENT, loadTicketBadge);
     window.addEventListener("focus", loadTicketBadge);
     return () => {
       cancelled = true;
+      window.clearInterval(poll);
       void supabase.removeChannel(channel);
       window.removeEventListener(TICKET_NAV_EVENT, loadTicketBadge);
       window.removeEventListener(NOTIFICHE_NAV_EVENT, loadTicketBadge);
@@ -1091,10 +1102,7 @@ export function AppSidebar({
                       pnAttivitaUnread
                     )
                   : area.slug === "strumenti" && treeSectionsFiltered
-                    ? applyTicketNavBadge(
-                        treeSectionsFiltered,
-                        ticketNav.messaggi
-                      )
+                    ? applyTicketNavBadge(treeSectionsFiltered, ticketNav)
                     : treeSectionsFiltered;
             const toneChildren = toneChildrenForArea(area.slug);
             const areaTone = testMenuMode

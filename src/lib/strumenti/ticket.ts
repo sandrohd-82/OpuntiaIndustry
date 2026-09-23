@@ -111,6 +111,10 @@ export type TicketRiga = {
   archiviatoAt: string | null;
   resolvedAt: string | null;
   messaggiCount: number;
+  /** Messaggi non letti (notifica alla controparte). */
+  messaggiNonLetti: number;
+  /** Ticket nuovo non ancora aperto dall’addetto. */
+  ticketNuovo: boolean;
 };
 
 export type TicketScheda = TicketRiga & {
