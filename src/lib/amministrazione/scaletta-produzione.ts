@@ -52,6 +52,8 @@ export type ScalettaImpegno = {
   lineaCodice: string | null;
   esecuzioneStato: ScalettaEsecuzioneStato;
   problemaNote: string;
+  confezionamentoBloccato: boolean;
+  archiviata: boolean;
 };
 
 export type ScalettaDettaglioRiga = {
@@ -105,6 +107,16 @@ export type ScalettaDettaglio = {
     pack: string[];
     fonte: string;
     extra: string[];
+  };
+  schedaId: string | null;
+  prerequisiti: {
+    confezionamentoBloccato: boolean;
+    pendenti: Array<{
+      id: string;
+      etichetta: string;
+      tipo: string;
+      stato: string;
+    }>;
   };
 };
 

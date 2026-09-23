@@ -125,6 +125,28 @@ export const ARCHIVIO_SECTIONS: readonly NavItem[] = [
         ],
       },
       {
+        slug: "ordini",
+        label: "Ordini",
+        description: "Schede e scaletta produzione archiviate",
+        path: "/app/archivio/produzione/ordini",
+        children: [
+          {
+            slug: "schede",
+            label: "Schede Ordini",
+            description:
+              "Schede complete da più di un mese, con timeline consultabile",
+            path: "/app/archivio/produzione/ordini/schede",
+          },
+          {
+            slug: "scaletta",
+            label: "Scaletta Produzione",
+            description:
+              "Lavorazioni e confezionamenti chiusi, stesso calendario della scaletta operativa",
+            path: "/app/archivio/produzione/ordini/scaletta",
+          },
+        ],
+      },
+      {
         slug: "processi-e-attivita",
         label: "Processi e attività",
         description: "Storico processi e attività",

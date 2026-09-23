@@ -91,6 +91,13 @@ export const PRODUZIONE_SECTIONS: readonly NavItem[] = [
           "Calendario lavorazioni e attività in scaletta, da collegare ai fogli",
         path: "/app/produzione/ordini/scaletta",
       },
+      {
+        slug: "schede",
+        label: "Schede Ordini",
+        description:
+          "Schede aperte e complete con timeline di lavorazione e confezionamento",
+        path: "/app/produzione/ordini/schede",
+      },
     ],
   },
   {

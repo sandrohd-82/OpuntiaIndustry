@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useId, useState } from "react";
+import Link from "next/link";
 import {
   getScalettaImpegnoDettaglioAction,
   registraScalettaEsitoAction,
@@ -170,6 +171,17 @@ export function ScalettaImpegnoModal({ impegnoId, onClose, onChanged }: Props) {
               </span>
             </div>
 
+            {dettaglio.schedaId ? (
+              <p className="text-sm">
+                <Link
+                  href={`/app/produzione/ordini/schede?id=${dettaglio.schedaId}`}
+                  className="font-medium text-[var(--primary)] hover:underline"
+                >
+                  Apri scheda ordine (timeline)
+                </Link>
+              </p>
+            ) : null}
+
             <section className="rounded-lg border border-[var(--border)] px-3 py-3">
               <p className="text-sm font-medium">
                 {doc.entityType === "campionatura" ? "Campionatura" : "Ordine"}
@@ -309,6 +321,21 @@ export function ScalettaImpegnoModal({ impegnoId, onClose, onChanged }: Props) {
               </p>
             ) : null}
 
+            {dettaglio.prerequisiti.confezionamentoBloccato ? (
+              <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-950">
+                <p className="font-medium">
+                  Confezionamento bloccato: completa prima le lavorazioni.
+                </p>
+                <ul className="mt-1 list-disc pl-5 text-xs">
+                  {dettaglio.prerequisiti.pendenti.map((p) => (
+                    <li key={p.id}>
+                      {p.etichetta} · {p.stato}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ) : null}
+
             {imp.tipo === "confezionamento" ? (
               <label className="block text-sm">
                 <span className="mb-1 block font-medium">
@@ -367,6 +394,10 @@ export function ScalettaImpegnoModal({ impegnoId, onClose, onChanged }: Props) {
           >
             Chiudi
           </button>
+          {imp &&
+          (imp.esecuzioneStato === "completata" ||
+            imp.esecuzioneStato === "pronto_ritiro") ? null : (
+          <>
           <button
             type="button"
             disabled={saving || !dettaglio}
@@ -379,7 +410,11 @@ export function ScalettaImpegnoModal({ impegnoId, onClose, onChanged }: Props) {
             <>
               <button
                 type="button"
-                disabled={saving || !dettaglio}
+                disabled={
+                  saving ||
+                  !dettaglio ||
+                  dettaglio.prerequisiti.confezionamentoBloccato
+                }
                 onClick={() => void registra("completa")}
                 className="rounded-lg border border-[var(--border)] px-4 py-2 text-sm font-medium hover:bg-slate-50 disabled:opacity-50"
               >
@@ -387,7 +422,11 @@ export function ScalettaImpegnoModal({ impegnoId, onClose, onChanged }: Props) {
               </button>
               <button
                 type="button"
-                disabled={saving || !dettaglio}
+                disabled={
+                  saving ||
+                  !dettaglio ||
+                  dettaglio.prerequisiti.confezionamentoBloccato
+                }
                 onClick={() => void registra("pronto_ritiro")}
                 className="rounded-lg bg-[var(--primary)] px-4 py-2 text-sm font-medium text-white hover:bg-[var(--primary-hover)] disabled:opacity-50"
               >
@@ -403,6 +442,8 @@ export function ScalettaImpegnoModal({ impegnoId, onClose, onChanged }: Props) {
             >
               {saving ? "Salvataggio…" : "Dichiara completa"}
             </button>
+          )}
+          </>
           )}
         </div>
       </div>

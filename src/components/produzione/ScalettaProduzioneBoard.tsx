@@ -66,7 +66,11 @@ function classeTipo(tipo: ScalettaTipoImpegno): string {
   return "bg-slate-100 text-slate-700";
 }
 
-export function ScalettaProduzioneBoard() {
+export function ScalettaProduzioneBoard({
+  archivio = false,
+}: {
+  archivio?: boolean;
+}) {
   const [vista, setVista] = useState<ScalettaVista>("mese");
   const [anchor, setAnchor] = useState(todayIso);
   const [selected, setSelected] = useState<string | null>(null);
@@ -85,7 +89,7 @@ export function ScalettaProduzioneBoard() {
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
-    void listScalettaCalendarioAction(range).then((res) => {
+    void listScalettaCalendarioAction({ ...range, archivio }).then((res) => {
       if (cancelled) return;
       if (!res.success) {
         setError(res.error);
@@ -102,7 +106,7 @@ export function ScalettaProduzioneBoard() {
     return () => {
       cancelled = true;
     };
-  }, [range.from, range.to]);
+  }, [range.from, range.to, archivio]);
 
   const filtrati = useMemo(() => {
     const needle = q.trim().toLowerCase();
@@ -211,8 +215,9 @@ export function ScalettaProduzioneBoard() {
   return (
     <div className="space-y-5">
       <p className="text-sm text-[var(--muted)]">
-        Calendario delle lavorazioni in scaletta. Ogni giorno mostra quante
-        attività eseguire; sotto l’elenco raggruppato per data.
+        {archivio
+          ? "Archivio della scaletta: lavorazioni e confezionamenti già chiusi, nella stessa struttura del calendario operativo."
+          : "Calendario delle lavorazioni aperte. Il confezionamento si chiude solo dopo le lavorazioni. Le attività completate passano in Archivio."}
       </p>
 
       <div className="flex flex-wrap items-center gap-2">
@@ -380,6 +385,11 @@ export function ScalettaProduzioneBoard() {
                     <span className="text-[var(--muted)]">{i.cliente}</span>
                   ) : null}
                   <span className="text-xs text-slate-500">{i.etichetta}</span>
+                  {i.confezionamentoBloccato ? (
+                    <span className="rounded-full bg-amber-50 px-2 py-0.5 text-xs font-medium text-amber-900">
+                      In attesa lavorazioni
+                    </span>
+                  ) : null}
                   {i.esecuzioneStato !== "aperta" ? (
                     <span
                       className={`rounded-full px-2 py-0.5 text-xs font-medium ${
@@ -407,7 +417,7 @@ export function ScalettaProduzioneBoard() {
         ))}
       </div>
 
-      {senzaData.length ? (
+      {!archivio && senzaData.length ? (
         <div className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-3">
           <p className="text-sm font-medium text-amber-950">
             In scaletta, in attesa di giorno

@@ -195,7 +195,25 @@ export const PAGE_EXTRAS: Record<string, TutorialBlock[]> = {
   "/app/produzione/ordini/scaletta": [
     {
       type: "p",
-      text: "Produzione → Ordini → Scaletta Produzione. Calendario (mese / settimana / giorno) con il numero di lavorazioni per data e l’elenco attività raggruppato giorno per giorno. Ponte vendite → reparto.",
+      text: "Produzione → Ordini → Scaletta Produzione. Calendario delle attività aperte. Il confezionamento si chiude solo dopo tutte le lavorazioni. Le attività completate vanno in Archivio → Produzione → Ordini → Scaletta Produzione.",
+    },
+  ],
+  "/app/produzione/ordini/schede": [
+    {
+      type: "p",
+      text: "Schede ordine/campionatura con timeline (scaletta, lavorazione, confezionamento, problemi). Aperte e Complete: le complete restano 30 giorni poi passano in Archivio → Produzione → Ordini → Schede Ordini.",
+    },
+  ],
+  "/app/archivio/produzione/ordini/schede": [
+    {
+      type: "p",
+      text: "Schede complete da più di un mese. Soft move, nessuna cancellazione. Timeline consultabile.",
+    },
+  ],
+  "/app/archivio/produzione/ordini/scaletta": [
+    {
+      type: "p",
+      text: "Calendario delle lavorazioni e dei confezionamenti già chiusi. Stessa posizione della scaletta operativa, sotto Archivio.",
     },
   ],
   "/app/archivio/iot": [

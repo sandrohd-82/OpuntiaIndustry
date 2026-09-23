@@ -11,6 +11,8 @@ import { ProcessiAttivitaBoard } from "@/components/produzione/ProcessiAttivitaB
 import { ProcessiBoard } from "@/components/produzione/ProcessiBoard";
 import { OrdiniDaProcessareBoard } from "@/components/amministrazione/OrdiniDaProcessareBoard";
 import { ScalettaProduzioneBoard } from "@/components/produzione/ScalettaProduzioneBoard";
+import { SchedeOrdiniBoard } from "@/components/produzione/SchedeOrdiniBoard";
+import { Suspense } from "react";
 import { requireAreaAccess } from "@/lib/areas/guard";
 import { requireOrdiniDaProcessarePageAccess } from "@/lib/auth/ordini-access";
 import { resolveProduzioneDynamic } from "../../_resolve";
@@ -156,6 +158,19 @@ export default async function ProduzioneSubPage({ params, searchParams }: Props)
         <AppHeader title={page.label} subtitle={page.description} />
         <div className="p-6">
           <OrdiniDaProcessareBoard />
+        </div>
+      </>
+    );
+  }
+
+  if (section === "ordini" && sub === "schede") {
+    return (
+      <>
+        <AppHeader title={page.label} subtitle={page.description} />
+        <div className="p-6">
+          <Suspense fallback={<p className="text-sm text-slate-500">Caricamento schede…</p>}>
+            <SchedeOrdiniBoard />
+          </Suspense>
         </div>
       </>
     );

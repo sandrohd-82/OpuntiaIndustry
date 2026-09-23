@@ -13,6 +13,10 @@ import {
   type CampionaturaRiga,
 } from "@/lib/amministrazione/campionature";
 import { passaCampionaturaScalettaSchema } from "@/lib/amministrazione/scaletta-produzione";
+import {
+  appendSchedaTimeline,
+  ensureSchedaOrdine,
+} from "@/lib/produzione/schede-ordini-store";
 import { inferCarrierFromUrl } from "@/lib/shipping/tracking";
 import { assegnaLottoProduzioneDaMagazzino } from "@/app/actions/lotto-produzione-magazzino";
 import { getGiacenzaProdottoAction } from "@/app/actions/produzione-capacita";
@@ -1016,6 +1020,25 @@ export async function passaCampionaturaInScalettaAction(
       success: false,
       error: `Processata ma calendario: ${impErr.message}`,
     };
+  }
+
+  const scheda = await ensureSchedaOrdine(supabase, {
+    campionaturaId: header.id,
+    numero: header.numero_interno,
+    cliente: header.cliente_ragione_sociale ?? "",
+    prodotto: prodotti,
+    userId: gate.auth.userId,
+  });
+  if (scheda) {
+    await appendSchedaTimeline(supabase, {
+      schedaId: scheda.id,
+      eventoTipo: "scaletta",
+      titolo: `Passata in scaletta · ${header.numero_interno}`,
+      dettaglio: `Lavorazione ${d.dataLavorazione}${
+        d.dataConfezionamento ? ` · confezionamento ${d.dataConfezionamento}` : ""
+      }`,
+      actorId: gate.auth.userId,
+    });
   }
 
   await writeAuditLog({

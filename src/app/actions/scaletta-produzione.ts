@@ -12,12 +12,19 @@ import {
   type ScalettaImpegno,
   type ScalettaSenzaData,
 } from "@/lib/amministrazione/scaletta-produzione";
+import {
+  archiviaImpegniGiaCompletati,
+  findSchedaIdForEntity,
+  loadLavorazioniPendenti,
+  syncSchedaDopoEsito,
+} from "@/lib/produzione/schede-ordini-store";
 import { createClient } from "@/lib/supabase/server";
 import { z } from "zod";
 
 const rangeSchema = z.object({
   from: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
   to: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  archivio: z.boolean().optional().default(false),
 });
 
 export async function listScalettaCalendarioAction(raw: unknown): Promise<
@@ -28,23 +35,28 @@ export async function listScalettaCalendarioAction(raw: unknown): Promise<
     }
   | { success: false; error: string }
 > {
-  await requireOrdineProcessAccess();
+  const { auth } = await requireOrdineProcessAccess();
   const parsed = rangeSchema.safeParse(raw);
   if (!parsed.success) {
     return { success: false, error: "Intervallo date non valido." };
   }
   const supabase = await createClient();
-  const { from, to } = parsed.data;
+  const { from, to, archivio } = parsed.data;
+  if (!archivio) {
+    await archiviaImpegniGiaCompletati(supabase, auth.userId);
+  }
 
-  const { data: rows, error } = await supabase
+  let q = supabase
     .from("produzione_calendario_impegni")
     .select(
-      "id, data_giorno, ordine_id, campionatura_id, linea_codice, etichetta, note, esecuzione_stato, problema_note"
+      "id, data_giorno, ordine_id, campionatura_id, linea_codice, etichetta, note, esecuzione_stato, problema_note, archiviata_at"
     )
     .is("deleted_at", null)
     .gte("data_giorno", from)
     .lte("data_giorno", to)
     .order("data_giorno", { ascending: true });
+  q = archivio ? q.not("archiviata_at", "is", null) : q.is("archiviata_at", null);
+  const { data: rows, error } = await q;
   if (error) return { success: false, error: error.message };
 
   const ordineIds = [
@@ -125,7 +137,7 @@ export async function listScalettaCalendarioAction(raw: unknown): Promise<
     }
   }
 
-  const impegni: ScalettaImpegno[] = (rows ?? []).map((r) => {
+  const mapped = (rows ?? []).map((r) => {
     const oid = r.ordine_id ? String(r.ordine_id) : "";
     const cid = r.campionatura_id ? String(r.campionatura_id) : "";
     const meta = oid
@@ -142,13 +154,81 @@ export async function listScalettaCalendarioAction(raw: unknown): Promise<
       numeroInterno: meta?.numero || etichetta.split(" · ")[0] || "—",
       cliente: meta?.cliente ?? "",
       prodotto: meta?.prodotto ?? "",
-      entityType: cid && !oid ? "campionatura" : "ordine",
+      entityType: (cid && !oid ? "campionatura" : "ordine") as
+        | "ordine"
+        | "campionatura",
       entityId: oid || cid,
       lineaCodice: r.linea_codice ? String(r.linea_codice) : null,
       esecuzioneStato: parseEsecuzioneStato(r.esecuzione_stato),
       problemaNote: String(r.problema_note ?? ""),
+      confezionamentoBloccato: false,
+      archiviata: Boolean(r.archiviata_at),
     };
   });
+
+  const packOrd = [
+    ...new Set(
+      mapped
+        .filter((i) => i.tipo === "confezionamento" && i.entityType === "ordine")
+        .map((i) => i.entityId)
+        .filter(Boolean)
+    ),
+  ];
+  const packCamp = [
+    ...new Set(
+      mapped
+        .filter(
+          (i) => i.tipo === "confezionamento" && i.entityType === "campionatura"
+        )
+        .map((i) => i.entityId)
+        .filter(Boolean)
+    ),
+  ];
+  const blocked = new Set<string>();
+  if (packOrd.length || packCamp.length) {
+    const sibs: Array<{
+      ordine_id?: string | null;
+      campionatura_id?: string | null;
+      note?: string | null;
+      esecuzione_stato?: string | null;
+    }> = [];
+    if (packOrd.length) {
+      const { data } = await supabase
+        .from("produzione_calendario_impegni")
+        .select("ordine_id, campionatura_id, note, esecuzione_stato")
+        .is("deleted_at", null)
+        .in("ordine_id", packOrd);
+      sibs.push(...(data ?? []));
+    }
+    if (packCamp.length) {
+      const { data } = await supabase
+        .from("produzione_calendario_impegni")
+        .select("ordine_id, campionatura_id, note, esecuzione_stato")
+        .is("deleted_at", null)
+        .in("campionatura_id", packCamp);
+      sibs.push(...(data ?? []));
+    }
+    const openByKey = new Set<string>();
+    for (const s of sibs ?? []) {
+      const tipo = tipoImpegnoDaNote(String(s.note ?? ""));
+      const stato = String(s.esecuzione_stato ?? "aperta");
+      if (tipo !== "lavorazione" && tipo !== "trasformazione") continue;
+      if (stato === "completata" || stato === "pronto_ritiro") continue;
+      if (s.ordine_id) openByKey.add(`ordine:${s.ordine_id}`);
+      if (s.campionatura_id) openByKey.add(`campionatura:${s.campionatura_id}`);
+    }
+    for (const i of mapped) {
+      if (i.tipo !== "confezionamento") continue;
+      if (openByKey.has(`${i.entityType}:${i.entityId}`)) {
+        blocked.add(i.id);
+      }
+    }
+  }
+
+  const impegni: ScalettaImpegno[] = mapped.map((i) => ({
+    ...i,
+    confezionamentoBloccato: blocked.has(i.id),
+  }));
 
   const { data: ordSenza } = await supabase
     .from("ordini")
@@ -462,9 +542,29 @@ export async function getScalettaImpegnoDettaglioAction(
     return { success: false, error: "Riga senza ordine o campionatura." };
   }
 
+  const pendenti = await loadLavorazioniPendenti(supabase, {
+    ordineId: oid || null,
+    campionaturaId: cid || null,
+  });
+  const schedaId = await findSchedaIdForEntity(supabase, {
+    ordineId: oid || null,
+    campionaturaId: cid || null,
+  });
+
   return {
     success: true,
-    dettaglio: { impegno, documento, righe, processazione },
+    dettaglio: {
+      impegno,
+      documento,
+      righe,
+      processazione,
+      schedaId,
+      prerequisiti: {
+        confezionamentoBloccato:
+          tipo === "confezionamento" && pendenti.length > 0,
+        pendenti,
+      },
+    },
   };
 }
 
@@ -507,6 +607,24 @@ export async function registraScalettaEsitoAction(
       success: false,
       error: "Pronto per il ritiro è disponibile solo sul confezionamento.",
     };
+  }
+  if (
+    tipo === "confezionamento" &&
+    (d.modo === "completa" || d.modo === "pronto_ritiro")
+  ) {
+    const pendenti = await loadLavorazioniPendenti(supabase, {
+      ordineId: existing.ordine_id ? String(existing.ordine_id) : null,
+      campionaturaId: existing.campionatura_id
+        ? String(existing.campionatura_id)
+        : null,
+    });
+    if (pendenti.length > 0) {
+      return {
+        success: false,
+        error:
+          "Il confezionamento non si può chiudere prima di aver completato tutte le lavorazioni.",
+      };
+    }
   }
 
   let sedeId = d.sedePartenzaId ?? null;
@@ -619,5 +737,24 @@ export async function registraScalettaEsitoAction(
     },
   });
 
-  return getScalettaImpegnoDettaglioAction(d.impegnoId);
+  const det = await getScalettaImpegnoDettaglioAction(d.impegnoId);
+  if (det.success) {
+    await syncSchedaDopoEsito(supabase, {
+      ordineId: existing.ordine_id ? String(existing.ordine_id) : null,
+      campionaturaId: existing.campionatura_id
+        ? String(existing.campionatura_id)
+        : null,
+      numero: det.dettaglio.documento.numeroInterno,
+      cliente: det.dettaglio.documento.cliente,
+      prodotto: det.dettaglio.righe[0]?.prodottoCodice ?? "",
+      userId: auth.userId,
+      impegnoId: d.impegnoId,
+      etichetta: String(existing.etichetta ?? ""),
+      tipo,
+      modo: d.modo,
+      nota: d.nota.trim(),
+    });
+    return getScalettaImpegnoDettaglioAction(d.impegnoId);
+  }
+  return det;
 }

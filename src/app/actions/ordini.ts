@@ -23,6 +23,10 @@ import {
   ORDINI_STATI_ELENCO,
 } from "@/lib/amministrazione/ordini";
 import {
+  appendSchedaTimeline,
+  ensureSchedaOrdine,
+} from "@/lib/produzione/schede-ordini-store";
+import {
   normalizeConfezionamentoDraft,
   totaleKgConfezionati,
 } from "@/lib/amministrazione/imballaggi-spedizioni";
@@ -1504,6 +1508,25 @@ export async function processOrdineInScalettaAction(
       giacenza_kg: calcRes.giacenzaKg,
     },
   });
+  const scheda = await ensureSchedaOrdine(supabase, {
+    ordineId: existing.id,
+    numero: existing.numeroInterno,
+    cliente: existing.cliente ?? "",
+    prodotto: riga?.prodottoCodice ?? "",
+    userId: auth.userId,
+  });
+  if (scheda) {
+    await appendSchedaTimeline(supabase, {
+      schedaId: scheda.id,
+      eventoTipo: "scaletta",
+      titolo: `Passato in scaletta · ${existing.numeroInterno}`,
+      dettaglio: giorniProduzione.length
+        ? `Giorni lavorazione: ${giorniProduzione.join(", ")}`
+        : "Inserito in scaletta produzione",
+      actorId: auth.userId,
+    });
+  }
+
   await writeAudit({
     entity_type: "ordini",
     entity_id: existing.id,

@@ -9,6 +9,9 @@ import { CatalogoOffertaBoard } from "@/components/amministrazione/CatalogoOffer
 import { ChatArgomentiStoricoBoard } from "@/components/chat/ChatArgomentiStoricoBoard";
 import { ChatDiretteEliminateBoard } from "@/components/chat/ChatDiretteEliminateBoard";
 import { FogliLavorazioneBoard } from "@/components/produzione/FogliLavorazioneBoard";
+import { SchedeOrdiniBoard } from "@/components/produzione/SchedeOrdiniBoard";
+import { ScalettaProduzioneBoard } from "@/components/produzione/ScalettaProduzioneBoard";
+import { Suspense } from "react";
 import { FogliIngressoMpBoard } from "@/components/produzione/FogliIngressoMpBoard";
 import { ProcessiStoricoBoard } from "@/components/produzione/ProcessiStoricoBoard";
 import { ProcessiAttivitaStoricoBoard } from "@/components/produzione/ProcessiAttivitaStoricoBoard";
@@ -284,6 +287,30 @@ export default async function ArchivioCatchAllPage({ params }: Props) {
         <AppHeader title={page.label} subtitle={page.description} />
         <div className="p-6">
           <FogliIngressoMpBoard storico />
+        </div>
+      </>
+    );
+  }
+
+  if (key === "produzione/ordini/schede") {
+    return (
+      <>
+        <AppHeader title={page.label} subtitle={page.description} />
+        <div className="p-6">
+          <Suspense fallback={<p className="text-sm text-slate-500">Caricamento schede…</p>}>
+            <SchedeOrdiniBoard archivio />
+          </Suspense>
+        </div>
+      </>
+    );
+  }
+
+  if (key === "produzione/ordini/scaletta") {
+    return (
+      <>
+        <AppHeader title={page.label} subtitle={page.description} />
+        <div className="p-6">
+          <ScalettaProduzioneBoard archivio />
         </div>
       </>
     );
