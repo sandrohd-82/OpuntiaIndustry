@@ -935,6 +935,18 @@ export function CampionaturaFormModal({ onClose, onSaved }: Props) {
             timelinePick === "mail"
               ? {
                   purpose: "campionatura-mail",
+                  prodotti: righe
+                    .map((r) => {
+                      const p = prodotti.find((x) => x.id === r.prodottoId);
+                      return [p?.codice, p?.nome].filter(Boolean).join(" ");
+                    })
+                    .filter(Boolean),
+                  extra: [
+                    cliente.ragioneSociale,
+                    ...righe
+                      .filter((r) => r.quantita !== "" && Number(r.quantita) > 0)
+                      .map((r) => `${r.quantita} ${r.unitaMisura}`),
+                  ],
                   onPicked: (picked) => {
                     setMail(picked);
                     setTimelinePick(null);

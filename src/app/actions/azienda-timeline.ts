@@ -33,6 +33,13 @@ import {
   persistAziendaEmailAutoLinks,
 } from "@/app/actions/webmail";
 import { importImapMessagesByEmails } from "@/lib/webmail/sync";
+import {
+  compareMailRichiestaDateDesc,
+  isMailRichiestaProbabile,
+  MAIL_RICHIESTA_PURPOSES,
+  scoreMailRichiesta,
+  type MailRichiestaPurpose,
+} from "@/lib/amministrazione/mail-richiesta-rank";
 
 const inputSchema = z.object({
   aziendaTipo: z.enum(["cliente", "fornitore", "cliente_possibile"]),
@@ -891,6 +898,8 @@ export type AziendaTimelineMailHit = {
   receivedAt: string | null;
   alreadyLinked: boolean;
   matchReason: string;
+  probable?: boolean;
+  relevanceScore?: number;
 };
 
 export async function listAziendaTimelineMailHintsAction(
@@ -919,6 +928,10 @@ export async function listAziendaTimelineMailHintsAction(
 
 const searchSchema = inputSchema.extend({
   emailQuery: z.string().trim().max(200).optional().default(""),
+  purpose: z.enum(MAIL_RICHIESTA_PURPOSES).optional(),
+  prodotti: z.array(z.string().trim().max(160)).max(20).optional(),
+  extra: z.array(z.string().trim().max(160)).max(20).optional(),
+  aziendaLabel: z.string().trim().max(200).optional(),
 });
 
 export async function searchWebmailForAziendaTimelineAction(
@@ -932,12 +945,13 @@ export async function searchWebmailForAziendaTimelineAction(
   const parsed = searchSchema.safeParse(raw);
   if (!parsed.success) return { success: false, error: "Ricerca non valida." };
   const vis = await resolveWebmailAccountVisibility(auth);
-  const { aziendaTipo, aziendaId, emailQuery } = parsed.data;
+  const { aziendaTipo, aziendaId, emailQuery, purpose } = parsed.data;
   const hints = await collectAziendaEmailHints(aziendaTipo, aziendaId);
   if (vis.mode === "granted" && vis.ids.length === 0) {
     return { success: true, items: [], domains: hints.domains };
   }
   const manual = normalizeEmail(emailQuery);
+  const receivedOnly = Boolean(purpose);
 
   const orParts: string[] = [];
   function pushToContains(addr: string) {
@@ -958,21 +972,24 @@ export async function searchWebmailForAziendaTimelineAction(
       orParts.push(`from_address.ilike.%@${d}%`);
     }
   }
-
-  if (orParts.length === 0) {
-    return { success: true, items: [], domains: hints.domains };
-  }
+  orParts.push(
+    `and(azienda_tipo.eq.${aziendaTipo},azienda_id.eq.${aziendaId})`
+  );
 
   const supabase = await createClient();
   let mailQ = supabase
     .from("webmail_messaggi")
     .select(
-      "id, subject, from_address, from_name, to_addresses, direction, received_at, sent_at, azienda_tipo, azienda_id"
+      "id, subject, body_text, from_address, from_name, to_addresses, direction, received_at, sent_at, azienda_tipo, azienda_id, folder, ai_intent"
     )
     .is("deleted_at", null)
     .or(orParts.join(","))
     .order("received_at", { ascending: false })
-    .limit(60);
+    .limit(purpose ? 80 : 60);
+  mailQ = mailQ.neq("folder", "TRASH").neq("folder", "JUNK");
+  if (receivedOnly) {
+    mailQ = mailQ.eq("direction", "inbound");
+  }
   if (vis.mode === "granted") mailQ = mailQ.in("account_id", vis.ids);
   const { data, error } = await mailQ;
 
@@ -980,6 +997,14 @@ export async function searchWebmailForAziendaTimelineAction(
 
   const emailSet = new Set(hints.emails.map((e) => e.email));
   const domainSet = new Set(hints.domains);
+  const rankCtx = purpose
+    ? {
+        purpose: purpose as MailRichiestaPurpose,
+        aziendaLabel: parsed.data.aziendaLabel ?? "",
+        prodotti: parsed.data.prodotti ?? [],
+        extra: parsed.data.extra ?? [],
+      }
+    : null;
 
   const items: AziendaTimelineMailHit[] = (data ?? []).map((r) => {
     const from = normalizeEmail(String(r.from_address ?? ""));
@@ -987,6 +1012,10 @@ export async function searchWebmailForAziendaTimelineAction(
       ? (r.to_addresses as string[]).map((x) => normalizeEmail(String(x)))
       : [];
     const outbound = String(r.direction ?? "") === "outbound";
+    const receivedAt =
+      (outbound
+        ? ((r.sent_at as string | null) ?? (r.received_at as string | null))
+        : (r.received_at as string | null)) ?? null;
     const dom = domainOf(from);
     const toDom = toList.map(domainOf).find(Boolean);
     let matchReason = "ricerca";
@@ -996,6 +1025,28 @@ export async function searchWebmailForAziendaTimelineAction(
       matchReason = outbound ? "destinatario scheda" : "scheda / referente";
     } else if (dom && domainSet.has(dom)) matchReason = `dominio @${dom}`;
     else if (toDom && domainSet.has(toDom)) matchReason = `dominio @${toDom}`;
+    else if (
+      String(r.azienda_tipo ?? "") === aziendaTipo &&
+      String(r.azienda_id ?? "") === aziendaId
+    ) {
+      matchReason = "già collegata all’azienda";
+    }
+
+    const ranked = rankCtx
+      ? scoreMailRichiesta(
+          {
+            subject: String(r.subject ?? ""),
+            bodyText: String(r.body_text ?? ""),
+            inbound: !outbound,
+            receivedAt,
+            aiIntent: r.ai_intent ? String(r.ai_intent) : null,
+          },
+          rankCtx
+        )
+      : null;
+    if (ranked?.reasons.length) {
+      matchReason = ranked.reasons.join(" · ");
+    }
 
     const alreadyLinked =
       String(r.azienda_tipo ?? "") === aziendaTipo &&
@@ -1008,14 +1059,29 @@ export async function searchWebmailForAziendaTimelineAction(
       fromName: String(r.from_name ?? ""),
       toAddresses: toList,
       direction: outbound ? "outbound" : "inbound",
-      receivedAt:
-        (outbound
-          ? ((r.sent_at as string | null) ?? (r.received_at as string | null))
-          : (r.received_at as string | null)) ?? null,
+      receivedAt,
       alreadyLinked,
       matchReason,
+      probable: ranked
+        ? isMailRichiestaProbabile(ranked)
+        : undefined,
+      relevanceScore: ranked?.score,
     };
   });
+
+  if (rankCtx) {
+    items.sort((a, b) => {
+      const pa = a.probable ? 1 : 0;
+      const pb = b.probable ? 1 : 0;
+      if (pa !== pb) return pb - pa;
+      if (a.probable && b.probable) {
+        const sa = a.relevanceScore ?? 0;
+        const sb = b.relevanceScore ?? 0;
+        if (sa !== sb) return sb - sa;
+      }
+      return compareMailRichiestaDateDesc(a.receivedAt, b.receivedAt);
+    });
+  }
 
   return { success: true, items, domains: hints.domains };
 }

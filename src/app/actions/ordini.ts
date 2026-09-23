@@ -1110,11 +1110,13 @@ async function createOrdineWizardActionInner(
             sospeso: true,
             motivo: "non_disponibile",
             data_disponibilita_presunta: input.dataDisponibilitaPresunta,
+            webmail_richiesta_id: input.webmailRichiestaId ?? null,
           }
         : {
             in_attesa: true,
             consegna_tipo: input.consegnaTipo,
             data_consegna_richiesta: dataConsegna,
+            webmail_richiesta_id: input.webmailRichiestaId ?? null,
           },
       giorni_produzione: [],
       is_test: true,

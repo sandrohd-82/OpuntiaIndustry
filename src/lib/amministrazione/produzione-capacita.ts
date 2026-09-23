@@ -183,6 +183,7 @@ export const ordineWizardInputSchema = z
       .optional(),
     preventivoId: z.string().uuid().nullable().optional(),
     webmailAccettazioneId: z.string().uuid().nullable().optional(),
+    webmailRichiestaId: z.string().uuid().nullable().optional(),
     referenteAccettazioneId: z.string().uuid().nullable().optional(),
     tipoPagamento: z
       .enum(["anticipato", "alla_consegna", "posticipato", "dilazionato"])

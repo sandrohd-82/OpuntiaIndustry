@@ -143,8 +143,10 @@ export type TimelinePickMode =
       onPicked: (nota: { id: string; titolo: string }) => void;
     }
   | {
-      purpose: "campionatura-mail" | "ordine-accettazione-mail";
+      purpose: "campionatura-mail" | "ordine-accettazione-mail" | "ordine-richiesta-mail";
       onPicked: (mail: { id: string; subject: string }) => void;
+      prodotti?: string[];
+      extra?: string[];
     };
 
 type Props = {
@@ -353,7 +355,16 @@ function TimelineMailHitRow({
     >
       <div className="flex flex-wrap items-center justify-between gap-2 px-3 py-2">
         <div className="min-w-0 flex-1">
-          <p className="truncate font-medium text-slate-900">{hit.subject}</p>
+          <p className="flex flex-wrap items-center gap-1.5">
+            {hit.probable ? (
+              <span className="rounded-full bg-emerald-100 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-emerald-900">
+                Più probabile
+              </span>
+            ) : null}
+            <span className="truncate font-medium text-slate-900">
+              {hit.subject}
+            </span>
+          </p>
           <p className="truncate text-[var(--muted)]">
             {hit.direction === "outbound"
               ? `Inviata a ${hit.toAddresses[0] || "—"}`
@@ -464,7 +475,8 @@ export function AziendaTimelineModal({
   const [pending, startTransition] = useTransition();
   const [panel, setPanel] = useState<"none" | "nota" | "mail" | "pn">(
     pickMode?.purpose === "campionatura-mail" ||
-    pickMode?.purpose === "ordine-accettazione-mail"
+    pickMode?.purpose === "ordine-accettazione-mail" ||
+    pickMode?.purpose === "ordine-richiesta-mail"
       ? "mail"
       : pickMode?.purpose === "campionatura-nota" && pickMode.openCreate
         ? "nota"
@@ -559,7 +571,8 @@ export function AziendaTimelineModal({
 
   const isMailPick =
     pickMode?.purpose === "campionatura-mail" ||
-    pickMode?.purpose === "ordine-accettazione-mail";
+    pickMode?.purpose === "ordine-accettazione-mail" ||
+    pickMode?.purpose === "ordine-richiesta-mail";
 
   const reload = useCallback(async () => {
     setLoading(true);
@@ -611,6 +624,10 @@ export function AziendaTimelineModal({
       aziendaTipo,
       aziendaId,
       emailQuery: query,
+      purpose: isMailPick ? pickMode?.purpose : undefined,
+      prodotti: isMailPick ? pickMode?.prodotti : undefined,
+      extra: isMailPick ? pickMode?.extra : undefined,
+      aziendaLabel,
     });
     setMailSearching(false);
     if (!res.success) {
@@ -621,6 +638,15 @@ export function AziendaTimelineModal({
     setMailHits(res.items);
     setMailDomains(res.domains);
   }
+
+  const mailProbabili = useMemo(
+    () => (isMailPick ? mailHits.filter((h) => h.probable) : []),
+    [isMailPick, mailHits]
+  );
+  const mailAltre = useMemo(
+    () => (isMailPick ? mailHits.filter((h) => !h.probable) : mailHits),
+    [isMailPick, mailHits]
+  );
 
   const presentFilterGroups = useMemo(() => {
     const present = new Set(
@@ -886,7 +912,8 @@ export function AziendaTimelineModal({
     if (
       !selectedMail ||
       (pickMode?.purpose !== "campionatura-mail" &&
-        pickMode?.purpose !== "ordine-accettazione-mail")
+        pickMode?.purpose !== "ordine-accettazione-mail" &&
+        pickMode?.purpose !== "ordine-richiesta-mail")
     ) {
       return;
     }
@@ -951,9 +978,11 @@ export function AziendaTimelineModal({
               {pickMode?.purpose === "campionatura-nota"
                 ? "Seleziona la nota da collegare alla richiesta di campionatura, oppure creane una."
                 : pickMode?.purpose === "ordine-accettazione-mail"
-                  ? "Collega la mail WebMail di accettazione del preventivo."
+                  ? "Prima le mail più inerenti all’accettazione, poi le altre ricevute dalla più recente."
+                : pickMode?.purpose === "ordine-richiesta-mail"
+                  ? "Prima le mail più inerenti alla richiesta d’ordine, poi le altre ricevute dalla più recente."
                 : pickMode?.purpose === "campionatura-mail"
-                  ? "Collega la mail WebMail della richiesta di campionatura."
+                  ? "Prima le mail più inerenti alla campionatura, poi le altre ricevute dalla più recente."
                   : "Asse dal basso (passato) all’alto (recente). Puoi aggiungere note, collegare mail o copiare Promemoria, Attività e Note già create."}
             </p>
             {presentFilterGroups.length > 0 ? (
@@ -1199,7 +1228,7 @@ export function AziendaTimelineModal({
             </p>
             <p className="mt-0.5 text-xs text-sky-900/80">
               {isMailPick
-                ? "Seleziona una mail anche se è già in timeline, poi premi Avanti per collegarla e chiudere."
+                ? "Mail ricevute dell’azienda: in alto le più inerenti al contenuto della richiesta, sotto le altre dalla più recente alla più lontana."
                 : "Default: indirizzi scheda/referenti e stesso dominio aziendale (escl. caselle consumer). Solo caselle con i tuoi permessi."}
             </p>
             {mailHints.length > 0 || mailDomains.length > 0 ? (
@@ -1262,15 +1291,70 @@ export function AziendaTimelineModal({
             <ul className="mt-3 max-h-[min(28rem,55vh)] space-y-1.5 overflow-y-auto">
               {mailHits.length === 0 && !mailSearching ? (
                 <li className="text-xs text-[var(--muted)]">
-                  Nessuna mail trovata nelle caselle accessibili.
+                  Nessuna mail ricevuta trovata nelle caselle accessibili.
                 </li>
+              ) : isMailPick ? (
+                <>
+                  {mailProbabili.length > 0 ? (
+                    <li className="list-none px-0.5 pt-1 text-[11px] font-semibold uppercase tracking-wide text-emerald-900">
+                      Più probabili
+                    </li>
+                  ) : null}
+                  {mailProbabili.map((hit) => (
+                    <TimelineMailHitRow
+                      key={hit.id}
+                      hit={hit}
+                      pending={pending}
+                      pickMode={true}
+                      selected={selectedMail?.id === hit.id}
+                      onSelect={() => {
+                        setError(null);
+                        setSelectedMail(hit);
+                      }}
+                      onLink={() => linkMail(hit)}
+                      onVisualizza={() =>
+                        setVisualizza({
+                          type: "mail",
+                          id: hit.id,
+                          title: hit.subject,
+                        })
+                      }
+                    />
+                  ))}
+                  {mailAltre.length > 0 ? (
+                    <li className="list-none px-0.5 pt-2 text-[11px] font-semibold uppercase tracking-wide text-slate-600">
+                      Altre mail ricevute, dalla più recente
+                    </li>
+                  ) : null}
+                  {mailAltre.map((hit) => (
+                    <TimelineMailHitRow
+                      key={hit.id}
+                      hit={hit}
+                      pending={pending}
+                      pickMode={true}
+                      selected={selectedMail?.id === hit.id}
+                      onSelect={() => {
+                        setError(null);
+                        setSelectedMail(hit);
+                      }}
+                      onLink={() => linkMail(hit)}
+                      onVisualizza={() =>
+                        setVisualizza({
+                          type: "mail",
+                          id: hit.id,
+                          title: hit.subject,
+                        })
+                      }
+                    />
+                  ))}
+                </>
               ) : (
                 mailHits.map((hit) => (
                   <TimelineMailHitRow
                     key={hit.id}
                     hit={hit}
                     pending={pending}
-                    pickMode={isMailPick}
+                    pickMode={false}
                     selected={selectedMail?.id === hit.id}
                     onSelect={() => {
                       setError(null);

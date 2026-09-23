@@ -213,6 +213,13 @@ export function OrdineNuovoWizardModal({
     id: string;
     subject: string;
   } | null>(null);
+  const [mailRichiesta, setMailRichiesta] = useState<{
+    id: string;
+    subject: string;
+  } | null>(null);
+  const [timelineMailKind, setTimelineMailKind] = useState<
+    "accettazione" | "richiesta" | null
+  >(null);
   const [referenteAccettazione, setReferenteAccettazione] =
     useState<RubricaContatto | null>(null);
   const [timelineMailOpen, setTimelineMailOpen] = useState(false);
@@ -682,6 +689,7 @@ export function OrdineNuovoWizardModal({
         tipo: tipoOrdine,
         preventivoId: preventivoId || null,
         webmailAccettazioneId: mailAccettazione?.id ?? null,
+        webmailRichiestaId: mailRichiesta?.id ?? null,
         referenteAccettazioneId: referenteAccettazione?.id ?? null,
         dataDisponibilitaPresunta: ordineSospeso
           ? dataDisponibilitaPresunta || null
@@ -1265,6 +1273,31 @@ export function OrdineNuovoWizardModal({
               </div>
               )}
 
+              <div className="space-y-2 rounded-lg border border-[var(--border)] px-4 py-3">
+                <p className="text-sm font-medium">Richiesta pervenuta per mail</p>
+                <p className="text-xs text-[var(--muted)]">
+                  Se il cliente ha scritto per mail, collega il messaggio
+                  ricevuto. Il sistema mette in alto le più inerenti.
+                </p>
+                <button
+                  type="button"
+                  disabled={
+                    anagraficaFonte === "possibile"
+                      ? !possibileClienteId
+                      : !clienteId
+                  }
+                  onClick={() => {
+                    setTimelineMailKind("richiesta");
+                    setTimelineMailOpen(true);
+                  }}
+                  className="rounded-lg border border-[var(--border)] px-3 py-2 text-sm hover:bg-slate-50 disabled:opacity-50"
+                >
+                  {mailRichiesta
+                    ? mailRichiesta.subject || "Mail collegata"
+                    : "Collega mail ricevuta"}
+                </button>
+              </div>
+
               {tipoOrdine !== "campionatura" ? (
                 <div className="space-y-3 rounded-lg border border-[var(--border)] px-4 py-3">
                   <p className="text-sm font-medium">Preventivo accettato</p>
@@ -1308,7 +1341,10 @@ export function OrdineNuovoWizardModal({
                       <button
                         type="button"
                         disabled={!clienteId}
-                        onClick={() => setTimelineMailOpen(true)}
+                        onClick={() => {
+                          setTimelineMailKind("accettazione");
+                          setTimelineMailOpen(true);
+                        }}
                         className="rounded-lg border border-[var(--border)] px-3 py-2 text-sm hover:bg-slate-50 disabled:opacity-50"
                       >
                         {mailAccettazione
@@ -1993,18 +2029,47 @@ export function OrdineNuovoWizardModal({
         />
       )}
 
-      {timelineMailOpen && clienteId ? (
+      {timelineMailOpen &&
+      (anagraficaFonte === "possibile"
+        ? possibileClienteId
+        : clienteId) ? (
         <AziendaTimelineModal
           elevated
-          aziendaTipo="cliente"
-          aziendaId={clienteId}
+          aziendaTipo={
+            anagraficaFonte === "possibile" ? "cliente_possibile" : "cliente"
+          }
+          aziendaId={
+            anagraficaFonte === "possibile" ? possibileClienteId : clienteId
+          }
           aziendaLabel={clienteNome}
-          onClose={() => setTimelineMailOpen(false)}
+          onClose={() => {
+            setTimelineMailOpen(false);
+            setTimelineMailKind(null);
+          }}
           pickMode={{
-            purpose: "ordine-accettazione-mail",
-            onPicked: (picked) => {
-              setMailAccettazione(picked);
+            purpose:
+              timelineMailKind === "accettazione"
+                ? "ordine-accettazione-mail"
+                : tipoOrdine === "campionatura"
+                  ? "campionatura-mail"
+                  : "ordine-richiesta-mail",
+            prodotti: prodotto
+              ? [`${prodotto.codice} ${prodotto.nome}`.trim()]
+              : [],
+            extra: [
+              clienteNome,
+              preventiviAccettati.find((p) => p.id === preventivoId)
+                ?.numeroInterno ?? "",
+              quantita !== "" ? `${quantita} ${unitaMisura}` : "",
+            ].filter(Boolean),
+            onPicked: (picked: { id: string; subject: string }) => {
+              if (timelineMailKind === "accettazione") {
+                setMailAccettazione(picked);
+              } else {
+                setMailRichiesta(picked);
+              }
               setTimelineMailOpen(false);
+              setTimelineMailKind(null);
             },
           }}
         />
