@@ -2,9 +2,9 @@
 
 import { resolveAnagraficaTwins } from "@/lib/amministrazione/anagrafica-twins";
 import {
-  cicloStatoCampionatura,
-  cicloStatoOrdine,
-} from "@/lib/amministrazione/ciclo-stato-ordine";
+  etichettaStatoSchedaAzienda,
+  loadUltimoStatoSchede,
+} from "@/lib/amministrazione/scheda-timeline-nota";
 import { requireAnyAreaAccess } from "@/lib/areas/guard";
 import {
   requireOrdineProcessAccess,
@@ -19,7 +19,6 @@ import {
   trasferisciSchedeCompleteScadute,
 } from "@/lib/produzione/schede-ordini-store";
 import type { SchedaDettaglio, SchedaOrdine } from "@/lib/produzione/schede-ordini";
-import type { CampionaturaStatoDb, OrdineStato } from "@/types/database";
 import { createClient, createServiceClient } from "@/lib/supabase/server";
 import { z } from "zod";
 
@@ -132,6 +131,7 @@ export type AziendaSchedaCardItem = {
   numero: string;
   statoLabel: string;
   kind: "ordine" | "campionatura";
+  statoDb?: string;
 };
 
 /** Schede ordine/campionatura visibili sulla scheda cliente o possibile cliente. */
@@ -170,8 +170,8 @@ export async function listAziendaSchedeCardAction(input: {
         schedaId: null,
         campionaturaId: id,
         numero: String(r.numero_interno ?? "").trim() || "Campionatura",
-        statoLabel: cicloStatoCampionatura(String(r.stato) as CampionaturaStatoDb)
-          .label,
+        statoLabel: String(r.stato ?? ""),
+        statoDb: String(r.stato ?? ""),
         kind: "campionatura",
       });
     }
@@ -192,7 +192,8 @@ export async function listAziendaSchedeCardAction(input: {
         schedaId: null,
         ordineId: id,
         numero: String(r.numero_interno ?? "").trim() || "Ordine",
-        statoLabel: cicloStatoOrdine(String(r.stato) as OrdineStato).label,
+        statoLabel: String(r.stato ?? ""),
+        statoDb: String(r.stato ?? ""),
         kind: isCamp ? "campionatura" : "ordine",
       });
     }
@@ -227,8 +228,8 @@ export async function listAziendaSchedeCardAction(input: {
         schedaId: null,
         campionaturaId: id,
         numero: String(r.numero_interno ?? "").trim() || "Campionatura",
-        statoLabel: cicloStatoCampionatura(String(r.stato) as CampionaturaStatoDb)
-          .label,
+        statoLabel: String(r.stato ?? ""),
+        statoDb: String(r.stato ?? ""),
         kind: "campionatura",
       });
     }
@@ -241,7 +242,8 @@ export async function listAziendaSchedeCardAction(input: {
         schedaId: null,
         ordineId: id,
         numero: String(r.numero_interno ?? "").trim() || "Ordine",
-        statoLabel: cicloStatoOrdine(String(r.stato) as OrdineStato).label,
+        statoLabel: String(r.stato ?? ""),
+        statoDb: String(r.stato ?? ""),
         kind: isCamp ? "campionatura" : "ordine",
       });
     }
@@ -316,5 +318,34 @@ export async function listAziendaSchedeCardAction(input: {
   const items = [...byCamp.values(), ...byOrd.values()].sort((a, b) =>
     a.numero.localeCompare(b.numero, "it")
   );
+  const extra = await loadUltimoStatoSchede({
+    service,
+    schedaIds: items.map((i) => i.schedaId || "").filter(Boolean),
+    ordineIds: items.map((i) => i.ordineId || "").filter(Boolean),
+    campionaturaIds: items.map((i) => i.campionaturaId || "").filter(Boolean),
+  });
+  for (const item of items) {
+    const last = item.schedaId
+      ? extra.lastByScheda.get(item.schedaId)
+      : undefined;
+    const ship = extra.shipByEntity.get(
+      item.ordineId
+        ? `ordine:${item.ordineId}`
+        : item.campionaturaId
+          ? `campionatura:${item.campionaturaId}`
+          : ""
+    );
+    item.statoLabel = etichettaStatoSchedaAzienda({
+      stato: item.statoDb || item.statoLabel,
+      fromCampionatura: item.kind === "campionatura",
+      lastEventTipo: last?.tipo,
+      lastEventAt: last?.at,
+      consegnataAt: item.schedaId
+        ? extra.consegnaByScheda.get(item.schedaId)
+        : undefined,
+      shippingStatus: ship?.status,
+      shippingAt: ship?.at,
+    });
+  }
   return { success: true, items };
 }

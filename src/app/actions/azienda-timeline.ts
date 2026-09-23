@@ -12,14 +12,11 @@ import { isUnrestrictedSuperadmin } from "@/lib/auth/roles";
 import { createClient, createServiceClient } from "@/lib/supabase/server";
 import type { AziendaTimelineItem } from "@/lib/amministrazione/azienda-timeline";
 import {
-  cicloStatoCampionatura,
-  cicloStatoOrdine,
-} from "@/lib/amministrazione/ciclo-stato-ordine";
-import {
+  etichettaStatoSchedaAzienda,
   isSchedaOrdineNotaTitolo,
+  loadUltimoStatoSchede,
   SCHEDA_ORDINE_NOTA_TITOLO,
 } from "@/lib/amministrazione/scheda-timeline-nota";
-import type { CampionaturaStatoDb, OrdineStato } from "@/types/database";
 import {
   filterOrTipoId,
   resolveAnagraficaTwins,
@@ -55,6 +52,7 @@ type OrdineTimelineRow = {
   numero_interno: string | null;
   data_ordine: string | null;
   created_at: string | null;
+  updated_at: string | null;
   stato: string | null;
   tipo: string | null;
 };
@@ -64,6 +62,7 @@ type CampionaturaTimelineRow = {
   numero_interno: string | null;
   data_invio: string | null;
   created_at: string | null;
+  updated_at: string | null;
   stato: string | null;
 };
 
@@ -423,7 +422,7 @@ export async function listAziendaTimelineAction(raw: unknown): Promise<
         ? await queryByClienteTwins<OrdineTimelineRow>(
             service,
             "ordini",
-            "id, numero_interno, data_ordine, created_at, stato, tipo",
+            "id, numero_interno, data_ordine, created_at, updated_at, stato, tipo",
             twins.clienteIds,
             twins.possibileIds,
             twins.ragioneSociale
@@ -434,7 +433,7 @@ export async function listAziendaTimelineAction(raw: unknown): Promise<
         ? await queryByClienteTwins<CampionaturaTimelineRow>(
             service,
             "campionature",
-            "id, numero_interno, data_invio, created_at, stato",
+            "id, numero_interno, data_invio, created_at, updated_at, stato",
             twins.clienteIds,
             twins.possibileIds,
             twins.ragioneSociale
@@ -466,6 +465,52 @@ export async function listAziendaTimelineAction(raw: unknown): Promise<
           schedaByCamp.set(String(s.campionatura_id), String(s.id));
         }
       }
+    }
+
+    const schedaIds = [
+      ...schedaByOrdine.values(),
+      ...schedaByCamp.values(),
+      ...noteRows
+        .map((r) => (r.linked_scheda_id ? String(r.linked_scheda_id) : ""))
+        .filter(Boolean),
+    ];
+    const ultimoStato = await loadUltimoStatoSchede({
+      service,
+      schedaIds,
+      ordineIds,
+      campionaturaIds: campIds,
+    });
+
+    function statoSchedaLine(input: {
+      stato: string;
+      fromCamp: boolean;
+      schedaId?: string;
+      ordineId?: string;
+      campionaturaId?: string;
+      fallbackAt?: string | null;
+    }): string {
+      const last = input.schedaId
+        ? ultimoStato.lastByScheda.get(input.schedaId)
+        : undefined;
+      const ship = ultimoStato.shipByEntity.get(
+        input.ordineId
+          ? `ordine:${input.ordineId}`
+          : input.campionaturaId
+            ? `campionatura:${input.campionaturaId}`
+            : ""
+      );
+      return etichettaStatoSchedaAzienda({
+        stato: input.stato,
+        fromCampionatura: input.fromCamp,
+        lastEventTipo: last?.tipo,
+        lastEventAt: last?.at,
+        consegnataAt:
+          (input.schedaId
+            ? ultimoStato.consegnaByScheda.get(input.schedaId)
+            : undefined) || input.fallbackAt,
+        shippingStatus: ship?.status,
+        shippingAt: ship?.at,
+      });
     }
 
     const coveredOrdine = new Set<string>();
@@ -505,9 +550,20 @@ export async function listAziendaTimelineAction(raw: unknown): Promise<
         const camp = (campRows ?? []).find((c) => String(c.id) === linkedCamp);
         const fromCamp = Boolean(camp) && !ord;
         const stato = String(ord?.stato ?? camp?.stato ?? "");
-        const statoLabel = fromCamp
-          ? cicloStatoCampionatura(stato as CampionaturaStatoDb).label
-          : cicloStatoOrdine(stato as OrdineStato).label;
+        const schedaId =
+          linkedScheda ||
+          (linkedOrdine ? schedaByOrdine.get(linkedOrdine) : undefined) ||
+          (linkedCamp ? schedaByCamp.get(linkedCamp) : undefined);
+        const statoLabel = statoSchedaLine({
+          stato,
+          fromCamp,
+          schedaId,
+          ordineId: linkedOrdine || undefined,
+          campionaturaId: linkedCamp || undefined,
+          fallbackAt: fromCamp
+            ? camp?.updated_at
+            : ord?.updated_at,
+        });
         const numero = String(
           ord?.numero_interno ?? camp?.numero_interno ?? ""
         ).trim();
@@ -515,10 +571,13 @@ export async function listAziendaTimelineAction(raw: unknown): Promise<
           fromCamp || String(ord?.tipo ?? "") === "campionatura";
         if (linkedOrdine) coveredOrdine.add(linkedOrdine);
         if (linkedCamp) coveredCamp.add(linkedCamp);
+        const lastAt = schedaId
+          ? ultimoStato.lastByScheda.get(schedaId)?.at
+          : undefined;
         pushSorted(items, {
           id: `nota-scheda:${r.id}`,
           kind: tipoCamp ? "campionatura" : "ordine",
-          occurredAt,
+          occurredAt: lastAt || occurredAt,
           title: SCHEDA_ORDINE_NOTA_TITOLO,
           subtitle: [numero, `Stato: ${statoLabel || "—"}`]
             .filter(Boolean)
@@ -529,10 +588,7 @@ export async function listAziendaTimelineAction(raw: unknown): Promise<
           notaDueAt: dueAt,
           notaCreatedAt: createdAt,
           notaAllegati: allegati,
-          schedaId:
-            linkedScheda ||
-            (linkedOrdine ? schedaByOrdine.get(linkedOrdine) : undefined) ||
-            (linkedCamp ? schedaByCamp.get(linkedCamp) : undefined),
+          schedaId,
           ordineId: linkedOrdine || undefined,
           campionaturaId: linkedCamp || undefined,
         });
@@ -564,14 +620,24 @@ export async function listAziendaTimelineAction(raw: unknown): Promise<
       if (!when) continue;
       const day = when.length === 10 ? `${when}T12:00:00.000Z` : when;
       const tipoCamp = String(r.tipo ?? "") === "campionatura";
-      const statoLabel = cicloStatoOrdine(String(r.stato) as OrdineStato).label;
+      const schedaId = schedaByOrdine.get(id);
+      const statoLabel = statoSchedaLine({
+        stato: String(r.stato ?? ""),
+        fromCamp: tipoCamp,
+        schedaId,
+        ordineId: id,
+        fallbackAt: r.updated_at,
+      });
+      const lastAt = schedaId
+        ? ultimoStato.lastByScheda.get(schedaId)?.at
+        : undefined;
       pushSorted(items, {
         id: `ordine:${id}`,
         kind: tipoCamp ? "campionatura" : "ordine",
-        occurredAt: day,
+        occurredAt: lastAt || day,
         title: SCHEDA_ORDINE_NOTA_TITOLO,
         subtitle: `${r.numero_interno ?? ""} · Stato: ${statoLabel}`.trim(),
-        schedaId: schedaByOrdine.get(id),
+        schedaId,
         ordineId: id,
       });
     }
@@ -584,16 +650,24 @@ export async function listAziendaTimelineAction(raw: unknown): Promise<
         (r.data_invio as string | null);
       if (!when) continue;
       const day = when.length === 10 ? `${when}T12:00:00.000Z` : when;
-      const statoLabel = cicloStatoCampionatura(
-        String(r.stato) as CampionaturaStatoDb
-      ).label;
+      const schedaId = schedaByCamp.get(id);
+      const statoLabel = statoSchedaLine({
+        stato: String(r.stato ?? ""),
+        fromCamp: true,
+        schedaId,
+        campionaturaId: id,
+        fallbackAt: r.updated_at,
+      });
+      const lastAt = schedaId
+        ? ultimoStato.lastByScheda.get(schedaId)?.at
+        : undefined;
       pushSorted(items, {
         id: `campionatura:${id}`,
         kind: "campionatura",
-        occurredAt: day,
+        occurredAt: lastAt || day,
         title: SCHEDA_ORDINE_NOTA_TITOLO,
         subtitle: `${r.numero_interno ?? ""} · Stato: ${statoLabel}`.trim(),
-        schedaId: schedaByCamp.get(id),
+        schedaId,
         campionaturaId: id,
       });
     }
