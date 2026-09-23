@@ -9,6 +9,7 @@ import {
   useState,
   useTransition,
 } from "react";
+import { createPortal } from "react-dom";
 import { FaChevronDown } from "react-icons/fa6";
 import {
   confirmWebmailCategoriaSuggestionAction,
@@ -240,6 +241,12 @@ export function WebmailBoard({
   const [replyBody, setReplyBody] = useState("");
   const [parzialiCount, setParzialiCount] = useState(0);
   const [riparaRunning, setRiparaRunning] = useState(false);
+  const [riparaProgress, setRiparaProgress] = useState<{
+    status: "running" | "stopping";
+    riparate: number;
+    rimanenti: number;
+    partenza: number;
+  } | null>(null);
   const riparaAbortRef = useRef(false);
   const [liveKeep, setLiveKeep] = useState(false);
   const [liveStatus, setLiveStatus] = useState<{
@@ -949,8 +956,75 @@ export function WebmailBoard({
     ? catById.get(selected.categoriaId)
     : null;
 
+  const riparaPct =
+    riparaProgress && riparaProgress.partenza > 0
+      ? Math.min(
+          100,
+          Math.round(
+            (riparaProgress.riparate / riparaProgress.partenza) * 100
+          )
+        )
+      : 0;
+
   return (
-    <div className="space-y-4">
+    <div className={`space-y-4 ${riparaProgress ? "pt-28" : ""}`}>
+      {riparaProgress && typeof document !== "undefined"
+        ? createPortal(
+            <div
+              className="fixed inset-x-0 top-0 z-[80] border-b border-amber-300 bg-amber-50 px-4 py-3 shadow-md print:hidden"
+              role="status"
+              aria-live="polite"
+            >
+              <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-3">
+                <div className="min-w-0 flex-1">
+                  <p className="flex flex-wrap items-center gap-2 text-sm font-semibold text-amber-950">
+                    <BusySpinner className="border-amber-700" />
+                    {riparaProgress.status === "stopping"
+                      ? "Arresto riparazione in corso…"
+                      : "Riparazione mail grandi in corso"}
+                  </p>
+                  <p className="mt-1 text-sm text-amber-900">
+                    Riparate <strong>{riparaProgress.riparate}</strong>
+                    {" · "}
+                    Ne mancano <strong>{riparaProgress.rimanenti}</strong>
+                    {riparaProgress.partenza > 0
+                      ? ` su ${riparaProgress.partenza}`
+                      : ""}
+                    .
+                  </p>
+                  <div className="mt-2 h-2 overflow-hidden rounded-full bg-amber-200">
+                    <div
+                      className="h-full bg-amber-600 transition-[width] duration-300"
+                      style={{ width: `${riparaPct}%` }}
+                    />
+                  </div>
+                </div>
+                {riparaProgress.status === "running" ? (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      riparaAbortRef.current = true;
+                      setRiparaProgress((prev) =>
+                        prev ? { ...prev, status: "stopping" } : prev
+                      );
+                      setInfo(
+                        "Arresto in corso: termina il lotto attuale…"
+                      );
+                    }}
+                    className="shrink-0 rounded-lg border border-red-300 bg-white px-3 py-2 text-sm font-medium text-red-900 hover:bg-red-50"
+                  >
+                    Arresta
+                  </button>
+                ) : (
+                  <p className="text-xs text-amber-800">
+                    Attendi la fine del lotto attuale.
+                  </p>
+                )}
+              </div>
+            </div>,
+            document.body
+          )
+        : null}
       <div className="flex flex-wrap items-end justify-between gap-3">
         <p className="max-w-2xl text-sm text-[var(--muted)]">
           {view === "cestino"
@@ -985,6 +1059,9 @@ export function WebmailBoard({
                   type="button"
                   onClick={() => {
                     riparaAbortRef.current = true;
+                    setRiparaProgress((prev) =>
+                      prev ? { ...prev, status: "stopping" } : prev
+                    );
                     setInfo("Arresto in corso: termina il lotto attuale…");
                   }}
                   className="rounded-lg border border-red-300 bg-red-50 px-3 py-2 text-sm font-medium text-red-900 hover:bg-red-100"
@@ -996,10 +1073,20 @@ export function WebmailBoard({
                   type="button"
                   disabled={pending}
                   onClick={() => {
+                    const partenza = parzialiCount;
                     riparaAbortRef.current = false;
                     setRiparaRunning(true);
+                    setRiparaProgress({
+                      status: "running",
+                      riparate: 0,
+                      rimanenti: partenza,
+                      partenza,
+                    });
+                    setInfo(
+                      `Riparazione avviata. Riparate 0 mail. Ne restano ${partenza}.`
+                    );
                     void (async () => {
-                      let left = parzialiCount;
+                      let left = partenza;
                       let total = 0;
                       const errori: string[] = [];
                       try {
@@ -1012,6 +1099,14 @@ export function WebmailBoard({
                           total += res.riparate;
                           left = res.rimanenti;
                           setParzialiCount(left);
+                          setRiparaProgress({
+                            status: riparaAbortRef.current
+                              ? "stopping"
+                              : "running",
+                            riparate: total,
+                            rimanenti: left,
+                            partenza,
+                          });
                           setInfo(
                             `Riparate ${total} mail. ${
                               left === 0
@@ -1026,6 +1121,10 @@ export function WebmailBoard({
                           setInfo(
                             `Arrestata. Riparate ${total} mail. Ne restano ${left}.`
                           );
+                        } else if (left === 0) {
+                          setInfo(
+                            `Riparate ${total} mail. Tutte le mail parziali sono state ricaricate.`
+                          );
                         }
                         if (errori.length) {
                           setError(errori.slice(0, 4).join(" · "));
@@ -1036,6 +1135,7 @@ export function WebmailBoard({
                         }
                       } finally {
                         setRiparaRunning(false);
+                        setRiparaProgress(null);
                         riparaAbortRef.current = false;
                       }
                     })();
@@ -1147,11 +1247,15 @@ export function WebmailBoard({
           {info}
         </p>
       ) : null}
-      {listLoading || pending || openingId ? (
+      {listLoading || pending || openingId || riparaRunning ? (
         <div className="rounded-lg border border-sky-200 bg-sky-50 px-3 py-2">
           <BusyBanner
             label={
-              pending
+              riparaRunning && riparaProgress
+                ? riparaProgress.status === "stopping"
+                  ? `Arresto riparazione… riparate ${riparaProgress.riparate}, ne mancano ${riparaProgress.rimanenti}.`
+                  : `Riparazione mail grandi: riparate ${riparaProgress.riparate}, ne mancano ${riparaProgress.rimanenti}.`
+                : pending
                 ? "Operazione in corso…"
                 : openingId
                   ? "Apertura mail…"
