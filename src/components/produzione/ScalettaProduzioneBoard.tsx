@@ -11,6 +11,7 @@ import {
   weekDaysFrom,
 } from "@/lib/amministrazione/calendario-produzione";
 import {
+  SCALETTA_ESECUZIONE_LABEL,
   SCALETTA_TIPO_LABEL,
   SCALETTA_VISTE,
   type ScalettaImpegno,
@@ -19,6 +20,7 @@ import {
   type ScalettaVista,
 } from "@/lib/amministrazione/scaletta-produzione";
 import { addDays } from "@/lib/amministrazione/produzione-capacita";
+import { ScalettaImpegnoModal } from "@/components/produzione/ScalettaImpegnoModal";
 
 const WEEKDAYS = ["Lun", "Mar", "Mer", "Gio", "Ven", "Sab", "Dom"];
 
@@ -76,6 +78,7 @@ export function ScalettaProduzioneBoard() {
   const [senzaData, setSenzaData] = useState<ScalettaSenzaData[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const [apertoId, setApertoId] = useState<string | null>(null);
 
   const range = useMemo(() => rangeForVista(anchor, vista), [anchor, vista]);
 
@@ -376,9 +379,25 @@ export function ScalettaProduzioneBoard() {
                   {i.cliente ? (
                     <span className="text-[var(--muted)]">{i.cliente}</span>
                   ) : null}
-                  <span className="ml-auto text-xs text-slate-500">
-                    {i.etichetta}
-                  </span>
+                  <span className="text-xs text-slate-500">{i.etichetta}</span>
+                  {i.esecuzioneStato !== "aperta" ? (
+                    <span
+                      className={`rounded-full px-2 py-0.5 text-xs font-medium ${
+                        i.esecuzioneStato === "completata"
+                          ? "bg-emerald-50 text-emerald-800"
+                          : "bg-amber-100 text-amber-950"
+                      }`}
+                    >
+                      {SCALETTA_ESECUZIONE_LABEL[i.esecuzioneStato]}
+                    </span>
+                  ) : null}
+                  <button
+                    type="button"
+                    onClick={() => setApertoId(i.id)}
+                    className="ml-auto rounded-lg border border-[var(--border)] px-2.5 py-1 text-xs font-medium hover:bg-slate-50"
+                  >
+                    Apri
+                  </button>
                 </li>
               ))}
             </ul>
@@ -400,6 +419,26 @@ export function ScalettaProduzioneBoard() {
             ))}
           </ul>
         </div>
+      ) : null}
+
+      {apertoId ? (
+        <ScalettaImpegnoModal
+          impegnoId={apertoId}
+          onClose={() => setApertoId(null)}
+          onChanged={(d) => {
+            setImpegni((prev) =>
+              prev.map((row) =>
+                row.id === d.impegno.id
+                  ? {
+                      ...row,
+                      esecuzioneStato: d.impegno.esecuzioneStato,
+                      problemaNote: d.impegno.problemaNote,
+                    }
+                  : row
+              )
+            );
+          }}
+        />
       ) : null}
     </div>
   );

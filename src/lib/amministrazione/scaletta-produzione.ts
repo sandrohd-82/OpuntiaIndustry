@@ -20,6 +20,23 @@ export const SCALETTA_TIPO_LABEL: Record<ScalettaTipoImpegno, string> = {
   altro: "Altro",
 };
 
+export const SCALETTA_ESECUZIONE_STATI = [
+  "aperta",
+  "completata",
+  "problema",
+] as const;
+export type ScalettaEsecuzioneStato =
+  (typeof SCALETTA_ESECUZIONE_STATI)[number];
+
+export const SCALETTA_ESECUZIONE_LABEL: Record<
+  ScalettaEsecuzioneStato,
+  string
+> = {
+  aperta: "Da eseguire",
+  completata: "Completata",
+  problema: "Problema",
+};
+
 export type ScalettaImpegno = {
   id: string;
   dataGiorno: string;
@@ -31,7 +48,76 @@ export type ScalettaImpegno = {
   entityType: "ordine" | "campionatura";
   entityId: string;
   lineaCodice: string | null;
+  esecuzioneStato: ScalettaEsecuzioneStato;
+  problemaNote: string;
 };
+
+export type ScalettaDettaglioRiga = {
+  prodottoCodice: string;
+  prodottoNome: string;
+  quantita: number;
+  unitaMisura: string;
+  lottoCodice: string;
+  processo: string;
+  conforme: boolean | null;
+};
+
+export type ScalettaDettaglio = {
+  impegno: {
+    id: string;
+    dataGiorno: string;
+    tipo: ScalettaTipoImpegno;
+    etichetta: string;
+    lineaCodice: string | null;
+    esecuzioneStato: ScalettaEsecuzioneStato;
+    problemaNote: string;
+    esitoNote: string;
+    eseguitaAt: string | null;
+    problemaAt: string | null;
+  };
+  documento: {
+    entityType: "ordine" | "campionatura";
+    entityId: string;
+    numeroInterno: string;
+    cliente: string;
+    stato: string;
+    documentoStato: string;
+    versione: number;
+    dataDocumento: string;
+    dataConsegna: string | null;
+    destinatario: string;
+    indirizzo: string;
+    trackingUrl: string;
+    note: string;
+    urgente: boolean;
+    usaMagazzino: boolean;
+    tipo: string;
+  };
+  righe: ScalettaDettaglioRiga[];
+  processazione: {
+    dataLavorazione: string;
+    dataConfezionamento: string;
+    giorniProduzione: string[];
+    pack: string[];
+    fonte: string;
+    extra: string[];
+  };
+};
+
+export function parseEsecuzioneStato(
+  raw: unknown
+): ScalettaEsecuzioneStato {
+  const v = String(raw ?? "aperta");
+  return (SCALETTA_ESECUZIONE_STATI as readonly string[]).includes(v)
+    ? (v as ScalettaEsecuzioneStato)
+    : "aperta";
+}
+
+export const scalettaEsitoSchema = z.object({
+  impegnoId: z.string().uuid(),
+  modo: z.enum(["completa", "problema"]),
+  nota: z.string().trim().max(4000).optional().default(""),
+});
 
 export type ScalettaSenzaData = {
   entityType: "ordine" | "campionatura";

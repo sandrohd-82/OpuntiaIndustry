@@ -1106,6 +1106,13 @@ export interface ProduzioneCalendarioImpegnoRow {
   linea_codice: string | null;
   etichetta: string;
   note: string;
+  esecuzione_stato?: "aperta" | "completata" | "problema";
+  problema_note?: string;
+  esito_note?: string;
+  eseguita_at?: string | null;
+  eseguita_by?: string | null;
+  problema_at?: string | null;
+  problema_by?: string | null;
   created_by: string | null;
   updated_by: string | null;
   created_at: string;
