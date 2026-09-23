@@ -129,7 +129,7 @@ const MAIL_INFO = {
   ricarica:
     "Riscarica dal server della casella il corpo HTML e gli allegati di questa mail. Serve per le mail grandi importate solo in intestazione (limite sync).",
   riparaParziali:
-    "Riprende dal server IMAP le mail importate solo in parte (più di 2 MB). Ne ripara poche per volta: ripeti finché il numero arriva a 0.",
+    "Riprende dal server IMAP le mail importate solo in parte (più di 2 MB). Continua fino alla fine; usa Arresta per interrompere.",
   chiudiPannello:
     "Chiude il pannello di destra e riporta la mail a tutta larghezza.",
   apriAllegato: "Apre o scarica l’allegato in una nuova scheda.",
@@ -239,6 +239,8 @@ export function WebmailBoard({
   const [replySubject, setReplySubject] = useState("");
   const [replyBody, setReplyBody] = useState("");
   const [parzialiCount, setParzialiCount] = useState(0);
+  const [riparaRunning, setRiparaRunning] = useState(false);
+  const riparaAbortRef = useRef(false);
   const [liveKeep, setLiveKeep] = useState(false);
   const [liveStatus, setLiveStatus] = useState<{
     at: Date | null;
@@ -976,52 +978,73 @@ export function WebmailBoard({
               Sincronizza
             </button>
           ) : null}
-          {parzialiCount > 0 ? (
+          {parzialiCount > 0 || riparaRunning ? (
             <WithInfoNuvola info={MAIL_INFO.riparaParziali}>
-              <button
-                type="button"
-                disabled={pending}
-                onClick={() => {
-                  startTransition(async () => {
-                    let left = parzialiCount;
-                    let total = 0;
-                    let loops = 0;
-                    const errori: string[] = [];
-                    while (left > 0 && loops < 15) {
-                      loops += 1;
-                      const res = await riparaWebmailImportParzialiAction();
-                      if (!res.success) {
-                        setError(res.error);
-                        break;
+              {riparaRunning ? (
+                <button
+                  type="button"
+                  onClick={() => {
+                    riparaAbortRef.current = true;
+                    setInfo("Arresto in corso: termina il lotto attuale…");
+                  }}
+                  className="rounded-lg border border-red-300 bg-red-50 px-3 py-2 text-sm font-medium text-red-900 hover:bg-red-100"
+                >
+                  Arresta
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  disabled={pending}
+                  onClick={() => {
+                    riparaAbortRef.current = false;
+                    setRiparaRunning(true);
+                    void (async () => {
+                      let left = parzialiCount;
+                      let total = 0;
+                      const errori: string[] = [];
+                      try {
+                        while (left > 0 && !riparaAbortRef.current) {
+                          const res = await riparaWebmailImportParzialiAction();
+                          if (!res.success) {
+                            setError(res.error);
+                            break;
+                          }
+                          total += res.riparate;
+                          left = res.rimanenti;
+                          setParzialiCount(left);
+                          setInfo(
+                            `Riparate ${total} mail. ${
+                              left === 0
+                                ? "Tutte le mail parziali sono state ricaricate."
+                                : `Ne restano ${left}…`
+                            }`
+                          );
+                          errori.push(...res.errori);
+                          if (res.riparate === 0) break;
+                        }
+                        if (riparaAbortRef.current && left > 0) {
+                          setInfo(
+                            `Arrestata. Riparate ${total} mail. Ne restano ${left}.`
+                          );
+                        }
+                        if (errori.length) {
+                          setError(errori.slice(0, 4).join(" · "));
+                        }
+                        await reload();
+                        if (errori.length) {
+                          setError(errori.slice(0, 4).join(" · "));
+                        }
+                      } finally {
+                        setRiparaRunning(false);
+                        riparaAbortRef.current = false;
                       }
-                      total += res.riparate;
-                      left = res.rimanenti;
-                      setParzialiCount(left);
-                      setInfo(
-                        `Riparate ${total} mail. ${
-                          left === 0
-                            ? "Tutte le mail parziali sono state ricaricate."
-                            : loops >= 15
-                              ? `Ne restano ${left}: clicca di nuovo per continuare.`
-                              : `Ne restano ${left}…`
-                        }`
-                      );
-                      errori.push(...res.errori);
-                      if (res.riparate === 0) break;
-                    }
-                    if (errori.length) {
-                      setError(errori.slice(0, 4).join(" · "));
-                    }
-                    await reload();
-                    if (errori.length) {
-                      setError(errori.slice(0, 4).join(" · "));
-                    }
-                  });
-                }}
-                className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-sm font-medium text-amber-950 hover:bg-amber-100 disabled:opacity-50"
-              >
-                Ripara mail grandi ({parzialiCount})
-              </button>
+                    })();
+                  }}
+                  className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-sm font-medium text-amber-950 hover:bg-amber-100 disabled:opacity-50"
+                >
+                  Ripara mail grandi ({parzialiCount})
+                </button>
+              )}
             </WithInfoNuvola>
           ) : null}
           <WithInfoNuvola info={MAIL_INFO.live}>
