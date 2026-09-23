@@ -98,6 +98,13 @@ export const PRODUZIONE_SECTIONS: readonly NavItem[] = [
           "Schede aperte e complete con timeline di lavorazione e confezionamento",
         path: "/app/produzione/ordini/schede",
       },
+      {
+        slug: "in-attesa-ritiro",
+        label: "In Attesa Ritiro",
+        description:
+          "Pronti per il ritiro: ora, corriere, poi Concluso fino a consegna",
+        path: "/app/produzione/ordini/in-attesa-ritiro",
+      },
     ],
   },
   {

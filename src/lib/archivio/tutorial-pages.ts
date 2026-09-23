@@ -198,6 +198,12 @@ export const PAGE_EXTRAS: Record<string, TutorialBlock[]> = {
       text: "Produzione → Ordini → Scaletta Produzione. Calendario delle attività aperte. Il confezionamento si chiude solo dopo tutte le lavorazioni. Le attività completate vanno in Archivio → Produzione → Ordini → Scaletta Produzione.",
     },
   ],
+  "/app/produzione/ordini/in-attesa-ritiro": [
+    {
+      type: "p",
+      text: "Ordini e campionature pronti per il ritiro. L’operatore apre la scheda, inserisce ora di ritiro e corriere (GLS, Poste, SDA, BRT, UPS, DHL o altro). L’ordine diventa Concluso; si chiude quando il tracking è consegnato, o con consegna forzata se i dati non si allineano.",
+    },
+  ],
   "/app/produzione/ordini/schede": [
     {
       type: "p",

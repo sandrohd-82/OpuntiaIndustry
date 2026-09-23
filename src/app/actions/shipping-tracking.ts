@@ -2,6 +2,11 @@
 
 import { writeAuditLog } from "@/lib/audit";
 import { requireAreaAccess } from "@/lib/areas/guard";
+import {
+  chiudiSchedaPerConsegna,
+  findSchedaIdForEntity,
+  loadSchedaDettaglio,
+} from "@/lib/produzione/schede-ordini-store";
 import { createClient } from "@/lib/supabase/server";
 import {
   checkShippingTrackingSchema,
@@ -22,7 +27,11 @@ async function guardShipping() {
   try {
     return await requireAreaAccess("amministrazione");
   } catch {
-    return requireAreaAccess("promemorie-e-note");
+    try {
+      return await requireAreaAccess("produzione");
+    } catch {
+      return requireAreaAccess("promemorie-e-note");
+    }
   }
 }
 
@@ -325,5 +334,24 @@ async function runCheckInternal(input: {
   });
 
   const item = mapShippingTrackingRow(data as Record<string, unknown>);
+  if (status === "consegnato" && item.entityId && item.entityType) {
+    const tipo =
+      item.entityType === "campionatura" ? "campionatura" : "ordine";
+    const schedaId = await findSchedaIdForEntity(supabase, {
+      ordineId: tipo === "ordine" ? item.entityId : null,
+      campionaturaId: tipo === "campionatura" ? item.entityId : null,
+    });
+    if (schedaId) {
+      const det = await loadSchedaDettaglio(supabase, schedaId);
+      if (det && det.scheda.schedaStato === "aperta") {
+        await chiudiSchedaPerConsegna(supabase, {
+          scheda: det.scheda,
+          userId,
+          fonte: "tracking",
+          nota: note || "Stato consegnato dal tracking.",
+        });
+      }
+    }
+  }
   return { success: true, item, checkNote: note, skipped: false };
 }

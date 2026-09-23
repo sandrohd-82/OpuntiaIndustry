@@ -15,8 +15,12 @@ export const CICLO_STATO_ORDINE = {
     hint: "Ordine pronto in attesa di Ritiro",
   },
   inviato: {
-    label: "Inviato",
-    hint: "Ordine Ritirato in viaggio",
+    label: "Concluso",
+    hint: "Ritirato dal corriere, in viaggio",
+  },
+  chiuso: {
+    label: "Chiuso",
+    hint: "Spedizione consegnata",
   },
 } as const;
 
@@ -35,8 +39,9 @@ export function cicloStatoOrdine(stato: OrdineStato): CicloStatoMeta {
     case "pronto_spedizione":
       return CICLO_STATO_ORDINE.pronto_spedizione;
     case "inviato":
-    case "evaso":
       return CICLO_STATO_ORDINE.inviato;
+    case "evaso":
+      return CICLO_STATO_ORDINE.chiuso;
     case "sospeso":
       return { label: "Sospeso", hint: "Prodotto non disponibile" };
     case "storico":
@@ -60,7 +65,7 @@ export function cicloStatoCampionatura(
     case "inviata":
       return CICLO_STATO_ORDINE.inviato;
     case "consegnata":
-      return { label: "Consegnata", hint: "Campionatura consegnata al destinatario" };
+      return CICLO_STATO_ORDINE.chiuso;
     case "annullata":
       return { label: "Annullata", hint: "Campionatura annullata" };
     default:
@@ -80,6 +85,9 @@ export function classeCicloStato(label: string): string {
   }
   if (label === CICLO_STATO_ORDINE.inviato.label) {
     return "bg-indigo-50 text-indigo-800";
+  }
+  if (label === CICLO_STATO_ORDINE.chiuso.label) {
+    return "bg-slate-200 text-slate-800";
   }
   if (label === "Sospeso") return "bg-amber-100 text-amber-900";
   if (label === "Annullata") return "bg-red-50 text-red-700";

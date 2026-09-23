@@ -1,6 +1,10 @@
 import { createClient } from "@/lib/supabase/server";
 import { tipoImpegnoDaNote } from "@/lib/amministrazione/scaletta-produzione";
 import {
+  cicloStatoCampionatura,
+  cicloStatoOrdine,
+} from "@/lib/amministrazione/ciclo-stato-ordine";
+import {
   isImpegnoChiuso,
   isLavorazionePrerequisito,
   parseSchedaEvento,
@@ -9,8 +13,14 @@ import {
   type SchedaEventoTipo,
   type SchedaOrdine,
   type SchedaPrerequisito,
+  type SchedaSpedizione,
   type SchedaTimelineItem,
 } from "@/lib/produzione/schede-ordini";
+import {
+  SHIPPING_STATUS_LABEL,
+  type ShippingStatus,
+} from "@/lib/shipping/tracking";
+import type { CampionaturaStatoDb, OrdineStato } from "@/types/database";
 
 type Db = Awaited<ReturnType<typeof createClient>>;
 
@@ -318,6 +328,9 @@ export async function syncSchedaDopoEsito(
   const aperti = (rest ?? []).filter(
     (r) => !isImpegnoChiuso(String(r.esecuzione_stato ?? "aperta"))
   );
+  if (input.modo === "pronto_ritiro") {
+    return scheda;
+  }
   if (aperti.length === 0 && scheda.schedaStato === "aperta") {
     const now = new Date().toISOString();
     await supabase
@@ -537,4 +550,182 @@ export async function findSchedaIdForEntity(
   else return null;
   const { data } = await q.maybeSingle();
   return data?.id ? String(data.id) : null;
+}
+
+export async function loadSchedaSpedizione(
+  supabase: Db,
+  scheda: SchedaOrdine
+): Promise<SchedaSpedizione> {
+  const empty: SchedaSpedizione = {
+    parentStato: "",
+    parentStatoLabel: "",
+    ritiroAt: null,
+    corriereNome: "",
+    trackingId: null,
+    trackingUrl: "",
+    shippingStatus: null,
+    shippingLabel: "—",
+    shippingNote: "",
+    canRegistraRitiro: false,
+    canForzaConsegna: false,
+  };
+  if (scheda.ordineId) {
+    const { data } = await supabase
+      .from("ordini")
+      .select("stato, ritiro_at, corriere_nome")
+      .eq("id", scheda.ordineId)
+      .is("deleted_at", null)
+      .maybeSingle();
+    if (!data) return empty;
+    const stato = String(data.stato ?? "") as OrdineStato;
+    const ciclo = cicloStatoOrdine(stato);
+    const ship = await loadTrackingForEntity(supabase, "ordine", scheda.ordineId);
+    return {
+      parentStato: stato,
+      parentStatoLabel: ciclo.label,
+      ritiroAt: data.ritiro_at ? String(data.ritiro_at) : null,
+      corriereNome: String(data.corriere_nome ?? ""),
+      ...ship,
+      canRegistraRitiro: stato === "pronto_spedizione",
+      canForzaConsegna:
+        stato === "inviato" && ship.shippingStatus !== "consegnato",
+    };
+  }
+  if (scheda.campionaturaId) {
+    const { data } = await supabase
+      .from("campionature")
+      .select("stato, ritiro_at, corriere_nome, tracking_url")
+      .eq("id", scheda.campionaturaId)
+      .is("deleted_at", null)
+      .maybeSingle();
+    if (!data) return empty;
+    const stato = String(data.stato ?? "") as CampionaturaStatoDb;
+    const ciclo = cicloStatoCampionatura(stato);
+    const ship = await loadTrackingForEntity(
+      supabase,
+      "campionatura",
+      scheda.campionaturaId,
+      String(data.tracking_url ?? "")
+    );
+    return {
+      parentStato: stato,
+      parentStatoLabel: ciclo.label,
+      ritiroAt: data.ritiro_at ? String(data.ritiro_at) : null,
+      corriereNome: String(data.corriere_nome ?? ""),
+      ...ship,
+      canRegistraRitiro: stato === "pronto_spedizione",
+      canForzaConsegna:
+        stato === "inviata" && ship.shippingStatus !== "consegnato",
+    };
+  }
+  return empty;
+}
+
+async function loadTrackingForEntity(
+  supabase: Db,
+  entityType: "ordine" | "campionatura",
+  entityId: string,
+  fallbackUrl = ""
+): Promise<
+  Pick<
+    SchedaSpedizione,
+    "trackingId" | "trackingUrl" | "shippingStatus" | "shippingLabel" | "shippingNote"
+  >
+> {
+  const { data } = await supabase
+    .from("shipping_trackings")
+    .select("id, tracking_url, current_status, last_check_note")
+    .eq("entity_type", entityType)
+    .eq("entity_id", entityId)
+    .is("deleted_at", null)
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (!data) {
+    return {
+      trackingId: null,
+      trackingUrl: fallbackUrl,
+      shippingStatus: null,
+      shippingLabel: fallbackUrl ? "Tracking presente, stato non ancora letto" : "Nessun tracking",
+      shippingNote: "",
+    };
+  }
+  const status = String(data.current_status ?? "");
+  const label =
+    status in SHIPPING_STATUS_LABEL
+      ? SHIPPING_STATUS_LABEL[status as ShippingStatus]
+      : status || "—";
+  return {
+    trackingId: String(data.id),
+    trackingUrl: String(data.tracking_url ?? fallbackUrl),
+    shippingStatus: status || null,
+    shippingLabel: label,
+    shippingNote: String(data.last_check_note ?? ""),
+  };
+}
+
+export async function chiudiSchedaPerConsegna(
+  supabase: Db,
+  input: {
+    scheda: SchedaOrdine;
+    userId: string;
+    fonte: "tracking" | "forzata";
+    nota: string;
+  }
+): Promise<void> {
+  const now = new Date().toISOString();
+  if (input.scheda.ordineId) {
+    await supabase
+      .from("ordini")
+      .update({
+        stato: "evaso",
+        documento_stato: "chiuso",
+        updated_by: input.userId,
+      })
+      .eq("id", input.scheda.ordineId)
+      .is("deleted_at", null);
+  }
+  if (input.scheda.campionaturaId) {
+    await supabase
+      .from("campionature")
+      .update({
+        stato: "consegnata",
+        documento_stato: "chiuso",
+        updated_by: input.userId,
+      })
+      .eq("id", input.scheda.campionaturaId)
+      .is("deleted_at", null);
+  }
+  if (input.scheda.schedaStato !== "completa" && input.scheda.schedaStato !== "archiviata") {
+    await supabase
+      .from("produzione_schede_ordini")
+      .update({
+        scheda_stato: "completa",
+        documento_stato: "chiuso",
+        completata_at: now,
+        completata_by: input.userId,
+        updated_by: input.userId,
+        versione: input.scheda.versione + 1,
+      })
+      .eq("id", input.scheda.id)
+      .is("deleted_at", null);
+  }
+  await appendSchedaTimeline(supabase, {
+    schedaId: input.scheda.id,
+    eventoTipo: "consegnata",
+    titolo:
+      input.fonte === "forzata"
+        ? `Consegna forzata · ${input.scheda.numeroScheda}`
+        : `Spedizione consegnata · ${input.scheda.numeroScheda}`,
+    dettaglio: input.nota,
+    actorId: input.userId,
+    payload: { fonte: input.fonte },
+  });
+  await appendSchedaTimeline(supabase, {
+    schedaId: input.scheda.id,
+    eventoTipo: "chiuso",
+    titolo: `Ordine chiuso · ${input.scheda.numeroScheda}`,
+    dettaglio: "Stato spedizione: consegnata.",
+    actorId: input.userId,
+  });
 }

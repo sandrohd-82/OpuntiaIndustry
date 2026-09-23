@@ -12,6 +12,7 @@ import { ProcessiBoard } from "@/components/produzione/ProcessiBoard";
 import { OrdiniDaProcessareBoard } from "@/components/amministrazione/OrdiniDaProcessareBoard";
 import { ScalettaProduzioneBoard } from "@/components/produzione/ScalettaProduzioneBoard";
 import { SchedeOrdiniBoard } from "@/components/produzione/SchedeOrdiniBoard";
+import { InAttesaRitiroBoard } from "@/components/produzione/InAttesaRitiroBoard";
 import { Suspense } from "react";
 import { requireAreaAccess } from "@/lib/areas/guard";
 import { requireOrdiniDaProcessarePageAccess } from "@/lib/auth/ordini-access";
@@ -158,6 +159,17 @@ export default async function ProduzioneSubPage({ params, searchParams }: Props)
         <AppHeader title={page.label} subtitle={page.description} />
         <div className="p-6">
           <OrdiniDaProcessareBoard />
+        </div>
+      </>
+    );
+  }
+
+  if (section === "ordini" && sub === "in-attesa-ritiro") {
+    return (
+      <>
+        <AppHeader title={page.label} subtitle={page.description} />
+        <div className="p-6">
+          <InAttesaRitiroBoard />
         </div>
       </>
     );

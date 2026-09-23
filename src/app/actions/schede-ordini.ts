@@ -5,6 +5,7 @@ import {
   backfillSchedeDaScaletta,
   listSchedeByStato,
   loadSchedaDettaglio,
+  loadSchedaSpedizione,
   trasferisciSchedeCompleteScadute,
 } from "@/lib/produzione/schede-ordini-store";
 import type { SchedaDettaglio, SchedaOrdine } from "@/lib/produzione/schede-ordini";
@@ -57,5 +58,6 @@ export async function getSchedaOrdineDettaglioAction(
   const supabase = await createClient();
   const det = await loadSchedaDettaglio(supabase, schedaId);
   if (!det) return { success: false, error: "Scheda non trovata." };
-  return { success: true, dettaglio: det };
+  const spedizione = await loadSchedaSpedizione(supabase, det.scheda);
+  return { success: true, dettaglio: { ...det, spedizione } };
 }

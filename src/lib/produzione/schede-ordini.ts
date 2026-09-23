@@ -19,6 +19,11 @@ export const SCHEDA_EVENTI = [
   "completa",
   "archivio",
   "nota",
+  "ritiro",
+  "spedizione",
+  "concluso",
+  "consegnata",
+  "chiuso",
 ] as const;
 export type SchedaEventoTipo = (typeof SCHEDA_EVENTI)[number];
 
@@ -34,6 +39,11 @@ export const SCHEDA_EVENTO_LABEL: Record<SchedaEventoTipo, string> = {
   completa: "Scheda completata",
   archivio: "Trasferita in archivio",
   nota: "Nota",
+  ritiro: "Ritiro",
+  spedizione: "Spedizione",
+  concluso: "Concluso",
+  consegnata: "Consegnata",
+  chiuso: "Chiuso",
 };
 
 export const SCHEDA_COMPLETE_GIORNI = 30;
@@ -66,9 +76,24 @@ export type SchedaTimelineItem = {
   impegnoId: string | null;
 };
 
+export type SchedaSpedizione = {
+  parentStato: string;
+  parentStatoLabel: string;
+  ritiroAt: string | null;
+  corriereNome: string;
+  trackingId: string | null;
+  trackingUrl: string;
+  shippingStatus: string | null;
+  shippingLabel: string;
+  shippingNote: string;
+  canRegistraRitiro: boolean;
+  canForzaConsegna: boolean;
+};
+
 export type SchedaDettaglio = {
   scheda: SchedaOrdine;
   timeline: SchedaTimelineItem[];
+  spedizione: SchedaSpedizione;
 };
 
 export type SchedaPrerequisito = {
