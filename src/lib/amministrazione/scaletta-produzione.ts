@@ -24,6 +24,7 @@ export const SCALETTA_ESECUZIONE_STATI = [
   "aperta",
   "completata",
   "problema",
+  "pronto_ritiro",
 ] as const;
 export type ScalettaEsecuzioneStato =
   (typeof SCALETTA_ESECUZIONE_STATI)[number];
@@ -35,6 +36,7 @@ export const SCALETTA_ESECUZIONE_LABEL: Record<
   aperta: "Da eseguire",
   completata: "Completata",
   problema: "Problema",
+  pronto_ritiro: "Pronto per il ritiro",
 };
 
 export type ScalettaImpegno = {
@@ -92,6 +94,8 @@ export type ScalettaDettaglio = {
     urgente: boolean;
     usaMagazzino: boolean;
     tipo: string;
+    sedePartenzaId: string;
+    sedePartenzaLabel: string;
   };
   righe: ScalettaDettaglioRiga[];
   processazione: {
@@ -115,8 +119,9 @@ export function parseEsecuzioneStato(
 
 export const scalettaEsitoSchema = z.object({
   impegnoId: z.string().uuid(),
-  modo: z.enum(["completa", "problema"]),
+  modo: z.enum(["completa", "problema", "pronto_ritiro"]),
   nota: z.string().trim().max(4000).optional().default(""),
+  sedePartenzaId: z.string().uuid().nullable().optional(),
 });
 
 export type ScalettaSenzaData = {
@@ -154,6 +159,7 @@ export const passaCampionaturaScalettaSchema = z.object({
       isolamentoId: z.string().uuid().nullable().optional(),
     })
     .optional(),
+  sedePartenzaId: z.string().uuid().nullable().optional(),
 });
 
 export type PassaCampionaturaScalettaInput = z.infer<

@@ -980,6 +980,7 @@ export interface OrdineRow {
   spedizione_a_carico: "cliente" | "agrinsicilia" | "diviso" | null;
   spedizione_pct_agrinsicilia: number | null;
   giorni_produzione: string[];
+  sede_partenza_id?: string | null;
   preventivo_id?: string | null;
   webmail_accettazione_id?: string | null;
   referente_accettazione_id?: string | null;
@@ -1106,7 +1107,7 @@ export interface ProduzioneCalendarioImpegnoRow {
   linea_codice: string | null;
   etichetta: string;
   note: string;
-  esecuzione_stato?: "aperta" | "completata" | "problema";
+  esecuzione_stato?: "aperta" | "completata" | "problema" | "pronto_ritiro";
   problema_note?: string;
   esito_note?: string;
   eseguita_at?: string | null;
@@ -1357,6 +1358,7 @@ export interface CampionaturaRow {
   data_lavorazione?: string | null;
   data_confezionamento?: string | null;
   produzione_snapshot?: Record<string, unknown>;
+  sede_partenza_id?: string | null;
   stato: CampionaturaStatoDb;
   documento_stato: "bozza" | "approvato" | "chiuso";
   versione: number;

@@ -2,6 +2,7 @@
 
 import { requireOrdineProcessAccess } from "@/lib/auth/ordini-access";
 import { writeAuditLog } from "@/lib/audit";
+import { labelSede } from "@/lib/impostazioni/sedi";
 import {
   parseEsecuzioneStato,
   scalettaEsitoSchema,
@@ -223,6 +224,28 @@ function strList(v: unknown): string[] {
   return v.map((x) => String(x ?? "").trim()).filter(Boolean);
 }
 
+async function loadSedeLabel(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  sedeId: string | null | undefined
+): Promise<{ id: string; label: string }> {
+  if (!sedeId) return { id: "", label: "" };
+  const { data } = await supabase
+    .from("impostazioni_sedi")
+    .select("id, nome, citta, indirizzo")
+    .eq("id", sedeId)
+    .is("deleted_at", null)
+    .maybeSingle();
+  if (!data) return { id: sedeId, label: "" };
+  return {
+    id: String(data.id),
+    label: labelSede({
+      nome: String(data.nome ?? ""),
+      citta: String(data.citta ?? ""),
+      indirizzo: String(data.indirizzo ?? ""),
+    }),
+  };
+}
+
 export async function getScalettaImpegnoDettaglioAction(
   impegnoId: string
 ): Promise<
@@ -277,7 +300,7 @@ export async function getScalettaImpegnoDettaglioAction(
     const { data: ord, error: oErr } = await supabase
       .from("ordini")
       .select(
-        "id, numero_interno, cliente_ragione_sociale, stato, documento_stato, versione, data_ordine, data_consegna, note, urgente, usa_magazzino, tipo, giorni_produzione, capacita_snapshot"
+        "id, numero_interno, cliente_ragione_sociale, stato, documento_stato, versione, data_ordine, data_consegna, note, urgente, usa_magazzino, tipo, giorni_produzione, capacita_snapshot, sede_partenza_id"
       )
       .eq("id", oid)
       .is("deleted_at", null)
@@ -318,6 +341,10 @@ export async function getScalettaImpegnoDettaglioAction(
       const lab = [o.codice, o.titolo].filter(Boolean).join(" — ");
       if (lab) processazione.extra.push(String(lab));
     }
+    const sede = await loadSedeLabel(
+      supabase,
+      ord.sede_partenza_id ? String(ord.sede_partenza_id) : null
+    );
     documento = {
       entityType: "ordine",
       entityId: oid,
@@ -335,12 +362,14 @@ export async function getScalettaImpegnoDettaglioAction(
       urgente: Boolean(ord.urgente),
       usaMagazzino: Boolean(ord.usa_magazzino),
       tipo: String(ord.tipo ?? "vendita"),
+      sedePartenzaId: sede.id,
+      sedePartenzaLabel: sede.label,
     };
   } else if (cid) {
     const { data: camp, error: cErr } = await supabase
       .from("campionature")
       .select(
-        "id, numero_interno, cliente_ragione_sociale, stato, documento_stato, versione, data_invio, destinatario, indirizzo_spedizione, tracking_url, note, data_lavorazione, data_confezionamento, produzione_snapshot"
+        "id, numero_interno, cliente_ragione_sociale, stato, documento_stato, versione, data_invio, destinatario, indirizzo_spedizione, tracking_url, note, data_lavorazione, data_confezionamento, produzione_snapshot, sede_partenza_id"
       )
       .eq("id", cid)
       .is("deleted_at", null)
@@ -405,6 +434,10 @@ export async function getScalettaImpegnoDettaglioAction(
       camp.data_confezionamento ?? snap.data_confezionamento ?? ""
     );
     processazione.fonte = "magazzino";
+    const sede = await loadSedeLabel(
+      supabase,
+      camp.sede_partenza_id ? String(camp.sede_partenza_id) : null
+    );
     documento = {
       entityType: "campionatura",
       entityId: cid,
@@ -422,6 +455,8 @@ export async function getScalettaImpegnoDettaglioAction(
       urgente: false,
       usaMagazzino: true,
       tipo: "campionatura",
+      sedePartenzaId: sede.id,
+      sedePartenzaLabel: sede.label,
     };
   } else {
     return { success: false, error: "Riga senza ordine o campionatura." };
@@ -458,7 +493,7 @@ export async function registraScalettaEsitoAction(
   const supabase = await createClient();
   const { data: existing, error: readErr } = await supabase
     .from("produzione_calendario_impegni")
-    .select("id, etichetta, esecuzione_stato, ordine_id, campionatura_id")
+    .select("id, etichetta, note, esecuzione_stato, ordine_id, campionatura_id")
     .eq("id", d.impegnoId)
     .is("deleted_at", null)
     .maybeSingle();
@@ -466,21 +501,82 @@ export async function registraScalettaEsitoAction(
     return { success: false, error: readErr?.message ?? "Riga non trovata." };
   }
 
+  const tipo = tipoImpegnoDaNote(String(existing.note ?? ""));
+  if (d.modo === "pronto_ritiro" && tipo !== "confezionamento") {
+    return {
+      success: false,
+      error: "Pronto per il ritiro è disponibile solo sul confezionamento.",
+    };
+  }
+
+  let sedeId = d.sedePartenzaId ?? null;
+  if (d.modo === "pronto_ritiro") {
+    const table = existing.ordine_id ? "ordini" : "campionature";
+    const parentId = String(existing.ordine_id || existing.campionatura_id);
+    const { data: parent } = await supabase
+      .from(table)
+      .select("sede_partenza_id")
+      .eq("id", parentId)
+      .maybeSingle();
+    sedeId = sedeId || (parent?.sede_partenza_id
+      ? String(parent.sede_partenza_id)
+      : null);
+    if (!sedeId) {
+      return {
+        success: false,
+        error:
+          "Per «Pronto per il ritiro» indica il luogo di partenza (Impostazioni > Sedi).",
+      };
+    }
+    const sede = await loadSedeLabel(supabase, sedeId);
+    if (!sede.label) {
+      return {
+        success: false,
+        error: "Sede di partenza non trovata. Configurala in Impostazioni > Sedi.",
+      };
+    }
+    await supabase
+      .from(table)
+      .update({
+        sede_partenza_id: sedeId,
+        stato: "pronto_spedizione",
+        updated_by: auth.userId,
+      })
+      .eq("id", parentId)
+      .is("deleted_at", null);
+    await writeAuditLog({
+      entity_type: table,
+      entity_id: parentId,
+      action: "status_change",
+      actor_id: auth.userId,
+      summary: `Pronto per il ritiro · partenza ${sede.label}`,
+      payload: {
+        stato_a: "pronto_spedizione",
+        sede_partenza_id: sedeId,
+        impegno_id: d.impegnoId,
+      },
+    });
+  }
+
   const now = new Date().toISOString();
   const patch =
-    d.modo === "completa"
+    d.modo === "problema"
       ? {
-          esecuzione_stato: "completata",
-          esito_note: d.nota.trim(),
-          eseguita_at: now,
-          eseguita_by: auth.userId,
-          updated_by: auth.userId,
-        }
-      : {
           esecuzione_stato: "problema",
           problema_note: d.nota.trim(),
           problema_at: now,
           problema_by: auth.userId,
+          updated_by: auth.userId,
+        }
+      : {
+          esecuzione_stato:
+            d.modo === "pronto_ritiro" ? "pronto_ritiro" : "completata",
+          esito_note:
+            d.modo === "pronto_ritiro"
+              ? d.nota.trim() || "Pronto per il ritiro"
+              : d.nota.trim(),
+          eseguita_at: now,
+          eseguita_by: auth.userId,
           updated_by: auth.userId,
         };
 
@@ -495,19 +591,29 @@ export async function registraScalettaEsitoAction(
     entity_type: "produzione_calendario_impegni",
     entity_id: d.impegnoId,
     action:
-      d.modo === "completa"
-        ? "scaletta_completa"
-        : "scaletta_problema",
+      d.modo === "problema"
+        ? "scaletta_problema"
+        : d.modo === "pronto_ritiro"
+          ? "scaletta_pronto_ritiro"
+          : "scaletta_completa",
     actor_id: auth.userId,
     summary:
-      d.modo === "completa"
-        ? `Lavorazione completata: ${existing.etichetta ?? d.impegnoId}`
-        : `Problema in scaletta: ${existing.etichetta ?? d.impegnoId}`,
+      d.modo === "problema"
+        ? `Problema in scaletta: ${existing.etichetta ?? d.impegnoId}`
+        : d.modo === "pronto_ritiro"
+          ? `Pronto per il ritiro: ${existing.etichetta ?? d.impegnoId}`
+          : `Lavorazione completata: ${existing.etichetta ?? d.impegnoId}`,
     payload: {
       modo: d.modo,
       stato_da: existing.esecuzione_stato,
-      stato_a: d.modo === "completa" ? "completata" : "problema",
+      stato_a:
+        d.modo === "problema"
+          ? "problema"
+          : d.modo === "pronto_ritiro"
+            ? "pronto_ritiro"
+            : "completata",
       nota: d.nota.trim() || null,
+      sede_partenza_id: sedeId,
       ordine_id: existing.ordine_id,
       campionatura_id: existing.campionatura_id,
     },

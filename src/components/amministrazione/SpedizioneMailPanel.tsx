@@ -7,6 +7,11 @@ import {
   uploadSpedizioneMailFileAction,
   upsertPrenotazioneSpedizioneMailAction,
 } from "@/app/actions/spedizione-mail";
+import {
+  listSediAttiveAction,
+  updateSedePartenzaAction,
+} from "@/app/actions/impostazioni-sedi";
+import { labelSede, type ImpostazioniSede } from "@/lib/impostazioni/sedi";
 import { SpedizioneMailComposeModal } from "@/components/amministrazione/SpedizioneMailComposeModal";
 import {
   trackingMancante,
@@ -32,7 +37,9 @@ type Props = {
     allegaLettera: boolean;
     allegaFile: boolean;
     destinatarioEmail: string;
+    sedePartenzaId: string;
   }) => void;
+  sedePartenzaIdDefault?: string;
 };
 
 export function SpedizioneMailPanel({
@@ -45,8 +52,11 @@ export function SpedizioneMailPanel({
   onSaved,
   onNeedEntity,
   onDraftChange,
+  sedePartenzaIdDefault = "",
 }: Props) {
   const [trackingUrl, setTrackingUrl] = useState("");
+  const [sedePartenzaId, setSedePartenzaId] = useState(sedePartenzaIdDefault);
+  const [sedi, setSedi] = useState<ImpostazioniSede[]>([]);
   const [letteraPath, setLetteraPath] = useState("");
   const [letteraName, setLetteraName] = useState("");
   const [allegati, setAllegati] = useState<SpedizioneMailAllegato[]>([]);
@@ -65,6 +75,16 @@ export function SpedizioneMailPanel({
   const [info, setInfo] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [uploading, setUploading] = useState(false);
+
+  useEffect(() => {
+    void listSediAttiveAction().then((res) => {
+      if (res.success) setSedi(res.sedi);
+    });
+  }, []);
+
+  useEffect(() => {
+    if (sedePartenzaIdDefault) setSedePartenzaId(sedePartenzaIdDefault);
+  }, [sedePartenzaIdDefault]);
 
   useEffect(() => {
     if (!entityId) return;
@@ -90,6 +110,7 @@ export function SpedizioneMailPanel({
       allegaLettera,
       allegaFile,
       destinatarioEmail: destEmail,
+      sedePartenzaId,
     });
   }, [
     trackingUrl,
@@ -100,6 +121,7 @@ export function SpedizioneMailPanel({
     allegaLettera,
     allegaFile,
     destEmail,
+    sedePartenzaId,
   ]);
 
   function applyItem(next: SpedizioneMailPrenotazione) {
@@ -201,6 +223,13 @@ export function SpedizioneMailPanel({
         return;
       }
       applyItem(res.item);
+      if (sedePartenzaId || sedePartenzaIdDefault) {
+        await updateSedePartenzaAction({
+          entityType,
+          entityId,
+          sedeId: sedePartenzaId || null,
+        });
+      }
       onSaved?.(res.item);
       if (res.apriBozza && oggetto) {
         setCompose({
@@ -249,6 +278,38 @@ export function SpedizioneMailPanel({
           placeholder="https:// — se non c’è, si resta in attesa"
           className="w-full rounded-lg border border-[var(--border)] px-3 py-2 text-sm"
         />
+      </label>
+
+      <label className="block text-sm">
+        <span className="mb-1 block font-medium">Luogo di partenza</span>
+        <span className="mb-1 block text-xs text-[var(--muted)]">
+          Sede da cui parte o si ritira la merce. Elenco da Impostazioni →
+          Sedi.
+        </span>
+        <select
+          value={sedePartenzaId}
+          onChange={(e) => {
+            const next = e.target.value;
+            setSedePartenzaId(next);
+            if (entityId) {
+              void updateSedePartenzaAction({
+                entityType,
+                entityId,
+                sedeId: next || null,
+              });
+            }
+          }}
+          className="w-full rounded-lg border border-[var(--border)] px-3 py-2 text-sm"
+        >
+          <option value="">
+            {sedi.length ? "Seleziona sede…" : "Nessuna sede in catalogo"}
+          </option>
+          {sedi.map((s) => (
+            <option key={s.id} value={s.id}>
+              {labelSede(s)}
+            </option>
+          ))}
+        </select>
       </label>
 
       <label className="block text-sm">

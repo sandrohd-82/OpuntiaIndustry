@@ -106,6 +106,7 @@ export type Campionatura = {
   destinatario: string;
   indirizzoSpedizione: string;
   note: string;
+  sedePartenzaId: string | null;
   stato: CampionaturaStato;
   documentoStato: "bozza" | "approvato" | "chiuso";
   versione: number;

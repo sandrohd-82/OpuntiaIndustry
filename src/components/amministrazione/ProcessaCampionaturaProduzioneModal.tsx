@@ -103,6 +103,9 @@ export function ProcessaCampionaturaProduzioneModal({
     isoId: "",
   });
   const [destEmail, setDestEmail] = useState("");
+  const [sedePartenzaId, setSedePartenzaId] = useState(
+    item.sedePartenzaId ?? ""
+  );
 
   const righe = useMemo(
     () => item.righe.filter((r) => r.prodottoId),
@@ -287,6 +290,7 @@ export function ProcessaCampionaturaProduzioneModal({
           confezioneId: pack.serveConf ? pack.confId || null : null,
           isolamentoId: pack.serveIso ? pack.isoId || null : null,
         },
+        sedePartenzaId: sedePartenzaId || null,
       });
       if (!res.success) {
         setError(res.error);
@@ -638,6 +642,8 @@ export function ProcessaCampionaturaProduzioneModal({
                 .map((r) => `${r.prodottoCodice} ${r.quantita} ${r.unitaMisura}`)
                 .join(", ")}
               destEmailDefault={destEmail}
+              sedePartenzaIdDefault={sedePartenzaId}
+              onDraftChange={(d) => setSedePartenzaId(d.sedePartenzaId)}
             />
           </div>
         ) : null}

@@ -5,6 +5,8 @@ import {
   getScalettaImpegnoDettaglioAction,
   registraScalettaEsitoAction,
 } from "@/app/actions/scaletta-produzione";
+import { listSediAttiveAction } from "@/app/actions/impostazioni-sedi";
+import { labelSede, type ImpostazioniSede } from "@/lib/impostazioni/sedi";
 import {
   SCALETTA_ESECUZIONE_LABEL,
   SCALETTA_TIPO_LABEL,
@@ -33,6 +35,7 @@ function formatData(iso: string | null | undefined): string {
 
 function classeEsito(stato: ScalettaEsecuzioneStato): string {
   if (stato === "completata") return "bg-emerald-50 text-emerald-900";
+  if (stato === "pronto_ritiro") return "bg-indigo-50 text-indigo-900";
   if (stato === "problema") return "bg-amber-100 text-amber-950";
   return "bg-slate-100 text-slate-700";
 }
@@ -60,6 +63,8 @@ export function ScalettaImpegnoModal({ impegnoId, onClose, onChanged }: Props) {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [nota, setNota] = useState("");
+  const [sedi, setSedi] = useState<ImpostazioniSede[]>([]);
+  const [sedeId, setSedeId] = useState("");
 
   useEffect(() => {
     let cancelled = false;
@@ -74,6 +79,7 @@ export function ScalettaImpegnoModal({ impegnoId, onClose, onChanged }: Props) {
       }
       setDettaglio(res.dettaglio);
       setNota(res.dettaglio.impegno.problemaNote);
+      setSedeId(res.dettaglio.documento.sedePartenzaId);
       setLoading(false);
     });
     return () => {
@@ -81,7 +87,15 @@ export function ScalettaImpegnoModal({ impegnoId, onClose, onChanged }: Props) {
     };
   }, [impegnoId]);
 
-  async function registra(modo: "completa" | "problema") {
+  useEffect(() => {
+    void listSediAttiveAction().then((res) => {
+      if (res.success) setSedi(res.sedi);
+    });
+  }, []);
+
+  async function registra(
+    modo: "completa" | "problema" | "pronto_ritiro"
+  ) {
     setError(null);
     setInfo(null);
     setSaving(true);
@@ -90,6 +104,7 @@ export function ScalettaImpegnoModal({ impegnoId, onClose, onChanged }: Props) {
         impegnoId,
         modo,
         nota,
+        sedePartenzaId: sedeId || null,
       });
       if (!res.success) {
         setError(res.error);
@@ -97,11 +112,14 @@ export function ScalettaImpegnoModal({ impegnoId, onClose, onChanged }: Props) {
       }
       setDettaglio(res.dettaglio);
       setNota(res.dettaglio.impegno.problemaNote);
+      setSedeId(res.dettaglio.documento.sedePartenzaId);
       onChanged(res.dettaglio);
       setInfo(
-        modo === "completa"
-          ? "Lavorazione dichiarata completa."
-          : "Problema salvato. Resta visibile sulla riga."
+        modo === "problema"
+          ? "Problema salvato. Resta visibile sulla riga."
+          : modo === "pronto_ritiro"
+            ? "Confezionamento chiuso: pronto per il ritiro."
+            : "Lavorazione dichiarata completa."
       );
     } finally {
       setSaving(false);
@@ -131,8 +149,8 @@ export function ScalettaImpegnoModal({ impegnoId, onClose, onChanged }: Props) {
           {imp ? ` · ${SCALETTA_TIPO_LABEL[imp.tipo]}` : ""}
         </h2>
         <p className="mt-1 text-sm text-[var(--muted)]">
-          Specifica ordine e processazione. Puoi dichiarare completa o
-          registrare un problema.
+          Specifica ordine e processazione. Sul confezionamento puoi chiudere
+          come Completato o Pronto per il ritiro.
         </p>
 
         {loading ? (
@@ -185,6 +203,10 @@ export function ScalettaImpegnoModal({ impegnoId, onClose, onChanged }: Props) {
                 {doc.trackingUrl ? (
                   <Campo label="Tracking" value={doc.trackingUrl} />
                 ) : null}
+                <Campo
+                  label="Luogo di partenza"
+                  value={doc.sedePartenzaLabel || "Non indicato"}
+                />
                 <Campo
                   label="Approvvigionamento"
                   value={
@@ -287,6 +309,30 @@ export function ScalettaImpegnoModal({ impegnoId, onClose, onChanged }: Props) {
               </p>
             ) : null}
 
+            {imp.tipo === "confezionamento" ? (
+              <label className="block text-sm">
+                <span className="mb-1 block font-medium">
+                  Luogo di partenza (ritiro)
+                </span>
+                <select
+                  value={sedeId}
+                  onChange={(e) => setSedeId(e.target.value)}
+                  className="w-full rounded-lg border border-[var(--border)] px-3 py-2 text-sm"
+                >
+                  <option value="">
+                    {sedi.length
+                      ? "Seleziona sede di partenza…"
+                      : "Nessuna sede in Impostazioni → Sedi"}
+                  </option>
+                  {sedi.map((s) => (
+                    <option key={s.id} value={s.id}>
+                      {labelSede(s)}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            ) : null}
+
             <label className="block text-sm">
               <span className="mb-1 block font-medium">
                 Nota problema / osservazione
@@ -329,14 +375,35 @@ export function ScalettaImpegnoModal({ impegnoId, onClose, onChanged }: Props) {
           >
             {saving ? "Salvataggio…" : "Salva problema"}
           </button>
-          <button
-            type="button"
-            disabled={saving || !dettaglio}
-            onClick={() => void registra("completa")}
-            className="rounded-lg bg-[var(--primary)] px-4 py-2 text-sm font-medium text-white hover:bg-[var(--primary-hover)] disabled:opacity-50"
-          >
-            {saving ? "Salvataggio…" : "Dichiara completa"}
-          </button>
+          {imp?.tipo === "confezionamento" ? (
+            <>
+              <button
+                type="button"
+                disabled={saving || !dettaglio}
+                onClick={() => void registra("completa")}
+                className="rounded-lg border border-[var(--border)] px-4 py-2 text-sm font-medium hover:bg-slate-50 disabled:opacity-50"
+              >
+                {saving ? "Salvataggio…" : "Completato"}
+              </button>
+              <button
+                type="button"
+                disabled={saving || !dettaglio}
+                onClick={() => void registra("pronto_ritiro")}
+                className="rounded-lg bg-[var(--primary)] px-4 py-2 text-sm font-medium text-white hover:bg-[var(--primary-hover)] disabled:opacity-50"
+              >
+                {saving ? "Salvataggio…" : "Pronto per il ritiro"}
+              </button>
+            </>
+          ) : (
+            <button
+              type="button"
+              disabled={saving || !dettaglio}
+              onClick={() => void registra("completa")}
+              className="rounded-lg bg-[var(--primary)] px-4 py-2 text-sm font-medium text-white hover:bg-[var(--primary-hover)] disabled:opacity-50"
+            >
+              {saving ? "Salvataggio…" : "Dichiara completa"}
+            </button>
+          )}
         </div>
       </div>
     </div>

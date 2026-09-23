@@ -31,6 +31,7 @@ import {
   generaCorpoMailSpedizioneAction,
   upsertPrenotazioneSpedizioneMailAction,
 } from "@/app/actions/spedizione-mail";
+import { updateSedePartenzaAction } from "@/app/actions/impostazioni-sedi";
 import type { SpedizioneMailPrenotazione } from "@/lib/amministrazione/spedizione-mail";
 import {
   ClearableNumberInput,
@@ -166,6 +167,7 @@ export function OrdineNuovoWizardModal({
     allegaLettera: false,
     allegaFile: false,
     destinatarioEmail: "",
+    sedePartenzaId: "",
   });
   const [composeAfter, setComposeAfter] = useState<{
     prenotazione: SpedizioneMailPrenotazione;
@@ -676,6 +678,13 @@ export function OrdineNuovoWizardModal({
       if (!result.success) {
         setFormError(result.error);
         return;
+      }
+      if (spedDraft.current.sedePartenzaId) {
+        await updateSedePartenzaAction({
+          entityType: "ordine",
+          entityId: result.ordine.id,
+          sedeId: spedDraft.current.sedePartenzaId,
+        });
       }
       if (modoMail) {
         const d = spedDraft.current;

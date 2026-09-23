@@ -385,7 +385,9 @@ export function ScalettaProduzioneBoard() {
                       className={`rounded-full px-2 py-0.5 text-xs font-medium ${
                         i.esecuzioneStato === "completata"
                           ? "bg-emerald-50 text-emerald-800"
-                          : "bg-amber-100 text-amber-950"
+                          : i.esecuzioneStato === "pronto_ritiro"
+                            ? "bg-indigo-50 text-indigo-900"
+                            : "bg-amber-100 text-amber-950"
                       }`}
                     >
                       {SCALETTA_ESECUZIONE_LABEL[i.esecuzioneStato]}

@@ -96,6 +96,7 @@ function mapCampionatura(
     destinatario: row.destinatario,
     indirizzoSpedizione: row.indirizzo_spedizione,
     note: row.note,
+    sedePartenzaId: row.sede_partenza_id ?? null,
     stato: row.stato,
     documentoStato: row.documento_stato,
     versione: row.versione,
@@ -912,6 +913,7 @@ export async function passaCampionaturaInScalettaAction(
     data_confezionamento: d.dataConfezionamento,
     righe: d.righe,
     pack: d.pack ?? {},
+    sede_partenza_id: d.sedePartenzaId ?? header.sede_partenza_id ?? null,
   };
 
   const { error: updErr } = await supabase
@@ -921,6 +923,7 @@ export async function passaCampionaturaInScalettaAction(
       documento_stato: "approvato",
       data_lavorazione: d.dataLavorazione,
       data_confezionamento: d.dataConfezionamento,
+      sede_partenza_id: d.sedePartenzaId ?? header.sede_partenza_id ?? null,
       produzione_snapshot: snapshot,
       approved_at: now,
       approved_by: gate.auth.userId,

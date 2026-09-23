@@ -12,6 +12,7 @@ import {
   generaCorpoMailSpedizioneAction,
   upsertPrenotazioneSpedizioneMailAction,
 } from "@/app/actions/spedizione-mail";
+import { updateSedePartenzaAction } from "@/app/actions/impostazioni-sedi";
 import { SpedizioneMailComposeModal } from "@/components/amministrazione/SpedizioneMailComposeModal";
 import { SpedizioneMailPanel } from "@/components/amministrazione/SpedizioneMailPanel";
 import type { SpedizioneMailPrenotazione } from "@/lib/amministrazione/spedizione-mail";
@@ -107,6 +108,7 @@ export function CampionaturaFormModal({ onClose, onSaved }: Props) {
     allegaLettera: false,
     allegaFile: false,
     destinatarioEmail: "",
+    sedePartenzaId: "",
   });
   const [composeAfter, setComposeAfter] = useState<{
     prenotazione: SpedizioneMailPrenotazione;
@@ -290,6 +292,13 @@ export function CampionaturaFormModal({ onClose, onSaved }: Props) {
       if (!result.success) {
         setFormError(result.error);
         return;
+      }
+      if (spedDraft.current.sedePartenzaId) {
+        await updateSedePartenzaAction({
+          entityType: "campionatura",
+          entityId: result.item.id,
+          sedeId: spedDraft.current.sedePartenzaId,
+        });
       }
       if (modoMail) {
         const d = spedDraft.current;
