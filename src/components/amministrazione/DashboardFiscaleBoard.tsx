@@ -95,10 +95,10 @@ export function DashboardFiscaleBoard() {
             Commercialista interattivo per Cooperativa Agricola e Sociale A.R.L.
             Fonte: fatture interne registrate. Parametri in{" "}
             <Link
-              href="/app/impostazioni"
+              href="/app/impostazioni/fiscale"
               className="font-medium text-[var(--primary)] hover:underline"
             >
-              Impostazioni → Profilo fiscale
+              Impostazioni → Fiscale
             </Link>
             .
           </p>

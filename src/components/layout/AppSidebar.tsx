@@ -25,6 +25,7 @@ import {
   FaWrench,
 } from "react-icons/fa6";
 import { AMMINISTRAZIONE_SECTIONS } from "@/lib/areas/amministrazione";
+import { IMPOSTAZIONI_SECTIONS } from "@/lib/areas/impostazioni";
 import { COMMERCIALE_SECTIONS } from "@/lib/areas/commerciale";
 import { CHAT_SECTIONS } from "@/lib/areas/chat";
 import { WEBMAIL_SECTIONS } from "@/lib/areas/webmail";
@@ -185,6 +186,9 @@ function sectionsForArea(
       break;
     case "area-fornitori":
       base = AREA_FORNITORI_SECTIONS;
+      break;
+    case "impostazioni":
+      base = IMPOSTAZIONI_SECTIONS;
       break;
     default:
       return null;

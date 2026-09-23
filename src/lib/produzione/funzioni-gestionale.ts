@@ -3,6 +3,7 @@ import { ACTION_SECTIONS } from "@/lib/areas/action";
 import { AMMINISTRAZIONE_SECTIONS } from "@/lib/areas/amministrazione";
 import { ARCHIVIO_SECTIONS } from "@/lib/areas/archivio";
 import { AREA_FORNITORI_SECTIONS } from "@/lib/areas/area-fornitori";
+import { IMPOSTAZIONI_SECTIONS } from "@/lib/areas/impostazioni";
 import { AREA_FISCALE_SECTIONS } from "@/lib/areas/area-fiscale";
 import { AREA_ROUTES } from "@/lib/areas/config";
 import { CHAT_SECTIONS } from "@/lib/areas/chat";
@@ -110,6 +111,7 @@ const AREA_SECTIONS: Array<{ area: string; sections: readonly NavItem[] }> = [
   { area: "Ricerca e sviluppo", sections: RICERCA_SVILUPPO_SECTIONS },
   { area: "Archivio", sections: ARCHIVIO_SECTIONS },
   { area: "WikiOpuntia", sections: WIKIOPUNTIA_SECTIONS },
+  { area: "Impostazioni", sections: IMPOSTAZIONI_SECTIONS },
 ];
 
 let cached: FunzioneGestionale[] | null = null;

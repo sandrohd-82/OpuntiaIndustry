@@ -14,6 +14,7 @@ import { AREA_FISCALE_SECTIONS } from "@/lib/areas/area-fiscale";
 import { PROMEMORIE_E_NOTE_SECTIONS } from "@/lib/areas/promemorie-e-note";
 import { AREA_FORNITORI_SECTIONS } from "@/lib/areas/area-fornitori";
 import { RICERCA_SVILUPPO_SECTIONS } from "@/lib/areas/ricerca-sviluppo";
+import { IMPOSTAZIONI_SECTIONS } from "@/lib/areas/impostazioni";
 import { firstLeafPath, isNavBranch, type NavItem } from "@/lib/areas/nav-tree";
 import type { AreaSlug } from "@/types/database";
 
@@ -88,6 +89,8 @@ function sezioniArea(areaSlug: string): readonly NavItem[] {
       return AREA_FORNITORI_SECTIONS;
     case "ricerca-sviluppo":
       return RICERCA_SVILUPPO_SECTIONS;
+    case "impostazioni":
+      return IMPOSTAZIONI_SECTIONS;
     default:
       return [];
   }

@@ -10,6 +10,7 @@ type Props = {
   onConfirm: (payload: LocationPayload) => void | Promise<void>;
   onError: (msg: string) => void;
   busy?: boolean;
+  confirmLabel?: string;
 };
 
 const IT_CENTER = { lat: 41.9028, lng: 12.4964 };
@@ -67,6 +68,7 @@ export function ChatLocationMapModal({
   onConfirm,
   onError,
   busy = false,
+  confirmLabel = "Condividi posizione",
 }: Props) {
   const mapElRef = useRef<HTMLDivElement>(null);
   const searchRef = useRef<HTMLInputElement>(null);
@@ -481,7 +483,7 @@ export function ChatLocationMapModal({
               onClick={() => void confirm()}
               className="rounded-lg bg-[var(--primary)] px-3 py-2 text-sm text-white disabled:opacity-40"
             >
-              Condividi posizione
+              {confirmLabel}
             </button>
           </div>
         </div>

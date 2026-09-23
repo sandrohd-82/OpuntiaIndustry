@@ -3,6 +3,7 @@ import { AMMINISTRAZIONE_SECTIONS } from "@/lib/areas/amministrazione";
 import { ARCHIVIO_SECTIONS } from "@/lib/areas/archivio";
 import { AREA_FORNITORI_SECTIONS } from "@/lib/areas/area-fornitori";
 import { AREA_FISCALE_SECTIONS } from "@/lib/areas/area-fiscale";
+import { IMPOSTAZIONI_SECTIONS } from "@/lib/areas/impostazioni";
 import { CHAT_SECTIONS } from "@/lib/areas/chat";
 import {
   COMMERCIALE_SECTIONS,
@@ -277,28 +278,14 @@ function buildPageArticles(): TutorialArticle[] {
     seen
   );
 
-  addHub(
+  walkNav(
+    IMPOSTAZIONI_SECTIONS,
     "impostazioni",
     "Impostazioni",
-    "/app/impostazioni",
-    "Solo admin: 2FA e profilo fiscale aziendale.",
+    ["Impostazioni"],
     out,
     seen
   );
-  const imp = out.find((a) => a.path === "/app/impostazioni");
-  if (imp && PAGE_EXTRAS["/app/impostazioni"]) {
-    const idx = out.indexOf(imp);
-    out[idx] = makeArticle({
-      id: imp.id,
-      sectionId: imp.sectionId,
-      sectionTitle: imp.sectionTitle,
-      title: imp.title,
-      summary: imp.summary,
-      path: imp.path,
-      tags: imp.tags,
-      blocks: PAGE_EXTRAS["/app/impostazioni"],
-    });
-  }
 
   addHub(
     "nascoste",

@@ -377,7 +377,19 @@ export const PAGE_EXTRAS: Record<string, TutorialBlock[]> = {
   "/app/impostazioni": [
     {
       type: "p",
+      text: "Hub Impostazioni: rimanda a Fiscale (2FA e profilo) e Sedi aziendali.",
+    },
+  ],
+  "/app/impostazioni/fiscale": [
+    {
+      type: "p",
       text: "Solo admin: attiva il 2FA (TOTP) e il profilo fiscale aziendale (dati per fatture e dashboard). Non è il posto dei lotti.",
+    },
+  ],
+  "/app/impostazioni/sedi": [
+    {
+      type: "p",
+      text: "Catalogo sedi aziendali: nome, indirizzo Google Maps, tipo (Amministrativa, Produttiva, Magazzino, Terreno Agricolo, Legale) e descrizione facoltativa. Usate come luogo di partenza per spedizione e ritiro. Soft delete, nessuna cancellazione fisica.",
     },
   ],
   "/app/archivio/amministrazione/ordini/storico": [

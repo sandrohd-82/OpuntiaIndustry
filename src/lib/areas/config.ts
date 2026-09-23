@@ -101,8 +101,7 @@ export const AREA_ROUTES: Record<
   impostazioni: {
     path: "/app/impostazioni",
     label: "Impostazioni",
-    description:
-      "Configurazione sistema e profilo fiscale aziendale",
+    description: "Fiscale, sedi aziendali e configurazione di sistema",
   },
 };
 
