@@ -17,6 +17,7 @@ import {
   appendSchedaTimeline,
   ensureSchedaOrdine,
 } from "@/lib/produzione/schede-ordini-store";
+import { syncSchedaOrdineAziendaNota } from "@/lib/amministrazione/scheda-timeline-nota";
 import { inferCarrierFromUrl } from "@/lib/shipping/tracking";
 import { assegnaLottoProduzioneDaMagazzino } from "@/app/actions/lotto-produzione-magazzino";
 import { getGiacenzaProdottoAction } from "@/app/actions/produzione-capacita";
@@ -517,6 +518,18 @@ async function createCampionaturaActionInner(
       },
     });
   }
+
+  await syncSchedaOrdineAziendaNota({
+    userId: gate.auth.userId,
+    campionaturaId: header.id,
+    numero,
+    clienteLabel: input.cliente,
+    prodotto: input.righe[0]?.prodottoCodice,
+    stato: isStorico ? "inviata" : "inserita",
+    fromCampionaturaTable: true,
+    clienteId: resolved.clienteId,
+    possibileClienteId: resolved.possibileClienteId,
+  });
 
   await writeAuditLog({
     entity_type: "campionature",
@@ -1028,6 +1041,17 @@ export async function passaCampionaturaInScalettaAction(
     cliente: header.cliente_ragione_sociale ?? "",
     prodotto: prodotti,
     userId: gate.auth.userId,
+  });
+  await syncSchedaOrdineAziendaNota({
+    userId: gate.auth.userId,
+    campionaturaId: header.id,
+    numero: header.numero_interno,
+    clienteLabel: header.cliente_ragione_sociale ?? "",
+    prodotto: prodotti,
+    stato: "processata",
+    fromCampionaturaTable: true,
+    clienteId: header.cliente_id,
+    possibileClienteId: header.cliente_possibile_id,
   });
   if (scheda) {
     await appendSchedaTimeline(supabase, {

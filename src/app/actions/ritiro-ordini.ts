@@ -16,6 +16,7 @@ import {
   loadSchedaDettaglio,
 } from "@/lib/produzione/schede-ordini-store";
 import { inferCarrierFromUrl } from "@/lib/shipping/tracking";
+import { syncSchedaNotaByParent } from "@/lib/amministrazione/scheda-timeline-nota";
 import { createClient } from "@/lib/supabase/server";
 
 export async function listCorrieriAction(): Promise<
@@ -256,6 +257,10 @@ export async function registraRitiroAction(
       summary: `Ritiro ${corriere.nome} · Concluso`,
       payload: { stato_a: "inviato", ritiro_at: ritiroAt },
     });
+    await syncSchedaNotaByParent({
+      userId: auth.userId,
+      ordineId: det.scheda.ordineId,
+    });
   } else if (det.scheda.campionaturaId) {
     const { data: camp } = await supabase
       .from("campionature")
@@ -288,6 +293,10 @@ export async function registraRitiroAction(
       actor_id: auth.userId,
       summary: `Ritiro ${corriere.nome} · Concluso`,
       payload: { stato_a: "inviata", ritiro_at: ritiroAt },
+    });
+    await syncSchedaNotaByParent({
+      userId: auth.userId,
+      campionaturaId: det.scheda.campionaturaId,
     });
   } else {
     return { success: false, error: "Scheda senza documento collegato." };
@@ -366,6 +375,11 @@ export async function forzaConsegnaSchedaAction(
     userId: auth.userId,
     fonte: "forzata",
     nota: parsed.data.motivo,
+  });
+  await syncSchedaNotaByParent({
+    userId: auth.userId,
+    ordineId: det.scheda.ordineId,
+    campionaturaId: det.scheda.campionaturaId,
   });
   await writeAuditLog({
     entity_type: det.scheda.ordineId ? "ordini" : "campionature",

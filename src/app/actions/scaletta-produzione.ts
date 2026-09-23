@@ -19,6 +19,7 @@ import {
   syncSchedaDopoEsito,
 } from "@/lib/produzione/schede-ordini-store";
 import { createClient } from "@/lib/supabase/server";
+import { syncSchedaNotaByParent } from "@/lib/amministrazione/scheda-timeline-nota";
 import { z } from "zod";
 
 const rangeSchema = z.object({
@@ -662,6 +663,11 @@ export async function registraScalettaEsitoAction(
       })
       .eq("id", parentId)
       .is("deleted_at", null);
+    await syncSchedaNotaByParent({
+      userId: auth.userId,
+      ordineId: existing.ordine_id ? parentId : null,
+      campionaturaId: existing.campionatura_id ? parentId : null,
+    });
     await writeAuditLog({
       entity_type: table,
       entity_id: parentId,

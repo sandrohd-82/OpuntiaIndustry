@@ -22,6 +22,7 @@ type Props = {
   onClose: () => void;
   focusRitiro?: boolean;
   onChanged?: () => void;
+  overlayClassName?: string;
 };
 
 function toLocalInput(iso?: string | null): string {
@@ -62,6 +63,7 @@ export function SchedaOrdineModal({
   onClose,
   focusRitiro = false,
   onChanged,
+  overlayClassName,
 }: Props) {
   const titleId = useId();
   const [dettaglio, setDettaglio] = useState<SchedaDettaglio | null>(null);
@@ -170,7 +172,9 @@ export function SchedaOrdineModal({
 
   return (
     <div
-      className="fixed inset-0 z-[80] flex items-end justify-center bg-slate-950/50 sm:items-center"
+      className={`fixed inset-0 flex items-end justify-center bg-slate-950/50 sm:items-center ${
+        overlayClassName ?? "z-[80]"
+      }`}
       onClick={onClose}
     >
       <div

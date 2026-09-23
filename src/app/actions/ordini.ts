@@ -26,6 +26,7 @@ import {
   appendSchedaTimeline,
   ensureSchedaOrdine,
 } from "@/lib/produzione/schede-ordini-store";
+import { syncSchedaOrdineAziendaNota } from "@/lib/amministrazione/scheda-timeline-nota";
 import {
   normalizeConfezionamentoDraft,
   totaleKgConfezionati,
@@ -581,6 +582,16 @@ export async function createOrdineAction(
         .update({ ...patch, updated_by: auth.userId })
         .eq("id", row.id);
     }
+
+    await syncSchedaOrdineAziendaNota({
+      userId: auth.userId,
+      ordineId: row.id,
+      numero: numeroInterno,
+      clienteLabel: input.cliente.trim(),
+      stato: input.stato,
+      clienteId: resolved.clienteId,
+      possibileClienteId: resolved.possibileClienteId,
+    });
 
     await writeAudit({
       entity_type: "ordini",
@@ -1198,6 +1209,17 @@ async function createOrdineWizardActionInner(
       if (nodiErr) return { success: false, error: nodiErr };
     }
 
+    await syncSchedaOrdineAziendaNota({
+      userId: auth.userId,
+      ordineId: row.id,
+      numero: numeroInterno,
+      clienteLabel: input.cliente.trim(),
+      prodotto: input.prodottoCodice,
+      stato: ordineSospeso ? "sospeso" : "in_attesa",
+      clienteId: resolved.clienteId,
+      possibileClienteId: resolved.possibileClienteId,
+    });
+
     await writeAudit({
       entity_type: "ordini",
       entity_id: row.id,
@@ -1514,6 +1536,16 @@ export async function processOrdineInScalettaAction(
     cliente: existing.cliente ?? "",
     prodotto: riga?.prodottoCodice ?? "",
     userId: auth.userId,
+  });
+  await syncSchedaOrdineAziendaNota({
+    userId: auth.userId,
+    ordineId: existing.id,
+    numero: existing.numeroInterno,
+    clienteLabel: existing.cliente ?? "",
+    prodotto: riga?.prodottoCodice ?? "",
+    stato: "in_scaletta",
+    clienteId: existing.clienteId,
+    possibileClienteId: null,
   });
   if (scheda) {
     await appendSchedaTimeline(supabase, {

@@ -1,4 +1,4 @@
-import { createClient } from "@/lib/supabase/server";
+import { createClient, createServiceClient } from "@/lib/supabase/server";
 import { tipoImpegnoDaNote } from "@/lib/amministrazione/scaletta-produzione";
 import {
   cicloStatoCampionatura,
@@ -22,7 +22,9 @@ import {
 } from "@/lib/shipping/tracking";
 import type { CampionaturaStatoDb, OrdineStato } from "@/types/database";
 
-type Db = Awaited<ReturnType<typeof createClient>>;
+type Db =
+  | Awaited<ReturnType<typeof createClient>>
+  | ReturnType<typeof createServiceClient>;
 
 const SCHEDA_COLS =
   "id, ordine_id, campionatura_id, numero_scheda, cliente, prodotto, entity_tipo, scheda_stato, documento_stato, versione, aperta_at, completata_at, archiviata_at";

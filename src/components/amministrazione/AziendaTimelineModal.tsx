@@ -46,6 +46,8 @@ import type {
   PnNotaBozza,
 } from "@/lib/promemorie-e-note/types";
 import { hasNestedModalOpen } from "@/lib/ui/nested-modal";
+import { openSchedaFromTimelineAction } from "@/app/actions/schede-ordini";
+import { SchedaOrdineModal } from "@/components/produzione/SchedaOrdineModal";
 import {
   combineDateAndTime,
   TimeAdessoInput,
@@ -154,7 +156,12 @@ type Props = {
   pickMode?: TimelinePickMode;
 };
 
+function isSchedaTimelineItem(item: AziendaTimelineItem): boolean {
+  return Boolean(item.schedaId || item.ordineId || item.campionaturaId);
+}
+
 function canVisualizza(item: AziendaTimelineItem): boolean {
+  if (isSchedaTimelineItem(item)) return true;
   return (
     (item.kind === "webmail" ||
       item.kind === "fattura_emessa" ||
@@ -176,13 +183,27 @@ function TimelineCard({
   onPickNota?: (item: AziendaTimelineItem) => void;
   onVisualizza?: (item: AziendaTimelineItem) => void;
 }) {
-  const isNota = item.kind === "nota";
-  const showBody = isNota || isCopiaPn(item.kind);
+  const isNota = item.kind === "nota" && !isSchedaTimelineItem(item);
+  const isScheda = isSchedaTimelineItem(item);
+  const showBody = isNota || isScheda || isCopiaPn(item.kind);
   return (
     <article
       className={`relative rounded-xl border border-[var(--border)] bg-white px-4 py-3 text-sm shadow-sm ${
         align === "left" ? "md:text-right" : "md:text-left"
-      }`}
+      } ${isScheda ? "cursor-pointer hover:border-emerald-400" : ""}`}
+      onClick={isScheda && onVisualizza ? () => onVisualizza(item) : undefined}
+      onKeyDown={
+        isScheda && onVisualizza
+          ? (e) => {
+              if (e.key === "Enter" || e.key === " ") {
+                e.preventDefault();
+                onVisualizza(item);
+              }
+            }
+          : undefined
+      }
+      role={isScheda ? "button" : undefined}
+      tabIndex={isScheda ? 0 : undefined}
     >
       {isNota && onEditNota ? (
         <button
@@ -247,7 +268,7 @@ function TimelineCard({
       ) : item.subtitle ? (
         <p className="mt-0.5 text-xs text-[var(--muted)]">{item.subtitle}</p>
       ) : null}
-      {canVisualizza(item) && onVisualizza ? (
+      {canVisualizza(item) && onVisualizza && !isScheda ? (
         <div
           className={`mt-2 ${align === "left" ? "md:text-left" : ""}`}
         >
@@ -534,6 +555,7 @@ export function AziendaTimelineModal({
   const [visualizza, setVisualizza] = useState<TimelineVisualizzaTarget | null>(
     null
   );
+  const [schedaApertaId, setSchedaApertaId] = useState<string | null>(null);
 
   const isMailPick =
     pickMode?.purpose === "campionatura-mail" ||
@@ -624,6 +646,21 @@ export function AziendaTimelineModal({
   );
 
   function openVisualizzaItem(item: AziendaTimelineItem) {
+    if (isSchedaTimelineItem(item)) {
+      startTransition(async () => {
+        const res = await openSchedaFromTimelineAction({
+          schedaId: item.schedaId,
+          ordineId: item.ordineId,
+          campionaturaId: item.campionaturaId,
+        });
+        if (!res.success) {
+          setError(res.error);
+          return;
+        }
+        setSchedaApertaId(res.schedaId);
+      });
+      return;
+    }
     if (!item.sourceId) return;
     if (item.kind === "webmail") {
       setVisualizza({ type: "mail", id: item.sourceId, title: item.title });
@@ -1512,6 +1549,15 @@ export function AziendaTimelineModal({
         <TimelineVisualizzaModal
           target={visualizza}
           onClose={() => setVisualizza(null)}
+        />
+      ) : null}
+
+      {schedaApertaId ? (
+        <SchedaOrdineModal
+          schedaId={schedaApertaId}
+          overlayClassName="z-[120]"
+          onClose={() => setSchedaApertaId(null)}
+          onChanged={() => void reload()}
         />
       ) : null}
 

@@ -1,15 +1,19 @@
 "use server";
 
-import { requireOrdineProcessAccess } from "@/lib/auth/ordini-access";
+import {
+  requireOrdineProcessAccess,
+  requireOrdineReadAccess,
+} from "@/lib/auth/ordini-access";
 import {
   backfillSchedeDaScaletta,
+  ensureSchedaOrdine,
   listSchedeByStato,
   loadSchedaDettaglio,
   loadSchedaSpedizione,
   trasferisciSchedeCompleteScadute,
 } from "@/lib/produzione/schede-ordini-store";
 import type { SchedaDettaglio, SchedaOrdine } from "@/lib/produzione/schede-ordini";
-import { createClient } from "@/lib/supabase/server";
+import { createClient, createServiceClient } from "@/lib/supabase/server";
 import { z } from "zod";
 
 export async function listSchedeOrdiniAction(
@@ -51,7 +55,7 @@ export async function getSchedaOrdineDettaglioAction(
   | { success: true; dettaglio: SchedaDettaglio }
   | { success: false; error: string }
 > {
-  await requireOrdineProcessAccess();
+  await requireOrdineReadAccess();
   if (!z.string().uuid().safeParse(schedaId).success) {
     return { success: false, error: "Scheda non valida." };
   }
@@ -60,4 +64,55 @@ export async function getSchedaOrdineDettaglioAction(
   if (!det) return { success: false, error: "Scheda non trovata." };
   const spedizione = await loadSchedaSpedizione(supabase, det.scheda);
   return { success: true, dettaglio: { ...det, spedizione } };
+}
+
+export async function openSchedaFromTimelineAction(input: {
+  schedaId?: string | null;
+  ordineId?: string | null;
+  campionaturaId?: string | null;
+}): Promise<{ success: true; schedaId: string } | { success: false; error: string }> {
+  const { auth } = await requireOrdineReadAccess();
+  if (input.schedaId && z.string().uuid().safeParse(input.schedaId).success) {
+    return { success: true, schedaId: input.schedaId };
+  }
+  const ordineId = input.ordineId || null;
+  const campionaturaId = input.campionaturaId || null;
+  if (!ordineId && !campionaturaId) {
+    return { success: false, error: "Scheda ordine non collegata." };
+  }
+  const service = createServiceClient();
+  let numero = "SO";
+  let cliente = "";
+  let prodotto = "";
+  if (ordineId) {
+    const { data } = await service
+      .from("ordini")
+      .select("numero_interno, cliente_ragione_sociale")
+      .eq("id", ordineId)
+      .is("deleted_at", null)
+      .maybeSingle();
+    if (!data) return { success: false, error: "Ordine non trovato." };
+    numero = String(data.numero_interno ?? "SO");
+    cliente = String(data.cliente_ragione_sociale ?? "");
+  } else if (campionaturaId) {
+    const { data } = await service
+      .from("campionature")
+      .select("numero_interno, cliente_ragione_sociale")
+      .eq("id", campionaturaId)
+      .is("deleted_at", null)
+      .maybeSingle();
+    if (!data) return { success: false, error: "Campionatura non trovata." };
+    numero = String(data.numero_interno ?? "SO");
+    cliente = String(data.cliente_ragione_sociale ?? "");
+  }
+  const scheda = await ensureSchedaOrdine(service, {
+    ordineId,
+    campionaturaId,
+    numero,
+    cliente,
+    prodotto,
+    userId: auth.userId,
+  });
+  if (!scheda) return { success: false, error: "Scheda ordine non creata." };
+  return { success: true, schedaId: scheda.id };
 }

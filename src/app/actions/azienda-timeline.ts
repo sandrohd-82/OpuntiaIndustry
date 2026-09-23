@@ -11,6 +11,15 @@ import {
 import { isUnrestrictedSuperadmin } from "@/lib/auth/roles";
 import { createClient, createServiceClient } from "@/lib/supabase/server";
 import type { AziendaTimelineItem } from "@/lib/amministrazione/azienda-timeline";
+import {
+  cicloStatoCampionatura,
+  cicloStatoOrdine,
+} from "@/lib/amministrazione/ciclo-stato-ordine";
+import {
+  isSchedaOrdineNotaTitolo,
+  SCHEDA_ORDINE_NOTA_TITOLO,
+} from "@/lib/amministrazione/scheda-timeline-nota";
+import type { CampionaturaStatoDb, OrdineStato } from "@/types/database";
 import { fraseConfermaPausaTimelineSync } from "@/lib/amministrazione/timeline-sync";
 import {
   upsertTimelinePnCopia,
@@ -312,17 +321,73 @@ export async function listAziendaTimelineAction(raw: unknown): Promise<
     const { data } = await service
       .from("pn_note")
       .select(
-        "id, titolo, body, body_rich, allegati, due_at, created_at, colore"
+        "id, titolo, body, body_rich, allegati, due_at, created_at, colore, linked_ordine_id, linked_campionatura_id, linked_scheda_id"
       )
       .eq("entity_type", aziendaTipo)
       .eq("entity_id", aziendaId)
       .is("deleted_at", null)
       .limit(200);
-    for (const r of data ?? []) {
+    const noteRows = data ?? [];
+
+    const ordineCol =
+      aziendaTipo === "cliente" ? "cliente_id" : "cliente_possibile_id";
+    const { data: ordineRows } =
+      aziendaTipo === "cliente" || aziendaTipo === "cliente_possibile"
+        ? await service
+            .from("ordini")
+            .select(
+              "id, numero_interno, data_ordine, created_at, stato, tipo"
+            )
+            .eq(ordineCol, aziendaId)
+            .is("deleted_at", null)
+            .limit(200)
+        : { data: [] };
+    const { data: campRows } =
+      aziendaTipo === "cliente" || aziendaTipo === "cliente_possibile"
+        ? await service
+            .from("campionature")
+            .select(
+              "id, numero_interno, data_invio, created_at, stato"
+            )
+            .eq(ordineCol, aziendaId)
+            .is("deleted_at", null)
+            .limit(200)
+        : { data: [] };
+
+    const ordineIds = (ordineRows ?? []).map((r) => String(r.id));
+    const campIds = (campRows ?? []).map((r) => String(r.id));
+    const schedaByOrdine = new Map<string, string>();
+    const schedaByCamp = new Map<string, string>();
+    if (ordineIds.length || campIds.length) {
+      let schedeQ = service
+        .from("produzione_schede_ordini")
+        .select("id, ordine_id, campionatura_id")
+        .is("deleted_at", null);
+      if (ordineIds.length && campIds.length) {
+        schedeQ = schedeQ.or(
+          `ordine_id.in.(${ordineIds.join(",")}),campionatura_id.in.(${campIds.join(",")})`
+        );
+      } else if (ordineIds.length) {
+        schedeQ = schedeQ.in("ordine_id", ordineIds);
+      } else {
+        schedeQ = schedeQ.in("campionatura_id", campIds);
+      }
+      const { data: schede } = await schedeQ;
+      for (const s of schede ?? []) {
+        if (s.ordine_id) schedaByOrdine.set(String(s.ordine_id), String(s.id));
+        if (s.campionatura_id) {
+          schedaByCamp.set(String(s.campionatura_id), String(s.id));
+        }
+      }
+    }
+
+    const coveredOrdine = new Set<string>();
+    const coveredCamp = new Set<string>();
+
+    for (const r of noteRows) {
       const createdAt = r.created_at as string | null;
       if (!createdAt) continue;
       const dueAt = (r.due_at as string | null) ?? null;
-      // Posizione = data evento (due_at), altrimenti inserimento. created_at resta audit.
       const occurredAt = dueAt || createdAt;
       const body = String(r.body ?? "");
       const bodyRich = String(r.body_rich ?? body);
@@ -335,11 +400,63 @@ export async function listAziendaTimelineAction(raw: unknown): Promise<
             storagePath?: string;
           }>)
         : [];
+      const linkedOrdine = r.linked_ordine_id
+        ? String(r.linked_ordine_id)
+        : "";
+      const linkedCamp = r.linked_campionatura_id
+        ? String(r.linked_campionatura_id)
+        : "";
+      const linkedScheda = r.linked_scheda_id
+        ? String(r.linked_scheda_id)
+        : "";
+      const titolo = String(r.titolo || "Nota").trim() || "Nota";
+      const isSchedaNota =
+        isSchedaOrdineNotaTitolo(titolo) || Boolean(linkedScheda);
+
+      if (isSchedaNota && (linkedOrdine || linkedCamp || linkedScheda)) {
+        const ord = (ordineRows ?? []).find((o) => String(o.id) === linkedOrdine);
+        const camp = (campRows ?? []).find((c) => String(c.id) === linkedCamp);
+        const fromCamp = Boolean(camp) && !ord;
+        const stato = String(ord?.stato ?? camp?.stato ?? "");
+        const statoLabel = fromCamp
+          ? cicloStatoCampionatura(stato as CampionaturaStatoDb).label
+          : cicloStatoOrdine(stato as OrdineStato).label;
+        const numero = String(
+          ord?.numero_interno ?? camp?.numero_interno ?? ""
+        ).trim();
+        const tipoCamp =
+          fromCamp || String(ord?.tipo ?? "") === "campionatura";
+        if (linkedOrdine) coveredOrdine.add(linkedOrdine);
+        if (linkedCamp) coveredCamp.add(linkedCamp);
+        pushSorted(items, {
+          id: `nota-scheda:${r.id}`,
+          kind: tipoCamp ? "campionatura" : "ordine",
+          occurredAt,
+          title: SCHEDA_ORDINE_NOTA_TITOLO,
+          subtitle: [numero, `Stato: ${statoLabel || "—"}`]
+            .filter(Boolean)
+            .join(" · "),
+          notaId: String(r.id),
+          notaBody: `${numero}\nStato: ${statoLabel || "—"}`.trim(),
+          notaBodyRich: bodyRich,
+          notaDueAt: dueAt,
+          notaCreatedAt: createdAt,
+          notaAllegati: allegati,
+          schedaId:
+            linkedScheda ||
+            (linkedOrdine ? schedaByOrdine.get(linkedOrdine) : undefined) ||
+            (linkedCamp ? schedaByCamp.get(linkedCamp) : undefined),
+          ordineId: linkedOrdine || undefined,
+          campionaturaId: linkedCamp || undefined,
+        });
+        continue;
+      }
+
       pushSorted(items, {
         id: `nota:${r.id}`,
         kind: "nota",
         occurredAt,
-        title: String(r.titolo || "Nota").trim() || "Nota",
+        title: titolo,
         subtitle: body.slice(0, 120),
         href: "/app/promemorie-e-note",
         notaId: String(r.id),
@@ -350,66 +467,47 @@ export async function listAziendaTimelineAction(raw: unknown): Promise<
         notaAllegati: allegati,
       });
     }
-  }
 
-  if (aziendaTipo === "cliente" || aziendaTipo === "cliente_possibile") {
-    const { data } = await service
-      .from("ordini")
-      .select("id, numero_interno, data_ordine, stato, importo_euro")
-      .eq(
-        aziendaTipo === "cliente" ? "cliente_id" : "cliente_possibile_id",
-        aziendaId
-      )
-      .is("deleted_at", null)
-      .order("data_ordine", { ascending: true })
-      .limit(200);
-    for (const r of data ?? []) {
-      const when = (r.data_ordine as string | null) ?? null;
+    for (const r of ordineRows ?? []) {
+      const id = String(r.id);
+      if (coveredOrdine.has(id)) continue;
+      const when =
+        (r.data_ordine as string | null) ||
+        (r.created_at as string | null);
       if (!when) continue;
       const day = when.length === 10 ? `${when}T12:00:00.000Z` : when;
+      const tipoCamp = String(r.tipo ?? "") === "campionatura";
+      const statoLabel = cicloStatoOrdine(String(r.stato) as OrdineStato).label;
       pushSorted(items, {
-        id: `ordine:${r.id}`,
-        kind: "ordine",
+        id: `ordine:${id}`,
+        kind: tipoCamp ? "campionatura" : "ordine",
         occurredAt: day,
-        title: `Ordine ${r.numero_interno ?? ""}`.trim(),
-        subtitle: `Stato: ${r.stato ?? "—"} · Totale: ${r.importo_euro ?? "—"}`,
-        href: "/app/amministrazione/ordini",
+        title: SCHEDA_ORDINE_NOTA_TITOLO,
+        subtitle: `${r.numero_interno ?? ""} · Stato: ${statoLabel}`.trim(),
+        schedaId: schedaByOrdine.get(id),
+        ordineId: id,
       });
     }
 
-    const { data: camp } = await service
-      .from("campionature")
-      .select(
-        "id, numero_interno, data_invio, stato, mezzo, origine, tracking_url, pn_nota_id"
-      )
-      .eq(
-        aziendaTipo === "cliente" ? "cliente_id" : "cliente_possibile_id",
-        aziendaId
-      )
-      .is("deleted_at", null)
-      .order("data_invio", { ascending: true })
-      .limit(200);
-    for (const r of camp ?? []) {
-      const when = (r.data_invio as string | null) ?? null;
+    for (const r of campRows ?? []) {
+      const id = String(r.id);
+      if (coveredCamp.has(id)) continue;
+      const when =
+        (r.created_at as string | null) ||
+        (r.data_invio as string | null);
       if (!when) continue;
       const day = when.length === 10 ? `${when}T12:00:00.000Z` : when;
+      const statoLabel = cicloStatoCampionatura(
+        String(r.stato) as CampionaturaStatoDb
+      ).label;
       pushSorted(items, {
-        id: `campionatura:${r.id}`,
+        id: `campionatura:${id}`,
         kind: "campionatura",
         occurredAt: day,
-        title: `Campionatura ${r.numero_interno ?? ""}`.trim(),
-        subtitle: [
-          `Stato: ${r.stato ?? "—"}`,
-          r.origine === "storico" ? "Storico" : null,
-          `Mezzo: ${r.mezzo ?? "—"}`,
-          r.tracking_url ? "Tracking" : null,
-        ]
-          .filter(Boolean)
-          .join(" · "),
-        href:
-          typeof r.tracking_url === "string" && r.tracking_url
-            ? String(r.tracking_url)
-            : "/app/amministrazione/ordini",
+        title: SCHEDA_ORDINE_NOTA_TITOLO,
+        subtitle: `${r.numero_interno ?? ""} · Stato: ${statoLabel}`.trim(),
+        schedaId: schedaByCamp.get(id),
+        campionaturaId: id,
       });
     }
   }

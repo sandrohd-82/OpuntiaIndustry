@@ -24,6 +24,10 @@ export type AziendaTimelineItem = {
   subtitle: string;
   /** Id sorgente (mail / fattura / ordine) per Visualizza. */
   sourceId?: string;
+  /** Click sulla nota/scheda apre la scheda ordine. */
+  schedaId?: string;
+  ordineId?: string;
+  campionaturaId?: string;
   href?: string | null;
   /** Solo kind=nota */
   notaId?: string;

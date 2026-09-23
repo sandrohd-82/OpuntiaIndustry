@@ -8,6 +8,7 @@ import {
   loadSchedaDettaglio,
 } from "@/lib/produzione/schede-ordini-store";
 import { createClient } from "@/lib/supabase/server";
+import { syncSchedaNotaByParent } from "@/lib/amministrazione/scheda-timeline-nota";
 import {
   checkShippingTrackingSchema,
   createShippingTrackingSchema,
@@ -349,6 +350,11 @@ async function runCheckInternal(input: {
           userId,
           fonte: "tracking",
           nota: note || "Stato consegnato dal tracking.",
+        });
+        await syncSchedaNotaByParent({
+          userId,
+          ordineId: tipo === "ordine" ? item.entityId : null,
+          campionaturaId: tipo === "campionatura" ? item.entityId : null,
         });
       }
     }
