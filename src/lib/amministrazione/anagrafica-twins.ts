@@ -7,6 +7,32 @@ export type AnagraficaTwinKey = {
 
 type ServiceDb = ReturnType<typeof createServiceClient>;
 
+async function addTwinsByRagioneSociale(
+  service: ServiceDb,
+  add: (tipo: AnagraficaTwinKey["tipo"], id: string) => void,
+  ragioneSociale: string
+): Promise<void> {
+  const nome = ragioneSociale.trim();
+  if (!nome) return;
+  const [{ data: clienti }, { data: leads }] = await Promise.all([
+    service
+      .from("clienti")
+      .select("id")
+      .ilike("ragione_sociale", nome)
+      .is("deleted_at", null),
+    service
+      .from("clienti_possibili")
+      .select("id, cliente_id")
+      .ilike("ragione_sociale", nome)
+      .is("deleted_at", null),
+  ]);
+  for (const row of clienti ?? []) add("cliente", String(row.id));
+  for (const row of leads ?? []) {
+    add("cliente_possibile", String(row.id));
+    if (row.cliente_id) add("cliente", String(row.cliente_id));
+  }
+}
+
 /**
  * Cliente e possibile cliente convertito sono la stessa azienda:
  * mail/note restano sul lead, campionature/ordini sul cliente.
@@ -19,6 +45,7 @@ export async function resolveAnagraficaTwins(
   keys: AnagraficaTwinKey[];
   clienteIds: string[];
   possibileIds: string[];
+  ragioneSociale: string;
 }> {
   const keys: AnagraficaTwinKey[] = [];
   const clienteIds: string[] = [];
@@ -34,7 +61,26 @@ export async function resolveAnagraficaTwins(
   };
 
   if (aziendaTipo === "fornitore") {
-    return { keys, clienteIds, possibileIds };
+    return { keys, clienteIds, possibileIds, ragioneSociale: "" };
+  }
+
+  let ragioneSociale = "";
+  let linkedClienteId = "";
+  if (aziendaTipo === "cliente") {
+    const { data: me } = await service
+      .from("clienti")
+      .select("ragione_sociale")
+      .eq("id", aziendaId)
+      .maybeSingle();
+    ragioneSociale = String(me?.ragione_sociale ?? "").trim();
+  } else {
+    const { data: me } = await service
+      .from("clienti_possibili")
+      .select("ragione_sociale, cliente_id")
+      .eq("id", aziendaId)
+      .maybeSingle();
+    ragioneSociale = String(me?.ragione_sociale ?? "").trim();
+    linkedClienteId = me?.cliente_id ? String(me.cliente_id) : "";
   }
 
   if (aziendaTipo === "cliente") {
@@ -45,16 +91,14 @@ export async function resolveAnagraficaTwins(
       .eq("cliente_id", aziendaId)
       .is("deleted_at", null);
     for (const row of data ?? []) add("cliente_possibile", String(row.id));
-    return { keys, clienteIds, possibileIds };
+    if (ragioneSociale) {
+      await addTwinsByRagioneSociale(service, add, ragioneSociale);
+    }
+    return { keys, clienteIds, possibileIds, ragioneSociale };
   }
 
   add("cliente_possibile", aziendaId);
-  const { data: lead } = await service
-    .from("clienti_possibili")
-    .select("cliente_id")
-    .eq("id", aziendaId)
-    .maybeSingle();
-  const clienteId = lead?.cliente_id ? String(lead.cliente_id) : "";
+  const clienteId = linkedClienteId;
   if (clienteId) {
     add("cliente", clienteId);
     const { data: siblings } = await service
@@ -66,8 +110,11 @@ export async function resolveAnagraficaTwins(
       add("cliente_possibile", String(row.id));
     }
   }
+  if (ragioneSociale) {
+    await addTwinsByRagioneSociale(service, add, ragioneSociale);
+  }
 
-  return { keys, clienteIds, possibileIds };
+  return { keys, clienteIds, possibileIds, ragioneSociale };
 }
 
 export function filterOrTipoId(

@@ -67,27 +67,50 @@ type CampionaturaTimelineRow = {
   stato: string | null;
 };
 
-async function queryByClienteTwins<T>(
+async function queryByClienteTwins<T extends { id?: string }>(
   service: ReturnType<typeof createServiceClient>,
   table: "ordini" | "campionature",
   columns: string,
   clienteIds: string[],
-  possibileIds: string[]
+  possibileIds: string[],
+  ragioneSociale = ""
 ): Promise<{ data: T[] }> {
-  let q = service.from(table).select(columns).is("deleted_at", null).limit(200);
-  if (clienteIds.length && possibileIds.length) {
-    q = q.or(
-      `cliente_id.in.(${clienteIds.join(",")}),cliente_possibile_id.in.(${possibileIds.join(",")})`
-    );
-  } else if (clienteIds.length) {
-    q = q.in("cliente_id", clienteIds);
-  } else if (possibileIds.length) {
-    q = q.in("cliente_possibile_id", possibileIds);
-  } else {
-    return { data: [] };
+  const byId = new Map<string, T>();
+  const addRows = (rows: T[] | null | undefined) => {
+    for (const row of rows ?? []) {
+      const id = String(row.id ?? "");
+      if (id) byId.set(id, row);
+    }
+  };
+  if (clienteIds.length) {
+    const { data } = await service
+      .from(table)
+      .select(columns)
+      .in("cliente_id", clienteIds)
+      .is("deleted_at", null)
+      .limit(200);
+    addRows(data as T[] | null);
   }
-  const { data } = await q;
-  return { data: (data ?? []) as T[] };
+  if (possibileIds.length) {
+    const { data } = await service
+      .from(table)
+      .select(columns)
+      .in("cliente_possibile_id", possibileIds)
+      .is("deleted_at", null)
+      .limit(200);
+    addRows(data as T[] | null);
+  }
+  const nome = ragioneSociale.trim();
+  if (nome) {
+    const { data } = await service
+      .from(table)
+      .select(columns)
+      .ilike("cliente_ragione_sociale", nome)
+      .is("deleted_at", null)
+      .limit(200);
+    addRows(data as T[] | null);
+  }
+  return { data: [...byId.values()] };
 }
 
 function normalizeEmail(raw: string): string {
@@ -402,17 +425,19 @@ export async function listAziendaTimelineAction(raw: unknown): Promise<
             "ordini",
             "id, numero_interno, data_ordine, created_at, stato, tipo",
             twins.clienteIds,
-            twins.possibileIds
+            twins.possibileIds,
+            twins.ragioneSociale
           )
         : { data: [] as OrdineTimelineRow[] };
     const { data: campRows } =
-      twins.clienteIds.length || twins.possibileIds.length
+      twins.clienteIds.length || twins.possibileIds.length || twins.ragioneSociale
         ? await queryByClienteTwins<CampionaturaTimelineRow>(
             service,
             "campionature",
             "id, numero_interno, data_invio, created_at, stato",
             twins.clienteIds,
-            twins.possibileIds
+            twins.possibileIds,
+            twins.ragioneSociale
           )
         : { data: [] as CampionaturaTimelineRow[] };
 

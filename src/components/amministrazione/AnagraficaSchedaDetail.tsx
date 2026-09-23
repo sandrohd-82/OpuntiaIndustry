@@ -2,7 +2,13 @@
 
 import { useEffect, useState, type ReactNode } from "react";
 import { loadAnagraficaExtraAction } from "@/app/actions/anagrafica-extra";
+import {
+  listAziendaSchedeCardAction,
+  openSchedaFromTimelineAction,
+  type AziendaSchedaCardItem,
+} from "@/app/actions/schede-ordini";
 import { listEntityReferentiAction } from "@/app/actions/rubrica";
+import { SchedaOrdineModal } from "@/components/produzione/SchedaOrdineModal";
 import { CanaleReadonlyActions } from "@/components/amministrazione/CanaleAttenzioneControls";
 import { ProdottoProprioProductTag } from "@/components/amministrazione/ProdottoProprioProductTag";
 import { TrattativaBadge } from "@/components/amministrazione/TrattativaSelectField";
@@ -94,6 +100,8 @@ export function AnagraficaSchedaDetail({
   const [referenti, setReferenti] = useState<RubricaContatto[]>([]);
   const [sediExtra, setSediExtra] = useState<AnagraficaSede[]>([]);
   const [brandExtra, setBrandExtra] = useState<AnagraficaBrand[]>([]);
+  const [schede, setSchede] = useState<AziendaSchedaCardItem[]>([]);
+  const [schedaApertaId, setSchedaApertaId] = useState<string | null>(null);
 
   useEffect(() => {
     void listEntityReferentiAction({
@@ -110,7 +118,22 @@ export function AnagraficaSchedaDetail({
       setSediExtra(res.sedi);
       setBrandExtra(res.brand);
     });
+    void listAziendaSchedeCardAction({
+      ownerKind: model.kind === "cliente" ? "cliente" : "cliente_possibile",
+      ownerId: model.id,
+    }).then((res) => {
+      if (res.success) setSchede(res.items);
+    });
   }, [model.id, model.kind]);
+
+  async function apriScheda(item: AziendaSchedaCardItem) {
+    const res = await openSchedaFromTimelineAction({
+      schedaId: item.schedaId,
+      ordineId: item.ordineId,
+      campionaturaId: item.campionaturaId,
+    });
+    if (res.success) setSchedaApertaId(res.schedaId);
+  }
 
   return (
     <div className="grid gap-4 sm:grid-cols-2">
@@ -202,6 +225,37 @@ export function AnagraficaSchedaDetail({
       {model.referente ? (
         <Field label="Referente (testo)" value={model.referente} />
       ) : null}
+
+      <div className="sm:col-span-2">
+        <p className="text-xs font-semibold uppercase tracking-wide text-[var(--muted)]">
+          Schede ordine / campionature
+        </p>
+        {schede.length === 0 ? (
+          <p className="mt-1 text-sm text-[var(--muted)]">Nessuna scheda</p>
+        ) : (
+          <ul className="mt-2 space-y-2">
+            {schede.map((item) => (
+              <li key={item.key}>
+                <button
+                  type="button"
+                  onClick={() => void apriScheda(item)}
+                  className="flex w-full flex-wrap items-center justify-between gap-2 rounded-lg border border-lime-200 bg-lime-50 px-3 py-2 text-left text-sm hover:bg-lime-100"
+                >
+                  <span>
+                    <span className="font-semibold">
+                      {item.kind === "campionatura" ? "Campionatura" : "Ordine"}
+                    </span>
+                    {` ${item.numero}`}
+                  </span>
+                  <span className="text-xs font-medium text-lime-900">
+                    Stato: {item.statoLabel}
+                  </span>
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
 
       {sediExtra.length > 0 ? (
         ensurePrimaryLegale(sediExtra).map((sede) => (
@@ -355,6 +409,14 @@ export function AnagraficaSchedaDetail({
           </p>
           <p className="mt-1 whitespace-pre-wrap text-sm">{model.noteInterne}</p>
         </div>
+      ) : null}
+
+      {schedaApertaId ? (
+        <SchedaOrdineModal
+          schedaId={schedaApertaId}
+          overlayClassName="z-[120]"
+          onClose={() => setSchedaApertaId(null)}
+        />
       ) : null}
     </div>
   );
