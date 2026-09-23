@@ -56,6 +56,7 @@ import {
   sendBozzaSchema,
   setWebmailImportedSeenSchema,
   WEBMAIL_PAGE_SIZE,
+  WEBMAIL_IMPORT_PARZIALE_PREFIX,
   WEBMAIL_SENT_FOLDER,
   WEBMAIL_SORT_DIRS,
   WEBMAIL_SORT_KEYS,
@@ -4631,5 +4632,125 @@ export async function reloadWebmailMessaggioBodyAction(
     success: true,
     messaggio: mapMessaggio(refreshed as Record<string, unknown>),
     allegatiSaved: reload.allegatiSaved,
+  };
+}
+
+const RIPARA_PARZIALI_BATCH = 8;
+
+export async function countWebmailImportParzialiAction(): Promise<
+  { success: true; totale: number } | { success: false; error: string }
+> {
+  const { auth } = await requireWebmailAccess();
+  const vis = await resolveWebmailAccountVisibility(auth);
+  const service = createServiceClient();
+  let q = service
+    .from("webmail_messaggi")
+    .select("id", { count: "exact", head: true })
+    .is("deleted_at", null)
+    .ilike("body_text", `${WEBMAIL_IMPORT_PARZIALE_PREFIX}%`);
+  if (vis.mode === "granted") {
+    if (!vis.ids.length) return { success: true, totale: 0 };
+    q = q.in("account_id", vis.ids);
+  }
+  const { count, error } = await q;
+  if (error) return { success: false, error: error.message };
+  return { success: true, totale: count ?? 0 };
+}
+
+export async function riparaWebmailImportParzialiAction(): Promise<
+  | {
+      success: true;
+      riparate: number;
+      rimanenti: number;
+      errori: string[];
+    }
+  | { success: false; error: string }
+> {
+  const { auth } = await requireWebmailAccess();
+  const vis = await resolveWebmailAccountVisibility(auth);
+  const service = createServiceClient();
+  let q = service
+    .from("webmail_messaggi")
+    .select("id, account_id, subject, message_uid, folder, body_text")
+    .is("deleted_at", null)
+    .ilike("body_text", `${WEBMAIL_IMPORT_PARZIALE_PREFIX}%`)
+    .order("received_at", { ascending: false })
+    .limit(RIPARA_PARZIALI_BATCH);
+  if (vis.mode === "granted") {
+    if (!vis.ids.length) {
+      return { success: true, riparate: 0, rimanenti: 0, errori: [] };
+    }
+    q = q.in("account_id", vis.ids);
+  }
+  const { data, error } = await q;
+  if (error) return { success: false, error: error.message };
+  const rows = data ?? [];
+  const accountIds = [...new Set(rows.map((r) => String(r.account_id)))];
+  const { data: accRows } = accountIds.length
+    ? await service
+        .from("webmail_accounts")
+        .select(
+          "id, email_address, provider, imap_host, imap_port, imap_secure, smtp_host, smtp_port, smtp_secure, username, password_encrypted"
+        )
+        .in("id", accountIds)
+        .is("deleted_at", null)
+    : { data: [] };
+  const accById = new Map(
+    (accRows ?? []).map((a) => [String(a.id), a as AccountRow])
+  );
+
+  let riparate = 0;
+  const errori: string[] = [];
+  for (const row of rows) {
+    const account = accById.get(String(row.account_id));
+    const codice = String(row.subject || row.id).slice(0, 80);
+    if (!account) {
+      errori.push(`${codice}: casella non trovata`);
+      continue;
+    }
+    if (
+      !String(row.body_text ?? "")
+        .trimStart()
+        .startsWith(WEBMAIL_IMPORT_PARZIALE_PREFIX)
+    ) {
+      continue;
+    }
+    const reload = await reloadMessaggioBodyAndAttachments({
+      supabase: service,
+      account,
+      messaggioId: String(row.id),
+      folder: String(row.folder || "INBOX"),
+      messageUid: String(row.message_uid || ""),
+      userId: auth.userId,
+    });
+    if (!reload.success) {
+      errori.push(`${codice}: ${reload.error}`);
+      continue;
+    }
+    riparate += 1;
+    await writeAuditLog({
+      entity_type: "webmail_messaggi",
+      entity_id: String(row.id),
+      action: "update",
+      actor_id: auth.userId,
+      summary: `Riparato import parziale «${codice}»`,
+      payload: { allegati_saved: reload.allegatiSaved },
+    });
+  }
+
+  let remainQ = service
+    .from("webmail_messaggi")
+    .select("id", { count: "exact", head: true })
+    .is("deleted_at", null)
+    .ilike("body_text", `${WEBMAIL_IMPORT_PARZIALE_PREFIX}%`);
+  if (vis.mode === "granted") remainQ = remainQ.in("account_id", vis.ids);
+  const { count } = await remainQ;
+
+  revalidatePath("/app/webmail");
+  return {
+    success: true,
+    riparate,
+    rimanenti: count ?? 0,
+    errori,
   };
 }

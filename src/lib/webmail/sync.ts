@@ -1,11 +1,14 @@
 import { ImapFlow } from "imapflow";
-import { simpleParser } from "mailparser";
+import { simpleParser, type Attachment } from "mailparser";
 import nodemailer from "nodemailer";
 import {
   matchWebmailAnagrafica,
   matchWebmailAnagraficaRecipients,
 } from "@/lib/webmail/anagrafica-link";
-import { WEBMAIL_SENT_FOLDER } from "@/lib/webmail/types";
+import {
+  WEBMAIL_IMPORT_PARZIALE_PREFIX,
+  WEBMAIL_SENT_FOLDER,
+} from "@/lib/webmail/types";
 import { persistMessaggioAttachments } from "@/lib/webmail/attachments";
 import { normalizeBlacklistEmail } from "@/lib/webmail/blacklist";
 import { applyLearningOnImport } from "@/lib/webmail/category-learn-db";
@@ -145,7 +148,10 @@ export const WEBMAIL_SYNC_SAFE_BATCH = 40;
 export const WEBMAIL_SYNC_SENT_BATCH = 6;
 const WEBMAIL_SYNC_TIME_BUDGET_MS = 8_000;
 const WEBMAIL_DOWNLOAD_TIMEOUT_MS = 8_000;
+/** Oltre questa soglia non si scarica il MIME intero (timeout / memoria). */
 const WEBMAIL_IMPORT_MAX_BYTES = 2_000_000;
+const WEBMAIL_PART_TIMEOUT_MS = 22_000;
+const WEBMAIL_PART_ATTACH_MAX = 20 * 1024 * 1024;
 
 /** Finestra UID recenti + attesa IDLE per «Mantieni sincronizzato». */
 export const WEBMAIL_LIVE_UID_WINDOW = 40;
@@ -476,6 +482,173 @@ async function withTimeout<T>(
   }
 }
 
+type ImapLeafPart = {
+  part: string;
+  type: string;
+  subtype: string;
+  size: number;
+  disposition: string;
+  filename: string;
+  contentId: string;
+};
+
+function flattenImapStructure(
+  node: unknown,
+  fallbackPart = "1"
+): ImapLeafPart[] {
+  if (!node || typeof node !== "object") return [];
+  const n = node as Record<string, unknown>;
+  const children = Array.isArray(n.childNodes) ? n.childNodes : [];
+  const type = String(n.type ?? "").toLowerCase();
+  const subtype = String(n.subtype ?? "").toLowerCase();
+  const part = String(n.part ?? fallbackPart);
+  const dispRaw = n.disposition;
+  const disposition =
+    typeof dispRaw === "string"
+      ? dispRaw.toLowerCase()
+      : String(
+          (dispRaw && typeof dispRaw === "object"
+            ? (dispRaw as { type?: string }).type
+            : "") ?? ""
+        ).toLowerCase();
+  const params = {
+    ...((n.parameters as Record<string, string> | undefined) ?? {}),
+    ...((n.dispositionParameters as Record<string, string> | undefined) ?? {}),
+  };
+  const filename = String(params.filename ?? params.name ?? "").trim();
+  const contentId = String(n.id ?? "")
+    .replace(/[<>]/g, "")
+    .trim();
+  const size = Number(n.size ?? 0);
+  if (children.length > 0 || type === "multipart") {
+    return children.flatMap((child, i) =>
+      flattenImapStructure(child, part ? `${part}.${i + 1}` : String(i + 1))
+    );
+  }
+  return [
+    {
+      part,
+      type,
+      subtype,
+      size: Number.isFinite(size) ? size : 0,
+      disposition,
+      filename,
+      contentId,
+    },
+  ];
+}
+
+async function readableToBuffer(content: unknown): Promise<Buffer> {
+  if (Buffer.isBuffer(content)) return content;
+  if (typeof content === "string") return Buffer.from(content);
+  if (
+    content &&
+    typeof content === "object" &&
+    Symbol.asyncIterator in (content as object)
+  ) {
+    const chunks: Buffer[] = [];
+    for await (const chunk of content as AsyncIterable<Buffer | string>) {
+      chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+    }
+    return Buffer.concat(chunks);
+  }
+  return Buffer.alloc(0);
+}
+
+async function downloadImapPartBuffer(
+  client: ImapFlow,
+  uid: number,
+  part: string,
+  timeoutMs: number
+): Promise<Buffer> {
+  const downloaded = await withTimeout(
+    client.download(uid, part, { uid: true }),
+    timeoutMs,
+    `part ${part} UID ${uid}`
+  );
+  return readableToBuffer(
+    downloaded && typeof downloaded === "object"
+      ? (downloaded as { content?: unknown }).content
+      : downloaded
+  );
+}
+
+async function downloadMessageByParts(
+  client: ImapFlow,
+  uid: number,
+  options?: { skipAttachments?: boolean; timeoutMs?: number }
+): Promise<{
+  bodyHtml: string;
+  bodyText: string;
+  attachments: Attachment[];
+} | null> {
+  const timeoutMs = options?.timeoutMs ?? WEBMAIL_PART_TIMEOUT_MS;
+  const meta = await withTimeout(
+    client.fetchOne(uid, { bodyStructure: true }, { uid: true }),
+    8_000,
+    `structure UID ${uid}`
+  );
+  const structure =
+    meta && typeof meta === "object" && "bodyStructure" in meta
+      ? (meta as { bodyStructure?: unknown }).bodyStructure
+      : null;
+  const parts = flattenImapStructure(structure);
+  if (!parts.length) return null;
+
+  let bodyHtml = "";
+  let bodyText = "";
+  const attachments: Attachment[] = [];
+
+  const textParts = parts.filter(
+    (p) =>
+      p.type === "text" &&
+      (p.subtype === "html" || p.subtype === "plain") &&
+      p.disposition !== "attachment"
+  );
+  const otherParts = parts.filter((p) => !textParts.includes(p));
+
+  for (const p of textParts) {
+    try {
+      const buf = await downloadImapPartBuffer(client, uid, p.part, timeoutMs);
+      if (!buf.length) continue;
+      const text = buf.toString("utf8");
+      if (p.subtype === "html") bodyHtml = text;
+      else if (!bodyText) bodyText = text;
+    } catch {
+      /* parte testo non disponibile */
+    }
+  }
+
+  if (!options?.skipAttachments) {
+    for (const p of otherParts) {
+      if (p.size > WEBMAIL_PART_ATTACH_MAX) continue;
+      try {
+        const buf = await downloadImapPartBuffer(client, uid, p.part, timeoutMs);
+        if (!buf.length || buf.length > WEBMAIL_PART_ATTACH_MAX) continue;
+        const mime = `${p.type || "application"}/${p.subtype || "octet-stream"}`;
+        attachments.push({
+          filename: p.filename || `parte-${p.part}`,
+          contentType: mime,
+          content: buf,
+          contentId: p.contentId || undefined,
+          cid: p.contentId || undefined,
+          contentDisposition: p.disposition || "attachment",
+        } as Attachment);
+      } catch {
+        /* allegato singolo saltato */
+      }
+    }
+  }
+
+  if (!bodyText && bodyHtml) bodyText = extractPlainFromHtml(bodyHtml);
+  if (!bodyHtml && !bodyText && attachments.length === 0) return null;
+  return {
+    bodyHtml: bodyHtml.slice(0, 200_000),
+    bodyText: bodyText.slice(0, 500_000),
+    attachments,
+  };
+}
+
 async function insertPartialImport(
   supabase: Service,
   account: AccountRow,
@@ -506,7 +679,7 @@ async function insertPartialImport(
       to_addresses: input.toAddresses,
       cc_addresses: [],
       subject: input.subject || "(import parziale)",
-      body_text: `Import parziale: ${input.reason}`,
+      body_text: `${WEBMAIL_IMPORT_PARZIALE_PREFIX} ${input.reason}`,
       body_html: "",
       received_at: input.sentAt,
       sent_at: input.sentAt,
@@ -544,14 +717,15 @@ async function importInboxUidList(
   for (const uidStr of list) {
     if (Date.now() - startedAt > budgetMs) break;
     const uid = Number(uidStr);
-    let downloaded;
+    let downloaded: { content?: unknown } | undefined;
+    let partsHit: Awaited<ReturnType<typeof downloadMessageByParts>> = null;
+    let envelopeSubject = "";
+    let envelopeFrom = "";
+    let envelopeFromName = "";
+    let envelopeTo: string[] = [];
+    let envelopeDate = new Date().toISOString();
     try {
       let size = 0;
-      let envelopeSubject = "";
-      let envelopeFrom = "";
-      let envelopeFromName = "";
-      let envelopeTo: string[] = [];
-      let envelopeDate = new Date().toISOString();
       try {
         const meta = await withTimeout(
           client.fetchOne(
@@ -595,31 +769,52 @@ async function importInboxUidList(
       }
 
       if (size > WEBMAIL_IMPORT_MAX_BYTES) {
-        const stubId = await insertPartialImport(supabase, account, {
-          uidStr,
-          folder: options?.folder || "INBOX",
-          asSent: Boolean(options?.asSent),
-          asSpam: Boolean(options?.asSpam),
-          subject: envelopeSubject,
-          fromAddr: envelopeFrom,
-          fromName: envelopeFromName,
-          toAddresses: envelopeTo,
-          sentAt: envelopeDate,
-          reason: `messaggio da ${Math.round(size / 1024)} KB non scaricato per intero (limite sync).`,
-        });
-        if (stubId) {
-          imported += 1;
-          importedIds.push(stubId);
+        const remaining = budgetMs - (Date.now() - startedAt);
+        let byParts: Awaited<ReturnType<typeof downloadMessageByParts>> = null;
+        try {
+          byParts = await downloadMessageByParts(client, uid, {
+            skipAttachments: remaining < 12_000,
+            timeoutMs: Math.min(
+              WEBMAIL_PART_TIMEOUT_MS,
+              Math.max(6_000, remaining - 400)
+            ),
+          });
+        } catch (partErr) {
+          console.error(
+            "[webmail sync parts]",
+            uidStr,
+            partErr instanceof Error ? partErr.message : partErr
+          );
         }
-        processed += 1;
-        continue;
+        if (byParts && (byParts.bodyText || byParts.bodyHtml)) {
+          partsHit = byParts;
+        } else {
+          const stubId = await insertPartialImport(supabase, account, {
+            uidStr,
+            folder: options?.folder || "INBOX",
+            asSent: Boolean(options?.asSent),
+            asSpam: Boolean(options?.asSpam),
+            subject: envelopeSubject,
+            fromAddr: envelopeFrom,
+            fromName: envelopeFromName,
+            toAddresses: envelopeTo,
+            sentAt: envelopeDate,
+            reason: `messaggio da ${Math.round(size / 1024)} KB non scaricato per intero (limite sync).`,
+          });
+          if (stubId) {
+            imported += 1;
+            importedIds.push(stubId);
+          }
+          processed += 1;
+          continue;
+        }
+      } else {
+        downloaded = await withTimeout(
+          client.download(uid, undefined, { uid: true }),
+          WEBMAIL_DOWNLOAD_TIMEOUT_MS,
+          `download UID ${uidStr}`
+        );
       }
-
-      downloaded = await withTimeout(
-        client.download(uid, undefined, { uid: true }),
-        WEBMAIL_DOWNLOAD_TIMEOUT_MS,
-        `download UID ${uidStr}`
-      );
     } catch (dlErr) {
       console.error(
         "[webmail sync download]",
@@ -632,8 +827,24 @@ async function importInboxUidList(
     }
 
     try {
+    let fromAddr = envelopeFrom;
+    let fromName = envelopeFromName;
+    let toAddresses = envelopeTo;
+    let ccAddresses: string[] = [];
+    let subject = envelopeSubject || "(senza oggetto)";
+    let bodyText = "";
+    let bodyHtml = "";
+    let receivedAt = envelopeDate;
+    let messageIdHeader = "";
+    let parsedAttachments: Attachment[] | undefined;
+
+    if (partsHit) {
+      bodyText = partsHit.bodyText;
+      bodyHtml = partsHit.bodyHtml;
+      parsedAttachments = partsHit.attachments;
+    } else {
     const parsed = await withTimeout(
-      simpleParser(downloaded.content),
+      simpleParser(downloaded?.content as Parameters<typeof simpleParser>[0]),
       WEBMAIL_DOWNLOAD_TIMEOUT_MS,
       `parse UID ${uidStr}`
     );
@@ -641,31 +852,34 @@ async function importInboxUidList(
       ? parsed.from[0]
       : parsed.from;
     const toObj = Array.isArray(parsed.to) ? parsed.to[0] : parsed.to;
-    const fromAddr =
-      fromObj?.value?.[0]?.address?.trim() || fromObj?.text || "";
+    fromAddr =
+      fromObj?.value?.[0]?.address?.trim() || fromObj?.text || envelopeFrom;
+    fromName = fromObj?.value?.[0]?.name?.trim() || envelopeFromName;
+    toAddresses = (toObj?.value ?? [])
+      .map((v: { address?: string }) => v.address || "")
+      .filter(Boolean);
+    if (!toAddresses.length) toAddresses = envelopeTo;
+    const ccObj = Array.isArray(parsed.cc) ? parsed.cc[0] : parsed.cc;
+    ccAddresses = (ccObj?.value ?? [])
+      .map((v: { address?: string }) => v.address || "")
+      .filter(Boolean);
+    subject = parsed.subject?.trim() || envelopeSubject || "(senza oggetto)";
+    bodyText = (
+      parsed.text?.trim() ||
+      (parsed.html ? extractPlainFromHtml(String(parsed.html)) : "")
+    ).slice(0, 500_000);
+    const rawHtml = typeof parsed.html === "string" ? parsed.html : "";
+    bodyHtml = rawHtml.length > 200_000 ? rawHtml.slice(0, 200_000) : rawHtml;
+    receivedAt = parsed.date?.toISOString() || envelopeDate;
+    messageIdHeader =
+      typeof parsed.messageId === "string" ? parsed.messageId.trim() : "";
+    parsedAttachments = parsed.attachments;
+    }
     const fromNorm = normalizeBlacklistEmail(fromAddr);
     if (!options?.asSent && fromNorm && blacklist.has(fromNorm)) {
       processed += 1;
       continue;
     }
-    const fromName = fromObj?.value?.[0]?.name?.trim() || "";
-    const toAddresses = (toObj?.value ?? [])
-      .map((v: { address?: string }) => v.address || "")
-      .filter(Boolean);
-    const ccObj = Array.isArray(parsed.cc) ? parsed.cc[0] : parsed.cc;
-    const ccAddresses = (ccObj?.value ?? [])
-      .map((v: { address?: string }) => v.address || "")
-      .filter(Boolean);
-    const subject = parsed.subject?.trim() || "(senza oggetto)";
-    const bodyText = (
-      parsed.text?.trim() ||
-      (parsed.html ? extractPlainFromHtml(String(parsed.html)) : "")
-    ).slice(0, 500_000);
-    const rawHtml = typeof parsed.html === "string" ? parsed.html : "";
-    const bodyHtml =
-      rawHtml.length > 200_000 ? rawHtml.slice(0, 200_000) : rawHtml;
-    const receivedAt =
-      parsed.date?.toISOString() || new Date().toISOString();
 
     const anagrafica = options?.asSent
       ? await matchWebmailAnagraficaRecipients(
@@ -693,8 +907,6 @@ async function importInboxUidList(
           fromAddress: fromAddr,
         });
 
-    const messageIdHeader =
-      typeof parsed.messageId === "string" ? parsed.messageId.trim() : "";
     if (options?.asSent) {
       if (
         await sentAlreadyImported(supabase, account.id, {
@@ -777,7 +989,7 @@ async function importInboxUidList(
         supabase,
         messaggioId: String(inserted.id),
         accountId: account.id,
-        attachments: parsed.attachments,
+        attachments: parsedAttachments,
       });
       attSaved = attRes.saved;
       if (attRes.errors.length) {
@@ -2313,15 +2525,63 @@ export async function reloadMessaggioBodyAndAttachments(input: {
     const folder = input.folder || "INBOX";
     const lock = await client.getMailboxLock(folder);
     try {
-      const downloaded = await client.download(uidNum, undefined, { uid: true });
-      const parsed = await simpleParser(downloaded.content);
-      const rawHtml = typeof parsed.html === "string" ? parsed.html : "";
-      const bodyHtml =
-        rawHtml.length > 200_000 ? rawHtml.slice(0, 200_000) : rawHtml;
-      const bodyText = (
-        parsed.text?.trim() ||
-        (rawHtml ? extractPlainFromHtml(rawHtml) : "")
-      ).slice(0, 500_000);
+      let size = 0;
+      try {
+        const meta = await withTimeout(
+          client.fetchOne(uidNum, { size: true }, { uid: true }),
+          6_000,
+          `reload size UID ${input.messageUid}`
+        );
+        size = Number(
+          meta && typeof meta === "object" && "size" in meta
+            ? (meta as { size?: number }).size ?? 0
+            : 0
+        );
+      } catch {
+        /* si prova comunque */
+      }
+
+      let bodyHtml = "";
+      let bodyText = "";
+      let attachments: Attachment[] | undefined;
+
+      const preferParts = size > WEBMAIL_IMPORT_MAX_BYTES;
+      if (preferParts) {
+        const byParts = await downloadMessageByParts(client, uidNum, {
+          skipAttachments: false,
+          timeoutMs: WEBMAIL_PART_TIMEOUT_MS,
+        });
+        if (byParts) {
+          bodyHtml = byParts.bodyHtml;
+          bodyText = byParts.bodyText;
+          attachments = byParts.attachments;
+        }
+      }
+
+      if (!bodyHtml && !bodyText) {
+        const downloaded = await withTimeout(
+          client.download(uidNum, undefined, { uid: true }),
+          preferParts ? 45_000 : WEBMAIL_DOWNLOAD_TIMEOUT_MS,
+          `reload UID ${input.messageUid}`
+        );
+        const parsed = await simpleParser(downloaded.content);
+        const rawHtml = typeof parsed.html === "string" ? parsed.html : "";
+        bodyHtml =
+          rawHtml.length > 200_000 ? rawHtml.slice(0, 200_000) : rawHtml;
+        bodyText = (
+          parsed.text?.trim() ||
+          (rawHtml ? extractPlainFromHtml(rawHtml) : "")
+        ).slice(0, 500_000);
+        attachments = parsed.attachments;
+      }
+
+      if (!bodyHtml && !bodyText) {
+        return {
+          success: false,
+          error:
+            "Il server non ha restituito il corpo. Riprova: la mail è molto grande.",
+        };
+      }
 
       const { error: upErr } = await input.supabase
         .from("webmail_messaggi")
@@ -2338,7 +2598,7 @@ export async function reloadMessaggioBodyAndAttachments(input: {
         supabase: input.supabase,
         messaggioId: input.messaggioId,
         accountId: input.account.id,
-        attachments: parsed.attachments,
+        attachments,
         userId: input.userId,
       });
 

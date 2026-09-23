@@ -140,6 +140,16 @@ export type WebmailAccountPublic = {
   ownerUserId: string | null;
 };
 
+export const WEBMAIL_IMPORT_PARZIALE_PREFIX = "Import parziale:";
+
+export function isWebmailImportParziale(
+  bodyText: string | null | undefined
+): boolean {
+  return String(bodyText ?? "")
+    .trimStart()
+    .startsWith(WEBMAIL_IMPORT_PARZIALE_PREFIX);
+}
+
 export type WebmailMessaggio = {
   id: string;
   accountId: string;

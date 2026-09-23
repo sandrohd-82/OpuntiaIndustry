@@ -12,6 +12,8 @@ type Props = {
   params: Promise<{ section: string }>;
 };
 
+export const maxDuration = 300;
+
 export default async function WebmailSectionPage({ params }: Props) {
   await requireWebmailAccess();
 

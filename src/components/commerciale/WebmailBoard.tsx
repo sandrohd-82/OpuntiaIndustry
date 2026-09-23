@@ -38,6 +38,8 @@ import {
   updateWebmailBozzaAction,
   reloadWebmailMessaggioBodyAction,
   getWebmailMessaggioTextAction,
+  countWebmailImportParzialiAction,
+  riparaWebmailImportParzialiAction,
   type WebmailMessaggioAllegatoPublic,
 } from "@/app/actions/webmail";
 import { WebmailBulkDeleteModal } from "@/components/webmail/WebmailBulkDeleteModal";
@@ -72,6 +74,7 @@ import {
   type WebmailCategoria,
   type WebmailMailboxView,
   type WebmailMessaggio,
+  isWebmailImportParziale,
 } from "@/lib/webmail/types";
 import { WEBMAIL_TRANSLATE_LANGS } from "@/lib/webmail/translate-langs";
 import { notifyWebmailUnreadNav } from "@/lib/webmail/unread-nav";
@@ -124,7 +127,9 @@ const MAIL_INFO = {
   toggleTraduzione: "Alterna tra il testo originale e la traduzione.",
   soloTesto: "Mostra il corpo come testo semplice oppure come HTML formattato.",
   ricarica:
-    "Riscarica dal server della casella il corpo HTML e gli allegati di questa mail.",
+    "Riscarica dal server della casella il corpo HTML e gli allegati di questa mail. Serve per le mail grandi importate solo in intestazione (limite sync).",
+  riparaParziali:
+    "Riprende dal server IMAP le mail importate solo in parte (più di 2 MB). Ne ripara poche per volta: ripeti finché il numero arriva a 0.",
   chiudiPannello:
     "Chiude il pannello di destra e riporta la mail a tutta larghezza.",
   apriAllegato: "Apre o scarica l’allegato in una nuova scheda.",
@@ -233,6 +238,7 @@ export function WebmailBoard({
   const [replyTo, setReplyTo] = useState("");
   const [replySubject, setReplySubject] = useState("");
   const [replyBody, setReplyBody] = useState("");
+  const [parzialiCount, setParzialiCount] = useState(0);
   const [liveKeep, setLiveKeep] = useState(false);
   const [liveStatus, setLiveStatus] = useState<{
     at: Date | null;
@@ -318,14 +324,16 @@ export function WebmailBoard({
   }
 
   const reloadMeta = useCallback(async () => {
-    const [a, c] = await Promise.all([
+    const [a, c, p] = await Promise.all([
       listWebmailAccountsAction(),
       listWebmailCategorieAction(),
+      countWebmailImportParzialiAction(),
     ]);
     if (a.success) setAccounts(a.accounts);
     else setError(a.error);
     if (c.success) setCategorie(c.items);
     else setError(c.error);
+    if (p.success) setParzialiCount(p.totale);
   }, []);
 
   const reload = useCallback(async () => {
@@ -968,6 +976,51 @@ export function WebmailBoard({
               Sincronizza
             </button>
           ) : null}
+          {parzialiCount > 0 ? (
+            <WithInfoNuvola info={MAIL_INFO.riparaParziali}>
+              <button
+                type="button"
+                disabled={pending}
+                onClick={() => {
+                  startTransition(async () => {
+                    let left = parzialiCount;
+                    let total = 0;
+                    let loops = 0;
+                    const errori: string[] = [];
+                    while (left > 0 && loops < 15) {
+                      loops += 1;
+                      const res = await riparaWebmailImportParzialiAction();
+                      if (!res.success) {
+                        setError(res.error);
+                        break;
+                      }
+                      total += res.riparate;
+                      left = res.rimanenti;
+                      setParzialiCount(left);
+                      setInfo(
+                        `Riparate ${total} mail. ${
+                          left === 0
+                            ? "Tutte le mail parziali sono state ricaricate."
+                            : loops >= 15
+                              ? `Ne restano ${left}: clicca di nuovo per continuare.`
+                              : `Ne restano ${left}…`
+                        }`
+                      );
+                      errori.push(...res.errori);
+                      if (res.riparate === 0) break;
+                    }
+                    if (errori.length) {
+                      setError(errori.slice(0, 4).join(" · "));
+                    }
+                    await reload();
+                  });
+                }}
+                className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-sm font-medium text-amber-950 hover:bg-amber-100 disabled:opacity-50"
+              >
+                Ripara mail grandi ({parzialiCount})
+              </button>
+            </WithInfoNuvola>
+          ) : null}
           <WithInfoNuvola info={MAIL_INFO.live}>
             <button
               type="button"
@@ -1395,6 +1448,11 @@ export function WebmailBoard({
                               new
                             </span>
                           ) : null}
+                          {isWebmailImportParziale(m.bodyText) ? (
+                            <span className="rounded-full bg-amber-200 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-amber-950">
+                              Parziale
+                            </span>
+                          ) : null}
                           {m.hasAiDraft ? (
                             <span className="rounded-full bg-violet-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-violet-800">
                               Bozza AI
@@ -1457,6 +1515,42 @@ export function WebmailBoard({
                 <p className="mt-2 font-semibold text-slate-900">
                   {selected.subject}
                 </p>
+                {isWebmailImportParziale(selected.bodyText) ? (
+                  <div className="mt-3 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-950">
+                    <p>
+                      Import parziale: la mail è più grande di 2 MB e all’import
+                      è stata salvata solo l’intestazione (tipico con molti
+                      allegati, es. Deltha Pharma). Il testo e i file sono
+                      ancora sul server della casella.
+                    </p>
+                    <button
+                      type="button"
+                      disabled={pending}
+                      className="mt-2 rounded-md bg-amber-800 px-2.5 py-1 text-xs font-medium text-white disabled:opacity-50"
+                      onClick={() => {
+                        startTransition(async () => {
+                          const res =
+                            await reloadWebmailMessaggioBodyAction(
+                              selected.id
+                            );
+                          if (!res.success) {
+                            setError(res.error);
+                            return;
+                          }
+                          patchMessaggio(res.messaggio);
+                          setHtmlReloadToken((t) => t + 1);
+                          setShowPlainText(false);
+                          setParzialiCount((n) => Math.max(0, n - 1));
+                          setInfo(
+                            `Corpo e allegati ricaricati (${res.allegatiSaved} file).`
+                          );
+                        });
+                      }}
+                    >
+                      Ricarica dal server IMAP
+                    </button>
+                  </div>
+                ) : null}
                 <div className="mt-0.5">
                   <div className="flex items-center gap-1.5 text-xs text-[var(--muted)]">
                     <span className="min-w-0 truncate">

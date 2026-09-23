@@ -10,6 +10,8 @@ type Props = {
   params: Promise<{ accountId: string }>;
 };
 
+export const maxDuration = 300;
+
 export default async function WebmailCasellaLayout({ children, params }: Props) {
   const { auth } = await requireWebmailAccess();
   const { accountId } = await params;

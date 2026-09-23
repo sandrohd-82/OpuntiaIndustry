@@ -2,6 +2,8 @@ import { WebmailBoard } from "@/components/commerciale/WebmailBoard";
 import { AppHeader } from "@/components/layout/AppHeader";
 import { requireWebmailAccess } from "@/lib/areas/guard";
 
+export const maxDuration = 300;
+
 export default async function WebmailCasellePage() {
   await requireWebmailAccess();
 
