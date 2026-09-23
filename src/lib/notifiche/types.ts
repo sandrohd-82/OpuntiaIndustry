@@ -47,3 +47,35 @@ export const createNotificaSchema = z.object({
 });
 
 export type CreateNotificaInput = z.infer<typeof createNotificaSchema>;
+
+/** Solo path interni /app/… — fallback per tipo se href assente o non valido. */
+export function hrefAreaNotifica(n: {
+  tipo: string;
+  href?: string | null;
+}): string {
+  const raw = String(n.href ?? "").trim();
+  const isAppPath =
+    raw.startsWith("/app/") && !raw.startsWith("//") && !raw.includes("://");
+  const isGenericInbox = raw === "/app/notifiche" || raw.startsWith("/app/notifiche?");
+  if (isAppPath && !(isGenericInbox && n.tipo !== "sicurezza")) {
+    return raw;
+  }
+  switch (n.tipo) {
+    case "attivita":
+      return "/app/promemorie-e-note/attivita/elenco";
+    case "avviso":
+      return "/app/promemorie-e-note";
+    case "webmail":
+      return "/app/webmail";
+    case "chat":
+      return "/app/chat";
+    case "scadenza":
+      return "/app/amministrazione";
+    case "sicurezza":
+      return "/app/notifiche";
+    case "sistema":
+      return "/app/strumenti";
+    default:
+      return "/app/notifiche";
+  }
+}

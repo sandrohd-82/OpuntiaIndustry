@@ -2,7 +2,7 @@
 
 import { z } from "zod";
 import { getAuthContext, getAuthUser } from "@/lib/auth/session";
-import { NOTIFICA_TIPI } from "@/lib/notifiche/types";
+import { hrefAreaNotifica, NOTIFICA_TIPI } from "@/lib/notifiche/types";
 import { getVapidPublicKey } from "@/lib/notifiche/vapid-env";
 import { createClient } from "@/lib/supabase/server";
 
@@ -87,7 +87,10 @@ export async function listNotificheAction(filtro: "tutte" | "lette" | "non_lette
       tipo: String(row.tipo ?? ""),
       title: String(row.title ?? ""),
       body: String(row.body ?? ""),
-      href: String(row.href ?? "/app/notifiche"),
+      href: hrefAreaNotifica({
+        tipo: String(row.tipo ?? ""),
+        href: row.href ? String(row.href) : null,
+      }),
       entityId: row.entity_id ? String(row.entity_id) : null,
       payload:
         row.payload && typeof row.payload === "object"

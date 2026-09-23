@@ -1,5 +1,6 @@
 "use client";
 
+import { useRouter } from "next/navigation";
 import type { DueAvvisoRow } from "@/app/actions/pn-avvisi";
 
 function formatWhen(iso: string) {
@@ -20,7 +21,12 @@ export function PnAvvisoSvegliaModal({
   avviso: DueAvvisoRow;
   onAck: () => void;
 }) {
+  const router = useRouter();
   const tipo = avviso.origineTipo === "attivita" ? "Attività" : "Promemoria";
+  const href =
+    avviso.origineTipo === "attivita"
+      ? "/app/promemorie-e-note/attivita/elenco"
+      : "/app/promemorie-e-note/promemoria/elenco";
   return (
     <div
       className="fixed inset-0 z-[90] flex items-center justify-center bg-slate-950/70 p-4 print:hidden"
@@ -40,13 +46,25 @@ export function PnAvvisoSvegliaModal({
         <p className="mt-1 text-sm font-medium text-slate-800">
           Evento: {formatWhen(avviso.dueAt)}
         </p>
-        <button
-          type="button"
-          onClick={onAck}
-          className="mt-5 rounded-lg bg-amber-700 px-5 py-2 text-sm font-medium text-white hover:bg-amber-800"
-        >
-          Ho capito
-        </button>
+        <div className="mt-5 flex flex-wrap justify-center gap-2">
+          <button
+            type="button"
+            onClick={() => {
+              onAck();
+              router.push(href);
+            }}
+            className="rounded-lg bg-amber-700 px-5 py-2 text-sm font-medium text-white hover:bg-amber-800"
+          >
+            Apri {tipo.toLowerCase()}
+          </button>
+          <button
+            type="button"
+            onClick={onAck}
+            className="rounded-lg border border-amber-300 bg-white px-5 py-2 text-sm font-medium text-amber-950"
+          >
+            Ho capito
+          </button>
+        </div>
       </div>
     </div>
   );

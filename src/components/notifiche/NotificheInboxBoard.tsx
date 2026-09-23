@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { useSearchParams } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import {
   deleteNotificaAction,
   listNotificheAction,
@@ -14,7 +14,11 @@ import {
 } from "@/app/actions/password-reset";
 import type { PasswordResetRichiesta } from "@/lib/auth/password-reset";
 import { notifyNotificheNav } from "@/lib/notifiche/nav-event";
-import { NOTIFICA_TIPO_LABELS, type NotificaTipo } from "@/lib/notifiche/types";
+import {
+  hrefAreaNotifica,
+  NOTIFICA_TIPO_LABELS,
+  type NotificaTipo,
+} from "@/lib/notifiche/types";
 
 type Filtro = "tutte" | "non_lette" | "lette";
 
@@ -30,6 +34,7 @@ export function NotificheInboxBoard({
 }: {
   isSuperAdmin: boolean;
 }) {
+  const router = useRouter();
   const searchParams = useSearchParams();
   const focus = searchParams.get("focus") ?? "";
   const [filtro, setFiltro] = useState<Filtro>("tutte");
@@ -98,6 +103,21 @@ export function NotificheInboxBoard({
     }
     notifyNotificheNav();
     await reload();
+  }
+
+  async function apriArea(n: NotificaInboxRiga) {
+    setBusyId(n.id);
+    if (!n.readAt) {
+      const res = await markNotificaReadByIdAction(n.id);
+      if (!res.success) {
+        setBusyId(null);
+        setError(res.error);
+        return;
+      }
+      notifyNotificheNav();
+    }
+    setBusyId(null);
+    router.push(hrefAreaNotifica(n));
   }
 
   async function decide(richiestaId: string, approva: boolean) {
@@ -177,7 +197,12 @@ export function NotificheInboxBoard({
                 }`}
               >
                 <div className="flex flex-wrap items-start justify-between gap-2">
-                  <div>
+                  <button
+                    type="button"
+                    disabled={busyId !== null}
+                    onClick={() => void apriArea(n)}
+                    className="min-w-0 flex-1 text-left"
+                  >
                     <p className="text-[11px] uppercase tracking-wide text-slate-500">
                       {tipoLabel(n.tipo)}
                       {n.readAt ? " · Letta" : " · Non letta"}
@@ -196,8 +221,16 @@ export function NotificheInboxBoard({
                         Richiesta {req.stato.replace("_", " ")}
                       </p>
                     ) : null}
-                  </div>
+                  </button>
                   <div className="flex flex-wrap items-center justify-end gap-1">
+                    <button
+                      type="button"
+                      disabled={busyId !== null}
+                      onClick={() => void apriArea(n)}
+                      className="rounded-md bg-[var(--primary)] px-2.5 py-1 text-xs font-medium text-white disabled:opacity-60"
+                    >
+                      Apri
+                    </button>
                     {showDecide ? (
                       <>
                         <button
