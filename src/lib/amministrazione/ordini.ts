@@ -170,6 +170,8 @@ export type Ordine = {
   usaMagazzino: boolean;
   usaSabato: boolean;
   dataConsegnaStimata: string | null;
+  destinatario: string;
+  indirizzoSpedizione: string;
   capacitaSnapshot: Record<string, unknown>;
   isTest: boolean;
   righe: OrdineRigaProdotto[];
@@ -413,6 +415,8 @@ export function mapOrdineRow(
     usaMagazzino: Boolean(row.usa_magazzino),
     usaSabato: Boolean(row.usa_sabato),
     dataConsegnaStimata: row.data_consegna_stimata ?? null,
+    destinatario: String(row.destinatario ?? ""),
+    indirizzoSpedizione: String(row.indirizzo_spedizione ?? ""),
     capacitaSnapshot:
       (row.capacita_snapshot as Record<string, unknown> | null) ?? {},
     isTest: row.is_test !== false,

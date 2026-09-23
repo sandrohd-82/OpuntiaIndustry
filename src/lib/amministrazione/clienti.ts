@@ -170,6 +170,7 @@ export function applySediToLegacy(input: ClienteInput): ClienteInput {
     cap: s.cap ?? "",
     indirizzo: s.indirizzo ?? "",
     sortOrder: s.sortOrder ?? i,
+    ricezioneMerce: Boolean(s.ricezioneMerce),
   }));
   return {
     ...input,

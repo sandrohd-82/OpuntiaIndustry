@@ -53,12 +53,25 @@ export type AnagraficaSchedaDetailModel = {
   cancellazionePrenotata?: boolean;
 };
 
-function SedeBlock({ title, sede }: { title: string; sede: SedeCliente }) {
+function SedeBlock({
+  title,
+  sede,
+  ricezioneMerce = false,
+}: {
+  title: string;
+  sede: SedeCliente;
+  ricezioneMerce?: boolean;
+}) {
   return (
     <div>
       <p className="text-xs font-semibold uppercase tracking-wide text-[var(--muted)]">
         {title}
       </p>
+      {ricezioneMerce ? (
+        <p className="mt-1 text-xs font-medium text-emerald-800">
+          Indirizzo standard di ricezione merce
+        </p>
+      ) : null}
       <p className="mt-1 text-sm">
         {sede.indirizzo || "—"}
         <br />
@@ -263,6 +276,7 @@ export function AnagraficaSchedaDetail({
             key={sede.id}
             title={ANAGRAFICA_SEDE_LABEL[sede.tipo]}
             sede={sede}
+            ricezioneMerce={sede.ricezioneMerce}
           />
         ))
       ) : (

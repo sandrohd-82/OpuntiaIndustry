@@ -1,5 +1,6 @@
 "use server";
 
+import { loadIndirizzoRicezioneMerce } from "@/app/actions/anagrafica-extra";
 import { createClient } from "@/lib/supabase/server";
 import { assegnaLottoProduzioneDaMagazzino } from "@/app/actions/lotto-produzione-magazzino";
 import { calcolaConsegnaOrdineAction } from "@/app/actions/produzione-capacita";
@@ -493,9 +494,16 @@ export async function createOrdineAction(
       ivaPercentuale: r.ivaPercentuale,
     }));
     const importo = totaleOrdine(righeCalc, input.trasporto);
+    const ricezione = await loadIndirizzoRicezioneMerce({
+      ownerKind: resolved.clienteId ? "cliente" : "cliente_possibile",
+      ownerId: resolved.clienteId || resolved.possibileClienteId,
+      ragioneSociale: input.cliente,
+    });
     const insert: OrdineInsert = {
       numero_interno: numeroInterno,
       numero_cliente: input.numeroCliente?.trim() ?? "",
+      destinatario: ricezione?.destinatario || input.cliente.trim(),
+      indirizzo_spedizione: ricezione?.indirizzo ?? "",
       cliente_id: resolved.clienteId,
       cliente_possibile_id: resolved.possibileClienteId,
       cliente_ragione_sociale: input.cliente.trim(),
@@ -1048,6 +1056,24 @@ async function createOrdineWizardActionInner(
       seq,
     });
 
+    let destSped = {
+      destinatario: (input.destinatario ?? "").trim() || input.cliente.trim(),
+      indirizzo: (input.indirizzoSpedizione ?? "").trim(),
+    };
+    if (!destSped.indirizzo) {
+      const ricezione = await loadIndirizzoRicezioneMerce({
+        ownerKind: resolved.clienteId ? "cliente" : "cliente_possibile",
+        ownerId: resolved.clienteId || resolved.possibileClienteId,
+        ragioneSociale: input.cliente,
+      });
+      if (ricezione) {
+        destSped = {
+          destinatario: ricezione.destinatario || destSped.destinatario,
+          indirizzo: ricezione.indirizzo,
+        };
+      }
+    }
+
     const insert: OrdineInsert = {
       numero_interno: numeroInterno,
       numero_cliente: "",
@@ -1102,6 +1128,8 @@ async function createOrdineWizardActionInner(
         input.spedizioneACarico === "diviso"
           ? (input.spedizionePctAgrinsicilia ?? null)
           : null,
+      destinatario: destSped.destinatario,
+      indirizzo_spedizione: destSped.indirizzo,
       preventivo_id: campionaturaGratis ? null : (input.preventivoId ?? null),
       webmail_accettazione_id: campionaturaGratis
         ? null

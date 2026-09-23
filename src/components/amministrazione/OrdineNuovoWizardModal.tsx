@@ -31,6 +31,7 @@ import {
   generaCorpoMailSpedizioneAction,
   upsertPrenotazioneSpedizioneMailAction,
 } from "@/app/actions/spedizione-mail";
+import { loadAnagraficaExtraAction } from "@/app/actions/anagrafica-extra";
 import { updateSedePartenzaAction } from "@/app/actions/impostazioni-sedi";
 import type { SpedizioneMailPrenotazione } from "@/lib/amministrazione/spedizione-mail";
 import {
@@ -51,7 +52,11 @@ import {
   type OrdineTipoPagamento,
   type OrdineUnitaMisura,
 } from "@/lib/amministrazione/ordini";
+import type { AnagraficaSede } from "@/lib/amministrazione/anagrafica-extra";
+import { clienteSpedizioneOptions } from "@/lib/amministrazione/campionature";
+import type { Cliente } from "@/lib/amministrazione/clienti";
 import type { AnagraficaOrdineFonte } from "@/lib/amministrazione/ordine-anagrafica";
+import { clienteFromPossibile } from "@/lib/promemorie-e-note/types";
 import type { Preventivo } from "@/lib/amministrazione/preventivi";
 import type { RubricaContatto } from "@/lib/rubrica/types";
 import {
@@ -260,6 +265,11 @@ export function OrdineNuovoWizardModal({
     "cliente" | "agrinsicilia" | "diviso"
   >("cliente");
   const [pctAgrin, setPctAgrin] = useState<number | "">(50);
+  const [clienteSped, setClienteSped] = useState<Cliente | null>(null);
+  const [sediExtra, setSediExtra] = useState<AnagraficaSede[]>([]);
+  const [addressKey, setAddressKey] = useState("");
+  const [destinatario, setDestinatario] = useState("");
+  const [indirizzoSpedizione, setIndirizzoSpedizione] = useState("");
 
   const [catalogo, setCatalogo] = useState<ImballaggioVoce[]>([]);
   const [conf, setConf] = useState<ConfezionamentoDraft>(
@@ -660,6 +670,8 @@ export function OrdineNuovoWizardModal({
         spedizioneACarico: aCarico,
         spedizionePctAgrinsicilia:
           aCarico === "diviso" ? Number(pctAgrin) : null,
+        destinatario,
+        indirizzoSpedizione,
         giorniProduzione,
         giorniAttivita,
         giorniPreparazione: giorniAttivita,
@@ -961,6 +973,50 @@ export function OrdineNuovoWizardModal({
                         ""
                     );
                     setClienteTarga(sel.cliente?.codiceTarga ?? "");
+                    const nextCliente = sel.cliente
+                      ? sel.cliente
+                      : sel.possibile
+                        ? clienteFromPossibile(sel.possibile)
+                        : null;
+                    setClienteSped(nextCliente);
+                    setSediExtra([]);
+                    if (!nextCliente) {
+                      setAddressKey("");
+                      setDestinatario("");
+                      setIndirizzoSpedizione("");
+                      return;
+                    }
+                    const ownerKind = sel.cliente
+                      ? "cliente"
+                      : "cliente_possibile";
+                    const ownerId = sel.cliente?.id ?? sel.possibile?.id ?? "";
+                    const applyOpts = (sedi: AnagraficaSede[]) => {
+                      const options = clienteSpedizioneOptions(
+                        nextCliente,
+                        sedi
+                      );
+                      const preferred =
+                        options.find((o) => o.ricezione) ?? options[0] ?? null;
+                      if (preferred) {
+                        setAddressKey(preferred.key);
+                        setDestinatario(preferred.destinatario);
+                        setIndirizzoSpedizione(preferred.indirizzo);
+                      } else {
+                        setAddressKey("");
+                        setDestinatario(nextCliente.ragioneSociale);
+                        setIndirizzoSpedizione("");
+                      }
+                    };
+                    applyOpts([]);
+                    if (!ownerId) return;
+                    void loadAnagraficaExtraAction({
+                      ownerKind,
+                      ownerId,
+                    }).then((res) => {
+                      if (!res.success) return;
+                      setSediExtra(res.sedi);
+                      applyOpts(res.sedi);
+                    });
                   }}
                 />
               </div>
@@ -1512,6 +1568,51 @@ export function OrdineNuovoWizardModal({
 
           {step === 5 && (
             <div className="space-y-4">
+              <fieldset className="space-y-2 rounded-lg border border-[var(--border)] p-3">
+                <legend className="px-1 text-sm font-medium">
+                  Indirizzo di ricezione
+                </legend>
+                <p className="text-xs text-[var(--muted)]">
+                  Se l’azienda ha un indirizzo standard di ricezione merce,
+                  viene proposto qui. Puoi scegliere un altro indirizzo.
+                </p>
+                {(clienteSped
+                  ? clienteSpedizioneOptions(clienteSped, sediExtra)
+                  : []
+                ).map((opt) => (
+                  <label
+                    key={opt.key}
+                    className={`flex cursor-pointer gap-2 rounded-lg border px-3 py-2 ${
+                      addressKey === opt.key
+                        ? "border-[var(--primary)] bg-slate-50"
+                        : "border-[var(--border)] bg-white"
+                    }`}
+                  >
+                    <input
+                      type="radio"
+                      name="ordine-indirizzo-spedizione"
+                      checked={addressKey === opt.key}
+                      onChange={() => {
+                        setAddressKey(opt.key);
+                        setDestinatario(opt.destinatario);
+                        setIndirizzoSpedizione(opt.indirizzo);
+                      }}
+                      className="mt-1"
+                    />
+                    <span>
+                      <span className="font-medium">{opt.label}</span>
+                      <span className="mt-0.5 block text-xs text-[var(--muted)]">
+                        {opt.indirizzo}
+                      </span>
+                    </span>
+                  </label>
+                ))}
+                {!clienteSped ? (
+                  <p className="text-xs text-[var(--muted)]">
+                    Seleziona prima l’azienda.
+                  </p>
+                ) : null}
+              </fieldset>
               <fieldset className="space-y-2 rounded-lg border border-[var(--border)] p-3">
                 <legend className="px-1 text-sm font-medium">Mezzo</legend>
                 <label className="flex items-center gap-2 text-sm">

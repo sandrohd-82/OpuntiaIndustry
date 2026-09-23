@@ -36,6 +36,7 @@ export type AnagraficaSede = {
   cap: string;
   indirizzo: string;
   sortOrder: number;
+  ricezioneMerce: boolean;
 };
 
 export type AnagraficaBrand = {
@@ -60,6 +61,7 @@ export const anagraficaSedeInputSchema = z.object({
   cap: z.string().trim().max(16).optional().default(""),
   indirizzo: z.string().trim().max(200).optional().default(""),
   sortOrder: z.number().int().nonnegative().optional().default(0),
+  ricezioneMerce: z.boolean().optional().default(false),
 });
 
 export const anagraficaBrandInputSchema = z.object({
@@ -86,6 +88,7 @@ export function emptyAnagraficaSede(
     tipo,
     ...emptySede(),
     sortOrder,
+    ricezioneMerce: false,
   };
 }
 
@@ -100,6 +103,7 @@ export function sedeFromAddress(
     tipo,
     ...n,
     sortOrder,
+    ricezioneMerce: false,
   };
 }
 
@@ -208,6 +212,7 @@ export function normalizeSedeInput(s: AnagraficaSedeInput): AnagraficaSedeInput 
       indirizzo: s.indirizzo ?? "",
     }),
     sortOrder: s.sortOrder ?? 0,
+    ricezioneMerce: Boolean(s.ricezioneMerce),
   };
 }
 
@@ -225,4 +230,19 @@ export function normalizeBrandInput(b: AnagraficaBrandInput): AnagraficaBrandInp
     logoPath: (b.logoPath ?? "").trim(),
     sortOrder: b.sortOrder ?? 0,
   };
+}
+
+export function sedeRicezioneMerce(
+  sedi: AnagraficaSede[]
+): AnagraficaSede | null {
+  return sedi.find((s) => s.ricezioneMerce && !isSedeAddressEmpty(s)) ?? null;
+}
+
+export function formatSedeIndirizzo(
+  sede: Pick<AnagraficaSede, "indirizzo" | "cap" | "citta" | "provincia" | "nazione">
+): string {
+  return [sede.indirizzo, sede.cap, sede.citta, sede.provincia, sede.nazione]
+    .map((p) => (p ?? "").trim())
+    .filter(Boolean)
+    .join(", ");
 }

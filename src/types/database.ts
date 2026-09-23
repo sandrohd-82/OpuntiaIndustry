@@ -981,6 +981,8 @@ export interface OrdineRow {
   spedizione_pct_agrinsicilia: number | null;
   giorni_produzione: string[];
   sede_partenza_id?: string | null;
+  destinatario?: string;
+  indirizzo_spedizione?: string;
   preventivo_id?: string | null;
   webmail_accettazione_id?: string | null;
   referente_accettazione_id?: string | null;
@@ -1043,6 +1045,8 @@ export interface OrdineInsert {
   spedizione_a_carico?: "cliente" | "agrinsicilia" | "diviso" | null;
   spedizione_pct_agrinsicilia?: number | null;
   giorni_produzione?: string[];
+  destinatario?: string;
+  indirizzo_spedizione?: string;
   preventivo_id?: string | null;
   webmail_accettazione_id?: string | null;
   referente_accettazione_id?: string | null;
@@ -1094,6 +1098,8 @@ export interface OrdineUpdate {
   spedizione_a_carico?: "cliente" | "agrinsicilia" | "diviso" | null;
   spedizione_pct_agrinsicilia?: number | null;
   giorni_produzione?: string[];
+  destinatario?: string;
+  indirizzo_spedizione?: string;
   updated_by?: string | null;
   deleted_at?: string | null;
   deleted_by?: string | null;

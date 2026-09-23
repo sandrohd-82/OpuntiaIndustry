@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useId, useState } from "react";
 import { FaChevronDown, FaPlus, FaTrash } from "react-icons/fa6";
 import { AddressSedeFields } from "@/components/amministrazione/AddressSedeFields";
 import {
@@ -65,6 +65,10 @@ export function validateSediDrafts(
   if (requireLegale && !legaleFilled) {
     return "Completa la sede legale prima di continuare.";
   }
+  const ricezione = sedi.find((s) => s.ricezioneMerce);
+  if (ricezione && !isSedeAddressFilled(ricezione)) {
+    return "Completa l’indirizzo standard di ricezione merce.";
+  }
   for (const s of sedi) {
     if (!isSedeAddressEmpty(s) && !isSedeAddressFilled(s)) {
       return `Completa tutti i campi di ${ANAGRAFICA_SEDE_LABEL[s.tipo]}, oppure rimuovila.`;
@@ -84,6 +88,7 @@ export function sediToInput(sedi: AnagraficaSedeDraft[]): AnagraficaSedeInput[] 
       cap: s.cap,
       indirizzo: s.indirizzo,
       sortOrder: i,
+      ricezioneMerce: Boolean(s.ricezioneMerce),
     })
   );
 }
@@ -100,7 +105,11 @@ export function applyLegacySedeToDrafts(
     open: true,
   };
   if (idx >= 0) {
-    next[idx] = { ...mapped, id: next[idx].id };
+    next[idx] = {
+      ...mapped,
+      id: next[idx].id,
+      ricezioneMerce: next[idx].ricezioneMerce,
+    };
   } else {
     next.push(mapped);
   }
@@ -120,6 +129,7 @@ export function AnagraficaSediEditor({
   requireAmministrativa?: boolean;
 }) {
   const mustHaveLegale = requireLegale || requireAmministrativa;
+  const radioName = useId();
   const [menuOpen, setMenuOpen] = useState(false);
   const firstLegale = value.find((s) => s.tipo === "legale");
 
@@ -153,6 +163,16 @@ export function AnagraficaSediEditor({
   function patch(id: string, nextSede: SedeCliente) {
     onChange(
       value.map((s) => (s.id === id ? { ...s, ...nextSede } : s))
+    );
+  }
+
+  function setRicezioneMerce(id: string) {
+    onChange(
+      value.map((s) => ({
+        ...s,
+        ricezioneMerce: s.id === id,
+        open: s.id === id ? true : s.open,
+      }))
     );
   }
 
@@ -215,8 +235,8 @@ export function AnagraficaSediEditor({
         </div>
       </div>
       <p className="text-xs text-[var(--muted)]">
-        L’indirizzo primario è la Sede Legale. Puoi aggiungere Amministrativa,
-        Produttiva e Magazzino; ogni blocco si espande verso il basso.
+        L’indirizzo primario è la Sede Legale. Una sola sede può essere
+        l’indirizzo standard di ricezione merce (campionature e spedizioni).
       </p>
 
       {value.map((sede, index) => {
@@ -262,37 +282,51 @@ export function AnagraficaSediEditor({
                 Rimuovi
               </button>
             </div>
-            {sede.open ? (
-              <div className="space-y-3 border-t border-[var(--border)] p-3">
-                {sede.tipo !== "legale" && firstLegale ? (
-                  <label className="flex items-center gap-2 text-sm">
-                    <input
-                      type="checkbox"
-                      checked={
-                        !isSedeAddressEmpty(firstLegale) &&
-                        firstLegale.nazione === sede.nazione &&
-                        firstLegale.provincia === sede.provincia &&
-                        firstLegale.citta === sede.citta &&
-                        firstLegale.cap === sede.cap &&
-                        firstLegale.indirizzo === sede.indirizzo
-                      }
-                      onChange={(e) => {
-                        if (e.target.checked) copyFromLegale(sede.id);
-                      }}
-                      className="rounded border-[var(--border)]"
-                    />
-                    Uguale alla sede legale
-                  </label>
-                ) : null}
-                <AddressSedeFields
-                  title="Indirizzo"
-                  embedded
-                  requiredFields={mustHaveLegale && sede.tipo === "legale"}
-                  value={sede}
-                  onChange={(next) => patch(sede.id, next)}
+            <div className="space-y-3 border-t border-[var(--border)] p-3">
+              <label className="flex items-start gap-2 text-sm">
+                <input
+                  type="radio"
+                  name={radioName}
+                  checked={Boolean(sede.ricezioneMerce)}
+                  onChange={() => setRicezioneMerce(sede.id)}
+                  className="mt-0.5"
                 />
-              </div>
-            ) : null}
+                <span>
+                  Rendi questo l&apos;indirizzo standard di ricezione merce
+                </span>
+              </label>
+              {sede.open ? (
+                <>
+                  {sede.tipo !== "legale" && firstLegale ? (
+                    <label className="flex items-center gap-2 text-sm">
+                      <input
+                        type="checkbox"
+                        checked={
+                          !isSedeAddressEmpty(firstLegale) &&
+                          firstLegale.nazione === sede.nazione &&
+                          firstLegale.provincia === sede.provincia &&
+                          firstLegale.citta === sede.citta &&
+                          firstLegale.cap === sede.cap &&
+                          firstLegale.indirizzo === sede.indirizzo
+                        }
+                        onChange={(e) => {
+                          if (e.target.checked) copyFromLegale(sede.id);
+                        }}
+                        className="rounded border-[var(--border)]"
+                      />
+                      Uguale alla sede legale
+                    </label>
+                  ) : null}
+                  <AddressSedeFields
+                    title="Indirizzo"
+                    embedded
+                    requiredFields={mustHaveLegale && sede.tipo === "legale"}
+                    value={sede}
+                    onChange={(next) => patch(sede.id, next)}
+                  />
+                </>
+              ) : null}
+            </div>
           </div>
         );
       })}

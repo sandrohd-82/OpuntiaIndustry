@@ -1,5 +1,6 @@
 "use server";
 
+import { loadIndirizzoRicezioneMerce } from "@/app/actions/anagrafica-extra";
 import { resolveClientePerOrdineFromRawAction } from "@/app/actions/clienti";
 import { writeAuditLog } from "@/lib/audit";
 import {
@@ -381,6 +382,29 @@ async function createCampionaturaActionInner(
     notaTitolo = String(notaCheck.titolo || "Nota");
   }
 
+  let destinatario = input.destinatario || input.cliente;
+  let indirizzoSpedizione = input.indirizzoSpedizione;
+  if (
+    input.spedizioneTipo === "sede_azienda" &&
+    !indirizzoSpedizione.trim()
+  ) {
+    const ricezione = await loadIndirizzoRicezioneMerce({
+      ownerKind:
+        resolved.mode === "cliente" && resolved.clienteId
+          ? "cliente"
+          : "cliente_possibile",
+      ownerId:
+        resolved.mode === "cliente" && resolved.clienteId
+          ? resolved.clienteId
+          : resolved.possibileClienteId,
+      ragioneSociale: input.cliente,
+    });
+    if (ricezione) {
+      destinatario = ricezione.destinatario || destinatario;
+      indirizzoSpedizione = ricezione.indirizzo;
+    }
+  }
+
   const { data, error } = await supabase
     .from("campionature")
     .insert({
@@ -400,8 +424,8 @@ async function createCampionaturaActionInner(
       spedizione_tipo: input.spedizioneTipo,
       spedizione_privato: input.spedizionePrivato,
       referente_ricezione_id: input.referenteRicezioneId || null,
-      destinatario: input.destinatario || input.cliente,
-      indirizzo_spedizione: input.indirizzoSpedizione,
+      destinatario,
+      indirizzo_spedizione: indirizzoSpedizione,
       note: input.note,
       stato: isStorico ? "inviata" : "inserita",
       documento_stato: isStorico ? "chiuso" : "approvato",

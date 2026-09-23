@@ -1,4 +1,9 @@
 import { z } from "zod";
+import {
+  ANAGRAFICA_SEDE_LABEL,
+  isSedeAddressEmpty,
+  type AnagraficaSede,
+} from "@/lib/amministrazione/anagrafica-extra";
 import type { Cliente } from "@/lib/amministrazione/clienti";
 import {
   defaultUnitaCampionatura,
@@ -264,27 +269,48 @@ export type SpedizioneOption = {
   label: string;
   destinatario: string;
   indirizzo: string;
+  ricezione?: boolean;
 };
 
-export function clienteSpedizioneOptions(cliente: Cliente): SpedizioneOption[] {
+export function clienteSpedizioneOptions(
+  cliente: Cliente,
+  sediExtra: AnagraficaSede[] = []
+): SpedizioneOption[] {
   const out: SpedizioneOption[] = [];
-  const amm = formatIndirizzoSede(cliente.sedeAmministrativa);
-  if (amm) {
-    out.push({
-      key: "amm",
-      label: "Sede amministrativa",
-      destinatario: cliente.ragioneSociale,
-      indirizzo: amm,
-    });
-  }
-  const mag = formatIndirizzoSede(cliente.sedeMagazzino);
-  if (mag && mag !== amm) {
-    out.push({
-      key: "mag",
-      label: "Sede magazzino",
-      destinatario: cliente.ragioneSociale,
-      indirizzo: mag,
-    });
+  const extraFilled = sediExtra.filter((s) => !isSedeAddressEmpty(s));
+  if (extraFilled.length) {
+    for (const s of extraFilled) {
+      const addr = formatIndirizzoSede(s);
+      if (!addr) continue;
+      out.push({
+        key: `sede-${s.id}`,
+        label: s.ricezioneMerce
+          ? `${ANAGRAFICA_SEDE_LABEL[s.tipo]} · ricezione merce`
+          : ANAGRAFICA_SEDE_LABEL[s.tipo],
+        destinatario: cliente.ragioneSociale,
+        indirizzo: addr,
+        ricezione: Boolean(s.ricezioneMerce),
+      });
+    }
+  } else {
+    const amm = formatIndirizzoSede(cliente.sedeAmministrativa);
+    if (amm) {
+      out.push({
+        key: "amm",
+        label: "Sede legale",
+        destinatario: cliente.ragioneSociale,
+        indirizzo: amm,
+      });
+    }
+    const mag = formatIndirizzoSede(cliente.sedeMagazzino);
+    if (mag && mag !== amm) {
+      out.push({
+        key: "mag",
+        label: "Sede magazzino",
+        destinatario: cliente.ragioneSociale,
+        indirizzo: mag,
+      });
+    }
   }
   cliente.consegneAltraAzienda.forEach((c, i) => {
     const addr = formatIndirizzoSede(c);

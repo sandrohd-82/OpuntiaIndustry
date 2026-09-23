@@ -142,6 +142,8 @@ export const ordineWizardInputSchema = z
       .enum(["cliente", "agrinsicilia", "diviso"])
       .default("cliente"),
     spedizionePctAgrinsicilia: z.number().min(0).max(100).nullable().optional(),
+    destinatario: z.string().trim().max(200).optional().default(""),
+    indirizzoSpedizione: z.string().trim().max(500).optional().default(""),
     giorniProduzione: z
       .array(z.string().regex(/^\d{4}-\d{2}-\d{2}$/))
       .optional(),

@@ -12,6 +12,7 @@ import {
   generaCorpoMailSpedizioneAction,
   upsertPrenotazioneSpedizioneMailAction,
 } from "@/app/actions/spedizione-mail";
+import { loadAnagraficaExtraAction } from "@/app/actions/anagrafica-extra";
 import { updateSedePartenzaAction } from "@/app/actions/impostazioni-sedi";
 import { SpedizioneMailComposeModal } from "@/components/amministrazione/SpedizioneMailComposeModal";
 import { SpedizioneMailPanel } from "@/components/amministrazione/SpedizioneMailPanel";
@@ -24,6 +25,7 @@ import {
   numberOrZero,
 } from "@/components/ui/ClearableNumberInput";
 import { useProdottiPropri } from "@/hooks/useProdottiPropri";
+import type { AnagraficaSede } from "@/lib/amministrazione/anagrafica-extra";
 import type { Cliente } from "@/lib/amministrazione/clienti";
 import type { AnagraficaOrdineFonte } from "@/lib/amministrazione/ordine-anagrafica";
 import { clienteFromPossibile } from "@/lib/promemorie-e-note/types";
@@ -92,6 +94,7 @@ export function CampionaturaFormModal({ onClose, onSaved }: Props) {
   const [destinatario, setDestinatario] = useState("");
   const [indirizzo, setIndirizzo] = useState("");
   const [addressKey, setAddressKey] = useState<string | "altro">("");
+  const [sediExtra, setSediExtra] = useState<AnagraficaSede[]>([]);
   const [spedizionePrivato, setSpedizionePrivato] = useState(false);
   const [referenteRicezione, setReferenteRicezione] = useState<{
     id: string;
@@ -169,21 +172,10 @@ export function CampionaturaFormModal({ onClose, onSaved }: Props) {
     };
   }, [targaDocumento, dataInvio]);
 
-  function applyCliente(next: Cliente | null) {
-    setCliente(next);
-    setNota(null);
-    setMail(null);
-    setReferenteRicezione(null);
-    setSpedizionePrivato(false);
-    if (!next) {
-      setDestinatario("");
-      setIndirizzo("");
-      setAddressKey("");
-      return;
-    }
-    const options = clienteSpedizioneOptions(next);
+  function applySpedizioneOptions(next: Cliente, sedi: AnagraficaSede[]) {
+    const options = clienteSpedizioneOptions(next, sedi);
     const preferred =
-      options.find((o) => o.key === "mag") ?? options[0] ?? null;
+      options.find((o) => o.ricezione) ?? options[0] ?? null;
     if (preferred) {
       setAddressKey(preferred.key);
       setDestinatario(preferred.destinatario);
@@ -193,6 +185,35 @@ export function CampionaturaFormModal({ onClose, onSaved }: Props) {
       setDestinatario(next.ragioneSociale);
       setIndirizzo("");
     }
+  }
+
+  function applyCliente(
+    next: Cliente | null,
+    ownerKind: "cliente" | "cliente_possibile" = "cliente"
+  ) {
+    setCliente(next);
+    setNota(null);
+    setMail(null);
+    setReferenteRicezione(null);
+    setSpedizionePrivato(false);
+    if (!next) {
+      setSediExtra([]);
+      setDestinatario("");
+      setIndirizzo("");
+      setAddressKey("");
+      return;
+    }
+    setSediExtra([]);
+    applySpedizioneOptions(next, []);
+    if (!next.id) return;
+    void loadAnagraficaExtraAction({
+      ownerKind,
+      ownerId: next.id,
+    }).then((res) => {
+      if (!res.success) return;
+      setSediExtra(res.sedi);
+      applySpedizioneOptions(next, res.sedi);
+    });
   }
 
   function updateRiga(index: number, patch: Partial<DraftRiga>) {
@@ -453,11 +474,14 @@ export function CampionaturaFormModal({ onClose, onSaved }: Props) {
                   setAnagraficaFonte(sel.fonte);
                   setPossibileClienteId(sel.possibile?.id ?? "");
                   if (sel.cliente) {
-                    applyCliente(sel.cliente);
+                    applyCliente(sel.cliente, "cliente");
                     return;
                   }
                   if (sel.possibile) {
-                    applyCliente(clienteFromPossibile(sel.possibile));
+                    applyCliente(
+                      clienteFromPossibile(sel.possibile),
+                      "cliente_possibile"
+                    );
                     return;
                   }
                   applyCliente(null);
@@ -554,7 +578,10 @@ export function CampionaturaFormModal({ onClose, onSaved }: Props) {
                 Di default le sedi dell’azienda. Destinatario: {destinatario || "—"}.
               </p>
               <div className="space-y-2">
-                {(cliente ? clienteSpedizioneOptions(cliente) : []).map((opt) => (
+                {(cliente
+                  ? clienteSpedizioneOptions(cliente, sediExtra)
+                  : []
+                ).map((opt) => (
                   <label
                     key={opt.key}
                     className={`flex cursor-pointer gap-2 rounded-lg border px-3 py-2 ${

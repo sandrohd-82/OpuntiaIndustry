@@ -1,5 +1,6 @@
 "use server";
 
+import { loadIndirizzoRicezioneMerce } from "@/app/actions/anagrafica-extra";
 import { requireOrdineProcessAccess } from "@/lib/auth/ordini-access";
 import { writeAuditLog } from "@/lib/audit";
 import { labelSede } from "@/lib/impostazioni/sedi";
@@ -381,7 +382,7 @@ export async function getScalettaImpegnoDettaglioAction(
     const { data: ord, error: oErr } = await supabase
       .from("ordini")
       .select(
-        "id, numero_interno, cliente_ragione_sociale, stato, documento_stato, versione, data_ordine, data_consegna, note, urgente, usa_magazzino, tipo, giorni_produzione, capacita_snapshot, sede_partenza_id"
+        "id, numero_interno, cliente_ragione_sociale, stato, documento_stato, versione, data_ordine, data_consegna, note, urgente, usa_magazzino, tipo, giorni_produzione, capacita_snapshot, sede_partenza_id, destinatario, indirizzo_spedizione, cliente_id, cliente_possibile_id"
       )
       .eq("id", oid)
       .is("deleted_at", null)
@@ -426,6 +427,23 @@ export async function getScalettaImpegnoDettaglioAction(
       supabase,
       ord.sede_partenza_id ? String(ord.sede_partenza_id) : null
     );
+    let destOrdine = String(ord.destinatario ?? "").trim();
+    let indirizzoOrdine = String(ord.indirizzo_spedizione ?? "").trim();
+    if (!indirizzoOrdine) {
+      const ricezione = await loadIndirizzoRicezioneMerce({
+        ownerKind: ord.cliente_id ? "cliente" : "cliente_possibile",
+        ownerId: ord.cliente_id
+          ? String(ord.cliente_id)
+          : ord.cliente_possibile_id
+            ? String(ord.cliente_possibile_id)
+            : null,
+        ragioneSociale: String(ord.cliente_ragione_sociale ?? ""),
+      });
+      if (ricezione) {
+        destOrdine = ricezione.destinatario || destOrdine;
+        indirizzoOrdine = ricezione.indirizzo;
+      }
+    }
     documento = {
       entityType: "ordine",
       entityId: oid,
@@ -436,8 +454,8 @@ export async function getScalettaImpegnoDettaglioAction(
       versione: Number(ord.versione ?? 1),
       dataDocumento: String(ord.data_ordine ?? ""),
       dataConsegna: ord.data_consegna ? String(ord.data_consegna) : null,
-      destinatario: "",
-      indirizzo: "",
+      destinatario: destOrdine,
+      indirizzo: indirizzoOrdine,
       trackingUrl: "",
       note: String(ord.note ?? ""),
       urgente: Boolean(ord.urgente),
@@ -450,7 +468,7 @@ export async function getScalettaImpegnoDettaglioAction(
     const { data: camp, error: cErr } = await supabase
       .from("campionature")
       .select(
-        "id, numero_interno, cliente_ragione_sociale, stato, documento_stato, versione, data_invio, destinatario, indirizzo_spedizione, tracking_url, note, data_lavorazione, data_confezionamento, produzione_snapshot, sede_partenza_id"
+        "id, numero_interno, cliente_ragione_sociale, stato, documento_stato, versione, data_invio, destinatario, indirizzo_spedizione, tracking_url, note, data_lavorazione, data_confezionamento, produzione_snapshot, sede_partenza_id, cliente_id, cliente_possibile_id"
       )
       .eq("id", cid)
       .is("deleted_at", null)
@@ -519,6 +537,23 @@ export async function getScalettaImpegnoDettaglioAction(
       supabase,
       camp.sede_partenza_id ? String(camp.sede_partenza_id) : null
     );
+    let destCamp = String(camp.destinatario ?? "").trim();
+    let indirizzoCamp = String(camp.indirizzo_spedizione ?? "").trim();
+    if (!indirizzoCamp) {
+      const ricezione = await loadIndirizzoRicezioneMerce({
+        ownerKind: camp.cliente_id ? "cliente" : "cliente_possibile",
+        ownerId: camp.cliente_id
+          ? String(camp.cliente_id)
+          : camp.cliente_possibile_id
+            ? String(camp.cliente_possibile_id)
+            : null,
+        ragioneSociale: String(camp.cliente_ragione_sociale ?? ""),
+      });
+      if (ricezione) {
+        destCamp = ricezione.destinatario || destCamp;
+        indirizzoCamp = ricezione.indirizzo;
+      }
+    }
     documento = {
       entityType: "campionatura",
       entityId: cid,
@@ -529,8 +564,8 @@ export async function getScalettaImpegnoDettaglioAction(
       versione: Number(camp.versione ?? 1),
       dataDocumento: String(camp.data_invio ?? ""),
       dataConsegna: null,
-      destinatario: String(camp.destinatario ?? ""),
-      indirizzo: String(camp.indirizzo_spedizione ?? ""),
+      destinatario: destCamp,
+      indirizzo: indirizzoCamp,
       trackingUrl: String(camp.tracking_url ?? ""),
       note: String(camp.note ?? ""),
       urgente: false,

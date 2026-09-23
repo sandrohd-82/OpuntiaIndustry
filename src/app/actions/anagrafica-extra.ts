@@ -5,6 +5,8 @@ import {
   ANAGRAFICA_BRAND_LOGO_BUCKET,
   anagraficaBrandInputSchema,
   anagraficaSedeInputSchema,
+  formatSedeIndirizzo,
+  isSedeAddressEmpty,
   normalizeBrandInput,
   normalizeSedeInput,
   type AnagraficaBrand,
@@ -26,6 +28,7 @@ type ExtraRowSede = {
   cap: string;
   indirizzo: string;
   sort_order: number;
+  ricezione_merce?: boolean;
 };
 
 type ExtraRowBrand = {
@@ -50,6 +53,7 @@ function mapSede(r: ExtraRowSede): AnagraficaSede {
     cap: r.cap ?? "",
     indirizzo: r.indirizzo ?? "",
     sortOrder: r.sort_order ?? 0,
+    ricezioneMerce: Boolean(r.ricezione_merce),
   };
 }
 
@@ -92,7 +96,7 @@ export async function loadAnagraficaExtraAction(input: {
     supabase
       .from("anagrafica_sedi")
       .select(
-        "id, tipo, nazione, provincia, citta, cap, indirizzo, sort_order"
+        "id, tipo, nazione, provincia, citta, cap, indirizzo, sort_order, ricezione_merce"
       )
       .eq("owner_kind", input.ownerKind)
       .eq("owner_id", input.ownerId)
@@ -119,6 +123,41 @@ export async function loadAnagraficaExtraAction(input: {
     success: true,
     sedi: ((sediRes.data ?? []) as ExtraRowSede[]).map(mapSede),
     brand,
+  };
+}
+
+export async function loadIndirizzoRicezioneMerce(input: {
+  ownerKind: AnagraficaOwnerKind;
+  ownerId: string | null | undefined;
+  ragioneSociale?: string;
+}): Promise<{
+  destinatario: string;
+  indirizzo: string;
+  sedeId: string;
+} | null> {
+  if (!input.ownerId || !z.string().uuid().safeParse(input.ownerId).success) {
+    return null;
+  }
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from("anagrafica_sedi")
+    .select(
+      "id, tipo, nazione, provincia, citta, cap, indirizzo, sort_order, ricezione_merce"
+    )
+    .eq("owner_kind", input.ownerKind)
+    .eq("owner_id", input.ownerId)
+    .is("deleted_at", null)
+    .eq("ricezione_merce", true)
+    .maybeSingle();
+  if (error || !data) return null;
+  const sede = mapSede(data as ExtraRowSede);
+  if (isSedeAddressEmpty(sede)) return null;
+  const indirizzo = formatSedeIndirizzo(sede);
+  if (!indirizzo) return null;
+  return {
+    destinatario: (input.ragioneSociale ?? "").trim(),
+    indirizzo,
+    sedeId: sede.id,
   };
 }
 
@@ -161,6 +200,19 @@ export async function persistAnagraficaExtra(input: {
       .in("id", toSoftSedi);
     if (error) return error.message;
   }
+  const { error: clearRicezioneErr } = await supabase
+    .from("anagrafica_sedi")
+    .update({
+      ricezione_merce: false,
+      updated_by: input.userId,
+      updated_at: now,
+    })
+    .eq("owner_kind", input.ownerKind)
+    .eq("owner_id", input.ownerId)
+    .is("deleted_at", null)
+    .eq("ricezione_merce", true);
+  if (clearRicezioneErr) return clearRicezioneErr.message;
+
   for (const [i, s] of sedi.entries()) {
     const payload = {
       owner_kind: input.ownerKind,
@@ -172,6 +224,7 @@ export async function persistAnagraficaExtra(input: {
       cap: s.cap ?? "",
       indirizzo: s.indirizzo ?? "",
       sort_order: i,
+      ricezione_merce: Boolean(s.ricezioneMerce),
       updated_by: input.userId,
       updated_at: now,
     };
@@ -326,6 +379,7 @@ export async function copyAnagraficaExtraAction(input: {
       cap: s.cap,
       indirizzo: s.indirizzo,
       sortOrder: i,
+      ricezioneMerce: Boolean(s.ricezioneMerce),
     })),
     brand: loaded.brand.map((b, i) => ({
       nome: b.nome,
