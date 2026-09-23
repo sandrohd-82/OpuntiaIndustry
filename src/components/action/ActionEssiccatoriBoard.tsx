@@ -1,13 +1,24 @@
 "use client";
 
 import { useEffect, useState, useTransition } from "react";
-import { FaBolt, FaClock, FaDiagramProject, FaFlag } from "react-icons/fa6";
+import {
+  FaBolt,
+  FaClock,
+  FaDiagramProject,
+  FaFlag,
+  FaClipboardList,
+} from "react-icons/fa6";
 import {
   listActionEssiccatoreSensoriAction,
   moveActionEssiccatoreSensoreAction,
   renameActionEssiccatoreSensoreAction,
 } from "@/app/actions/action-essiccatore-sensori";
 import { ActionEssiccatoreAzioniImmediateModal } from "@/components/action/ActionEssiccatoreAzioniImmediateModal";
+import {
+  ActionEssiccatoreProcessiModal,
+  ActionEssiccatoreProgrammateModal,
+  ActionEssiccatoreRegistrateModal,
+} from "@/components/action/ActionEssiccatoreFamiglieModals";
 import { useIotMexComms } from "@/components/action/IotMexCommsProvider";
 import { ActionEssiccatoreSensorFlags } from "@/components/action/ActionEssiccatoreSensorFlags";
 import { PdfFirstPageImage } from "@/components/action/PdfFirstPageImage";
@@ -21,42 +32,59 @@ import {
 import { createSessioneAvvioComms } from "@/lib/action/iot-mex-comms";
 import type { ActionEssiccatoreSensore } from "@/lib/action/sensori";
 
-const iconBtn =
-  "inline-flex h-9 w-9 items-center justify-center rounded-lg text-slate-600 hover:bg-slate-100 hover:text-slate-900";
+const familyBtn =
+  "inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-[11px] font-medium text-slate-700 hover:bg-slate-50";
 
 function EssiccatoreCommandIcons({
   nome,
   onImmediate,
+  onProgrammate,
+  onRegistrate,
+  onProcessi,
 }: {
   nome: string;
   onImmediate: () => void;
+  onProgrammate: () => void;
+  onRegistrate: () => void;
+  onProcessi: () => void;
 }) {
   return (
-    <div className="flex justify-end gap-1 px-3 py-2">
+    <div className="flex flex-wrap justify-end gap-1.5 px-3 py-2">
       <button
         type="button"
-        className={iconBtn}
-        title="Azione — comando immediato"
-        aria-label={`Azione immediata su ${nome}`}
+        className={familyBtn}
+        aria-label={`Azioni immediate su ${nome}`}
         onClick={onImmediate}
       >
-        <FaBolt size={16} />
+        <FaBolt size={12} />
+        Azioni immediate
       </button>
       <button
         type="button"
-        className={iconBtn}
-        title="Programma — esegui fra X oppure alle ore X"
-        aria-label={`Programma su ${nome}`}
+        className={familyBtn}
+        aria-label={`Azioni programmate su ${nome}`}
+        onClick={onProgrammate}
       >
-        <FaClock size={16} />
+        <FaClock size={12} />
+        Azioni programmate
       </button>
       <button
         type="button"
-        className={iconBtn}
-        title="Processo — serie di azioni in sequenza, in parallelo o su evento"
-        aria-label={`Processo su ${nome}`}
+        className={familyBtn}
+        aria-label={`Azioni registrate su ${nome}`}
+        onClick={onRegistrate}
       >
-        <FaDiagramProject size={16} />
+        <FaClipboardList size={12} />
+        Azioni registrate
+      </button>
+      <button
+        type="button"
+        className={familyBtn}
+        aria-label={`Processi su ${nome}`}
+        onClick={onProcessi}
+      >
+        <FaDiagramProject size={12} />
+        Processi
       </button>
     </div>
   );
@@ -70,6 +98,9 @@ function EssiccatoreBox({
   onCommit,
   onRename,
   onImmediate,
+  onProgrammate,
+  onRegistrate,
+  onProcessi,
 }: {
   item: ActionEssiccatore;
   sensors: ActionEssiccatoreSensore[];
@@ -78,6 +109,9 @@ function EssiccatoreBox({
   onCommit: (id: string, xPct: number, yPct: number) => void;
   onRename: (id: string, nome: string) => void;
   onImmediate: () => void;
+  onProgrammate: () => void;
+  onRegistrate: () => void;
+  onProcessi: () => void;
 }) {
   return (
     <article className="relative flex flex-col overflow-visible rounded-xl border border-[var(--border)] bg-[var(--card)] shadow-sm">
@@ -132,7 +166,13 @@ function EssiccatoreBox({
         />
       </div>
       <div className="flex items-center justify-end px-3 py-2">
-        <EssiccatoreCommandIcons nome={item.nome} onImmediate={onImmediate} />
+        <EssiccatoreCommandIcons
+          nome={item.nome}
+          onImmediate={onImmediate}
+          onProgrammate={onProgrammate}
+          onRegistrate={onRegistrate}
+          onProcessi={onProcessi}
+        />
       </div>
     </article>
   );
@@ -150,6 +190,10 @@ export function ActionEssiccatoriBoard({ canPosition = false }: Props) {
   const [immediateFor, setImmediateFor] = useState<ActionEssiccatore | null>(
     null
   );
+  const [familyFor, setFamilyFor] = useState<{
+    item: ActionEssiccatore;
+    kind: "programmate" | "registrate" | "processi";
+  } | null>(null);
   const { avviaSessione } = useIotMexComms();
 
   useEffect(() => {
@@ -234,6 +278,11 @@ export function ActionEssiccatoriBoard({ canPosition = false }: Props) {
             onCommit={commitMove}
             onRename={rename}
             onImmediate={() => setImmediateFor(item)}
+            onProgrammate={() =>
+              setFamilyFor({ item, kind: "programmate" })
+            }
+            onRegistrate={() => setFamilyFor({ item, kind: "registrate" })}
+            onProcessi={() => setFamilyFor({ item, kind: "processi" })}
           />
         ))}
       </div>
@@ -246,6 +295,24 @@ export function ActionEssiccatoriBoard({ canPosition = false }: Props) {
             setImmediateFor(null);
             avviaSessione(createSessioneAvvioComms(azione, nome));
           }}
+        />
+      ) : null}
+      {familyFor?.kind === "registrate" ? (
+        <ActionEssiccatoreRegistrateModal
+          essiccatore={familyFor.item}
+          onClose={() => setFamilyFor(null)}
+        />
+      ) : null}
+      {familyFor?.kind === "programmate" ? (
+        <ActionEssiccatoreProgrammateModal
+          essiccatore={familyFor.item}
+          onClose={() => setFamilyFor(null)}
+        />
+      ) : null}
+      {familyFor?.kind === "processi" ? (
+        <ActionEssiccatoreProcessiModal
+          essiccatore={familyFor.item}
+          onClose={() => setFamilyFor(null)}
         />
       ) : null}
     </div>
