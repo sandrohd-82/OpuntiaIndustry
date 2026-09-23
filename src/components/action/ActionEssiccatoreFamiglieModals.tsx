@@ -19,16 +19,27 @@ import {
   softDeleteAzioneRegistrataAction,
   softDeleteProcessoAction,
 } from "@/app/actions/action-essiccatore-catalogo";
+import { FaFan, FaFire } from "react-icons/fa6";
+import {
+  BURNER_FROM,
+  BURNER_TO,
+  ClockArcPercentGauge,
+  VENT_FROM,
+  VENT_TO,
+} from "@/components/action/ClockArcPercentGauge";
 import {
   TEMP_BRUCIATORE_DEFAULT_C,
   TEMP_BRUCIATORE_MAX_C,
   TEMP_BRUCIATORE_MIN_C,
 } from "@/lib/action/azioni-immediate";
 import {
+  durataToMinuti,
+  formatDurataMinuti,
   formatEseguiAt,
   PROGRAMMATA_STATO_LABEL,
   type AzioneProgrammata,
   type AzioneRegistrata,
+  type DurataUnita,
   type ProcessoAzione,
 } from "@/lib/action/azioni-catalogo";
 import type { ActionEssiccatore } from "@/lib/action/essiccatori";
@@ -55,7 +66,7 @@ function Shell({
         role="dialog"
         aria-modal="true"
         aria-labelledby={titleId}
-        className="max-h-[92vh] w-full max-w-2xl overflow-y-auto rounded-xl border border-[var(--border)] bg-[var(--card)] shadow-xl"
+        className="max-h-[92vh] w-full max-w-3xl overflow-y-auto rounded-xl border border-[var(--border)] bg-[var(--card)] shadow-xl"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-center justify-between gap-3 border-b border-[var(--border)] px-4 py-3">
@@ -96,9 +107,12 @@ export function ActionEssiccatoreRegistrateModal({
   const [items, setItems] = useState<AzioneRegistrata[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [pending, start] = useTransition();
-  const [nome, setNome] = useState("Avvio");
+  const [nome, setNome] = useState("");
   const [temp, setTemp] = useState(TEMP_BRUCIATORE_DEFAULT_C);
   const [vent, setVent] = useState(70);
+  const [durataInfinito, setDurataInfinito] = useState(true);
+  const [durataValore, setDurataValore] = useState(60);
+  const [durataUnita, setDurataUnita] = useState<DurataUnita>("minuti");
 
   function reload() {
     void listAzioniRegistrateAction({ essiccatoreId: essiccatore.id }).then(
@@ -123,8 +137,8 @@ export function ActionEssiccatoreRegistrateModal({
       onClose={onClose}
     >
       <p className="text-xs text-[var(--muted)]">
-        Un’azione registrata è un Avvio salvato (temperatura e ventilazione).
-        Programmate e processi usano solo queste.
+        Nome, setpoint come in Azione immediata, durata in minuti/ore oppure
+        Infinito. Programmate e processi usano solo queste.
       </p>
       {error ? (
         <p className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">
@@ -132,67 +146,130 @@ export function ActionEssiccatoreRegistrateModal({
         </p>
       ) : null}
       <form
-        className="grid gap-3 rounded-lg border border-[var(--border)] p-3 sm:grid-cols-2"
+        className="space-y-4 rounded-lg border border-[var(--border)] p-3"
         onSubmit={(e) => {
           e.preventDefault();
+          const minuti = durataInfinito
+            ? null
+            : durataToMinuti(durataValore, durataUnita);
+          if (!durataInfinito && (!minuti || minuti < 1)) {
+            setError("Imposta una durata valida oppure scegli Infinito.");
+            return;
+          }
           start(async () => {
             const res = await createAzioneRegistrataAction({
               essiccatoreId: essiccatore.id,
               nome,
               tempBruciatoreC: temp,
               percVentilazione: vent,
+              durataMinuti: minuti,
             });
             if (!res.success) {
               setError(res.error);
               return;
             }
-            setNome("Avvio");
+            setNome("");
+            setDurataInfinito(true);
+            setDurataValore(60);
+            setDurataUnita("minuti");
             reload();
           });
         }}
       >
-        <label className="block text-sm sm:col-span-2">
+        <label className="block text-sm">
           <span className="mb-1 block font-medium">Nome</span>
           <input
             value={nome}
             onChange={(e) => setNome(e.target.value)}
             required
+            minLength={2}
+            placeholder="Nome dell’azione"
             className="w-full rounded-lg border border-[var(--border)] px-3 py-2"
           />
         </label>
-        <label className="block text-sm">
-          <span className="mb-1 block font-medium">
-            Temperatura ({TEMP_BRUCIATORE_MIN_C}–{TEMP_BRUCIATORE_MAX_C} °C)
-          </span>
-          <input
-            type="number"
-            min={TEMP_BRUCIATORE_MIN_C}
-            max={TEMP_BRUCIATORE_MAX_C}
-            value={temp}
-            onChange={(e) => setTemp(Number(e.target.value))}
-            className="w-full rounded-lg border border-[var(--border)] px-3 py-2"
-          />
-        </label>
-        <label className="block text-sm">
-          <span className="mb-1 block font-medium">Ventilazione %</span>
-          <input
-            type="number"
-            min={0}
-            max={100}
-            value={vent}
-            onChange={(e) => setVent(Number(e.target.value))}
-            className="w-full rounded-lg border border-[var(--border)] px-3 py-2"
-          />
-        </label>
-        <div className="sm:col-span-2">
-          <button
-            type="submit"
-            disabled={pending}
-            className="rounded-lg bg-slate-900 px-3 py-2 text-sm font-medium text-white disabled:opacity-50"
-          >
-            Registra azione
-          </button>
+        <div className="grid gap-4 md:grid-cols-2">
+          <section className="rounded-xl border border-orange-100 bg-orange-50/40 p-3">
+            <div className="mb-1 flex items-center gap-2 text-sm font-semibold text-orange-950">
+              <FaFire className="text-orange-600" />
+              Bruciatore
+            </div>
+            <ClockArcPercentGauge
+              label="Temperatura"
+              value={temp}
+              onChange={setTemp}
+              min={TEMP_BRUCIATORE_MIN_C}
+              max={TEMP_BRUCIATORE_MAX_C}
+              unit="°C"
+              ticks={[35, 45, 55, 65, 70]}
+              fromColor={BURNER_FROM}
+              toColor={BURNER_TO}
+            />
+          </section>
+          <section className="rounded-xl border border-sky-100 bg-sky-50/40 p-3">
+            <div className="mb-1 flex items-center gap-2 text-sm font-semibold text-sky-950">
+              <FaFan className="text-sky-600" />
+              Ventola
+            </div>
+            <ClockArcPercentGauge
+              label="Ventilazione"
+              value={vent}
+              onChange={setVent}
+              fromColor={VENT_FROM}
+              toColor={VENT_TO}
+            />
+          </section>
         </div>
+        <fieldset className="rounded-lg border border-[var(--border)] p-3">
+          <legend className="px-1 text-sm font-medium">Durata</legend>
+          <label className="flex items-center gap-2 text-sm">
+            <input
+              type="checkbox"
+              checked={durataInfinito}
+              onChange={(e) => setDurataInfinito(e.target.checked)}
+            />
+            Infinito (non impostata)
+          </label>
+          {durataInfinito ? (
+            <p className="mt-2 text-xs text-[var(--muted)]">
+              L’azione resta attiva finché non viene fermata.
+            </p>
+          ) : (
+            <div className="mt-3 flex flex-wrap items-end gap-2">
+              <label className="block text-sm">
+                <span className="mb-1 block font-medium">Valore</span>
+                <input
+                  type="number"
+                  min={1}
+                  max={durataUnita === "ore" ? 24 * 30 : 60 * 24 * 30}
+                  value={durataValore}
+                  onChange={(e) => setDurataValore(Number(e.target.value))}
+                  required
+                  className="w-28 rounded-lg border border-[var(--border)] px-3 py-2"
+                />
+              </label>
+              <label className="block text-sm">
+                <span className="mb-1 block font-medium">Unità</span>
+                <select
+                  value={durataUnita}
+                  onChange={(e) =>
+                    setDurataUnita(e.target.value as DurataUnita)
+                  }
+                  className="rounded-lg border border-[var(--border)] bg-white px-3 py-2"
+                >
+                  <option value="minuti">minuti</option>
+                  <option value="ore">ore</option>
+                </select>
+              </label>
+            </div>
+          )}
+        </fieldset>
+        <button
+          type="submit"
+          disabled={pending}
+          className="rounded-lg bg-slate-900 px-3 py-2 text-sm font-medium text-white disabled:opacity-50"
+        >
+          Registra azione
+        </button>
       </form>
       <ul className="space-y-2">
         {items.length === 0 ? (
@@ -206,8 +283,8 @@ export function ActionEssiccatoreRegistrateModal({
               <span>
                 <span className="font-medium">{item.nome}</span>
                 <span className="mt-0.5 block text-xs text-[var(--muted)]">
-                  Avvio · {item.tempBruciatoreC}°C · ventola {item.percVentilazione}% · v
-                  {item.versione} · {item.documentoStato}
+                  {item.tempBruciatoreC}°C · ventola {item.percVentilazione}% ·{" "}
+                  {formatDurataMinuti(item.durataMinuti)} · v{item.versione}
                 </span>
               </span>
               <button
@@ -313,7 +390,8 @@ export function ActionEssiccatoreProgrammateModal({
             >
               {regs.map((r) => (
                 <option key={r.id} value={r.id}>
-                  {r.nome} · {r.tempBruciatoreC}°C · {r.percVentilazione}%
+                  {r.nome} · {r.tempBruciatoreC}°C · {r.percVentilazione}% ·{" "}
+                  {formatDurataMinuti(r.durataMinuti)}
                 </option>
               ))}
             </select>
@@ -499,7 +577,8 @@ export function ActionEssiccatoreProcessiModal({
               >
                 {regs.map((r) => (
                   <option key={r.id} value={r.id}>
-                    {r.nome} · {r.tempBruciatoreC}°C · {r.percVentilazione}%
+                    {r.nome} · {r.tempBruciatoreC}°C · {r.percVentilazione}% ·{" "}
+                  {formatDurataMinuti(r.durataMinuti)}
                   </option>
                 ))}
               </select>

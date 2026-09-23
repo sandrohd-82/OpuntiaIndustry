@@ -31,6 +31,7 @@ type RegRow = {
   descrizione: string;
   temp_bruciatore_c: number;
   perc_ventilazione: number;
+  durata_minuti: number | null;
   versione: number;
   documento_stato: AzioneRegistrata["documentoStato"];
   created_at: string;
@@ -58,6 +59,7 @@ function mapReg(r: RegRow): AzioneRegistrata {
     descrizione: r.descrizione ?? "",
     tempBruciatoreC: r.temp_bruciatore_c,
     percVentilazione: r.perc_ventilazione,
+    durataMinuti: r.durata_minuti == null ? null : Number(r.durata_minuti),
     versione: r.versione,
     documentoStato: r.documento_stato,
     createdAt: r.created_at,
@@ -80,7 +82,7 @@ export async function listAzioniRegistrateAction(
   const { data, error } = await supabase
     .from("action_essiccatore_registrate")
     .select(
-      "id, essiccatore_id, azione_key, nome, descrizione, temp_bruciatore_c, perc_ventilazione, versione, documento_stato, created_at"
+      "id, essiccatore_id, azione_key, nome, descrizione, temp_bruciatore_c, perc_ventilazione, durata_minuti, versione, documento_stato, created_at"
     )
     .eq("essiccatore_id", parsed.data.essiccatoreId)
     .is("deleted_at", null)
@@ -112,13 +114,14 @@ export async function createAzioneRegistrataAction(
       descrizione: parsed.data.descrizione ?? "",
       temp_bruciatore_c: parsed.data.tempBruciatoreC,
       perc_ventilazione: parsed.data.percVentilazione,
+      durata_minuti: parsed.data.durataMinuti,
       versione: 1,
       documento_stato: "approvato",
       created_by: auth.userId,
       updated_by: auth.userId,
     })
     .select(
-      "id, essiccatore_id, azione_key, nome, descrizione, temp_bruciatore_c, perc_ventilazione, versione, documento_stato, created_at"
+      "id, essiccatore_id, azione_key, nome, descrizione, temp_bruciatore_c, perc_ventilazione, durata_minuti, versione, documento_stato, created_at"
     )
     .single();
   if (error || !data) {
@@ -134,6 +137,7 @@ export async function createAzioneRegistrataAction(
     payload: {
       tempBruciatoreC: item.tempBruciatoreC,
       percVentilazione: item.percVentilazione,
+      durataMinuti: item.durataMinuti,
     },
   });
   return { success: true, item };
