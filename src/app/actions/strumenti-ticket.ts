@@ -562,7 +562,7 @@ export async function createTicketAction(
       urgenza: parsed.data.urgenza,
     },
   });
-  void notifyTicketNuovo({
+  await notifyTicketNuovo({
     actorId: auth.userId,
     ticketId,
     codice,
@@ -637,7 +637,7 @@ export async function sendTicketMessaggioAction(
       .eq("id", parsed.data.ticketId);
   }
   const messaggioId = (msg as { id: string }).id;
-  void notifyTicketMessaggio({
+  await notifyTicketMessaggio({
     actorId: auth.userId,
     ticketId: parsed.data.ticketId,
     messaggioId,

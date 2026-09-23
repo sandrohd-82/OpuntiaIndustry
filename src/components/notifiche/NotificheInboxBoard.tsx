@@ -14,6 +14,7 @@ import {
 } from "@/app/actions/password-reset";
 import type { PasswordResetRichiesta } from "@/lib/auth/password-reset";
 import { notifyNotificheNav } from "@/lib/notifiche/nav-event";
+import { notifyTicketNav } from "@/lib/strumenti/ticket-nav";
 import {
   hrefAreaNotifica,
   NOTIFICA_TIPO_LABELS,
@@ -90,6 +91,7 @@ export function NotificheInboxBoard({
       return;
     }
     notifyNotificheNav();
+    notifyTicketNav();
     await reload();
   }
 
@@ -102,6 +104,7 @@ export function NotificheInboxBoard({
       return;
     }
     notifyNotificheNav();
+    notifyTicketNav();
     await reload();
   }
 
@@ -115,6 +118,7 @@ export function NotificheInboxBoard({
         return;
       }
       notifyNotificheNav();
+      notifyTicketNav();
     }
     setBusyId(null);
     router.push(hrefAreaNotifica(n));

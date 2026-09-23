@@ -21,28 +21,37 @@ function hrefTicket(ticketId: string): string {
   return `/app/strumenti/ticket?apri=${ticketId}`;
 }
 
-function destinatariControparte(input: {
+async function destinatariControparte(input: {
   actorId: string;
+  ticketId: string;
   createdBy: string | null;
-  addettoId: string | null;
-}): string[] {
-  const out = new Set<string>();
-  const creator = input.createdBy;
-  if (creator && creator === input.actorId) {
-    if (input.addettoId && input.addettoId !== input.actorId) {
-      out.add(input.addettoId);
-    }
-    return [...out];
+}): Promise<string[]> {
+  const db = createServiceClient();
+  const addetto = await loadTicketAddettoUserId();
+  const { data: ticket } = await db
+    .from("strumenti_ticket")
+    .select("created_by")
+    .eq("id", input.ticketId)
+    .is("deleted_at", null)
+    .maybeSingle();
+  const { data: msgs } = await db
+    .from("strumenti_ticket_messaggi")
+    .select("created_by")
+    .eq("ticket_id", input.ticketId)
+    .is("deleted_at", null);
+  const ids = new Set<string>();
+  const creator = ticket?.created_by
+    ? String(ticket.created_by)
+    : input.createdBy
+      ? String(input.createdBy)
+      : "";
+  if (creator) ids.add(creator);
+  if (addetto) ids.add(addetto);
+  for (const m of msgs ?? []) {
+    if (m.created_by) ids.add(String(m.created_by));
   }
-  if (input.addettoId && input.addettoId === input.actorId) {
-    if (creator && creator !== input.actorId) out.add(creator);
-    return [...out];
-  }
-  if (input.addettoId && input.addettoId !== input.actorId) {
-    out.add(input.addettoId);
-  }
-  if (creator && creator !== input.actorId) out.add(creator);
-  return [...out];
+  ids.delete(input.actorId);
+  return [...ids];
 }
 
 export async function notifyTicketNuovo(input: {
@@ -54,7 +63,7 @@ export async function notifyTicketNuovo(input: {
 }): Promise<void> {
   try {
     const addetto = await loadTicketAddettoUserId();
-    if (!addetto) return;
+    if (!addetto || addetto === input.actorId) return;
     const urg = TICKET_URGENZA_META[input.urgenza]?.label ?? input.urgenza;
     await dispatchNotifiche({
       actorId: input.actorId,
@@ -87,11 +96,10 @@ export async function notifyTicketMessaggio(input: {
   anteprima: string;
 }): Promise<void> {
   try {
-    const addetto = await loadTicketAddettoUserId();
-    const recipientIds = destinatariControparte({
+    const recipientIds = await destinatariControparte({
       actorId: input.actorId,
+      ticketId: input.ticketId,
       createdBy: input.createdBy,
-      addettoId: addetto,
     });
     if (!recipientIds.length) return;
     const anteprima = input.anteprima.replace(/\s+/g, " ").trim();

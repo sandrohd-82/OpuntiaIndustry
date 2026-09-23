@@ -212,7 +212,7 @@ export async function creaTicketConAllegati(input: {
       fileCount: input.files.length,
     },
   });
-  void notifyTicketNuovo({
+  await notifyTicketNuovo({
     actorId: auth.userId,
     ticketId,
     codice,
@@ -313,7 +313,7 @@ export async function inviaMessaggioConAllegati(input: {
       .eq("id", parsed.data.ticketId);
   }
   const messaggioId = (msg as { id: string }).id;
-  void notifyTicketMessaggio({
+  await notifyTicketMessaggio({
     actorId: auth.userId,
     ticketId: parsed.data.ticketId,
     messaggioId,

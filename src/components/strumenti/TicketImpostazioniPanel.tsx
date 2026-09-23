@@ -78,9 +78,9 @@ export function TicketImpostazioniPanel() {
         <div className="mt-3 space-y-3">
           <p className="text-sm text-slate-700">
             Operatore addetto alla risoluzione dei ticket. Solo a questa persona
-            arriva la notifica di un nuovo ticket (pallino azzurro su Strumenti).
-            I messaggi in chat notificano la controparte e mostrano il numero
-            verde sulla riga Ticket.
+            arriva la notifica di un nuovo ticket (numero azzurro su Strumenti).
+            I messaggi notificano la controparte (numero verde su Ticket). I
+            numeri spariscono appena la notifica è letta.
           </p>
           <label className="block text-sm">
             <span className="mb-1 block text-xs font-medium text-slate-600">

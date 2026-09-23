@@ -5,6 +5,7 @@ import { writeAuditLog } from "@/lib/audit";
 import { requireAnyAreaAccess } from "@/lib/areas/guard";
 import { formatOperatorShortName } from "@/lib/auth/operator-short-name";
 import { isUnrestrictedSuperadmin } from "@/lib/auth/roles";
+import { getAuthContext } from "@/lib/auth/session";
 import { loadTicketAddettoUserId } from "@/lib/strumenti/ticket-notify";
 import { createClient, createServiceClient } from "@/lib/supabase/server";
 
@@ -139,32 +140,26 @@ export async function getTicketNavBadgeAction(): Promise<
   | { success: true; tickets: number; messaggi: number }
   | { success: false; error: string }
 > {
-  const { auth } = await requireAnyAreaAccess(["strumenti", "amministrazione"]);
-  const addetto = await loadTicketAddettoUserId();
-  const db = createServiceClient();
-  let tickets = 0;
-  if (addetto && addetto === auth.userId) {
-    const { count, error } = await db
-      .from("strumenti_ticket")
-      .select("id", { count: "exact", head: true })
-      .is("deleted_at", null)
-      .is("archiviato_at", null)
-      .in("documento_stato", ["bozza", "in_carico"]);
-    if (error) return { success: false, error: error.message };
-    tickets = count ?? 0;
+  const auth = await getAuthContext();
+  if (!auth?.isSecondFactorVerified) {
+    return { success: false, error: "Non autenticato" };
   }
-  const { count: msgCount, error: msgErr } = await db
+  const db = createServiceClient();
+  const { data, error } = await db
     .from("app_notifiche")
-    .select("id", { count: "exact", head: true })
+    .select("entity_type")
     .eq("recipient_id", auth.userId)
     .eq("tipo", "sistema")
-    .eq("entity_type", "strumenti_ticket_messaggio")
     .is("deleted_at", null)
-    .is("read_at", null);
-  if (msgErr) return { success: false, error: msgErr.message };
-  return {
-    success: true,
-    tickets,
-    messaggi: msgCount ?? 0,
-  };
+    .is("read_at", null)
+    .in("entity_type", ["strumenti_ticket", "strumenti_ticket_messaggio"]);
+  if (error) return { success: false, error: error.message };
+  let tickets = 0;
+  let messaggi = 0;
+  for (const row of data ?? []) {
+    const t = String((row as { entity_type?: string }).entity_type ?? "");
+    if (t === "strumenti_ticket_messaggio") messaggi += 1;
+    else if (t === "strumenti_ticket") tickets += 1;
+  }
+  return { success: true, tickets, messaggi };
 }

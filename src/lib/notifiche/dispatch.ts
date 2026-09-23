@@ -72,10 +72,12 @@ export async function dispatchNotifiche(
     updated_by: input.actorId,
   }));
 
-  let error = (await user.from("app_notifiche").insert(rows)).error;
+  let error = service
+    ? (await service.from("app_notifiche").insert(rows)).error
+    : (await user.from("app_notifiche").insert(rows)).error;
   if (error && service) {
-    console.error("[app_notifiche insert user]", error.message);
-    error = (await service.from("app_notifiche").insert(rows)).error;
+    console.error("[app_notifiche insert service]", error.message);
+    error = (await user.from("app_notifiche").insert(rows)).error;
   }
   if (error) {
     console.error("[app_notifiche insert]", error.message);

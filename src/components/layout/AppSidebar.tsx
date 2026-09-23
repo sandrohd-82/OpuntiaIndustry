@@ -671,9 +671,11 @@ export function AppSidebar({
     };
   }, [hasPn, userId]);
 
-  const hasStrumenti = areas.some((a) => a.slug === "strumenti");
+  const hasTicketMenu = areas.some(
+    (a) => a.slug === "strumenti" || a.slug === "amministrazione"
+  );
   useEffect(() => {
-    if (!hasStrumenti) {
+    if (!hasTicketMenu) {
       setTicketNav({ tickets: 0, messaggi: 0 });
       return;
     }
@@ -721,7 +723,7 @@ export function AppSidebar({
       window.removeEventListener(NOTIFICHE_NAV_EVENT, loadTicketBadge);
       window.removeEventListener("focus", loadTicketBadge);
     };
-  }, [hasStrumenti, userId]);
+  }, [hasTicketMenu, userId]);
 
   useEffect(() => {
     let cancelled = false;
