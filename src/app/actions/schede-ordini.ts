@@ -83,7 +83,7 @@ export async function openSchedaFromTimelineAction(input: {
   const service = createServiceClient();
   let numero = "SO";
   let cliente = "";
-  let prodotto = "";
+  const prodotto = "";
   if (ordineId) {
     const { data } = await service
       .from("ordini")
