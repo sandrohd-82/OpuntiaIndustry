@@ -162,7 +162,7 @@ export function SchedaOrdineModal({
       setError(res.error);
       return;
     }
-    setInfo("Consegna dichiarata. Ordine chiuso.");
+    setInfo("Consegna dichiarata. Ordine evaso.");
     const again = await getSchedaOrdineDettaglioAction(schedaId);
     if (again.success) setDettaglio(again.dettaglio);
     onChanged?.();

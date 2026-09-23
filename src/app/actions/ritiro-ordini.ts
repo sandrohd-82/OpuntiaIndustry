@@ -372,7 +372,7 @@ export async function forzaConsegnaSchedaAction(
     entity_id: entityId || det.scheda.id,
     action: "status_change",
     actor_id: auth.userId,
-    summary: "Consegna forzata · ordine chiuso",
+    summary: "Consegna forzata · ordine evaso",
     payload: { motivo: parsed.data.motivo },
   });
   return { success: true };

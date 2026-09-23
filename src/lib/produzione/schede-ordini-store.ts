@@ -724,7 +724,7 @@ export async function chiudiSchedaPerConsegna(
   await appendSchedaTimeline(supabase, {
     schedaId: input.scheda.id,
     eventoTipo: "chiuso",
-    titolo: `Ordine chiuso · ${input.scheda.numeroScheda}`,
+    titolo: `Ordine evaso · ${input.scheda.numeroScheda}`,
     dettaglio: "Stato spedizione: consegnata.",
     actorId: input.userId,
   });

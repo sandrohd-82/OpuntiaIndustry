@@ -19,7 +19,7 @@ export const CICLO_STATO_ORDINE = {
     hint: "Ritirato dal corriere, in viaggio",
   },
   chiuso: {
-    label: "Chiuso",
+    label: "Evaso",
     hint: "Spedizione consegnata",
   },
 } as const;

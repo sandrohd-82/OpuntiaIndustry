@@ -43,7 +43,7 @@ export const SCHEDA_EVENTO_LABEL: Record<SchedaEventoTipo, string> = {
   spedizione: "Spedizione",
   concluso: "Concluso",
   consegnata: "Consegnata",
-  chiuso: "Chiuso",
+  chiuso: "Evaso",
 };
 
 export const SCHEDA_COMPLETE_GIORNI = 30;
