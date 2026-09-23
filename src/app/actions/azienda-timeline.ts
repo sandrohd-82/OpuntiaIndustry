@@ -20,6 +20,10 @@ import {
   SCHEDA_ORDINE_NOTA_TITOLO,
 } from "@/lib/amministrazione/scheda-timeline-nota";
 import type { CampionaturaStatoDb, OrdineStato } from "@/types/database";
+import {
+  filterOrTipoId,
+  resolveAnagraficaTwins,
+} from "@/lib/amministrazione/anagrafica-twins";
 import { fraseConfermaPausaTimelineSync } from "@/lib/amministrazione/timeline-sync";
 import {
   upsertTimelinePnCopia,
@@ -44,6 +48,46 @@ function pushSorted(
 ) {
   if (!item.occurredAt) return;
   items.push(item);
+}
+
+type OrdineTimelineRow = {
+  id: string;
+  numero_interno: string | null;
+  data_ordine: string | null;
+  created_at: string | null;
+  stato: string | null;
+  tipo: string | null;
+};
+
+type CampionaturaTimelineRow = {
+  id: string;
+  numero_interno: string | null;
+  data_invio: string | null;
+  created_at: string | null;
+  stato: string | null;
+};
+
+async function queryByClienteTwins<T>(
+  service: ReturnType<typeof createServiceClient>,
+  table: "ordini" | "campionature",
+  columns: string,
+  clienteIds: string[],
+  possibileIds: string[]
+): Promise<{ data: T[] }> {
+  let q = service.from(table).select(columns).is("deleted_at", null).limit(200);
+  if (clienteIds.length && possibileIds.length) {
+    q = q.or(
+      `cliente_id.in.(${clienteIds.join(",")}),cliente_possibile_id.in.(${possibileIds.join(",")})`
+    );
+  } else if (clienteIds.length) {
+    q = q.in("cliente_id", clienteIds);
+  } else if (possibileIds.length) {
+    q = q.in("cliente_possibile_id", possibileIds);
+  } else {
+    return { data: [] };
+  }
+  const { data } = await q;
+  return { data: (data ?? []) as T[] };
 }
 
 function normalizeEmail(raw: string): string {
@@ -234,6 +278,11 @@ export async function listAziendaTimelineAction(raw: unknown): Promise<
     if (!tlGate.ok) return { success: false, error: tlGate.error };
   }
   const items: AziendaTimelineItem[] = [];
+  const twins = await resolveAnagraficaTwins(service, aziendaTipo, aziendaId);
+  const aziendaKeys =
+    twins.keys.length > 0
+      ? twins.keys
+      : [{ tipo: aziendaTipo, id: aziendaId }];
   const vis = await resolveWebmailAccountVisibility(auth);
   const grantedIds = vis.mode === "granted" ? vis.ids : null;
 
@@ -243,11 +292,16 @@ export async function listAziendaTimelineAction(raw: unknown): Promise<
       .select(
         "id, subject, from_address, from_name, to_addresses, received_at, sent_at, direction"
       )
-      .eq("azienda_tipo", aziendaTipo)
-      .eq("azienda_id", aziendaId)
       .is("deleted_at", null)
       .order("received_at", { ascending: true })
       .limit(300);
+    if (aziendaKeys.length === 1) {
+      mailQ = mailQ
+        .eq("azienda_tipo", aziendaKeys[0].tipo)
+        .eq("azienda_id", aziendaKeys[0].id);
+    } else {
+      mailQ = mailQ.or(filterOrTipoId(aziendaKeys, "azienda_tipo", "azienda_id"));
+    }
     if (grantedIds) mailQ = mailQ.in("account_id", grantedIds);
     const { data } = await mailQ;
     for (const r of data ?? []) {
@@ -275,13 +329,20 @@ export async function listAziendaTimelineAction(raw: unknown): Promise<
   }
 
   {
-    const { data: contatti } = await service
+    let contattiQ = service
       .from("rubrica_contatti")
       .select("id, nome, cognome")
-      .eq("azienda_tipo", aziendaTipo)
-      .eq("azienda_id", aziendaId)
       .is("deleted_at", null)
       .limit(200);
+    contattiQ =
+      aziendaKeys.length === 1
+        ? contattiQ
+            .eq("azienda_tipo", aziendaKeys[0].tipo)
+            .eq("azienda_id", aziendaKeys[0].id)
+        : contattiQ.or(
+            filterOrTipoId(aziendaKeys, "azienda_tipo", "azienda_id")
+          );
+    const { data: contatti } = await contattiQ;
     const contattoIds = (contatti ?? []).map((c) => String(c.id));
     const nameById = new Map(
       (contatti ?? []).map((c) => [
@@ -318,41 +379,42 @@ export async function listAziendaTimelineAction(raw: unknown): Promise<
   }
 
   {
-    const { data } = await service
+    let noteQ = service
       .from("pn_note")
       .select(
         "id, titolo, body, body_rich, allegati, due_at, created_at, colore, linked_ordine_id, linked_campionatura_id, linked_scheda_id"
       )
-      .eq("entity_type", aziendaTipo)
-      .eq("entity_id", aziendaId)
       .is("deleted_at", null)
       .limit(200);
+    noteQ =
+      aziendaKeys.length === 1
+        ? noteQ
+            .eq("entity_type", aziendaKeys[0].tipo)
+            .eq("entity_id", aziendaKeys[0].id)
+        : noteQ.or(filterOrTipoId(aziendaKeys, "entity_type", "entity_id"));
+    const { data } = await noteQ;
     const noteRows = data ?? [];
 
-    const ordineCol =
-      aziendaTipo === "cliente" ? "cliente_id" : "cliente_possibile_id";
     const { data: ordineRows } =
-      aziendaTipo === "cliente" || aziendaTipo === "cliente_possibile"
-        ? await service
-            .from("ordini")
-            .select(
-              "id, numero_interno, data_ordine, created_at, stato, tipo"
-            )
-            .eq(ordineCol, aziendaId)
-            .is("deleted_at", null)
-            .limit(200)
-        : { data: [] };
+      twins.clienteIds.length || twins.possibileIds.length
+        ? await queryByClienteTwins<OrdineTimelineRow>(
+            service,
+            "ordini",
+            "id, numero_interno, data_ordine, created_at, stato, tipo",
+            twins.clienteIds,
+            twins.possibileIds
+          )
+        : { data: [] as OrdineTimelineRow[] };
     const { data: campRows } =
-      aziendaTipo === "cliente" || aziendaTipo === "cliente_possibile"
-        ? await service
-            .from("campionature")
-            .select(
-              "id, numero_interno, data_invio, created_at, stato"
-            )
-            .eq(ordineCol, aziendaId)
-            .is("deleted_at", null)
-            .limit(200)
-        : { data: [] };
+      twins.clienteIds.length || twins.possibileIds.length
+        ? await queryByClienteTwins<CampionaturaTimelineRow>(
+            service,
+            "campionature",
+            "id, numero_interno, data_invio, created_at, stato",
+            twins.clienteIds,
+            twins.possibileIds
+          )
+        : { data: [] as CampionaturaTimelineRow[] };
 
     const ordineIds = (ordineRows ?? []).map((r) => String(r.id));
     const campIds = (campRows ?? []).map((r) => String(r.id));
@@ -512,13 +574,13 @@ export async function listAziendaTimelineAction(raw: unknown): Promise<
     }
   }
 
-  if (aziendaTipo === "cliente") {
+  if (twins.clienteIds.length > 0) {
     const { data } = await service
       .from("fatture_emesse")
       .select(
         "id, numero_interno, numero_fattura, data_emissione, totale, stato_pagamento"
       )
-      .eq("cliente_id", aziendaId)
+      .in("cliente_id", twins.clienteIds)
       .is("deleted_at", null)
       .order("data_emissione", { ascending: true })
       .limit(200);
@@ -546,12 +608,17 @@ export async function listAziendaTimelineAction(raw: unknown): Promise<
       )
       .is("deleted_at", null)
       .limit(80);
-    promoQ =
-      aziendaTipo === "cliente"
-        ? promoQ.eq("cliente_id", aziendaId)
-        : aziendaTipo === "cliente_possibile"
-          ? promoQ.eq("cliente_possibile_id", aziendaId)
-          : promoQ.eq("id", "00000000-0000-0000-0000-000000000000");
+    if (twins.clienteIds.length && twins.possibileIds.length) {
+      promoQ = promoQ.or(
+        `cliente_id.in.(${twins.clienteIds.join(",")}),cliente_possibile_id.in.(${twins.possibileIds.join(",")})`
+      );
+    } else if (twins.clienteIds.length) {
+      promoQ = promoQ.in("cliente_id", twins.clienteIds);
+    } else if (twins.possibileIds.length) {
+      promoQ = promoQ.in("cliente_possibile_id", twins.possibileIds);
+    } else {
+      promoQ = promoQ.eq("id", "00000000-0000-0000-0000-000000000000");
+    }
     const { data: promozioni } = await promoQ;
     for (const r of promozioni ?? []) {
       const when =
@@ -581,13 +648,18 @@ export async function listAziendaTimelineAction(raw: unknown): Promise<
   }
 
   {
-    const { data: copie } = await service
+    let copieQ = service
       .from("azienda_timeline_pn_copie")
       .select("id, origine_tipo, origine_id, occurred_at, titolo, testo")
-      .eq("azienda_tipo", aziendaTipo)
-      .eq("azienda_id", aziendaId)
       .is("deleted_at", null)
       .limit(400);
+    copieQ =
+      aziendaKeys.length === 1
+        ? copieQ
+            .eq("azienda_tipo", aziendaKeys[0].tipo)
+            .eq("azienda_id", aziendaKeys[0].id)
+        : copieQ.or(filterOrTipoId(aziendaKeys, "azienda_tipo", "azienda_id"));
+    const { data: copie } = await copieQ;
     const copiaKeys = new Set<string>();
     for (const r of copie ?? []) {
       const when = r.occurred_at as string | null;
@@ -614,19 +686,27 @@ export async function listAziendaTimelineAction(raw: unknown): Promise<
       });
     }
 
-    const mentionKind =
-      aziendaTipo === "cliente"
-        ? "cliente"
-        : aziendaTipo === "cliente_possibile"
-          ? "cliente_possibile"
-          : "fornitore";
-    const { data: cols } = await service
+    let collegamentiQ = service
       .from("pn_attivita_collegamenti")
       .select("attivita_id")
-      .eq("kind", mentionKind)
-      .eq("entity_id", aziendaId)
       .is("deleted_at", null)
       .limit(200);
+    collegamentiQ =
+      aziendaKeys.length === 1
+        ? collegamentiQ
+            .eq(
+              "kind",
+              aziendaTipo === "cliente"
+                ? "cliente"
+                : aziendaTipo === "cliente_possibile"
+                  ? "cliente_possibile"
+                  : "fornitore"
+            )
+            .eq("entity_id", aziendaId)
+        : collegamentiQ.or(
+            filterOrTipoId(aziendaKeys, "kind", "entity_id")
+          );
+    const { data: cols } = await collegamentiQ;
     const attivitaIds = [
       ...new Set(
         (cols ?? [])

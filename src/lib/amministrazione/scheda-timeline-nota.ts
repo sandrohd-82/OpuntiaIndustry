@@ -1,3 +1,4 @@
+import { resolveAnagraficaTwins } from "@/lib/amministrazione/anagrafica-twins";
 import {
   cicloStatoCampionatura,
   cicloStatoOrdine,
@@ -51,15 +52,28 @@ export async function syncSchedaOrdineAziendaNota(input: {
   const campionaturaId = input.campionaturaId || null;
   if (!ordineId && !campionaturaId) return;
 
-  const aziendaTipo = input.clienteId
+  const service = createServiceClient();
+  let clienteId = input.clienteId || null;
+  let possibileClienteId = input.possibileClienteId || null;
+  if (clienteId || possibileClienteId) {
+    const twins = await resolveAnagraficaTwins(
+      service,
+      clienteId ? "cliente" : "cliente_possibile",
+      clienteId || possibileClienteId || ""
+    );
+    if (!clienteId && twins.clienteIds[0]) clienteId = twins.clienteIds[0];
+    if (!possibileClienteId && twins.possibileIds[0]) {
+      possibileClienteId = twins.possibileIds[0];
+    }
+  }
+
+  const aziendaTipo = clienteId
     ? "cliente"
-    : input.possibileClienteId
+    : possibileClienteId
       ? "cliente_possibile"
       : null;
-  const aziendaId = input.clienteId || input.possibileClienteId || null;
+  const aziendaId = clienteId || possibileClienteId || null;
   if (!aziendaTipo || !aziendaId) return;
-
-  const service = createServiceClient();
   const scheda = await ensureSchedaOrdine(service, {
     ordineId,
     campionaturaId,
