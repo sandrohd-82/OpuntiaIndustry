@@ -30,6 +30,7 @@ import {
   IMAP_SPAM_CANDIDATES,
   moveImapMessageBestEffort,
   previewWebmailAccounts,
+  remediaImportParzialiForAccount,
   reloadMessaggioBodyAndAttachments,
   setImapSeenManyBestEffort,
   type AccountRow,
@@ -4635,7 +4636,7 @@ export async function reloadWebmailMessaggioBodyAction(
   };
 }
 
-const RIPARA_PARZIALI_BATCH = 8;
+const RIPARA_PARZIALI_BATCH = 6;
 
 export async function countWebmailImportParzialiAction(): Promise<
   { success: true; totale: number } | { success: false; error: string }
@@ -4701,41 +4702,49 @@ export async function riparaWebmailImportParzialiAction(): Promise<
 
   let riparate = 0;
   const errori: string[] = [];
+  const byAccount = new Map<string, typeof rows>();
   for (const row of rows) {
-    const account = accById.get(String(row.account_id));
-    const codice = String(row.subject || row.id).slice(0, 80);
+    const key = String(row.account_id);
+    const list = byAccount.get(key) ?? [];
+    list.push(row);
+    byAccount.set(key, list);
+  }
+  for (const [accountId, accountRows] of byAccount) {
+    const account = accById.get(accountId);
     if (!account) {
-      errori.push(`${codice}: casella non trovata`);
+      for (const row of accountRows) {
+        errori.push(
+          `${String(row.subject || row.id).slice(0, 80)}: casella non trovata`
+        );
+      }
       continue;
     }
-    if (
-      !String(row.body_text ?? "")
-        .trimStart()
-        .startsWith(WEBMAIL_IMPORT_PARZIALE_PREFIX)
-    ) {
-      continue;
-    }
-    const reload = await reloadMessaggioBodyAndAttachments({
+    const { results } = await remediaImportParzialiForAccount({
       supabase: service,
       account,
-      messaggioId: String(row.id),
-      folder: String(row.folder || "INBOX"),
-      messageUid: String(row.message_uid || ""),
       userId: auth.userId,
+      rows: accountRows.map((row) => ({
+        id: String(row.id),
+        folder: String(row.folder || "INBOX"),
+        messageUid: String(row.message_uid || ""),
+        subject: String(row.subject || row.id).slice(0, 80),
+      })),
     });
-    if (!reload.success) {
-      errori.push(`${codice}: ${reload.error}`);
-      continue;
+    for (const item of results) {
+      if (!item.success) {
+        errori.push(`${item.subject}: ${item.error || "errore IMAP"}`);
+        continue;
+      }
+      riparate += 1;
+      await writeAuditLog({
+        entity_type: "webmail_messaggi",
+        entity_id: item.id,
+        action: "update",
+        actor_id: auth.userId,
+        summary: `Riparato import parziale «${item.subject}»`,
+        payload: { allegati_saved: item.allegatiSaved ?? 0 },
+      });
     }
-    riparate += 1;
-    await writeAuditLog({
-      entity_type: "webmail_messaggi",
-      entity_id: String(row.id),
-      action: "update",
-      actor_id: auth.userId,
-      summary: `Riparato import parziale «${codice}»`,
-      payload: { allegati_saved: reload.allegatiSaved },
-    });
   }
 
   let remainQ = service

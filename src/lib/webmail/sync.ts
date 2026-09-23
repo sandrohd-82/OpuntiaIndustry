@@ -1262,6 +1262,23 @@ async function resolveImapSentMailbox(
   );
 }
 
+/** Cartella logica gestionale (INBOX/SENT/JUNK) → mailbox IMAP reale. */
+export async function resolveImapBoxForStoredFolder(
+  client: ImapFlow,
+  stored: string
+): Promise<string> {
+  const f = String(stored || "INBOX").trim();
+  const upper = f.toUpperCase();
+  if (!f || upper === "INBOX") return "INBOX";
+  if (upper === WEBMAIL_SENT_FOLDER || upper === "SENT") {
+    return (await resolveImapSentMailbox(client)) || "Sent";
+  }
+  if (upper === "JUNK" || upper === "SPAM") {
+    return (await resolveImapSpamMailbox(client)) || "Junk";
+  }
+  return f;
+}
+
 async function countMailboxMissing(
   supabase: Service,
   account: AccountRow,
@@ -2497,6 +2514,10 @@ export async function reloadMessaggioBodyAndAttachments(input: {
   folder: string;
   messageUid: string;
   userId?: string | null;
+  /** Prima riparazione: solo testo/HTML, senza allegati pesanti. */
+  skipAttachments?: boolean;
+  /** Sessione IMAP già aperta (ripara a lotti senza riconnettere). */
+  client?: ImapFlow;
 }): Promise<
   | {
       success: true;
@@ -2511,19 +2532,41 @@ export async function reloadMessaggioBodyAndAttachments(input: {
     return { success: false, error: "UID IMAP non valido." };
   }
 
-  const password = decryptWebmailSecret(input.account.password_encrypted);
-  const client = new ImapFlow({
-    host: input.account.imap_host,
-    port: input.account.imap_port,
-    secure: input.account.imap_secure,
-    auth: { user: input.account.username, pass: password },
-    logger: false,
-  });
+  const ownClient = !input.client;
+  let client = input.client;
+  if (!client) {
+    const password = decryptWebmailSecret(input.account.password_encrypted);
+    client = new ImapFlow({
+      host: input.account.imap_host,
+      port: input.account.imap_port,
+      secure: input.account.imap_secure,
+      auth: { user: input.account.username, pass: password },
+      logger: false,
+    });
+  }
 
   try {
-    await client.connect();
-    const folder = input.folder || "INBOX";
-    const lock = await client.getMailboxLock(folder);
+    if (ownClient) await client.connect();
+    const storedFolder = input.folder || "INBOX";
+    const folder = await resolveImapBoxForStoredFolder(client, storedFolder);
+    let lock;
+    try {
+      lock = await client.getMailboxLock(folder);
+    } catch (first) {
+      const storedUpper = storedFolder.trim().toUpperCase();
+      if (storedUpper === WEBMAIL_SENT_FOLDER || storedUpper === "SENT") {
+        for (const candidate of IMAP_SENT_CANDIDATES) {
+          if (candidate === folder) continue;
+          try {
+            lock = await client.getMailboxLock(candidate);
+            break;
+          } catch {
+            /* prova la successiva */
+          }
+        }
+      }
+      if (!lock) throw first;
+    }
     try {
       let size = 0;
       try {
@@ -2545,10 +2588,11 @@ export async function reloadMessaggioBodyAndAttachments(input: {
       let bodyText = "";
       let attachments: Attachment[] | undefined;
 
-      const preferParts = size > WEBMAIL_IMPORT_MAX_BYTES;
+      const preferParts =
+        input.skipAttachments || size > WEBMAIL_IMPORT_MAX_BYTES || size === 0;
       if (preferParts) {
         const byParts = await downloadMessageByParts(client, uidNum, {
-          skipAttachments: false,
+          skipAttachments: Boolean(input.skipAttachments),
           timeoutMs: WEBMAIL_PART_TIMEOUT_MS,
         });
         if (byParts) {
@@ -2558,10 +2602,10 @@ export async function reloadMessaggioBodyAndAttachments(input: {
         }
       }
 
-      if (!bodyHtml && !bodyText) {
+      if (!bodyHtml && !bodyText && !input.skipAttachments) {
         const downloaded = await withTimeout(
           client.download(uidNum, undefined, { uid: true }),
-          preferParts ? 45_000 : WEBMAIL_DOWNLOAD_TIMEOUT_MS,
+          preferParts ? 25_000 : WEBMAIL_DOWNLOAD_TIMEOUT_MS,
           `reload UID ${input.messageUid}`
         );
         const parsed = await simpleParser(downloaded.content);
@@ -2594,19 +2638,23 @@ export async function reloadMessaggioBodyAndAttachments(input: {
         .is("deleted_at", null);
       if (upErr) return { success: false, error: upErr.message };
 
-      const attRes = await persistMessaggioAttachments({
-        supabase: input.supabase,
-        messaggioId: input.messaggioId,
-        accountId: input.account.id,
-        attachments,
-        userId: input.userId,
-      });
+      let allegatiSaved = 0;
+      if (!input.skipAttachments) {
+        const attRes = await persistMessaggioAttachments({
+          supabase: input.supabase,
+          messaggioId: input.messaggioId,
+          accountId: input.account.id,
+          attachments,
+          userId: input.userId,
+        });
+        allegatiSaved = attRes.saved;
+      }
 
       return {
         success: true,
         bodyHtml,
         bodyText,
-        allegatiSaved: attRes.saved,
+        allegatiSaved,
       };
     } finally {
       lock.release();
@@ -2617,10 +2665,97 @@ export async function reloadMessaggioBodyAndAttachments(input: {
       error: formatImapSyncError(e, input.account),
     };
   } finally {
+    if (ownClient) {
+      try {
+        await client.logout();
+      } catch {
+        // ignore
+      }
+    }
+  }
+}
+
+/** Ripara un lotto di import parziali sulla stessa casella, una connessione IMAP. */
+export async function remediaImportParzialiForAccount(input: {
+  supabase: Service;
+  account: AccountRow;
+  rows: Array<{
+    id: string;
+    folder: string;
+    messageUid: string;
+    subject: string;
+  }>;
+  userId?: string | null;
+}): Promise<{
+  results: Array<{
+    id: string;
+    subject: string;
+    success: boolean;
+    error?: string;
+    allegatiSaved?: number;
+  }>;
+}> {
+  const password = decryptWebmailSecret(input.account.password_encrypted);
+  const client = new ImapFlow({
+    host: input.account.imap_host,
+    port: input.account.imap_port,
+    secure: input.account.imap_secure,
+    auth: { user: input.account.username, pass: password },
+    logger: false,
+  });
+  const results: Array<{
+    id: string;
+    subject: string;
+    success: boolean;
+    error?: string;
+    allegatiSaved?: number;
+  }> = [];
+  try {
+    await client.connect();
+    for (const row of input.rows) {
+      const reload = await reloadMessaggioBodyAndAttachments({
+        supabase: input.supabase,
+        account: input.account,
+        messaggioId: row.id,
+        folder: row.folder,
+        messageUid: row.messageUid,
+        userId: input.userId,
+        skipAttachments: true,
+        client,
+      });
+      if (reload.success) {
+        results.push({
+          id: row.id,
+          subject: row.subject,
+          success: true,
+          allegatiSaved: reload.allegatiSaved,
+        });
+      } else {
+        results.push({
+          id: row.id,
+          subject: row.subject,
+          success: false,
+          error: reload.error,
+        });
+      }
+    }
+  } catch (e) {
+    const err = formatImapSyncError(e, input.account);
+    for (const row of input.rows) {
+      if (results.some((r) => r.id === row.id)) continue;
+      results.push({
+        id: row.id,
+        subject: row.subject,
+        success: false,
+        error: err,
+      });
+    }
+  } finally {
     try {
       await client.logout();
     } catch {
-      // ignore
+      /* ignore */
     }
   }
+  return { results };
 }

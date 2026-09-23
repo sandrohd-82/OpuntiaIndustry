@@ -1013,6 +1013,9 @@ export function WebmailBoard({
                       setError(errori.slice(0, 4).join(" · "));
                     }
                     await reload();
+                    if (errori.length) {
+                      setError(errori.slice(0, 4).join(" · "));
+                    }
                   });
                 }}
                 className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-sm font-medium text-amber-950 hover:bg-amber-100 disabled:opacity-50"
