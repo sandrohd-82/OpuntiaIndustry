@@ -8,6 +8,8 @@ import { ProdottoProprioProductTag } from "@/components/amministrazione/Prodotto
 import { TrattativaBadge } from "@/components/amministrazione/TrattativaSelectField";
 import {
   ANAGRAFICA_SEDE_LABEL,
+  ensurePrimaryLegale,
+  isSedeAddressEmpty,
   type AnagraficaBrand,
   type AnagraficaSede,
 } from "@/lib/amministrazione/anagrafica-extra";
@@ -202,7 +204,7 @@ export function AnagraficaSchedaDetail({
       ) : null}
 
       {sediExtra.length > 0 ? (
-        sediExtra.map((sede) => (
+        ensurePrimaryLegale(sediExtra).map((sede) => (
           <SedeBlock
             key={sede.id}
             title={ANAGRAFICA_SEDE_LABEL[sede.tipo]}
@@ -211,8 +213,10 @@ export function AnagraficaSchedaDetail({
         ))
       ) : (
         <>
-          <SedeBlock title="Sede Amministrativa" sede={model.sedeAmministrativa} />
-          <SedeBlock title="Sede Magazzino" sede={model.sedeMagazzino} />
+          <SedeBlock title="Sede Legale" sede={model.sedeAmministrativa} />
+          {!isSedeAddressEmpty(model.sedeMagazzino) ? (
+            <SedeBlock title="Sede Magazzino" sede={model.sedeMagazzino} />
+          ) : null}
         </>
       )}
 

@@ -27,7 +27,10 @@ import {
   type AnagraficaSedeDraft,
 } from "@/components/amministrazione/AnagraficaSediEditor";
 import { loadAnagraficaExtraAction } from "@/app/actions/anagrafica-extra";
-import { firstSedeOfTipo } from "@/lib/amministrazione/anagrafica-extra";
+import {
+  firstSedeOfTipo,
+  primarySedeAddress,
+} from "@/lib/amministrazione/anagrafica-extra";
 import { ApriFatturaFicActions } from "@/components/amministrazione/ApriFatturaFicButton";
 import { CodiceTargaBadge } from "@/components/amministrazione/CodiceTargaBadge";
 import { ProdottiAcquistatiTags } from "@/components/amministrazione/ProdottiAcquistatiTags";
@@ -179,7 +182,7 @@ export function ClienteFormModal({
         sedeAmministrativa: initial?.sedeAmministrativa,
         sedeMagazzino: initial?.sedeMagazzino,
       },
-      { openAmm: !isPossibile || Boolean(initial) }
+      { openPrimary: true }
     )
   );
   const [brand, setBrand] = useState<AnagraficaBrandDraft[]>([]);
@@ -262,7 +265,7 @@ export function ClienteFormModal({
       return null;
     }
     const sediErr = validateSediDrafts(sedi, {
-      requireAmministrativa: !isPossibile,
+      requireLegale: !isPossibile,
     });
     if (sediErr) {
       setFormError(sediErr);
@@ -321,7 +324,7 @@ export function ClienteFormModal({
       emailGeneriche: emailExtra,
       telefoniGenerici: telefonoExtra,
       sitiWebGenerici: sitoExtra,
-      sedeAmministrativa: firstSedeOfTipo(sedi, "amministrativa"),
+      sedeAmministrativa: primarySedeAddress(sedi),
       sedeMagazzino: firstSedeOfTipo(sedi, "magazzino"),
       consegneAltraAzienda: consegneEnabled ? consegne : [],
       prodottiAcquistati: prodotti,
@@ -363,7 +366,7 @@ export function ClienteFormModal({
     setSedi((prev) => {
       let next = applyLegacySedeToDrafts(
         prev,
-        "amministrativa",
+        "legale",
         hit.draft.sedeAmministrativa
       );
       if (hit.draft.sedeMagazzino.indirizzo || hit.draft.sedeMagazzino.citta) {
@@ -734,7 +737,7 @@ export function ClienteFormModal({
           <AnagraficaSediEditor
             value={sedi}
             onChange={setSedi}
-            requireAmministrativa={!isPossibile}
+            requireLegale={!isPossibile}
           />
 
           <AnagraficaBrandEditor

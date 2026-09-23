@@ -7,10 +7,12 @@ import {
   ANAGRAFICA_SEDE_LABEL,
   ANAGRAFICA_SEDE_TIPI,
   emptyAnagraficaSede,
+  ensurePrimaryLegale,
   isSedeAddressEmpty,
   isSedeAddressFilled,
   sedeFromAddress,
   sediFromLegacy,
+  sortSediLegalePrima,
   type AnagraficaSede,
   type AnagraficaSedeInput,
   type AnagraficaSedeTipo,
@@ -20,9 +22,9 @@ import type { SedeCliente } from "@/lib/amministrazione/clienti";
 export type AnagraficaSedeDraft = AnagraficaSede & { open: boolean };
 
 export function draftsFromSedi(sedi: AnagraficaSede[]): AnagraficaSedeDraft[] {
-  return sedi.map((s, i) => ({
+  return ensurePrimaryLegale(sedi).map((s) => ({
     ...s,
-    open: i === 0 || !isSedeAddressEmpty(s),
+    open: s.tipo === "legale" || !isSedeAddressEmpty(s),
   }));
 }
 
@@ -31,35 +33,37 @@ export function draftsFromLegacy(
     sedeAmministrativa?: SedeCliente | null;
     sedeMagazzino?: SedeCliente | null;
   },
-  opts?: { openAmm?: boolean }
+  opts?: { openAmm?: boolean; openPrimary?: boolean }
 ): AnagraficaSedeDraft[] {
+  const openPrimary = opts?.openPrimary ?? opts?.openAmm ?? true;
   const sedi = sediFromLegacy(input);
   if (sedi.length === 0) {
     return [
       {
-        ...emptyAnagraficaSede("amministrativa", 0),
-        open: opts?.openAmm ?? true,
+        ...emptyAnagraficaSede("legale", 0),
+        open: openPrimary,
       },
     ];
   }
   return sedi.map((s, i) => ({
     ...s,
     open:
-      s.tipo === "amministrativa"
-        ? (opts?.openAmm ?? true) || !isSedeAddressEmpty(s)
+      s.tipo === "legale"
+        ? openPrimary || !isSedeAddressEmpty(s)
         : !isSedeAddressEmpty(s) || i === 0,
   }));
 }
 
 export function validateSediDrafts(
   sedi: AnagraficaSedeDraft[],
-  opts: { requireAmministrativa: boolean }
+  opts: { requireLegale?: boolean; requireAmministrativa?: boolean }
 ): string | null {
-  const ammFilled = sedi.some(
-    (s) => s.tipo === "amministrativa" && isSedeAddressFilled(s)
+  const requireLegale = Boolean(opts.requireLegale ?? opts.requireAmministrativa);
+  const legaleFilled = sedi.some(
+    (s) => s.tipo === "legale" && isSedeAddressFilled(s)
   );
-  if (opts.requireAmministrativa && !ammFilled) {
-    return "Completa almeno una sede amministrativa prima di continuare.";
+  if (requireLegale && !legaleFilled) {
+    return "Completa la sede legale prima di continuare.";
   }
   for (const s of sedi) {
     if (!isSedeAddressEmpty(s) && !isSedeAddressFilled(s)) {
@@ -70,9 +74,8 @@ export function validateSediDrafts(
 }
 
 export function sediToInput(sedi: AnagraficaSedeDraft[]): AnagraficaSedeInput[] {
-  return sedi
-    .filter((s) => !isSedeAddressEmpty(s))
-    .map((s, i) => ({
+  return sortSediLegalePrima(sedi.filter((s) => !isSedeAddressEmpty(s))).map(
+    (s, i) => ({
       id: s.id,
       tipo: s.tipo,
       nazione: s.nazione,
@@ -81,7 +84,8 @@ export function sediToInput(sedi: AnagraficaSedeDraft[]): AnagraficaSedeInput[] 
       cap: s.cap,
       indirizzo: s.indirizzo,
       sortOrder: i,
-    }));
+    })
+  );
 }
 
 export function applyLegacySedeToDrafts(
@@ -106,34 +110,38 @@ export function applyLegacySedeToDrafts(
 export function AnagraficaSediEditor({
   value,
   onChange,
+  requireLegale = false,
   requireAmministrativa = false,
 }: {
   value: AnagraficaSedeDraft[];
   onChange: (next: AnagraficaSedeDraft[]) => void;
+  requireLegale?: boolean;
+  /** @deprecated usa requireLegale: l’indirizzo primario è la sede legale. */
   requireAmministrativa?: boolean;
 }) {
+  const mustHaveLegale = requireLegale || requireAmministrativa;
   const [menuOpen, setMenuOpen] = useState(false);
-  const firstAmm = value.find((s) => s.tipo === "amministrativa");
+  const firstLegale = value.find((s) => s.tipo === "legale");
 
   function add(tipo: AnagraficaSedeTipo) {
-    onChange([
+    const next = [
       ...value,
       { ...emptyAnagraficaSede(tipo, value.length), open: true },
-    ]);
+    ];
+    onChange(tipo === "legale" ? sortSediLegalePrima(next) : next);
     setMenuOpen(false);
   }
 
   function remove(id: string) {
     const target = value.find((s) => s.id === id);
     if (
-      requireAmministrativa &&
-      target?.tipo === "amministrativa" &&
-      value.filter((s) => s.tipo === "amministrativa").length <= 1
+      target?.tipo === "legale" &&
+      value.filter((s) => s.tipo === "legale").length <= 1
     ) {
       onChange(
         value.map((s) =>
           s.id === id
-            ? { ...emptyAnagraficaSede("amministrativa", s.sortOrder), id: s.id, open: true }
+            ? { ...emptyAnagraficaSede("legale", s.sortOrder), id: s.id, open: true }
             : s
         )
       );
@@ -148,18 +156,18 @@ export function AnagraficaSediEditor({
     );
   }
 
-  function copyFromAmm(id: string) {
-    if (!firstAmm) return;
+  function copyFromLegale(id: string) {
+    if (!firstLegale) return;
     onChange(
       value.map((s) =>
         s.id === id
           ? {
               ...s,
-              nazione: firstAmm.nazione,
-              provincia: firstAmm.provincia,
-              citta: firstAmm.citta,
-              cap: firstAmm.cap,
-              indirizzo: firstAmm.indirizzo,
+              nazione: firstLegale.nazione,
+              provincia: firstLegale.provincia,
+              citta: firstLegale.citta,
+              cap: firstLegale.cap,
+              indirizzo: firstLegale.indirizzo,
               open: true,
             }
           : s
@@ -207,8 +215,8 @@ export function AnagraficaSediEditor({
         </div>
       </div>
       <p className="text-xs text-[var(--muted)]">
-        Sede Amministrativa, Magazzino, Produttiva e Legale: ogni blocco si
-        espande verso il basso. Puoi aggiungerne più di una per tipo.
+        L’indirizzo primario è la Sede Legale. Puoi aggiungere Amministrativa,
+        Produttiva e Magazzino; ogni blocco si espande verso il basso.
       </p>
 
       {value.map((sede, index) => {
@@ -256,32 +264,30 @@ export function AnagraficaSediEditor({
             </div>
             {sede.open ? (
               <div className="space-y-3 border-t border-[var(--border)] p-3">
-                {sede.tipo !== "amministrativa" && firstAmm ? (
+                {sede.tipo !== "legale" && firstLegale ? (
                   <label className="flex items-center gap-2 text-sm">
                     <input
                       type="checkbox"
                       checked={
-                        !isSedeAddressEmpty(firstAmm) &&
-                        firstAmm.nazione === sede.nazione &&
-                        firstAmm.provincia === sede.provincia &&
-                        firstAmm.citta === sede.citta &&
-                        firstAmm.cap === sede.cap &&
-                        firstAmm.indirizzo === sede.indirizzo
+                        !isSedeAddressEmpty(firstLegale) &&
+                        firstLegale.nazione === sede.nazione &&
+                        firstLegale.provincia === sede.provincia &&
+                        firstLegale.citta === sede.citta &&
+                        firstLegale.cap === sede.cap &&
+                        firstLegale.indirizzo === sede.indirizzo
                       }
                       onChange={(e) => {
-                        if (e.target.checked) copyFromAmm(sede.id);
+                        if (e.target.checked) copyFromLegale(sede.id);
                       }}
                       className="rounded border-[var(--border)]"
                     />
-                    Uguale alla sede amministrativa
+                    Uguale alla sede legale
                   </label>
                 ) : null}
                 <AddressSedeFields
                   title="Indirizzo"
                   embedded
-                  requiredFields={
-                    requireAmministrativa && sede.tipo === "amministrativa"
-                  }
+                  requiredFields={mustHaveLegale && sede.tipo === "legale"}
                   value={sede}
                   onChange={(next) => patch(sede.id, next)}
                 />

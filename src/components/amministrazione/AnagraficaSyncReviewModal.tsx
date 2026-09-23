@@ -721,7 +721,7 @@ export function AnagraficaSyncReviewModal({
             }
           >
             <AddressSedeFields
-              title="Sede Amministrativa"
+              title="Sede Legale"
               value={draft.sedeAmministrativa}
               onChange={(next) =>
                 setDraft({ ...draft, sedeAmministrativa: next })

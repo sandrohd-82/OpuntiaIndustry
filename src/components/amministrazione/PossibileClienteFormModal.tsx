@@ -24,7 +24,10 @@ import {
   type AnagraficaSedeDraft,
 } from "@/components/amministrazione/AnagraficaSediEditor";
 import { loadAnagraficaExtraAction } from "@/app/actions/anagrafica-extra";
-import { firstSedeOfTipo } from "@/lib/amministrazione/anagrafica-extra";
+import {
+  firstSedeOfTipo,
+  primarySedeAddress,
+} from "@/lib/amministrazione/anagrafica-extra";
 import { ReferentiPickerField } from "@/components/amministrazione/ReferentiPickerField";
 import { CommercialeAssignField } from "@/components/amministrazione/CommercialeAssignField";
 import { AnagraficaContattiGenericiFields } from "@/components/amministrazione/AnagraficaContattiGenericiFields";
@@ -136,7 +139,7 @@ export function PossibileClienteFormModal({
         sedeAmministrativa: initial?.sedeAmministrativa,
         sedeMagazzino: initial?.sedeMagazzino,
       },
-      { openAmm: Boolean(initial && !isSedeEmpty(initial.sedeAmministrativa)) }
+      { openPrimary: true }
     )
   );
   const [brand, setBrand] = useState<AnagraficaBrandDraft[]>([]);
@@ -197,7 +200,7 @@ export function PossibileClienteFormModal({
       setFormError("Il codice fiscale è obbligatorio.");
       return null;
     }
-    const sediErr = validateSediDrafts(sedi, { requireAmministrativa: false });
+    const sediErr = validateSediDrafts(sedi, { requireLegale: false });
     if (sediErr) {
       setFormError(sediErr);
       return null;
@@ -230,7 +233,7 @@ export function PossibileClienteFormModal({
       emailGeneriche: emailExtra,
       telefoniGenerici: telefonoExtra,
       sitiWebGenerici: sitoExtra,
-      sedeAmministrativa: firstSedeOfTipo(sedi, "amministrativa"),
+      sedeAmministrativa: primarySedeAddress(sedi),
       sedeMagazzino: firstSedeOfTipo(sedi, "magazzino"),
       consegneAltraAzienda: consegneOpen ? consegne : [],
       prodottiAcquistati: [],

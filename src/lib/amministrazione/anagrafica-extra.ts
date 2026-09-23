@@ -8,10 +8,10 @@ import {
 export type SedeCliente = SedeFornitore;
 
 export const ANAGRAFICA_SEDE_TIPI = [
-  "amministrativa",
-  "magazzino",
-  "produttiva",
   "legale",
+  "amministrativa",
+  "produttiva",
+  "magazzino",
 ] as const;
 export type AnagraficaSedeTipo = (typeof ANAGRAFICA_SEDE_TIPI)[number];
 
@@ -138,13 +138,42 @@ export function firstSedeOfTipo(
   });
 }
 
+export function sortSediLegalePrima<T extends { tipo: AnagraficaSedeTipo; sortOrder: number }>(
+  sedi: T[]
+): T[] {
+  return [...sedi].sort((a, b) => {
+    if (a.tipo === "legale" && b.tipo !== "legale") return -1;
+    if (b.tipo === "legale" && a.tipo !== "legale") return 1;
+    return a.sortOrder - b.sortOrder;
+  });
+}
+
+/** L’indirizzo primario della scheda è sempre la sede legale. */
+export function primarySedeAddress(sedi: AnagraficaSede[]): SedeCliente {
+  const legale = firstSedeOfTipo(sedi, "legale");
+  if (!isSedeAddressEmpty(legale)) return legale;
+  return firstSedeOfTipo(sedi, "amministrativa");
+}
+
+export function ensurePrimaryLegale(sedi: AnagraficaSede[]): AnagraficaSede[] {
+  const hasLegale = sedi.some((s) => s.tipo === "legale");
+  if (hasLegale) return sortSediLegalePrima(sedi);
+  const amm = sedi.find((s) => s.tipo === "amministrativa");
+  if (amm) {
+    return sortSediLegalePrima(
+      sedi.map((s) => (s.id === amm.id ? { ...s, tipo: "legale" } : s))
+    );
+  }
+  return sortSediLegalePrima([emptyAnagraficaSede("legale", 0), ...sedi]);
+}
+
 export function sediFromLegacy(input: {
   sedeAmministrativa?: SedeCliente | null;
   sedeMagazzino?: SedeCliente | null;
 }): AnagraficaSede[] {
   const out: AnagraficaSede[] = [];
-  const amm = input.sedeAmministrativa ?? emptySede();
-  out.push(sedeFromAddress("amministrativa", amm, 0));
+  const primaria = input.sedeAmministrativa ?? emptySede();
+  out.push(sedeFromAddress("legale", primaria, 0));
   const mag = input.sedeMagazzino ?? emptySede();
   if (!isSedeAddressEmpty(mag)) {
     out.push(sedeFromAddress("magazzino", mag, 1));

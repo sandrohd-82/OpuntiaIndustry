@@ -157,7 +157,7 @@ function exportPrincipali(
   autoTable(doc, {
     startY: y,
     head: [
-      ["Targa", "R. Sociale", "P. IVA / CF", "Sede Amm.", "Sede Mag.", "Prodotti"],
+      ["Targa", "R. Sociale", "P. IVA / CF", "Sede Legale", "Sede Mag.", "Prodotti"],
     ],
     body: clienti.map((c) => [
       c.codiceTarga,

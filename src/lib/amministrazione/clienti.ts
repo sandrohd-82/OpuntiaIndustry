@@ -24,7 +24,10 @@ import type {
   AnagraficaBrandInput,
   AnagraficaSedeInput,
 } from "@/lib/amministrazione/anagrafica-extra";
-import { firstSedeOfTipo } from "@/lib/amministrazione/anagrafica-extra";
+import {
+  firstSedeOfTipo,
+  primarySedeAddress,
+} from "@/lib/amministrazione/anagrafica-extra";
 
 export type SedeCliente = SedeFornitore;
 
@@ -158,34 +161,20 @@ export function normalizeClienteInput(input: ClienteInput): ClienteInput {
 
 export function applySediToLegacy(input: ClienteInput): ClienteInput {
   if (!input.sedi?.length) return input;
+  const mapped = input.sedi.map((s, i) => ({
+    id: s.id ?? `tmp-${i}`,
+    tipo: s.tipo,
+    nazione: s.nazione ?? "",
+    provincia: s.provincia ?? "",
+    citta: s.citta ?? "",
+    cap: s.cap ?? "",
+    indirizzo: s.indirizzo ?? "",
+    sortOrder: s.sortOrder ?? i,
+  }));
   return {
     ...input,
-    sedeAmministrativa: firstSedeOfTipo(
-      input.sedi.map((s, i) => ({
-        id: s.id ?? `tmp-${i}`,
-        tipo: s.tipo,
-        nazione: s.nazione ?? "",
-        provincia: s.provincia ?? "",
-        citta: s.citta ?? "",
-        cap: s.cap ?? "",
-        indirizzo: s.indirizzo ?? "",
-        sortOrder: s.sortOrder ?? i,
-      })),
-      "amministrativa"
-    ),
-    sedeMagazzino: firstSedeOfTipo(
-      input.sedi.map((s, i) => ({
-        id: s.id ?? `tmp-m-${i}`,
-        tipo: s.tipo,
-        nazione: s.nazione ?? "",
-        provincia: s.provincia ?? "",
-        citta: s.citta ?? "",
-        cap: s.cap ?? "",
-        indirizzo: s.indirizzo ?? "",
-        sortOrder: s.sortOrder ?? i,
-      })),
-      "magazzino"
-    ),
+    sedeAmministrativa: primarySedeAddress(mapped),
+    sedeMagazzino: firstSedeOfTipo(mapped, "magazzino"),
   };
 }
 

@@ -657,7 +657,7 @@ export function ClientiBoard() {
                 <th className="px-4 py-3 font-medium">Targa</th>
                 <th className="px-4 py-3 font-medium">R. Sociale</th>
                 <th className="px-4 py-3 font-medium">P. IVA / CF</th>
-                <th className="px-4 py-3 font-medium">Sede Amm.</th>
+                <th className="px-4 py-3 font-medium">Sede Legale</th>
                 <th className="px-4 py-3 font-medium">Sede Mag.</th>
                 <th className="px-4 py-3 font-medium">Commerciale</th>
                 <th className="px-4 py-3 font-medium">Prodotti</th>
