@@ -1,7 +1,16 @@
 "use client";
 
 import { useEffect, useId, useState, useTransition } from "react";
-import { FaCopy, FaPen, FaPlay, FaPlus, FaStop, FaTrash } from "react-icons/fa6";
+import {
+  FaChevronDown,
+  FaChevronRight,
+  FaCopy,
+  FaPen,
+  FaPlay,
+  FaPlus,
+  FaStop,
+  FaTrash,
+} from "react-icons/fa6";
 import {
   addSequenzaPassoAction,
   approvaSequenzaAction,
@@ -76,6 +85,7 @@ export function ActionSequenzeModal({
   const [deleteStep, setDeleteStep] = useState<1 | 2>(1);
   const [editingPassoId, setEditingPassoId] = useState<string | null>(null);
   const [copiaDaId, setCopiaDaId] = useState("");
+  const [apertoId, setApertoId] = useState<string | null>(null);
 
   const comp = componenti.find((c) => c.id === compId) ?? null;
 
@@ -240,6 +250,7 @@ export function ActionSequenzeModal({
               <ul className="space-y-2">
                 {items.map((item) => {
                   const lit = item.esecuzioneStato === "in_corso";
+                  const aperto = apertoId === item.id;
                   return (
                     <li
                       key={item.id}
@@ -250,8 +261,28 @@ export function ActionSequenzeModal({
                       }`}
                     >
                       <div className="flex flex-wrap items-start justify-between gap-2">
-                        <div>
-                          <p className="font-medium">
+                        <button
+                          type="button"
+                          aria-expanded={aperto}
+                          onClick={() =>
+                            setApertoId((cur) =>
+                              cur === item.id ? null : item.id
+                            )
+                          }
+                          className="min-w-0 flex-1 text-left"
+                        >
+                          <p className="flex items-center gap-1.5 font-medium">
+                            {aperto ? (
+                              <FaChevronDown
+                                size={11}
+                                className="shrink-0 text-slate-500"
+                              />
+                            ) : (
+                              <FaChevronRight
+                                size={11}
+                                className="shrink-0 text-slate-500"
+                              />
+                            )}
                             {item.nome}{" "}
                             <span className="ml-1 rounded-full bg-slate-100 px-2 py-0.5 text-[10px] uppercase text-slate-700">
                               {SEQUENZA_TIPO_LABEL[item.tipo]}
@@ -262,29 +293,13 @@ export function ActionSequenzeModal({
                               </span>
                             ) : null}
                           </p>
-                          <p className="text-xs text-[var(--muted)]">
+                          <p className="mt-0.5 pl-5 text-xs text-[var(--muted)]">
                             {item.passi.length} Action
-                            {item.descrizione ? ` · ${item.descrizione}` : ""}
-                            {item.copiataDaId
-                              ? ` · copia di ${
-                                  items.find((s) => s.id === item.copiataDaId)
-                                    ?.nome ?? "altra sequenza"
-                                }`
+                            {!aperto && item.descrizione
+                              ? ` · ${item.descrizione}`
                               : ""}
                           </p>
-                          <ol className="mt-2 space-y-2">
-                            {item.passi.map((p, i) => (
-                              <PassoRiga
-                                key={p.id}
-                                index={i + 1}
-                                passo={p}
-                                essiccatoreId={essiccatore.id}
-                                editDisabled={lit}
-                                onEdit={() => openEditPasso(item, p)}
-                              />
-                            ))}
-                          </ol>
-                        </div>
+                        </button>
                         <div className="flex flex-wrap items-center gap-1">
                           {item.documentoStato === "approvato" ? (
                             lit ? (
@@ -378,6 +393,7 @@ export function ActionSequenzeModal({
                             onClick={() => {
                               setDeleteId(item.id);
                               setDeleteStep(1);
+                              setApertoId(item.id);
                             }}
                             className="rounded p-1.5 text-red-700 hover:bg-red-50"
                           >
@@ -385,6 +401,39 @@ export function ActionSequenzeModal({
                           </button>
                         </div>
                       </div>
+                      {aperto ? (
+                        <div className="mt-2 pl-5">
+                          {item.descrizione ? (
+                            <p className="mb-2 text-xs text-[var(--muted)]">
+                              {item.descrizione}
+                              {item.copiataDaId
+                                ? ` · copia di ${
+                                    items.find((s) => s.id === item.copiataDaId)
+                                      ?.nome ?? "altra sequenza"
+                                  }`
+                                : ""}
+                            </p>
+                          ) : item.copiataDaId ? (
+                            <p className="mb-2 text-xs text-[var(--muted)]">
+                              Copia di{" "}
+                              {items.find((s) => s.id === item.copiataDaId)
+                                ?.nome ?? "altra sequenza"}
+                            </p>
+                          ) : null}
+                          <ol className="space-y-2">
+                            {item.passi.map((p, i) => (
+                              <PassoRiga
+                                key={p.id}
+                                index={i + 1}
+                                passo={p}
+                                essiccatoreId={essiccatore.id}
+                                editDisabled={lit}
+                                onEdit={() => openEditPasso(item, p)}
+                              />
+                            ))}
+                          </ol>
+                        </div>
+                      ) : null}
                       {deleteId === item.id ? (
                         <div className="mt-2 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-900">
                           {deleteStep === 1
