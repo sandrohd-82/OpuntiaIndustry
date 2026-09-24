@@ -90,6 +90,7 @@ export function classeCicloStato(label: string): string {
     return "bg-slate-200 text-slate-800";
   }
   if (label === "Sospeso") return "bg-amber-100 text-amber-900";
+  if (label === "In attesa sconto") return "bg-amber-100 text-amber-950";
   if (label === "Annullata") return "bg-red-50 text-red-700";
   if (label === "Consegnata" || label === "Storico") {
     return "bg-slate-100 text-slate-700";

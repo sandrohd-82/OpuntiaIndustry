@@ -102,7 +102,9 @@ export function OrdineDettaglioPanel({ ordine, onEdit }: Props) {
         <span className="font-semibold text-slate-800">
           {labelTipoOrdine(ordine.tipo)} ·{" "}
           <span title={hintStatoOrdine(ordine.stato)}>
-            {labelStatoOrdine(ordine.stato)}
+            {ordine.scontoApprovazioneStato === "in_attesa"
+              ? "In attesa sconto"
+              : labelStatoOrdine(ordine.stato)}
           </span>{" "}
           · V
           {ordine.versione} {labelDocumentoStato(ordine.documentoStato)}
@@ -171,6 +173,24 @@ export function OrdineDettaglioPanel({ ordine, onEdit }: Props) {
             {formatEuro(ordine.importoEuro)}
           </dd>
         </div>
+        {ordine.scontoExtraPct > 0 ? (
+          <div>
+            <dt className="text-xs font-medium uppercase text-[var(--muted)]">
+              Sconto extra
+            </dt>
+            <dd className="mt-0.5">
+              {ordine.scontoExtraPct.toLocaleString("it-IT")}%
+              {ordine.prezzoListinoUnitario != null
+                ? ` (listino ${formatEuro(ordine.prezzoListinoUnitario)})`
+                : ""}
+              {ordine.scontoApprovazioneStato === "in_attesa"
+                ? " · in attesa di firma"
+                : ordine.scontoApprovazioneStato === "approvata"
+                  ? " · approvato"
+                  : ""}
+            </dd>
+          </div>
+        ) : null}
         <div>
           <dt className="text-xs font-medium uppercase text-[var(--muted)]">
             Origine

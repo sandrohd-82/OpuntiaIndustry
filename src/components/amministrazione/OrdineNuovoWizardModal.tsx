@@ -6,6 +6,15 @@ import {
   createOrdineWizardAction,
   previewNumeroInternoOrdineAction,
 } from "@/app/actions/ordini";
+import { getScontoFuoriListinoContextAction } from "@/app/actions/ordine-sconto";
+import { InfoHint } from "@/components/ui/InfoHint";
+import {
+  fasciaScontoExtra,
+  parseScontoExtraPct,
+  prezzoNettoDaSconto,
+  SCONTO_FUORI_LISTINO_REGOLE,
+  SCONTO_FUORI_LISTINO_TITOLO,
+} from "@/lib/amministrazione/sconto-fuori-listino";
 import { getListinoVoceVigenteAction } from "@/app/actions/listini";
 import {
   LISTINO_CONTRATTO_MSG,
@@ -205,6 +214,12 @@ export function OrdineNuovoWizardModal({
     variant === "campionatura" ? "g" : "kg"
   );
   const [prezzoUnitario, setPrezzoUnitario] = useState<number | "">("");
+  const [scontoExtraPct, setScontoExtraPct] = useState<number | "">("");
+  const [scontoCtx, setScontoCtx] = useState<{
+    canOltre30: boolean;
+    isSuperadmin: boolean;
+    isSenior: boolean;
+  } | null>(null);
   const [preventivoId, setPreventivoId] = useState("");
   const [preventiviAccettati, setPreventiviAccettati] = useState<Preventivo[]>(
     []
@@ -427,6 +442,9 @@ export function OrdineNuovoWizardModal({
     tipoOrdine === "campionatura" ? unitaMisura : unitaBase;
   const quantitaKg = quantitaInUnitaBase(quantitaInserita, umEffettiva);
   const prezzoKg = numberOrZero(prezzoUnitario);
+  const scontoPct = parseScontoExtraPct(scontoExtraPct);
+  const fasciaSconto = fasciaScontoExtra(scontoPct);
+  const prezzoNetto = prezzoNettoDaSconto(prezzoKg, scontoPct);
   const IVA_PCT = 22;
   const rigaImporti = useMemo(() => {
     const riga = {
@@ -437,7 +455,7 @@ export function OrdineNuovoWizardModal({
       quantita: quantitaInserita,
       unitaMisura: umEffettiva,
       lottoCodice: "",
-      prezzoUnitario: prezzoKg,
+      prezzoUnitario: prezzoNetto,
       ivaPercentuale: IVA_PCT,
     };
     return {
@@ -448,11 +466,27 @@ export function OrdineNuovoWizardModal({
   }, [
     quantitaInserita,
     umEffettiva,
-    prezzoKg,
+    prezzoNetto,
     prodotto?.id,
     prodotto?.codice,
     prodotto?.nome,
   ]);
+
+  useEffect(() => {
+    if (tipoOrdine === "campionatura") return;
+    let cancelled = false;
+    void getScontoFuoriListinoContextAction().then((res) => {
+      if (cancelled || !res.success) return;
+      setScontoCtx({
+        canOltre30: res.canOltre30,
+        isSuperadmin: res.isSuperadmin,
+        isSenior: res.isSenior,
+      });
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [tipoOrdine]);
 
   const kgConfezionati = useMemo(
     () => totaleKgConfezionati(conf.nodi),
@@ -588,6 +622,14 @@ export function OrdineNuovoWizardModal({
       ) {
         return false;
       }
+      if (
+        tipoOrdine !== "campionatura" &&
+        fasciaSconto === "oltre_30" &&
+        scontoCtx &&
+        !scontoCtx.canOltre30
+      ) {
+        return false;
+      }
       return true;
     }
     if (step === 4) {
@@ -613,7 +655,12 @@ export function OrdineNuovoWizardModal({
       item.righe.find((r) => r.prodottoId === prodotto?.id) ?? item.righe[0];
     if (riga) {
       setQuantita(riga.quantita);
-      setPrezzoUnitario(riga.prezzoUnitario);
+      setPrezzoUnitario(
+        voceListino && voceListino.prezzo > 0
+          ? voceListino.prezzo
+          : riga.prezzoUnitario
+      );
+      setScontoExtraPct(riga.scontoExtraPct || "");
       setOverridesSeeded(false);
     }
     setTipoPagamento(item.tipoPagamento);
@@ -661,6 +708,7 @@ export function OrdineNuovoWizardModal({
         quantita: quantitaInserita,
         unitaMisura: umEffettiva,
         prezzoUnitario: tipoOrdine === "campionatura" ? 0 : numberOrZero(prezzoUnitario),
+        scontoExtraPct: tipoOrdine === "campionatura" ? 0 : scontoPct,
         ivaPercentuale: tipoOrdine === "campionatura" ? 0 : 22,
         consegnaTipo,
         dataRichiesta: consegnaTipo === "data" ? dataRichiesta || null : null,
@@ -1215,6 +1263,50 @@ export function OrdineNuovoWizardModal({
                 </label>
                 )}
               </div>
+              {tipoOrdine === "campionatura" ? null : (
+                <label className="block text-sm">
+                  <span className="mb-1 inline-flex items-center gap-1.5 font-medium">
+                    Sconto extra fuori listino (%)
+                    <InfoHint title={SCONTO_FUORI_LISTINO_TITOLO} wide>
+                      <span className="block space-y-2">
+                        {SCONTO_FUORI_LISTINO_REGOLE.map((r) => (
+                          <span key={r.fascia} className="block">
+                            <span className="font-semibold">{r.fascia}.</span>{" "}
+                            Inserisce: {r.inserisce} Approva: {r.approva}
+                          </span>
+                        ))}
+                        <span className="block text-slate-600">
+                          Super Admin: l’ordine è già firmato da te, tranne oltre
+                          il 30% (serve anche l’altro Super Admin).
+                        </span>
+                      </span>
+                    </InfoHint>
+                  </span>
+                  <ClearableNumberInput
+                    min={0}
+                    max={100}
+                    value={scontoExtraPct}
+                    onValueChange={setScontoExtraPct}
+                    className="w-full max-w-xs rounded-lg border border-[var(--border)] px-3 py-2 outline-none focus:border-[var(--primary)]"
+                  />
+                  {scontoPct > 0 ? (
+                    <p className="mt-1 text-xs text-[var(--muted)]">
+                      Prezzo netto {prezzoNetto.toLocaleString("it-IT", {
+                        style: "currency",
+                        currency: "EUR",
+                      })}
+                      /{unitaBase}
+                      {fasciaSconto === "fino_10"
+                        ? " · nessuna firma aggiuntiva"
+                        : fasciaSconto === "oltre_30" &&
+                            scontoCtx &&
+                            !scontoCtx.canOltre30
+                          ? " · riservato a Senior o Super Admin"
+                          : " · l’ordine resta In attesa sconto fino alle firme"}
+                    </p>
+                  ) : null}
+                </label>
+              )}
               {ordineSospeso ? (
                 <label className="block text-sm">
                   <span className="mb-1 block font-medium">

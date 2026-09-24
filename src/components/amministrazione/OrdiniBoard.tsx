@@ -13,6 +13,7 @@ import {
   getOrdineAllegatoSignedUrlAction,
   purgeOrdiniTestAction,
 } from "@/app/actions/ordini";
+import { approveOrdineScontoAction } from "@/app/actions/ordine-sconto";
 import { ActionGate } from "@/components/layout/ActionAccessProvider";
 import { AZ } from "@/lib/auth/action-access";
 import { CampionaturaFormModal } from "@/components/amministrazione/CampionaturaFormModal";
@@ -27,12 +28,15 @@ import { ProcessaOrdineScalettaModal } from "@/components/amministrazione/Proces
 import {
   fraseConfermaEliminazione,
   isOrdineDaProcessare,
+  isOrdineScontoInAttesa,
   hintStatoOrdine,
   labelStatoOrdine,
+  labelStatoOrdineConSconto,
   labelTipoOrdine,
   labelTipoPagamento,
   type Ordine,
 } from "@/lib/amministrazione/ordini";
+import { labelScontoFascia } from "@/lib/amministrazione/sconto-fuori-listino";
 import { classeCicloStato } from "@/lib/amministrazione/ciclo-stato-ordine";
 import { notifyOrdiniDaProcessareNav } from "@/lib/amministrazione/ordini-nav";
 import {
@@ -103,18 +107,22 @@ function OrdineTableRow({
   ordine,
   open,
   processMode,
+  approving,
   onToggle,
   onEdit,
   onDelete,
   onProcess,
+  onApproveSconto,
 }: {
   ordine: Ordine;
   open: boolean;
   processMode: boolean;
+  approving: boolean;
   onToggle: () => void;
   onEdit: () => void;
   onDelete: () => void;
   onProcess: () => void;
+  onApproveSconto: () => void;
 }) {
   return (
     <>
@@ -132,10 +140,19 @@ function OrdineTableRow({
         <td className="px-4 py-3">
           <span
             title={hintStatoOrdine(ordine.stato)}
-            className={`inline-flex rounded-full px-2 py-0.5 text-xs font-medium ${classeCicloStato(labelStatoOrdine(ordine.stato))}`}
+            className={`inline-flex rounded-full px-2 py-0.5 text-xs font-medium ${classeCicloStato(labelStatoOrdineConSconto(ordine))}`}
           >
-            {labelStatoOrdine(ordine.stato)}
+            {labelStatoOrdineConSconto(ordine)}
           </span>
+          {ordine.scontoExtraPct > 0 ? (
+            <span className="mt-1 block text-[10px] text-slate-600">
+              Sconto extra {ordine.scontoExtraPct.toLocaleString("it-IT")}%
+              {ordine.scontoApprovazioneStato === "approvata"
+                ? " · approvato"
+                : ""}{" "}
+              ({labelScontoFascia(ordine.scontoFascia)})
+            </span>
+          ) : null}
           {ordine.stato === "sospeso" && ordine.dataDisponibilitaPresunta ? (
             <span className="mt-1 block text-[10px] text-amber-800">
               presunta {formatDate(ordine.dataDisponibilitaPresunta)}
@@ -186,7 +203,20 @@ function OrdineTableRow({
         </td>
         <td className="px-4 py-3">
           <div className="flex justify-end gap-1">
-            {processMode && isOrdineDaProcessare(ordine.stato) ? (
+            {isOrdineScontoInAttesa(ordine) && !processMode ? (
+              <button
+                type="button"
+                title="Approva sconto extra"
+                disabled={approving}
+                onClick={onApproveSconto}
+                className="rounded-lg bg-amber-600 px-2.5 py-1.5 text-xs font-medium text-white hover:bg-amber-700 disabled:opacity-60"
+              >
+                {approving ? "Approvo…" : "Approva sconto"}
+              </button>
+            ) : null}
+            {processMode &&
+            isOrdineDaProcessare(ordine.stato) &&
+            !isOrdineScontoInAttesa(ordine) ? (
               <ActionGate actionKey={AZ.processaOrdine}>
                 <button
                   type="button"
@@ -280,7 +310,7 @@ export function OrdiniBoard({
   hideHeader = false,
 }: Props) {
   const { ordini, ready, error, removeOrdine, upsertLocal, refresh } =
-    useOrdini(stato, tipo);
+    useOrdini(stato, tipo, { escludiScontoInAttesa: processMode });
   const canCreate = showCreate ?? !processMode;
   const wizardVariant = tipo === "campionatura" ? "campionatura" : "ordine";
   const statoForm: OrdineStato = Array.isArray(stato)
@@ -296,6 +326,7 @@ export function OrdiniBoard({
   const [purgeBusy, setPurgeBusy] = useState(false);
   const [purgeMsg, setPurgeMsg] = useState<string | null>(null);
   const [processing, setProcessing] = useState<Ordine | null>(null);
+  const [approvingId, setApprovingId] = useState<string | null>(null);
   const [campionaturaTick, setCampionaturaTick] = useState(0);
   const [sort, setSort] = useState<SortState<OrdineSortKey> | null>({
     key: "dataOrdine",
@@ -594,6 +625,21 @@ export function OrdiniBoard({
                   onProcess={() => {
                     setActionError(null);
                     setProcessing(ordine);
+                  }}
+                  approving={approvingId === ordine.id}
+                  onApproveSconto={() => {
+                    setActionError(null);
+                    setApprovingId(ordine.id);
+                    void approveOrdineScontoAction(ordine.id).then((res) => {
+                      setApprovingId(null);
+                      if (!res.success) {
+                        setActionError(res.error);
+                        return;
+                      }
+                      upsertLocal(res.ordine);
+                      notifyOrdiniDaProcessareNav();
+                      void refresh();
+                    });
                   }}
                 />
               ))}

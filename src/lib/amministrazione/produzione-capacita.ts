@@ -189,6 +189,7 @@ export const ordineWizardInputSchema = z
       .enum(["anticipato", "alla_consegna", "posticipato", "dilazionato"])
       .default("alla_consegna"),
     tipo: z.enum(["vendita", "campionatura"]).default("vendita"),
+    scontoExtraPct: z.number().min(0).max(100).optional().default(0),
   })
   .superRefine((val, ctx) => {
     if (!val.clienteId && !val.possibileClienteId) {

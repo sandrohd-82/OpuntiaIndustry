@@ -45,6 +45,12 @@ import {
 import { resolveClientePerOrdineFromRawAction } from "@/app/actions/clienti";
 import { requireAreaAccess } from "@/lib/areas/guard";
 import {
+  finalizeScontoOnCreate,
+  loadScontoOperatoreCtx,
+  valutaScontoWizard,
+} from "@/lib/amministrazione/sconto-fuori-listino-server";
+import { prezzoNettoDaSconto } from "@/lib/amministrazione/sconto-fuori-listino";
+import {
   requireOrdineCreateAccess,
   requireOrdineProcessAccess,
   requireOrdineReadAccess,
@@ -207,7 +213,7 @@ async function replaceRighe(
 
 export async function listOrdiniAction(
   stato: OrdineStato | OrdineStato[],
-  opts?: { tipo?: OrdineTipoDocumento }
+  opts?: { tipo?: OrdineTipoDocumento; escludiScontoInAttesa?: boolean }
 ): Promise<{ success: true; ordini: Ordine[] } | { success: false; error: string }> {
   await requireOrdineReadAccess();
   const supabase = await createClient();
@@ -233,6 +239,9 @@ export async function listOrdiniAction(
     q = q.or("tipo.eq.vendita,tipo.is.null");
   }
   q = stati.length === 1 ? q.eq("stato", stati[0]) : q.in("stato", stati);
+  if (opts?.escludiScontoInAttesa) {
+    q = q.neq("sconto_approvazione_stato", "in_attesa");
+  }
   const { data, error } = await q.order(
     stati.includes("storico") ? "data_consegna" : "data_ordine",
     { ascending: false }
@@ -285,7 +294,7 @@ export async function countOrdiniDaProcessareAction(): Promise<
   const [{ data, error }, { data: camps, error: campErr }] = await Promise.all([
     supabase
       .from("ordini")
-      .select("id, tipo")
+      .select("id, tipo, sconto_approvazione_stato")
       .is("deleted_at", null)
       .in("stato", ["in_attesa", "ricevuto", "sospeso"]),
     supabase
@@ -298,7 +307,9 @@ export async function countOrdiniDaProcessareAction(): Promise<
   let merce = 0;
   let campionature = 0;
   for (const row of data ?? []) {
-    if (String((row as { tipo?: string }).tipo ?? "vendita") === "campionatura") {
+    const r = row as { tipo?: string; sconto_approvazione_stato?: string };
+    if (r.sconto_approvazione_stato === "in_attesa") continue;
+    if (String(r.tipo ?? "vendita") === "campionatura") {
       campionature += 1;
     } else {
       merce += 1;
@@ -996,7 +1007,23 @@ async function createOrdineWizardActionInner(
       : null;
 
   const trasporto = emptyTrasporto();
-  const prezzoUnitario = campionaturaGratis ? 0 : input.prezzoUnitario;
+  const scontoCtx = await loadScontoOperatoreCtx(auth.userId);
+  const scontoVal = campionaturaGratis
+    ? { ok: true as const, pct: 0, fascia: "nessuno" as const }
+    : valutaScontoWizard({
+        scontoExtraPct: input.scontoExtraPct,
+        isSuperadmin: scontoCtx.isSuperadmin,
+        isSenior: scontoCtx.isSenior,
+      });
+  if (!scontoVal.ok) return { success: false, error: scontoVal.error };
+  const prezzoListino = campionaturaGratis ? 0 : input.prezzoUnitario;
+  const prezzoUnitario = campionaturaGratis
+    ? 0
+    : prezzoNettoDaSconto(prezzoListino, scontoVal.pct);
+  const scontoApprovazioneStato =
+    scontoVal.fascia === "nessuno" || scontoVal.fascia === "fino_10"
+      ? "non_richiesta"
+      : "in_attesa";
   const ivaPercentuale = campionaturaGratis ? 0 : input.ivaPercentuale;
   const unitaMisura = normalizzaUnitaRigaOrdine({
     tipo: input.tipo,
@@ -1113,12 +1140,16 @@ async function createOrdineWizardActionInner(
             motivo: "non_disponibile",
             data_disponibilita_presunta: input.dataDisponibilitaPresunta,
             webmail_richiesta_id: input.webmailRichiestaId ?? null,
+            sconto_extra_pct: scontoVal.pct,
+            sconto_fascia: scontoVal.fascia,
           }
         : {
             in_attesa: true,
             consegna_tipo: input.consegnaTipo,
             data_consegna_richiesta: dataConsegna,
             webmail_richiesta_id: input.webmailRichiestaId ?? null,
+            sconto_extra_pct: scontoVal.pct,
+            sconto_fascia: scontoVal.fascia,
           },
       giorni_produzione: [],
       is_test: true,
@@ -1141,6 +1172,10 @@ async function createOrdineWizardActionInner(
       referente_accettazione_id: campionaturaGratis
         ? null
         : (input.referenteAccettazioneId ?? null),
+      sconto_extra_pct: scontoVal.pct,
+      sconto_fascia: scontoVal.fascia,
+      sconto_approvazione_stato: scontoApprovazioneStato,
+      prezzo_listino_unitario: campionaturaGratis ? null : prezzoListino,
       created_by: auth.userId,
       updated_by: auth.userId,
     };
@@ -1252,6 +1287,17 @@ async function createOrdineWizardActionInner(
       possibileClienteId: resolved.possibileClienteId,
     });
 
+    await finalizeScontoOnCreate({
+      ordineId: row.id,
+      fascia: scontoVal.fascia,
+      pct: scontoVal.pct,
+      clienteId: resolved.clienteId,
+      numeroInterno,
+      cliente: input.cliente.trim(),
+      actorId: auth.userId,
+      isSuperadmin: scontoCtx.isSuperadmin,
+    });
+
     await writeAudit({
       entity_type: "ordini",
       entity_id: row.id,
@@ -1268,6 +1314,8 @@ async function createOrdineWizardActionInner(
         consegna_tipo: input.consegnaTipo,
         spedizione_a_carico: input.spedizioneACarico,
         preventivo_id: input.preventivoId ?? null,
+        sconto_extra_pct: scontoVal.pct,
+        sconto_fascia: scontoVal.fascia,
       },
     });
 
@@ -1379,6 +1427,13 @@ export async function processOrdineInScalettaAction(
     return {
       success: false,
       error: "Questo ordine è già stato processato o non è in coda.",
+    };
+  }
+  if (existing.scontoApprovazioneStato === "in_attesa") {
+    return {
+      success: false,
+      error:
+        "Sconto extra in attesa di approvazione: l’ordine non può entrare in produzione.",
     };
   }
 

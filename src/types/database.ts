@@ -990,6 +990,10 @@ export interface OrdineRow {
   listino_id?: string | null;
   external_ref?: string;
   portale_utente_id?: string | null;
+  sconto_extra_pct?: number;
+  sconto_fascia?: string;
+  sconto_approvazione_stato?: string;
+  prezzo_listino_unitario?: number | null;
   created_by: string | null;
   updated_by: string | null;
   created_at: string;
@@ -1050,6 +1054,10 @@ export interface OrdineInsert {
   preventivo_id?: string | null;
   webmail_accettazione_id?: string | null;
   referente_accettazione_id?: string | null;
+  sconto_extra_pct?: number;
+  sconto_fascia?: string;
+  sconto_approvazione_stato?: string;
+  prezzo_listino_unitario?: number | null;
   created_by?: string | null;
   updated_by?: string | null;
 }
@@ -1100,6 +1108,10 @@ export interface OrdineUpdate {
   giorni_produzione?: string[];
   destinatario?: string;
   indirizzo_spedizione?: string;
+  sconto_extra_pct?: number;
+  sconto_fascia?: string;
+  sconto_approvazione_stato?: string;
+  prezzo_listino_unitario?: number | null;
   updated_by?: string | null;
   deleted_at?: string | null;
   deleted_by?: string | null;

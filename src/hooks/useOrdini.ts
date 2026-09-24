@@ -10,21 +10,25 @@ import type { OrdineStato, OrdineTipoDocumento } from "@/types/database";
 
 export function useOrdini(
   stato: OrdineStato | OrdineStato[],
-  tipo?: OrdineTipoDocumento
+  tipo?: OrdineTipoDocumento,
+  opts?: { escludiScontoInAttesa?: boolean }
 ) {
   const [ordini, setOrdini] = useState<Ordine[]>([]);
   const [ready, setReady] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const refresh = useCallback(async () => {
-    const result = await listOrdiniAction(stato, tipo ? { tipo } : undefined);
+    const result = await listOrdiniAction(stato, {
+      ...(tipo ? { tipo } : {}),
+      escludiScontoInAttesa: opts?.escludiScontoInAttesa,
+    });
     if (result.success) {
       setOrdini(result.ordini);
       setError(null);
     } else {
       setError(result.error);
     }
-  }, [JSON.stringify(stato), tipo ?? ""]);
+  }, [JSON.stringify(stato), tipo ?? "", opts?.escludiScontoInAttesa ?? false]);
 
   useEffect(() => {
     void refresh().finally(() => setReady(true));

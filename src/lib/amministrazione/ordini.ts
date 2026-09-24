@@ -6,6 +6,11 @@ import type {
   OrdineTipoDocumento,
 } from "@/types/database";
 import { cicloStatoOrdine } from "@/lib/amministrazione/ciclo-stato-ordine";
+import {
+  isScontoFascia,
+  type ScontoApprovazioneStato,
+  type ScontoFascia,
+} from "@/lib/amministrazione/sconto-fuori-listino";
 
 export type OrdineAllegatoMeta = {
   storagePath: string;
@@ -174,6 +179,10 @@ export type Ordine = {
   indirizzoSpedizione: string;
   capacitaSnapshot: Record<string, unknown>;
   isTest: boolean;
+  scontoExtraPct: number;
+  scontoFascia: ScontoFascia;
+  scontoApprovazioneStato: ScontoApprovazioneStato;
+  prezzoListinoUnitario: number | null;
   righe: OrdineRigaProdotto[];
   createdAt: string;
   updatedAt: string;
@@ -420,6 +429,20 @@ export function mapOrdineRow(
     capacitaSnapshot:
       (row.capacita_snapshot as Record<string, unknown> | null) ?? {},
     isTest: row.is_test !== false,
+    scontoExtraPct: Number(row.sconto_extra_pct ?? 0),
+    scontoFascia: isScontoFascia(row.sconto_fascia)
+      ? row.sconto_fascia
+      : "nessuno",
+    scontoApprovazioneStato:
+      row.sconto_approvazione_stato === "in_attesa" ||
+      row.sconto_approvazione_stato === "approvata" ||
+      row.sconto_approvazione_stato === "rifiutata"
+        ? row.sconto_approvazione_stato
+        : "non_richiesta",
+    prezzoListinoUnitario:
+      row.prezzo_listino_unitario != null
+        ? Number(row.prezzo_listino_unitario)
+        : null,
     righe: [...righe]
       .sort((a, b) => a.sort_order - b.sort_order)
       .map(mapOrdineRigaRow),
@@ -477,6 +500,19 @@ export function labelStatoOrdine(stato: OrdineStato): string {
 
 export function hintStatoOrdine(stato: OrdineStato): string {
   return cicloStatoOrdine(stato).hint;
+}
+
+export function labelStatoOrdineConSconto(
+  ordine: Pick<Ordine, "stato" | "scontoApprovazioneStato">
+): string {
+  if (ordine.scontoApprovazioneStato === "in_attesa") return "In attesa sconto";
+  return labelStatoOrdine(ordine.stato);
+}
+
+export function isOrdineScontoInAttesa(
+  ordine: Pick<Ordine, "scontoApprovazioneStato">
+): boolean {
+  return ordine.scontoApprovazioneStato === "in_attesa";
 }
 
 export function labelTipoOrdine(tipo: OrdineTipoDocumento): string {
