@@ -29,15 +29,26 @@ export const PROGRAMMATA_STATO_LABEL: Record<ProgrammataStato, string> = {
   errore: "Errore",
 };
 
+export const REGISTRATA_AZIONE_KEYS = ["avvio", "arresto"] as const;
+export type RegistrataAzioneKey = (typeof REGISTRATA_AZIONE_KEYS)[number];
+
+export const ESECUZIONE_STATI = ["ferma", "in_corso"] as const;
+export type EsecuzioneStato = (typeof ESECUZIONE_STATI)[number];
+
 export type AzioneRegistrata = {
   id: string;
   essiccatoreId: string;
-  azioneKey: "avvio";
+  azioneKey: RegistrataAzioneKey;
   nome: string;
   descrizione: string;
   tempBruciatoreC: number;
   percVentilazione: number;
   durataMinuti: number | null;
+  programmaSpegnimento: boolean;
+  programmaSpegnimentoId: string | null;
+  programmaSpegnimentoNome: string | null;
+  esecuzioneStato: EsecuzioneStato;
+  esecuzioneAzioneId: string | null;
   versione: number;
   documentoStato: DocumentoStatoCatalogo;
   createdAt: string;
@@ -94,8 +105,43 @@ export function formatDurataMinuti(minuti: number | null | undefined): string {
   return minuti === 1 ? "1 minuto" : `${minuti} min`;
 }
 
-export const registrataInputSchema = z.object({
-  essiccatoreId: z.enum(ACTION_ESSICCATORE_IDS),
+export function nomeArrestoDi(nome: string): string {
+  const full = `Arresto di ${nome.trim()}`;
+  return full.length <= 120 ? full : full.slice(0, 120);
+}
+
+export const registrataInputSchema = z
+  .object({
+    essiccatoreId: z.enum(ACTION_ESSICCATORE_IDS),
+    nome: z.string().trim().min(2).max(120),
+    descrizione: z.string().trim().max(2000).optional().default(""),
+    tempBruciatoreC: z
+      .number()
+      .int()
+      .min(TEMP_BRUCIATORE_MIN_C)
+      .max(TEMP_BRUCIATORE_MAX_C),
+    percVentilazione: z.number().int().min(0).max(100),
+    durataMinuti: z
+      .number()
+      .int()
+      .min(1)
+      .max(DURATA_MINUTI_MAX)
+      .nullable(),
+    spegnimentoMode: z.enum(["crea", "collega"]).optional().default("crea"),
+    programmaSpegnimentoId: z.string().uuid().optional().nullable(),
+  })
+  .superRefine((data, ctx) => {
+    if (data.spegnimentoMode === "collega" && !data.programmaSpegnimentoId) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["programmaSpegnimentoId"],
+        message: "Collega un programma di spegnimento già creato.",
+      });
+    }
+  });
+
+export const registrataUpdateSchema = z.object({
+  id: z.string().uuid(),
   nome: z.string().trim().min(2).max(120),
   descrizione: z.string().trim().max(2000).optional().default(""),
   tempBruciatoreC: z
@@ -110,6 +156,14 @@ export const registrataInputSchema = z.object({
     .min(1)
     .max(DURATA_MINUTI_MAX)
     .nullable(),
+  programmaSpegnimentoId: z.string().uuid().nullable().optional(),
+  spegnimentoTempC: z
+    .number()
+    .int()
+    .min(TEMP_BRUCIATORE_MIN_C)
+    .max(TEMP_BRUCIATORE_MAX_C)
+    .optional(),
+  spegnimentoVent: z.number().int().min(0).max(100).optional(),
 });
 
 export const programmataInputSchema = z.object({

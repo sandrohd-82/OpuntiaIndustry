@@ -2,6 +2,7 @@ import type { ActionEssiccatoreAzione } from "@/lib/action/azioni-immediate";
 import {
   decodeMexHex,
   encodeAckAtteso,
+  encodeArrestoOut,
   encodeAvvioOut,
   MEX_CMD,
   titoloOperatoreMex,
@@ -32,29 +33,40 @@ export type MexCommsEsitoAvviso = {
 export function esitoDaFineSessione(
   fase: MexCommsFase,
   passi: MexCommsPasso[],
-  essiccatoreNome: string
+  essiccatoreNome: string,
+  kind: "avvio" | "arresto" = "avvio"
 ): MexCommsEsitoAvviso | null {
+  const atteso =
+    kind === "arresto"
+      ? ORDINE_SICUREZZA_ARRESTO.length
+      : ORDINE_SICUREZZA_AVVIO.length;
   if (fase === "blocco_sicurezza") {
     return {
       livello: "errore",
-      titolo: "Avvio interrotto",
-      testo: "Il processo si è fermato: il bruciatore non parte senza ventola On confermata.",
+      titolo: kind === "arresto" ? "Arresto interrotto" : "Avvio interrotto",
+      testo:
+        kind === "arresto"
+          ? "Lo spegnimento si è fermato prima del completamento."
+          : "Il processo si è fermato: il bruciatore non parte senza ventola On confermata.",
       essiccatoreNome,
     };
   }
   if (fase !== "completato") return null;
-  if (passi.length < ORDINE_SICUREZZA_AVVIO.length) {
+  if (passi.length < atteso) {
     return {
       livello: "attenzione",
-      titolo: "Avvio incompleto",
+      titolo: kind === "arresto" ? "Arresto incompleto" : "Avvio incompleto",
       testo: "Lo scambio è finito, ma manca almeno un messaggio della cadenza di sicurezza.",
       essiccatoreNome,
     };
   }
   return {
     livello: "ok",
-    titolo: "Avvio confermato",
-    testo: "Tutti i messaggi sono stati confermati. La procedura è al 100%.",
+    titolo: kind === "arresto" ? "Arresto confermato" : "Avvio confermato",
+    testo:
+      kind === "arresto"
+        ? "Bruciatore spento e ventola confermata. La procedura è al 100%."
+        : "Tutti i messaggi sono stati confermati. La procedura è al 100%.",
     essiccatoreNome,
   };
 }
@@ -71,6 +83,8 @@ export type MexCommsSessione = {
   essiccatoreNome: string;
   azioneId: string;
   passi: MexCommsPasso[];
+  kind?: "avvio" | "arresto";
+  onCompletata?: () => void;
 };
 
 /** Cadenza di sicurezza: set ventola → On ventola → set temperatura → On bruciatore. */
@@ -80,6 +94,14 @@ export const ORDINE_SICUREZZA_AVVIO = [
   MEX_CMD.BURNER_TEMP,
   MEX_CMD.BURNER_POWER,
   MEX_CMD.BURNER_CONSENT,
+] as const;
+
+/** Sicurezza arresto: bruciatore Off, poi ventola di raffreddamento. */
+export const ORDINE_SICUREZZA_ARRESTO = [
+  MEX_CMD.BURNER_CONSENT,
+  MEX_CMD.BURNER_POWER,
+  MEX_CMD.FAN_POWER,
+  MEX_CMD.FAN_CONSENT,
 ] as const;
 
 function outsDaAzione(azione: ActionEssiccatoreAzione): MexFrame[] {
@@ -132,6 +154,49 @@ export function createSessioneAvvioComms(
     id: azione.id,
     essiccatoreNome,
     azioneId: azione.id,
+    kind: "avvio",
+    passi,
+  };
+}
+
+function outsDaArresto(azione: ActionEssiccatoreAzione): MexFrame[] {
+  const stored = azione.messaggi
+    .map((m) => {
+      const hex = typeof m.payload.mex === "string" ? m.payload.mex : null;
+      return hex ? decodeMexHex(hex) : null;
+    })
+    .filter((f): f is MexFrame => Boolean(f));
+  if (stored.length >= 3) return stored;
+  return encodeArrestoOut({
+    essiccatoreId: azione.essiccatoreId,
+    percVentilazione: azione.percVentilazione,
+    consensoVentola: true,
+  });
+}
+
+export function createSessioneArrestoComms(
+  azione: ActionEssiccatoreAzione,
+  essiccatoreNome: string,
+  onCompletata?: () => void
+): MexCommsSessione {
+  const byCmd = new Map(outsDaArresto(azione).map((f) => [f.cmd, f]));
+  const passi: MexCommsPasso[] = [];
+  ORDINE_SICUREZZA_ARRESTO.forEach((cmd, i) => {
+    const frame = byCmd.get(cmd);
+    if (!frame) return;
+    passi.push({
+      id: `${azione.id}-stop-${i}`,
+      titolo: titoloOperatoreMex(frame),
+      frame,
+      richiedeVentolaOn: false,
+    });
+  });
+  return {
+    id: azione.id,
+    essiccatoreNome,
+    azioneId: azione.id,
+    kind: "arresto",
+    onCompletata,
     passi,
   };
 }

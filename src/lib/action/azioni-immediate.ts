@@ -1,9 +1,11 @@
 import { z } from "zod";
 import { ACTION_ESSICCATORE_IDS } from "@/lib/action/essiccatori";
-import { encodeAvvioOut } from "@/lib/action/iot-mex";
+import { encodeArrestoOut, encodeAvvioOut } from "@/lib/action/iot-mex";
 
 export const AZIONE_IMMEDIATA_KEYS = ["avvio"] as const;
+export const AZIONE_ESECUZIONE_KEYS = ["avvio", "arresto"] as const;
 export type AzioneImmediataKey = (typeof AZIONE_IMMEDIATA_KEYS)[number];
+export type AzioneEsecuzioneKey = (typeof AZIONE_ESECUZIONE_KEYS)[number];
 
 export const TEMP_BRUCIATORE_MIN_C = 35;
 export const TEMP_BRUCIATORE_MAX_C = 70;
@@ -47,7 +49,7 @@ export type ActionEssiccatoreIotMessaggio = {
 export type ActionEssiccatoreAzione = {
   id: string;
   essiccatoreId: string;
-  azioneKey: AzioneImmediataKey;
+  azioneKey: AzioneEsecuzioneKey;
   versione: number;
   documentoStato: (typeof DOCUMENTO_STATI_AZIONE)[number];
   consensoBruciatore: boolean;
@@ -75,6 +77,7 @@ export const avvioEssiccatoreInputSchema = z
     consensoVentola: z.boolean(),
     percVentilazione: z.number().int().min(0).max(100),
     kgManuale: z.number().min(0).max(8000).optional(),
+    registrataId: z.string().uuid().optional(),
   })
   .superRefine((data, ctx) => {
     if (!data.consensoBruciatore) {
@@ -187,6 +190,70 @@ export function buildMessaggiAvvio(
         cls: burnerOn?.cls ?? "I",
       },
       sortOrder: 5,
+    },
+  ];
+}
+
+export function buildMessaggiArresto(input: {
+  essiccatoreId: AvvioEssiccatoreInput["essiccatoreId"];
+  percVentilazione: number;
+  consensoVentola?: boolean;
+}): MessaggioAvvioDraft[] {
+  const frames = encodeArrestoOut({
+    essiccatoreId: input.essiccatoreId,
+    percVentilazione: input.percVentilazione,
+    consensoVentola: input.consensoVentola !== false,
+  });
+  const [burnerOff, burnerPower, fanPower, fanOn] = frames;
+  return [
+    {
+      canale: "consenso_bruciatore",
+      comando: burnerOff?.codice ?? "A01",
+      payload: {
+        on: false,
+        mex: burnerOff?.hex ?? "",
+        codice: burnerOff?.codice ?? "A01",
+        uid: burnerOff?.uidHex ?? "",
+        cls: burnerOff?.cls ?? "I",
+      },
+      sortOrder: 1,
+    },
+    {
+      canale: "perc_bruciatore",
+      comando: burnerPower?.codice ?? "A05",
+      payload: {
+        percent: 0,
+        fonte: "arresto",
+        mex: burnerPower?.hex ?? "",
+        codice: burnerPower?.codice ?? "A05",
+        uid: burnerPower?.uidHex ?? "",
+        cls: burnerPower?.cls ?? "I",
+      },
+      sortOrder: 2,
+    },
+    {
+      canale: "perc_ventilazione",
+      comando: fanPower?.codice ?? "A04",
+      payload: {
+        percent: input.percVentilazione,
+        mex: fanPower?.hex ?? "",
+        codice: fanPower?.codice ?? "A04",
+        uid: fanPower?.uidHex ?? "",
+        cls: fanPower?.cls ?? "I",
+      },
+      sortOrder: 3,
+    },
+    {
+      canale: "consenso_ventola",
+      comando: fanOn?.codice ?? "A03",
+      payload: {
+        on: input.consensoVentola !== false,
+        mex: fanOn?.hex ?? "",
+        codice: fanOn?.codice ?? "A03",
+        uid: fanOn?.uidHex ?? "",
+        cls: fanOn?.cls ?? "I",
+      },
+      sortOrder: 4,
     },
   ];
 }

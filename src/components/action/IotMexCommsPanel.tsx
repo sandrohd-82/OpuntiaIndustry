@@ -401,7 +401,8 @@ export function IotMexCommsPanel({ sessione, onChiudi, onFine }: Props) {
     const esito = esitoDaFineSessione(
       fase,
       passi,
-      sessione.essiccatoreNome
+      sessione.essiccatoreNome,
+      sessione.kind ?? "avvio"
     );
     if (!esito) return;
     const t = window.setTimeout(() => onFine(esito), 280);

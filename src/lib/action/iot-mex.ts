@@ -304,6 +304,47 @@ export function encodeAvvioOut(input: {
   ];
 }
 
+/** Sicurezza arresto: prima spegne il bruciatore, poi mantiene la ventola. */
+export function encodeArrestoOut(input: {
+  essiccatoreId?: string;
+  consensoVentola?: boolean;
+  percVentilazione: number;
+}): MexFrame[] {
+  const uid = uidPerEssiccatore(input.essiccatoreId ?? "ess-a");
+  const base = { cls: "I" as const, uid };
+  const ventolaOn = input.consensoVentola !== false;
+  return [
+    encodeMex({
+      ...base,
+      dir: "O",
+      tipo: "A",
+      cmd: MEX_CMD.BURNER_CONSENT,
+      d0: onByte(false),
+    }),
+    encodeMex({
+      ...base,
+      dir: "O",
+      tipo: "A",
+      cmd: MEX_CMD.BURNER_POWER,
+      d0: 0,
+    }),
+    encodeMex({
+      ...base,
+      dir: "O",
+      tipo: "A",
+      cmd: MEX_CMD.FAN_POWER,
+      d0: input.percVentilazione,
+    }),
+    encodeMex({
+      ...base,
+      dir: "O",
+      tipo: "A",
+      cmd: MEX_CMD.FAN_CONSENT,
+      d0: onByte(ventolaOn),
+    }),
+  ];
+}
+
 export function encodeAckAtteso(out: MexFrame): MexFrame {
   return encodeMex({
     cls: "C",

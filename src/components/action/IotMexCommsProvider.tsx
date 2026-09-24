@@ -1,6 +1,6 @@
 "use client";
 
-import { createContext, useCallback, useContext, useState } from "react";
+import { createContext, useCallback, useContext, useRef, useState } from "react";
 import { IotMexCommsPanel } from "@/components/action/IotMexCommsPanel";
 import { IotMexEsitoAvviso } from "@/components/action/IotMexEsitoAvviso";
 import type {
@@ -21,6 +21,8 @@ export function IotMexCommsProvider({
 }) {
   const [sessione, setSessione] = useState<MexCommsSessione | null>(null);
   const [esito, setEsito] = useState<MexCommsEsitoAvviso | null>(null);
+  const sessioneRef = useRef<MexCommsSessione | null>(null);
+  sessioneRef.current = sessione;
   const avviaSessione = useCallback((next: MexCommsSessione) => {
     setEsito(null);
     setSessione(next);
@@ -28,6 +30,7 @@ export function IotMexCommsProvider({
   const chiudiSessione = useCallback(() => setSessione(null), []);
   const chiudiEsito = useCallback(() => setEsito(null), []);
   const fineSessione = useCallback((next: MexCommsEsitoAvviso) => {
+    sessioneRef.current?.onCompletata?.();
     setSessione(null);
     setEsito(next);
   }, []);

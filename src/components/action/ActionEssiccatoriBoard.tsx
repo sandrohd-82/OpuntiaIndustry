@@ -29,7 +29,11 @@ import {
   formatCapacitaKg,
   type ActionEssiccatore,
 } from "@/lib/action/essiccatori";
-import { createSessioneAvvioComms } from "@/lib/action/iot-mex-comms";
+import { chiudiEsecuzioneRegistrataAction } from "@/app/actions/action-essiccatore-catalogo";
+import {
+  createSessioneArrestoComms,
+  createSessioneAvvioComms,
+} from "@/lib/action/iot-mex-comms";
 import type { ActionEssiccatoreSensore } from "@/lib/action/sensori";
 
 const familyBtn =
@@ -301,6 +305,28 @@ export function ActionEssiccatoriBoard({ canPosition = false }: Props) {
         <ActionEssiccatoreRegistrateModal
           essiccatore={familyFor.item}
           onClose={() => setFamilyFor(null)}
+          onAvvioRegistrato={(azione) => {
+            avviaSessione(
+              createSessioneAvvioComms(azione, familyFor.item.nome)
+            );
+          }}
+          onArrestoRegistrato={(azione, registrataId) => {
+            avviaSessione(
+              createSessioneArrestoComms(
+                azione,
+                familyFor.item.nome,
+                () => {
+                  void chiudiEsecuzioneRegistrataAction({
+                    id: registrataId,
+                  }).then(() => {
+                    window.dispatchEvent(
+                      new Event("opuntia.action-registrata-esec")
+                    );
+                  });
+                }
+              )
+            );
+          }}
         />
       ) : null}
       {familyFor?.kind === "programmate" ? (

@@ -4,9 +4,11 @@ import { writeAuditLog } from "@/lib/audit";
 import {
   avvioEssiccatoreInputSchema,
   condizioneStimaSchema,
+  buildMessaggiArresto,
   buildMessaggiAvvio,
   type ActionEssiccatoreAzione,
   type ActionEssiccatoreIotMessaggio,
+  type AzioneEsecuzioneKey,
   type IotCanaleAvvio,
   type IotStatoMessaggio,
 } from "@/lib/action/azioni-immediate";
@@ -22,9 +24,10 @@ import {
   kgDaFoglioLavorazione,
   type CondizioniAvvioAuto,
 } from "@/lib/action/essiccatore-condizioni-auto";
-import { ACTION_ESSICCATORI } from "@/lib/action/essiccatori";
+import { ACTION_ESSICCATORI, ACTION_ESSICCATORE_IDS } from "@/lib/action/essiccatori";
 import { requireAreaAccess } from "@/lib/areas/guard";
 import { createServiceClient } from "@/lib/supabase/server";
+import { z } from "zod";
 
 const AZIONE_COLS =
   "id, essiccatore_id, azione_key, versione, documento_stato, consenso_bruciatore, temp_bruciatore_c, consenso_ventola, perc_ventilazione, kg_prodotto, temp_ambiente_c, umidita_ambiente_pct, perc_bruciatore_prevista, iot_stato, created_at";
@@ -32,7 +35,7 @@ const AZIONE_COLS =
 type AzioneRow = {
   id: string;
   essiccatore_id: string;
-  azione_key: "avvio";
+  azione_key: AzioneEsecuzioneKey;
   versione: number;
   documento_stato: ActionEssiccatoreAzione["documentoStato"];
   consenso_bruciatore: boolean;
@@ -297,6 +300,7 @@ export async function avviaEssiccatoreAction(
       umidita_ambiente_pct: auto.umiditaAmbientePct,
       perc_bruciatore_prevista: stima.percBruciatore,
       iot_stato: "in_attesa_dispositivo",
+      registrata_id: parsed.data.registrataId ?? null,
       created_by: auth.userId,
       updated_by: auth.userId,
     })
@@ -368,5 +372,106 @@ export async function avviaEssiccatoreAction(
     },
   });
 
+  return { success: true, item };
+}
+
+export async function arrestaEssiccatoreAction(
+  raw: unknown
+): Promise<
+  { success: true; item: ActionEssiccatoreAzione } | { success: false; error: string }
+> {
+  const { auth } = await requireAreaAccess("action");
+  const parsed = z
+    .object({
+      essiccatoreId: z.enum(ACTION_ESSICCATORE_IDS),
+      percVentilazione: z.number().int().min(0).max(100),
+      tempBruciatoreC: z.number().int().min(35).max(70).optional(),
+      registrataId: z.string().uuid().optional(),
+    })
+    .safeParse(raw);
+  if (!parsed.success) {
+    return { success: false, error: "Settaggi di arresto non validi." };
+  }
+  const ess = ACTION_ESSICCATORI.find((e) => e.id === parsed.data.essiccatoreId);
+  if (!ess) return { success: false, error: "Essiccatore non trovato." };
+
+  const drafts = buildMessaggiArresto({
+    essiccatoreId: parsed.data.essiccatoreId,
+    percVentilazione: parsed.data.percVentilazione,
+    consensoVentola: true,
+  });
+  const supabase = createServiceClient();
+  const { data: azioneRow, error: azioneErr } = await supabase
+    .from("action_essiccatore_azioni")
+    .insert({
+      essiccatore_id: parsed.data.essiccatoreId,
+      azione_key: "arresto",
+      versione: 1,
+      documento_stato: "eseguito",
+      consenso_bruciatore: false,
+      temp_bruciatore_c: parsed.data.tempBruciatoreC ?? 35,
+      consenso_ventola: true,
+      perc_ventilazione: parsed.data.percVentilazione,
+      kg_prodotto: 0,
+      temp_ambiente_c: 20,
+      umidita_ambiente_pct: 50,
+      perc_bruciatore_prevista: 0,
+      iot_stato: "in_attesa_dispositivo",
+      registrata_id: parsed.data.registrataId ?? null,
+      created_by: auth.userId,
+      updated_by: auth.userId,
+    })
+    .select(AZIONE_COLS)
+    .single();
+  if (azioneErr || !azioneRow) {
+    return {
+      success: false,
+      error: azioneErr?.message ?? "Registrazione arresto fallita.",
+    };
+  }
+  const azione = azioneRow as AzioneRow;
+  const { data: msgRows, error: msgErr } = await supabase
+    .from("action_essiccatore_iot_messaggi")
+    .insert(
+      drafts.map((d) => ({
+        azione_id: azione.id,
+        canale: d.canale,
+        comando: d.comando,
+        payload: d.payload,
+        sort_order: d.sortOrder,
+        stato: "in_attesa_dispositivo",
+        created_by: auth.userId,
+        updated_by: auth.userId,
+      }))
+    )
+    .select("id, azione_id, canale, comando, payload, sort_order, stato");
+  if (msgErr || !msgRows?.length) {
+    await supabase
+      .from("action_essiccatore_azioni")
+      .update({
+        documento_stato: "errore",
+        iot_stato: "errore",
+        note: msgErr?.message ?? "Messaggi IoT non registrati.",
+        updated_by: auth.userId,
+      })
+      .eq("id", azione.id);
+    return {
+      success: false,
+      error: msgErr?.message ?? "I messaggi IoT non sono stati registrati.",
+    };
+  }
+  const item = mapAzione(azione, (msgRows as MessaggioRow[]).map(mapMessaggio));
+  await writeAuditLog({
+    entity_type: "action_essiccatore_azioni",
+    entity_id: item.id,
+    action: "create",
+    actor_id: auth.actorUserId,
+    summary: `Arresto ${ess.nome}: bruciatore Off, ventola ${item.percVentilazione}%`,
+    payload: {
+      essiccatoreId: item.essiccatoreId,
+      registrataId: parsed.data.registrataId ?? null,
+      comandi: item.messaggi.map((m) => m.comando),
+    },
+  });
   return { success: true, item };
 }
