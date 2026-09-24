@@ -225,19 +225,19 @@ export const PAGE_EXTRAS: Record<string, TutorialBlock[]> = {
   "/app/archivio/iot": [
     {
       type: "p",
-      text: "Un Mex unico (7E + classe + UID 8 byte SH/SL + comando + checksum) viaggia su WiFi, XBee o LoRa. Cambia solo l’involucro.",
+      text: "Messaggi a lettere: minuscola dal Gestionale all’oggetto, maiuscola la risposta. h High, l Low, r Regola, i Input, s Sensor.",
     },
   ],
   "/app/archivio/iot/leggenda-mex": [
     {
       type: "p",
-      text: "Legenda Out/In più l’esempio On bruciatore (A01) nei 3 scenari: JSON WiFi, telaio XBee 0x10, FRMPayload LoRa. Stesso hex Mex.",
+      text: "Catalogo ufficiale: h21/H21 On, l21/L21 Off, r65/R65 regola, i12/I12 impulso, s35/S35-0256 sensore (0256 = 25,6).",
     },
   ],
   "/app/archivio/iot/wiki": [
     {
       type: "p",
-      text: "Wiki IoT (come il Tutorial): ricerca schede su frame Mex, tre mezzi, cadenza di sicurezza, apprendimento A+ (kg, aria ingresso, umidità) e API A01–A05. Esempio numerico 40°C / ventola 70% con inverno+tappo vs estate+vuoto.",
+      text: "Wiki IoT: lettere master/slave, tre mezzi di trasporto, cadenza di sicurezza, apprendimento A+ e API h/l/r/i/s.",
     },
   ],
   "/app/produzione/processi-e-attivita/elenco-processi": [

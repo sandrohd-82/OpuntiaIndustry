@@ -9,6 +9,7 @@ import {
   type ActionIotComponente,
   type IotPrecondizione,
 } from "@/lib/action/iot-componenti";
+import { coppiaLettereDaPasso } from "@/lib/action/iot-lettere";
 import {
   encodeAckAtteso,
   encodeMex,
@@ -147,7 +148,28 @@ export function testoMexPasso(input: {
   mexCmd: number | null;
   comando: SequenzaComando;
   valore: number | null;
+  tipoAttuatore?: string | null;
 }): TestoMexPasso | null {
+  const lettere = coppiaLettereDaPasso({
+    mexCmd: input.mexCmd,
+    comando: input.comando,
+    valore: input.valore,
+    tipoAttuatore: input.tipoAttuatore,
+  });
+  if (lettere) {
+    return {
+      out: {
+        titolo: lettere.titoloOut,
+        codice: lettere.out,
+        hex: lettere.out,
+      },
+      ack: {
+        titolo: lettere.titoloAck,
+        codice: lettere.ack,
+        hex: lettere.ack,
+      },
+    };
+  }
   const frame = mexFrameDaPasso(input);
   if (!frame) return null;
   const ack = encodeAckAtteso(frame);

@@ -19,14 +19,14 @@ export const ARCHIVIO_SECTIONS: readonly NavItem[] = [
     slug: "iot",
     label: "IoT",
     description:
-      "Protocollo Mex: funzionamento dei messaggi master ↔ dispositivi",
+      "Protocollo lettere: minuscola master→slave, maiuscola risposta",
     path: "/app/archivio/iot",
     children: [
       {
         slug: "leggenda-mex",
         label: "Leggenda Mex",
         description:
-          "Codifica, significato, checksum e esempi dei messaggi inviati e ricevuti",
+          "h High, l Low, r Regola, i Input, s Sensor: invio e conferma",
         path: "/app/archivio/iot/leggenda-mex",
       },
       {

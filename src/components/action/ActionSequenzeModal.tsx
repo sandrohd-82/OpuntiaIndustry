@@ -626,6 +626,7 @@ export function ActionSequenzeModal({
                   <MexPreviewBox
                     essiccatoreId={essiccatore.id}
                     mexCmd={comp.mexCmd}
+                    tipoAttuatore={comp.tipoAttuatore}
                     comando={
                       attuatoreHaValore(comp.tipoAttuatore) ||
                       gaugeKindForCanale(comp) === "temperatura"
@@ -713,11 +714,7 @@ function MexCoppiaTesto({ mex }: { mex: TestoMexPasso }) {
     <p className="mt-0.5 font-mono text-[10px] leading-4 text-slate-600">
       Invio {mex.out.codice} · {mex.out.titolo}
       <br />
-      {mex.out.hex}
-      <br />
       Atteso {mex.ack.codice} · {mex.ack.titolo}
-      <br />
-      {mex.ack.hex}
     </p>
   );
 }
@@ -740,6 +737,7 @@ function PassoRiga({
     mexCmd: passo.mexCmd,
     comando: passo.comando,
     valore: passo.valore,
+    tipoAttuatore: typeof passo.componenteTipo === "string" ? passo.componenteTipo : null,
   });
   return (
     <li className="flex items-start justify-between gap-2 rounded-md bg-white px-2 py-1.5 text-sm">
@@ -782,13 +780,21 @@ function MexPreviewBox({
   mexCmd,
   comando,
   valore,
+  tipoAttuatore,
 }: {
   essiccatoreId: string;
   mexCmd: number | null;
   comando: SequenzaComando;
   valore: number | null;
+  tipoAttuatore?: string | null;
 }) {
-  const mex = testoMexPasso({ essiccatoreId, mexCmd, comando, valore });
+  const mex = testoMexPasso({
+    essiccatoreId,
+    mexCmd,
+    comando,
+    valore,
+    tipoAttuatore,
+  });
   return (
     <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs">
       <p className="font-medium text-slate-700">Messaggi invio e conferma attesa</p>
