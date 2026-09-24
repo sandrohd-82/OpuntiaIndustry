@@ -239,3 +239,33 @@ export function openKeysFromPathname(
   }
   return keys;
 }
+
+/**
+ * Catena accordion (padre → figlio) per il pathname.
+ * Un solo ramo aperto per livello.
+ */
+export function accordionFromPathname(
+  rootChild: string,
+  sections: readonly NavItem[] | null,
+  pathname: string,
+  rootKey = "__root__"
+): Record<string, string> {
+  const map: Record<string, string> = { [rootKey]: rootChild };
+  if (sections?.length) fillAccordionBranch(map, rootChild, sections, pathname);
+  return map;
+}
+
+function fillAccordionBranch(
+  map: Record<string, string>,
+  parent: string,
+  sections: readonly NavItem[],
+  pathname: string
+) {
+  for (const item of sections) {
+    if (!navSubtreeMatches(item, pathname)) continue;
+    if (!isNavBranch(item)) return;
+    map[parent] = item.path;
+    fillAccordionBranch(map, item.path, item.children, pathname);
+    return;
+  }
+}

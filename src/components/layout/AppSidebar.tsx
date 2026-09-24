@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
@@ -43,12 +43,19 @@ import {
   applyPnAttivitaUnreadBadge,
   applyTicketNavBadge,
   filterNavByAdminOnly,
+  accordionFromPathname,
   filterNavBySuperAdminOnly,
   isNavBranch,
-  openKeysFromPathname,
   type NavBadge,
   type NavItem,
 } from "@/lib/areas/nav-tree";
+import {
+  NAV_ROOT_KEY,
+  capNavLayer,
+  navContrast,
+  toggleAccordion,
+  type NavContrast,
+} from "@/lib/areas/nav-layer";
 import { countOrdiniDaProcessareAction } from "@/app/actions/ordini";
 import { ORDINI_DA_PROCESSARE_NAV_EVENT } from "@/lib/amministrazione/ordini-nav";
 import { countUnreadNotificheAction } from "@/app/actions/notifiche";
@@ -307,13 +314,31 @@ function MixedToneMark() {
   );
 }
 
-function toneTextClass(tone: AccessTone | null) {
-  if (tone === "on") return "text-emerald-400 hover:text-emerald-300";
-  if (tone === "off") return "text-red-400 hover:text-red-300";
-  if (tone === "mixed") {
-    return "bg-gradient-to-r from-emerald-400 to-red-400 bg-clip-text text-transparent hover:from-emerald-300 hover:to-red-300";
+function toneTextClass(
+  tone: AccessTone | null,
+  contrast: NavContrast = "light"
+) {
+  const dark = contrast === "dark";
+  if (tone === "on") {
+    return dark
+      ? "text-emerald-700 hover:text-emerald-800"
+      : "text-emerald-400 hover:text-emerald-300";
   }
-  if (tone === "unset") return "text-slate-400 hover:text-slate-300";
+  if (tone === "off") {
+    return dark
+      ? "text-red-700 hover:text-red-800"
+      : "text-red-400 hover:text-red-300";
+  }
+  if (tone === "mixed") {
+    return dark
+      ? "bg-gradient-to-r from-emerald-700 to-red-700 bg-clip-text text-transparent hover:from-emerald-800 hover:to-red-800"
+      : "bg-gradient-to-r from-emerald-400 to-red-400 bg-clip-text text-transparent hover:from-emerald-300 hover:to-red-300";
+  }
+  if (tone === "unset") {
+    return dark
+      ? "text-slate-500 hover:text-slate-700"
+      : "text-slate-400 hover:text-slate-300";
+  }
   return "";
 }
 
@@ -321,23 +346,30 @@ function itemClass(
   active: boolean,
   nested = false,
   rail = false,
-  tone: AccessTone | null = null
+  tone: AccessTone | null = null,
+  contrast: NavContrast = "light"
 ) {
   const rowTone = tone === "mixed" ? null : tone;
-  const toneCls = toneTextClass(rowTone);
+  const toneCls = toneTextClass(rowTone, contrast);
+  const dark = contrast === "dark";
+  const idleText = dark ? "text-slate-800" : "text-[var(--sidebar-muted)]";
+  const activeText = dark ? "text-slate-950" : "text-[var(--sidebar-foreground)]";
+  const hoverBg = dark ? "hover:bg-slate-900/12" : "hover:bg-white/10";
+  const activeBg = dark ? "bg-slate-900/14" : "bg-white/10";
   return `flex w-full items-center gap-2 rounded-lg text-left text-sm transition-colors ${
     rail ? "justify-center px-2 py-2.5" : "px-3 py-2"
   } ${nested ? "py-1.5" : ""} ${
     active
-      ? `bg-[var(--sidebar-active)] font-medium ${toneCls || "text-[var(--sidebar-foreground)]"}`
-      : `${toneCls || "text-[var(--sidebar-muted)]"} hover:bg-[var(--sidebar-active)] ${
-          toneCls ? "" : "hover:text-[var(--sidebar-foreground)]"
-        }`
+      ? `${activeBg} font-medium ${toneCls || activeText}`
+      : `${toneCls || idleText} ${hoverBg} ${toneCls ? "" : dark ? "hover:text-slate-950" : "hover:text-[var(--sidebar-foreground)]"}`
   }`;
 }
 
-function labelClass(tone: AccessTone | null): string {
-  return tone === "mixed" ? toneTextClass("mixed") : "";
+function labelClass(
+  tone: AccessTone | null,
+  contrast: NavContrast = "light"
+): string {
+  return tone === "mixed" ? toneTextClass("mixed", contrast) : "";
 }
 
 function pathMatches(pathname: string, path: string) {
@@ -352,6 +384,7 @@ function FirstLevelButton({
   badge,
   extra,
   tone = null,
+  contrast = "light",
   areaAccess = null,
   onToggle,
 }: {
@@ -362,6 +395,7 @@ function FirstLevelButton({
   badge?: NavBadge;
   extra?: ReactNode;
   tone?: AccessTone | null;
+  contrast?: NavContrast;
   areaAccess?: {
     areaKey: string;
     tone: AccessTone;
@@ -378,11 +412,11 @@ function FirstLevelButton({
         onClick={onToggle}
         title={label}
         aria-label={label}
-        className={`min-w-0 flex-1 ${itemClass(active, false, rail, tone)}`}
+        className={`min-w-0 flex-1 ${itemClass(active, false, rail, tone, contrast)}`}
       >
         <AreaIcon slug={slug} />
         {rail ? null : (
-          <span className={`truncate ${labelClass(tone)}`}>{label}</span>
+          <span className={`truncate ${labelClass(tone, contrast)}`}>{label}</span>
         )}
         {rail || tone !== "mixed" ? null : <MixedToneMark />}
         {rail ? null : badge ? <NavBadgeDot badge={badge} /> : null}
@@ -406,6 +440,7 @@ function BranchButton({
   nested,
   badge,
   tone = null,
+  contrast = "light",
   areaAccess = null,
   onToggle,
 }: {
@@ -415,6 +450,7 @@ function BranchButton({
   nested?: boolean;
   badge?: NavBadge;
   tone?: AccessTone | null;
+  contrast?: NavContrast;
   areaAccess?: { areaKey: string; tone: AccessTone } | null;
   onToggle: () => void;
 }) {
@@ -424,9 +460,9 @@ function BranchButton({
         type="button"
         onClick={onToggle}
         aria-expanded={open}
-        className={`min-w-0 flex-1 ${itemClass(active, nested, false, tone)}`}
+        className={`min-w-0 flex-1 ${itemClass(active, nested, false, tone, contrast)}`}
       >
-        <span className={`min-w-0 flex-1 truncate ${labelClass(tone)}`}>
+        <span className={`min-w-0 flex-1 truncate ${labelClass(tone, contrast)}`}>
           {label}
         </span>
         {tone === "mixed" ? <MixedToneMark /> : null}
@@ -443,29 +479,40 @@ function BranchButton({
 function NavTree({
   sections,
   pathname,
-  openKeys,
+  openMap,
   toggle,
+  parentKey,
+  depth,
   pageAccess,
   colorMenu,
   branchToggle = false,
 }: {
   sections: readonly NavItem[];
   pathname: string;
-  openKeys: Set<string>;
-  toggle: (...keys: string[]) => void;
+  openMap: Record<string, string>;
+  toggle: (parentKey: string, childKey: string) => void;
+  parentKey: string;
+  depth: number;
   pageAccess?: PageAccessMap;
   colorMenu?: boolean;
   branchToggle?: boolean;
 }) {
+  const parentLayer = depth - 1;
+  const railCls =
+    parentLayer >= 2
+      ? "border-slate-400/45"
+      : "border-white/20";
   return (
-    <ul className="mt-0.5 space-y-0.5 border-l border-slate-700 ml-3 pl-2">
+    <ul className={`mt-0.5 space-y-0.5 border-l ${railCls} ml-2 pl-1.5`}>
       {sections.map((item) => {
         const childItems = isNavBranch(item) ? item.children : [];
         const tone = colorMenu && pageAccess
           ? toneForNavPath(item.path, pageAccess, childItems)
           : null;
         if (isNavBranch(item)) {
-          const open = openKeys.has(item.path) || openKeys.has(item.slug);
+          const open = openMap[parentKey] === item.path;
+          const layer = open ? depth : parentLayer;
+          const contrast = navContrast(layer);
           const active = pathMatches(pathname, item.path);
           const access =
             branchToggle && pageAccess
@@ -475,7 +522,11 @@ function NavTree({
                 }
               : null;
           return (
-            <li key={item.path}>
+            <li
+              key={item.path}
+              data-nav-layer={open ? capNavLayer(depth) : undefined}
+              className={open ? "overflow-hidden rounded-lg p-0.5" : undefined}
+            >
               <BranchButton
                 label={item.label}
                 open={open}
@@ -483,15 +534,18 @@ function NavTree({
                 nested
                 badge={item.badge}
                 tone={tone}
+                contrast={contrast}
                 areaAccess={access}
-                onToggle={() => toggle(item.path, item.slug)}
+                onToggle={() => toggle(parentKey, item.path)}
               />
               {open && (
                 <NavTree
                   sections={item.children}
                   pathname={pathname}
-                  openKeys={openKeys}
+                  openMap={openMap}
                   toggle={toggle}
+                  parentKey={item.path}
+                  depth={depth + 1}
                   pageAccess={pageAccess}
                   colorMenu={colorMenu}
                   branchToggle={branchToggle}
@@ -508,12 +562,13 @@ function NavTree({
                 tone: toneForSubtreeAccess(item.path, pageAccess),
               }
             : null;
+        const contrast = navContrast(parentLayer);
         return (
           <li key={item.path}>
             <div className="flex items-center gap-1">
               <Link
                 href={item.path}
-                className={`min-w-0 flex-1 ${itemClass(pathname === item.path, true, false, tone)}`}
+                className={`min-w-0 flex-1 ${itemClass(pathname === item.path, true, false, tone, contrast)}`}
               >
                 <span className="truncate">{item.label}</span>
                 {item.badge ? <NavBadgeDot badge={item.badge} /> : null}
@@ -581,8 +636,11 @@ export function AppSidebar({
       }),
     [areas]
   );
-  const [openKeys, setOpenKeys] = useState<Set<string>>(() => new Set());
+  const [openMap, setOpenMap] = useState<Record<string, string>>({});
   const [userClosed, setUserClosed] = useState<Set<string>>(() => new Set());
+  const userClosedRef = useRef(userClosed);
+  userClosedRef.current = userClosed;
+  const lastPathnameRef = useRef<string | null>(null);
   const [collapsed, setCollapsed] = useState(false);
 
   useEffect(() => {
@@ -837,37 +895,50 @@ export function AppSidebar({
   }, [testMenuMode, canCreateProfiles, userId]);
 
   useEffect(() => {
-    setOpenKeys((prev) => {
-      const next = new Set(prev);
-      const areaSlug = pathname.match(/^\/app\/([^/]+)/)?.[1] as
-        | AreaSlug
-        | undefined;
-      function addUnlessClosed(key: string) {
-        if (!userClosed.has(key)) next.add(key);
-      }
-      if (isWebHubPath(pathname)) {
-        addUnlessClosed("web");
-        for (const key of openKeysFromPathname(webSections, pathname, ["web"])) {
-          addUnlessClosed(key);
-        }
-      }
-      if (areaSlug) {
-        addUnlessClosed(areaSlug);
-        const sections = sectionsForArea(
+    const pathChanged = lastPathnameRef.current !== pathname;
+    lastPathnameRef.current = pathname;
+    const areaSlug = pathname.match(/^\/app\/([^/]+)/)?.[1] as
+      | AreaSlug
+      | undefined;
+    let chain: Record<string, string> = {};
+    if (isWebHubPath(pathname)) {
+      chain = accordionFromPathname("web", webSections, pathname, NAV_ROOT_KEY);
+    } else if (areaSlug) {
+      const sections =
+        sectionsForArea(
           areaSlug,
           produzioneNav,
           archivioNav,
           magazzinoNav,
           mappaMenuNodi,
           mappaMenuMappe
-        );
-        if (sections) {
-          for (const key of openKeysFromPathname(sections, pathname, [
-            areaSlug,
-          ])) {
-            addUnlessClosed(key);
-          }
-        }
+        ) ??
+        (areaSlug === "chat"
+          ? CHAT_SECTIONS
+          : areaSlug === "webmail"
+            ? WEBMAIL_SECTIONS
+            : null);
+      chain = accordionFromPathname(areaSlug, sections, pathname, NAV_ROOT_KEY);
+    }
+
+    if (pathChanged) {
+      setUserClosed(new Set());
+      setOpenMap(chain);
+      return;
+    }
+
+    setOpenMap((prev) => {
+      if (
+        prev[NAV_ROOT_KEY] &&
+        chain[NAV_ROOT_KEY] &&
+        prev[NAV_ROOT_KEY] !== chain[NAV_ROOT_KEY]
+      ) {
+        return prev;
+      }
+      const closed = userClosedRef.current;
+      const next = { ...prev };
+      for (const [k, v] of Object.entries(chain)) {
+        if (!closed.has(v)) next[k] = v;
       }
       return next;
     });
@@ -879,34 +950,24 @@ export function AppSidebar({
     magazzinoNav,
     mappaMenuNodi,
     mappaMenuMappe,
-    userClosed,
   ]);
 
-  function toggle(...keys: string[]) {
-    const isOpen = keys.some((k) => openKeys.has(k));
-    setOpenKeys((prev) => {
-      const next = new Set(prev);
-      if (isOpen) {
-        for (const k of keys) next.delete(k);
-      } else {
-        for (const k of keys) next.add(k);
-      }
-      return next;
-    });
-    setUserClosed((closed) => {
-      const next = new Set(closed);
-      if (isOpen) {
-        for (const k of keys) next.add(k);
-      } else {
-        for (const k of keys) next.delete(k);
-      }
+  function toggle(parentKey: string, childKey: string) {
+    setOpenMap((prev) => {
+      const { next, closing } = toggleAccordion(prev, parentKey, childKey);
+      setUserClosed((closed) => {
+        const copy = new Set(closed);
+        if (closing) copy.add(childKey);
+        else copy.delete(childKey);
+        return copy;
+      });
       return next;
     });
   }
 
   function openFirstLevel(slug: string) {
     if (collapsed) setRail(false);
-    toggle(slug);
+    toggle(NAV_ROOT_KEY, slug);
   }
 
   const canToggleAreas = testMenuMode && canCreateProfiles && !collapsed;
@@ -1028,15 +1089,24 @@ export function AppSidebar({
             return rows;
           })().map((row) => {
             if (row.type === "web") {
-              const open = openKeys.has("web");
+              const open = openMap[NAV_ROOT_KEY] === "web";
               const active = isWebHubPath(pathname);
               return (
-                <li key="web">
+                <li
+                  key="web"
+                  data-nav-layer={open && !collapsed ? 0 : undefined}
+                  className={
+                    open && !collapsed
+                      ? "overflow-hidden rounded-xl p-0.5"
+                      : undefined
+                  }
+                >
                   <FirstLevelButton
                     slug="web"
                     label="Web"
                     active={active}
                     rail={collapsed}
+                    contrast="light"
                     tone={
                       testMenuMode
                         ? toneForAreaAccess(
@@ -1057,8 +1127,10 @@ export function AppSidebar({
                           : webSections
                       }
                       pathname={pathname}
-                      openKeys={openKeys}
+                      openMap={openMap}
                       toggle={toggle}
+                      parentKey="web"
+                      depth={1}
                       pageAccess={pageAccess}
                       colorMenu={testMenuMode}
                       branchToggle={canToggleAreas}
@@ -1142,9 +1214,17 @@ export function AppSidebar({
               ) : null;
 
             if (treeSections) {
-              const open = openKeys.has(area.slug);
+              const open = openMap[NAV_ROOT_KEY] === area.slug;
               return (
-                <li key={area.area_id}>
+                <li
+                  key={area.area_id}
+                  data-nav-layer={open && !collapsed ? 0 : undefined}
+                  className={
+                    open && !collapsed
+                      ? "overflow-hidden rounded-xl p-0.5"
+                      : undefined
+                  }
+                >
                   <FirstLevelButton
                     slug={area.slug}
                     label={area.name}
@@ -1168,6 +1248,7 @@ export function AppSidebar({
                     }
                     extra={extra}
                     tone={areaTone}
+                    contrast="light"
                     areaAccess={areaAccess}
                     onToggle={() => openFirstLevel(area.slug)}
                   />
@@ -1175,8 +1256,10 @@ export function AppSidebar({
                     <NavTree
                       sections={treeSections}
                       pathname={pathname}
-                      openKeys={openKeys}
+                      openMap={openMap}
                       toggle={toggle}
+                      parentKey={area.slug}
+                      depth={1}
                       pageAccess={pageAccess}
                       colorMenu={testMenuMode}
                       branchToggle={canToggleAreas}
@@ -1187,9 +1270,17 @@ export function AppSidebar({
             }
 
             if (area.slug === "chat") {
-              const open = openKeys.has(area.slug);
+              const open = openMap[NAV_ROOT_KEY] === area.slug;
               return (
-                <li key={area.area_id}>
+                <li
+                  key={area.area_id}
+                  data-nav-layer={open && !collapsed ? 0 : undefined}
+                  className={
+                    open && !collapsed
+                      ? "overflow-hidden rounded-xl p-0.5"
+                      : undefined
+                  }
+                >
                   <FirstLevelButton
                     slug={area.slug}
                     label={area.name}
@@ -1197,6 +1288,7 @@ export function AppSidebar({
                     rail={collapsed}
                     extra={extra}
                     tone={areaTone}
+                    contrast="light"
                     areaAccess={areaAccess}
                     onToggle={() => openFirstLevel(area.slug)}
                   />
@@ -1206,6 +1298,7 @@ export function AppSidebar({
                       pageAccess={pageAccess}
                       colorMenu={testMenuMode}
                       branchToggle={canToggleAreas}
+                      layerDepth={1}
                     />
                   ) : null}
                 </li>
@@ -1213,9 +1306,17 @@ export function AppSidebar({
             }
 
             if (area.slug === "webmail") {
-              const open = openKeys.has(area.slug);
+              const open = openMap[NAV_ROOT_KEY] === area.slug;
               return (
-                <li key={area.area_id}>
+                <li
+                  key={area.area_id}
+                  data-nav-layer={open && !collapsed ? 0 : undefined}
+                  className={
+                    open && !collapsed
+                      ? "overflow-hidden rounded-xl p-0.5"
+                      : undefined
+                  }
+                >
                   <FirstLevelButton
                     slug={area.slug}
                     label={area.name}
@@ -1223,6 +1324,7 @@ export function AppSidebar({
                     rail={collapsed}
                     extra={extra}
                     tone={areaTone}
+                    contrast="light"
                     areaAccess={areaAccess}
                     onToggle={() => openFirstLevel(area.slug)}
                   />
@@ -1231,6 +1333,7 @@ export function AppSidebar({
                       testMenuMode={testMenuMode}
                       branchToggle={canToggleAreas}
                       onGrantToneChange={setWebmailGrantTone}
+                      layerDepth={1}
                     />
                   ) : null}
                 </li>

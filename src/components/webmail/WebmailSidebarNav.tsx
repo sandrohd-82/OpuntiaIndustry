@@ -18,6 +18,11 @@ import {
 } from "@/app/actions/webmail";
 import { MenuAreaAccessToggle } from "@/components/layout/MenuAreaAccessToggle";
 import { toneForGrantSelection, type AccessTone } from "@/lib/auth/page-access";
+import {
+  capNavLayer,
+  navContrast,
+  type NavContrast,
+} from "@/lib/areas/nav-layer";
 import type { WebmailAccountPublic } from "@/lib/webmail/types";
 import {
   notifyWebmailGrantNav,
@@ -38,30 +43,58 @@ function MixedToneMark() {
   );
 }
 
-function toneTextClass(tone: AccessTone | null) {
-  if (tone === "on") return "text-emerald-400 hover:text-emerald-300";
-  if (tone === "off") return "text-red-400 hover:text-red-300";
-  if (tone === "mixed") {
-    return "bg-gradient-to-r from-emerald-400 to-red-400 bg-clip-text text-transparent hover:from-emerald-300 hover:to-red-300";
+function toneTextClass(
+  tone: AccessTone | null,
+  contrast: NavContrast = "light"
+) {
+  const dark = contrast === "dark";
+  if (tone === "on") {
+    return dark
+      ? "text-emerald-700 hover:text-emerald-800"
+      : "text-emerald-400 hover:text-emerald-300";
   }
-  if (tone === "unset") return "text-slate-400 hover:text-slate-300";
+  if (tone === "off") {
+    return dark
+      ? "text-red-700 hover:text-red-800"
+      : "text-red-400 hover:text-red-300";
+  }
+  if (tone === "mixed") {
+    return dark
+      ? "bg-gradient-to-r from-emerald-700 to-red-700 bg-clip-text text-transparent"
+      : "bg-gradient-to-r from-emerald-400 to-red-400 bg-clip-text text-transparent";
+  }
+  if (tone === "unset") {
+    return dark
+      ? "text-slate-500 hover:text-slate-700"
+      : "text-slate-400 hover:text-slate-300";
+  }
   return "";
 }
 
-function itemClass(active: boolean, tone: AccessTone | null = null) {
+function itemClass(
+  active: boolean,
+  tone: AccessTone | null = null,
+  contrast: NavContrast = "light"
+) {
   const rowTone = tone === "mixed" ? null : tone;
-  const toneCls = toneTextClass(rowTone);
+  const toneCls = toneTextClass(rowTone, contrast);
+  const dark = contrast === "dark";
+  const idleText = dark ? "text-slate-800" : "text-[var(--sidebar-muted)]";
+  const activeText = dark ? "text-slate-950" : "text-[var(--sidebar-foreground)]";
+  const hoverBg = dark ? "hover:bg-slate-900/12" : "hover:bg-white/10";
+  const activeBg = dark ? "bg-slate-900/14" : "bg-white/10";
   return `flex w-full items-center gap-2 rounded-lg px-3 py-1.5 text-left text-sm transition-colors ${
     active
-      ? `bg-[var(--sidebar-active)] font-medium ${toneCls || "text-[var(--sidebar-foreground)]"}`
-      : `${toneCls || "text-[var(--sidebar-muted)]"} hover:bg-[var(--sidebar-active)] ${
-          toneCls ? "" : "hover:text-[var(--sidebar-foreground)]"
-        }`
+      ? `${activeBg} font-medium ${toneCls || activeText}`
+      : `${toneCls || idleText} ${hoverBg} ${toneCls ? "" : dark ? "hover:text-slate-950" : "hover:text-[var(--sidebar-foreground)]"}`
   }`;
 }
 
-function labelClass(tone: AccessTone | null): string {
-  return tone === "mixed" ? toneTextClass("mixed") : "";
+function labelClass(
+  tone: AccessTone | null,
+  contrast: NavContrast = "light"
+): string {
+  return tone === "mixed" ? toneTextClass("mixed", contrast) : "";
 }
 
 function Chevron({ open }: { open: boolean }) {
@@ -85,6 +118,7 @@ type Props = {
   testMenuMode?: boolean;
   branchToggle?: boolean;
   onGrantToneChange?: (tone: AccessTone) => void;
+  layerDepth?: number;
 };
 
 /**
@@ -95,6 +129,7 @@ export function WebmailSidebarNav({
   testMenuMode = false,
   branchToggle = false,
   onGrantToneChange,
+  layerDepth = 1,
 }: Props) {
   const pathname = usePathname();
   const [open, setOpen] = useState(true);
@@ -154,6 +189,10 @@ export function WebmailSidebarNav({
   const colorMenu = showToggles;
   const branchActive = pathname.startsWith("/app/webmail/caselle");
   const groupTone = colorMenu ? grantTone : null;
+  const c0 = navContrast(layerDepth - 1);
+  const c1 = navContrast(layerDepth);
+  const rail0 = layerDepth - 1 >= 2 ? "border-slate-400/45" : "border-white/20";
+  const rail1 = layerDepth >= 2 ? "border-slate-400/45" : "border-white/20";
 
   function withToggle(
     node: ReactNode,
@@ -176,16 +215,19 @@ export function WebmailSidebarNav({
   }
 
   return (
-    <ul className="mt-0.5 space-y-0.5 border-l border-slate-700/80 pl-2 ml-2">
-      <li>
+    <ul className={`mt-0.5 space-y-0.5 border-l ${rail0} pl-1.5 ml-2`}>
+      <li
+        data-nav-layer={open ? capNavLayer(layerDepth) : undefined}
+        className={open ? "overflow-hidden rounded-lg p-0.5" : undefined}
+      >
         {withToggle(
           <button
             type="button"
             onClick={() => setOpen((v) => !v)}
-            className={itemClass(branchActive, groupTone)}
+            className={itemClass(branchActive, groupTone, open ? c1 : c0)}
           >
             <Chevron open={open} />
-            <span className={`truncate ${labelClass(groupTone)}`}>
+            <span className={`truncate ${labelClass(groupTone, open ? c1 : c0)}`}>
               Caselle mail
             </span>
             {groupTone === "mixed" ? <MixedToneMark /> : null}
@@ -203,9 +245,9 @@ export function WebmailSidebarNav({
           }
         )}
         {open ? (
-          <ul className="mt-0.5 space-y-0.5 border-l border-slate-700/60 pl-2 ml-2">
+          <ul className={`mt-0.5 space-y-0.5 border-l ${rail1} pl-1.5 ml-2`}>
             {accounts.length === 0 ? (
-              <li className="px-3 py-1.5 text-xs text-[var(--sidebar-muted)]">
+              <li className="px-3 py-1.5 text-xs opacity-70">
                 Nessuna casella collegata
               </li>
             ) : (
@@ -220,7 +262,7 @@ export function WebmailSidebarNav({
                     {withToggle(
                       <Link
                         href={`${base}/in-arrivo`}
-                        className={`${itemClass(active, tone)} justify-between`}
+                        className={`${itemClass(active, tone, c1)} justify-between`}
                         title={acc.emailAddress}
                       >
                         <span className="truncate">{acc.label}</span>

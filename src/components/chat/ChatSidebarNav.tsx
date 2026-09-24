@@ -27,6 +27,11 @@ import {
   type AccessTone,
   type PageAccessMap,
 } from "@/lib/auth/page-access";
+import {
+  capNavLayer,
+  navContrast,
+  type NavContrast,
+} from "@/lib/areas/nav-layer";
 
 const CHAT_ARGOMENTI = CHAT_SECTIONS.find((s) => s.slug === "argomenti");
 const CHAT_DIRETTE = CHAT_SECTIONS.find((s) => s.slug === "dirette");
@@ -48,37 +53,62 @@ function MixedToneMark() {
   );
 }
 
-function toneTextClass(tone: AccessTone | null) {
-  if (tone === "on") return "text-emerald-400 hover:text-emerald-300";
-  if (tone === "off") return "text-red-400 hover:text-red-300";
-  if (tone === "mixed") {
-    return "bg-gradient-to-r from-emerald-400 to-red-400 bg-clip-text text-transparent hover:from-emerald-300 hover:to-red-300";
+function toneTextClass(
+  tone: AccessTone | null,
+  contrast: NavContrast = "light"
+) {
+  const dark = contrast === "dark";
+  if (tone === "on") {
+    return dark
+      ? "text-emerald-700 hover:text-emerald-800"
+      : "text-emerald-400 hover:text-emerald-300";
   }
-  if (tone === "unset") return "text-slate-400 hover:text-slate-300";
+  if (tone === "off") {
+    return dark
+      ? "text-red-700 hover:text-red-800"
+      : "text-red-400 hover:text-red-300";
+  }
+  if (tone === "mixed") {
+    return dark
+      ? "bg-gradient-to-r from-emerald-700 to-red-700 bg-clip-text text-transparent"
+      : "bg-gradient-to-r from-emerald-400 to-red-400 bg-clip-text text-transparent";
+  }
+  if (tone === "unset") {
+    return dark
+      ? "text-slate-500 hover:text-slate-700"
+      : "text-slate-400 hover:text-slate-300";
+  }
   return "";
 }
 
 function itemClass(
   active: boolean,
   isNew = false,
-  tone: AccessTone | null = null
+  tone: AccessTone | null = null,
+  contrast: NavContrast = "light"
 ) {
   if (isNew && !active) {
     return "flex w-full items-center gap-2 rounded-lg border border-emerald-500/40 bg-emerald-500/15 px-3 py-1.5 text-left text-sm font-semibold text-emerald-100 transition-colors hover:bg-emerald-500/25";
   }
   const rowTone = tone === "mixed" ? null : tone;
-  const toneCls = toneTextClass(rowTone);
+  const toneCls = toneTextClass(rowTone, contrast);
+  const dark = contrast === "dark";
+  const idleText = dark ? "text-slate-800" : "text-[var(--sidebar-muted)]";
+  const activeText = dark ? "text-slate-950" : "text-[var(--sidebar-foreground)]";
+  const hoverBg = dark ? "hover:bg-slate-900/12" : "hover:bg-white/10";
+  const activeBg = dark ? "bg-slate-900/14" : "bg-white/10";
   return `flex w-full items-center gap-2 rounded-lg px-3 py-1.5 text-left text-sm transition-colors ${
     active
-      ? `bg-[var(--sidebar-active)] font-medium ${toneCls || "text-[var(--sidebar-foreground)]"}`
-      : `${toneCls || "text-[var(--sidebar-muted)]"} hover:bg-[var(--sidebar-active)] ${
-          toneCls ? "" : "hover:text-[var(--sidebar-foreground)]"
-        }`
+      ? `${activeBg} font-medium ${toneCls || activeText}`
+      : `${toneCls || idleText} ${hoverBg} ${toneCls ? "" : dark ? "hover:text-slate-950" : "hover:text-[var(--sidebar-foreground)]"}`
   }`;
 }
 
-function labelClass(tone: AccessTone | null): string {
-  return tone === "mixed" ? toneTextClass("mixed") : "";
+function labelClass(
+  tone: AccessTone | null,
+  contrast: NavContrast = "light"
+): string {
+  return tone === "mixed" ? toneTextClass("mixed", contrast) : "";
 }
 
 function Chevron({ open }: { open: boolean }) {
@@ -103,6 +133,7 @@ type Props = {
   pageAccess?: PageAccessMap;
   colorMenu?: boolean;
   branchToggle?: boolean;
+  layerDepth?: number;
 };
 
 /** Menu Chat: Per argomento + Fra utenti con elenchi dinamici. */
@@ -111,19 +142,22 @@ export function ChatSidebarNav({
   pageAccess,
   colorMenu = false,
   branchToggle = false,
+  layerDepth = 1,
 }: Props) {
   const pathname = usePathname();
-  const [open, setOpen] = useState<Set<string>>(
-    () => new Set(["argomenti", "dirette", "elenco-argomenti", "elenco-dirette"])
-  );
+  const [open, setOpen] = useState<Set<string>>(() => new Set());
   const [topics, setTopics] = useState<ChatTopic[]>([]);
   const [directs, setDirects] = useState<ConversationListItem[]>([]);
 
-  function toggle(key: string) {
+  function toggleExclusive(key: string, siblings: string[]) {
     setOpen((prev) => {
       const next = new Set(prev);
-      if (next.has(key)) next.delete(key);
-      else next.add(key);
+      if (next.has(key)) {
+        next.delete(key);
+        return next;
+      }
+      for (const s of siblings) next.delete(s);
+      next.add(key);
       return next;
     });
   }
@@ -149,6 +183,7 @@ export function ChatSidebarNav({
     const channel = subscribeTopicSidebar(supabase, userId, () => {
       setOpen((prev) => {
         const next = new Set(prev);
+        next.delete("dirette");
         next.add("argomenti");
         next.add("elenco-argomenti");
         return next;
@@ -165,6 +200,7 @@ export function ChatSidebarNav({
       if (!detail?.id) return;
       setOpen((prev) => {
         const next = new Set(prev);
+        next.delete("dirette");
         next.add("argomenti");
         next.add("elenco-argomenti");
         return next;
@@ -208,17 +244,18 @@ export function ChatSidebarNav({
   useEffect(() => {
     setOpen((prev) => {
       const next = new Set(prev);
-      if (
+      const onArg =
         pathname.startsWith("/app/chat/argomenti") ||
-        pathname.startsWith("/app/chat/argomento")
-      ) {
+        pathname.startsWith("/app/chat/argomento");
+      const onDir =
+        pathname.startsWith("/app/chat/dirette") ||
+        pathname.startsWith("/app/chat/thread");
+      if (onArg) {
+        next.delete("dirette");
         next.add("argomenti");
         next.add("elenco-argomenti");
-      }
-      if (
-        pathname.startsWith("/app/chat/dirette") ||
-        pathname.startsWith("/app/chat/thread")
-      ) {
+      } else if (onDir) {
+        next.delete("argomenti");
         next.add("dirette");
         next.add("elenco-dirette");
       }
@@ -267,32 +304,46 @@ export function ChatSidebarNav({
   const toneNuovaChat = toneOf("/app/chat/dirette/nuova");
   const toneElencoChat = toneOf("/app/chat/dirette/elenco");
 
+  const openArg = open.has("argomenti");
+  const openDir = open.has("dirette");
+  const openElencoArg = open.has("elenco-argomenti");
+  const openElencoDir = open.has("elenco-dirette");
+  const c0 = navContrast(layerDepth - 1);
+  const c1 = navContrast(layerDepth);
+  const c2 = navContrast(layerDepth + 1);
+  const rail0 = layerDepth - 1 >= 2 ? "border-slate-400/45" : "border-white/20";
+  const rail1 = layerDepth >= 2 ? "border-slate-400/45" : "border-white/20";
+  const rail2 = layerDepth + 1 >= 2 ? "border-slate-400/45" : "border-white/20";
+
   return (
-    <ul className="mt-0.5 space-y-0.5 border-l border-slate-700 ml-3 pl-2">
-      {/* Per argomento */}
-      <li>
+    <ul className={`mt-0.5 space-y-0.5 border-l ${rail0} ml-2 pl-1.5`}>
+      <li
+        data-nav-layer={openArg ? capNavLayer(layerDepth) : undefined}
+        className={openArg ? "overflow-hidden rounded-lg p-0.5" : undefined}
+      >
         {withToggle(
           "/app/chat/argomenti",
           <button
             type="button"
-            onClick={() => toggle("argomenti")}
+            onClick={() => toggleExclusive("argomenti", ["argomenti", "dirette"])}
             className={itemClass(
               pathname.startsWith("/app/chat/argomenti") ||
                 pathname.startsWith("/app/chat/argomento"),
               false,
-              toneArgomenti
+              toneArgomenti,
+              openArg ? c1 : c0
             )}
           >
-            <Chevron open={open.has("argomenti")} />
-            <span className={`truncate ${labelClass(toneArgomenti)}`}>
+            <Chevron open={openArg} />
+            <span className={`truncate ${labelClass(toneArgomenti, openArg ? c1 : c0)}`}>
               Per argomento
             </span>
             {toneArgomenti === "mixed" ? <MixedToneMark /> : null}
           </button>,
           CHAT_ARGOMENTI_CHILDREN
         )}
-        {open.has("argomenti") ? (
-          <ul className="mt-0.5 space-y-0.5 border-l border-slate-700 ml-3 pl-2">
+        {openArg ? (
+          <ul className={`mt-0.5 space-y-0.5 border-l ${rail1} ml-2 pl-1.5`}>
             <li>
               {withToggle(
                 "/app/chat/argomenti/nuovo",
@@ -301,35 +352,44 @@ export function ChatSidebarNav({
                   className={itemClass(
                     pathname === "/app/chat/argomenti/nuovo",
                     false,
-                    toneNuovoArg
+                    toneNuovoArg,
+                    c1
                   )}
                 >
                   <span className="truncate">+ Nuovo Argomento</span>
                 </Link>
               )}
             </li>
-            <li>
+            <li
+              data-nav-layer={openElencoArg ? capNavLayer(layerDepth + 1) : undefined}
+              className={
+                openElencoArg ? "overflow-hidden rounded-lg p-0.5" : undefined
+              }
+            >
               {withToggle(
                 "/app/chat/argomenti/elenco",
                 <button
                   type="button"
-                  onClick={() => toggle("elenco-argomenti")}
+                  onClick={() =>
+                    toggleExclusive("elenco-argomenti", ["elenco-argomenti"])
+                  }
                   className={itemClass(
                     pathname === "/app/chat/argomenti/elenco",
                     false,
-                    toneElencoArg
+                    toneElencoArg,
+                    openElencoArg ? c2 : c1
                   )}
                 >
-                  <Chevron open={open.has("elenco-argomenti")} />
+                  <Chevron open={openElencoArg} />
                   <FaFolderOpen size={11} className="shrink-0 opacity-70" />
                   <span className="truncate">Elenco Argomenti</span>
                   {toneElencoArg === "mixed" ? <MixedToneMark /> : null}
                 </button>
               )}
-              {open.has("elenco-argomenti") ? (
-                <ul className="mt-0.5 space-y-0.5 border-l border-slate-700 ml-3 pl-2">
+              {openElencoArg ? (
+                <ul className={`mt-0.5 space-y-0.5 border-l ${rail2} ml-2 pl-1.5`}>
                   {topics.length === 0 ? (
-                    <li className="px-3 py-1.5 text-xs text-[var(--sidebar-muted)]">
+                    <li className="px-3 py-1.5 text-xs opacity-70">
                       Nessun argomento attivo
                     </li>
                   ) : (
@@ -341,7 +401,7 @@ export function ChatSidebarNav({
                         <li key={t.id}>
                           <Link
                             href={`/app/chat/argomento/${t.id}`}
-                            className={itemClass(active, isNew, toneElencoArg)}
+                            className={itemClass(active, isNew, toneElencoArg, c2)}
                             title={t.titolo}
                           >
                             <span className="truncate">{t.titolo}</span>
@@ -362,30 +422,33 @@ export function ChatSidebarNav({
         ) : null}
       </li>
 
-      {/* Fra utenti */}
-      <li>
+      <li
+        data-nav-layer={openDir ? capNavLayer(layerDepth) : undefined}
+        className={openDir ? "overflow-hidden rounded-lg p-0.5" : undefined}
+      >
         {withToggle(
           "/app/chat/dirette",
           <button
             type="button"
-            onClick={() => toggle("dirette")}
+            onClick={() => toggleExclusive("dirette", ["argomenti", "dirette"])}
             className={itemClass(
               pathname.startsWith("/app/chat/dirette") ||
                 pathname.startsWith("/app/chat/thread"),
               false,
-              toneDirette
+              toneDirette,
+              openDir ? c1 : c0
             )}
           >
-            <Chevron open={open.has("dirette")} />
-            <span className={`truncate ${labelClass(toneDirette)}`}>
+            <Chevron open={openDir} />
+            <span className={`truncate ${labelClass(toneDirette, openDir ? c1 : c0)}`}>
               Fra utenti
             </span>
             {toneDirette === "mixed" ? <MixedToneMark /> : null}
           </button>,
           CHAT_DIRETTE_CHILDREN
         )}
-        {open.has("dirette") ? (
-          <ul className="mt-0.5 space-y-0.5 border-l border-slate-700 ml-3 pl-2">
+        {openDir ? (
+          <ul className={`mt-0.5 space-y-0.5 border-l ${rail1} ml-2 pl-1.5`}>
             <li>
               {withToggle(
                 "/app/chat/dirette/nuova",
@@ -394,35 +457,44 @@ export function ChatSidebarNav({
                   className={itemClass(
                     pathname === "/app/chat/dirette/nuova",
                     false,
-                    toneNuovaChat
+                    toneNuovaChat,
+                    c1
                   )}
                 >
                   <span className="truncate">+ Nuova chat</span>
                 </Link>
               )}
             </li>
-            <li>
+            <li
+              data-nav-layer={openElencoDir ? capNavLayer(layerDepth + 1) : undefined}
+              className={
+                openElencoDir ? "overflow-hidden rounded-lg p-0.5" : undefined
+              }
+            >
               {withToggle(
                 "/app/chat/dirette/elenco",
                 <button
                   type="button"
-                  onClick={() => toggle("elenco-dirette")}
+                  onClick={() =>
+                    toggleExclusive("elenco-dirette", ["elenco-dirette"])
+                  }
                   className={itemClass(
                     pathname === "/app/chat/dirette/elenco",
                     false,
-                    toneElencoChat
+                    toneElencoChat,
+                    openElencoDir ? c2 : c1
                   )}
                 >
-                  <Chevron open={open.has("elenco-dirette")} />
+                  <Chevron open={openElencoDir} />
                   <FaComments size={11} className="shrink-0 opacity-70" />
                   <span className="truncate">Elenco chat</span>
                   {toneElencoChat === "mixed" ? <MixedToneMark /> : null}
                 </button>
               )}
-              {open.has("elenco-dirette") ? (
-                <ul className="mt-0.5 space-y-0.5 border-l border-slate-700 ml-3 pl-2">
+              {openElencoDir ? (
+                <ul className={`mt-0.5 space-y-0.5 border-l ${rail2} ml-2 pl-1.5`}>
                   {directs.length === 0 ? (
-                    <li className="px-3 py-1.5 text-xs text-[var(--sidebar-muted)]">
+                    <li className="px-3 py-1.5 text-xs opacity-70">
                       Nessuna chat attiva
                     </li>
                   ) : (
@@ -433,7 +505,8 @@ export function ChatSidebarNav({
                           className={itemClass(
                             pathname === `/app/chat/thread/${c.id}`,
                             false,
-                            toneElencoChat
+                            toneElencoChat,
+                            c2
                           )}
                           title={c.peerName}
                         >
