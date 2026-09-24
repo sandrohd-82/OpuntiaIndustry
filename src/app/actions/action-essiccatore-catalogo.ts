@@ -5,6 +5,7 @@ import {
   arrestaEssiccatoreAction,
   avviaEssiccatoreAction,
 } from "@/app/actions/action-essiccatore-azioni";
+import { avviaSequenzaAction } from "@/app/actions/action-sequenze";
 import {
   formatEseguiAt,
   nomeArrestoDi,
@@ -53,12 +54,13 @@ type RegRow = {
 };
 
 const REG_COLS =
-  "id, essiccatore_id, azione_key, nome, descrizione, temp_bruciatore_c, perc_ventilazione, durata_minuti, programma_spegnimento, programma_spegnimento_id, esecuzione_stato, esecuzione_azione_id, versione, documento_stato, created_at";
+  "id, essiccatore_id, azione_key, nome, descrizione, temp_bruciatore_c, perc_ventilazione, durata_minuti, versione, documento_stato, created_at";
 
 type ProgRow = {
   id: string;
   essiccatore_id: string;
-  registrata_id: string;
+  registrata_id: string | null;
+  sequenza_id?: string | null;
   esegui_at: string;
   stato: ProgrammataStato;
   azione_esecuzione_id: string | null;
@@ -578,14 +580,17 @@ export async function listAzioniProgrammateAction(
   const { data, error } = await supabase
     .from("action_essiccatore_programmate")
     .select(
-      "id, essiccatore_id, registrata_id, esegui_at, stato, azione_esecuzione_id, versione, documento_stato, note, created_at"
+      "id, essiccatore_id, registrata_id, sequenza_id, esegui_at, stato, azione_esecuzione_id, versione, documento_stato, note, created_at"
     )
     .eq("essiccatore_id", parsed.data.essiccatoreId)
     .is("deleted_at", null)
     .order("esegui_at", { ascending: true });
   if (error) return { success: false, error: error.message };
   const rows = (data ?? []) as ProgRow[];
-  const ids = [...new Set(rows.map((r) => r.registrata_id))];
+  const ids = [...new Set(rows.map((r) => r.registrata_id).filter(Boolean))] as string[];
+  const seqIds = [
+    ...new Set(rows.map((r) => r.sequenza_id).filter(Boolean)),
+  ] as string[];
   const nomi = new Map<string, string>();
   if (ids.length) {
     const { data: regs } = await supabase
@@ -596,13 +601,24 @@ export async function listAzioniProgrammateAction(
       nomi.set(String(r.id), String(r.nome));
     }
   }
+  if (seqIds.length) {
+    const { data: seqs } = await supabase
+      .from("action_sequenze")
+      .select("id, nome")
+      .in("id", seqIds);
+    for (const r of seqs ?? []) {
+      nomi.set(String(r.id), String(r.nome));
+    }
+  }
   return {
     success: true,
     items: rows.map((r) => ({
       id: r.id,
       essiccatoreId: r.essiccatore_id,
       registrataId: r.registrata_id,
-      registrataNome: nomi.get(r.registrata_id) ?? "Azione",
+      sequenzaId: r.sequenza_id ?? null,
+      registrataNome:
+        nomi.get(r.sequenza_id ?? r.registrata_id ?? "") ?? "Sequenza",
       eseguiAt: r.esegui_at,
       stato: r.stato,
       azioneEsecuzioneId: r.azione_esecuzione_id,
@@ -632,20 +648,39 @@ export async function createAzioneProgrammataAction(
     return { success: false, error: "Data/ora non valida." };
   }
   const supabase = await createClient();
-  const { data: reg } = await supabase
-    .from("action_essiccatore_registrate")
-    .select("id, nome, essiccatore_id")
-    .eq("id", parsed.data.registrataId)
-    .is("deleted_at", null)
-    .maybeSingle();
-  if (!reg || String(reg.essiccatore_id) !== parsed.data.essiccatoreId) {
-    return { success: false, error: "Azione registrata non trovata." };
+  let label = "Sequenza";
+  if (parsed.data.sequenzaId) {
+    const { data: seq } = await supabase
+      .from("action_sequenze")
+      .select("id, nome, essiccatore_id, documento_stato")
+      .eq("id", parsed.data.sequenzaId)
+      .is("deleted_at", null)
+      .maybeSingle();
+    if (!seq || String(seq.essiccatore_id) !== parsed.data.essiccatoreId) {
+      return { success: false, error: "Sequenza non trovata." };
+    }
+    if (String(seq.documento_stato) !== "approvato") {
+      return { success: false, error: "Puoi programmare solo una sequenza approvata." };
+    }
+    label = String(seq.nome);
+  } else if (parsed.data.registrataId) {
+    const { data: reg } = await supabase
+      .from("action_essiccatore_registrate")
+      .select("id, nome, essiccatore_id")
+      .eq("id", parsed.data.registrataId)
+      .is("deleted_at", null)
+      .maybeSingle();
+    if (!reg || String(reg.essiccatore_id) !== parsed.data.essiccatoreId) {
+      return { success: false, error: "Azione registrata non trovata." };
+    }
+    label = String(reg.nome);
   }
   const { data, error } = await supabase
     .from("action_essiccatore_programmate")
     .insert({
       essiccatore_id: parsed.data.essiccatoreId,
-      registrata_id: parsed.data.registrataId,
+      registrata_id: parsed.data.registrataId ?? null,
+      sequenza_id: parsed.data.sequenzaId ?? null,
       esegui_at: when.toISOString(),
       stato: "programmata",
       versione: 1,
@@ -664,7 +699,7 @@ export async function createAzioneProgrammataAction(
     entity_id: String(data.id),
     action: "create",
     actor_id: auth.userId,
-    summary: `Programmata «${reg.nome}» su ${essNome(parsed.data.essiccatoreId)} per ${formatEseguiAt(when.toISOString())}`,
+    summary: `Programmata «${label}» su ${essNome(parsed.data.essiccatoreId)} per ${formatEseguiAt(when.toISOString())}`,
   });
   return { success: true, itemId: String(data.id) };
 }
@@ -708,7 +743,7 @@ export async function eseguiAzioneProgrammataAction(
   const supabase = await createClient();
   const { data: prog, error } = await supabase
     .from("action_essiccatore_programmate")
-    .select("id, essiccatore_id, registrata_id, stato")
+    .select("id, essiccatore_id, registrata_id, sequenza_id, stato")
     .eq("id", parsed.data.id)
     .is("deleted_at", null)
     .maybeSingle();
@@ -718,13 +753,46 @@ export async function eseguiAzioneProgrammataAction(
   if (String(prog.stato) !== "programmata") {
     return { success: false, error: "Questa programmazione non è più eseguibile." };
   }
+
+  const seqId = (prog as { sequenza_id?: string | null }).sequenza_id;
+  if (seqId) {
+    await supabase
+      .from("action_essiccatore_programmate")
+      .update({ stato: "in_corso", updated_by: auth.userId })
+      .eq("id", prog.id);
+    const avvioSeq = await avviaSequenzaAction({ id: String(seqId) });
+    if (!avvioSeq.success) {
+      await supabase
+        .from("action_essiccatore_programmate")
+        .update({ stato: "errore", updated_by: auth.userId })
+        .eq("id", prog.id);
+      return avvioSeq;
+    }
+    await supabase
+      .from("action_essiccatore_programmate")
+      .update({
+        stato: "eseguita",
+        documento_stato: "chiuso",
+        updated_by: auth.userId,
+      })
+      .eq("id", prog.id);
+    await writeAuditLog({
+      entity_type: "action_essiccatore_programmate",
+      entity_id: String(prog.id),
+      action: "execute",
+      actor_id: auth.userId,
+      summary: `Eseguita programmazione sequenza su ${essNome(String(prog.essiccatore_id))}`,
+    });
+    return { success: true };
+  }
+
   const { data: reg } = await supabase
     .from("action_essiccatore_registrate")
     .select("temp_bruciatore_c, perc_ventilazione, essiccatore_id")
     .eq("id", prog.registrata_id)
     .is("deleted_at", null)
     .maybeSingle();
-  if (!reg) return { success: false, error: "Azione registrata non trovata." };
+  if (!reg) return { success: false, error: "Sequenza o azione non trovata." };
 
   await supabase
     .from("action_essiccatore_programmate")
@@ -788,11 +856,28 @@ export async function listProcessiAction(
   if (ids.length) {
     const { data: passi } = await supabase
       .from("action_essiccatore_processi_passi")
-      .select("id, processo_id, registrata_id, sort_order")
+      .select("id, processo_id, registrata_id, sequenza_id, sort_order")
       .in("processo_id", ids)
       .is("deleted_at", null)
       .order("sort_order", { ascending: true });
-    const regIds = [...new Set((passi ?? []).map((x) => String(x.registrata_id)))];
+    const regIds = [
+      ...new Set(
+        (passi ?? [])
+          .map((x) => (x.registrata_id ? String(x.registrata_id) : ""))
+          .filter(Boolean)
+      ),
+    ];
+    const seqIds = [
+      ...new Set(
+        (passi ?? [])
+          .map((x) =>
+            (x as { sequenza_id?: string | null }).sequenza_id
+              ? String((x as { sequenza_id?: string | null }).sequenza_id)
+              : ""
+          )
+          .filter(Boolean)
+      ),
+    ];
     const nomi = new Map<string, string>();
     if (regIds.length) {
       const { data: regs } = await supabase
@@ -801,13 +886,25 @@ export async function listProcessiAction(
         .in("id", regIds);
       for (const r of regs ?? []) nomi.set(String(r.id), String(r.nome));
     }
+    if (seqIds.length) {
+      const { data: seqs } = await supabase
+        .from("action_sequenze")
+        .select("id, nome")
+        .in("id", seqIds);
+      for (const r of seqs ?? []) nomi.set(String(r.id), String(r.nome));
+    }
     for (const p of passi ?? []) {
       const pid = String(p.processo_id);
+      const sid = (p as { sequenza_id?: string | null }).sequenza_id
+        ? String((p as { sequenza_id?: string | null }).sequenza_id)
+        : null;
+      const rid = p.registrata_id ? String(p.registrata_id) : null;
       const list = passiByProc.get(pid) ?? [];
       list.push({
         id: String(p.id),
-        registrataId: String(p.registrata_id),
-        registrataNome: nomi.get(String(p.registrata_id)) ?? "Azione",
+        registrataId: rid,
+        sequenzaId: sid,
+        registrataNome: nomi.get(sid ?? rid ?? "") ?? "Sequenza",
         sortOrder: Number(p.sort_order),
       });
       passiByProc.set(pid, list);
@@ -840,16 +937,20 @@ export async function createProcessoAction(
     };
   }
   const supabase = await createClient();
-  const { data: regs } = await supabase
-    .from("action_essiccatore_registrate")
-    .select("id, essiccatore_id")
-    .in("id", parsed.data.registrataIds)
+  const seqIds = parsed.data.sequenzaIds;
+  const { data: seqs } = await supabase
+    .from("action_sequenze")
+    .select("id, essiccatore_id, documento_stato")
+    .in("id", seqIds)
     .is("deleted_at", null);
-  if ((regs ?? []).length < 2) {
-    return { success: false, error: "Seleziona almeno due azioni registrate." };
+  if ((seqs ?? []).length < 2) {
+    return { success: false, error: "Seleziona almeno due sequenze." };
   }
-  if ((regs ?? []).some((r) => String(r.essiccatore_id) !== parsed.data.essiccatoreId)) {
-    return { success: false, error: "Le azioni devono appartenere a questo essiccatore." };
+  if ((seqs ?? []).some((r) => String(r.essiccatore_id) !== parsed.data.essiccatoreId)) {
+    return { success: false, error: "Le sequenze devono appartenere a questo essiccatore." };
+  }
+  if ((seqs ?? []).some((r) => String(r.documento_stato) !== "approvato")) {
+    return { success: false, error: "Tutte le sequenze del processo devono essere approvate." };
   }
   const { data: proc, error } = await supabase
     .from("action_essiccatore_processi")
@@ -870,9 +971,10 @@ export async function createProcessoAction(
   const { error: passiErr } = await supabase
     .from("action_essiccatore_processi_passi")
     .insert(
-      parsed.data.registrataIds.map((rid, i) => ({
+      seqIds.map((sid, i) => ({
         processo_id: proc.id,
-        registrata_id: rid,
+        sequenza_id: sid,
+        registrata_id: null,
         sort_order: i,
         created_by: auth.userId,
         updated_by: auth.userId,
@@ -894,7 +996,7 @@ export async function createProcessoAction(
     entity_id: String(proc.id),
     action: "create",
     actor_id: auth.userId,
-    summary: `Processo «${parsed.data.nome.trim()}» su ${essNome(parsed.data.essiccatoreId)} (${parsed.data.registrataIds.length} azioni)`,
+    summary: `Processo «${parsed.data.nome.trim()}» su ${essNome(parsed.data.essiccatoreId)} (${seqIds.length} sequenze)`,
   });
   return { success: true, itemId: String(proc.id) };
 }

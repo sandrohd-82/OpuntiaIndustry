@@ -53,6 +53,11 @@ import {
   type DurataUnita,
   type ProcessoAzione,
 } from "@/lib/action/azioni-catalogo";
+import { listSequenzeAction } from "@/app/actions/action-sequenze";
+import {
+  SEQUENZA_TIPO_LABEL,
+  type ActionSequenza,
+} from "@/lib/action/sequenze";
 import type { ActionEssiccatore } from "@/lib/action/essiccatori";
 
 function Shell({
@@ -808,22 +813,23 @@ export function ActionEssiccatoreProgrammateModal({
   onClose: () => void;
   onEseguita?: () => void;
 }) {
-  const [regs, setRegs] = useState<AzioneRegistrata[]>([]);
+  const [seqs, setSeqs] = useState<ActionSequenza[]>([]);
   const [items, setItems] = useState<AzioneProgrammata[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [pending, start] = useTransition();
-  const [registrataId, setRegistrataId] = useState("");
+  const [sequenzaId, setSequenzaId] = useState("");
   const [eseguiAt, setEseguiAt] = useState(toLocalInput());
 
   function reload() {
     void Promise.all([
-      listAzioniRegistrateAction({ essiccatoreId: essiccatore.id }),
+      listSequenzeAction({ essiccatoreId: essiccatore.id }),
       listAzioniProgrammateAction({ essiccatoreId: essiccatore.id }),
     ]).then(([a, b]) => {
       if (!a.success) setError(a.error);
       else {
-        setRegs(a.items);
-        if (!registrataId && a.items[0]) setRegistrataId(a.items[0].id);
+        const ok = a.items.filter((s) => s.documentoStato === "approvato");
+        setSeqs(ok);
+        if (!sequenzaId && ok[0]) setSequenzaId(ok[0].id);
       }
       if (!b.success) setError(b.error);
       else setItems(b.items);
@@ -837,7 +843,7 @@ export function ActionEssiccatoreProgrammateModal({
   return (
     <Shell
       title="Azioni programmate"
-      subtitle={`${essiccatore.nome} · esegui una registrata a data/ora`}
+      subtitle={`${essiccatore.nome} · esegui una sequenza a data/ora`}
       onClose={onClose}
     >
       {error ? (
@@ -845,9 +851,9 @@ export function ActionEssiccatoreProgrammateModal({
           {error}
         </p>
       ) : null}
-      {regs.length === 0 ? (
+      {seqs.length === 0 ? (
         <p className="text-sm text-amber-800">
-          Prima registra un’azione in «Azioni registrate».
+          Prima crea e approva una sequenza in «Sequenze».
         </p>
       ) : (
         <form
@@ -857,7 +863,7 @@ export function ActionEssiccatoreProgrammateModal({
             start(async () => {
               const res = await createAzioneProgrammataAction({
                 essiccatoreId: essiccatore.id,
-                registrataId,
+                sequenzaId,
                 eseguiAt,
               });
               if (!res.success) {
@@ -869,17 +875,17 @@ export function ActionEssiccatoreProgrammateModal({
           }}
         >
           <label className="block text-sm sm:col-span-2">
-            <span className="mb-1 block font-medium">Azione registrata</span>
+            <span className="mb-1 block font-medium">Sequenza</span>
             <select
-              value={registrataId}
-              onChange={(e) => setRegistrataId(e.target.value)}
+              value={sequenzaId}
+              onChange={(e) => setSequenzaId(e.target.value)}
               required
               className="w-full rounded-lg border border-[var(--border)] bg-white px-3 py-2"
             >
-              {regs.map((r) => (
+              {seqs.map((r) => (
                 <option key={r.id} value={r.id}>
-                  {r.nome} · {r.tempBruciatoreC}°C · {r.percVentilazione}% ·{" "}
-                  {formatDurataMinuti(r.durataMinuti)}
+                  {r.nome} · {SEQUENZA_TIPO_LABEL[r.tipo]} · {r.passi.length}{" "}
+                  Action
                 </option>
               ))}
             </select>
@@ -975,7 +981,7 @@ export function ActionEssiccatoreProcessiModal({
   essiccatore: ActionEssiccatore;
   onClose: () => void;
 }) {
-  const [regs, setRegs] = useState<AzioneRegistrata[]>([]);
+  const [seqs, setSeqs] = useState<ActionSequenza[]>([]);
   const [items, setItems] = useState<ProcessoAzione[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [pending, start] = useTransition();
@@ -984,14 +990,15 @@ export function ActionEssiccatoreProcessiModal({
 
   function reload() {
     void Promise.all([
-      listAzioniRegistrateAction({ essiccatoreId: essiccatore.id }),
+      listSequenzeAction({ essiccatoreId: essiccatore.id }),
       listProcessiAction({ essiccatoreId: essiccatore.id }),
     ]).then(([a, b]) => {
       if (!a.success) setError(a.error);
       else {
-        setRegs(a.items);
+        const ok = a.items.filter((s) => s.documentoStato === "approvato");
+        setSeqs(ok);
         setPassi((prev) =>
-          prev.map((id, i) => id || a.items[i]?.id || a.items[0]?.id || "")
+          prev.map((id, i) => id || ok[i]?.id || ok[0]?.id || "")
         );
       }
       if (!b.success) setError(b.error);
@@ -1006,20 +1013,20 @@ export function ActionEssiccatoreProcessiModal({
   return (
     <Shell
       title="Processi"
-      subtitle={`${essiccatore.nome} · insieme di azioni registrate`}
+      subtitle={`${essiccatore.nome} · insieme di sequenze`}
       onClose={onClose}
     >
       <p className="text-xs text-[var(--muted)]">
-        Un processo è una sequenza di almeno due azioni registrate.
+        Un processo è un insieme di almeno due sequenze approvate.
       </p>
       {error ? (
         <p className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">
           {error}
         </p>
       ) : null}
-      {regs.length < 2 ? (
+      {seqs.length < 2 ? (
         <p className="text-sm text-amber-800">
-          Servono almeno due azioni registrate per creare un processo.
+          Servono almeno due sequenze approvate per creare un processo.
         </p>
       ) : (
         <form
@@ -1030,7 +1037,7 @@ export function ActionEssiccatoreProcessiModal({
               const res = await createProcessoAction({
                 essiccatoreId: essiccatore.id,
                 nome,
-                registrataIds: passi.filter(Boolean),
+                sequenzaIds: passi.filter(Boolean),
               });
               if (!res.success) {
                 setError(res.error);
@@ -1063,10 +1070,10 @@ export function ActionEssiccatoreProcessiModal({
                 required
                 className="w-full rounded-lg border border-[var(--border)] bg-white px-3 py-2"
               >
-                {regs.map((r) => (
+                {seqs.map((r) => (
                   <option key={r.id} value={r.id}>
-                    {r.nome} · {r.tempBruciatoreC}°C · {r.percVentilazione}% ·{" "}
-                  {formatDurataMinuti(r.durataMinuti)}
+                    {r.nome} · {SEQUENZA_TIPO_LABEL[r.tipo]} · {r.passi.length}{" "}
+                    Action
                   </option>
                 ))}
               </select>
@@ -1076,7 +1083,7 @@ export function ActionEssiccatoreProcessiModal({
             <button
               type="button"
               onClick={() =>
-                setPassi((prev) => [...prev, regs[0]?.id ?? ""])
+                setPassi((prev) => [...prev, seqs[0]?.id ?? ""])
               }
               className="rounded-lg border border-[var(--border)] px-3 py-1.5 text-xs hover:bg-slate-50"
             >

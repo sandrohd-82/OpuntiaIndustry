@@ -1,5 +1,7 @@
 import { notFound, redirect } from "next/navigation";
+import { ActionIotComponentiBoard } from "@/components/action/ActionIotComponentiBoard";
 import { AreaPlaceholder } from "@/components/areas/AreaPlaceholder";
+import { AppHeader } from "@/components/layout/AppHeader";
 import {
   ACTION_SECTIONS,
   resolveActionPage,
@@ -25,6 +27,17 @@ export default async function ActionSectionPage({ params }: Props) {
 
   const page = resolveActionPage([section]);
   if (!page) notFound();
+
+  if (section === "elenco-componenti-iot") {
+    return (
+      <>
+        <AppHeader title={page.label} subtitle={page.description} />
+        <div className="p-6">
+          <ActionIotComponentiBoard />
+        </div>
+      </>
+    );
+  }
 
   return <AreaPlaceholder title={page.label} description={page.description} />;
 }

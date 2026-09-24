@@ -57,7 +57,8 @@ export type AzioneRegistrata = {
 export type AzioneProgrammata = {
   id: string;
   essiccatoreId: string;
-  registrataId: string;
+  registrataId: string | null;
+  sequenzaId: string | null;
   registrataNome: string;
   eseguiAt: string;
   stato: ProgrammataStato;
@@ -70,7 +71,8 @@ export type AzioneProgrammata = {
 
 export type ProcessoPasso = {
   id: string;
-  registrataId: string;
+  registrataId: string | null;
+  sequenzaId: string | null;
   registrataNome: string;
   sortOrder: number;
 };
@@ -166,20 +168,32 @@ export const registrataUpdateSchema = z.object({
   spegnimentoVent: z.number().int().min(0).max(100).optional(),
 });
 
-export const programmataInputSchema = z.object({
-  essiccatoreId: z.enum(ACTION_ESSICCATORE_IDS),
-  registrataId: z.string().uuid(),
-  eseguiAt: z.string().min(10),
-  note: z.string().trim().max(400).optional().default(""),
-});
+export const programmataInputSchema = z
+  .object({
+    essiccatoreId: z.enum(ACTION_ESSICCATORE_IDS),
+    registrataId: z.string().uuid().optional(),
+    sequenzaId: z.string().uuid().optional(),
+    eseguiAt: z.string().min(10),
+    note: z.string().trim().max(400).optional().default(""),
+  })
+  .superRefine((data, ctx) => {
+    if (!data.sequenzaId && !data.registrataId) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["sequenzaId"],
+        message: "Seleziona una sequenza.",
+      });
+    }
+  });
 
 export const processoInputSchema = z.object({
   essiccatoreId: z.enum(ACTION_ESSICCATORE_IDS),
   nome: z.string().trim().min(2).max(120),
   descrizione: z.string().trim().max(400).optional().default(""),
-  registrataIds: z
+  registrataIds: z.array(z.string().uuid()).optional(),
+  sequenzaIds: z
     .array(z.string().uuid())
-    .min(2, "Un processo è un insieme di almeno due azioni registrate."),
+    .min(2, "Un processo è un insieme di almeno due sequenze."),
 });
 
 export function formatEseguiAt(iso: string): string {

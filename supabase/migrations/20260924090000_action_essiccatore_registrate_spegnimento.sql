@@ -1,3 +1,5 @@
+-- NON APPLICARE. Superata da 20260924110000_action_sequenze_componenti_iot
+-- (Sequenze Azione/Chiusura/Sicurezza + Elenco Componenti IoT).
 -- Azioni registrate: coppia avvio/spegnimento + stato esecuzione in corso.
 -- ISO 9001 §8.5.2 / 7.5: audit già sulla tabella, soft delete, mai delete fisico.
 -- Idempotente / lock-safe: niente DROP POLICY.

@@ -17,8 +17,8 @@ import { ActionEssiccatoreAzioniImmediateModal } from "@/components/action/Actio
 import {
   ActionEssiccatoreProcessiModal,
   ActionEssiccatoreProgrammateModal,
-  ActionEssiccatoreRegistrateModal,
 } from "@/components/action/ActionEssiccatoreFamiglieModals";
+import { ActionSequenzeModal } from "@/components/action/ActionSequenzeModal";
 import { useIotMexComms } from "@/components/action/IotMexCommsProvider";
 import { ActionEssiccatoreSensorFlags } from "@/components/action/ActionEssiccatoreSensorFlags";
 import { PdfFirstPageImage } from "@/components/action/PdfFirstPageImage";
@@ -29,11 +29,7 @@ import {
   formatCapacitaKg,
   type ActionEssiccatore,
 } from "@/lib/action/essiccatori";
-import { chiudiEsecuzioneRegistrataAction } from "@/app/actions/action-essiccatore-catalogo";
-import {
-  createSessioneArrestoComms,
-  createSessioneAvvioComms,
-} from "@/lib/action/iot-mex-comms";
+import { createSessioneAvvioComms } from "@/lib/action/iot-mex-comms";
 import type { ActionEssiccatoreSensore } from "@/lib/action/sensori";
 
 const familyBtn =
@@ -75,11 +71,11 @@ function EssiccatoreCommandIcons({
       <button
         type="button"
         className={familyBtn}
-        aria-label={`Azioni registrate su ${nome}`}
+        aria-label={`Sequenze su ${nome}`}
         onClick={onRegistrate}
       >
         <FaClipboardList size={12} />
-        Azioni registrate
+        Sequenze
       </button>
       <button
         type="button"
@@ -302,31 +298,9 @@ export function ActionEssiccatoriBoard({ canPosition = false }: Props) {
         />
       ) : null}
       {familyFor?.kind === "registrate" ? (
-        <ActionEssiccatoreRegistrateModal
+        <ActionSequenzeModal
           essiccatore={familyFor.item}
           onClose={() => setFamilyFor(null)}
-          onAvvioRegistrato={(azione) => {
-            avviaSessione(
-              createSessioneAvvioComms(azione, familyFor.item.nome)
-            );
-          }}
-          onArrestoRegistrato={(azione, registrataId) => {
-            avviaSessione(
-              createSessioneArrestoComms(
-                azione,
-                familyFor.item.nome,
-                () => {
-                  void chiudiEsecuzioneRegistrataAction({
-                    id: registrataId,
-                  }).then(() => {
-                    window.dispatchEvent(
-                      new Event("opuntia.action-registrata-esec")
-                    );
-                  });
-                }
-              )
-            );
-          }}
         />
       ) : null}
       {familyFor?.kind === "programmate" ? (
