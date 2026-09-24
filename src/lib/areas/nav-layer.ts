@@ -1,7 +1,7 @@
 /** Chiave padre delle voci di primo livello nel menu laterale. */
 export const NAV_ROOT_KEY = "__root__";
 
-/** Da questo strato lo sfondo è abbastanza chiaro: testo scuro. */
+/** Soglia storica: il contrasto riga ora segue la selezione, non lo strato. */
 export const NAV_LAYER_INVERT_FROM = 2;
 
 export type NavContrast = "light" | "dark";

@@ -350,18 +350,16 @@ function itemClass(
   contrast: NavContrast = "light"
 ) {
   const rowTone = tone === "mixed" ? null : tone;
-  const toneCls = toneTextClass(rowTone, contrast);
-  const dark = contrast === "dark";
-  const idleText = dark ? "text-slate-800" : "text-[var(--sidebar-muted)]";
-  const activeText = dark ? "text-slate-950" : "text-[var(--sidebar-foreground)]";
-  const hoverBg = dark ? "hover:bg-slate-900/12" : "hover:bg-white/10";
-  const activeBg = dark ? "bg-slate-900/14" : "bg-white/10";
+  const toneCls = toneTextClass(rowTone, active ? "dark" : "light");
+  void contrast;
+  const idleText = "text-[var(--sidebar-muted)]";
+  const activeText = "text-slate-700";
   return `flex w-full items-center gap-2 rounded-lg text-left text-sm transition-colors ${
     rail ? "justify-center px-2 py-2.5" : "px-3 py-2"
   } ${nested ? "py-1.5" : ""} ${
     active
-      ? `${activeBg} font-medium ${toneCls || activeText}`
-      : `${toneCls || idleText} ${hoverBg} ${toneCls ? "" : dark ? "hover:text-slate-950" : "hover:text-[var(--sidebar-foreground)]"}`
+      ? `bg-white font-medium ${toneCls || activeText}`
+      : `${toneCls || idleText} hover:bg-white/10 ${toneCls ? "" : "hover:text-[var(--sidebar-foreground)]"}`
   }`;
 }
 
@@ -416,7 +414,7 @@ function FirstLevelButton({
       >
         <AreaIcon slug={slug} />
         {rail ? null : (
-          <span className={`truncate ${labelClass(tone, contrast)}`}>{label}</span>
+          <span className={`truncate ${labelClass(tone, active ? "dark" : "light")}`}>{label}</span>
         )}
         {rail || tone !== "mixed" ? null : <MixedToneMark />}
         {rail ? null : badge ? <NavBadgeDot badge={badge} /> : null}
@@ -462,7 +460,7 @@ function BranchButton({
         aria-expanded={open}
         className={`min-w-0 flex-1 ${itemClass(active, nested, false, tone, contrast)}`}
       >
-        <span className={`min-w-0 flex-1 truncate ${labelClass(tone, contrast)}`}>
+        <span className={`min-w-0 flex-1 truncate ${labelClass(tone, active ? "dark" : "light")}`}>
           {label}
         </span>
         {tone === "mixed" ? <MixedToneMark /> : null}
@@ -498,12 +496,8 @@ function NavTree({
   branchToggle?: boolean;
 }) {
   const parentLayer = depth - 1;
-  const railCls =
-    parentLayer >= 2
-      ? "border-slate-400/45"
-      : "border-white/20";
   return (
-    <ul className={`mt-0.5 space-y-0.5 border-l ${railCls} ml-2 pl-1.5`}>
+    <ul className="mt-0.5 ml-2 space-y-0.5 pl-1.5">
       {sections.map((item) => {
         const childItems = isNavBranch(item) ? item.children : [];
         const tone = colorMenu && pageAccess
@@ -525,7 +519,6 @@ function NavTree({
             <li
               key={item.path}
               data-nav-layer={open ? capNavLayer(depth) : undefined}
-              className={open ? "overflow-hidden rounded-lg p-0.5" : undefined}
             >
               <BranchButton
                 label={item.label}
@@ -1095,11 +1088,6 @@ export function AppSidebar({
                 <li
                   key="web"
                   data-nav-layer={open && !collapsed ? 0 : undefined}
-                  className={
-                    open && !collapsed
-                      ? "overflow-hidden rounded-xl p-0.5"
-                      : undefined
-                  }
                 >
                   <FirstLevelButton
                     slug="web"
@@ -1219,11 +1207,6 @@ export function AppSidebar({
                 <li
                   key={area.area_id}
                   data-nav-layer={open && !collapsed ? 0 : undefined}
-                  className={
-                    open && !collapsed
-                      ? "overflow-hidden rounded-xl p-0.5"
-                      : undefined
-                  }
                 >
                   <FirstLevelButton
                     slug={area.slug}
@@ -1275,11 +1258,6 @@ export function AppSidebar({
                 <li
                   key={area.area_id}
                   data-nav-layer={open && !collapsed ? 0 : undefined}
-                  className={
-                    open && !collapsed
-                      ? "overflow-hidden rounded-xl p-0.5"
-                      : undefined
-                  }
                 >
                   <FirstLevelButton
                     slug={area.slug}
@@ -1311,11 +1289,6 @@ export function AppSidebar({
                 <li
                   key={area.area_id}
                   data-nav-layer={open && !collapsed ? 0 : undefined}
-                  className={
-                    open && !collapsed
-                      ? "overflow-hidden rounded-xl p-0.5"
-                      : undefined
-                  }
                 >
                   <FirstLevelButton
                     slug={area.slug}

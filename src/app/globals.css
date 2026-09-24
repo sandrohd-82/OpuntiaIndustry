@@ -15,24 +15,13 @@
   --sidebar-active: #1e293b;
 }
 
-/* Menu laterale: voce aperta = velo chiaro; più si scende, meno è trasparente.
-   Dal 3° strato lo sfondo è chiaro → testo scuro (toni sempre opposti). */
-[data-app-sidebar] [data-nav-layer="0"] {
-  background: rgba(248, 250, 252, 0.16);
-  color: #f8fafc;
-}
-[data-app-sidebar] [data-nav-layer="1"] {
-  background: rgba(248, 250, 252, 0.28);
-  color: #f1f5f9;
-}
-[data-app-sidebar] [data-nav-layer="2"] {
-  background: rgba(248, 250, 252, 0.48);
-  color: #0f172a;
-}
-[data-app-sidebar] [data-nav-layer="3"],
-[data-app-sidebar] [data-nav-layer="4"] {
-  background: rgba(248, 250, 252, 0.66);
-  color: #020617;
+/* Menu laterale: gruppi aperti = solo bordo L (sinistra + basso) bianco.
+   Sfondo bianco e testo scuro solo sulla voce selezionata (classe riga). */
+[data-app-sidebar] [data-nav-layer] {
+  background: transparent;
+  border-left: 1px solid #ffffff;
+  border-bottom: 1px solid #ffffff;
+  padding-bottom: 0.25rem;
 }
 
 @theme inline {

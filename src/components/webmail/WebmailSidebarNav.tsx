@@ -77,16 +77,12 @@ function itemClass(
   contrast: NavContrast = "light"
 ) {
   const rowTone = tone === "mixed" ? null : tone;
-  const toneCls = toneTextClass(rowTone, contrast);
-  const dark = contrast === "dark";
-  const idleText = dark ? "text-slate-800" : "text-[var(--sidebar-muted)]";
-  const activeText = dark ? "text-slate-950" : "text-[var(--sidebar-foreground)]";
-  const hoverBg = dark ? "hover:bg-slate-900/12" : "hover:bg-white/10";
-  const activeBg = dark ? "bg-slate-900/14" : "bg-white/10";
+  const toneCls = toneTextClass(rowTone, active ? "dark" : "light");
+  void contrast;
   return `flex w-full items-center gap-2 rounded-lg px-3 py-1.5 text-left text-sm transition-colors ${
     active
-      ? `${activeBg} font-medium ${toneCls || activeText}`
-      : `${toneCls || idleText} ${hoverBg} ${toneCls ? "" : dark ? "hover:text-slate-950" : "hover:text-[var(--sidebar-foreground)]"}`
+      ? `bg-white font-medium ${toneCls || "text-slate-700"}`
+      : `${toneCls || "text-[var(--sidebar-muted)]"} hover:bg-white/10 ${toneCls ? "" : "hover:text-[var(--sidebar-foreground)]"}`
   }`;
 }
 
@@ -191,8 +187,6 @@ export function WebmailSidebarNav({
   const groupTone = colorMenu ? grantTone : null;
   const c0 = navContrast(layerDepth - 1);
   const c1 = navContrast(layerDepth);
-  const rail0 = layerDepth - 1 >= 2 ? "border-slate-400/45" : "border-white/20";
-  const rail1 = layerDepth >= 2 ? "border-slate-400/45" : "border-white/20";
 
   function withToggle(
     node: ReactNode,
@@ -215,10 +209,9 @@ export function WebmailSidebarNav({
   }
 
   return (
-    <ul className={`mt-0.5 space-y-0.5 border-l ${rail0} pl-1.5 ml-2`}>
+    <ul className="mt-0.5 ml-2 space-y-0.5 pl-1.5">
       <li
         data-nav-layer={open ? capNavLayer(layerDepth) : undefined}
-        className={open ? "overflow-hidden rounded-lg p-0.5" : undefined}
       >
         {withToggle(
           <button
@@ -245,7 +238,7 @@ export function WebmailSidebarNav({
           }
         )}
         {open ? (
-          <ul className={`mt-0.5 space-y-0.5 border-l ${rail1} pl-1.5 ml-2`}>
+          <ul className="mt-0.5 ml-2 space-y-0.5 pl-1.5">
             {accounts.length === 0 ? (
               <li className="px-3 py-1.5 text-xs opacity-70">
                 Nessuna casella collegata

@@ -91,16 +91,12 @@ function itemClass(
     return "flex w-full items-center gap-2 rounded-lg border border-emerald-500/40 bg-emerald-500/15 px-3 py-1.5 text-left text-sm font-semibold text-emerald-100 transition-colors hover:bg-emerald-500/25";
   }
   const rowTone = tone === "mixed" ? null : tone;
-  const toneCls = toneTextClass(rowTone, contrast);
-  const dark = contrast === "dark";
-  const idleText = dark ? "text-slate-800" : "text-[var(--sidebar-muted)]";
-  const activeText = dark ? "text-slate-950" : "text-[var(--sidebar-foreground)]";
-  const hoverBg = dark ? "hover:bg-slate-900/12" : "hover:bg-white/10";
-  const activeBg = dark ? "bg-slate-900/14" : "bg-white/10";
+  const toneCls = toneTextClass(rowTone, active ? "dark" : "light");
+  void contrast;
   return `flex w-full items-center gap-2 rounded-lg px-3 py-1.5 text-left text-sm transition-colors ${
     active
-      ? `${activeBg} font-medium ${toneCls || activeText}`
-      : `${toneCls || idleText} ${hoverBg} ${toneCls ? "" : dark ? "hover:text-slate-950" : "hover:text-[var(--sidebar-foreground)]"}`
+      ? `bg-white font-medium ${toneCls || "text-slate-700"}`
+      : `${toneCls || "text-[var(--sidebar-muted)]"} hover:bg-white/10 ${toneCls ? "" : "hover:text-[var(--sidebar-foreground)]"}`
   }`;
 }
 
@@ -311,15 +307,10 @@ export function ChatSidebarNav({
   const c0 = navContrast(layerDepth - 1);
   const c1 = navContrast(layerDepth);
   const c2 = navContrast(layerDepth + 1);
-  const rail0 = layerDepth - 1 >= 2 ? "border-slate-400/45" : "border-white/20";
-  const rail1 = layerDepth >= 2 ? "border-slate-400/45" : "border-white/20";
-  const rail2 = layerDepth + 1 >= 2 ? "border-slate-400/45" : "border-white/20";
-
   return (
-    <ul className={`mt-0.5 space-y-0.5 border-l ${rail0} ml-2 pl-1.5`}>
+    <ul className="mt-0.5 ml-2 space-y-0.5 pl-1.5">
       <li
         data-nav-layer={openArg ? capNavLayer(layerDepth) : undefined}
-        className={openArg ? "overflow-hidden rounded-lg p-0.5" : undefined}
       >
         {withToggle(
           "/app/chat/argomenti",
@@ -343,7 +334,7 @@ export function ChatSidebarNav({
           CHAT_ARGOMENTI_CHILDREN
         )}
         {openArg ? (
-          <ul className={`mt-0.5 space-y-0.5 border-l ${rail1} ml-2 pl-1.5`}>
+          <ul className="mt-0.5 ml-2 space-y-0.5 pl-1.5">
             <li>
               {withToggle(
                 "/app/chat/argomenti/nuovo",
@@ -362,9 +353,6 @@ export function ChatSidebarNav({
             </li>
             <li
               data-nav-layer={openElencoArg ? capNavLayer(layerDepth + 1) : undefined}
-              className={
-                openElencoArg ? "overflow-hidden rounded-lg p-0.5" : undefined
-              }
             >
               {withToggle(
                 "/app/chat/argomenti/elenco",
@@ -387,7 +375,7 @@ export function ChatSidebarNav({
                 </button>
               )}
               {openElencoArg ? (
-                <ul className={`mt-0.5 space-y-0.5 border-l ${rail2} ml-2 pl-1.5`}>
+                <ul className="mt-0.5 ml-2 space-y-0.5 pl-1.5">
                   {topics.length === 0 ? (
                     <li className="px-3 py-1.5 text-xs opacity-70">
                       Nessun argomento attivo
@@ -424,7 +412,6 @@ export function ChatSidebarNav({
 
       <li
         data-nav-layer={openDir ? capNavLayer(layerDepth) : undefined}
-        className={openDir ? "overflow-hidden rounded-lg p-0.5" : undefined}
       >
         {withToggle(
           "/app/chat/dirette",
@@ -448,7 +435,7 @@ export function ChatSidebarNav({
           CHAT_DIRETTE_CHILDREN
         )}
         {openDir ? (
-          <ul className={`mt-0.5 space-y-0.5 border-l ${rail1} ml-2 pl-1.5`}>
+          <ul className="mt-0.5 ml-2 space-y-0.5 pl-1.5">
             <li>
               {withToggle(
                 "/app/chat/dirette/nuova",
@@ -467,9 +454,6 @@ export function ChatSidebarNav({
             </li>
             <li
               data-nav-layer={openElencoDir ? capNavLayer(layerDepth + 1) : undefined}
-              className={
-                openElencoDir ? "overflow-hidden rounded-lg p-0.5" : undefined
-              }
             >
               {withToggle(
                 "/app/chat/dirette/elenco",
@@ -492,7 +476,7 @@ export function ChatSidebarNav({
                 </button>
               )}
               {openElencoDir ? (
-                <ul className={`mt-0.5 space-y-0.5 border-l ${rail2} ml-2 pl-1.5`}>
+                <ul className="mt-0.5 ml-2 space-y-0.5 pl-1.5">
                   {directs.length === 0 ? (
                     <li className="px-3 py-1.5 text-xs opacity-70">
                       Nessuna chat attiva
