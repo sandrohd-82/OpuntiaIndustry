@@ -113,6 +113,7 @@ export function ActionEssiccatoreRegistrateModal({
   const [durataInfinito, setDurataInfinito] = useState(true);
   const [durataValore, setDurataValore] = useState(60);
   const [durataUnita, setDurataUnita] = useState<DurataUnita>("minuti");
+  const [note, setNote] = useState("");
 
   function reload() {
     void listAzioniRegistrateAction({ essiccatoreId: essiccatore.id }).then(
@@ -137,8 +138,9 @@ export function ActionEssiccatoreRegistrateModal({
       onClose={onClose}
     >
       <p className="text-xs text-[var(--muted)]">
-        Nome, setpoint come in Azione immediata, durata in minuti/ore oppure
-        Infinito. Programmate e processi usano solo queste.
+        Nome, note di spiegazione, setpoint come in Azione immediata, durata
+        in minuti/ore oppure Infinito. Programmate e processi usano solo
+        queste.
       </p>
       {error ? (
         <p className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">
@@ -163,12 +165,14 @@ export function ActionEssiccatoreRegistrateModal({
               tempBruciatoreC: temp,
               percVentilazione: vent,
               durataMinuti: minuti,
+              descrizione: note,
             });
             if (!res.success) {
               setError(res.error);
               return;
             }
             setNome("");
+            setNote("");
             setDurataInfinito(true);
             setDurataValore(60);
             setDurataUnita("minuti");
@@ -185,6 +189,17 @@ export function ActionEssiccatoreRegistrateModal({
             minLength={2}
             placeholder="Nome dell’azione"
             className="w-full rounded-lg border border-[var(--border)] px-3 py-2"
+          />
+        </label>
+        <label className="block text-sm">
+          <span className="mb-1 block font-medium">Note</span>
+          <textarea
+            value={note}
+            onChange={(e) => setNote(e.target.value)}
+            rows={3}
+            maxLength={2000}
+            placeholder="Spiegazione dell’azione: scopo, quando usarla, avvertenze…"
+            className="w-full resize-y rounded-lg border border-[var(--border)] px-3 py-2"
           />
         </label>
         <div className="grid gap-4 md:grid-cols-2">
@@ -286,6 +301,11 @@ export function ActionEssiccatoreRegistrateModal({
                   {item.tempBruciatoreC}°C · ventola {item.percVentilazione}% ·{" "}
                   {formatDurataMinuti(item.durataMinuti)} · v{item.versione}
                 </span>
+                {item.descrizione.trim() ? (
+                  <span className="mt-1 block text-xs text-slate-700">
+                    {item.descrizione}
+                  </span>
+                ) : null}
               </span>
               <button
                 type="button"

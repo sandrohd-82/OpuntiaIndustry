@@ -138,6 +138,7 @@ export async function createAzioneRegistrataAction(
       tempBruciatoreC: item.tempBruciatoreC,
       percVentilazione: item.percVentilazione,
       durataMinuti: item.durataMinuti,
+      note: item.descrizione,
     },
   });
   return { success: true, item };

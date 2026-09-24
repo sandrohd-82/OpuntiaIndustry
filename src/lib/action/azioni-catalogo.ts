@@ -97,7 +97,7 @@ export function formatDurataMinuti(minuti: number | null | undefined): string {
 export const registrataInputSchema = z.object({
   essiccatoreId: z.enum(ACTION_ESSICCATORE_IDS),
   nome: z.string().trim().min(2).max(120),
-  descrizione: z.string().trim().max(400).optional().default(""),
+  descrizione: z.string().trim().max(2000).optional().default(""),
   tempBruciatoreC: z
     .number()
     .int()
