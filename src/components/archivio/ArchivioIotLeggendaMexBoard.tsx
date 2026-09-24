@@ -5,14 +5,17 @@ import {
   IOT_LETTERE,
   IOT_LETTERE_LEGGENDA,
   IOT_LETTERE_VERSIONE,
+  encodeCorpoRegola,
 } from "@/lib/action/iot-lettere";
 import {
   MEX_CLASSI,
+  MEX_CMD,
   MEX_LEGGENDA,
   MEX_PAYLOAD_LEN,
   MEX_TIPI,
   MEX_VERSIONE,
   encodeOnBruciatoreEsempio,
+  encodeRegolaVentolaEsempio,
   scenariOnBruciatore,
 } from "@/lib/action/iot-mex";
 
@@ -65,6 +68,12 @@ export function ArchivioIotFunzionamentoBoard() {
 export function ArchivioIotLeggendaMexBoard() {
   const onBruciatore = encodeOnBruciatoreEsempio();
   const scenari = scenariOnBruciatore(onBruciatore);
+  const regola30 = encodeRegolaVentolaEsempio(30);
+  const corpoRegola30 = encodeCorpoRegola({
+    tipoAzione: "A",
+    componente: MEX_CMD.FAN_POWER,
+    impostazione: 30,
+  });
 
   return (
     <div className="space-y-6">
@@ -165,12 +174,14 @@ export function ArchivioIotLeggendaMexBoard() {
           Corpo del messaggio (h / l / r / i / s)
         </h3>
         <p className="text-sm text-slate-700">
-          Il corpo non sostituisce il frame: spiega CMD e D0. Esempio ventola
-          30%: corpo <span className="font-mono">r30</span>, frame{" "}
-          <span className="font-mono">
-            7E 0F 49 00 13 A2 00 41 62 C8 1F 4F 41 04 1E 00 00 C5
-          </span>{" "}
-          (TIPO A, CMD 04, D0 1E = 30).
+          Regola: <span className="font-mono">r(Tipo azione)(Numero componente)-(Impostazione)</span>.
+          Esempio ventola 30%: corpo{" "}
+          <span className="font-mono">{corpoRegola30}</span> — tipo{" "}
+          <span className="font-mono">A</span>, componente{" "}
+          <span className="font-mono">04</span>, impostazione{" "}
+          <span className="font-mono">30</span>. Frame{" "}
+          <span className="font-mono">{regola30.hexSpaced}</span> (TIPO A, CMD 04,
+          D0 1E = 30, D1 04 = componente).
         </p>
         <div className="overflow-x-auto rounded-lg border border-[var(--border)]">
           <table className="min-w-full text-left text-sm">
@@ -189,7 +200,7 @@ export function ArchivioIotLeggendaMexBoard() {
                 const m = IOT_LETTERA_META[L];
                 const nelFrame =
                   L === "r"
-                    ? "TIPO A · D0 = valore"
+                    ? "TIPO A · CMD + D1 = componente · D0 = impostazione"
                     : L === "s"
                       ? "TIPO R · D0 = id sensore"
                       : L === "l"
@@ -254,8 +265,10 @@ export function ArchivioIotLeggendaMexBoard() {
             CMD in anagrafica).
           </li>
           <li>
-            <span className="font-mono">r</span>: il numero è il valore (es. 30
-            = 30%, D0 = 1E).
+            <span className="font-mono">r</span>:{" "}
+            <span className="font-mono">r(Tipo)(Componente)-(Impostazione)</span>
+            {" "}es. <span className="font-mono">rA04-30</span>. Nel frame TIPO=A,
+            CMD e D1 = 04 (componente), D0 = 1E (30).
           </li>
           <li>
             Risposta sensore: <span className="font-mono">S12-0256</span> = id

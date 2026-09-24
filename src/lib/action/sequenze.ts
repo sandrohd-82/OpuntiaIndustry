@@ -122,6 +122,7 @@ export function mexFrameDaPasso(input: {
   if (input.mexCmd == null || input.mexCmd < 0 || input.mexCmd > 255) {
     return null;
   }
+  const isRegola = input.comando === "setpoint";
   const d0 =
     input.comando === "on"
       ? 1
@@ -134,6 +135,7 @@ export function mexFrameDaPasso(input: {
     tipo: "A",
     cmd: input.mexCmd,
     d0,
+    d1: isRegola ? input.mexCmd : 0,
     uid: uidPerEssiccatore(input.essiccatoreId),
   });
 }

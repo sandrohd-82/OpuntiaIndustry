@@ -272,6 +272,7 @@ export function encodeAvvioOut(input: {
       tipo: "A",
       cmd: MEX_CMD.FAN_POWER,
       d0: input.percVentilazione,
+      d1: MEX_CMD.FAN_POWER,
     }),
     encodeMex({
       ...base,
@@ -286,6 +287,7 @@ export function encodeAvvioOut(input: {
       tipo: "A",
       cmd: MEX_CMD.BURNER_TEMP,
       d0: input.tempBruciatoreC,
+      d1: MEX_CMD.BURNER_TEMP,
     }),
     encodeMex({
       ...base,
@@ -293,6 +295,7 @@ export function encodeAvvioOut(input: {
       tipo: "A",
       cmd: MEX_CMD.BURNER_POWER,
       d0: percBruciatore,
+      d1: MEX_CMD.BURNER_POWER,
     }),
     encodeMex({
       ...base,
@@ -327,6 +330,7 @@ export function encodeArrestoOut(input: {
       tipo: "A",
       cmd: MEX_CMD.BURNER_POWER,
       d0: 0,
+      d1: MEX_CMD.BURNER_POWER,
     }),
     encodeMex({
       ...base,
@@ -334,6 +338,7 @@ export function encodeArrestoOut(input: {
       tipo: "A",
       cmd: MEX_CMD.FAN_POWER,
       d0: input.percVentilazione,
+      d1: MEX_CMD.FAN_POWER,
     }),
     encodeMex({
       ...base,
@@ -354,7 +359,7 @@ export function encodeAckAtteso(out: MexFrame): MexFrame {
     cmd: out.cmd,
     d0: 0x01,
     d1: out.d0,
-    d2: 0x00,
+    d2: out.d1,
   });
 }
 
@@ -595,6 +600,19 @@ export function encodeOnBruciatoreEsempio(): MexFrame {
   });
 }
 
+/** Ventola 30% · corpo rA04-30 · D1 = numero componente 04. */
+export function encodeRegolaVentolaEsempio(valore = 30): MexFrame {
+  return encodeMex({
+    cls: "I",
+    uid: MEX_UID_ESEMPIO,
+    dir: "O",
+    tipo: "A",
+    cmd: MEX_CMD.FAN_POWER,
+    d0: valore,
+    d1: MEX_CMD.FAN_POWER,
+  });
+}
+
 export type MexLeggendaVoce = {
   dir: MexDir;
   versoLabel: "Out" | "In";
@@ -648,8 +666,9 @@ export const MEX_LEGGENDA: MexLeggendaVoce[] = [
     MEX_CMD.BURNER_TEMP,
     "Temperatura bruciatore",
     "Valore temperatura da mantenere (°C)",
-    "Setpoint 35–70 in D0. Il device regola la % dalla sonda TEMP-BRUC.",
-    50
+    "Setpoint 35–70 in D0. D1 = numero componente (02). Corpo rA02-{°C}.",
+    50,
+    MEX_CMD.BURNER_TEMP
   ),
   voce(
     "O",
@@ -666,8 +685,9 @@ export const MEX_LEGGENDA: MexLeggendaVoce[] = [
     MEX_CMD.FAN_POWER,
     "Potenza ventilazione",
     "Valore potenza 00–64 hex (% ventilazione)",
-    "D0 = percentuale 0–100. Esempio 28 hex = 40%.",
-    40
+    "D0 = percentuale 0–100. D1 = numero componente (04). Corpo rA04-{%}.",
+    40,
+    MEX_CMD.FAN_POWER
   ),
   voce(
     "O",
@@ -675,8 +695,9 @@ export const MEX_LEGGENDA: MexLeggendaVoce[] = [
     MEX_CMD.BURNER_POWER,
     "Apertura bruciatore",
     "Percentuale di partenza stimata dai campioni",
-    "Classe I. D0 = % 0–100. Si invia solo dopo ventola On.",
-    26
+    "Classe I. D0 = % 0–100. D1 = numero componente (05). Corpo rA05-{%}.",
+    26,
+    MEX_CMD.BURNER_POWER
   ),
   voce(
     "O",

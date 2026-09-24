@@ -1,14 +1,34 @@
 type ComandoLettera = "on" | "off" | "setpoint";
+type TipoAzioneMex = "A" | "R" | "K" | "S";
 
 /**
- * Corpo semantico IoT v1 (Archivio → IoT).
+ * Corpo semantico IoT (Archivio → IoT).
  * Non è il frame: il filo resta Mex v2
  * 7E | LEN | CLS | UID[8] | DIR | TIPO | CMD | D0 D1 D2 | CHK
- * (es. 7E 0F 49 00 13 A2 00 41 62 C8 1F 4F 41 …).
+ * (TIPO A, CMD componente, D0 impostazione, D1 componente).
+ *
+ * Regola: r(Tipo azione)(Numero componente)-(Impostazione)
+ * es. rA04-30 = tipo A, componente 04, valore 30.
  * Minuscola = master (Gestionale) → slave (oggetto).
  * Maiuscola = stessa lettera, risposta oggetto → Gestionale.
  */
-export const IOT_LETTERE_VERSIONE = 1;
+export const IOT_LETTERE_VERSIONE = 2;
+
+export function padNumeroComponente(n: number): string {
+  return String(Math.max(0, Math.round(n))).padStart(2, "0");
+}
+
+/** rA04-30 · RA04-30 */
+export function encodeCorpoRegola(input: {
+  tipoAzione?: TipoAzioneMex;
+  componente: number;
+  impostazione: number;
+  verso?: "out" | "in";
+}): string {
+  const tipo = input.tipoAzione ?? "A";
+  const corpo = `r${tipo}${padNumeroComponente(input.componente)}-${Math.max(0, Math.round(input.impostazione))}`;
+  return input.verso === "in" ? corpo.toUpperCase() : corpo;
+}
 
 export const IOT_LETTERE = ["h", "l", "r", "i", "s"] as const;
 export type IotLettera = (typeof IOT_LETTERE)[number];
@@ -33,10 +53,10 @@ export const IOT_LETTERA_META: Record<
   },
   r: {
     nome: "Regola",
-    uso: "Regola inverter o setpoint (valore % o °C)",
-    esempioOut: "r65",
-    esempioAck: "R65",
-    notaAck: "Conferma regola al 65%",
+    uso: "r(Tipo azione)(Numero componente)-(Impostazione)",
+    esempioOut: "rA04-30",
+    esempioAck: "RA04-30",
+    notaAck: "Conferma tipo A, componente 04, impostazione 30",
   },
   i: {
     nome: "Input",
@@ -95,16 +115,17 @@ export const IOT_LETTERE_LEGGENDA: IotLetteraVoce[] = [
   {
     lettera: "r",
     verso: "out",
-    messaggio: "r65",
-    titolo: "Regola 65%",
-    significato: "Gestionale → oggetto: regola inverter / setpoint a 65",
+    messaggio: "rA04-30",
+    titolo: "Regola A · componente 04 · 30",
+    significato:
+      "Gestionale → oggetto: tipo azione A, componente 04, impostazione 30 (nel frame TIPO=A, CMD=04, D0=1E)",
   },
   {
     lettera: "r",
     verso: "in",
-    messaggio: "R65",
-    titolo: "Risposta Regola 65",
-    significato: "Oggetto → gestionale: valore 65 confermato",
+    messaggio: "RA04-30",
+    titolo: "Risposta Regola A · componente 04 · 30",
+    significato: "Oggetto → gestionale: tipo A, componente 04, impostazione 30 confermata",
   },
   {
     lettera: "i",
@@ -153,11 +174,16 @@ export function encodeLetteraOut(input: {
   lettera: IotLettera;
   indirizzo: number;
   valore?: number | null;
+  tipoAzione?: TipoAzioneMex;
 }): string {
   const n = Math.round(input.indirizzo);
   if (input.lettera === "r") {
-    const v = Math.max(0, Math.round(input.valore ?? 0));
-    return `r${v}`;
+    return encodeCorpoRegola({
+      tipoAzione: input.tipoAzione ?? "A",
+      componente: n,
+      impostazione: input.valore ?? 0,
+      verso: "out",
+    });
   }
   return `${input.lettera}${n}`;
 }
@@ -175,10 +201,26 @@ export function encodeLetteraAck(
   return out.toUpperCase();
 }
 
+export function parseCorpoRegola(messaggio: string): {
+  tipo: string;
+  componente: string;
+  impostazione: string;
+} | null {
+  const m = /^[rR]([ARKS])(\d+)-(\d+)$/.exec(messaggio.trim());
+  if (!m) return null;
+  return { tipo: m[1] ?? "A", componente: m[2] ?? "00", impostazione: m[3] ?? "0" };
+}
+
 export function titoloLetteraOut(lettera: IotLettera, messaggio: string): string {
   if (lettera === "h") return `High On · ${messaggio}`;
   if (lettera === "l") return `Low Off · ${messaggio}`;
-  if (lettera === "r") return `Regola · ${messaggio}`;
+  if (lettera === "r") {
+    const p = parseCorpoRegola(messaggio);
+    if (p) {
+      return `Regola tipo ${p.tipo} · componente ${p.componente} · ${p.impostazione}`;
+    }
+    return "Regola";
+  }
   if (lettera === "i") return `Input impulso · ${messaggio}`;
   return `Richiesta sensore · ${messaggio}`;
 }
@@ -186,7 +228,13 @@ export function titoloLetteraOut(lettera: IotLettera, messaggio: string): string
 export function titoloLetteraAck(lettera: IotLettera, messaggio: string): string {
   if (lettera === "h") return `Risposta High · ${messaggio}`;
   if (lettera === "l") return `Risposta Low · ${messaggio}`;
-  if (lettera === "r") return `Risposta Regola · ${messaggio}`;
+  if (lettera === "r") {
+    const p = parseCorpoRegola(messaggio);
+    if (p) {
+      return `Risposta tipo ${p.tipo} · componente ${p.componente} · ${p.impostazione}`;
+    }
+    return "Risposta Regola";
+  }
   if (lettera === "i") return `Risposta Input · ${messaggio}`;
   return `Risposta Sensor · ${messaggio}`;
 }
@@ -211,6 +259,7 @@ export function coppiaLettereDaPasso(input: {
     lettera,
     indirizzo: input.mexCmd,
     valore: input.valore,
+    tipoAzione: "A",
   });
   const ack = encodeLetteraAck(out);
   return {
