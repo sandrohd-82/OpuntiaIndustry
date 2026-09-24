@@ -438,6 +438,7 @@ export async function getScalettaImpegnoDettaglioAction(
             ? String(ord.cliente_possibile_id)
             : null,
         ragioneSociale: String(ord.cliente_ragione_sociale ?? ""),
+        purpose: "acquisti",
       });
       if (ricezione) {
         destOrdine = ricezione.destinatario || destOrdine;
@@ -548,6 +549,7 @@ export async function getScalettaImpegnoDettaglioAction(
             ? String(camp.cliente_possibile_id)
             : null,
         ragioneSociale: String(camp.cliente_ragione_sociale ?? ""),
+        purpose: "campionature",
       });
       if (ricezione) {
         destCamp = ricezione.destinatario || destCamp;

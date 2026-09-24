@@ -173,7 +173,7 @@ export function CampionaturaFormModal({ onClose, onSaved }: Props) {
   }, [targaDocumento, dataInvio]);
 
   function applySpedizioneOptions(next: Cliente, sedi: AnagraficaSede[]) {
-    const options = clienteSpedizioneOptions(next, sedi);
+    const options = clienteSpedizioneOptions(next, sedi, "campionature");
     const preferred =
       options.find((o) => o.ricezione) ?? options[0] ?? null;
     if (preferred) {
@@ -579,7 +579,7 @@ export function CampionaturaFormModal({ onClose, onSaved }: Props) {
               </p>
               <div className="space-y-2">
                 {(cliente
-                  ? clienteSpedizioneOptions(cliente, sediExtra)
+                  ? clienteSpedizioneOptions(cliente, sediExtra, "campionature")
                   : []
                 ).map((opt) => (
                   <label

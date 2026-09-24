@@ -18,6 +18,10 @@ import {
   type AnagraficaSedeTipo,
 } from "@/lib/amministrazione/anagrafica-extra";
 import type { SedeCliente } from "@/lib/amministrazione/clienti";
+import {
+  ANAGRAFICA_SEDE_TONE,
+  AnagraficaSchedaSection,
+} from "@/components/amministrazione/AnagraficaSchedaSection";
 
 export type AnagraficaSedeDraft = AnagraficaSede & { open: boolean };
 
@@ -65,9 +69,13 @@ export function validateSediDrafts(
   if (requireLegale && !legaleFilled) {
     return "Completa la sede legale prima di continuare.";
   }
-  const ricezione = sedi.find((s) => s.ricezioneMerce);
-  if (ricezione && !isSedeAddressFilled(ricezione)) {
-    return "Completa l’indirizzo standard di ricezione merce.";
+  const ricezioneCamp = sedi.find((s) => s.ricezioneCampionature);
+  if (ricezioneCamp && !isSedeAddressFilled(ricezioneCamp)) {
+    return "Completa l’indirizzo standard di ricezione campionature.";
+  }
+  const ricezioneAcq = sedi.find((s) => s.ricezioneAcquisti);
+  if (ricezioneAcq && !isSedeAddressFilled(ricezioneAcq)) {
+    return "Completa l’indirizzo standard di ricezione acquisti.";
   }
   for (const s of sedi) {
     if (!isSedeAddressEmpty(s) && !isSedeAddressFilled(s)) {
@@ -88,7 +96,8 @@ export function sediToInput(sedi: AnagraficaSedeDraft[]): AnagraficaSedeInput[] 
       cap: s.cap,
       indirizzo: s.indirizzo,
       sortOrder: i,
-      ricezioneMerce: Boolean(s.ricezioneMerce),
+      ricezioneCampionature: Boolean(s.ricezioneCampionature),
+      ricezioneAcquisti: Boolean(s.ricezioneAcquisti),
     })
   );
 }
@@ -108,7 +117,8 @@ export function applyLegacySedeToDrafts(
     next[idx] = {
       ...mapped,
       id: next[idx].id,
-      ricezioneMerce: next[idx].ricezioneMerce,
+      ricezioneCampionature: next[idx].ricezioneCampionature,
+      ricezioneAcquisti: next[idx].ricezioneAcquisti,
     };
   } else {
     next.push(mapped);
@@ -166,11 +176,14 @@ export function AnagraficaSediEditor({
     );
   }
 
-  function setRicezioneMerce(id: string) {
+  function setRicezione(
+    id: string,
+    kind: "ricezioneCampionature" | "ricezioneAcquisti"
+  ) {
     onChange(
       value.map((s) => ({
         ...s,
-        ricezioneMerce: s.id === id,
+        [kind]: s.id === id,
         open: s.id === id ? true : s.open,
       }))
     );
@@ -196,14 +209,13 @@ export function AnagraficaSediEditor({
   }
 
   return (
-    <div className="space-y-3">
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <p className="text-sm font-semibold">Sedi</p>
+    <AnagraficaSchedaSection tone="sedi" title="Sedi">
+      <div className="flex flex-wrap items-center justify-end gap-2">
         <div className="relative">
           <button
             type="button"
             onClick={() => setMenuOpen((v) => !v)}
-            className="inline-flex items-center gap-1.5 rounded-lg border border-[var(--border)] bg-white px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50"
+            className="inline-flex items-center gap-1.5 rounded-lg border border-sky-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-white/80"
             aria-expanded={menuOpen}
           >
             <FaPlus size={11} />
@@ -235,8 +247,9 @@ export function AnagraficaSediEditor({
         </div>
       </div>
       <p className="text-xs text-[var(--muted)]">
-        L’indirizzo primario è la Sede Legale. Una sola sede può essere
-        l’indirizzo standard di ricezione merce (campionature e spedizioni).
+        L’indirizzo primario è la Sede Legale. Puoi impostare un indirizzo per
+        le campionature (piccoli pacchi) e uno per gli acquisti (quantitativi).
+        Possono coincidere.
       </p>
 
       {value.map((sede, index) => {
@@ -250,9 +263,11 @@ export function AnagraficaSediEditor({
         return (
           <div
             key={sede.id}
-            className="rounded-lg border border-[var(--border)]"
+            className="overflow-hidden rounded-lg border border-sky-200 bg-white"
           >
-            <div className="flex items-center gap-2 px-3 py-2">
+            <div
+              className={`flex items-center gap-2 px-3 py-2 ${ANAGRAFICA_SEDE_TONE[sede.tipo]}`}
+            >
               <button
                 type="button"
                 onClick={() =>
@@ -282,17 +297,36 @@ export function AnagraficaSediEditor({
                 Rimuovi
               </button>
             </div>
-            <div className="space-y-3 border-t border-[var(--border)] p-3">
-              <label className="flex items-start gap-2 text-sm">
+            <div className="space-y-3 border-t border-sky-100 p-3">
+              <label className="flex items-start gap-2 rounded-lg border border-teal-200 bg-teal-50 px-3 py-2 text-sm">
                 <input
                   type="radio"
-                  name={radioName}
-                  checked={Boolean(sede.ricezioneMerce)}
-                  onChange={() => setRicezioneMerce(sede.id)}
+                  name={`${radioName}-campionature`}
+                  checked={Boolean(sede.ricezioneCampionature)}
+                  onChange={() => setRicezione(sede.id, "ricezioneCampionature")}
                   className="mt-0.5"
                 />
                 <span>
-                  Rendi questo l&apos;indirizzo standard di ricezione merce
+                  Rendi questo l&apos;indirizzo standard di ricezione
+                  Campionature
+                  <span className="mt-0.5 block text-xs text-teal-800">
+                    Piccoli pacchi
+                  </span>
+                </span>
+              </label>
+              <label className="flex items-start gap-2 rounded-lg border border-orange-200 bg-orange-50 px-3 py-2 text-sm">
+                <input
+                  type="radio"
+                  name={`${radioName}-acquisti`}
+                  checked={Boolean(sede.ricezioneAcquisti)}
+                  onChange={() => setRicezione(sede.id, "ricezioneAcquisti")}
+                  className="mt-0.5"
+                />
+                <span>
+                  Rendi questo l&apos;indirizzo standard di ricezione Acquisti
+                  <span className="mt-0.5 block text-xs text-orange-800">
+                    Quantitativi più importanti
+                  </span>
                 </span>
               </label>
               {sede.open ? (
@@ -330,6 +364,6 @@ export function AnagraficaSediEditor({
           </div>
         );
       })}
-    </div>
+    </AnagraficaSchedaSection>
   );
 }

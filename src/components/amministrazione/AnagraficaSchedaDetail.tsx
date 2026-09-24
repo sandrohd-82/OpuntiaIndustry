@@ -23,6 +23,10 @@ import type { ConsegnaAltraAzienda, SedeCliente } from "@/lib/amministrazione/cl
 import type { ProdottoProprio } from "@/lib/amministrazione/prodotti-propri";
 import type { ClientePossibileTrattativa } from "@/lib/promemorie-e-note/trattativa";
 import { displayContattoName, type RubricaContatto } from "@/lib/rubrica/types";
+import {
+  ANAGRAFICA_SEDE_TONE,
+  AnagraficaSchedaSection,
+} from "@/components/amministrazione/AnagraficaSchedaSection";
 
 export type AnagraficaSchedaDetailModel = {
   id: string;
@@ -56,28 +60,43 @@ export type AnagraficaSchedaDetailModel = {
 function SedeBlock({
   title,
   sede,
-  ricezioneMerce = false,
+  ricezioneCampionature = false,
+  ricezioneAcquisti = false,
+  tipo,
 }: {
   title: string;
   sede: SedeCliente;
-  ricezioneMerce?: boolean;
+  ricezioneCampionature?: boolean;
+  ricezioneAcquisti?: boolean;
+  tipo?: AnagraficaSede["tipo"];
 }) {
   return (
-    <div>
-      <p className="text-xs font-semibold uppercase tracking-wide text-[var(--muted)]">
+    <div className="overflow-hidden rounded-lg border border-white/60 bg-white">
+      <p
+        className={`px-3 py-1.5 text-xs font-semibold uppercase tracking-wide ${
+          tipo ? ANAGRAFICA_SEDE_TONE[tipo] : "bg-slate-100 text-slate-800"
+        }`}
+      >
         {title}
       </p>
-      {ricezioneMerce ? (
-        <p className="mt-1 text-xs font-medium text-emerald-800">
-          Indirizzo standard di ricezione merce
+      <div className="space-y-1.5 px-3 py-2">
+        {ricezioneCampionature ? (
+          <p className="rounded-md bg-teal-50 px-2 py-1 text-xs font-medium text-teal-900">
+            Ricezione campionature
+          </p>
+        ) : null}
+        {ricezioneAcquisti ? (
+          <p className="rounded-md bg-orange-50 px-2 py-1 text-xs font-medium text-orange-900">
+            Ricezione acquisti
+          </p>
+        ) : null}
+        <p className="text-sm">
+          {sede.indirizzo || "—"}
+          <br />
+          {[sede.cap, sede.citta, sede.provincia].filter(Boolean).join(" ")}
+          {sede.nazione ? ` — ${sede.nazione}` : ""}
         </p>
-      ) : null}
-      <p className="mt-1 text-sm">
-        {sede.indirizzo || "—"}
-        <br />
-        {[sede.cap, sede.citta, sede.provincia].filter(Boolean).join(" ")}
-        {sede.nazione ? ` — ${sede.nazione}` : ""}
-      </p>
+      </div>
     </div>
   );
 }
@@ -149,12 +168,14 @@ export function AnagraficaSchedaDetail({
   }
 
   return (
-    <div className="grid gap-4 sm:grid-cols-2">
+    <div className="space-y-4">
       {model.cancellazionePrenotata ? (
-        <p className="sm:col-span-2 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-950">
+        <p className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-950">
           Cancellazione prenotata: in attesa di conferma Super Admin.
         </p>
       ) : null}
+      <AnagraficaSchedaSection title="Identità" tone="identita">
+        <div className="grid gap-3 sm:grid-cols-2">
       {model.codiceTarga ? (
         <Field label="Targa" value={model.codiceTarga} />
       ) : null}
@@ -178,6 +199,14 @@ export function AnagraficaSchedaDetail({
       <Field label="Ragione sociale" value={model.ragioneSociale} />
       <Field label="P. IVA" value={model.partitaIva} />
       <Field label="Codice fiscale" value={model.codiceFiscale} />
+      <Field label="Commerciale" value={model.commercialeLabel} />
+      {model.referente ? (
+        <Field label="Referente (testo)" value={model.referente} />
+      ) : null}
+        </div>
+      </AnagraficaSchedaSection>
+      <AnagraficaSchedaSection title="Contatti" tone="contatti">
+        <div className="grid gap-3 sm:grid-cols-2">
       <div>
         <p className="text-xs font-semibold uppercase tracking-wide text-[var(--muted)]">
           Mail
@@ -234,25 +263,20 @@ export function AnagraficaSchedaDetail({
       {model.sitiWebGenerici.length > 0 ? (
         <Field label="Altri siti" value={model.sitiWebGenerici.join(", ")} />
       ) : null}
-      <Field label="Commerciale" value={model.commercialeLabel} />
-      {model.referente ? (
-        <Field label="Referente (testo)" value={model.referente} />
-      ) : null}
+        </div>
+      </AnagraficaSchedaSection>
 
-      <div className="sm:col-span-2">
-        <p className="text-xs font-semibold uppercase tracking-wide text-[var(--muted)]">
-          Schede ordine / campionature
-        </p>
+      <AnagraficaSchedaSection title="Schede ordine / campionature" tone="schede">
         {schede.length === 0 ? (
-          <p className="mt-1 text-sm text-[var(--muted)]">Nessuna scheda</p>
+          <p className="text-sm text-[var(--muted)]">Nessuna scheda</p>
         ) : (
-          <ul className="mt-2 space-y-2">
+          <ul className="space-y-2">
             {schede.map((item) => (
               <li key={item.key}>
                 <button
                   type="button"
                   onClick={() => void apriScheda(item)}
-                  className="flex w-full flex-wrap items-center justify-between gap-2 rounded-lg border border-lime-200 bg-lime-50 px-3 py-2 text-left text-sm hover:bg-lime-100"
+                  className="flex w-full flex-wrap items-center justify-between gap-2 rounded-lg border border-lime-300 bg-white px-3 py-2 text-left text-sm hover:bg-lime-100"
                 >
                   <span>
                     <span className="font-semibold">
@@ -268,30 +292,41 @@ export function AnagraficaSchedaDetail({
             ))}
           </ul>
         )}
-      </div>
+      </AnagraficaSchedaSection>
 
+      <AnagraficaSchedaSection title="Sedi" tone="sedi">
+        <div className="grid gap-3 sm:grid-cols-2">
       {sediExtra.length > 0 ? (
         ensurePrimaryLegale(sediExtra).map((sede) => (
           <SedeBlock
             key={sede.id}
             title={ANAGRAFICA_SEDE_LABEL[sede.tipo]}
             sede={sede}
-            ricezioneMerce={sede.ricezioneMerce}
+            tipo={sede.tipo}
+            ricezioneCampionature={sede.ricezioneCampionature}
+            ricezioneAcquisti={sede.ricezioneAcquisti}
           />
         ))
       ) : (
         <>
-          <SedeBlock title="Sede Legale" sede={model.sedeAmministrativa} />
+          <SedeBlock
+            title="Sede Legale"
+            sede={model.sedeAmministrativa}
+            tipo="legale"
+          />
           {!isSedeAddressEmpty(model.sedeMagazzino) ? (
-            <SedeBlock title="Sede Magazzino" sede={model.sedeMagazzino} />
+            <SedeBlock
+              title="Sede Magazzino"
+              sede={model.sedeMagazzino}
+              tipo="magazzino"
+            />
           ) : null}
         </>
       )}
+        </div>
+      </AnagraficaSchedaSection>
 
-      <div className="sm:col-span-2">
-        <p className="text-xs font-semibold uppercase tracking-wide text-[var(--muted)]">
-          Brand
-        </p>
+      <AnagraficaSchedaSection title="Brand" tone="brand">
         {brandExtra.length === 0 ? (
           <p className="mt-1 text-sm text-[var(--muted)]">Nessun brand</p>
         ) : (
@@ -340,20 +375,20 @@ export function AnagraficaSchedaDetail({
             ))}
           </ul>
         )}
-      </div>
+      </AnagraficaSchedaSection>
 
-      <div className="sm:col-span-2">
-        <p className="text-xs font-semibold uppercase tracking-wide text-[var(--muted)]">
-          Consegne presso altre aziende
-        </p>
+      <AnagraficaSchedaSection
+        title="Consegne presso altre aziende"
+        tone="consegne"
+      >
         {model.consegneAltraAzienda.length === 0 ? (
-          <p className="mt-1 text-sm text-[var(--muted)]">Nessuna</p>
+          <p className="text-sm text-[var(--muted)]">Nessuna</p>
         ) : (
-          <ul className="mt-2 space-y-3">
+          <ul className="space-y-3">
             {model.consegneAltraAzienda.map((consegna, index) => (
               <li
                 key={`${consegna.ragioneSociale}-${index}`}
-                className="rounded-lg border border-[var(--border)] bg-white px-3 py-2.5"
+                className="rounded-lg border border-amber-100 bg-white px-3 py-2.5"
               >
                 <p className="text-sm font-semibold">{consegna.ragioneSociale}</p>
                 <p className="mt-1 text-sm text-[var(--muted)]">
@@ -368,20 +403,17 @@ export function AnagraficaSchedaDetail({
             ))}
           </ul>
         )}
-      </div>
+      </AnagraficaSchedaSection>
 
-      <div className="sm:col-span-2">
-        <p className="text-xs font-semibold uppercase tracking-wide text-[var(--muted)]">
-          Referenti
-        </p>
+      <AnagraficaSchedaSection title="Referenti" tone="referenti">
         {referenti.length === 0 ? (
-          <p className="mt-1 text-sm text-[var(--muted)]">Nessun referente</p>
+          <p className="text-sm text-[var(--muted)]">Nessun referente</p>
         ) : (
-          <ul className="mt-2 space-y-2">
+          <ul className="space-y-2">
             {referenti.map((r) => (
               <li
                 key={r.id}
-                className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-[var(--border)] bg-white px-3 py-2 text-sm"
+                className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-cyan-100 bg-white px-3 py-2 text-sm"
               >
                 <span>
                   {displayContattoName(r)}
@@ -394,16 +426,13 @@ export function AnagraficaSchedaDetail({
             ))}
           </ul>
         )}
-      </div>
+      </AnagraficaSchedaSection>
 
-      <div className="sm:col-span-2">
-        <p className="text-xs font-semibold uppercase tracking-wide text-[var(--muted)]">
-          {model.prodottiLabel}
-        </p>
+      <AnagraficaSchedaSection title={model.prodottiLabel} tone="prodotti">
         {model.prodotti.length === 0 ? (
-          <p className="mt-1 text-sm text-[var(--muted)]">Nessuno</p>
+          <p className="text-sm text-[var(--muted)]">Nessuno</p>
         ) : (
-          <ul className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1">
+          <ul className="flex flex-wrap items-center gap-x-2 gap-y-1">
             {model.prodotti.map((code) => (
               <li key={code}>
                 <ProdottoProprioProductTag
@@ -414,15 +443,12 @@ export function AnagraficaSchedaDetail({
             ))}
           </ul>
         )}
-      </div>
+      </AnagraficaSchedaSection>
 
       {model.noteInterne ? (
-        <div className="sm:col-span-2">
-          <p className="text-xs font-semibold uppercase tracking-wide text-[var(--muted)]">
-            Note interne
-          </p>
-          <p className="mt-1 whitespace-pre-wrap text-sm">{model.noteInterne}</p>
-        </div>
+        <AnagraficaSchedaSection title="Note interne" tone="note">
+          <p className="whitespace-pre-wrap text-sm">{model.noteInterne}</p>
+        </AnagraficaSchedaSection>
       ) : null}
 
       {schedaApertaId ? (

@@ -270,11 +270,14 @@ export type SpedizioneOption = {
   destinatario: string;
   indirizzo: string;
   ricezione?: boolean;
+  ricezioneCampionature?: boolean;
+  ricezioneAcquisti?: boolean;
 };
 
 export function clienteSpedizioneOptions(
   cliente: Cliente,
-  sediExtra: AnagraficaSede[] = []
+  sediExtra: AnagraficaSede[] = [],
+  purpose: "campionature" | "acquisti" = "acquisti"
 ): SpedizioneOption[] {
   const out: SpedizioneOption[] = [];
   const extraFilled = sediExtra.filter((s) => !isSedeAddressEmpty(s));
@@ -282,14 +285,23 @@ export function clienteSpedizioneOptions(
     for (const s of extraFilled) {
       const addr = formatIndirizzoSede(s);
       if (!addr) continue;
+      const tags: string[] = [];
+      if (s.ricezioneCampionature) tags.push("campionature");
+      if (s.ricezioneAcquisti) tags.push("acquisti");
+      const preferred =
+        purpose === "campionature"
+          ? Boolean(s.ricezioneCampionature)
+          : Boolean(s.ricezioneAcquisti);
       out.push({
         key: `sede-${s.id}`,
-        label: s.ricezioneMerce
-          ? `${ANAGRAFICA_SEDE_LABEL[s.tipo]} · ricezione merce`
+        label: tags.length
+          ? `${ANAGRAFICA_SEDE_LABEL[s.tipo]} · ricezione ${tags.join(" + ")}`
           : ANAGRAFICA_SEDE_LABEL[s.tipo],
         destinatario: cliente.ragioneSociale,
         indirizzo: addr,
-        ricezione: Boolean(s.ricezioneMerce),
+        ricezione: preferred,
+        ricezioneCampionature: Boolean(s.ricezioneCampionature),
+        ricezioneAcquisti: Boolean(s.ricezioneAcquisti),
       });
     }
   } else {

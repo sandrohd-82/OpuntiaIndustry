@@ -398,6 +398,7 @@ async function createCampionaturaActionInner(
           ? resolved.clienteId
           : resolved.possibileClienteId,
       ragioneSociale: input.cliente,
+      purpose: "campionature",
     });
     if (ricezione) {
       destinatario = ricezione.destinatario || destinatario;

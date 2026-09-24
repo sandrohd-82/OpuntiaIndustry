@@ -27,6 +27,7 @@ import {
   type AnagraficaSedeDraft,
 } from "@/components/amministrazione/AnagraficaSediEditor";
 import { loadAnagraficaExtraAction } from "@/app/actions/anagrafica-extra";
+import { AnagraficaSchedaSection } from "@/components/amministrazione/AnagraficaSchedaSection";
 import {
   firstSedeOfTipo,
   primarySedeAddress,
@@ -573,6 +574,7 @@ export function ClienteFormModal({
           onClick={(e) => e.stopPropagation()}
           className="mt-5 space-y-4"
         >
+          <AnagraficaSchedaSection title="Dati anagrafici" tone="identita">
           <div className="grid gap-3 sm:grid-cols-2">
             <label className="block text-sm sm:col-span-2">
               <span className="mb-1 block font-medium">R. Sociale</span>
@@ -733,6 +735,7 @@ export function ClienteFormModal({
               }
             />
           </div>
+          </AnagraficaSchedaSection>
 
           <AnagraficaSediEditor
             value={sedi}
@@ -746,10 +749,11 @@ export function ClienteFormModal({
             referenti={referenti}
           />
 
-          <fieldset className="space-y-3 rounded-lg border border-[var(--border)] p-4">
-            <legend className="px-1 text-sm font-semibold">
-              Consegne presso altre aziende
-            </legend>
+          <AnagraficaSchedaSection
+            title="Consegne presso altre aziende"
+            tone="consegne"
+          >
+            <div className="space-y-3">
             <label className="flex items-start gap-2 text-sm">
               <input
                 type="checkbox"
@@ -833,7 +837,8 @@ export function ClienteFormModal({
                 </button>
               </div>
             )}
-          </fieldset>
+          </div>
+          </AnagraficaSchedaSection>
 
           <ProdottiAcquistatiTags
             value={prodotti}

@@ -1045,7 +1045,8 @@ export async function convertClientePossibileAdClienteAction(
       cap: s.cap,
       indirizzo: s.indirizzo,
       sortOrder: i,
-      ricezioneMerce: Boolean(s.ricezioneMerce),
+      ricezioneCampionature: Boolean(s.ricezioneCampionature),
+      ricezioneAcquisti: Boolean(s.ricezioneAcquisti),
     }));
     input.brand = extraLead.brand.map((b, i) => ({
       nome: b.nome,

@@ -28,7 +28,8 @@ type ExtraRowSede = {
   cap: string;
   indirizzo: string;
   sort_order: number;
-  ricezione_merce?: boolean;
+  ricezione_campionature?: boolean;
+  ricezione_acquisti?: boolean;
 };
 
 type ExtraRowBrand = {
@@ -53,7 +54,8 @@ function mapSede(r: ExtraRowSede): AnagraficaSede {
     cap: r.cap ?? "",
     indirizzo: r.indirizzo ?? "",
     sortOrder: r.sort_order ?? 0,
-    ricezioneMerce: Boolean(r.ricezione_merce),
+    ricezioneCampionature: Boolean(r.ricezione_campionature),
+    ricezioneAcquisti: Boolean(r.ricezione_acquisti),
   };
 }
 
@@ -96,7 +98,7 @@ export async function loadAnagraficaExtraAction(input: {
     supabase
       .from("anagrafica_sedi")
       .select(
-        "id, tipo, nazione, provincia, citta, cap, indirizzo, sort_order, ricezione_merce"
+        "id, tipo, nazione, provincia, citta, cap, indirizzo, sort_order, ricezione_campionature, ricezione_acquisti"
       )
       .eq("owner_kind", input.ownerKind)
       .eq("owner_id", input.ownerId)
@@ -130,6 +132,7 @@ export async function loadIndirizzoRicezioneMerce(input: {
   ownerKind: AnagraficaOwnerKind;
   ownerId: string | null | undefined;
   ragioneSociale?: string;
+  purpose?: "campionature" | "acquisti";
 }): Promise<{
   destinatario: string;
   indirizzo: string;
@@ -138,16 +141,20 @@ export async function loadIndirizzoRicezioneMerce(input: {
   if (!input.ownerId || !z.string().uuid().safeParse(input.ownerId).success) {
     return null;
   }
+  const col =
+    input.purpose === "campionature"
+      ? "ricezione_campionature"
+      : "ricezione_acquisti";
   const supabase = await createClient();
   const { data, error } = await supabase
     .from("anagrafica_sedi")
     .select(
-      "id, tipo, nazione, provincia, citta, cap, indirizzo, sort_order, ricezione_merce"
+      "id, tipo, nazione, provincia, citta, cap, indirizzo, sort_order, ricezione_campionature, ricezione_acquisti"
     )
     .eq("owner_kind", input.ownerKind)
     .eq("owner_id", input.ownerId)
     .is("deleted_at", null)
-    .eq("ricezione_merce", true)
+    .eq(col, true)
     .maybeSingle();
   if (error || !data) return null;
   const sede = mapSede(data as ExtraRowSede);
@@ -204,13 +211,14 @@ export async function persistAnagraficaExtra(input: {
     .from("anagrafica_sedi")
     .update({
       ricezione_merce: false,
+      ricezione_campionature: false,
+      ricezione_acquisti: false,
       updated_by: input.userId,
       updated_at: now,
     })
     .eq("owner_kind", input.ownerKind)
     .eq("owner_id", input.ownerId)
-    .is("deleted_at", null)
-    .eq("ricezione_merce", true);
+    .is("deleted_at", null);
   if (clearRicezioneErr) return clearRicezioneErr.message;
 
   for (const [i, s] of sedi.entries()) {
@@ -224,7 +232,9 @@ export async function persistAnagraficaExtra(input: {
       cap: s.cap ?? "",
       indirizzo: s.indirizzo ?? "",
       sort_order: i,
-      ricezione_merce: Boolean(s.ricezioneMerce),
+      ricezione_merce: false,
+      ricezione_campionature: Boolean(s.ricezioneCampionature),
+      ricezione_acquisti: Boolean(s.ricezioneAcquisti),
       updated_by: input.userId,
       updated_at: now,
     };
@@ -379,7 +389,8 @@ export async function copyAnagraficaExtraAction(input: {
       cap: s.cap,
       indirizzo: s.indirizzo,
       sortOrder: i,
-      ricezioneMerce: Boolean(s.ricezioneMerce),
+      ricezioneCampionature: Boolean(s.ricezioneCampionature),
+      ricezioneAcquisti: Boolean(s.ricezioneAcquisti),
     })),
     brand: loaded.brand.map((b, i) => ({
       nome: b.nome,

@@ -498,6 +498,7 @@ export async function createOrdineAction(
       ownerKind: resolved.clienteId ? "cliente" : "cliente_possibile",
       ownerId: resolved.clienteId || resolved.possibileClienteId,
       ragioneSociale: input.cliente,
+      purpose: "acquisti",
     });
     const insert: OrdineInsert = {
       numero_interno: numeroInterno,
@@ -1065,6 +1066,7 @@ async function createOrdineWizardActionInner(
         ownerKind: resolved.clienteId ? "cliente" : "cliente_possibile",
         ownerId: resolved.clienteId || resolved.possibileClienteId,
         ragioneSociale: input.cliente,
+        purpose: "acquisti",
       });
       if (ricezione) {
         destSped = {

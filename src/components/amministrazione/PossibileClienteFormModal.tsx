@@ -24,6 +24,7 @@ import {
   type AnagraficaSedeDraft,
 } from "@/components/amministrazione/AnagraficaSediEditor";
 import { loadAnagraficaExtraAction } from "@/app/actions/anagrafica-extra";
+import { AnagraficaSchedaSection } from "@/components/amministrazione/AnagraficaSchedaSection";
 import {
   firstSedeOfTipo,
   primarySedeAddress,
@@ -324,6 +325,7 @@ export function PossibileClienteFormModal({
         </div>
 
         <form onSubmit={submit} className="mt-5 space-y-4">
+          <AnagraficaSchedaSection title="Dati anagrafici" tone="identita">
           <div className="grid gap-3 sm:grid-cols-2">
             <label className="block text-sm sm:col-span-2">
               <span className="mb-1 block font-medium">R. Sociale *</span>
@@ -436,6 +438,7 @@ export function PossibileClienteFormModal({
               }
             />
           </div>
+          </AnagraficaSchedaSection>
 
           <AnagraficaSediEditor value={sedi} onChange={setSedi} />
 

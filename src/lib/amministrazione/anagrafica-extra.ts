@@ -36,7 +36,8 @@ export type AnagraficaSede = {
   cap: string;
   indirizzo: string;
   sortOrder: number;
-  ricezioneMerce: boolean;
+  ricezioneCampionature: boolean;
+  ricezioneAcquisti: boolean;
 };
 
 export type AnagraficaBrand = {
@@ -61,7 +62,8 @@ export const anagraficaSedeInputSchema = z.object({
   cap: z.string().trim().max(16).optional().default(""),
   indirizzo: z.string().trim().max(200).optional().default(""),
   sortOrder: z.number().int().nonnegative().optional().default(0),
-  ricezioneMerce: z.boolean().optional().default(false),
+  ricezioneCampionature: z.boolean().optional().default(false),
+  ricezioneAcquisti: z.boolean().optional().default(false),
 });
 
 export const anagraficaBrandInputSchema = z.object({
@@ -88,7 +90,8 @@ export function emptyAnagraficaSede(
     tipo,
     ...emptySede(),
     sortOrder,
-    ricezioneMerce: false,
+    ricezioneCampionature: false,
+    ricezioneAcquisti: false,
   };
 }
 
@@ -103,7 +106,8 @@ export function sedeFromAddress(
     tipo,
     ...n,
     sortOrder,
-    ricezioneMerce: false,
+    ricezioneCampionature: false,
+    ricezioneAcquisti: false,
   };
 }
 
@@ -212,7 +216,8 @@ export function normalizeSedeInput(s: AnagraficaSedeInput): AnagraficaSedeInput 
       indirizzo: s.indirizzo ?? "",
     }),
     sortOrder: s.sortOrder ?? 0,
-    ricezioneMerce: Boolean(s.ricezioneMerce),
+    ricezioneCampionature: Boolean(s.ricezioneCampionature),
+    ricezioneAcquisti: Boolean(s.ricezioneAcquisti),
   };
 }
 
@@ -232,10 +237,21 @@ export function normalizeBrandInput(b: AnagraficaBrandInput): AnagraficaBrandInp
   };
 }
 
+export type RicezioneSedePurpose = "campionature" | "acquisti";
+
 export function sedeRicezioneMerce(
-  sedi: AnagraficaSede[]
+  sedi: AnagraficaSede[],
+  purpose: RicezioneSedePurpose = "acquisti"
 ): AnagraficaSede | null {
-  return sedi.find((s) => s.ricezioneMerce && !isSedeAddressEmpty(s)) ?? null;
+  return (
+    sedi.find((s) => {
+      const flagged =
+        purpose === "campionature"
+          ? s.ricezioneCampionature
+          : s.ricezioneAcquisti;
+      return flagged && !isSedeAddressEmpty(s);
+    }) ?? null
+  );
 }
 
 export function formatSedeIndirizzo(

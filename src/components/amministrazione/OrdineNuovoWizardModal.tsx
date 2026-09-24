@@ -1001,7 +1001,8 @@ export function OrdineNuovoWizardModal({
                     const applyOpts = (sedi: AnagraficaSede[]) => {
                       const options = clienteSpedizioneOptions(
                         nextCliente,
-                        sedi
+                        sedi,
+                        "acquisti"
                       );
                       const preferred =
                         options.find((o) => o.ricezione) ?? options[0] ?? null;
@@ -1609,11 +1610,11 @@ export function OrdineNuovoWizardModal({
                   Indirizzo di ricezione
                 </legend>
                 <p className="text-xs text-[var(--muted)]">
-                  Se l’azienda ha un indirizzo standard di ricezione merce,
+                  Se l’azienda ha un indirizzo standard di ricezione Acquisti,
                   viene proposto qui. Puoi scegliere un altro indirizzo.
                 </p>
                 {(clienteSped
-                  ? clienteSpedizioneOptions(clienteSped, sediExtra)
+                  ? clienteSpedizioneOptions(clienteSped, sediExtra, "acquisti")
                   : []
                 ).map((opt) => (
                   <label
