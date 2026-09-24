@@ -916,7 +916,11 @@ function CanaleForm({
           value={mexCmd}
           onChange={(e) => setMexCmd(e.target.value === "" ? "" : Number(e.target.value))}
           className={fieldClass()}
+          placeholder="vuoto = automatico"
         />
+        <span className="mt-1 block text-xs text-[var(--muted)]">
+          Vuoto: il sistema assegna il primo libero sulla macchina (1–255).
+        </span>
       </label>
       {!isSensore && tipo === "on_off_temporizzato" ? (
         <label className="block text-sm">

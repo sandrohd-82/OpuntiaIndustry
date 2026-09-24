@@ -10,6 +10,7 @@ import {
   componenteInputSchema,
   defaultRangeForTipo,
   macchinaInputSchema,
+  prossimoMexCmdLibero,
   moduloInputSchema,
   type ActionIotAlbero,
   type ActionIotComponente,
@@ -171,6 +172,40 @@ function mapLink(
 
 function failParse(message: string): { success: false; error: string } {
   return { success: false, error: message };
+}
+
+async function allocaMexCmdAutomatico(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  ambito: {
+    macchinaId: string | null;
+    essiccatoreId: string | null;
+    excludeId?: string;
+  }
+): Promise<{ success: true; cmd: number } | { success: false; error: string }> {
+  let q = supabase
+    .from("action_iot_componenti")
+    .select("mex_cmd")
+    .is("deleted_at", null)
+    .not("mex_cmd", "is", null);
+  if (ambito.macchinaId) {
+    q = q.eq("macchina_id", ambito.macchinaId);
+  } else if (ambito.essiccatoreId) {
+    q = q.eq("essiccatore_id", ambito.essiccatoreId);
+  }
+  if (ambito.excludeId) {
+    q = q.neq("id", ambito.excludeId);
+  }
+  const { data, error } = await q;
+  if (error) return failParse(error.message);
+  const cmd = prossimoMexCmdLibero(
+    (data ?? []).map((r) =>
+      r.mex_cmd == null ? null : Number(r.mex_cmd)
+    )
+  );
+  if (cmd == null) {
+    return failParse("Nessun Mex CMD libero (1–255) su questa macchina.");
+  }
+  return { success: true, cmd };
 }
 
 export async function listActionIotAlberoAction(): Promise<
@@ -546,6 +581,18 @@ export async function upsertActionIotComponenteAction(
   }
   const tipo = input.ruolo === "sensore" ? null : input.tipoAttuatore ?? null;
   const range = tipo ? defaultRangeForTipo(tipo) : { min: 0, max: 0, def: 0, unita: "" };
+  let mexCmd = input.mexCmd ?? null;
+  let mexAuto = false;
+  if (mexCmd == null) {
+    const alloc = await allocaMexCmdAutomatico(supabase, {
+      macchinaId: input.macchinaId,
+      essiccatoreId: input.essiccatoreId ?? mac.essiccatore_id ?? null,
+      excludeId: input.id,
+    });
+    if (!alloc.success) return alloc;
+    mexCmd = alloc.cmd;
+    mexAuto = true;
+  }
   const payload = {
     codice: input.codice.trim().toUpperCase(),
     nome: input.nome.trim(),
@@ -563,7 +610,7 @@ export async function upsertActionIotComponenteAction(
     valore_default: input.valoreDefault ?? range.def,
     unita: input.unita || range.unita,
     precondizione: input.precondizione,
-    mex_cmd: input.mexCmd ?? null,
+    mex_cmd: mexCmd,
     durata_impulso_default_sec:
       input.ruolo === "sensore" ? null : input.durataImpulsoDefaultSec ?? null,
     updated_by: auth.userId,
@@ -597,7 +644,9 @@ export async function upsertActionIotComponenteAction(
       entity_id: input.id,
       action: "update",
       actor_id: auth.userId,
-      summary: `Canale IoT «${payload.nome}» V+1`,
+      summary: mexAuto
+        ? `Canale IoT «${payload.nome}» V+1 · Mex CMD ${mexCmd} assegnato in automatico`
+        : `Canale IoT «${payload.nome}» V+1`,
     });
     return { success: true, item: mapComp(data as CompRow, names) };
   }
@@ -619,7 +668,9 @@ export async function upsertActionIotComponenteAction(
     entity_id: String((data as CompRow).id),
     action: "create",
     actor_id: auth.userId,
-    summary: `Creato canale IoT «${payload.nome}»`,
+    summary: mexAuto
+      ? `Creato canale IoT «${payload.nome}» · Mex CMD ${mexCmd} assegnato in automatico`
+      : `Creato canale IoT «${payload.nome}»`,
   });
   return { success: true, item: mapComp(data as CompRow, names) };
 }

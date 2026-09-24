@@ -292,6 +292,21 @@ export const componenteInputSchema = z
     }
   });
 
+/** Primo Mex CMD libero 1–255. 0 non si assegna in automatico. */
+export function prossimoMexCmdLibero(
+  occupati: Array<number | null | undefined>
+): number | null {
+  const used = new Set<number>();
+  for (const n of occupati) {
+    if (n == null || !Number.isInteger(n)) continue;
+    if (n >= 1 && n <= 255) used.add(n);
+  }
+  for (let i = 1; i <= 255; i++) {
+    if (!used.has(i)) return i;
+  }
+  return null;
+}
+
 export const collegamentoInputSchema = z.object({
   id: z.string().uuid().optional(),
   sensoreId: z.string().uuid(),
