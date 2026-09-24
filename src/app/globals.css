@@ -15,12 +15,16 @@
   --sidebar-active: #1e293b;
 }
 
-/* Menu laterale: gruppi aperti = solo bordo L (sinistra + basso) bianco.
+/* Menu laterale: gruppi aperti = bordo L a sfumatura.
+   Verticale: 100% trasparente in alto → 0% in basso.
+   Orizzontale: 0% trasparente a sinistra → 100% a destra.
    Sfondo bianco e testo scuro solo sulla voce selezionata (classe riga). */
 [data-app-sidebar] [data-nav-layer] {
-  background: transparent;
-  border-left: 1px solid #ffffff;
-  border-bottom: 1px solid #ffffff;
+  background:
+    linear-gradient(to bottom, rgb(255 255 255 / 0), rgb(255 255 255 / 1))
+      left / 1px 100% no-repeat,
+    linear-gradient(to right, rgb(255 255 255 / 1), rgb(255 255 255 / 0))
+      bottom / 100% 1px no-repeat;
   padding-bottom: 0.25rem;
 }
 
