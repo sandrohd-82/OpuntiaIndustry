@@ -1,13 +1,14 @@
 "use client";
 
 import { useEffect, useId, useState, useTransition } from "react";
-import { FaPen, FaPlay, FaPlus, FaStop, FaTrash } from "react-icons/fa6";
+import { FaCopy, FaPen, FaPlay, FaPlus, FaStop, FaTrash } from "react-icons/fa6";
 import {
   addSequenzaPassoAction,
   approvaSequenzaAction,
   arrestaSequenzaAction,
   avviaSequenzaAction,
   chiudiEsecuzioneSequenzaAction,
+  copiaSequenzaAction,
   listSequenzeAction,
   softDeleteSequenzaAction,
   updateSequenzaPassoAction,
@@ -36,6 +37,7 @@ import {
   formatSecondi,
   formatStalloMinuti,
   labelComandoPasso,
+  nomeSequenzaCopia,
   minutiDaSecondi,
   SEQUENZA_TIPO_LABEL,
   testoMexPasso,
@@ -73,6 +75,7 @@ export function ActionSequenzeModal({
   const [deleteId, setDeleteId] = useState<string | null>(null);
   const [deleteStep, setDeleteStep] = useState<1 | 2>(1);
   const [editingPassoId, setEditingPassoId] = useState<string | null>(null);
+  const [copiaDaId, setCopiaDaId] = useState("");
 
   const comp = componenti.find((c) => c.id === compId) ?? null;
 
@@ -126,6 +129,7 @@ export function ActionSequenzeModal({
     setTipo("azione");
     setDraftPassi([]);
     setEditingPassoId(null);
+    setCopiaDaId("");
     setPhase("lista");
   }
 
@@ -136,6 +140,18 @@ export function ActionSequenzeModal({
     setTipo("azione");
     setDraftPassi([]);
     setEditingPassoId(null);
+    setCopiaDaId("");
+    setPhase("testata");
+  }
+
+  function applyCopia(item: ActionSequenza) {
+    setDraftId(item.id);
+    setNome(item.nome);
+    setDescrizione(item.descrizione);
+    setTipo(item.tipo);
+    setDraftPassi(item.passi);
+    setEditingPassoId(null);
+    setCopiaDaId("");
     setPhase("testata");
   }
 
@@ -249,6 +265,12 @@ export function ActionSequenzeModal({
                           <p className="text-xs text-[var(--muted)]">
                             {item.passi.length} Action
                             {item.descrizione ? ` · ${item.descrizione}` : ""}
+                            {item.copiataDaId
+                              ? ` · copia di ${
+                                  items.find((s) => s.id === item.copiataDaId)
+                                    ?.nome ?? "altra sequenza"
+                                }`
+                              : ""}
                           </p>
                           <ol className="mt-2 space-y-2">
                             {item.passi.map((p, i) => (
@@ -320,6 +342,28 @@ export function ActionSequenzeModal({
                               Continua bozza
                             </button>
                           )}
+                          <button
+                            type="button"
+                            title="Copia sequenza"
+                            disabled={pending}
+                            onClick={() =>
+                              start(async () => {
+                                const res = await copiaSequenzaAction({
+                                  fonteId: item.id,
+                                  essiccatoreId: essiccatore.id,
+                                });
+                                if (!res.success) {
+                                  setError(res.error);
+                                  return;
+                                }
+                                reload();
+                                applyCopia(res.item);
+                              })
+                            }
+                            className="rounded p-1.5 text-slate-600 hover:bg-slate-100 disabled:opacity-40"
+                          >
+                            <FaCopy size={12} />
+                          </button>
                           <button
                             type="button"
                             title="Modifica"
@@ -423,6 +467,38 @@ export function ActionSequenzeModal({
                 )}
               </div>
             </fieldset>
+            {!draftId && items.length > 0 ? (
+              <label className="block text-sm">
+                <span className="mb-1 block font-medium">
+                  Copia da sequenza esistente
+                </span>
+                <select
+                  value={copiaDaId}
+                  onChange={(e) => {
+                    const id = e.target.value;
+                    setCopiaDaId(id);
+                    const src = items.find((s) => s.id === id);
+                    if (src) {
+                      setNome(nomeSequenzaCopia(src.nome));
+                      setDescrizione(src.descrizione);
+                      setTipo(src.tipo);
+                    }
+                  }}
+                  className="w-full rounded-lg border border-[var(--border)] bg-white px-3 py-2"
+                >
+                  <option value="">Parti da zero</option>
+                  {items.map((s) => (
+                    <option key={s.id} value={s.id}>
+                      {s.nome} · {SEQUENZA_TIPO_LABEL[s.tipo]} · {s.passi.length}{" "}
+                      Action
+                    </option>
+                  ))}
+                </select>
+                <span className="mt-1 block text-xs text-[var(--muted)]">
+                  Si crea una bozza nuova con le stesse Action; poi le modifichi.
+                </span>
+              </label>
+            ) : null}
             {draftPassi.length ? (
               <ol className="space-y-2 rounded-lg border border-[var(--border)] bg-slate-50 px-3 py-2">
                 {draftPassi.map((p, i) => (
@@ -445,13 +521,22 @@ export function ActionSequenzeModal({
                 disabled={pending || nome.trim().length < 2}
                 onClick={() =>
                   start(async () => {
-                    const res = await upsertSequenzaTestataAction({
-                      id: draftId ?? undefined,
-                      essiccatoreId: essiccatore.id,
-                      nome,
-                      descrizione,
-                      tipo,
-                    });
+                    const res =
+                      !draftId && copiaDaId
+                        ? await copiaSequenzaAction({
+                            fonteId: copiaDaId,
+                            essiccatoreId: essiccatore.id,
+                            nome,
+                            descrizione,
+                            tipo,
+                          })
+                        : await upsertSequenzaTestataAction({
+                            id: draftId ?? undefined,
+                            essiccatoreId: essiccatore.id,
+                            nome,
+                            descrizione,
+                            tipo,
+                          });
                     if (!res.success) {
                       setError(res.error);
                       return;
@@ -459,6 +544,7 @@ export function ActionSequenzeModal({
                     setDraftId(res.item.id);
                     setDraftPassi(res.item.passi);
                     setEditingPassoId(null);
+                    setCopiaDaId("");
                     setPhase("azione");
                   })
                 }

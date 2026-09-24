@@ -59,6 +59,7 @@ export type ActionSequenza = {
   esecuzioneStato: SequenzaEsecuzioneStato;
   passi: SequenzaPasso[];
   createdAt: string;
+  copiataDaId: string | null;
 };
 
 export const sequenzaTestataSchema = z.object({
@@ -68,6 +69,21 @@ export const sequenzaTestataSchema = z.object({
   descrizione: z.string().trim().max(2000).optional().default(""),
   tipo: z.enum(SEQUENZA_TIPI),
 });
+
+export const copiaSequenzaSchema = z.object({
+  fonteId: z.string().uuid(),
+  essiccatoreId: z.enum(ACTION_ESSICCATORE_IDS),
+  nome: z.string().trim().min(2).max(120).optional(),
+  descrizione: z.string().trim().max(2000).optional(),
+  tipo: z.enum(SEQUENZA_TIPI).optional(),
+});
+
+export function nomeSequenzaCopia(nome: string): string {
+  const suffix = " (copia)";
+  const base = nome.trim();
+  if (base.length + suffix.length <= 120) return `${base}${suffix}`;
+  return `${base.slice(0, 120 - suffix.length)}${suffix}`;
+}
 
 export const sequenzaPassoInputSchema = z.object({
   sequenzaId: z.string().uuid(),

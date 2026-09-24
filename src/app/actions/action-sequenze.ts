@@ -6,6 +6,8 @@ import { createClient } from "@/lib/supabase/server";
 import type { DocumentoStatoCatalogo } from "@/lib/action/azioni-catalogo";
 import type { IotAttuatoreTipo, IotPrecondizione } from "@/lib/action/iot-componenti";
 import {
+  copiaSequenzaSchema,
+  nomeSequenzaCopia,
   sequenzaPassoInputSchema,
   sequenzaPassoUpdateSchema,
   sequenzaTestataSchema,
@@ -27,6 +29,7 @@ type SeqRow = {
   documento_stato: string;
   esecuzione_stato: string;
   created_at: string;
+  copiata_da_id?: string | null;
 };
 
 type PassoRow = {
@@ -42,7 +45,7 @@ type PassoRow = {
 };
 
 const SEQ_COLS =
-  "id, essiccatore_id, nome, descrizione, tipo, versione, documento_stato, esecuzione_stato, created_at";
+  "id, essiccatore_id, nome, descrizione, tipo, versione, documento_stato, esecuzione_stato, created_at, copiata_da_id";
 const PASSO_COLS =
   "id, sequenza_id, componente_id, sort_order, comando, valore, durata_comando_sec, stallo_dopo_sec, precondizione";
 
@@ -81,6 +84,7 @@ function mapSeq(r: SeqRow, passi: SequenzaPasso[]): ActionSequenza {
       : "ferma") as SequenzaEsecuzioneStato,
     passi,
     createdAt: r.created_at,
+    copiataDaId: r.copiata_da_id ?? null,
   };
 }
 
@@ -251,6 +255,111 @@ export async function upsertSequenzaTestataAction(
     summary: `Bozza sequenza «${input.nome.trim()}» (${input.tipo})`,
   });
   return { success: true, item: mapSeq(data as SeqRow, []) };
+}
+
+export async function copiaSequenzaAction(
+  raw: unknown
+): Promise<
+  { success: true; item: ActionSequenza } | { success: false; error: string }
+> {
+  const { auth } = await requireAreaAccess("action");
+  const parsed = copiaSequenzaSchema.safeParse(raw);
+  if (!parsed.success) {
+    return {
+      success: false,
+      error: parsed.error.issues[0]?.message ?? "Copia non valida.",
+    };
+  }
+  const input = parsed.data;
+  const supabase = await createClient();
+  const { data: fonte } = await supabase
+    .from("action_sequenze")
+    .select(SEQ_COLS)
+    .eq("id", input.fonteId)
+    .eq("essiccatore_id", input.essiccatoreId)
+    .is("deleted_at", null)
+    .maybeSingle();
+  if (!fonte) {
+    return { success: false, error: "Sequenza da copiare non trovata." };
+  }
+  const nome = (input.nome?.trim() || nomeSequenzaCopia(String(fonte.nome))).slice(
+    0,
+    120
+  );
+  const { data: created, error } = await supabase
+    .from("action_sequenze")
+    .insert({
+      essiccatore_id: input.essiccatoreId,
+      nome,
+      descrizione:
+        input.descrizione ?? String(fonte.descrizione ?? ""),
+      tipo: input.tipo ?? String(fonte.tipo),
+      versione: 1,
+      documento_stato: "bozza",
+      esecuzione_stato: "ferma",
+      copiata_da_id: input.fonteId,
+      created_by: auth.userId,
+      updated_by: auth.userId,
+    })
+    .select(SEQ_COLS)
+    .single();
+  if (error || !created) {
+    return { success: false, error: error?.message ?? "Copia fallita." };
+  }
+  const nuovaId = String((created as SeqRow).id);
+  const { data: passiFonte } = await supabase
+    .from("action_sequenza_passi")
+    .select(PASSO_COLS)
+    .eq("sequenza_id", input.fonteId)
+    .is("deleted_at", null)
+    .order("sort_order", { ascending: true });
+  const daCopiare = (passiFonte ?? []) as PassoRow[];
+  if (daCopiare.length) {
+    const { error: passiErr } = await supabase.from("action_sequenza_passi").insert(
+      daCopiare.map((p, i) => ({
+        sequenza_id: nuovaId,
+        componente_id: p.componente_id,
+        sort_order: i,
+        comando: p.comando,
+        valore: p.valore,
+        durata_comando_sec: p.durata_comando_sec,
+        stallo_dopo_sec: p.stallo_dopo_sec,
+        precondizione: p.precondizione,
+        versione: 1,
+        documento_stato: "approvato",
+        created_by: auth.userId,
+        updated_by: auth.userId,
+      }))
+    );
+    if (passiErr) {
+      await supabase
+        .from("action_sequenze")
+        .update({
+          deleted_at: new Date().toISOString(),
+          deleted_by: auth.userId,
+          documento_stato: "chiuso",
+          updated_by: auth.userId,
+        })
+        .eq("id", nuovaId);
+      return { success: false, error: passiErr.message };
+    }
+  }
+  await writeAuditLog({
+    entity_type: "action_sequenze",
+    entity_id: nuovaId,
+    action: "create",
+    actor_id: auth.userId,
+    summary: `Bozza sequenza «${nome}» copiata da «${String(fonte.nome)}»`,
+    payload: {
+      copiata_da_id: input.fonteId,
+      passi: daCopiare.length,
+    },
+  });
+  const passi = await loadPassiBySeq(supabase, [nuovaId]);
+  return {
+    success: true,
+    item: mapSeq(created as SeqRow, passi.get(nuovaId) ?? []),
+  };
 }
 
 export async function addSequenzaPassoAction(
