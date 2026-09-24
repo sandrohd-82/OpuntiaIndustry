@@ -9,6 +9,12 @@ import {
   type ActionIotComponente,
   type IotPrecondizione,
 } from "@/lib/action/iot-componenti";
+import {
+  encodeMex,
+  titoloOperatoreMex,
+  uidPerEssiccatore,
+  type MexFrame,
+} from "@/lib/action/iot-mex";
 
 export const SEQUENZA_TIPI = ["azione", "chiusura", "sicurezza"] as const;
 export type SequenzaTipo = (typeof SEQUENZA_TIPI)[number];
@@ -31,6 +37,7 @@ export type SequenzaPasso = {
   componenteId: string;
   componenteNome: string;
   componenteTipo: ActionIotComponente["tipoAttuatore"] | string;
+  mexCmd: number | null;
   sortOrder: number;
   comando: SequenzaComando;
   valore: number | null;
@@ -70,6 +77,10 @@ export const sequenzaPassoInputSchema = z.object({
   precondizione: z.enum(IOT_PRECONDIZIONI).optional().default("nessuna"),
 });
 
+export const sequenzaPassoUpdateSchema = sequenzaPassoInputSchema.extend({
+  id: z.string().uuid(),
+});
+
 export function minutiDaSecondi(sec: number): number {
   return Math.max(1, Math.round(sec / 60));
 }
@@ -98,6 +109,46 @@ export function labelComandoPasso(p: Pick<SequenzaPasso, "comando" | "valore">):
   if (p.comando === "off") return "Off";
   if (p.valore != null) return `Set ${p.valore}`;
   return "Setpoint";
+}
+
+export function mexFrameDaPasso(input: {
+  essiccatoreId: string;
+  mexCmd: number | null;
+  comando: SequenzaComando;
+  valore: number | null;
+}): MexFrame | null {
+  if (input.mexCmd == null || input.mexCmd < 0 || input.mexCmd > 255) {
+    return null;
+  }
+  const d0 =
+    input.comando === "on"
+      ? 1
+      : input.comando === "off"
+        ? 0
+        : Math.max(0, Math.min(255, Math.round(input.valore ?? 0)));
+  return encodeMex({
+    cls: "I",
+    dir: "O",
+    tipo: "A",
+    cmd: input.mexCmd,
+    d0,
+    uid: uidPerEssiccatore(input.essiccatoreId),
+  });
+}
+
+export function testoMexPasso(input: {
+  essiccatoreId: string;
+  mexCmd: number | null;
+  comando: SequenzaComando;
+  valore: number | null;
+}): { titolo: string; codice: string; hex: string } | null {
+  const frame = mexFrameDaPasso(input);
+  if (!frame) return null;
+  return {
+    titolo: titoloOperatoreMex(frame),
+    codice: frame.codice,
+    hex: frame.hexSpaced,
+  };
 }
 
 export { DOCUMENTO_STATI_CATALOGO };

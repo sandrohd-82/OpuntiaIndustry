@@ -10,6 +10,7 @@ import {
   chiudiEsecuzioneSequenzaAction,
   listSequenzeAction,
   softDeleteSequenzaAction,
+  updateSequenzaPassoAction,
   upsertSequenzaTestataAction,
 } from "@/app/actions/action-sequenze";
 import { listActionIotComponentiAction } from "@/app/actions/action-iot-componenti";
@@ -35,9 +36,12 @@ import {
   formatSecondi,
   formatStalloMinuti,
   labelComandoPasso,
+  minutiDaSecondi,
   SEQUENZA_TIPO_LABEL,
+  testoMexPasso,
   type ActionSequenza,
   type SequenzaComando,
+  type SequenzaPasso,
   type SequenzaTipo,
 } from "@/lib/action/sequenze";
 
@@ -67,6 +71,7 @@ export function ActionSequenzeModal({
   const [stalloMin, setStalloMin] = useState<number | "">(5);
   const [deleteId, setDeleteId] = useState<string | null>(null);
   const [deleteStep, setDeleteStep] = useState<1 | 2>(1);
+  const [editingPassoId, setEditingPassoId] = useState<string | null>(null);
 
   const comp = componenti.find((c) => c.id === compId) ?? null;
 
@@ -95,7 +100,7 @@ export function ActionSequenzeModal({
   }, [essiccatore.id]);
 
   useEffect(() => {
-    if (!comp) return;
+    if (!comp || editingPassoId) return;
     const kind = gaugeKindForCanale(comp);
     if (kind === "temperatura") {
       const range = defaultRangeForTipo("setpoint_temperatura");
@@ -111,7 +116,7 @@ export function ActionSequenzeModal({
       setComando("on");
     }
     if (comp.durataImpulsoDefaultSec) setDurataSec(comp.durataImpulsoDefaultSec);
-  }, [comp?.id]);
+  }, [comp?.id, editingPassoId]);
 
   function resetDraft() {
     setDraftId(null);
@@ -119,6 +124,7 @@ export function ActionSequenzeModal({
     setDescrizione("");
     setTipo("azione");
     setDraftPassi([]);
+    setEditingPassoId(null);
     setPhase("lista");
   }
 
@@ -128,7 +134,28 @@ export function ActionSequenzeModal({
     setDescrizione("");
     setTipo("azione");
     setDraftPassi([]);
+    setEditingPassoId(null);
     setPhase("testata");
+  }
+
+  function fillPassoForm(p: SequenzaPasso) {
+    setEditingPassoId(p.id);
+    setCompId(p.componenteId);
+    setComando(p.comando);
+    setValore(p.valore ?? 50);
+    setDurataSec(p.durataComandoSec ?? 10);
+    setStalloSi(Boolean(p.stalloDopoSec));
+    setStalloMin(p.stalloDopoSec ? minutiDaSecondi(p.stalloDopoSec) : 5);
+  }
+
+  function openEditPasso(item: ActionSequenza, p: SequenzaPasso) {
+    setDraftId(item.id);
+    setNome(item.nome);
+    setDescrizione(item.descrizione);
+    setTipo(item.tipo);
+    setDraftPassi(item.passi);
+    fillPassoForm(p);
+    setPhase("azione");
   }
 
   function openContinue(item: ActionSequenza) {
@@ -137,6 +164,7 @@ export function ActionSequenzeModal({
     setDescrizione(item.descrizione);
     setTipo(item.tipo);
     setDraftPassi(item.passi);
+    setEditingPassoId(null);
     setPhase("testata");
   }
 
@@ -221,17 +249,16 @@ export function ActionSequenzeModal({
                             {item.passi.length} Action
                             {item.descrizione ? ` · ${item.descrizione}` : ""}
                           </p>
-                          <ol className="mt-1 list-decimal pl-4 text-[11px] text-slate-600">
-                            {item.passi.map((p) => (
-                              <li key={p.id}>
-                                {p.componenteNome} · {labelComandoPasso(p)}
-                                {p.durataComandoSec
-                                  ? ` · ${formatSecondi(p.durataComandoSec)}`
-                                  : ""}
-                                {p.stalloDopoSec
-                                  ? ` · stallo ${formatStalloMinuti(p.stalloDopoSec)}`
-                                  : ""}
-                              </li>
+                          <ol className="mt-2 space-y-2">
+                            {item.passi.map((p, i) => (
+                              <PassoRiga
+                                key={p.id}
+                                index={i + 1}
+                                passo={p}
+                                essiccatoreId={essiccatore.id}
+                                editDisabled={lit}
+                                onEdit={() => openEditPasso(item, p)}
+                              />
                             ))}
                           </ol>
                         </div>
@@ -396,14 +423,18 @@ export function ActionSequenzeModal({
               </div>
             </fieldset>
             {draftPassi.length ? (
-              <ol className="list-decimal rounded-lg border border-[var(--border)] bg-slate-50 px-6 py-2 text-sm">
-                {draftPassi.map((p) => (
-                  <li key={p.id}>
-                    {p.componenteNome} · {labelComandoPasso(p)}
-                    {p.stalloDopoSec
-                      ? ` · stallo ${formatStalloMinuti(p.stalloDopoSec)}`
-                      : ""}
-                  </li>
+              <ol className="space-y-2 rounded-lg border border-[var(--border)] bg-slate-50 px-3 py-2">
+                {draftPassi.map((p, i) => (
+                  <PassoRiga
+                    key={p.id}
+                    index={i + 1}
+                    passo={p}
+                    essiccatoreId={essiccatore.id}
+                    onEdit={() => {
+                      fillPassoForm(p);
+                      setPhase("azione");
+                    }}
+                  />
                 ))}
               </ol>
             ) : null}
@@ -426,13 +457,14 @@ export function ActionSequenzeModal({
                     }
                     setDraftId(res.item.id);
                     setDraftPassi(res.item.passi);
+                    setEditingPassoId(null);
                     setPhase("azione");
                   })
                 }
                 className="inline-flex items-center gap-1.5 rounded-lg bg-slate-900 px-3 py-2 text-sm font-medium text-white disabled:opacity-50"
               >
                 <FaPlus size={11} />
-                + Action
+                Action
               </button>
               {draftId && draftPassi.length > 0 ? (
                 <button
@@ -467,8 +499,10 @@ export function ActionSequenzeModal({
         {phase === "azione" && draftId ? (
           <div className="space-y-3">
             <p className="text-sm text-[var(--muted)]">
-              Sequenza «{nome}» · {SEQUENZA_TIPO_LABEL[tipo]} · passo{" "}
-              {draftPassi.length + 1}
+              Sequenza «{nome}» · {SEQUENZA_TIPO_LABEL[tipo]} ·{" "}
+              {editingPassoId
+                ? "modifica Action"
+                : `passo ${draftPassi.length + 1}`}
             </p>
             {componenti.length === 0 ? (
               <p className="text-sm text-amber-800">
@@ -587,6 +621,24 @@ export function ActionSequenzeModal({
                     </span>
                   </label>
                 ) : null}
+                {comp ? (
+                  <MexPreviewBox
+                    essiccatoreId={essiccatore.id}
+                    mexCmd={comp.mexCmd}
+                    comando={
+                      attuatoreHaValore(comp.tipoAttuatore) ||
+                      gaugeKindForCanale(comp) === "temperatura"
+                        ? "setpoint"
+                        : comando
+                    }
+                    valore={
+                      attuatoreHaValore(comp.tipoAttuatore) ||
+                      gaugeKindForCanale(comp) === "temperatura"
+                        ? valore
+                        : null
+                    }
+                  />
+                ) : null}
                 <div className="flex flex-wrap gap-2">
                   <button
                     type="button"
@@ -594,7 +646,7 @@ export function ActionSequenzeModal({
                     onClick={() =>
                       start(async () => {
                         if (!comp) return;
-                        const res = await addSequenzaPassoAction({
+                        const payload = {
                           sequenzaId: draftId,
                           componenteId: comp.id,
                           comando:
@@ -616,19 +668,27 @@ export function ActionSequenzeModal({
                             ? Math.round(Number(stalloMin) * 60) || null
                             : null,
                           precondizione: comp.precondizione,
-                        });
+                        };
+                        const res = editingPassoId
+                          ? await updateSequenzaPassoAction({
+                              ...payload,
+                              id: editingPassoId,
+                            })
+                          : await addSequenzaPassoAction(payload);
                         if (!res.success) {
                           setError(res.error);
                           return;
                         }
                         setDraftPassi(res.item.passi);
+                        setEditingPassoId(null);
                         setStalloSi(false);
                         setPhase("testata");
+                        reload();
                       })
                     }
                     className="rounded-lg bg-slate-900 px-3 py-2 text-sm font-medium text-white disabled:opacity-50"
                   >
-                    Salva questa Action
+                    {editingPassoId ? "Salva modifica" : "Salva questa Action"}
                   </button>
                   <button
                     type="button"
@@ -643,6 +703,95 @@ export function ActionSequenzeModal({
           </div>
         ) : null}
       </div>
+    </div>
+  );
+}
+
+function PassoRiga({
+  index,
+  passo,
+  essiccatoreId,
+  onEdit,
+  editDisabled,
+}: {
+  index: number;
+  passo: SequenzaPasso;
+  essiccatoreId: string;
+  onEdit?: () => void;
+  editDisabled?: boolean;
+}) {
+  const mex = testoMexPasso({
+    essiccatoreId,
+    mexCmd: passo.mexCmd,
+    comando: passo.comando,
+    valore: passo.valore,
+  });
+  return (
+    <li className="flex items-start justify-between gap-2 rounded-md bg-white px-2 py-1.5 text-sm">
+      <div className="min-w-0">
+        <p className="font-medium text-slate-800">
+          <span className="mr-1.5 tabular-nums text-slate-500">{index}.</span>
+          {passo.componenteNome} · {labelComandoPasso(passo)}
+          {passo.durataComandoSec
+            ? ` · ${formatSecondi(passo.durataComandoSec)}`
+            : ""}
+          {passo.stalloDopoSec
+            ? ` · stallo ${formatStalloMinuti(passo.stalloDopoSec)}`
+            : ""}
+        </p>
+        {mex ? (
+          <p className="mt-0.5 font-mono text-[10px] leading-4 text-slate-600">
+            Invio {mex.codice} · {mex.titolo}
+            <br />
+            {mex.hex}
+          </p>
+        ) : (
+          <p className="mt-0.5 text-[10px] text-amber-800">
+            Mex CMD non impostato sul canale: messaggio non definito.
+          </p>
+        )}
+      </div>
+      {onEdit ? (
+        <button
+          type="button"
+          title="Modifica Action"
+          disabled={editDisabled}
+          onClick={onEdit}
+          className="shrink-0 rounded p-1.5 text-slate-600 hover:bg-slate-100 disabled:opacity-40"
+        >
+          <FaPen size={12} />
+        </button>
+      ) : null}
+    </li>
+  );
+}
+
+function MexPreviewBox({
+  essiccatoreId,
+  mexCmd,
+  comando,
+  valore,
+}: {
+  essiccatoreId: string;
+  mexCmd: number | null;
+  comando: SequenzaComando;
+  valore: number | null;
+}) {
+  const mex = testoMexPasso({ essiccatoreId, mexCmd, comando, valore });
+  return (
+    <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs">
+      <p className="font-medium text-slate-700">Messaggio che verrà inviato</p>
+      {mex ? (
+        <p className="mt-1 font-mono text-[10px] leading-4 text-slate-600">
+          Invio {mex.codice} · {mex.titolo}
+          <br />
+          {mex.hex}
+        </p>
+      ) : (
+        <p className="mt-1 text-amber-800">
+          Imposta Mex CMD sul canale in Elenco Componenti IoT.
+        </p>
+      )}
     </div>
   );
 }

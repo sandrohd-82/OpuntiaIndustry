@@ -7,6 +7,7 @@ import type { DocumentoStatoCatalogo } from "@/lib/action/azioni-catalogo";
 import type { IotAttuatoreTipo, IotPrecondizione } from "@/lib/action/iot-componenti";
 import {
   sequenzaPassoInputSchema,
+  sequenzaPassoUpdateSchema,
   sequenzaTestataSchema,
   type ActionSequenza,
   type SequenzaComando,
@@ -47,7 +48,7 @@ const PASSO_COLS =
 
 function mapPasso(
   p: PassoRow,
-  comp: { nome: string; tipo: string }
+  comp: { nome: string; tipo: string; mexCmd: number | null }
 ): SequenzaPasso {
   return {
     id: p.id,
@@ -55,6 +56,7 @@ function mapPasso(
     componenteId: p.componente_id,
     componenteNome: comp.nome,
     componenteTipo: comp.tipo as IotAttuatoreTipo,
+    mexCmd: comp.mexCmd,
     sortOrder: p.sort_order,
     comando: p.comando as SequenzaComando,
     valore: p.valore == null ? null : Number(p.valore),
@@ -96,11 +98,11 @@ async function loadPassiBySeq(
     .order("sort_order", { ascending: true });
   const rows = (passi ?? []) as PassoRow[];
   const cids = [...new Set(rows.map((p) => p.componente_id))];
-  const comps = new Map<string, { nome: string; tipo: string }>();
+  const comps = new Map<string, { nome: string; tipo: string; mexCmd: number | null }>();
   if (cids.length) {
     const { data } = await supabase
       .from("action_iot_componenti")
-      .select("id, nome, tipo_attuatore, modulo_id")
+      .select("id, nome, tipo_attuatore, modulo_id, mex_cmd")
       .in("id", cids);
     const modIds = [
       ...new Set(
@@ -124,13 +126,21 @@ async function loadPassiBySeq(
       comps.set(String(c.id), {
         nome: modulo ? `${modulo} · ${String(c.nome)}` : String(c.nome),
         tipo: String(c.tipo_attuatore ?? "on_off"),
+        mexCmd: c.mex_cmd == null ? null : Number(c.mex_cmd),
       });
     }
   }
   for (const p of rows) {
     const list = out.get(p.sequenza_id) ?? [];
     list.push(
-      mapPasso(p, comps.get(p.componente_id) ?? { nome: "Componente", tipo: "on_off" })
+      mapPasso(
+        p,
+        comps.get(p.componente_id) ?? {
+          nome: "Componente",
+          tipo: "on_off",
+          mexCmd: null,
+        }
+      )
     );
     out.set(p.sequenza_id, list);
   }
@@ -320,6 +330,100 @@ export async function addSequenzaPassoAction(
     actor_id: auth.userId,
     summary: "Aggiunto passo Action alla sequenza",
     payload: { componenteId: input.componenteId, comando: input.comando },
+  });
+  const { data: fresh } = await supabase
+    .from("action_sequenze")
+    .select(SEQ_COLS)
+    .eq("id", input.sequenzaId)
+    .single();
+  const passi = await loadPassiBySeq(supabase, [input.sequenzaId]);
+  return {
+    success: true,
+    item: mapSeq(fresh as SeqRow, passi.get(input.sequenzaId) ?? []),
+  };
+}
+
+export async function updateSequenzaPassoAction(
+  raw: unknown
+): Promise<
+  { success: true; item: ActionSequenza } | { success: false; error: string }
+> {
+  const { auth } = await requireAreaAccess("action");
+  const parsed = sequenzaPassoUpdateSchema.safeParse(raw);
+  if (!parsed.success) {
+    return {
+      success: false,
+      error: parsed.error.issues[0]?.message ?? "Action non valida.",
+    };
+  }
+  const input = parsed.data;
+  const supabase = await createClient();
+  const { data: seq } = await supabase
+    .from("action_sequenze")
+    .select("id, esecuzione_stato, versione, documento_stato")
+    .eq("id", input.sequenzaId)
+    .is("deleted_at", null)
+    .maybeSingle();
+  if (!seq) return { success: false, error: "Sequenza non trovata." };
+  if (String(seq.esecuzione_stato) === "in_corso") {
+    return { success: false, error: "Non si modifica una sequenza in corso." };
+  }
+  const { data: passo } = await supabase
+    .from("action_sequenza_passi")
+    .select("id, versione")
+    .eq("id", input.id)
+    .eq("sequenza_id", input.sequenzaId)
+    .is("deleted_at", null)
+    .maybeSingle();
+  if (!passo) return { success: false, error: "Action non trovata." };
+  const { data: comp } = await supabase
+    .from("action_iot_componenti")
+    .select("id, documento_stato, ruolo")
+    .eq("id", input.componenteId)
+    .is("deleted_at", null)
+    .maybeSingle();
+  if (!comp || String(comp.documento_stato) === "chiuso") {
+    return { success: false, error: "Componente IoT non disponibile." };
+  }
+  if (String(comp.ruolo) === "sensore") {
+    return {
+      success: false,
+      error: "Un sensore non è un'azione: scegli un attuatore o un regolatore.",
+    };
+  }
+  const { error } = await supabase
+    .from("action_sequenza_passi")
+    .update({
+      componente_id: input.componenteId,
+      comando: input.comando,
+      valore: input.valore ?? null,
+      durata_comando_sec: input.durataComandoSec ?? null,
+      stallo_dopo_sec: input.stalloDopoSec ?? null,
+      precondizione: input.precondizione,
+      versione: Number(passo.versione ?? 1) + 1,
+      updated_by: auth.userId,
+    })
+    .eq("id", input.id)
+    .is("deleted_at", null);
+  if (error) return { success: false, error: error.message };
+  const tornaBozza = String(seq.documento_stato) === "approvato";
+  await supabase
+    .from("action_sequenze")
+    .update({
+      versione: Number(seq.versione ?? 1) + 1,
+      documento_stato: tornaBozza ? "bozza" : seq.documento_stato,
+      updated_by: auth.userId,
+    })
+    .eq("id", input.sequenzaId);
+  await writeAuditLog({
+    entity_type: "action_sequenze",
+    entity_id: input.sequenzaId,
+    action: "update",
+    actor_id: auth.userId,
+    summary: tornaBozza
+      ? "Modificato passo Action: sequenza torna in bozza"
+      : "Modificato passo Action della sequenza",
+    payload: { passoId: input.id, comando: input.comando },
   });
   const { data: fresh } = await supabase
     .from("action_sequenze")
