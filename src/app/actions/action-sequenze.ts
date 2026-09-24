@@ -316,10 +316,10 @@ export async function copiaSequenzaAction(
   const daCopiare = (passiFonte ?? []) as PassoRow[];
   if (daCopiare.length) {
     const { error: passiErr } = await supabase.from("action_sequenza_passi").insert(
-      daCopiare.map((p, i) => ({
+      daCopiare.map((p) => ({
         sequenza_id: nuovaId,
         componente_id: p.componente_id,
-        sort_order: i,
+        sort_order: p.sort_order,
         comando: p.comando,
         valore: p.valore,
         durata_comando_sec: p.durata_comando_sec,
@@ -344,21 +344,42 @@ export async function copiaSequenzaAction(
       return { success: false, error: passiErr.message };
     }
   }
+  const passi = await loadPassiBySeq(supabase, [nuovaId]);
+  const copiati = passi.get(nuovaId) ?? [];
+  if (daCopiare.length && copiati.length !== daCopiare.length) {
+    await supabase
+      .from("action_sequenze")
+      .update({
+        deleted_at: new Date().toISOString(),
+        deleted_by: auth.userId,
+        documento_stato: "chiuso",
+        updated_by: auth.userId,
+      })
+      .eq("id", nuovaId);
+    return {
+      success: false,
+      error: "Copia incompleta: non tutte le Action sono state duplicate.",
+    };
+  }
   await writeAuditLog({
     entity_type: "action_sequenze",
     entity_id: nuovaId,
     action: "create",
     actor_id: auth.userId,
-    summary: `Bozza sequenza «${nome}» copiata da «${String(fonte.nome)}»`,
+    summary: `Bozza sequenza «${nome}» copiata da «${String(fonte.nome)}» (${copiati.length} Action)`,
     payload: {
       copiata_da_id: input.fonteId,
-      passi: daCopiare.length,
+      passi: copiati.length,
     },
   });
-  const passi = await loadPassiBySeq(supabase, [nuovaId]);
+  const { data: fresh } = await supabase
+    .from("action_sequenze")
+    .select(SEQ_COLS)
+    .eq("id", nuovaId)
+    .single();
   return {
     success: true,
-    item: mapSeq(created as SeqRow, passi.get(nuovaId) ?? []),
+    item: mapSeq((fresh ?? created) as SeqRow, copiati),
   };
 }
 

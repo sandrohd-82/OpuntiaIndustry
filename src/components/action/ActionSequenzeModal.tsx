@@ -482,6 +482,9 @@ export function ActionSequenzeModal({
                       setNome(nomeSequenzaCopia(src.nome));
                       setDescrizione(src.descrizione);
                       setTipo(src.tipo);
+                      setDraftPassi(src.passi);
+                    } else {
+                      setDraftPassi([]);
                     }
                   }}
                   className="w-full rounded-lg border border-[var(--border)] bg-white px-3 py-2"
@@ -495,7 +498,8 @@ export function ActionSequenzeModal({
                   ))}
                 </select>
                 <span className="mt-1 block text-xs text-[var(--muted)]">
-                  Si crea una bozza nuova con le stesse Action; poi le modifichi.
+                  Si copia tutto: nome, descrizione, tipo e tutte le Action
+                  (comando, valore, durata, stallo, precondizione). Poi adegui.
                 </span>
               </label>
             ) : null}
@@ -542,16 +546,28 @@ export function ActionSequenzeModal({
                       return;
                     }
                     setDraftId(res.item.id);
+                    setNome(res.item.nome);
+                    setDescrizione(res.item.descrizione);
+                    setTipo(res.item.tipo);
                     setDraftPassi(res.item.passi);
                     setEditingPassoId(null);
                     setCopiaDaId("");
-                    setPhase("azione");
+                    setPhase("testata");
                   })
                 }
                 className="inline-flex items-center gap-1.5 rounded-lg bg-slate-900 px-3 py-2 text-sm font-medium text-white disabled:opacity-50"
               >
-                <FaPlus size={11} />
-                Action
+                {copiaDaId && !draftId ? (
+                  <>
+                    <FaCopy size={11} />
+                    Copia sequenza
+                  </>
+                ) : (
+                  <>
+                    <FaPlus size={11} />
+                    Action
+                  </>
+                )}
               </button>
               {draftId && draftPassi.length > 0 ? (
                 <button
