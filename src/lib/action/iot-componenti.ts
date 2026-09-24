@@ -184,6 +184,42 @@ export function canaleEAzione(c: Pick<ActionIotComponente, "ruolo">): boolean {
   return c.ruolo === "attuatore" || c.ruolo === "regolatore";
 }
 
+function unitaIsCelsius(unita: string): boolean {
+  const u = unita.normalize("NFKD").toLowerCase();
+  return (u.includes("c") || u.includes("°")) && !u.includes("%");
+}
+
+/** Setpoint bruciatore: temperatura, non potenza ventola. Mex CMD 2 = BURNER_TEMP. */
+export function canaleETemperatura(
+  c: Pick<ActionIotComponente, "tipoAttuatore" | "unita" | "mexCmd">
+): boolean {
+  if (c.tipoAttuatore === "setpoint_temperatura") return true;
+  if (c.mexCmd === 2) return true;
+  return unitaIsCelsius(c.unita ?? "");
+}
+
+export function canaleEAperturaBruciatore(
+  c: Pick<ActionIotComponente, "tipoAttuatore" | "unita" | "mexCmd" | "moduloNome" | "nome">
+): boolean {
+  if (canaleETemperatura(c)) return false;
+  if (c.mexCmd === 5) return true;
+  const ctx = `${c.moduloNome} ${c.nome}`.toLowerCase();
+  return ctx.includes("bruc");
+}
+
+export type IotGaugeKind = "temperatura" | "apertura_bruciatore" | "ventilazione";
+
+export function gaugeKindForCanale(
+  c: Pick<
+    ActionIotComponente,
+    "tipoAttuatore" | "unita" | "mexCmd" | "moduloNome" | "nome"
+  >
+): IotGaugeKind {
+  if (canaleETemperatura(c)) return "temperatura";
+  if (canaleEAperturaBruciatore(c)) return "apertura_bruciatore";
+  return "ventilazione";
+}
+
 export const macchinaInputSchema = z.object({
   id: z.string().uuid().optional(),
   codice: codiceSchema,

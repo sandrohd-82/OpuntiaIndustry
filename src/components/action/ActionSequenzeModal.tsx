@@ -24,6 +24,8 @@ import {
   attuatoreHaDurataComando,
   attuatoreHaOnOff,
   attuatoreHaValore,
+  defaultRangeForTipo,
+  gaugeKindForCanale,
   IOT_PRECONDIZIONE_LABEL,
   labelTipoCanale,
   type ActionIotComponente,
@@ -94,7 +96,15 @@ export function ActionSequenzeModal({
 
   useEffect(() => {
     if (!comp) return;
-    if (attuatoreHaValore(comp.tipoAttuatore)) {
+    const kind = gaugeKindForCanale(comp);
+    if (kind === "temperatura") {
+      const range = defaultRangeForTipo("setpoint_temperatura");
+      const usaRangeScheda =
+        comp.tipoAttuatore === "setpoint_temperatura" &&
+        comp.valoreMax >= 30;
+      setComando("setpoint");
+      setValore(usaRangeScheda ? comp.valoreDefault : range.def);
+    } else if (attuatoreHaValore(comp.tipoAttuatore)) {
       setComando("setpoint");
       setValore(comp.valoreDefault);
     } else {
@@ -516,29 +526,13 @@ export function ActionSequenzeModal({
                         ))}
                       </div>
                     ) : null}
-                    {attuatoreHaValore(comp.tipoAttuatore) ? (
+                    {attuatoreHaValore(comp.tipoAttuatore) ||
+                    gaugeKindForCanale(comp) === "temperatura" ? (
                       <div className="mt-2">
-                        <ClockArcPercentGauge
-                          value={valore}
+                        <CanaleValoreGauge
+                          comp={comp}
+                          valore={valore}
                           onChange={setValore}
-                          min={comp.valoreMin}
-                          max={comp.valoreMax}
-                          unit={comp.unita === "°C" ? "°C" : "%"}
-                          label={
-                            comp.tipoAttuatore === "setpoint_temperatura"
-                              ? "Temperatura"
-                              : "Ventilazione"
-                          }
-                          fromColor={
-                            comp.tipoAttuatore === "setpoint_temperatura"
-                              ? BURNER_FROM
-                              : VENT_FROM
-                          }
-                          toColor={
-                            comp.tipoAttuatore === "setpoint_temperatura"
-                              ? BURNER_TO
-                              : VENT_TO
-                          }
                         />
                       </div>
                     ) : null}
@@ -603,12 +597,16 @@ export function ActionSequenzeModal({
                         const res = await addSequenzaPassoAction({
                           sequenzaId: draftId,
                           componenteId: comp.id,
-                          comando: attuatoreHaValore(comp.tipoAttuatore)
-                            ? "setpoint"
-                            : comando,
-                          valore: attuatoreHaValore(comp.tipoAttuatore)
-                            ? valore
-                            : null,
+                          comando:
+                            attuatoreHaValore(comp.tipoAttuatore) ||
+                            gaugeKindForCanale(comp) === "temperatura"
+                              ? "setpoint"
+                              : comando,
+                          valore:
+                            attuatoreHaValore(comp.tipoAttuatore) ||
+                            gaugeKindForCanale(comp) === "temperatura"
+                              ? valore
+                              : null,
                           durataComandoSec:
                             attuatoreHaDurataComando(comp.tipoAttuatore) &&
                             comando === "on"
@@ -646,5 +644,48 @@ export function ActionSequenzeModal({
         ) : null}
       </div>
     </div>
+  );
+}
+
+function CanaleValoreGauge({
+  comp,
+  valore,
+  onChange,
+}: {
+  comp: ActionIotComponente;
+  valore: number;
+  onChange: (n: number) => void;
+}) {
+  const kind = gaugeKindForCanale(comp);
+  const tempRange = defaultRangeForTipo("setpoint_temperatura");
+  const isTemp = kind === "temperatura";
+  const min = isTemp
+    ? comp.tipoAttuatore === "setpoint_temperatura" && comp.valoreMax >= 30
+      ? comp.valoreMin
+      : tempRange.min
+    : comp.valoreMin;
+  const max = isTemp
+    ? comp.tipoAttuatore === "setpoint_temperatura" && comp.valoreMax >= 30
+      ? comp.valoreMax
+      : tempRange.max
+    : comp.valoreMax;
+  const label =
+    kind === "temperatura"
+      ? "Temperatura"
+      : kind === "apertura_bruciatore"
+        ? "Apertura bruciatore"
+        : "Ventilazione";
+  return (
+    <ClockArcPercentGauge
+      value={valore}
+      onChange={onChange}
+      min={min}
+      max={max}
+      unit={isTemp ? "°C" : "%"}
+      label={label}
+      ticks={isTemp ? [35, 45, 55, 65, 70] : undefined}
+      fromColor={kind === "ventilazione" ? VENT_FROM : BURNER_FROM}
+      toColor={kind === "ventilazione" ? VENT_TO : BURNER_TO}
+    />
   );
 }
