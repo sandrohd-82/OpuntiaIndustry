@@ -139,8 +139,8 @@ export function mexFrameDaPasso(input: {
 }
 
 export type TestoMexPasso = {
-  out: { titolo: string; codice: string; hex: string };
-  ack: { titolo: string; codice: string; hex: string };
+  out: { titolo: string; codice: string; hex: string; corpo: string };
+  ack: { titolo: string; codice: string; hex: string; corpo: string };
 };
 
 export function testoMexPasso(input: {
@@ -150,39 +150,27 @@ export function testoMexPasso(input: {
   valore: number | null;
   tipoAttuatore?: string | null;
 }): TestoMexPasso | null {
+  const frame = mexFrameDaPasso(input);
+  if (!frame) return null;
+  const ack = encodeAckAtteso(frame);
   const lettere = coppiaLettereDaPasso({
     mexCmd: input.mexCmd,
     comando: input.comando,
     valore: input.valore,
     tipoAttuatore: input.tipoAttuatore,
   });
-  if (lettere) {
-    return {
-      out: {
-        titolo: lettere.titoloOut,
-        codice: lettere.out,
-        hex: lettere.out,
-      },
-      ack: {
-        titolo: lettere.titoloAck,
-        codice: lettere.ack,
-        hex: lettere.ack,
-      },
-    };
-  }
-  const frame = mexFrameDaPasso(input);
-  if (!frame) return null;
-  const ack = encodeAckAtteso(frame);
   return {
     out: {
-      titolo: titoloOperatoreMex(frame),
+      titolo: lettere?.titoloOut ?? titoloOperatoreMex(frame),
       codice: frame.codice,
       hex: frame.hexSpaced,
+      corpo: lettere?.out ?? frame.codice,
     },
     ack: {
-      titolo: titoloOperatoreMex(ack),
+      titolo: lettere?.titoloAck ?? titoloOperatoreMex(ack),
       codice: ack.codice,
       hex: ack.hexSpaced,
+      corpo: lettere?.ack ?? ack.codice,
     },
   };
 }

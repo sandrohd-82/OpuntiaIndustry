@@ -1,7 +1,10 @@
 type ComandoLettera = "on" | "off" | "setpoint";
 
 /**
- * Protocollo lettere IoT v1 (Archivio → IoT).
+ * Corpo semantico IoT v1 (Archivio → IoT).
+ * Non è il frame: il filo resta Mex v2
+ * 7E | LEN | CLS | UID[8] | DIR | TIPO | CMD | D0 D1 D2 | CHK
+ * (es. 7E 0F 49 00 13 A2 00 41 62 C8 1F 4F 41 …).
  * Minuscola = master (Gestionale) → slave (oggetto).
  * Maiuscola = stessa lettera, risposta oggetto → Gestionale.
  */

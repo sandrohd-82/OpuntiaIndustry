@@ -712,9 +712,13 @@ export function ActionSequenzeModal({
 function MexCoppiaTesto({ mex }: { mex: TestoMexPasso }) {
   return (
     <p className="mt-0.5 font-mono text-[10px] leading-4 text-slate-600">
-      Invio {mex.out.codice} · {mex.out.titolo}
+      Invio {mex.out.corpo} · {mex.out.titolo}
       <br />
-      Atteso {mex.ack.codice} · {mex.ack.titolo}
+      {mex.out.hex}
+      <br />
+      Atteso {mex.ack.corpo} · {mex.ack.titolo}
+      <br />
+      {mex.ack.hex}
     </p>
   );
 }

@@ -13,7 +13,7 @@ import {
 
 export const IOT_WIKI_SECTIONS: TutorialSection[] = [
   { id: "guida", title: "Guida" },
-  { id: "protocollo", title: "Protocollo IoT" },
+  { id: "protocollo", title: "Protocollo Mex" },
   { id: "sicurezza", title: "Sicurezza" },
   { id: "apprendimento", title: "Apprendimento" },
   { id: "api", title: "Riferimento API" },
@@ -65,16 +65,52 @@ function listIotWikiArticles(): TutorialArticle[] {
     makeArticle({
       id: "mex-unico",
       sectionId: "protocollo",
-      sectionTitle: "Protocollo IoT",
-      title: "Lettere master e slave",
+      sectionTitle: "Protocollo Mex",
+      title: "Frame unico Mex",
       summary:
-        "Minuscola = Gestionale → oggetto. Maiuscola = stessa lettera, risposta oggetto → Gestionale.",
+        "Un solo hex per WiFi, XBee e LoRa: 7E, classe, UID 8 byte SH+SL, comando, checksum.",
       path: "/app/archivio/iot/leggenda-mex",
-      tags: ["lettere", "h", "l", "r", "i", "s", "master", "slave"],
+      tags: ["mex", "7e", "uid", "sh", "sl", "checksum", "frame"],
+      blocks: [
+        {
+          type: "code",
+          caption: "Struttura (18 byte)",
+          text: "7E | LEN=15 | CLS | UID[8] SH+SL | DIR | TIPO | CMD | D0 D1 D2 | CHK",
+        },
+        {
+          type: "p",
+          text: "Esempio ventola 30% (UID ess-a): 7E 0F 49 00 13 A2 00 41 62 C8 1F 4F 41 04 1E 00 00 C5. TIPO A, CMD 04, D0 1E = 30. Il corpo di questo frame è r30.",
+        },
+        {
+          type: "ul",
+          items: [
+            "7E = solo inizio frame (non è la classe).",
+            "CLS = C comunicazione, I impostazione, E errore, A allerta.",
+            "UID = 8 byte: su XBee è SH (4 alti) + SL (4 bassi); su LoRa è il DevEUI; su WiFi la stessa chiave.",
+            "DIR O = Out (gestionale→device), I = In.",
+            "TIPO A Action, R Request, K acK, S Sensor.",
+            "CHK = 0xFF − (somma da CLS a D2).",
+          ],
+        },
+        {
+          type: "p",
+          text: "L’Arduino gateway non traduce il significato: inoltra gli stessi 18 byte. Cambia solo l’involucro (JSON HTTPS, telaio XBee 0x10, FRMPayload LoRa).",
+        },
+      ],
+    }),
+    makeArticle({
+      id: "corpo-lettere",
+      sectionId: "protocollo",
+      sectionTitle: "Protocollo Mex",
+      title: "Corpo lettere h/l/r/i/s",
+      summary:
+        "Minuscola = Gestionale → oggetto. Maiuscola = risposta. Non sostituisce il frame 7E.",
+      path: "/app/archivio/iot/leggenda-mex",
+      tags: ["lettere", "h", "l", "r", "i", "s", "master", "slave", "corpo"],
       blocks: [
         {
           type: "p",
-          text: "Il messaggio è una lettera più un numero. Non si usa più il frame hex 7E come testo del comando: h21, l21, r65, i12, s35.",
+          text: "h21, l21, r30, i12, s35 sono solo il corpo (cosa significano CMD e D0). Il frame inviato resta 7E 0F 49 00 13 A2 00 41 62 C8 1F 4F …",
         },
         {
           type: "ul",
@@ -86,40 +122,40 @@ function listIotWikiArticles(): TutorialArticle[] {
         },
         {
           type: "table",
-          headers: ["Master → slave", "Slave → master", "Significato"],
+          headers: ["Corpo out", "Corpo in", "Nel frame", "Significato"],
           rows: [
-            ["h21", "H21", "On componente 21"],
-            ["l21", "L21", "Off componente 21"],
-            ["r65", "R65", "Regola al 65% (o 65 °C sul setpoint)"],
-            ["i12", "I12", "Impulso componente 12"],
-            ["s35", "S35-0256", "Leggi sensore 35; 0256 = 25,6"],
+            ["h21", "H21", "TIPO A · CMD 21 · D0=01", "On componente 21"],
+            ["l21", "L21", "TIPO A · CMD 21 · D0=00", "Off componente 21"],
+            ["r30", "R30", "TIPO A · CMD (es. 04) · D0=1E", "Regola al 30%"],
+            ["i12", "I12", "TIPO A · CMD 12 · D0=01", "Impulso componente 12"],
+            ["s35", "S35-0256", "TIPO R · D0=id", "Leggi sensore 35; 0256 = 25,6"],
           ],
         },
         {
           type: "note",
-          text: "Elenco completo in Archivio → IoT → Leggenda Mex. In Sequenze ogni Action mostra invio e conferma attesa.",
+          text: "In Sequenze ogni Action mostra corpo + hex di invio e conferma attesa.",
         },
       ],
     }),
     makeArticle({
       id: "tre-mezzi",
       sectionId: "protocollo",
-      sectionTitle: "Protocollo IoT",
+      sectionTitle: "Protocollo Mex",
       title: "WiFi, XBee e LoRa",
-      summary: "Stesso testo lettera (es. h1) su tre involucri di trasporto.",
-      tags: ["wifi", "xbee", "lora", "h", "l"],
+      summary: "Stesso Mex hex, tre involucri. Esempio On bruciatore (A01 / corpo h1).",
+      tags: ["wifi", "xbee", "lora", "a01", "7e"],
       blocks: [
         {
           type: "p",
-          text: "Il significato sta nella lettera (h1 = On componente 1). Cambia solo il tubo: HTTPS, radio XBee o LoRa.",
+          text: "Esempio UID Digi SH 0013A200 + SL 4162C81F. On bruciatore = comando A01, D0=01, corpo h1. In viaggio restano i 18 byte Mex.",
         },
         {
           type: "table",
           headers: ["Mezzo", "Cosa cambia", "Cosa resta"],
           rows: [
-            ["WiFi / HTTPS", "JSON con il testo lettera", "es. h21 / H21"],
-            ["XBee API 0x10", "Telaio radio, dest 64 bit", "RF Data = testo lettera"],
-            ["LoRaWAN", "DevEUI + FPort", "FRMPayload = testo lettera"],
+            ["WiFi / HTTPS", "JSON con campo mex (hex)", "18 byte Mex + CHK"],
+            ["XBee API 0x10", "Telaio radio, dest 64 bit = SH+SL, FFFE", "RF Data = Mex"],
+            ["LoRaWAN", "DevEUI = UID, FPort, MIC dello stack", "FRMPayload = Mex"],
           ],
         },
         {
@@ -267,29 +303,31 @@ function listIotWikiArticles(): TutorialArticle[] {
       id: "api-comandi",
       sectionId: "api",
       sectionTitle: "Riferimento API",
-      title: "Comandi lettere (h l r i s)",
-      summary: "Minuscola in uscita, maiuscola in conferma. Numero = indirizzo o valore.",
-      tags: ["api", "h", "l", "r", "i", "s"],
+      title: "Comandi Mex (A01–A05, R10) e corpo",
+      summary: "Frame: tipo + CMD + D0. Corpo: h/l/r/i/s. Checksum stile XBee.",
+      tags: ["api", "a01", "a02", "a03", "a04", "a05", "r10", "h", "l", "r"],
       blocks: [
         {
           type: "table",
-          headers: ["Out", "In", "Nome", "Numero"],
+          headers: ["Codice", "Corpo", "Dir", "Nome", "Dati"],
           rows: [
-            ["h21", "H21", "High On", "indirizzo componente"],
-            ["l21", "L21", "Low Off", "indirizzo componente"],
-            ["r65", "R65", "Regola", "valore % o °C"],
-            ["i12", "I12", "Input impulso", "indirizzo componente"],
-            ["s35", "S35-0256", "Sensor", "id; risposta in decimi (0256 = 25,6)"],
+            ["A04", "r{n}", "Out", "Imposta potenza ventola", "D0 = % 0–100"],
+            ["A03", "h3 / l3", "Out", "On / Off ventola", "D0 = 01 On, 00 Off"],
+            ["A02", "r{n}", "Out", "Imposta temperatura", "D0 = °C 35–70"],
+            ["A05", "r{n}", "Out", "Imposta apertura bruciatore", "D0 = % stimata A+"],
+            ["A01", "h1 / l1", "Out", "On / Off bruciatore", "D0 = 01 On (solo se ventola On)"],
+            ["Kxx", "H/L/R…", "In", "Conferma", "D0 ok, D1 stato/valore"],
+            ["R10 / S10", "s / S", "Out / In", "Sensore", "D0 id, D1–D2 valore"],
           ],
         },
         {
           type: "code",
-          caption: "Invio Avvio (ordine obbligatorio, esempio CMD 3/4/2/1)",
-          text: "r70 → attesa R70\nh3 → attesa H3\nr50 → attesa R50\nh1 → attesa H1",
+          caption: "Invio Avvio (ordine obbligatorio)",
+          text: "A04 / r70 → attesa K04 / R70\nA03 On / h3 → attesa K03 / H3\nA02 / r50 → attesa K02 / R50\nA05 / r{A+} → attesa K05 / R…\nA01 On / h1 → attesa K01 / H1",
         },
         {
           type: "p",
-          text: "L’indirizzo On/Off/impulso/sensore è il Mex CMD della scheda canale. Catalogo in Archivio → IoT → Leggenda Mex.",
+          text: "UID di esempio 0013A200 4162C81F. Hex completo in Archivio → IoT → Leggenda Mex.",
         },
       ],
     }),
@@ -317,7 +355,7 @@ function listIotWikiArticles(): TutorialArticle[] {
         },
         {
           type: "p",
-          text: "All’Avvio il server ricalcola la stima, la scrive in perc_bruciatore_prevista, invia r{percentuale} (apertura bruciatore) e registra l’audit (fonte vicini / raggio allargato / seme, numero vicini, kg e clima).",
+          text: "All’Avvio il server ricalcola la stima, la scrive in perc_bruciatore_prevista, invia A05 (corpo r{percentuale}, apertura bruciatore) e registra l’audit (fonte vicini / raggio allargato / seme, numero vicini, kg e clima).",
         },
       ],
     }),

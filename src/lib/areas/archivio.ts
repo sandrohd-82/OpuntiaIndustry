@@ -19,14 +19,14 @@ export const ARCHIVIO_SECTIONS: readonly NavItem[] = [
     slug: "iot",
     label: "IoT",
     description:
-      "Protocollo lettere: minuscola master→slave, maiuscola risposta",
+      "Frame Mex 7E + corpo lettere h/l/r/i/s",
     path: "/app/archivio/iot",
     children: [
       {
         slug: "leggenda-mex",
         label: "Leggenda Mex",
         description:
-          "h High, l Low, r Regola, i Input, s Sensor: invio e conferma",
+          "Frame 7E 0F 49… e corpo h/l/r/i/s (invio e conferma)",
         path: "/app/archivio/iot/leggenda-mex",
       },
       {

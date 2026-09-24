@@ -225,19 +225,19 @@ export const PAGE_EXTRAS: Record<string, TutorialBlock[]> = {
   "/app/archivio/iot": [
     {
       type: "p",
-      text: "Messaggi a lettere: minuscola dal Gestionale all’oggetto, maiuscola la risposta. h High, l Low, r Regola, i Input, s Sensor.",
+      text: "Frame Mex 7E 0F 49 UID 4F … (18 byte). Il corpo è una lettera: minuscola dal Gestionale all’oggetto, maiuscola la risposta (h High, l Low, r Regola, i Input, s Sensor).",
     },
   ],
   "/app/archivio/iot/leggenda-mex": [
     {
       type: "p",
-      text: "Catalogo ufficiale: h21/H21 On, l21/L21 Off, r65/R65 regola, i12/I12 impulso, s35/S35-0256 sensore (0256 = 25,6).",
+      text: "Struttura frame 7E | LEN | CLS | UID | DIR | TIPO | CMD | D0 D1 D2 | CHK. Corpo: h21/H21 On, l21/L21 Off, r65/R65 regola, i12/I12 impulso, s35/S35-0256 sensore.",
     },
   ],
   "/app/archivio/iot/wiki": [
     {
       type: "p",
-      text: "Wiki IoT: lettere master/slave, tre mezzi di trasporto, cadenza di sicurezza, apprendimento A+ e API h/l/r/i/s.",
+      text: "Wiki IoT: frame Mex 7E, corpo lettere h/l/r/i/s, tre mezzi di trasporto, cadenza di sicurezza, apprendimento A+ e API."
     },
   ],
   "/app/produzione/processi-e-attivita/elenco-processi": [
