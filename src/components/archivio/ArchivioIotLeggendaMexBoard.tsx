@@ -52,8 +52,9 @@ export function ArchivioIotFunzionamentoBoard() {
             7E 0F 49 00 13 A2 00 41 62 C8 1F 4F …
           </span>{" "}
           (18 byte). Le lettere <span className="font-mono">h l r i s</span>{" "}
-          sono solo il <strong>corpo</strong> (cosa significa CMD + D0). Minuscola
-          = master (Gestionale) → slave; maiuscola = risposta slave → Gestionale.
+          sono il <strong>tipo azione del corpo</strong> (h High, l Low, r
+          Regola, i Input, s Sensor). La A nel frame è l’involucro Mex, non
+          Regola. Minuscola = master → slave; maiuscola = risposta.
         </p>
         <p className="mt-2 text-xs">
           Protocollo Mex v{MEX_VERSIONE} · corpo lettere v{IOT_LETTERE_VERSIONE} ·
@@ -70,7 +71,6 @@ export function ArchivioIotLeggendaMexBoard() {
   const scenari = scenariOnBruciatore(onBruciatore);
   const regola30 = encodeRegolaVentolaEsempio(30);
   const corpoRegola30 = encodeCorpoRegola({
-    tipoAzione: "A",
     componente: MEX_CMD.FAN_POWER,
     impostazione: 30,
   });
@@ -145,7 +145,7 @@ export function ArchivioIotLeggendaMexBoard() {
 
       <section className="space-y-3">
         <h3 className="text-sm font-semibold uppercase tracking-wide text-slate-500">
-          Tipo azione (A / R / K / S)
+          Tipo frame Mex (A / R / K / S) — non è il tipo azione del corpo
         </h3>
         <div className="overflow-x-auto rounded-lg border border-[var(--border)]">
           <table className="min-w-full text-left text-sm">
@@ -174,14 +174,16 @@ export function ArchivioIotLeggendaMexBoard() {
           Corpo del messaggio (h / l / r / i / s)
         </h3>
         <p className="text-sm text-slate-700">
-          Regola: <span className="font-mono">r(Tipo azione)(Numero componente)-(Impostazione)</span>.
+          Tipo azione = lettera del corpo: <span className="font-mono">r</span> è
+          Regola (non la A del frame). Formato{" "}
+          <span className="font-mono">r(Numero componente)-(Impostazione)</span>.
           Esempio ventola 30%: corpo{" "}
-          <span className="font-mono">{corpoRegola30}</span> — tipo{" "}
-          <span className="font-mono">A</span>, componente{" "}
+          <span className="font-mono">{corpoRegola30}</span> — tipo azione{" "}
+          <span className="font-mono">r</span>, componente{" "}
           <span className="font-mono">04</span>, impostazione{" "}
           <span className="font-mono">30</span>. Frame{" "}
-          <span className="font-mono">{regola30.hexSpaced}</span> (TIPO A, CMD 04,
-          D0 1E = 30, D1 04 = componente).
+          <span className="font-mono">{regola30.hexSpaced}</span> (CMD 04 e D1 04
+          = componente, D0 1E = 30).
         </p>
         <div className="overflow-x-auto rounded-lg border border-[var(--border)]">
           <table className="min-w-full text-left text-sm">
@@ -200,7 +202,7 @@ export function ArchivioIotLeggendaMexBoard() {
                 const m = IOT_LETTERA_META[L];
                 const nelFrame =
                   L === "r"
-                    ? "TIPO A · CMD + D1 = componente · D0 = impostazione"
+                    ? "CMD + D1 = componente · D0 = impostazione"
                     : L === "s"
                       ? "TIPO R · D0 = id sensore"
                       : L === "l"
@@ -265,10 +267,10 @@ export function ArchivioIotLeggendaMexBoard() {
             CMD in anagrafica).
           </li>
           <li>
-            <span className="font-mono">r</span>:{" "}
-            <span className="font-mono">r(Tipo)(Componente)-(Impostazione)</span>
-            {" "}es. <span className="font-mono">rA04-30</span>. Nel frame TIPO=A,
-            CMD e D1 = 04 (componente), D0 = 1E (30).
+            <span className="font-mono">r</span> = tipo azione Regola:{" "}
+            <span className="font-mono">r(Componente)-(Impostazione)</span>
+            {" "}es. <span className="font-mono">r04-30</span>. Nel frame CMD e D1
+            = 04 (componente), D0 = 1E (30).
           </li>
           <li>
             Risposta sensore: <span className="font-mono">S12-0256</span> = id

@@ -79,7 +79,7 @@ function listIotWikiArticles(): TutorialArticle[] {
         },
         {
           type: "p",
-          text: "Regola ventola 30%: corpo rA04-30 (tipo A, componente 04, impostazione 30). Nel frame TIPO=A, CMD=04, D0=1E (30), D1=04 (numero componente). Senza D1 il componente manca.",
+          text: "Regola ventola 30%: corpo r04-30 (tipo azione r, componente 04, impostazione 30). Nel frame CMD=04, D0=1E (30), D1=04 (numero componente). La A del frame è l’involucro Mex, non il tipo azione.",
         },
         {
           type: "ul",
@@ -104,20 +104,20 @@ function listIotWikiArticles(): TutorialArticle[] {
       sectionTitle: "Protocollo Mex",
       title: "Corpo lettere h/l/r/i/s",
       summary:
-        "Regola: r(Tipo azione)(Numero componente)-(Impostazione). Minuscola out, maiuscola in.",
+        "Tipo azione = r (Regola), non A. Corpo r04-30. Minuscola out, maiuscola in.",
       path: "/app/archivio/iot/leggenda-mex",
       tags: ["lettere", "h", "l", "r", "i", "s", "master", "slave", "corpo"],
       blocks: [
         {
           type: "p",
-          text: "h21, l21, rA04-30, i12, s35 sono solo il corpo. Regola = r(Tipo azione)(Numero componente)-(Impostazione). Il frame resta 7E | LEN | CLS | UID | DIR | TIPO | CMD | D0 D1 D2 | CHK.",
+          text: "h21, l21, r04-30, i12, s35 sono solo il corpo. Tipo azione r = Regola: r(Numero componente)-(Impostazione). Il frame resta 7E | LEN | CLS | UID | DIR | TIPO | CMD | D0 D1 D2 | CHK.",
         },
         {
           type: "ul",
           items: [
             "Minuscola: master (Gestionale) verso lo slave (oggetto).",
             "Maiuscola: risposta dello slave verso il Gestionale.",
-            "h = High (On) · l = Low (Off) · r = r(Tipo)(Componente)-(Impostazione) · i = Input impulso · s = Sensor.",
+            "h = High (On) · l = Low (Off) · r = Regola r(Componente)-(Impostazione) · i = Input impulso · s = Sensor.",
           ],
         },
         {
@@ -126,7 +126,7 @@ function listIotWikiArticles(): TutorialArticle[] {
           rows: [
             ["h21", "H21", "TIPO A · CMD 21 · D0=01", "On componente 21"],
             ["l21", "L21", "TIPO A · CMD 21 · D0=00", "Off componente 21"],
-            ["rA04-30", "RA04-30", "TIPO A · CMD 04 · D0=1E · D1=04", "Regola componente 04 a 30"],
+            ["r04-30", "R04-30", "CMD 04 · D0=1E · D1=04", "Regola componente 04 a 30"],
             ["i12", "I12", "TIPO A · CMD 12 · D0=01", "Impulso componente 12"],
             ["s35", "S35-0256", "TIPO R · D0=id", "Leggi sensore 35; 0256 = 25,6"],
           ],
@@ -311,10 +311,10 @@ function listIotWikiArticles(): TutorialArticle[] {
           type: "table",
           headers: ["Codice", "Corpo", "Dir", "Nome", "Dati"],
           rows: [
-            ["A04", "rA04-n", "Out", "Imposta potenza ventola", "D0 = % · D1 = componente 04"],
+            ["A04", "r04-n", "Out", "Imposta potenza ventola", "D0 = % · D1 = componente 04"],
             ["A03", "h3 / l3", "Out", "On / Off ventola", "D0 = 01 On, 00 Off"],
-            ["A02", "rA02-n", "Out", "Imposta temperatura", "D0 = °C · D1 = componente 02"],
-            ["A05", "rA05-n", "Out", "Imposta apertura bruciatore", "D0 = % · D1 = componente 05"],
+            ["A02", "r02-n", "Out", "Imposta temperatura", "D0 = °C · D1 = componente 02"],
+            ["A05", "r05-n", "Out", "Imposta apertura bruciatore", "D0 = % · D1 = componente 05"],
             ["A01", "h1 / l1", "Out", "On / Off bruciatore", "D0 = 01 On (solo se ventola On)"],
             ["Kxx", "H/L/R…", "In", "Conferma", "D0 ok, D1 stato/valore"],
             ["R10 / S10", "s / S", "Out / In", "Sensore", "D0 id, D1–D2 valore"],
@@ -323,7 +323,7 @@ function listIotWikiArticles(): TutorialArticle[] {
         {
           type: "code",
           caption: "Invio Avvio (ordine obbligatorio)",
-          text: "A04 / rA04-70 → attesa K04 / RA04-70\nA03 On / h3 → attesa K03 / H3\nA02 / rA02-50 → attesa K02 / RA02-50\nA05 / rA05-{A+} → attesa K05 / RA05-…\nA01 On / h1 → attesa K01 / H1",
+          text: "A04 / r04-70 → attesa K04 / R04-70\nA03 On / h3 → attesa K03 / H3\nA02 / r02-50 → attesa K02 / R02-50\nA05 / r05-{A+} → attesa K05 / R05-…\nA01 On / h1 → attesa K01 / H1",
         },
         {
           type: "p",
@@ -355,7 +355,7 @@ function listIotWikiArticles(): TutorialArticle[] {
         },
         {
           type: "p",
-          text: "All’Avvio il server ricalcola la stima, la scrive in perc_bruciatore_prevista, invia A05 (corpo rA05-{percentuale}, apertura bruciatore) e registra l’audit (fonte vicini / raggio allargato / seme, numero vicini, kg e clima).",
+          text: "All’Avvio il server ricalcola la stima, la scrive in perc_bruciatore_prevista, invia A05 (corpo r05-{percentuale}, apertura bruciatore) e registra l’audit (fonte vicini / raggio allargato / seme, numero vicini, kg e clima).",
         },
       ],
     }),

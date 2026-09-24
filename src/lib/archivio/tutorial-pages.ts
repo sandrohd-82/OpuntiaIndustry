@@ -231,7 +231,7 @@ export const PAGE_EXTRAS: Record<string, TutorialBlock[]> = {
   "/app/archivio/iot/leggenda-mex": [
     {
       type: "p",
-      text: "Struttura frame 7E | LEN | CLS | UID | DIR | TIPO | CMD | D0 D1 D2 | CHK. Corpo regola: r(Tipo)(Componente)-(Impostazione) es. rA04-30. h21/H21 On, l21/L21 Off, i12/I12 impulso, s35/S35-0256 sensore.",
+      text: "Struttura frame 7E | LEN | CLS | UID | DIR | TIPO | CMD | D0 D1 D2 | CHK. Tipo azione r = Regola: r04-30 (componente-impostazione). h21/H21 On, l21/L21 Off, i12/I12 impulso, s35/S35-0256 sensore.",
     },
   ],
   "/app/archivio/iot/wiki": [
