@@ -31,6 +31,7 @@ import {
 import type { ActionEssiccatore } from "@/lib/action/essiccatori";
 import {
   formatSecondi,
+  formatStalloMinuti,
   labelComandoPasso,
   SEQUENZA_TIPO_LABEL,
   type ActionSequenza,
@@ -61,7 +62,7 @@ export function ActionSequenzeModal({
   const [valore, setValore] = useState(50);
   const [durataSec, setDurataSec] = useState<number | "">(10);
   const [stalloSi, setStalloSi] = useState(false);
-  const [stalloSec, setStalloSec] = useState<number | "">(300);
+  const [stalloMin, setStalloMin] = useState<number | "">(5);
   const [deleteId, setDeleteId] = useState<string | null>(null);
   const [deleteStep, setDeleteStep] = useState<1 | 2>(1);
 
@@ -218,7 +219,7 @@ export function ActionSequenzeModal({
                                   ? ` · ${formatSecondi(p.durataComandoSec)}`
                                   : ""}
                                 {p.stalloDopoSec
-                                  ? ` · stallo ${formatSecondi(p.stalloDopoSec)}`
+                                  ? ` · stallo ${formatStalloMinuti(p.stalloDopoSec)}`
                                   : ""}
                               </li>
                             ))}
@@ -389,6 +390,9 @@ export function ActionSequenzeModal({
                 {draftPassi.map((p) => (
                   <li key={p.id}>
                     {p.componenteNome} · {labelComandoPasso(p)}
+                    {p.stalloDopoSec
+                      ? ` · stallo ${formatStalloMinuti(p.stalloDopoSec)}`
+                      : ""}
                   </li>
                 ))}
               </ol>
@@ -571,20 +575,21 @@ export function ActionSequenzeModal({
                 </label>
                 {stalloSi ? (
                   <label className="block text-sm">
-                    <span className="mb-1 block font-medium">Stallo (secondi)</span>
+                    <span className="mb-1 block font-medium">Stallo (minuti)</span>
                     <input
                       type="number"
                       min={1}
-                      value={stalloSec}
+                      max={1440}
+                      value={stalloMin}
                       onChange={(e) =>
-                        setStalloSec(
+                        setStalloMin(
                           e.target.value === "" ? "" : Number(e.target.value)
                         )
                       }
                       className="w-32 rounded-lg border border-[var(--border)] px-3 py-2"
                     />
                     <span className="ml-2 text-xs text-[var(--muted)]">
-                      es. 300 = 5 minuti
+                      attesa prima della Action successiva
                     </span>
                   </label>
                 ) : null}
@@ -610,7 +615,7 @@ export function ActionSequenzeModal({
                               ? Number(durataSec) || null
                               : null,
                           stalloDopoSec: stalloSi
-                            ? Number(stalloSec) || null
+                            ? Math.round(Number(stalloMin) * 60) || null
                             : null,
                           precondizione: comp.precondizione,
                         });

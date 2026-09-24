@@ -70,6 +70,16 @@ export const sequenzaPassoInputSchema = z.object({
   precondizione: z.enum(IOT_PRECONDIZIONI).optional().default("nessuna"),
 });
 
+export function minutiDaSecondi(sec: number): number {
+  return Math.max(1, Math.round(sec / 60));
+}
+
+export function formatStalloMinuti(sec: number | null | undefined): string {
+  if (sec == null || sec < 1) return "—";
+  const m = minutiDaSecondi(sec);
+  return m === 1 ? "1 min" : `${m} min`;
+}
+
 export function formatSecondi(sec: number | null | undefined): string {
   if (sec == null || sec < 1) return "—";
   if (sec % 3600 === 0) {
