@@ -10,6 +10,7 @@ import {
   type IotPrecondizione,
 } from "@/lib/action/iot-componenti";
 import {
+  encodeAckAtteso,
   encodeMex,
   titoloOperatoreMex,
   uidPerEssiccatore,
@@ -136,18 +137,31 @@ export function mexFrameDaPasso(input: {
   });
 }
 
+export type TestoMexPasso = {
+  out: { titolo: string; codice: string; hex: string };
+  ack: { titolo: string; codice: string; hex: string };
+};
+
 export function testoMexPasso(input: {
   essiccatoreId: string;
   mexCmd: number | null;
   comando: SequenzaComando;
   valore: number | null;
-}): { titolo: string; codice: string; hex: string } | null {
+}): TestoMexPasso | null {
   const frame = mexFrameDaPasso(input);
   if (!frame) return null;
+  const ack = encodeAckAtteso(frame);
   return {
-    titolo: titoloOperatoreMex(frame),
-    codice: frame.codice,
-    hex: frame.hexSpaced,
+    out: {
+      titolo: titoloOperatoreMex(frame),
+      codice: frame.codice,
+      hex: frame.hexSpaced,
+    },
+    ack: {
+      titolo: titoloOperatoreMex(ack),
+      codice: ack.codice,
+      hex: ack.hexSpaced,
+    },
   };
 }
 

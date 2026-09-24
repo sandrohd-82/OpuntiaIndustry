@@ -367,6 +367,18 @@ export function titoloMex(frame: MexFrame): string {
 
 /** Titolo operatore nella modale di scambio (grafica, prima dell’IoT reale). */
 export function titoloOperatoreMex(frame: MexFrame): string {
+  if (frame.tipo === "K") {
+    if (frame.cmd === MEX_CMD.FAN_POWER) return "Conferma potenza ventola";
+    if (frame.cmd === MEX_CMD.BURNER_POWER) return "Conferma apertura bruciatore";
+    if (frame.cmd === MEX_CMD.BURNER_TEMP) return "Conferma temperatura bruciatore";
+    if (frame.cmd === MEX_CMD.FAN_CONSENT) {
+      return frame.d1 ? "Conferma On ventola" : "Conferma Off ventola";
+    }
+    if (frame.cmd === MEX_CMD.BURNER_CONSENT) {
+      return frame.d1 ? "Conferma On bruciatore" : "Conferma Off bruciatore";
+    }
+    return titoloMex(frame);
+  }
   if (frame.cmd === MEX_CMD.FAN_POWER) {
     return frame.dir === "O" ? "Imposta potenza ventola" : "Conferma potenza ventola";
   }

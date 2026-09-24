@@ -43,6 +43,7 @@ import {
   type SequenzaComando,
   type SequenzaPasso,
   type SequenzaTipo,
+  type TestoMexPasso,
 } from "@/lib/action/sequenze";
 
 export function ActionSequenzeModal({
@@ -707,6 +708,20 @@ export function ActionSequenzeModal({
   );
 }
 
+function MexCoppiaTesto({ mex }: { mex: TestoMexPasso }) {
+  return (
+    <p className="mt-0.5 font-mono text-[10px] leading-4 text-slate-600">
+      Invio {mex.out.codice} · {mex.out.titolo}
+      <br />
+      {mex.out.hex}
+      <br />
+      Atteso {mex.ack.codice} · {mex.ack.titolo}
+      <br />
+      {mex.ack.hex}
+    </p>
+  );
+}
+
 function PassoRiga({
   index,
   passo,
@@ -740,11 +755,7 @@ function PassoRiga({
             : ""}
         </p>
         {mex ? (
-          <p className="mt-0.5 font-mono text-[10px] leading-4 text-slate-600">
-            Invio {mex.codice} · {mex.titolo}
-            <br />
-            {mex.hex}
-          </p>
+          <MexCoppiaTesto mex={mex} />
         ) : (
           <p className="mt-0.5 text-[10px] text-amber-800">
             Mex CMD non impostato sul canale: messaggio non definito.
@@ -780,13 +791,9 @@ function MexPreviewBox({
   const mex = testoMexPasso({ essiccatoreId, mexCmd, comando, valore });
   return (
     <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs">
-      <p className="font-medium text-slate-700">Messaggio che verrà inviato</p>
+      <p className="font-medium text-slate-700">Messaggi invio e conferma attesa</p>
       {mex ? (
-        <p className="mt-1 font-mono text-[10px] leading-4 text-slate-600">
-          Invio {mex.codice} · {mex.titolo}
-          <br />
-          {mex.hex}
-        </p>
+        <MexCoppiaTesto mex={mex} />
       ) : (
         <p className="mt-1 text-amber-800">
           Imposta Mex CMD sul canale in Elenco Componenti IoT.
