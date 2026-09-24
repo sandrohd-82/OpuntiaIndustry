@@ -24,8 +24,8 @@ import {
   attuatoreHaDurataComando,
   attuatoreHaOnOff,
   attuatoreHaValore,
-  IOT_ATTUATORE_LABEL,
   IOT_PRECONDIZIONE_LABEL,
+  labelTipoCanale,
   type ActionIotComponente,
 } from "@/lib/action/iot-componenti";
 import type { ActionEssiccatore } from "@/lib/action/essiccatori";
@@ -70,7 +70,10 @@ export function ActionSequenzeModal({
   function reload() {
     void Promise.all([
       listSequenzeAction({ essiccatoreId: essiccatore.id }),
-      listActionIotComponentiAction({ essiccatoreId: essiccatore.id }),
+      listActionIotComponentiAction({
+        essiccatoreId: essiccatore.id,
+        soloAzioni: true,
+      }),
     ]).then(([a, b]) => {
       if (!a.success) setError(a.error);
       else {
@@ -147,7 +150,7 @@ export function ActionSequenzeModal({
               Sequenze
             </h2>
             <p className="text-sm text-[var(--muted)]">
-              {essiccatore.nome} · Action temporizzate sui componenti IoT
+              {essiccatore.nome} · Action su attuatori e regolatori dei componenti
             </p>
           </div>
           <button
@@ -461,25 +464,36 @@ export function ActionSequenzeModal({
               <>
                 <label className="block text-sm">
                   <span className="mb-1 block font-medium">
-                    Componente IoT
+                    Componente → azione
                   </span>
                   <select
                     value={compId}
                     onChange={(e) => setCompId(e.target.value)}
                     className="w-full rounded-lg border border-[var(--border)] bg-white px-3 py-2"
                   >
-                    {componenti.map((c) => (
-                      <option key={c.id} value={c.id}>
-                        {c.nome} · {IOT_ATTUATORE_LABEL[c.tipoAttuatore]}
-                        {c.essiccatoreId ? "" : " · comune"}
-                      </option>
+                    {Array.from(
+                      componenti.reduce((map, c) => {
+                        const key = c.moduloNome || "Altri";
+                        const list = map.get(key) ?? [];
+                        list.push(c);
+                        map.set(key, list);
+                        return map;
+                      }, new Map<string, ActionIotComponente[]>())
+                    ).map(([gruppo, list]) => (
+                      <optgroup key={gruppo} label={gruppo}>
+                        {list.map((c) => (
+                          <option key={c.id} value={c.id}>
+                            {c.nome} · {labelTipoCanale(c)}
+                          </option>
+                        ))}
+                      </optgroup>
                     ))}
                   </select>
                 </label>
                 {comp ? (
                   <div className="rounded-lg border border-[var(--border)] p-3">
                     <p className="text-xs text-[var(--muted)]">
-                      {comp.descrizione || IOT_ATTUATORE_LABEL[comp.tipoAttuatore]}
+                      {comp.descrizione || labelTipoCanale(comp)}
                       {comp.precondizione !== "nessuna"
                         ? ` · ${IOT_PRECONDIZIONE_LABEL[comp.precondizione]}`
                         : ""}

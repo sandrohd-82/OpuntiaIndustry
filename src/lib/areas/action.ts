@@ -35,7 +35,8 @@ export const ACTION_SECTIONS: readonly NavItem[] = [
   {
     slug: "elenco-componenti-iot",
     label: "Elenco Componenti IoT",
-    description: "Schede attuatori: On/Off, inverter, temperatura, precondizioni",
+    description:
+      "Albero macchine: componenti, attuatori, regolatori, sensori e collegamenti",
     path: "/app/action/elenco-componenti-iot",
   },
   {

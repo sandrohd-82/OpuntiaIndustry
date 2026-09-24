@@ -100,12 +100,30 @@ async function loadPassiBySeq(
   if (cids.length) {
     const { data } = await supabase
       .from("action_iot_componenti")
-      .select("id, nome, tipo_attuatore")
+      .select("id, nome, tipo_attuatore, modulo_id")
       .in("id", cids);
+    const modIds = [
+      ...new Set(
+        (data ?? [])
+          .map((c) => (c.modulo_id ? String(c.modulo_id) : ""))
+          .filter(Boolean)
+      ),
+    ];
+    const modNomi = new Map<string, string>();
+    if (modIds.length) {
+      const { data: mods } = await supabase
+        .from("action_iot_moduli")
+        .select("id, nome")
+        .in("id", modIds);
+      for (const m of mods ?? []) {
+        modNomi.set(String(m.id), String(m.nome));
+      }
+    }
     for (const c of data ?? []) {
+      const modulo = c.modulo_id ? modNomi.get(String(c.modulo_id)) : "";
       comps.set(String(c.id), {
-        nome: String(c.nome),
-        tipo: String(c.tipo_attuatore),
+        nome: modulo ? `${modulo} · ${String(c.nome)}` : String(c.nome),
+        tipo: String(c.tipo_attuatore ?? "on_off"),
       });
     }
   }
@@ -252,12 +270,18 @@ export async function addSequenzaPassoAction(
   }
   const { data: comp } = await supabase
     .from("action_iot_componenti")
-    .select("id, documento_stato")
+    .select("id, documento_stato, ruolo")
     .eq("id", input.componenteId)
     .is("deleted_at", null)
     .maybeSingle();
   if (!comp || String(comp.documento_stato) === "chiuso") {
     return { success: false, error: "Componente IoT non disponibile." };
+  }
+  if (String(comp.ruolo) === "sensore") {
+    return {
+      success: false,
+      error: "Un sensore non è un'azione: scegli un attuatore o un regolatore.",
+    };
   }
   const { data: last } = await supabase
     .from("action_sequenza_passi")
