@@ -15,6 +15,7 @@ import {
   type AnagraficaDocumentoTipo,
 } from "@/lib/amministrazione/anagrafica-documenti";
 import { AnagraficaSchedaSection } from "@/components/amministrazione/AnagraficaSchedaSection";
+import { FileDropZone } from "@/components/ui/FileDropZone";
 
 export function AnagraficaDocumentiPanel({
   clienteId,
@@ -34,6 +35,7 @@ export function AnagraficaDocumentiPanel({
   const [note, setNote] = useState("");
   const [pending, start] = useTransition();
   const [archiviaId, setArchiviaId] = useState<string | null>(null);
+  const [file, setFile] = useState<File | null>(null);
 
   function reload() {
     void listAnagraficaDocumentiAction(clienteId).then((res) => {
@@ -60,11 +62,8 @@ export function AnagraficaDocumentiPanel({
           className="grid gap-2 rounded-lg border border-white/70 bg-white p-3 sm:grid-cols-2"
           onSubmit={(e) => {
             e.preventDefault();
-            const form = e.currentTarget;
-            const fileInput = form.elements.namedItem("file") as HTMLInputElement;
-            const file = fileInput.files?.[0];
             if (!file) {
-              setError("Seleziona un file.");
+              setError("Seleziona un file da caricare.");
               return;
             }
             const fd = new FormData();
@@ -81,7 +80,7 @@ export function AnagraficaDocumentiPanel({
               }
               setTitolo("");
               setNote("");
-              fileInput.value = "";
+              setFile(null);
               reload();
               onChanged?.();
             });
@@ -112,15 +111,30 @@ export function AnagraficaDocumentiPanel({
               className="w-full rounded-md border border-[var(--border)] px-2 py-1.5 text-sm"
             />
           </label>
-          <label className="block text-xs sm:col-span-2">
-            <span className="mb-1 block font-medium">File (PDF, Word, immagine · max 20 MB)</span>
-            <input
-              name="file"
-              type="file"
-              accept=".pdf,.doc,.docx,.jpg,.jpeg,.png,.webp"
-              className="w-full text-sm"
+          <div className="sm:col-span-2">
+            <FileDropZone
+              accept=".pdf,.doc,.docx,.jpg,.jpeg,.png,.webp,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,image/jpeg,image/png,image/webp"
+              file={file}
+              busy={pending}
+              title="Trascina qui il documento"
+              hint="PDF, Word, JPG, PNG, WebP · max 20 MB"
+              readyCaption="pronto, premi Carica documento"
+              onFile={(next) => {
+                setFile(next);
+                setError(null);
+                if (!titolo.trim()) {
+                  setTitolo(next.name.replace(/\.[^.]+$/, ""));
+                }
+              }}
+              onInvalid={(msg) =>
+                setError(
+                  msg.includes("PDF")
+                    ? "Formato ammesso: PDF, Word, JPG, PNG, WebP."
+                    : msg
+                )
+              }
             />
-          </label>
+          </div>
           <label className="block text-xs sm:col-span-2">
             <span className="mb-1 block font-medium">Note</span>
             <input
