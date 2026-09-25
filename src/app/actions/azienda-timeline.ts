@@ -1011,7 +1011,12 @@ const searchSchema = inputSchema.extend({
 export async function searchWebmailForAziendaTimelineAction(
   raw: unknown
 ): Promise<
-  | { success: true; items: AziendaTimelineMailHit[]; domains: string[] }
+  | {
+      success: true;
+      items: AziendaTimelineMailHit[];
+      domains: string[];
+      emails: AziendaTimelineMailHint[];
+    }
   | { success: false; error: string }
 > {
   const { auth } = await requireAreaAccess("amministrazione");
@@ -1022,7 +1027,12 @@ export async function searchWebmailForAziendaTimelineAction(
   const { aziendaTipo, aziendaId, emailQuery, purpose } = parsed.data;
   const hints = await collectAziendaEmailHints(aziendaTipo, aziendaId);
   if (vis.mode === "granted" && vis.ids.length === 0) {
-    return { success: true, items: [], domains: hints.domains };
+    return {
+      success: true,
+      items: [],
+      domains: hints.domains,
+      emails: hints.emails,
+    };
   }
   const manual = normalizeEmail(emailQuery);
   const receivedOnly = Boolean(purpose);
@@ -1213,7 +1223,12 @@ export async function searchWebmailForAziendaTimelineAction(
     });
   }
 
-  return { success: true, items, domains: hints.domains };
+  return {
+    success: true,
+    items,
+    domains: hints.domains,
+    emails: hints.emails,
+  };
 }
 
 const linkSchema = inputSchema.extend({

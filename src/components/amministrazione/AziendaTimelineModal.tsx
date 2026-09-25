@@ -485,8 +485,13 @@ export function AziendaTimelineModal({
   elevated = false,
   pickMode,
 }: Props) {
+  const isMailPick =
+    pickMode?.purpose === "campionatura-mail" ||
+    pickMode?.purpose === "ordine-accettazione-mail" ||
+    pickMode?.purpose === "ordine-richiesta-mail";
+
   const [items, setItems] = useState<AziendaTimelineItem[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(!isMailPick);
   const [error, setError] = useState<string | null>(null);
   const [info, setInfo] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
@@ -571,7 +576,7 @@ export function AziendaTimelineModal({
   const [mailDomains, setMailDomains] = useState<string[]>([]);
   const [mailQuery, setMailQuery] = useState("");
   const [mailHits, setMailHits] = useState<AziendaTimelineMailHit[]>([]);
-  const [mailSearching, setMailSearching] = useState(false);
+  const [mailSearching, setMailSearching] = useState(isMailPick);
   const [selectedMail, setSelectedMail] = useState<AziendaTimelineMailHit | null>(
     null
   );
@@ -589,12 +594,11 @@ export function AziendaTimelineModal({
   );
   const [schedaApertaId, setSchedaApertaId] = useState<string | null>(null);
 
-  const isMailPick =
-    pickMode?.purpose === "campionatura-mail" ||
-    pickMode?.purpose === "ordine-accettazione-mail" ||
-    pickMode?.purpose === "ordine-richiesta-mail";
-
   const reload = useCallback(async () => {
+    if (isMailPick) {
+      setLoading(false);
+      return;
+    }
     setLoading(true);
     setError(null);
     const res = await listAziendaTimelineAction({ aziendaTipo, aziendaId });
@@ -605,25 +609,28 @@ export function AziendaTimelineModal({
       setError(res.error);
     }
     setLoading(false);
-  }, [aziendaTipo, aziendaId]);
+  }, [aziendaTipo, aziendaId, isMailPick]);
 
   useEffect(() => {
+    if (isMailPick) return;
     void reload();
-  }, [reload]);
+  }, [reload, isMailPick]);
 
   useEffect(() => {
     if (panel !== "mail") return;
-    void listAziendaTimelineMailHintsAction({ aziendaTipo, aziendaId }).then(
-      (res) => {
-        if (res.success) {
-          setMailHints(res.emails);
-          setMailDomains(res.domains);
+    if (!isMailPick) {
+      void listAziendaTimelineMailHintsAction({ aziendaTipo, aziendaId }).then(
+        (res) => {
+          if (res.success) {
+            setMailHints(res.emails);
+            setMailDomains(res.domains);
+          }
         }
-      }
-    );
+      );
+    }
     void runMailSearch("");
     // eslint-disable-next-line react-hooks/exhaustive-deps -- solo all'apertura pannello
-  }, [panel, aziendaTipo, aziendaId]);
+  }, [panel, aziendaTipo, aziendaId, isMailPick]);
 
   useEffect(() => {
     if (panel !== "pn") return;
@@ -657,6 +664,7 @@ export function AziendaTimelineModal({
     }
     setMailHits(res.items);
     setMailDomains(res.domains);
+    if (res.emails) setMailHints(res.emails);
   }
 
   const mailProbabili = useMemo(
@@ -1002,15 +1010,23 @@ export function AziendaTimelineModal({
       <div
         role="dialog"
         aria-modal="true"
-        aria-label={`Timeline ${aziendaLabel}`}
-        className="flex w-full max-w-[min(96vw,90rem)] flex-col rounded-2xl border border-[var(--border)] bg-slate-50 shadow-2xl"
+        aria-label={
+          isMailPick
+            ? `Seleziona mail ${aziendaLabel}`
+            : `Timeline ${aziendaLabel}`
+        }
+        className={`flex w-full flex-col rounded-2xl border border-[var(--border)] bg-slate-50 shadow-2xl ${
+          isMailPick ? "max-w-[min(96vw,48rem)]" : "max-w-[min(96vw,90rem)]"
+        }`}
         style={{ maxHeight: "min(92vh, 56rem)" }}
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex shrink-0 flex-wrap items-start justify-between gap-3 border-b border-[var(--border)] bg-white px-5 py-4 sm:px-8">
           <div className="min-w-0 flex-1">
             <h3 className="text-lg font-semibold sm:text-xl">
-              Timeline — {aziendaLabel || "Azienda"}
+              {isMailPick
+                ? `Seleziona mail — ${aziendaLabel || "Azienda"}`
+                : `Timeline — ${aziendaLabel || "Azienda"}`}
             </h3>
             <p className="mt-1 text-xs text-[var(--muted)] sm:text-sm">
               {pickMode?.purpose === "campionatura-nota"
@@ -1019,11 +1035,11 @@ export function AziendaTimelineModal({
                   ? "Prima le mail più inerenti all’accettazione, poi le altre ricevute dalla più recente."
                 : pickMode?.purpose === "ordine-richiesta-mail"
                   ? "Prima le mail più inerenti alla richiesta d’ordine, poi le altre ricevute dalla più recente."
-                : pickMode?.purpose === "campionatura-mail"
+                  : pickMode?.purpose === "campionatura-mail"
                   ? "Prima le mail più inerenti alla campionatura, poi le altre ricevute dalla più recente."
                   : "Asse dal basso (passato) all’alto (recente). Puoi aggiungere note, collegare mail o copiare Promemoria, Attività e Note già create."}
             </p>
-            {presentFilterGroups.length > 0 ? (
+            {!isMailPick && presentFilterGroups.length > 0 ? (
               <div className="mt-3 flex flex-wrap items-center gap-1.5">
                 <span className="mr-1 text-[10px] font-semibold uppercase tracking-wide text-[var(--muted)]">
                   Mostra
@@ -1058,6 +1074,8 @@ export function AziendaTimelineModal({
             ) : null}
           </div>
           <div className="flex flex-wrap items-center gap-2">
+            {!isMailPick ? (
+              <>
             <button
               type="button"
               onClick={() => {
@@ -1102,6 +1120,8 @@ export function AziendaTimelineModal({
               aziendaLabel={aziendaLabel}
               onSynced={() => void reload()}
             />
+              </>
+            ) : null}
             <button
               type="button"
               onClick={onClose}
@@ -1262,7 +1282,15 @@ export function AziendaTimelineModal({
         ) : null}
 
         {panel === "mail" ? (
-          <div className="shrink-0 border-b border-[var(--border)] bg-sky-50/80 px-5 py-4 sm:px-8">
+          <div
+            className={`${
+              isMailPick
+                ? "min-h-0 flex-1 overflow-hidden"
+                : "shrink-0 border-b border-[var(--border)]"
+            } bg-sky-50/80 px-5 py-4 sm:px-8 ${
+              isMailPick ? "flex flex-col" : ""
+            }`}
+          >
             <p className="text-sm font-medium text-sky-950">
               Collega mail WebMail
             </p>
@@ -1328,8 +1356,16 @@ export function AziendaTimelineModal({
                 Suggerite
               </button>
             </div>
-            <ul className="mt-3 max-h-[min(28rem,55vh)] space-y-1.5 overflow-y-auto">
-              {mailHits.length === 0 && !mailSearching ? (
+            <ul
+              className={`mt-3 space-y-1.5 overflow-y-auto ${
+                isMailPick ? "min-h-0 flex-1" : "max-h-[min(28rem,55vh)]"
+              }`}
+            >
+              {mailSearching && mailHits.length === 0 ? (
+                <li className="text-xs text-[var(--muted)]">
+                  Cerco le mail ricevute…
+                </li>
+              ) : mailHits.length === 0 ? (
                 <li className="text-xs text-[var(--muted)]">
                   Nessuna mail ricevuta trovata nelle caselle accessibili.
                 </li>
@@ -1541,6 +1577,7 @@ export function AziendaTimelineModal({
           </div>
         )}
 
+        {isMailPick ? null : (
         <div className="min-h-0 flex-1 overflow-y-auto px-3 py-6 sm:px-8 sm:py-8">
           {loading ? (
             <p className="py-16 text-center text-sm text-[var(--muted)]">
@@ -1642,6 +1679,7 @@ export function AziendaTimelineModal({
             </div>
           )}
         </div>
+        )}
       </div>
 
       <NotaInserisciSheet
