@@ -14,11 +14,18 @@ import {
   useOrdineDettaglioState,
 } from "@/components/amministrazione/OrdineDettaglioFields";
 import { OrdinePagamentoFields } from "@/components/amministrazione/OrdinePagamentoFields";
-import type {
-  Ordine,
-  OrdineAllegatoMeta,
-  OrdineTipoPagamento,
+import {
+  totaleOrdine,
+  type Ordine,
+  type OrdineAllegatoMeta,
+  type OrdineTipoPagamento,
 } from "@/lib/amministrazione/ordini";
+import {
+  buildOrdineSessioneLocale,
+  loadOrdineSessione,
+  ORDINI_PERSISTENZA_DEFINITIVA,
+  saveOrdineSessione,
+} from "@/lib/amministrazione/ordine-sessione";
 import type { OrdineStato } from "@/types/database";
 
 type Props = {
@@ -75,6 +82,7 @@ export function OrdineFormModal({
   const [ricevutaEsistente, setRicevutaEsistente] =
     useState<OrdineAllegatoMeta | null>(initial?.ricevutaPagamento ?? null);
   const [formError, setFormError] = useState<string | null>(null);
+  const [sessioneMsg, setSessioneMsg] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [removeOfferta, setRemoveOfferta] = useState(false);
   const [removeOrdineCliente, setRemoveOrdineCliente] = useState(false);
@@ -143,6 +151,7 @@ export function OrdineFormModal({
     e.stopPropagation();
     if (document.querySelector("[data-cliente-modal-root='true']")) return;
     setFormError(null);
+    setSessioneMsg(null);
 
     if (mode === "create" && anagraficaFonte === "possibile") {
       if (!possibileClienteId || !clienteNome.trim()) {
@@ -201,6 +210,53 @@ export function OrdineFormModal({
       righe: righeValide,
     };
 
+    if (!ORDINI_PERSISTENZA_DEFINITIVA && mode === "create") {
+      const first = righeValide[0];
+      const prev = loadOrdineSessione();
+      const ordine = buildOrdineSessioneLocale({
+        existingId: prev?.ordine.id ?? null,
+        numeroInterno: dettaglio.numeroInterno || prev?.ordine.numeroInterno || "",
+        clienteId: clienteId || null,
+        clienteNome: clienteNome.trim(),
+        clienteTarga:
+          anagraficaFonte === "possibile" ? "Pc" : clienteTarga || "C000",
+        dataOrdine,
+        tipo: "vendita",
+        prodottoId: first.prodottoId,
+        prodottoCodice: first.prodottoCodice,
+        prodottoNome: first.prodottoNome,
+        quantita: first.quantita,
+        unitaMisura: first.unitaMisura,
+        prezzoNetto: first.prezzoUnitario,
+        prezzoListino: first.prezzoUnitario,
+        scontoExtraPct: 0,
+        importoEuro: totaleOrdine(righeValide, dettaglio.trasporto),
+        tipoPagamento,
+        pagamentoModalita: "unica",
+        destinatario: clienteNome.trim(),
+        indirizzoSpedizione: "",
+      });
+      ordine.righe = righeValide.map((r, i) => ({
+        ...r,
+        id: r.id || `${ordine.id}-r${i + 1}`,
+      }));
+      ordine.note = note.trim();
+      ordine.dataConsegna = requireConsegna ? dataConsegna : null;
+      ordine.numeroCliente = dettaglio.numeroCliente.trim();
+      ordine.pagato = pagato;
+      ordine.dataPagamento = dataPagamento || null;
+      ordine.noteRateizzazione = noteRateizzazione.trim();
+      ordine.trasporto = dettaglio.trasporto;
+      saveOrdineSessione({
+        ordine,
+        fattura: prev?.fattura ?? null,
+      });
+      setSessioneMsg(
+        `Salvato in sessione (${ordine.numeroInterno || "senza numero"}). Niente è stato scritto sul server.`
+      );
+      return;
+    }
+
     const fd = new FormData();
     fd.set("payload", JSON.stringify(payload));
     if (dettaglio.offertaFile) fd.set("offertaFile", dettaglio.offertaFile);
@@ -256,7 +312,9 @@ export function OrdineFormModal({
         <p className="mt-1 text-sm text-[var(--muted)]">
           {mode === "edit"
             ? `Versione attuale: ${initial?.versione ?? 1}. Ogni salvataggio incrementa la versione e scrive in audit log.`
-            : "I dati vengono salvati su database con tracciabilità ISO 9001."}
+            : ORDINI_PERSISTENZA_DEFINITIVA
+              ? "I dati vengono salvati su database con tracciabilità ISO 9001."
+              : "Salvataggio provvisorio: l’ordine resta solo in questa sessione del browser."}
         </p>
 
         <form onSubmit={submit} className="mt-5 space-y-5">
@@ -390,6 +448,11 @@ export function OrdineFormModal({
             />
           </label>
 
+          {sessioneMsg ? (
+            <p className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-950">
+              {sessioneMsg}
+            </p>
+          ) : null}
           {formError && (
             <p className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
               {formError}
@@ -414,7 +477,9 @@ export function OrdineFormModal({
                 ? "Salvataggio…"
                 : mode === "edit"
                   ? "Salva modifiche"
-                  : "Salva ordine"}
+                  : ORDINI_PERSISTENZA_DEFINITIVA
+                    ? "Salva ordine"
+                    : "Salva in sessione"}
             </button>
           </div>
         </form>

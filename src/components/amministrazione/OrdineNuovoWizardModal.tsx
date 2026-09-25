@@ -38,12 +38,22 @@ import { FatturaA4Modal } from "@/components/amministrazione/FatturaA4Modal";
 import { OrdinePagamentoPianoFields } from "@/components/amministrazione/OrdinePagamentoPianoFields";
 import { SpedizioneMailComposeModal } from "@/components/amministrazione/SpedizioneMailComposeModal";
 import { SpedizioneMailPanel } from "@/components/amministrazione/SpedizioneMailPanel";
+import { listinoEScontoDaOrdine } from "@/lib/amministrazione/fattura-a4-documento";
+import { todayIsoDate } from "@/lib/amministrazione/fatture";
 import {
   applyTotaleToPiano,
   emptyPagamentoPiano,
   tipoPagamentoFromPiano,
   type OrdinePagamentoPiano,
 } from "@/lib/amministrazione/ordine-pagamento-piano";
+import {
+  buildOrdineSessioneLocale,
+  destinatarioSessioneDaCliente,
+  emailsDaCliente,
+  loadOrdineSessione,
+  ORDINI_PERSISTENZA_DEFINITIVA,
+  saveOrdineSessione,
+} from "@/lib/amministrazione/ordine-sessione";
 import {
   generaCorpoMailSpedizioneAction,
   upsertPrenotazioneSpedizioneMailAction,
@@ -254,6 +264,7 @@ export function OrdineNuovoWizardModal({
     () => emptyPagamentoPiano("alla_consegna")
   );
   const [savedOrdine, setSavedOrdine] = useState<Ordine | null>(null);
+  const [sessioneMsg, setSessioneMsg] = useState<string | null>(null);
   const [fatturaA4Open, setFatturaA4Open] = useState(false);
   const [tipoOrdine, setTipoOrdine] = useState<"vendita" | "campionatura">(
     variant === "campionatura" ? "campionatura" : "vendita"
@@ -699,6 +710,7 @@ export function OrdineNuovoWizardModal({
     const last = next[next.length - 1] ?? null;
     setReferenteAccettazione(last);
     if (!last || !clienteId) return;
+    if (!ORDINI_PERSISTENZA_DEFINITIVA) return;
     await linkEntityReferenteAction({
       tipo: "cliente",
       entityId: clienteId,
@@ -719,7 +731,10 @@ export function OrdineNuovoWizardModal({
         setFatturaA4Open(true);
         return;
       }
-      onSaved(savedOrdine);
+      if (ORDINI_PERSISTENZA_DEFINITIVA) onSaved(savedOrdine);
+      else {
+        setSessioneMsg("Ordine già in sessione. Nessun salvataggio sul server.");
+      }
       return;
     }
     if (Math.abs(kgDelta) > 0.001 && conf.nodi.length > 0 && !conf.coerenzaIgnorata) {
@@ -734,6 +749,71 @@ export function OrdineNuovoWizardModal({
     setFormError(null);
     const confNorm = normalizeConfezionamentoDraft(conf);
     try {
+      if (!ORDINI_PERSISTENZA_DEFINITIVA) {
+        const prev = loadOrdineSessione();
+        const ordine = buildOrdineSessioneLocale({
+          existingId: prev?.ordine.id ?? null,
+          numeroInterno: numeroInterno || prev?.ordine.numeroInterno || "",
+          clienteId: clienteId || null,
+          clienteNome,
+          clienteTarga: anagraficaFonte === "possibile" ? "Pc" : clienteTarga || "C000",
+          dataOrdine,
+          tipo: tipoOrdine,
+          prodottoId: prodotto.id,
+          prodottoCodice: prodotto.codice,
+          prodottoNome: prodotto.nome,
+          quantita: quantitaInserita,
+          unitaMisura: umEffettiva,
+          prezzoNetto: tipoOrdine === "campionatura" ? 0 : prezzoNetto,
+          prezzoListino:
+            tipoOrdine === "campionatura" ? null : numberOrZero(prezzoUnitario),
+          scontoExtraPct: tipoOrdine === "campionatura" ? 0 : scontoPct,
+          importoEuro: rigaImporti.totale,
+          tipoPagamento: tipoPagamentoFromPiano(pagamentoPiano),
+          pagamentoModalita: pagamentoPiano.modalita,
+          destinatario,
+          indirizzoSpedizione,
+        });
+        const mapped = listinoEScontoDaOrdine({
+          prezzoRiga: tipoOrdine === "campionatura" ? 0 : prezzoNetto,
+          prezzoListinoHeader:
+            tipoOrdine === "campionatura" ? null : numberOrZero(prezzoUnitario),
+          scontoExtraPct: tipoOrdine === "campionatura" ? 0 : scontoPct,
+          isSpedizione: false,
+        });
+        saveOrdineSessione({
+          ordine,
+          fattura: prev?.fattura ?? {
+            numeroFattura: "N/ANNO",
+            dataDocumento: todayIsoDate(),
+            destinatario: destinatarioSessioneDaCliente(clienteSped, clienteNome),
+            righe: [
+              {
+                prodottoId: prodotto.id,
+                codice: prodotto.codice,
+                descrizione: prodotto.nome,
+                quantita: quantitaInserita,
+                unitaMisura: umEffettiva,
+                prezzoUnitario: mapped.prezzoUnitario,
+                scontoPercentuale: mapped.scontoPercentuale,
+                ivaPercentuale: tipoOrdine === "campionatura" ? 0 : 22,
+                isSpedizione: false,
+                note: "",
+              },
+            ],
+            noteDocumento: "",
+            piano: pagamentoPiano,
+            invioEmail: "",
+            intenzione: "bozza",
+          },
+        });
+        setSavedOrdine(ordine);
+        setSessioneMsg(
+          `Salvato in sessione (${ordine.numeroInterno || "senza numero"}). Niente è stato scritto sul server.`
+        );
+        if (opts?.keepOpen) setFatturaA4Open(true);
+        return;
+      }
       const result = await createOrdineWizardAction({
         anagraficaFonte,
         possibileClienteId: possibileClienteId || null,
@@ -1044,6 +1124,13 @@ export function OrdineNuovoWizardModal({
           in scaletta. «Invio campionatura» resta il documento del campione già
           spedito.
         </p>
+        {!ORDINI_PERSISTENZA_DEFINITIVA ? (
+          <p className="mt-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-950">
+            Salvataggio provvisorio: ordine e fattura restano solo in questa
+            sessione del browser. Niente database, email o SDI finché non lo
+            chiedi.
+          </p>
+        ) : null}
 
         <ol className="mt-4 flex flex-wrap gap-2">
           {STEPS.filter((s) => s.n <= lastStep).map((s) => (
@@ -2120,8 +2207,10 @@ export function OrdineNuovoWizardModal({
                 <p className="text-xs text-[var(--muted)]">
                   Documento A4 come il preventivo. Puoi modificare intestazione,
                   dicitura, prezzi e sconto con le matite: la fattura può
-                  differire dall’ordine. Sempre salvata; invio email + SDI
-                  subito o dopo.
+                  differire dall’ordine.
+                  {ORDINI_PERSISTENZA_DEFINITIVA
+                    ? " Sempre salvata; invio email + SDI subito o dopo."
+                    : " Per ora si salva solo in sessione: niente database, email o SDI."}
                 </p>
                 {anagraficaFonte !== "cliente" ? (
                   <p className="text-xs text-amber-800">
@@ -2137,7 +2226,9 @@ export function OrdineNuovoWizardModal({
                   >
                     {savedOrdine
                       ? "Apri documento fattura"
-                      : "Crea fattura A4"}
+                      : ORDINI_PERSISTENZA_DEFINITIVA
+                        ? "Crea fattura A4"
+                        : "Apri fattura (sessione)"}
                   </button>
                 )}
               </div>
@@ -2149,6 +2240,7 @@ export function OrdineNuovoWizardModal({
               <SpedizioneMailPanel
                 entityType="ordine"
                 entityId=""
+                persistDisabled={!ORDINI_PERSISTENZA_DEFINITIVA}
                 clienteNome={clienteNome}
                 numero={numeroInterno || "ordine"}
                 prodotti={
@@ -2165,6 +2257,11 @@ export function OrdineNuovoWizardModal({
             </div>
           ) : null}
 
+          {sessioneMsg ? (
+            <p className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-950">
+              {sessioneMsg}
+            </p>
+          ) : null}
           {formError ? (
             <p className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
               {formError}
@@ -2211,7 +2308,11 @@ export function OrdineNuovoWizardModal({
                 onClick={() => void submit("salva")}
                 className="rounded-lg bg-[var(--primary)] px-4 py-2 text-sm font-medium text-white hover:bg-[var(--primary-hover)] disabled:opacity-50"
               >
-                {saving ? "Salvataggio…" : "Salva ordine"}
+                {saving
+                  ? "Salvataggio…"
+                  : ORDINI_PERSISTENZA_DEFINITIVA
+                    ? "Salva ordine"
+                    : "Salva in sessione"}
               </button>
             )}
           </div>
@@ -2325,7 +2426,53 @@ export function OrdineNuovoWizardModal({
 
       {fatturaA4Open && savedOrdine ? (
         <FatturaA4Modal
-          ordineId={savedOrdine.id}
+          ordineId={
+            ORDINI_PERSISTENZA_DEFINITIVA ? savedOrdine.id : undefined
+          }
+          sessioneDraft={
+            ORDINI_PERSISTENZA_DEFINITIVA
+              ? null
+              : {
+                  cliente: clienteSped,
+                  destinatario: destinatarioSessioneDaCliente(
+                    clienteSped,
+                    clienteNome
+                  ),
+                  righe: (() => {
+                    const mapped = listinoEScontoDaOrdine({
+                      prezzoRiga:
+                        tipoOrdine === "campionatura" ? 0 : prezzoNetto,
+                      prezzoListinoHeader:
+                        tipoOrdine === "campionatura"
+                          ? null
+                          : numberOrZero(prezzoUnitario),
+                      scontoExtraPct:
+                        tipoOrdine === "campionatura" ? 0 : scontoPct,
+                      isSpedizione: false,
+                    });
+                    return [
+                      {
+                        prodottoId: prodotto?.id ?? null,
+                        codice: prodotto?.codice ?? "",
+                        descrizione: prodotto?.nome ?? "",
+                        quantita: quantitaInserita,
+                        unitaMisura: umEffettiva,
+                        prezzoUnitario: mapped.prezzoUnitario,
+                        scontoPercentuale: mapped.scontoPercentuale,
+                        ivaPercentuale:
+                          tipoOrdine === "campionatura" ? 0 : 22,
+                        isSpedizione: false,
+                        note: "",
+                      },
+                    ];
+                  })(),
+                  piano: pagamentoPiano,
+                  emails: emailsDaCliente(clienteSped),
+                  numeroFattura: "N/ANNO",
+                  dataDocumento: todayIsoDate(),
+                  noteDocumento: "",
+                }
+          }
           pianoIniziale={pagamentoPiano}
           onClose={() => setFatturaA4Open(false)}
         />

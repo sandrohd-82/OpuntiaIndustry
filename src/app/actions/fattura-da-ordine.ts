@@ -28,6 +28,10 @@ import {
 } from "@/lib/amministrazione/ordine-pagamento-piano";
 import { AGRINSICILIA_COORDINATE } from "@/lib/amministrazione/preventivo-letterhead";
 import {
+  ORDINI_PERSISTENZA_BLOCCATA_MSG,
+  ORDINI_PERSISTENZA_DEFINITIVA,
+} from "@/lib/amministrazione/ordine-sessione";
+import {
   createIssuedDocument,
   fetchFicVatTypes,
   resolveFicVatId,
@@ -543,6 +547,9 @@ export type SalvaFatturaDaOrdineResult =
 export async function saveFatturaDaOrdineAction(
   raw: unknown
 ): Promise<SalvaFatturaDaOrdineResult> {
+  if (!ORDINI_PERSISTENZA_DEFINITIVA) {
+    return { success: false, error: ORDINI_PERSISTENZA_BLOCCATA_MSG };
+  }
   const { auth } = await requireAreaAccess("amministrazione");
   const parsed = saveSchema.safeParse(raw);
   if (!parsed.success) {

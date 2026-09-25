@@ -51,6 +51,10 @@ import {
 } from "@/lib/amministrazione/sconto-fuori-listino-server";
 import { prezzoNettoDaSconto } from "@/lib/amministrazione/sconto-fuori-listino";
 import {
+  ORDINI_PERSISTENZA_BLOCCATA_MSG,
+  ORDINI_PERSISTENZA_DEFINITIVA,
+} from "@/lib/amministrazione/ordine-sessione";
+import {
   requireOrdineCreateAccess,
   requireOrdineProcessAccess,
   requireOrdineReadAccess,
@@ -420,6 +424,9 @@ export async function previewNumeroInternoOrdineAction(input: {
 export async function createOrdineAction(
   formData: FormData
 ): Promise<OrdiniActionResult> {
+  if (!ORDINI_PERSISTENZA_DEFINITIVA) {
+    return { success: false, error: ORDINI_PERSISTENZA_BLOCCATA_MSG };
+  }
   const { auth } = await requireAreaAccess("amministrazione");
   const supabase = await createClient();
 
@@ -947,6 +954,9 @@ export async function listOrdineAuditLogAction(
 export async function createOrdineWizardAction(
   raw: unknown
 ): Promise<OrdiniActionResult> {
+  if (!ORDINI_PERSISTENZA_DEFINITIVA) {
+    return { success: false, error: ORDINI_PERSISTENZA_BLOCCATA_MSG };
+  }
   try {
     return await createOrdineWizardActionInner(raw);
   } catch (e) {

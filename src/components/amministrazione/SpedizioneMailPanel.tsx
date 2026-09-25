@@ -40,6 +40,7 @@ type Props = {
     sedePartenzaId: string;
   }) => void;
   sedePartenzaIdDefault?: string;
+  persistDisabled?: boolean;
 };
 
 export function SpedizioneMailPanel({
@@ -53,6 +54,7 @@ export function SpedizioneMailPanel({
   onNeedEntity,
   onDraftChange,
   sedePartenzaIdDefault = "",
+  persistDisabled = false,
 }: Props) {
   const [trackingUrl, setTrackingUrl] = useState("");
   const [sedePartenzaId, setSedePartenzaId] = useState(sedePartenzaIdDefault);
@@ -147,6 +149,12 @@ export function SpedizioneMailPanel({
 
   async function upload(kind: "lettera" | "file", file: File | undefined) {
     if (!file) return;
+    if (persistDisabled) {
+      setError(
+        "Caricamento file disattivato: in questa fase si salva solo in sessione."
+      );
+      return;
+    }
     setUploading(true);
     setError(null);
     try {
@@ -174,6 +182,14 @@ export function SpedizioneMailPanel({
   }
 
   async function salva(modo: "prenota" | "compila" | "salva") {
+    if (persistDisabled) {
+      onNeedEntity?.(modo);
+      setError(null);
+      setInfo(
+        "Spedizione e mail restano solo in sessione. Niente prenotazione, upload o invio sul server."
+      );
+      return;
+    }
     if (!entityId) {
       if (onNeedEntity) {
         onNeedEntity(modo);
@@ -265,8 +281,9 @@ export function SpedizioneMailPanel({
     <div className="space-y-3 rounded-lg border border-[var(--border)] px-3 py-3">
       <p className="text-sm font-medium">Spedizione</p>
       <p className="text-xs text-[var(--muted)]">
-        Puoi inserire il tracking se ce l’hai, oppure salvare e lasciare il
-        sistema in attesa. La mail al cliente è facoltativa.
+        {persistDisabled
+          ? "Bozza spedizione solo in sessione: niente upload, prenotazione mail o invio."
+          : "Puoi inserire il tracking se ce l’hai, oppure salvare e lasciare il sistema in attesa. La mail al cliente è facoltativa."}
       </p>
 
       <label className="block text-sm">
@@ -291,7 +308,7 @@ export function SpedizioneMailPanel({
           onChange={(e) => {
             const next = e.target.value;
             setSedePartenzaId(next);
-            if (entityId) {
+            if (entityId && !persistDisabled) {
               void updateSedePartenzaAction({
                 entityType,
                 entityId,

@@ -31,11 +31,29 @@ import {
   emptyPagamentoPiano,
   type OrdinePagamentoPiano,
 } from "@/lib/amministrazione/ordine-pagamento-piano";
+import {
+  loadOrdineSessione,
+  ORDINI_PERSISTENZA_DEFINITIVA,
+  saveOrdineSessione,
+  type OrdineSessioneFattura,
+} from "@/lib/amministrazione/ordine-sessione";
 import type { DestinatarioPreventivo } from "@/lib/amministrazione/preventivo-letterhead";
 import type { PreventivoCommercialeRiferimento } from "@/lib/amministrazione/preventivo-commerciale-riferimento";
 
+export type FatturaA4SessioneDraft = {
+  cliente: Cliente | null;
+  destinatario: FatturaDestinatarioSnapshot;
+  righe: FatturaA4Riga[];
+  piano: OrdinePagamentoPiano;
+  emails: string[];
+  numeroFattura: string;
+  dataDocumento: string;
+  noteDocumento: string;
+};
+
 type Props = {
-  ordineId: string;
+  ordineId?: string;
+  sessioneDraft?: FatturaA4SessioneDraft | null;
   pianoIniziale?: OrdinePagamentoPiano | null;
   onClose: () => void;
   onSaved?: (info: { fatturaId: string; inviata: boolean }) => void;
@@ -74,10 +92,13 @@ function clienteToPreventivo(c: Cliente): DestinatarioPreventivo {
 
 export function FatturaA4Modal({
   ordineId,
+  sessioneDraft = null,
   pianoIniziale,
   onClose,
   onSaved,
 }: Props) {
+  const soloSessione =
+    !ORDINI_PERSISTENZA_DEFINITIVA || Boolean(sessioneDraft) || !ordineId;
   const titleId = useId();
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -125,10 +146,54 @@ export function FatturaA4Modal({
     let cancelled = false;
     void (async () => {
       setLoading(true);
-      const [ctx, comm] = await Promise.all([
-        getFatturaA4ContextAction({ ordineId }),
-        listPreventivoCommercialiRiferimentoAction(),
-      ]);
+      const comm = await listPreventivoCommercialiRiferimentoAction();
+      if (cancelled) return;
+      if (comm.success) {
+        setCommerciali(comm.items);
+        setCommerciale(comm.items[0] ?? null);
+      }
+      if (soloSessione) {
+        const prev = loadOrdineSessione()?.fattura;
+        const draft = sessioneDraft;
+        const src = prev ??
+          (draft
+            ? {
+                numeroFattura: draft.numeroFattura,
+                dataDocumento: draft.dataDocumento,
+                destinatario: draft.destinatario,
+                righe: draft.righe,
+                noteDocumento: draft.noteDocumento,
+                piano: draft.piano,
+                invioEmail: draft.emails[0] ?? "",
+                intenzione: "bozza" as const,
+              }
+            : null);
+        if (!src) {
+          setError("Nessuna fattura in sessione.");
+          setLoading(false);
+          return;
+        }
+        setCliente(draft?.cliente ?? null);
+        setDestinatario(src.destinatario);
+        setNumero(src.numeroFattura);
+        setDataDocumento(src.dataDocumento);
+        setRighe(src.righe);
+        setNoteDocumento(src.noteDocumento);
+        setFatturaId(null);
+        setPiano(pianoIniziale ?? src.piano);
+        const mails = draft?.emails ?? [];
+        setEmails(mails);
+        setEmailSel(src.invioEmail || mails[0] || "");
+        setInviaEmail(Boolean(src.invioEmail || mails[0]));
+        setLoading(false);
+        return;
+      }
+      if (!ordineId) {
+        setError("Ordine non indicato.");
+        setLoading(false);
+        return;
+      }
+      const ctx = await getFatturaA4ContextAction({ ordineId });
       if (cancelled) return;
       if (!ctx.success) {
         setError(ctx.error);
@@ -146,16 +211,14 @@ export function FatturaA4Modal({
       setEmails(ctx.emails);
       setEmailSel(ctx.emails[0] ?? "");
       setInviaEmail(ctx.emails.length > 0);
-      if (comm.success) {
-        setCommerciali(comm.items);
-        setCommerciale(comm.items[0] ?? null);
-      }
       setLoading(false);
     })();
     return () => {
       cancelled = true;
     };
-  }, [ordineId, pianoIniziale]);
+    // sessioneDraft solo come fallback al primo open; la fonte è sessionStorage
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ordineId, soloSessione]);
 
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
@@ -198,12 +261,45 @@ export function FatturaA4Modal({
     const email = inviaEmail
       ? (emailNuova.trim() || emailSel).toLowerCase()
       : "";
-    if (inviaEmail && !email.includes("@")) {
+    if (!soloSessione && inviaEmail && !email.includes("@")) {
       setError("Seleziona o aggiungi l’email a cui inviare la fattura.");
       return;
     }
     setSaving(true);
     setError(null);
+    if (soloSessione) {
+      const prev = loadOrdineSessione();
+      if (!prev) {
+        setSaving(false);
+        setError("Nessun ordine in sessione. Salva prima l’ordine.");
+        return;
+      }
+      const fattura: OrdineSessioneFattura = {
+        numeroFattura: numero,
+        dataDocumento,
+        destinatario,
+        righe,
+        noteDocumento,
+        piano,
+        invioEmail: email,
+        intenzione: inviaOra ? "inviata-prova" : "salvata",
+      };
+      saveOrdineSessione({ ordine: prev.ordine, fattura });
+      setSaving(false);
+      setConfirmOpen(false);
+      setMsg(
+        inviaOra
+          ? `Fattura ${numero} registrata in sessione (invio di prova: nessuna email e nessuno SDI).`
+          : `Fattura ${numero} salvata in sessione. Nessun dato sul server.`
+      );
+      onSaved?.({ fatturaId: prev.ordine.id, inviata: false });
+      return;
+    }
+    if (!ordineId) {
+      setSaving(false);
+      setError("Ordine non indicato.");
+      return;
+    }
     const res = await saveFatturaDaOrdineAction({
       ordineId,
       fatturaId,
@@ -283,6 +379,7 @@ export function FatturaA4Modal({
       <div className="mx-auto mb-4 flex max-w-[210mm] items-center justify-between gap-3 print:hidden">
         <h2 id={titleId} className="text-sm font-semibold text-white">
           Fattura da ordine
+          {soloSessione ? " · sessione" : ""}
         </h2>
         <div className="flex flex-wrap justify-end gap-2">
           <button
@@ -296,10 +393,10 @@ export function FatturaA4Modal({
           <button
             type="button"
             onClick={() => setConfirmOpen(true)}
-            disabled={saving || loading || !cliente}
+            disabled={saving || loading || !destinatario}
             className="rounded-lg bg-[var(--primary)] px-3 py-1.5 text-sm font-medium text-white disabled:opacity-50"
           >
-            Salva fattura
+            {soloSessione ? "Salva in sessione" : "Salva fattura"}
           </button>
         </div>
       </div>
@@ -312,6 +409,11 @@ export function FatturaA4Modal({
       {error ? (
         <p className="mx-auto mb-3 max-w-[210mm] rounded border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700 print:hidden">
           {error}
+        </p>
+      ) : null}
+      {soloSessione && !msg ? (
+        <p className="mx-auto mb-3 max-w-[210mm] rounded border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-950 print:hidden">
+          Salvataggio solo in sessione: niente database, email o SDI.
         </p>
       ) : null}
       {loading ? (
@@ -801,9 +903,9 @@ export function FatturaA4Modal({
           <div className="w-full max-w-md rounded-xl bg-white p-5 shadow-xl">
             <h3 className="text-base font-semibold">Invio fattura</h3>
             <p className="mt-1 text-sm text-[var(--muted)]">
-              La fattura viene sempre salvata come documento proprio (anche se
-              diversa dall’ordine). Scegli se inviarla subito (email + SDI) o
-              dopo.
+              {soloSessione
+                ? "Per ora la fattura resta solo in sessione: niente database, email o SDI. Ti dirò io quando salvare in modo definitivo."
+                : "La fattura viene sempre salvata come documento proprio (anche se diversa dall’ordine). Scegli se inviarla subito (email + SDI) o dopo."}
             </p>
             <label className="mt-4 flex items-center gap-2 text-sm">
               <input
@@ -864,7 +966,11 @@ export function FatturaA4Modal({
                 onClick={() => void persist(false)}
                 className="rounded-lg border border-[var(--border)] px-3 py-1.5 text-sm"
               >
-                {saving ? "Salvataggio…" : "Salva, invia dopo"}
+                {saving
+                  ? "Salvataggio…"
+                  : soloSessione
+                    ? "Salva in sessione"
+                    : "Salva, invia dopo"}
               </button>
               <button
                 type="button"
@@ -872,7 +978,11 @@ export function FatturaA4Modal({
                 onClick={() => void persist(true)}
                 className="rounded-lg bg-[var(--primary)] px-3 py-1.5 text-sm font-medium text-white"
               >
-                {saving ? "Invio…" : "Salva e invia subito"}
+                {saving
+                  ? "Invio…"
+                  : soloSessione
+                    ? "Simula invio (sessione)"
+                    : "Salva e invia subito"}
               </button>
             </div>
           </div>
