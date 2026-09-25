@@ -57,8 +57,10 @@ export function AnagraficaDocumentiPanel({
   const [webmailMessaggioId, setWebmailMessaggioId] = useState("");
   const [collegamentoEtichetta, setCollegamentoEtichetta] = useState("");
   const [collegamentoUrl, setCollegamentoUrl] = useState("");
+  const [formAperto, setFormAperto] = useState(false);
 
   function resetForm() {
+    setTipo("contratto");
     setTitolo("");
     setNote("");
     setFile(null);
@@ -73,6 +75,12 @@ export function AnagraficaDocumentiPanel({
     setWebmailMessaggioId("");
     setCollegamentoEtichetta("");
     setCollegamentoUrl("");
+  }
+
+  function chiudiForm() {
+    resetForm();
+    setFormAperto(false);
+    setError(null);
   }
 
   function cercaMail(query = mailQuery) {
@@ -93,10 +101,10 @@ export function AnagraficaDocumentiPanel({
   }
 
   useEffect(() => {
-    if (ricevutoVia !== "mail") return;
+    if (!formAperto || ricevutoVia !== "mail") return;
     cercaMail("");
     // eslint-disable-next-line react-hooks/exhaustive-deps -- avvio come in timeline
-  }, [ricevutoVia, clienteId]);
+  }, [formAperto, ricevutoVia, clienteId]);
 
   function reload() {
     void listAnagraficaDocumentiAction(clienteId).then((res) => {
@@ -116,9 +124,38 @@ export function AnagraficaDocumentiPanel({
     reload();
   }, [clienteId, itemsProp]);
 
+  useEffect(() => {
+    setFormAperto(false);
+    resetForm();
+  }, [clienteId]);
+
   return (
     <AnagraficaSchedaSection title="Documenti" tone="documenti">
       {canEdit ? (
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <button
+            type="button"
+            onClick={() => {
+              if (formAperto) {
+                chiudiForm();
+                return;
+              }
+              setError(null);
+              setFormAperto(true);
+            }}
+            className="rounded-md bg-indigo-700 px-3 py-1.5 text-xs font-medium text-white hover:bg-indigo-800"
+          >
+            {formAperto ? "Chiudi caricamento" : "Carica nuovo documento"}
+          </button>
+          <span className="text-[11px] text-slate-600">
+            {items.length === 0
+              ? "Nessun documento in elenco"
+              : `${items.length} document${items.length === 1 ? "o" : "i"} in elenco`}
+          </span>
+        </div>
+      ) : null}
+
+      {canEdit && formAperto ? (
         <form
           className="grid gap-2 rounded-lg border border-white/70 bg-white p-3 sm:grid-cols-2"
           onSubmit={(e) => {
@@ -145,7 +182,7 @@ export function AnagraficaDocumentiPanel({
                 setError(res.error);
                 return;
               }
-              resetForm();
+              chiudiForm();
               reload();
               onChanged?.();
             });
@@ -428,13 +465,21 @@ export function AnagraficaDocumentiPanel({
               className="w-full rounded-md border border-[var(--border)] px-2 py-1.5 text-sm"
             />
           </label>
-          <div className="sm:col-span-2">
+          <div className="flex flex-wrap gap-2 sm:col-span-2">
             <button
               type="submit"
               disabled={pending}
               className="rounded-md bg-indigo-700 px-3 py-1.5 text-xs font-medium text-white disabled:opacity-50"
             >
               Carica documento
+            </button>
+            <button
+              type="button"
+              disabled={pending}
+              onClick={chiudiForm}
+              className="rounded-md border border-[var(--border)] bg-white px-3 py-1.5 text-xs"
+            >
+              Annulla
             </button>
           </div>
         </form>
