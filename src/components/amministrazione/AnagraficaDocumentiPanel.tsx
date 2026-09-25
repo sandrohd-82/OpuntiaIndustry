@@ -7,6 +7,7 @@ import {
   searchMailPerDocumentoClienteAction,
   softDeleteAnagraficaDocumentoAction,
   uploadAnagraficaDocumentoAction,
+  type DocumentoClienteMailHint,
   type DocumentoClienteMailHit,
 } from "@/app/actions/anagrafica-documenti";
 import {
@@ -49,6 +50,8 @@ export function AnagraficaDocumentiPanel({
     useState<AnagraficaDocumentoOrigine>("non_specificato");
   const [mailQuery, setMailQuery] = useState("");
   const [mailHits, setMailHits] = useState<DocumentoClienteMailHit[]>([]);
+  const [mailHints, setMailHints] = useState<DocumentoClienteMailHint[]>([]);
+  const [mailDomains, setMailDomains] = useState<string[]>([]);
   const [mailSearchable, setMailSearchable] = useState(true);
   const [mailSearched, setMailSearched] = useState(false);
   const [webmailMessaggioId, setWebmailMessaggioId] = useState("");
@@ -64,18 +67,17 @@ export function AnagraficaDocumentiPanel({
     setRicevutoVia("non_specificato");
     setMailQuery("");
     setMailHits([]);
+    setMailHints([]);
+    setMailDomains([]);
     setMailSearched(false);
     setWebmailMessaggioId("");
     setCollegamentoEtichetta("");
     setCollegamentoUrl("");
   }
 
-  function cercaMail() {
+  function cercaMail(query = mailQuery) {
     start(async () => {
-      const res = await searchMailPerDocumentoClienteAction(
-        clienteId,
-        mailQuery
-      );
+      const res = await searchMailPerDocumentoClienteAction(clienteId, query);
       if (!res.success) {
         setError(res.error);
         setMailSearchable(false);
@@ -84,9 +86,17 @@ export function AnagraficaDocumentiPanel({
       setError(null);
       setMailSearchable(res.searchable);
       setMailHits(res.items);
+      setMailHints(res.hints);
+      setMailDomains(res.domains);
       setMailSearched(true);
     });
   }
+
+  useEffect(() => {
+    if (ricevutoVia !== "mail") return;
+    cercaMail("");
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- avvio come in timeline
+  }, [ricevutoVia, clienteId]);
 
   function reload() {
     void listAnagraficaDocumentiAction(clienteId).then((res) => {
@@ -254,38 +264,88 @@ export function AnagraficaDocumentiPanel({
           {ricevutoVia === "mail" ? (
             <div className="space-y-2 rounded-md border border-indigo-100 bg-indigo-50/40 p-2 sm:col-span-2">
               <p className="text-[11px] text-slate-600">
-                Puoi collegare la mail da cui è arrivato il documento, oppure
-                scrivere solo oggetto o riferimento.
+                Ricerca come in timeline: indirizzi della scheda, referenti e
+                dominio, in tutte le caselle aziendali. Puoi anche scrivere solo
+                un riferimento.
               </p>
+              {mailHints.length > 0 || mailDomains.length > 0 ? (
+                <div className="flex flex-wrap gap-1.5">
+                  {mailHints.map((h) => (
+                    <button
+                      key={`${h.email}-${h.source}`}
+                      type="button"
+                      onClick={() => {
+                        setMailQuery(h.email);
+                        cercaMail(h.email);
+                      }}
+                      className="rounded-full border border-indigo-200 bg-white px-2 py-0.5 text-[11px] text-indigo-950 hover:bg-indigo-100"
+                      title={h.source}
+                    >
+                      {h.email}
+                    </button>
+                  ))}
+                  {mailDomains.map((d) => (
+                    <button
+                      key={d}
+                      type="button"
+                      onClick={() => {
+                        setMailQuery(`@${d}`);
+                        cercaMail(`@${d}`);
+                      }}
+                      className="rounded-full border border-violet-200 bg-violet-50 px-2 py-0.5 text-[11px] text-violet-900"
+                    >
+                      @{d}
+                    </button>
+                  ))}
+                </div>
+              ) : null}
               <div className="flex flex-wrap gap-2">
                 <input
                   value={mailQuery}
                   onChange={(e) => setMailQuery(e.target.value)}
-                  placeholder="Cerca oggetto o mittente"
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") {
+                      e.preventDefault();
+                      cercaMail(mailQuery);
+                    }
+                  }}
+                  placeholder="Cerca indirizzo, oggetto o mittente…"
                   className="min-w-[12rem] flex-1 rounded-md border border-[var(--border)] bg-white px-2 py-1.5 text-sm"
                 />
                 <button
                   type="button"
                   disabled={pending}
-                  onClick={cercaMail}
+                  onClick={() => cercaMail(mailQuery)}
                   className="rounded-md bg-indigo-700 px-3 py-1.5 text-xs font-medium text-white disabled:opacity-50"
                 >
-                  Cerca mail
+                  {pending ? "Cerco…" : "Cerca"}
+                </button>
+                <button
+                  type="button"
+                  disabled={pending}
+                  onClick={() => {
+                    setMailQuery("");
+                    cercaMail("");
+                  }}
+                  className="rounded-md border border-[var(--border)] bg-white px-3 py-1.5 text-xs"
+                >
+                  Suggerite
                 </button>
               </div>
               {!mailSearchable ? (
                 <p className="text-[11px] text-amber-900">
-                  La ricerca in webmail non è disponibile per questo utente:
-                  indica comunque un riferimento testuale.
+                  Ricerca webmail non disponibile: indica comunque un
+                  riferimento testuale.
                 </p>
               ) : null}
               {mailSearched && mailHits.length === 0 && mailSearchable ? (
                 <p className="text-[11px] text-slate-600">
-                  Nessuna mail trovata. Puoi comunque scrivere il riferimento.
+                  Nessuna mail trovata nelle caselle aziendali. Puoi comunque
+                  scrivere il riferimento.
                 </p>
               ) : null}
               {mailHits.length > 0 ? (
-                <ul className="max-h-40 space-y-1 overflow-auto">
+                <ul className="max-h-56 space-y-1 overflow-auto">
                   {mailHits.map((hit) => (
                     <li key={hit.id}>
                       <button
@@ -303,11 +363,17 @@ export function AnagraficaDocumentiPanel({
                         }`}
                       >
                         <span className="block font-medium">{hit.subject}</span>
-                        <span className="text-slate-600">
+                        <span className="block text-slate-600">
+                          {hit.fromName ? `${hit.fromName} · ` : ""}
                           {hit.fromAddress}
                           {hit.receivedAt
                             ? ` · ${formatAnagraficaIsoDate(hit.receivedAt)}`
                             : ""}
+                          {hit.direction === "outbound" ? " · inviata" : ""}
+                        </span>
+                        <span className="block text-[10px] text-indigo-900">
+                          {hit.casella}
+                          {hit.matchReason ? ` · ${hit.matchReason}` : ""}
                         </span>
                       </button>
                     </li>

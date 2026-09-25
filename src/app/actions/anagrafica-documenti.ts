@@ -21,9 +21,9 @@ import {
   type ClienteSchedaFatturaSlim,
   type ClienteSchedaOrdineSlim,
 } from "@/lib/amministrazione/anagrafica-documenti";
+import { collectAziendaEmailHints } from "@/app/actions/azienda-timeline";
 import { labelStatoOrdine } from "@/lib/amministrazione/ordini";
-import { createClient } from "@/lib/supabase/server";
-import { resolveWebmailAccountVisibility } from "@/lib/webmail/account-access";
+import { createClient, createServiceClient } from "@/lib/supabase/server";
 import type { OrdineStato } from "@/types/database";
 import { z } from "zod";
 
@@ -216,8 +216,8 @@ export async function uploadAnagraficaDocumentoAction(
       ? parsed.data.webmailMessaggioId
       : "";
   if (webmailId) {
-    const supabaseCheck = await createClient();
-    const { data: mail } = await supabaseCheck
+    const service = createServiceClient();
+    const { data: mail } = await service
       .from("webmail_messaggi")
       .select("id")
       .eq("id", webmailId)
@@ -310,12 +310,37 @@ export async function uploadAnagraficaDocumentoAction(
   return { success: true, item: mapDoc(data as DocRow, urls.get(path) ?? null) };
 }
 
+export type DocumentoClienteMailHint = {
+  email: string;
+  source: string;
+};
+
 export type DocumentoClienteMailHit = {
   id: string;
   subject: string;
   fromAddress: string;
+  fromName: string;
   receivedAt: string | null;
+  matchReason: string;
+  casella: string;
+  direction: "inbound" | "outbound";
 };
+
+function sanitizeMailToken(raw: string): string {
+  return raw
+    .trim()
+    .toLowerCase()
+    .replace(/[{}",()%_\\*]/g, "")
+    .slice(0, 120);
+}
+
+function pushMailAddrParts(orParts: string[], addr: string) {
+  const clean = sanitizeMailToken(addr);
+  if (!clean) return;
+  orParts.push(`from_address.ilike.%${clean}%`);
+  orParts.push(`to_addresses.cs.{"${clean}"}`);
+  orParts.push(`cc_addresses.cs.{"${clean}"}`);
+}
 
 export async function searchMailPerDocumentoClienteAction(
   clienteId: string,
@@ -325,56 +350,115 @@ export async function searchMailPerDocumentoClienteAction(
       success: true;
       items: DocumentoClienteMailHit[];
       searchable: boolean;
+      hints: DocumentoClienteMailHint[];
+      domains: string[];
     }
   | { success: false; error: string }
 > {
-  const { auth } = await requireAnyAreaAccess([
-    "amministrazione",
-    "commerciale",
-  ]);
+  await requireAnyAreaAccess(["amministrazione", "commerciale"]);
   const gate = await assertClienteVisibile(clienteId);
   if (!gate.ok) return { success: false, error: gate.error };
 
-  const vis = await resolveWebmailAccountVisibility(auth);
-  if (vis.mode === "granted" && vis.ids.length === 0) {
-    return { success: true, items: [], searchable: false };
-  }
+  const hints = await collectAziendaEmailHints("cliente", clienteId);
+  const q = sanitizeMailToken(String(query ?? ""));
+  const orParts: string[] = [];
 
-  const q = String(query ?? "")
-    .replace(/[%_,.*()\\]/g, " ")
-    .replace(/\s+/g, " ")
-    .trim()
-    .slice(0, 80);
-  const supabase = await createClient();
-  let mailQ = supabase
+  if (q) {
+    pushMailAddrParts(orParts, q);
+    orParts.push(`subject.ilike.%${q}%`);
+  } else {
+    for (const e of hints.emails.slice(0, 40)) {
+      pushMailAddrParts(orParts, e.email);
+    }
+    for (const d of hints.domains.slice(0, 20)) {
+      const dom = sanitizeMailToken(d);
+      if (dom.includes(".")) orParts.push(`from_address.ilike.%@${dom}%`);
+    }
+  }
+  orParts.push(`and(azienda_tipo.eq.cliente,azienda_id.eq.${clienteId})`);
+
+  const service = createServiceClient();
+  const { data, error } = await service
     .from("webmail_messaggi")
-    .select("id, subject, from_address, received_at, sent_at, direction")
+    .select(
+      "id, subject, from_address, from_name, to_addresses, direction, received_at, sent_at, azienda_tipo, azienda_id, account_id"
+    )
     .is("deleted_at", null)
     .neq("folder", "TRASH")
     .neq("folder", "JUNK")
+    .or(orParts.join(","))
     .order("received_at", { ascending: false })
-    .limit(15);
-  if (q.length >= 2) {
-    mailQ = mailQ.or(`subject.ilike.%${q}%,from_address.ilike.%${q}%`);
-  } else {
-    mailQ = mailQ.eq("azienda_tipo", "cliente").eq("azienda_id", clienteId);
-  }
-  if (vis.mode === "granted") mailQ = mailQ.in("account_id", vis.ids);
-
-  const { data, error } = await mailQ;
+    .limit(60);
   if (error) return { success: false, error: error.message };
-  return {
-    success: true,
-    searchable: true,
-    items: (data ?? []).map((r) => ({
+
+  const accountIds = [
+    ...new Set(
+      (data ?? [])
+        .map((r) => String(r.account_id ?? ""))
+        .filter(Boolean)
+    ),
+  ];
+  const caselle = new Map<string, string>();
+  if (accountIds.length > 0) {
+    const { data: accounts } = await service
+      .from("webmail_accounts")
+      .select("id, label, email_address")
+      .in("id", accountIds)
+      .is("deleted_at", null);
+    for (const a of accounts ?? []) {
+      const label = String(a.label ?? "").trim();
+      const email = String(a.email_address ?? "").trim();
+      caselle.set(String(a.id), label && email ? `${label} · ${email}` : email || label);
+    }
+  }
+
+  const emailSet = new Set(hints.emails.map((e) => e.email));
+  const domainSet = new Set(hints.domains);
+  const items: DocumentoClienteMailHit[] = (data ?? []).map((r) => {
+    const from = String(r.from_address ?? "").trim().toLowerCase();
+    const toList = Array.isArray(r.to_addresses)
+      ? (r.to_addresses as string[]).map((x) => String(x).trim().toLowerCase())
+      : [];
+    const outbound = String(r.direction ?? "") === "outbound";
+    const receivedAt =
+      (outbound
+        ? ((r.sent_at as string | null) ?? (r.received_at as string | null))
+        : ((r.received_at as string | null) ?? (r.sent_at as string | null))) ??
+      null;
+    const fromDom = from.includes("@") ? from.slice(from.lastIndexOf("@") + 1) : "";
+    let matchReason = "ricerca";
+    if (q && (from.includes(q) || toList.some((t) => t.includes(q)))) {
+      matchReason = outbound ? "destinatario cercato" : "indirizzo cercato";
+    } else if (q && String(r.subject ?? "").toLowerCase().includes(q)) {
+      matchReason = "oggetto";
+    } else if (emailSet.has(from) || toList.some((t) => emailSet.has(t))) {
+      matchReason = outbound ? "destinatario scheda" : "scheda / referente";
+    } else if (fromDom && domainSet.has(fromDom)) {
+      matchReason = `dominio @${fromDom}`;
+    } else if (
+      String(r.azienda_tipo ?? "") === "cliente" &&
+      String(r.azienda_id ?? "") === clienteId
+    ) {
+      matchReason = "già collegata all’azienda";
+    }
+    return {
       id: String(r.id),
       subject: String(r.subject ?? "(senza oggetto)"),
       fromAddress: String(r.from_address ?? ""),
-      receivedAt:
-        String(r.direction ?? "") === "outbound"
-          ? ((r.sent_at as string | null) ?? (r.received_at as string | null))
-          : ((r.received_at as string | null) ?? (r.sent_at as string | null)),
-    })),
+      fromName: String(r.from_name ?? ""),
+      receivedAt,
+      matchReason,
+      casella: caselle.get(String(r.account_id ?? "")) ?? "Casella aziendale",
+      direction: outbound ? "outbound" : "inbound",
+    };
+  });
+
+  return {
+    success: true,
+    searchable: true,
+    items,
+    hints: hints.emails,
+    domains: hints.domains,
   };
 }
 

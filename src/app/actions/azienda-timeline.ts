@@ -160,7 +160,7 @@ const CONSUMER_DOMAINS = new Set([
   "register.it",
 ]);
 
-async function collectAziendaEmailHints(
+export async function collectAziendaEmailHints(
   aziendaTipo: "cliente" | "fornitore" | "cliente_possibile",
   aziendaId: string
 ): Promise<{
