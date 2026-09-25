@@ -5,6 +5,7 @@ import {
   FaArrowsRotate,
   FaChevronDown,
   FaChevronUp,
+  FaAddressCard,
   FaClockRotateLeft,
   FaFilePdf,
   FaMagnifyingGlass,
@@ -22,6 +23,7 @@ import {
   type ClienteCancellazionePrenotata,
 } from "@/app/actions/clienti";
 import { AnagraficaSchedaDetail } from "@/components/amministrazione/AnagraficaSchedaDetail";
+import { ClienteSchedaCompletaModal } from "@/components/amministrazione/ClienteSchedaCompletaModal";
 import {
   ActionGate,
   useActionAccess,
@@ -62,6 +64,7 @@ function ClienteRow({
   cliente,
   onEdit,
   onTimeline,
+  onSchedaCompleta,
   prodottiByCode,
   selectMode,
   selected,
@@ -72,6 +75,7 @@ function ClienteRow({
   cliente: Cliente;
   onEdit: (cliente: Cliente) => void;
   onTimeline: (cliente: Cliente) => void;
+  onSchedaCompleta: (cliente: Cliente) => void;
   prodottiByCode: Map<string, ProdottoProprio>;
   selectMode: boolean;
   selected: boolean;
@@ -170,6 +174,15 @@ function ClienteRow({
         </td>
         <td className="px-4 py-3 text-right">
           <div className="inline-flex items-center gap-1">
+            <button
+              type="button"
+              onClick={() => onSchedaCompleta(cliente)}
+              className="inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-xs font-medium text-indigo-800 hover:bg-indigo-50"
+              title="Scheda completa"
+            >
+              <FaAddressCard size={11} />
+              Scheda completa
+            </button>
             {canTimeline ? (
             <button
               type="button"
@@ -207,7 +220,15 @@ function ClienteRow({
         <tr className="border-t border-[var(--border)] bg-slate-50/70">
           <td colSpan={9} className="px-4 py-4">
             {canOpenScheda ? (
-            <div className="mb-3 flex justify-end">
+            <div className="mb-3 flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => onSchedaCompleta(cliente)}
+                className="inline-flex items-center gap-1.5 rounded-lg border border-indigo-200 bg-white px-3 py-1.5 text-xs font-medium text-indigo-800 hover:bg-indigo-50"
+              >
+                <FaAddressCard size={11} />
+                Scheda completa
+              </button>
               <button
                 type="button"
                 onClick={() => onEdit(cliente)}
@@ -220,6 +241,7 @@ function ClienteRow({
             ) : null}
             <AnagraficaSchedaDetail
               prodottiByCode={prodottiByCode}
+              canEditDocumenti={canEdit}
               model={{
                 id: cliente.id,
                 kind: "cliente",
@@ -266,6 +288,7 @@ export function ClientiBoard() {
   const [creating, setCreating] = useState(false);
   const [editing, setEditing] = useState<Cliente | null>(null);
   const [timelineFor, setTimelineFor] = useState<Cliente | null>(null);
+  const [schedaCompleta, setSchedaCompleta] = useState<Cliente | null>(null);
   const [deleting, setDeleting] = useState<Cliente | null>(null);
   const [confirmingCanc, setConfirmingCanc] = useState<Cliente | null>(null);
   const [pendingCanc, setPendingCanc] = useState<
@@ -679,6 +702,7 @@ export function ClientiBoard() {
                     setEditing(item);
                   }}
                   onTimeline={(item) => setTimelineFor(item)}
+                  onSchedaCompleta={(item) => setSchedaCompleta(item)}
                   lineageIds={lineageIds}
                   isSuperAdmin={bypassPrivileges}
                 />
@@ -768,6 +792,15 @@ export function ClientiBoard() {
           aziendaId={timelineFor.id}
           aziendaLabel={timelineFor.ragioneSociale}
           onClose={() => setTimelineFor(null)}
+        />
+      ) : null}
+
+      {schedaCompleta ? (
+        <ClienteSchedaCompletaModal
+          cliente={schedaCompleta}
+          prodottiByCode={prodottiByCode}
+          lineageIds={lineageIds}
+          onClose={() => setSchedaCompleta(null)}
         />
       ) : null}
 

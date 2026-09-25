@@ -10,6 +10,9 @@ export const ANAGRAFICA_SECTION_TONE = {
   referenti: "border-cyan-200 bg-cyan-50/70",
   prodotti: "border-orange-200 bg-orange-50/70",
   schede: "border-lime-200 bg-lime-50/70",
+  documenti: "border-indigo-200 bg-indigo-50/70",
+  ordini: "border-blue-200 bg-blue-50/70",
+  fatture: "border-rose-200 bg-rose-50/70",
   note: "border-stone-200 bg-stone-50",
 } as const;
 
@@ -22,6 +25,9 @@ export const ANAGRAFICA_SECTION_HEAD = {
   referenti: "bg-cyan-200/80 text-cyan-950",
   prodotti: "bg-orange-200/80 text-orange-950",
   schede: "bg-lime-200/80 text-lime-950",
+  documenti: "bg-indigo-200/80 text-indigo-950",
+  ordini: "bg-blue-200/80 text-blue-950",
+  fatture: "bg-rose-200/80 text-rose-950",
   note: "bg-stone-200/80 text-stone-900",
 } as const;
 

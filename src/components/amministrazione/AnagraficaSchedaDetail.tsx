@@ -23,6 +23,7 @@ import type { ConsegnaAltraAzienda, SedeCliente } from "@/lib/amministrazione/cl
 import type { ProdottoProprio } from "@/lib/amministrazione/prodotti-propri";
 import type { ClientePossibileTrattativa } from "@/lib/promemorie-e-note/trattativa";
 import { displayContattoName, type RubricaContatto } from "@/lib/rubrica/types";
+import { AnagraficaDocumentiPanel } from "@/components/amministrazione/AnagraficaDocumentiPanel";
 import {
   ANAGRAFICA_SEDE_TONE,
   AnagraficaSchedaSection,
@@ -125,9 +126,13 @@ function Field({
 export function AnagraficaSchedaDetail({
   model,
   prodottiByCode,
+  canEditDocumenti = false,
+  hideDocumenti = false,
 }: {
   model: AnagraficaSchedaDetailModel;
   prodottiByCode: Map<string, ProdottoProprio>;
+  canEditDocumenti?: boolean;
+  hideDocumenti?: boolean;
 }) {
   const [referenti, setReferenti] = useState<RubricaContatto[]>([]);
   const [sediExtra, setSediExtra] = useState<AnagraficaSede[]>([]);
@@ -444,6 +449,13 @@ export function AnagraficaSchedaDetail({
           </ul>
         )}
       </AnagraficaSchedaSection>
+
+      {!hideDocumenti && model.kind === "cliente" ? (
+        <AnagraficaDocumentiPanel
+          clienteId={model.id}
+          canEdit={canEditDocumenti}
+        />
+      ) : null}
 
       {model.noteInterne ? (
         <AnagraficaSchedaSection title="Note interne" tone="note">
