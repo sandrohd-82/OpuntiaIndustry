@@ -93,6 +93,24 @@ export function extFromMime(mime: string): string {
   }
 }
 
+export const ANAGRAFICA_DOCUMENTO_ORIGINI = [
+  "non_specificato",
+  "mail",
+  "altro",
+] as const;
+
+export type AnagraficaDocumentoOrigine =
+  (typeof ANAGRAFICA_DOCUMENTO_ORIGINI)[number];
+
+export const ANAGRAFICA_DOCUMENTO_ORIGINE_LABEL: Record<
+  AnagraficaDocumentoOrigine,
+  string
+> = {
+  non_specificato: "Non specificato",
+  mail: "Ricevuto via mail",
+  altro: "Altro",
+};
+
 export type AnagraficaDocumento = {
   id: string;
   clienteId: string;
@@ -105,6 +123,12 @@ export type AnagraficaDocumento = {
   fileSize: number;
   versione: number;
   documentoStato: AnagraficaDocumentoStato;
+  dataDocumento: string | null;
+  dataScadenza: string | null;
+  ricevutoVia: AnagraficaDocumentoOrigine;
+  webmailMessaggioId: string | null;
+  collegamentoEtichetta: string;
+  collegamentoUrl: string;
   approvedBy: string | null;
   approvedAt: string | null;
   createdBy: string | null;
@@ -130,9 +154,61 @@ export type ClienteSchedaFatturaSlim = {
   tipoDocumento: string;
 };
 
-export const anagraficaDocumentoMetaSchema = z.object({
-  clienteId: z.string().uuid(),
-  tipo: z.enum(ANAGRAFICA_DOCUMENTO_TIPI),
-  titolo: z.string().trim().min(2).max(200),
-  note: z.string().trim().max(2000).optional().default(""),
-});
+const optionalIsoDate = z
+  .string()
+  .trim()
+  .max(10)
+  .optional()
+  .default("")
+  .refine((v) => !v || /^\d{4}-\d{2}-\d{2}$/.test(v), "Data non valida.");
+
+export const anagraficaDocumentoMetaSchema = z
+  .object({
+    clienteId: z.string().uuid(),
+    tipo: z.enum(ANAGRAFICA_DOCUMENTO_TIPI),
+    titolo: z.string().trim().min(2).max(200),
+    note: z.string().trim().max(2000).optional().default(""),
+    dataDocumento: optionalIsoDate,
+    dataScadenza: optionalIsoDate,
+    ricevutoVia: z
+      .enum(ANAGRAFICA_DOCUMENTO_ORIGINI)
+      .optional()
+      .default("non_specificato"),
+    webmailMessaggioId: z
+      .string()
+      .trim()
+      .optional()
+      .default("")
+      .refine(
+        (v) => !v || z.string().uuid().safeParse(v).success,
+        "Mail collegata non valida."
+      ),
+    collegamentoEtichetta: z.string().trim().max(300).optional().default(""),
+    collegamentoUrl: z.string().trim().max(500).optional().default(""),
+  })
+  .refine(
+    (v) =>
+      !v.dataDocumento ||
+      !v.dataScadenza ||
+      v.dataScadenza >= v.dataDocumento,
+    { message: "La scadenza non può precedere la data del documento.", path: ["dataScadenza"] }
+  );
+
+export function optionalDateOrNull(value: string | undefined): string | null {
+  const v = String(value ?? "").trim();
+  return /^\d{4}-\d{2}-\d{2}$/.test(v) ? v : null;
+}
+
+export function formatAnagraficaIsoDate(iso: string | null | undefined): string {
+  const v = String(iso ?? "").slice(0, 10);
+  const [y, m, d] = v.split("-");
+  return y && m && d ? `${d}/${m}/${y}` : "";
+}
+
+export function isAnagraficaScadenzaPassata(iso: string | null | undefined): boolean {
+  const v = String(iso ?? "").slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(v)) return false;
+  const today = new Date();
+  const ymd = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`;
+  return v < ymd;
+}

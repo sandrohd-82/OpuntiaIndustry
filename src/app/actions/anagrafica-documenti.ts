@@ -10,9 +10,12 @@ import {
   ANAGRAFICA_DOCUMENTO_STATI,
   ANAGRAFICA_DOCUMENTO_TIPI,
   anagraficaDocumentoMetaSchema,
+  ANAGRAFICA_DOCUMENTO_ORIGINI,
   extFromMime,
   mimeFromFileName,
+  optionalDateOrNull,
   type AnagraficaDocumento,
+  type AnagraficaDocumentoOrigine,
   type AnagraficaDocumentoStato,
   type AnagraficaDocumentoTipo,
   type ClienteSchedaFatturaSlim,
@@ -20,11 +23,12 @@ import {
 } from "@/lib/amministrazione/anagrafica-documenti";
 import { labelStatoOrdine } from "@/lib/amministrazione/ordini";
 import { createClient } from "@/lib/supabase/server";
+import { resolveWebmailAccountVisibility } from "@/lib/webmail/account-access";
 import type { OrdineStato } from "@/types/database";
 import { z } from "zod";
 
 const DOC_COLS =
-  "id, cliente_id, tipo, titolo, note, storage_path, file_name, mime, file_size, versione, documento_stato, approved_by, approved_at, created_by, created_at";
+  "id, cliente_id, tipo, titolo, note, storage_path, file_name, mime, file_size, versione, documento_stato, data_documento, data_scadenza, ricevuto_via, webmail_messaggio_id, collegamento_etichetta, collegamento_url, approved_by, approved_at, created_by, created_at";
 
 type DocRow = {
   id: string;
@@ -38,6 +42,12 @@ type DocRow = {
   file_size: number;
   versione: number;
   documento_stato: string;
+  data_documento: string | null;
+  data_scadenza: string | null;
+  ricevuto_via: string;
+  webmail_messaggio_id: string | null;
+  collegamento_etichetta: string;
+  collegamento_url: string;
   approved_by: string | null;
   approved_at: string | null;
   created_by: string | null;
@@ -56,6 +66,12 @@ function asStato(v: string): AnagraficaDocumentoStato {
     : "bozza";
 }
 
+function asOrigine(v: string): AnagraficaDocumentoOrigine {
+  return (ANAGRAFICA_DOCUMENTO_ORIGINI as readonly string[]).includes(v)
+    ? (v as AnagraficaDocumentoOrigine)
+    : "non_specificato";
+}
+
 function mapDoc(row: DocRow, url: string | null): AnagraficaDocumento {
   return {
     id: row.id,
@@ -69,6 +85,12 @@ function mapDoc(row: DocRow, url: string | null): AnagraficaDocumento {
     fileSize: Number(row.file_size ?? 0),
     versione: Number(row.versione ?? 1),
     documentoStato: asStato(row.documento_stato),
+    dataDocumento: row.data_documento ? String(row.data_documento).slice(0, 10) : null,
+    dataScadenza: row.data_scadenza ? String(row.data_scadenza).slice(0, 10) : null,
+    ricevutoVia: asOrigine(row.ricevuto_via),
+    webmailMessaggioId: row.webmail_messaggio_id,
+    collegamentoEtichetta: row.collegamento_etichetta ?? "",
+    collegamentoUrl: row.collegamento_url ?? "",
     approvedBy: row.approved_by,
     approvedAt: row.approved_at,
     createdBy: row.created_by,
@@ -172,6 +194,12 @@ export async function uploadAnagraficaDocumentoAction(
     tipo: String(formData.get("tipo") ?? ""),
     titolo: String(formData.get("titolo") ?? ""),
     note: String(formData.get("note") ?? ""),
+    dataDocumento: String(formData.get("dataDocumento") ?? ""),
+    dataScadenza: String(formData.get("dataScadenza") ?? ""),
+    ricevutoVia: String(formData.get("ricevutoVia") ?? "non_specificato"),
+    webmailMessaggioId: String(formData.get("webmailMessaggioId") ?? ""),
+    collegamentoEtichetta: String(formData.get("collegamentoEtichetta") ?? ""),
+    collegamentoUrl: String(formData.get("collegamentoUrl") ?? ""),
   });
   if (!parsed.success) {
     return {
@@ -181,6 +209,28 @@ export async function uploadAnagraficaDocumentoAction(
   }
   const gate = await assertClienteVisibile(parsed.data.clienteId);
   if (!gate.ok) return { success: false, error: gate.error };
+
+  const ricevutoVia = parsed.data.ricevutoVia;
+  const webmailId =
+    ricevutoVia === "mail" && parsed.data.webmailMessaggioId
+      ? parsed.data.webmailMessaggioId
+      : "";
+  if (webmailId) {
+    const supabaseCheck = await createClient();
+    const { data: mail } = await supabaseCheck
+      .from("webmail_messaggi")
+      .select("id")
+      .eq("id", webmailId)
+      .is("deleted_at", null)
+      .maybeSingle();
+    if (!mail) {
+      return {
+        success: false,
+        error:
+          "Mail non trovata. Puoi lasciare solo l’oggetto o il riferimento testuale.",
+      };
+    }
+  }
 
   const file = formData.get("file");
   if (!(file instanceof File) || file.size === 0) {
@@ -213,6 +263,15 @@ export async function uploadAnagraficaDocumentoAction(
       tipo: parsed.data.tipo,
       titolo: parsed.data.titolo,
       note: parsed.data.note,
+      data_documento: optionalDateOrNull(parsed.data.dataDocumento),
+      data_scadenza: optionalDateOrNull(parsed.data.dataScadenza),
+      ricevuto_via: ricevutoVia,
+      webmail_messaggio_id: webmailId || null,
+      collegamento_etichetta:
+        ricevutoVia === "non_specificato"
+          ? ""
+          : parsed.data.collegamentoEtichetta,
+      collegamento_url: ricevutoVia === "altro" ? parsed.data.collegamentoUrl : "",
       storage_path: path,
       file_name: file.name,
       mime,
@@ -241,10 +300,82 @@ export async function uploadAnagraficaDocumentoAction(
       tipo: parsed.data.tipo,
       file_name: file.name,
       documento_stato: "bozza",
+      data_documento: optionalDateOrNull(parsed.data.dataDocumento),
+      data_scadenza: optionalDateOrNull(parsed.data.dataScadenza),
+      ricevuto_via: ricevutoVia,
+      webmail_messaggio_id: webmailId || null,
     },
   });
   const urls = await signedUrls([path]);
   return { success: true, item: mapDoc(data as DocRow, urls.get(path) ?? null) };
+}
+
+export type DocumentoClienteMailHit = {
+  id: string;
+  subject: string;
+  fromAddress: string;
+  receivedAt: string | null;
+};
+
+export async function searchMailPerDocumentoClienteAction(
+  clienteId: string,
+  query: string
+): Promise<
+  | {
+      success: true;
+      items: DocumentoClienteMailHit[];
+      searchable: boolean;
+    }
+  | { success: false; error: string }
+> {
+  const { auth } = await requireAnyAreaAccess([
+    "amministrazione",
+    "commerciale",
+  ]);
+  const gate = await assertClienteVisibile(clienteId);
+  if (!gate.ok) return { success: false, error: gate.error };
+
+  const vis = await resolveWebmailAccountVisibility(auth);
+  if (vis.mode === "granted" && vis.ids.length === 0) {
+    return { success: true, items: [], searchable: false };
+  }
+
+  const q = String(query ?? "")
+    .replace(/[%_,.*()\\]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 80);
+  const supabase = await createClient();
+  let mailQ = supabase
+    .from("webmail_messaggi")
+    .select("id, subject, from_address, received_at, sent_at, direction")
+    .is("deleted_at", null)
+    .neq("folder", "TRASH")
+    .neq("folder", "JUNK")
+    .order("received_at", { ascending: false })
+    .limit(15);
+  if (q.length >= 2) {
+    mailQ = mailQ.or(`subject.ilike.%${q}%,from_address.ilike.%${q}%`);
+  } else {
+    mailQ = mailQ.eq("azienda_tipo", "cliente").eq("azienda_id", clienteId);
+  }
+  if (vis.mode === "granted") mailQ = mailQ.in("account_id", vis.ids);
+
+  const { data, error } = await mailQ;
+  if (error) return { success: false, error: error.message };
+  return {
+    success: true,
+    searchable: true,
+    items: (data ?? []).map((r) => ({
+      id: String(r.id),
+      subject: String(r.subject ?? "(senza oggetto)"),
+      fromAddress: String(r.from_address ?? ""),
+      receivedAt:
+        String(r.direction ?? "") === "outbound"
+          ? ((r.sent_at as string | null) ?? (r.received_at as string | null))
+          : ((r.received_at as string | null) ?? (r.sent_at as string | null)),
+    })),
+  };
 }
 
 export async function approvaAnagraficaDocumentoAction(

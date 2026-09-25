@@ -4,14 +4,21 @@ import { useEffect, useState, useTransition } from "react";
 import {
   approvaAnagraficaDocumentoAction,
   listAnagraficaDocumentiAction,
+  searchMailPerDocumentoClienteAction,
   softDeleteAnagraficaDocumentoAction,
   uploadAnagraficaDocumentoAction,
+  type DocumentoClienteMailHit,
 } from "@/app/actions/anagrafica-documenti";
 import {
+  ANAGRAFICA_DOCUMENTO_ORIGINE_LABEL,
+  ANAGRAFICA_DOCUMENTO_ORIGINI,
   ANAGRAFICA_DOCUMENTO_STATO_LABEL,
   ANAGRAFICA_DOCUMENTO_TIPO_LABEL,
   ANAGRAFICA_DOCUMENTO_TIPI,
+  formatAnagraficaIsoDate,
+  isAnagraficaScadenzaPassata,
   type AnagraficaDocumento,
+  type AnagraficaDocumentoOrigine,
   type AnagraficaDocumentoTipo,
 } from "@/lib/amministrazione/anagrafica-documenti";
 import { AnagraficaSchedaSection } from "@/components/amministrazione/AnagraficaSchedaSection";
@@ -36,6 +43,50 @@ export function AnagraficaDocumentiPanel({
   const [pending, start] = useTransition();
   const [archiviaId, setArchiviaId] = useState<string | null>(null);
   const [file, setFile] = useState<File | null>(null);
+  const [dataDocumento, setDataDocumento] = useState("");
+  const [dataScadenza, setDataScadenza] = useState("");
+  const [ricevutoVia, setRicevutoVia] =
+    useState<AnagraficaDocumentoOrigine>("non_specificato");
+  const [mailQuery, setMailQuery] = useState("");
+  const [mailHits, setMailHits] = useState<DocumentoClienteMailHit[]>([]);
+  const [mailSearchable, setMailSearchable] = useState(true);
+  const [mailSearched, setMailSearched] = useState(false);
+  const [webmailMessaggioId, setWebmailMessaggioId] = useState("");
+  const [collegamentoEtichetta, setCollegamentoEtichetta] = useState("");
+  const [collegamentoUrl, setCollegamentoUrl] = useState("");
+
+  function resetForm() {
+    setTitolo("");
+    setNote("");
+    setFile(null);
+    setDataDocumento("");
+    setDataScadenza("");
+    setRicevutoVia("non_specificato");
+    setMailQuery("");
+    setMailHits([]);
+    setMailSearched(false);
+    setWebmailMessaggioId("");
+    setCollegamentoEtichetta("");
+    setCollegamentoUrl("");
+  }
+
+  function cercaMail() {
+    start(async () => {
+      const res = await searchMailPerDocumentoClienteAction(
+        clienteId,
+        mailQuery
+      );
+      if (!res.success) {
+        setError(res.error);
+        setMailSearchable(false);
+        return;
+      }
+      setError(null);
+      setMailSearchable(res.searchable);
+      setMailHits(res.items);
+      setMailSearched(true);
+    });
+  }
 
   function reload() {
     void listAnagraficaDocumentiAction(clienteId).then((res) => {
@@ -71,6 +122,12 @@ export function AnagraficaDocumentiPanel({
             fd.set("tipo", tipo);
             fd.set("titolo", titolo.trim() || file.name.replace(/\.[^.]+$/, ""));
             fd.set("note", note);
+            fd.set("dataDocumento", dataDocumento);
+            fd.set("dataScadenza", dataScadenza);
+            fd.set("ricevutoVia", ricevutoVia);
+            fd.set("webmailMessaggioId", webmailMessaggioId);
+            fd.set("collegamentoEtichetta", collegamentoEtichetta);
+            fd.set("collegamentoUrl", collegamentoUrl);
             fd.set("file", file);
             start(async () => {
               const res = await uploadAnagraficaDocumentoAction(fd);
@@ -78,9 +135,7 @@ export function AnagraficaDocumentiPanel({
                 setError(res.error);
                 return;
               }
-              setTitolo("");
-              setNote("");
-              setFile(null);
+              resetForm();
               reload();
               onChanged?.();
             });
@@ -135,6 +190,170 @@ export function AnagraficaDocumentiPanel({
               }
             />
           </div>
+          <label className="block text-xs">
+            <span className="mb-1 block font-medium">
+              Data documento <span className="font-normal text-slate-500">(facoltativa)</span>
+            </span>
+            <input
+              type="date"
+              value={dataDocumento}
+              onChange={(e) => setDataDocumento(e.target.value)}
+              className="w-full rounded-md border border-[var(--border)] px-2 py-1.5 text-sm"
+            />
+          </label>
+          <label className="block text-xs">
+            <span className="mb-1 block font-medium">
+              Scadenza <span className="font-normal text-slate-500">(facoltativa)</span>
+            </span>
+            <input
+              type="date"
+              value={dataScadenza}
+              min={dataDocumento || undefined}
+              onChange={(e) => setDataScadenza(e.target.value)}
+              className="w-full rounded-md border border-[var(--border)] px-2 py-1.5 text-sm"
+            />
+          </label>
+          <fieldset className="sm:col-span-2">
+            <legend className="mb-1 text-xs font-medium">
+              Ricevuto tramite{" "}
+              <span className="font-normal text-slate-500">(facoltativo)</span>
+            </legend>
+            <div className="flex flex-wrap gap-2">
+              {ANAGRAFICA_DOCUMENTO_ORIGINI.map((o) => (
+                <label
+                  key={o}
+                  className={`inline-flex cursor-pointer items-center gap-1.5 rounded-md border px-2 py-1 text-xs ${
+                    ricevutoVia === o
+                      ? "border-indigo-400 bg-indigo-50 text-indigo-950"
+                      : "border-[var(--border)] bg-white"
+                  }`}
+                >
+                  <input
+                    type="radio"
+                    name="ricevutoVia"
+                    className="accent-indigo-700"
+                    checked={ricevutoVia === o}
+                    onChange={() => {
+                      setRicevutoVia(o);
+                      if (o !== "mail") {
+                        setWebmailMessaggioId("");
+                        setMailHits([]);
+                        setMailSearched(false);
+                      }
+                      if (o !== "altro") setCollegamentoUrl("");
+                      if (o === "non_specificato") {
+                        setCollegamentoEtichetta("");
+                      }
+                    }}
+                  />
+                  {ANAGRAFICA_DOCUMENTO_ORIGINE_LABEL[o]}
+                </label>
+              ))}
+            </div>
+          </fieldset>
+          {ricevutoVia === "mail" ? (
+            <div className="space-y-2 rounded-md border border-indigo-100 bg-indigo-50/40 p-2 sm:col-span-2">
+              <p className="text-[11px] text-slate-600">
+                Puoi collegare la mail da cui è arrivato il documento, oppure
+                scrivere solo oggetto o riferimento.
+              </p>
+              <div className="flex flex-wrap gap-2">
+                <input
+                  value={mailQuery}
+                  onChange={(e) => setMailQuery(e.target.value)}
+                  placeholder="Cerca oggetto o mittente"
+                  className="min-w-[12rem] flex-1 rounded-md border border-[var(--border)] bg-white px-2 py-1.5 text-sm"
+                />
+                <button
+                  type="button"
+                  disabled={pending}
+                  onClick={cercaMail}
+                  className="rounded-md bg-indigo-700 px-3 py-1.5 text-xs font-medium text-white disabled:opacity-50"
+                >
+                  Cerca mail
+                </button>
+              </div>
+              {!mailSearchable ? (
+                <p className="text-[11px] text-amber-900">
+                  La ricerca in webmail non è disponibile per questo utente:
+                  indica comunque un riferimento testuale.
+                </p>
+              ) : null}
+              {mailSearched && mailHits.length === 0 && mailSearchable ? (
+                <p className="text-[11px] text-slate-600">
+                  Nessuna mail trovata. Puoi comunque scrivere il riferimento.
+                </p>
+              ) : null}
+              {mailHits.length > 0 ? (
+                <ul className="max-h-40 space-y-1 overflow-auto">
+                  {mailHits.map((hit) => (
+                    <li key={hit.id}>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setWebmailMessaggioId(hit.id);
+                          setCollegamentoEtichetta(
+                            hit.subject || hit.fromAddress || "Mail collegata"
+                          );
+                        }}
+                        className={`w-full rounded-md border px-2 py-1.5 text-left text-xs ${
+                          webmailMessaggioId === hit.id
+                            ? "border-indigo-500 bg-white"
+                            : "border-transparent bg-white/70 hover:border-indigo-200"
+                        }`}
+                      >
+                        <span className="block font-medium">{hit.subject}</span>
+                        <span className="text-slate-600">
+                          {hit.fromAddress}
+                          {hit.receivedAt
+                            ? ` · ${formatAnagraficaIsoDate(hit.receivedAt)}`
+                            : ""}
+                        </span>
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              ) : null}
+              <label className="block text-xs">
+                <span className="mb-1 block font-medium">
+                  Oggetto o riferimento
+                </span>
+                <input
+                  value={collegamentoEtichetta}
+                  onChange={(e) => setCollegamentoEtichetta(e.target.value)}
+                  placeholder="Es. PEC del 12/03, oggetto contratto"
+                  className="w-full rounded-md border border-[var(--border)] bg-white px-2 py-1.5 text-sm"
+                />
+              </label>
+            </div>
+          ) : null}
+          {ricevutoVia === "altro" ? (
+            <div className="space-y-2 sm:col-span-2">
+              <label className="block text-xs">
+                <span className="mb-1 block font-medium">
+                  Riferimento
+                </span>
+                <input
+                  value={collegamentoEtichetta}
+                  onChange={(e) => setCollegamentoEtichetta(e.target.value)}
+                  placeholder="Es. consegnato a mano, corriere, protocollo"
+                  className="w-full rounded-md border border-[var(--border)] px-2 py-1.5 text-sm"
+                />
+              </label>
+              <label className="block text-xs">
+                <span className="mb-1 block font-medium">
+                  Link o percorso{" "}
+                  <span className="font-normal text-slate-500">(facoltativo)</span>
+                </span>
+                <input
+                  value={collegamentoUrl}
+                  onChange={(e) => setCollegamentoUrl(e.target.value)}
+                  placeholder="https://… oppure cartella condivisa"
+                  className="w-full rounded-md border border-[var(--border)] px-2 py-1.5 text-sm"
+                />
+              </label>
+            </div>
+          ) : null}
           <label className="block text-xs sm:col-span-2">
             <span className="mb-1 block font-medium">Note</span>
             <input
@@ -183,6 +402,47 @@ export function AnagraficaDocumentiPanel({
                     </span>
                   </p>
                   <p className="text-xs text-[var(--muted)]">{doc.fileName}</p>
+                  <p className="mt-0.5 flex flex-wrap gap-x-3 gap-y-0.5 text-[11px] text-slate-600">
+                    {doc.dataDocumento ? (
+                      <span>Data {formatAnagraficaIsoDate(doc.dataDocumento)}</span>
+                    ) : null}
+                    {doc.dataScadenza ? (
+                      <span
+                        className={
+                          isAnagraficaScadenzaPassata(doc.dataScadenza)
+                            ? "font-medium text-amber-800"
+                            : undefined
+                        }
+                      >
+                        Scad. {formatAnagraficaIsoDate(doc.dataScadenza)}
+                        {isAnagraficaScadenzaPassata(doc.dataScadenza)
+                          ? " (scaduto)"
+                          : ""}
+                      </span>
+                    ) : null}
+                    {doc.ricevutoVia !== "non_specificato" ? (
+                      <span>
+                        {ANAGRAFICA_DOCUMENTO_ORIGINE_LABEL[doc.ricevutoVia]}
+                        {doc.collegamentoEtichetta
+                          ? ` · ${doc.collegamentoEtichetta}`
+                          : ""}
+                      </span>
+                    ) : null}
+                    {doc.collegamentoUrl ? (
+                      doc.collegamentoUrl.startsWith("http") ? (
+                        <a
+                          href={doc.collegamentoUrl}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="text-indigo-800 hover:underline"
+                        >
+                          Collegamento
+                        </a>
+                      ) : (
+                        <span>{doc.collegamentoUrl}</span>
+                      )
+                    ) : null}
+                  </p>
                   {doc.note ? (
                     <p className="mt-0.5 text-xs text-slate-600">{doc.note}</p>
                   ) : null}
