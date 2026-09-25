@@ -25,7 +25,7 @@ export const ORDINI_PERSISTENZA_DEFINITIVA = false;
 export const ORDINI_PERSISTENZA_BLOCCATA_MSG =
   "Salvataggio definitivo disattivato: ordine e fattura restano solo in sessione del browser.";
 
-export const ORDINE_SESSIONE_KEY = "opuntia.ordine.sessione-provvisoria";
+export const ORDINE_SESSIONE_KEY = "opuntia.ordine.sessione-provvisoria.v2";
 
 export type OrdineSessioneFattura = {
   numeroFattura: string;
@@ -69,6 +69,37 @@ export function saveOrdineSessione(sessione: OrdineSessione): void {
     /* quota / private mode */
   }
 }
+
+const ORDINE_SESSIONE_KEYS_LEGACY = [
+  "opuntia.ordine.sessione-provvisoria",
+  "opuntia.ordine.sessione-provvisoria.v1",
+];
+
+/** Cancella ordine e fattura di prova da sessionStorage. */
+export function clearOrdineSessione(): void {
+  if (typeof window === "undefined") return;
+  try {
+    sessionStorage.removeItem(ORDINE_SESSIONE_KEY);
+    for (const key of ORDINE_SESSIONE_KEYS_LEGACY) {
+      sessionStorage.removeItem(key);
+    }
+  } catch {
+    /* private mode */
+  }
+}
+
+function wipeLegacyOrdineSessione(): void {
+  if (typeof window === "undefined") return;
+  try {
+    for (const key of ORDINE_SESSIONE_KEYS_LEGACY) {
+      sessionStorage.removeItem(key);
+    }
+  } catch {
+    /* private mode */
+  }
+}
+
+wipeLegacyOrdineSessione();
 
 export function destinatarioSessioneDaCliente(
   cliente: Cliente | null,
