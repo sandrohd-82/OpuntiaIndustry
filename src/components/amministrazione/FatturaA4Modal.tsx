@@ -288,12 +288,12 @@ export function FatturaA4Modal({
       saveOrdineSessione({ ordine: prev.ordine, fattura });
       setSaving(false);
       setConfirmOpen(false);
-      setMsg(
-        inviaOra
-          ? `Fattura ${numero} registrata in sessione (invio di prova: nessuna email e nessuno SDI).`
-          : `Fattura ${numero} salvata in sessione. Nessun dato sul server.`
-      );
-      onSaved?.({ fatturaId: prev.ordine.id, inviata: false });
+      onSaved?.({ fatturaId: prev.ordine.id, inviata: inviaOra });
+      if (inviaOra) {
+        onClose();
+        return;
+      }
+      setMsg(`Fattura ${numero} salvata in sessione. Nessun dato sul server.`);
       return;
     }
     if (!ordineId) {
@@ -321,19 +321,14 @@ export function FatturaA4Modal({
     setFatturaId(res.fatturaId);
     setNumero(res.numeroFattura);
     setConfirmOpen(false);
-    if (res.inviata) {
-      setMsg(
-        `Fattura ${res.numeroFattura} salvata e inviata` +
-          (res.courtesyEmailSent && email ? ` a ${email}` : "") +
-          (res.sdiSent ? " · SDI tramite Fatture in Cloud." : ".") +
-          (res.warning ? ` ${res.warning}` : "")
-      );
-    } else {
-      setMsg(
-        `Fattura ${res.numeroFattura} salvata. Potrai inviarla in un secondo momento da Fatture emesse.`
-      );
-    }
     onSaved?.({ fatturaId: res.fatturaId, inviata: res.inviata });
+    if (res.inviata) {
+      onClose();
+      return;
+    }
+    setMsg(
+      `Fattura ${res.numeroFattura} salvata. Potrai inviarla in un secondo momento da Fatture emesse.`
+    );
   }
 
   function openEdit(kind: EditKind, rigaIndex?: number) {

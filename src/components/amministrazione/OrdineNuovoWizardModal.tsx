@@ -2475,6 +2475,13 @@ export function OrdineNuovoWizardModal({
           }
           pianoIniziale={pagamentoPiano}
           onClose={() => setFatturaA4Open(false)}
+          onSaved={({ inviata }) => {
+            if (!inviata) return;
+            setFatturaA4Open(false);
+            setSessioneMsg(
+              `Invio simulato in sessione (${savedOrdine.numeroInterno || "fattura"}). La finestra fattura è chiusa: nessuna email e nessuno SDI.`
+            );
+          }}
         />
       ) : null}
 
