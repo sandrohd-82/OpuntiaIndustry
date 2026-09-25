@@ -226,6 +226,15 @@ export function voceCollegaProdotti(v: Pick<ImballaggioVoce, "stadio" | "doppioR
   return v.stadio === "isolamento" || (v.stadio === "confezione" && v.doppioRuolo);
 }
 
+export function voceCollegataAlProdotto(
+  v: ImballaggioVoce,
+  prodottoId: string | null
+): boolean {
+  return Boolean(
+    prodottoId && v.prodotti.some((p) => p.prodottoId === prodottoId)
+  );
+}
+
 export function filterVociForWizardStadio(
   voci: ImballaggioVoce[],
   stadio: ImballaggioStadio,
@@ -234,19 +243,20 @@ export function filterVociForWizardStadio(
   if (stadio === "movimentazione") {
     return voci.filter((v) => v.stadio === "movimentazione");
   }
-  const linked = (v: ImballaggioVoce) =>
-    Boolean(
-      prodottoId && v.prodotti.some((p) => p.prodottoId === prodottoId)
-    );
-  if (stadio === "confezione") {
-    return voci.filter((v) => {
-      if (v.stadio === "confezione" && !v.doppioRuolo) return true;
-      if (v.doppioRuolo && v.stadio === "confezione") return linked(v);
-      return false;
+  const sortConsigliati = (list: ImballaggioVoce[]) =>
+    [...list].sort((a, b) => {
+      const la = voceCollegataAlProdotto(a, prodottoId) ? 0 : 1;
+      const lb = voceCollegataAlProdotto(b, prodottoId) ? 0 : 1;
+      if (la !== lb) return la - lb;
+      return a.nome.localeCompare(b.nome, "it");
     });
+  if (stadio === "confezione") {
+    return sortConsigliati(
+      voci.filter((v) => v.stadio === "confezione")
+    );
   }
-  return voci.filter(
-    (v) => v.stadio === "isolamento" && !v.doppioRuolo && linked(v)
+  return sortConsigliati(
+    voci.filter((v) => v.stadio === "isolamento" && !v.doppioRuolo)
   );
 }
 

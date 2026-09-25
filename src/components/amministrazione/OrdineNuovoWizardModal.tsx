@@ -75,6 +75,7 @@ import {
 } from "@/lib/amministrazione/ordini";
 import {
   childStadioFor,
+  voceCollegataAlProdotto,
   emptyConfezionamentoDraft,
   emptyNodo,
   filterVociForWizardStadio,
@@ -820,7 +821,7 @@ export function OrdineNuovoWizardModal({
       conf.movimentazioneModo,
       parentVoce
     );
-    const options =
+    const optionsBase =
       nodo.stadio === "prodotto_kg"
         ? []
         : filterVociForWizardStadio(
@@ -828,6 +829,13 @@ export function OrdineNuovoWizardModal({
             nodo.stadio,
             prodotto?.id ?? null
           );
+    const selectedVoce =
+      nodo.catalogoId && !optionsBase.some((v) => v.id === nodo.catalogoId)
+        ? catalogo.find((v) => v.id === nodo.catalogoId)
+        : null;
+    const options = selectedVoce
+      ? [selectedVoce, ...optionsBase]
+      : optionsBase;
     return (
       <div
         key={nodo.localId}
@@ -851,6 +859,9 @@ export function OrdineNuovoWizardModal({
               <option value="">Seleziona da catalogo…</option>
               {options.map((v) => (
                 <option key={v.id} value={v.id}>
+                  {voceCollegataAlProdotto(v, prodotto?.id ?? null)
+                    ? "Consigliato · "
+                    : ""}
                   {labelImballaggioVoce(v)}
                 </option>
               ))}
@@ -1949,9 +1960,9 @@ export function OrdineNuovoWizardModal({
                 {conf.nodi.length === 0 ? (
                   <p className="text-sm text-[var(--muted)]">
                     Nessun blocco. Aggiungi pallet/confezione e scendi ai
-                    livelli. Isolamento solo se collegato al prodotto; le voci a
-                    doppio ruolo (es. bidone gel) appaiono in un’unica
-                    selezione.
+                    livelli.                     Isolamento: elenco catalogo; in cima i collegati al
+                    prodotto (Consigliato). Le voci a doppio ruolo (es.
+                    bidone gel) restano una sola selezione in confezione.
                   </p>
                 ) : (
                   conf.nodi.map((n) => renderNodo(n, 0))
