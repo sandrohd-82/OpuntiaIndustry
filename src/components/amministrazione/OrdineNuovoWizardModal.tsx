@@ -38,7 +38,11 @@ import { FatturaA4Modal } from "@/components/amministrazione/FatturaA4Modal";
 import { OrdinePagamentoPianoFields } from "@/components/amministrazione/OrdinePagamentoPianoFields";
 import { SpedizioneMailComposeModal } from "@/components/amministrazione/SpedizioneMailComposeModal";
 import { SpedizioneMailPanel } from "@/components/amministrazione/SpedizioneMailPanel";
-import { listinoEScontoDaOrdine } from "@/lib/amministrazione/fattura-a4-documento";
+import {
+  applyContributoSpeseSpedizione,
+  listinoEScontoDaOrdine,
+  type FatturaA4Riga,
+} from "@/lib/amministrazione/fattura-a4-documento";
 import { todayIsoDate } from "@/lib/amministrazione/fatture";
 import {
   applyTotaleToPiano,
@@ -72,6 +76,7 @@ import {
 } from "@/lib/amministrazione/attivita";
 import {
   defaultUnitaCampionatura,
+  emptyTrasporto,
   opzioniUnitaCampionatura,
   quantitaInUnitaBase,
   unitaBaseProdotto,
@@ -314,6 +319,10 @@ export function OrdineNuovoWizardModal({
     "cliente" | "agrinsicilia" | "diviso"
   >("cliente");
   const [pctAgrin, setPctAgrin] = useState<number | "">(50);
+  const [spedizioneImporto, setSpedizioneImporto] = useState<number | "">("");
+  const [spedizioneIvaModo, setSpedizioneIvaModo] = useState<
+    "compreso" | "piu_iva"
+  >("piu_iva");
   const [clienteSped, setClienteSped] = useState<Cliente | null>(null);
   const [sediExtra, setSediExtra] = useState<AnagraficaSede[]>([]);
   const [addressKey, setAddressKey] = useState("");
@@ -706,6 +715,49 @@ export function OrdineNuovoWizardModal({
     }
   }
 
+  function rigaProdottoFatturaSessione(): FatturaA4Riga | null {
+    if (!prodotto) return null;
+    const mapped = listinoEScontoDaOrdine({
+      prezzoRiga: tipoOrdine === "campionatura" ? 0 : prezzoNetto,
+      prezzoListinoHeader:
+        tipoOrdine === "campionatura" ? null : numberOrZero(prezzoUnitario),
+      scontoExtraPct: tipoOrdine === "campionatura" ? 0 : scontoPct,
+      isSpedizione: false,
+    });
+    return {
+      prodottoId: prodotto.id,
+      codice: prodotto.codice,
+      descrizione: prodotto.nome,
+      quantita: quantitaInserita,
+      unitaMisura: umEffettiva,
+      prezzoUnitario: mapped.prezzoUnitario,
+      scontoPercentuale: mapped.scontoPercentuale,
+      ivaPercentuale: tipoOrdine === "campionatura" ? 0 : 22,
+      isSpedizione: false,
+      note: "",
+    };
+  }
+
+  function righeFatturaConSpedizione(
+    prevRighe?: FatturaA4Riga[] | null,
+    rimosso?: boolean
+  ): FatturaA4Riga[] {
+    const prodottoRiga = rigaProdottoFatturaSessione();
+    const base =
+      prevRighe && prevRighe.length > 0
+        ? prevRighe
+        : prodottoRiga
+          ? [prodottoRiga]
+          : [];
+    return applyContributoSpeseSpedizione(base, {
+      aCaricoCliente: aCarico === "cliente",
+      importo: numberOrZero(spedizioneImporto),
+      ivaInclusa: spedizioneIvaModo === "compreso",
+      ivaAliquota: tipoOrdine === "campionatura" ? 0 : 22,
+      rimosso,
+    });
+  }
+
   async function onReferenteAccettazioneChange(next: RubricaContatto[]) {
     const last = next[next.length - 1] ?? null;
     setReferenteAccettazione(last);
@@ -728,6 +780,35 @@ export function OrdineNuovoWizardModal({
     if (anagraficaFonte === "cliente" && !clienteId) return;
     if (savedOrdine) {
       if (opts?.keepOpen) {
+        if (!ORDINI_PERSISTENZA_DEFINITIVA) {
+          const prev = loadOrdineSessione();
+          if (prev) {
+            saveOrdineSessione({
+              ...prev,
+              fattura: prev.fattura
+                ? {
+                    ...prev.fattura,
+                    righe: righeFatturaConSpedizione(
+                      prev.fattura.righe,
+                      prev.fattura.contributoSpedizioneRimosso
+                    ),
+                  }
+                : {
+                    numeroFattura: "N/ANNO",
+                    dataDocumento: todayIsoDate(),
+                    destinatario: destinatarioSessioneDaCliente(
+                      clienteSped,
+                      clienteNome
+                    ),
+                    righe: righeFatturaConSpedizione(),
+                    noteDocumento: "",
+                    piano: pagamentoPiano,
+                    invioEmail: "",
+                    intenzione: "bozza",
+                  },
+            });
+          }
+        }
         setFatturaA4Open(true);
         return;
       }
@@ -774,38 +855,36 @@ export function OrdineNuovoWizardModal({
           destinatario,
           indirizzoSpedizione,
         });
-        const mapped = listinoEScontoDaOrdine({
-          prezzoRiga: tipoOrdine === "campionatura" ? 0 : prezzoNetto,
-          prezzoListinoHeader:
-            tipoOrdine === "campionatura" ? null : numberOrZero(prezzoUnitario),
-          scontoExtraPct: tipoOrdine === "campionatura" ? 0 : scontoPct,
-          isSpedizione: false,
-        });
+        ordine.trasporto = {
+          ...emptyTrasporto(),
+          imponibile:
+            aCarico === "cliente" ? numberOrZero(spedizioneImporto) : 0,
+          ivaPercentuale:
+            aCarico === "cliente" && spedizioneIvaModo === "compreso" ? 0 : 22,
+        };
         saveOrdineSessione({
           ordine,
-          fattura: prev?.fattura ?? {
-            numeroFattura: "N/ANNO",
-            dataDocumento: todayIsoDate(),
-            destinatario: destinatarioSessioneDaCliente(clienteSped, clienteNome),
-            righe: [
-              {
-                prodottoId: prodotto.id,
-                codice: prodotto.codice,
-                descrizione: prodotto.nome,
-                quantita: quantitaInserita,
-                unitaMisura: umEffettiva,
-                prezzoUnitario: mapped.prezzoUnitario,
-                scontoPercentuale: mapped.scontoPercentuale,
-                ivaPercentuale: tipoOrdine === "campionatura" ? 0 : 22,
-                isSpedizione: false,
-                note: "",
+          fattura: prev?.fattura
+            ? {
+                ...prev.fattura,
+                righe: righeFatturaConSpedizione(
+                  prev.fattura.righe,
+                  prev.fattura.contributoSpedizioneRimosso
+                ),
+              }
+            : {
+                numeroFattura: "N/ANNO",
+                dataDocumento: todayIsoDate(),
+                destinatario: destinatarioSessioneDaCliente(
+                  clienteSped,
+                  clienteNome
+                ),
+                righe: righeFatturaConSpedizione(),
+                noteDocumento: "",
+                piano: pagamentoPiano,
+                invioEmail: "",
+                intenzione: "bozza",
               },
-            ],
-            noteDocumento: "",
-            piano: pagamentoPiano,
-            invioEmail: "",
-            intenzione: "bozza",
-          },
         });
         setSavedOrdine(ordine);
         setSessioneMsg(
@@ -1991,6 +2070,45 @@ export function OrdineNuovoWizardModal({
                     ) : null}
                   </label>
                 ) : null}
+                {aCarico === "cliente" ? (
+                  <div className="mt-3 space-y-2 border-t border-[var(--border)] pt-3">
+                    <p className="text-sm font-medium">
+                      Richiesta importo al cliente
+                    </p>
+                    <p className="text-xs text-[var(--muted)]">
+                      In fattura compare la voce «Contributo Spese di
+                      spedizione»: puoi modificarla o cancellarla dal
+                      documento.
+                    </p>
+                    <label className="block text-sm">
+                      <span className="mb-1 block font-medium">Importo (€)</span>
+                      <ClearableNumberInput
+                        min={0}
+                        value={spedizioneImporto}
+                        onValueChange={setSpedizioneImporto}
+                        className="w-40 rounded-lg border border-[var(--border)] px-3 py-2"
+                      />
+                    </label>
+                    <label className="flex items-center gap-2 text-sm">
+                      <input
+                        type="radio"
+                        name="spedizione-iva-modo"
+                        checked={spedizioneIvaModo === "compreso"}
+                        onChange={() => setSpedizioneIvaModo("compreso")}
+                      />
+                      Importo compreso
+                    </label>
+                    <label className="flex items-center gap-2 text-sm">
+                      <input
+                        type="radio"
+                        name="spedizione-iva-modo"
+                        checked={spedizioneIvaModo === "piu_iva"}
+                        onChange={() => setSpedizioneIvaModo("piu_iva")}
+                      />
+                      Importo + IVA
+                    </label>
+                  </div>
+                ) : null}
               </fieldset>
             </div>
           )}
@@ -2438,34 +2556,10 @@ export function OrdineNuovoWizardModal({
                     clienteSped,
                     clienteNome
                   ),
-                  righe: (() => {
-                    const mapped = listinoEScontoDaOrdine({
-                      prezzoRiga:
-                        tipoOrdine === "campionatura" ? 0 : prezzoNetto,
-                      prezzoListinoHeader:
-                        tipoOrdine === "campionatura"
-                          ? null
-                          : numberOrZero(prezzoUnitario),
-                      scontoExtraPct:
-                        tipoOrdine === "campionatura" ? 0 : scontoPct,
-                      isSpedizione: false,
-                    });
-                    return [
-                      {
-                        prodottoId: prodotto?.id ?? null,
-                        codice: prodotto?.codice ?? "",
-                        descrizione: prodotto?.nome ?? "",
-                        quantita: quantitaInserita,
-                        unitaMisura: umEffettiva,
-                        prezzoUnitario: mapped.prezzoUnitario,
-                        scontoPercentuale: mapped.scontoPercentuale,
-                        ivaPercentuale:
-                          tipoOrdine === "campionatura" ? 0 : 22,
-                        isSpedizione: false,
-                        note: "",
-                      },
-                    ];
-                  })(),
+                  righe: righeFatturaConSpedizione(
+                    loadOrdineSessione()?.fattura?.righe,
+                    loadOrdineSessione()?.fattura?.contributoSpedizioneRimosso
+                  ),
                   piano: pagamentoPiano,
                   emails: emailsDaCliente(clienteSped),
                   numeroFattura: "N/ANNO",

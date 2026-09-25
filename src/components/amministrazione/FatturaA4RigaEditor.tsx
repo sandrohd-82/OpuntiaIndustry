@@ -24,6 +24,7 @@ function euro(n: number) {
 }
 
 function fonteIniziale(riga: FatturaA4Riga): Fonte {
+  if (riga.isSpedizione) return "manuale";
   if (riga.prodottoId) return "catalogo";
   const codice = riga.codice.trim();
   if (!codice || codice.toUpperCase() === "VOCE") return "catalogo";

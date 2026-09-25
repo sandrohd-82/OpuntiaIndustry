@@ -124,3 +124,71 @@ export function totalsFromFatturaRighe(righe: FatturaA4Riga[]): {
     }))
   );
 }
+
+export const CONTRIBUTO_SPESE_SPEDIZIONE_CODICE = "SPED";
+export const CONTRIBUTO_SPESE_SPEDIZIONE_DESCRIZIONE =
+  "Contributo Spese di spedizione";
+
+export function isRigaContributoSpedizione(r: FatturaA4Riga): boolean {
+  return (
+    r.isSpedizione ||
+    r.codice.trim().toUpperCase() === CONTRIBUTO_SPESE_SPEDIZIONE_CODICE
+  );
+}
+
+export function isRigaContributoSpedizionePredefinita(
+  r: FatturaA4Riga
+): boolean {
+  if (!isRigaContributoSpedizione(r)) return false;
+  const d = r.descrizione.trim().toLowerCase();
+  return (
+    d === CONTRIBUTO_SPESE_SPEDIZIONE_DESCRIZIONE.toLowerCase() ||
+    d === "spedizione"
+  );
+}
+
+export function rigaContributoSpeseSpedizione(input: {
+  importo: number;
+  ivaInclusa: boolean;
+  ivaAliquota?: number;
+}): FatturaA4Riga {
+  const importo = Number.isFinite(input.importo) ? Math.max(0, input.importo) : 0;
+  return {
+    prodottoId: null,
+    codice: CONTRIBUTO_SPESE_SPEDIZIONE_CODICE,
+    descrizione: CONTRIBUTO_SPESE_SPEDIZIONE_DESCRIZIONE,
+    quantita: 1,
+    unitaMisura: "nr",
+    prezzoUnitario: importo,
+    scontoPercentuale: 0,
+    ivaPercentuale: input.ivaInclusa ? 0 : (input.ivaAliquota ?? 22),
+    isSpedizione: true,
+    note: "",
+  };
+}
+
+/** Aggiunge/aggiorna/togli la voce spedizione se è ancora quella predefinita. */
+export function applyContributoSpeseSpedizione(
+  righe: FatturaA4Riga[],
+  opts: {
+    aCaricoCliente: boolean;
+    importo: number;
+    ivaInclusa: boolean;
+    ivaAliquota?: number;
+    rimosso?: boolean;
+  }
+): FatturaA4Riga[] {
+  const others = righe.filter((r) => !isRigaContributoSpedizione(r));
+  const existing = righe.find((r) => isRigaContributoSpedizione(r));
+  if (!opts.aCaricoCliente) {
+    if (existing && !isRigaContributoSpedizionePredefinita(existing)) {
+      return righe;
+    }
+    return others;
+  }
+  if (opts.rimosso && !existing) return righe;
+  if (existing && !isRigaContributoSpedizionePredefinita(existing)) {
+    return righe;
+  }
+  return [...others, rigaContributoSpeseSpedizione(opts)];
+}

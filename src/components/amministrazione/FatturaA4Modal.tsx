@@ -22,6 +22,7 @@ import {
   destinatarioFromCliente,
   destinatarioFromPreventivo,
   destinatarioToPreventivo,
+  isRigaContributoSpedizione,
   totalsFromFatturaRighe,
   type FatturaA4Riga,
   type FatturaDestinatarioSnapshot,
@@ -284,6 +285,7 @@ export function FatturaA4Modal({
         piano,
         invioEmail: email,
         intenzione: inviaOra ? "inviata-prova" : "salvata",
+        contributoSpedizioneRimosso: !righe.some(isRigaContributoSpedizione),
       };
       saveOrdineSessione({ ordine: prev.ordine, fattura });
       setSaving(false);

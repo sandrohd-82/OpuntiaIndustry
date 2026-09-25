@@ -10,6 +10,7 @@ import {
 } from "@/lib/amministrazione/fattura-emissione";
 import { mapClienteRow, type Cliente } from "@/lib/amministrazione/clienti";
 import {
+  applyContributoSpeseSpedizione,
   destinatarioFromCliente,
   listinoEScontoDaOrdine,
   parseDestinatarioSnapshot,
@@ -376,20 +377,17 @@ export async function getFatturaA4ContextAction(input: {
         note: "",
       };
     });
-    if (Number(ordine.trasporto_imponibile) > 0) {
-      righe.push({
-        prodottoId: null,
-        codice: "SPED",
-        descrizione: "Spedizione",
-        quantita: 1,
-        unitaMisura: "nr",
-        prezzoUnitario: Number(ordine.trasporto_imponibile),
-        scontoPercentuale: 0,
-        ivaPercentuale: Number(ordine.trasporto_iva_percentuale) || 0,
-        isSpedizione: true,
-        note: "",
-      });
-    }
+    righe = applyContributoSpeseSpedizione(righe, {
+      aCaricoCliente:
+        ordine.spedizione_a_carico === "cliente" ||
+        Number(ordine.trasporto_imponibile) > 0,
+      importo: Number(ordine.trasporto_imponibile) || 0,
+      ivaInclusa: Number(ordine.trasporto_iva_percentuale) === 0,
+      ivaAliquota:
+        Number(ordine.trasporto_iva_percentuale) > 0
+          ? Number(ordine.trasporto_iva_percentuale)
+          : 22,
+    });
     let destinatario = destinatarioFromCliente(cliente);
     let noteDocumento = "";
     const { data: existing } = await supabase

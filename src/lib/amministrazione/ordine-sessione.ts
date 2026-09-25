@@ -36,6 +36,7 @@ export type OrdineSessioneFattura = {
   piano: OrdinePagamentoPiano;
   invioEmail: string;
   intenzione: "bozza" | "salvata" | "inviata-prova";
+  contributoSpedizioneRimosso?: boolean;
 };
 
 export type OrdineSessione = {
