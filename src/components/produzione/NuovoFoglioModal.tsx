@@ -1,10 +1,12 @@
 "use client";
 
 import { useEffect, useId, useMemo, useState, type FormEvent } from "react";
+import { listProdottiPropriAction } from "@/app/actions/prodotti-propri";
+import { SelectMenu } from "@/components/ui/SelectMenu";
+import type { ProdottoProprio } from "@/lib/amministrazione/prodotti-propri";
 import {
   LOTTI_DEMO,
   ORDINI_DEMO,
-  PRODOTTI_USCITA_DEMO,
   toDatetimeLocalValue,
   type MotivoLavorazione,
 } from "@/lib/produzione/fogli-lavorazione";
@@ -35,6 +37,8 @@ export function NuovoFoglioModal({ onClose, onCreate }: Props) {
   const [ordineId, setOrdineId] = useState("");
   const [lottoId, setLottoId] = useState("");
   const [prodottoUscitaId, setProdottoUscitaId] = useState("");
+  const [prodottiPropri, setProdottiPropri] = useState<ProdottoProprio[]>([]);
+  const [prodottiLoading, setProdottiLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
 
@@ -51,6 +55,23 @@ export function NuovoFoglioModal({ onClose, onCreate }: Props) {
     };
   }, [onClose]);
 
+  useEffect(() => {
+    let cancelled = false;
+    setProdottiLoading(true);
+    void listProdottiPropriAction().then((res) => {
+      if (cancelled) return;
+      setProdottiLoading(false);
+      if (!res.success) {
+        setFormError(res.error);
+        return;
+      }
+      setProdottiPropri(res.prodotti);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   const ordine = useMemo(
     () => ORDINI_DEMO.find((o) => o.id === ordineId) ?? null,
     [ordineId]
@@ -60,8 +81,8 @@ export function NuovoFoglioModal({ onClose, onCreate }: Props) {
     [lottoId]
   );
   const prodottoUscita = useMemo(
-    () => PRODOTTI_USCITA_DEMO.find((p) => p.id === prodottoUscitaId) ?? null,
-    [prodottoUscitaId]
+    () => prodottiPropri.find((p) => p.id === prodottoUscitaId) ?? null,
+    [prodottiPropri, prodottoUscitaId]
   );
 
   const canSubmit =
@@ -218,21 +239,27 @@ export function NuovoFoglioModal({ onClose, onCreate }: Props) {
             <span className="mb-1.5 block font-semibold">
               4) Seleziona codice prodotto in uscita
             </span>
-            <select
+            <SelectMenu
+              required
+              loading={prodottiLoading}
+              placeholder="Seleziona prodotto proprio Agrinsicilia"
+              count={prodottiPropri.length}
               value={prodottoUscitaId}
               onChange={(e) => setProdottoUscitaId(e.target.value)}
-              required
-              className="w-full rounded-lg border border-[var(--border)] bg-white px-3 py-2.5 outline-none focus:border-[var(--primary)]"
             >
-              <option value="">Seleziona codice…</option>
-              {PRODOTTI_USCITA_DEMO.map((p) => (
+              {prodottiPropri.map((p) => (
                 <option key={p.id} value={p.id}>
                   {p.codice} — {p.nome}
+                  {p.isBio ? " · BIO" : ""}
                 </option>
               ))}
-            </select>
+            </SelectMenu>
             <span className="mt-1 block text-[11px] text-[var(--muted)]">
-              Elenco prodotti in uscita (in arrivo). Elenco demo temporaneo.
+              {prodottiLoading
+                ? "Caricamento catalogo…"
+                : prodottiPropri.length === 0
+                  ? "Nessun prodotto proprio in anagrafica. Creali in Amministrazione → Schede → Prodotti propri."
+                  : "Catalogo Prodotti propri Agrinsicilia (schede)."}
             </span>
           </label>
 
