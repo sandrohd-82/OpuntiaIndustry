@@ -436,7 +436,8 @@ async function loadIncassiDettaglioAnno(
         const { data: righe, error: rErr } = await supabase
           .from("fatture_emesse_righe")
           .select("codice, descrizione, importo, fattura_id")
-          .in("fattura_id", chunk);
+          .in("fattura_id", chunk)
+          .is("deleted_at", null);
         if (rErr) {
           return { ok: false, error: `Righe fatture: ${rErr.message}` };
         }
@@ -1081,7 +1082,8 @@ async function loadProvvigioniDettaglioAnno(
       const { data: righe } = await service
         .from("fatture_emesse_righe")
         .select("codice, descrizione, importo")
-        .in("fattura_id", chunk);
+        .in("fattura_id", chunk)
+        .is("deleted_at", null);
       for (const riga of righe ?? []) {
         const codice = String(riga.codice ?? "").trim() || "N/D";
         const label = labelProdottoGrafico(

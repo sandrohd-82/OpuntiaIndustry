@@ -912,7 +912,8 @@ export async function listFattureAction(
       const { data: righe } = await supabase
         .from("fatture_emesse_righe")
         .select("*")
-        .in("fattura_id", ids);
+        .in("fattura_id", ids)
+        .is("deleted_at", null);
       for (const r of (righe ?? []) as FatturaEmessaRigaRow[]) {
         const list = righeBy.get(r.fattura_id) ?? [];
         list.push(r);
@@ -2176,6 +2177,7 @@ export async function getFatturaByIdAction(
         .from("fatture_emesse_righe")
         .select("*")
         .eq("fattura_id", id)
+        .is("deleted_at", null)
         .order("sort_order", { ascending: true }),
       supabase
         .from("fatture_emesse_dilazioni")

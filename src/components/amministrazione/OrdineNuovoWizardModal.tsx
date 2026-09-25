@@ -105,7 +105,7 @@ type Props = {
   onSaved: (ordine: Ordine) => void;
 };
 
-type Step = 1 | 2 | 3 | 4 | 5 | 6;
+type Step = 1 | 2 | 3 | 4 | 5 | 6 | 7;
 
 function todayInputValue() {
   const d = new Date();
@@ -129,6 +129,7 @@ const STEPS: { n: Step; label: string }[] = [
   { n: 4, label: "Consegna" },
   { n: 5, label: "Spedizione" },
   { n: 6, label: "Confezione" },
+  { n: 7, label: "Pagamento" },
 ];
 
 function updateNodoInTree(
@@ -257,6 +258,7 @@ export function OrdineNuovoWizardModal({
   const [tipoOrdine, setTipoOrdine] = useState<"vendita" | "campionatura">(
     variant === "campionatura" ? "campionatura" : "vendita"
   );
+  const lastStep: Step = tipoOrdine === "campionatura" ? 6 : 7;
 
   const [consegnaTipo, setConsegnaTipo] = useState<"asap" | "data">("asap");
   const [dataRichiesta, setDataRichiesta] = useState("");
@@ -647,7 +649,7 @@ export function OrdineNuovoWizardModal({
         return false;
       return true;
     }
-    if (step === 6 && tipoOrdine !== "campionatura") {
+    if (step === 7 && tipoOrdine !== "campionatura") {
       if (
         pagamentoPiano.modalita === "dilazione" &&
         pagamentoPiano.rate.some((r, i) => i > 0 && !r.dataPagamento)
@@ -1044,7 +1046,7 @@ export function OrdineNuovoWizardModal({
         </p>
 
         <ol className="mt-4 flex flex-wrap gap-2">
-          {STEPS.map((s) => (
+          {STEPS.filter((s) => s.n <= lastStep).map((s) => (
             <li
               key={s.n}
               className={`rounded-full px-3 py-1 text-xs font-medium ${
@@ -2082,58 +2084,67 @@ export function OrdineNuovoWizardModal({
                 )}
               </div>
 
-              {tipoOrdine !== "campionatura" ? (
-                <div className="space-y-3 rounded-xl border border-[var(--border)] p-4">
-                  <p className="text-sm font-semibold">Pagamento</p>
-                  <p className="text-xs text-[var(--muted)]">
-                    Unica soluzione oppure dilazione. In dilazione la prima rata
-                    ha la stessa scadenza (anticipato, consegna, pronto
-                    magazzino, posticipato); le altre richiedono la data di
-                    pagamento.
-                  </p>
-                  <OrdinePagamentoPianoFields
-                    piano={pagamentoPiano}
-                    onChange={(next) => {
-                      setPagamentoPiano(next);
-                      setTipoPagamento(tipoPagamentoFromPiano(next));
-                    }}
-                    totale={rigaImporti.totale}
-                  />
-                </div>
-              ) : null}
-
-              {tipoOrdine !== "campionatura" ? (
-                <div className="space-y-2 rounded-xl border border-[var(--border)] p-4">
-                  <p className="text-sm font-semibold">Fattura</p>
-                  <p className="text-xs text-[var(--muted)]">
-                    Documento A4 come il preventivo (logo, intestazione, piè di
-                    pagina, area pagamento). Alla conferma la fattura viene
-                    sempre salvata; puoi inviarla subito (email + SDI via
-                    Fatture in Cloud) oppure dopo.
-                  </p>
-                  {anagraficaFonte !== "cliente" ? (
-                    <p className="text-xs text-amber-800">
-                      Per creare la fattura serve un cliente registrato (non un
-                      possibile cliente).
-                    </p>
-                  ) : (
-                    <button
-                      type="button"
-                      disabled={saving || !canNext()}
-                      onClick={() => void submit("salva", { keepOpen: true })}
-                      className="rounded-lg bg-[var(--primary)] px-3 py-2 text-sm font-medium text-white disabled:opacity-50"
-                    >
-                      {savedOrdine
-                        ? "Apri documento fattura"
-                        : "Crea fattura A4"}
-                    </button>
-                  )}
-                </div>
-              ) : null}
             </div>
           )}
 
-          {step === 6 ? (
+          {step === 7 && tipoOrdine !== "campionatura" ? (
+            <div className="space-y-4">
+              <div className="space-y-3 rounded-xl border border-[var(--border)] p-4">
+                <p className="text-sm font-semibold">Pagamento</p>
+                <p className="text-xs text-[var(--muted)]">
+                  Unica soluzione oppure dilazione. In dilazione la prima rata
+                  ha la stessa scadenza (anticipato, consegna, pronto
+                  magazzino, posticipato); le altre richiedono la data di
+                  pagamento.
+                </p>
+                <OrdinePagamentoPianoFields
+                  piano={pagamentoPiano}
+                  onChange={(next) => {
+                    setPagamentoPiano(next);
+                    setTipoPagamento(tipoPagamentoFromPiano(next));
+                  }}
+                  totale={rigaImporti.totale}
+                />
+                {scontoPct > 0 ? (
+                  <p className="text-xs text-emerald-800">
+                    Totale già al netto dello sconto extra {scontoPct}%:{" "}
+                    {rigaImporti.totale.toLocaleString("it-IT", {
+                      style: "currency",
+                      currency: "EUR",
+                    })}
+                  </p>
+                ) : null}
+              </div>
+              <div className="space-y-2 rounded-xl border border-[var(--border)] p-4">
+                <p className="text-sm font-semibold">Fattura</p>
+                <p className="text-xs text-[var(--muted)]">
+                  Documento A4 come il preventivo. Puoi modificare intestazione,
+                  dicitura, prezzi e sconto con le matite: la fattura può
+                  differire dall’ordine. Sempre salvata; invio email + SDI
+                  subito o dopo.
+                </p>
+                {anagraficaFonte !== "cliente" ? (
+                  <p className="text-xs text-amber-800">
+                    Per creare la fattura serve un cliente registrato (non un
+                    possibile cliente).
+                  </p>
+                ) : (
+                  <button
+                    type="button"
+                    disabled={saving || !canNext()}
+                    onClick={() => void submit("salva", { keepOpen: true })}
+                    className="rounded-lg bg-[var(--primary)] px-3 py-2 text-sm font-medium text-white disabled:opacity-50"
+                  >
+                    {savedOrdine
+                      ? "Apri documento fattura"
+                      : "Crea fattura A4"}
+                  </button>
+                )}
+              </div>
+            </div>
+          ) : null}
+
+          {step === lastStep ? (
             <div className="mt-4">
               <SpedizioneMailPanel
                 entityType="ordine"
@@ -2179,7 +2190,7 @@ export function OrdineNuovoWizardModal({
                 Indietro
               </button>
             ) : null}
-            {step < 6 ? (
+            {step < lastStep ? (
               <button
                 type="button"
                 disabled={!canNext()}

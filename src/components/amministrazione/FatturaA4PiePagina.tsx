@@ -20,6 +20,7 @@ import {
 type Props = {
   piano: OrdinePagamentoPiano;
   onEditPagamento: () => void;
+  onEditTotali?: () => void;
   numero: string;
   dataDocumento: string;
   ivaPercentuale: number;
@@ -38,6 +39,7 @@ function euro(n: number) {
 export function FatturaA4PiePagina({
   piano,
   onEditPagamento,
+  onEditTotali,
   numero,
   dataDocumento,
   ivaPercentuale,
@@ -96,6 +98,11 @@ export function FatturaA4PiePagina({
           </PreventivoDocField>
         </div>
         <div className="flex flex-col p-3">
+          <PreventivoDocField
+            label="Modifica aliquota IVA"
+            onEdit={onEditTotali ?? (() => {})}
+            pencilRight
+          >
           <p className="text-[12px] font-bold">Totali</p>
           <div className="mt-3 space-y-1">
             <div className="flex justify-between gap-3">
@@ -111,6 +118,7 @@ export function FatturaA4PiePagina({
               <span className="tabular-nums">{euro(totale)} €</span>
             </div>
           </div>
+          </PreventivoDocField>
         </div>
       </div>
       <div className="h-[5.5em] shrink-0" aria-hidden />

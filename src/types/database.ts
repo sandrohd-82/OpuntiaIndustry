@@ -1670,6 +1670,8 @@ export interface FatturaEmessaRow {
   tipo_scadenza_unica: PagamentoTipoScadenza | null;
   /** Origine registrazione: manuale | sync_fic | emissione_gestionale */
   origine: "manuale" | "sync_fic" | "emissione_gestionale";
+  /** Intestazione documento (può differire da anagrafica/ordine). */
+  destinatario_snapshot?: Record<string, unknown>;
   created_by: string | null;
   updated_by: string | null;
   created_at: string;
@@ -1725,6 +1727,7 @@ export type FatturaEmessaInsert = {
   pagamento_modalita?: OrdinePagamentoModalita;
   tipo_scadenza_unica?: PagamentoTipoScadenza | null;
   origine?: "manuale" | "sync_fic" | "emissione_gestionale";
+  destinatario_snapshot?: Record<string, unknown>;
   created_by?: string | null;
   updated_by?: string | null;
   deleted_at?: string | null;
@@ -1747,8 +1750,11 @@ export interface FatturaEmessaRigaRow {
   iva_percentuale: number;
   is_spedizione: boolean;
   note: string;
+  unita_misura?: string;
   is_bene_ammortizzabile: boolean;
   created_at: string;
+  deleted_at?: string | null;
+  deleted_by?: string | null;
   updated_at: string;
   created_by: string | null;
   updated_by: string | null;
@@ -1768,8 +1774,11 @@ export type FatturaEmessaRigaInsert = {
   iva_percentuale?: number;
   is_spedizione?: boolean;
   note?: string;
+  unita_misura?: string;
   is_bene_ammortizzabile?: boolean;
   created_by?: string | null;
+  deleted_at?: string | null;
+  deleted_by?: string | null;
   updated_by?: string | null;
 };
 

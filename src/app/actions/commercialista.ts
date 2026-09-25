@@ -399,7 +399,8 @@ export async function getCommercialistaSummaryAction(
       .select(
         "id, importo, is_bene_ammortizzabile, fattura_id, iva_percentuale, descrizione"
       )
-      .in("fattura_id", emesseIds);
+      .in("fattura_id", emesseIds)
+      .is("deleted_at", null);
     if (error) return { success: false, error: error.message };
     emesseRigheDb = (righe ?? []) as RigaRaw[];
   }
@@ -817,6 +818,7 @@ async function loadFatturaCompletaForPaper(
       .from("fatture_emesse_righe")
       .select("*")
       .eq("fattura_id", id)
+      .is("deleted_at", null)
       .order("sort_order", { ascending: true });
     if (righeErr) return { ok: false, error: righeErr.message };
     const { data: dilazioni } = await supabase

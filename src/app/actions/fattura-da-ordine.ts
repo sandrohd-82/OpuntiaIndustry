@@ -6,17 +6,23 @@ import { requireAreaAccess } from "@/lib/areas/guard";
 import {
   buildDescrizioneDocumento,
   buildNumeroInternoEmissione,
-  calcolaTotaliEmissione,
   splitNumeroForFic,
 } from "@/lib/amministrazione/fattura-emissione";
 import { mapClienteRow, type Cliente } from "@/lib/amministrazione/clienti";
-import { todayIsoDate, year2FromDate } from "@/lib/amministrazione/fatture";
+import {
+  destinatarioFromCliente,
+  listinoEScontoDaOrdine,
+  parseDestinatarioSnapshot,
+  totalsFromFatturaRighe,
+  type FatturaA4Riga,
+  type FatturaDestinatarioSnapshot,
+} from "@/lib/amministrazione/fattura-a4-documento";
+import { importoRiga, todayIsoDate, year2FromDate } from "@/lib/amministrazione/fatture";
 import {
   applyTotaleToPiano,
   emailsClienteUniche,
   ordinePagamentoPianoSchema,
   pianoToFicPayments,
-  tipoPagamentoFromPiano,
   validatePianoVsTotale,
   type OrdinePagamentoPiano,
 } from "@/lib/amministrazione/ordine-pagamento-piano";
@@ -90,6 +96,124 @@ async function nextSeqEmissioneAnnoCliente(
     if (m) maxParsed = Math.max(maxParsed, Number(m[1]));
   }
   return maxParsed + 1;
+}
+
+function missingColumn(error: { message?: string } | null, col: string): boolean {
+  const m = (error?.message ?? "").toLowerCase();
+  return m.includes(col.toLowerCase());
+}
+
+async function loadFatturaRighe(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  fatturaId: string
+) {
+  const withDeleted = await supabase
+    .from("fatture_emesse_righe")
+    .select("*")
+    .eq("fattura_id", fatturaId)
+    .is("deleted_at", null)
+    .order("sort_order", { ascending: true });
+  if (!withDeleted.error) return withDeleted.data ?? [];
+  if (!missingColumn(withDeleted.error, "deleted_at")) {
+    throw new Error(withDeleted.error.message);
+  }
+  const fallback = await supabase
+    .from("fatture_emesse_righe")
+    .select("*")
+    .eq("fattura_id", fatturaId)
+    .order("sort_order", { ascending: true });
+  if (fallback.error) throw new Error(fallback.error.message);
+  return fallback.data ?? [];
+}
+
+function toRigaInsert(
+  fatturaId: string,
+  r: FatturaA4Riga,
+  i: number,
+  userId: string
+): FatturaEmessaRigaInsert & Record<string, unknown> {
+  return {
+    fattura_id: fatturaId,
+    prodotto_id: r.isSpedizione ? null : r.prodottoId,
+    codice: r.codice,
+    descrizione: r.descrizione,
+    quantita: r.quantita,
+    unita_misura: r.unitaMisura,
+    prezzo_unitario: r.prezzoUnitario,
+    sconto_percentuale: r.scontoPercentuale,
+    importo: importoRiga(r.quantita, r.prezzoUnitario, r.scontoPercentuale),
+    sort_order: i,
+    iva_percentuale: r.ivaPercentuale,
+    is_spedizione: r.isSpedizione,
+    note: r.note,
+    created_by: userId,
+    updated_by: userId,
+  };
+}
+
+async function replaceFatturaRighe(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  fatturaId: string,
+  righeDoc: FatturaA4Riga[],
+  userId: string
+): Promise<string | null> {
+  const now = new Date().toISOString();
+  const soft = await supabase
+    .from("fatture_emesse_righe")
+    .update({ deleted_at: now, deleted_by: userId })
+    .eq("fattura_id", fatturaId)
+    .is("deleted_at", null);
+  if (!soft.error) {
+    const ins = await supabase
+      .from("fatture_emesse_righe")
+      .insert(righeDoc.map((r, i) => toRigaInsert(fatturaId, r, i, userId)));
+    if (!ins.error) return null;
+    if (!missingColumn(ins.error, "unita_misura")) return ins.error.message;
+    const retry = await supabase.from("fatture_emesse_righe").insert(
+      righeDoc.map((r, i) => {
+        const row = toRigaInsert(fatturaId, r, i, userId);
+        delete row.unita_misura;
+        return row;
+      })
+    );
+    return retry.error?.message ?? null;
+  }
+  const existing = await supabase
+    .from("fatture_emesse_righe")
+    .select("id")
+    .eq("fattura_id", fatturaId)
+    .order("sort_order", { ascending: true });
+  if (existing.error) return existing.error.message;
+  const ids = (existing.data ?? []).map((r) => String(r.id));
+  for (let i = 0; i < righeDoc.length; i++) {
+    const row = toRigaInsert(fatturaId, righeDoc[i], i, userId);
+    if (ids[i]) {
+      const { error } = await supabase
+        .from("fatture_emesse_righe")
+        .update(row)
+        .eq("id", ids[i]);
+      if (error && missingColumn(error, "unita_misura")) {
+        delete row.unita_misura;
+        const retry = await supabase
+          .from("fatture_emesse_righe")
+          .update(row)
+          .eq("id", ids[i]);
+        if (retry.error) return retry.error.message;
+      } else if (error) {
+        return error.message;
+      }
+    } else {
+      const { error } = await supabase.from("fatture_emesse_righe").insert(row);
+      if (error && missingColumn(error, "unita_misura")) {
+        delete row.unita_misura;
+        const retry = await supabase.from("fatture_emesse_righe").insert(row);
+        if (retry.error) return retry.error.message;
+      } else if (error) {
+        return error.message;
+      }
+    }
+  }
+  return null;
 }
 
 function pianoFromOrdineRate(
@@ -167,22 +291,13 @@ export async function getFatturaA4ContextAction(input: {
       dataDocumento: string;
       numeroInterno: string;
       numeroFattura: string;
-      righe: Array<{
-        prodottoId: string | null;
-        codice: string;
-        descrizione: string;
-        quantita: number;
-        unitaMisura: string;
-        prezzoUnitario: number;
-        scontoPercentuale: number;
-        ivaPercentuale: number;
-        isSpedizione: boolean;
-        note: string;
-      }>;
+      righe: FatturaA4Riga[];
+      destinatario: FatturaDestinatarioSnapshot;
       totale: number;
       imponibile: number;
       imposta: number;
       fatturaEsistenteId: string | null;
+      noteDocumento: string;
     }
   | { success: false; error: string }
 > {
@@ -231,19 +346,32 @@ export async function getFatturaA4ContextAction(input: {
     }
     const clienteRow = clienteData as ClienteRow;
     const cliente = mapClienteRow(clienteRow);
+    const scontoOrdine = Number(ordine.sconto_extra_pct ?? 0);
+    const listinoHeader =
+      ordine.prezzo_listino_unitario != null
+        ? Number(ordine.prezzo_listino_unitario)
+        : null;
     const righeOrdine = (righeData ?? []) as OrdineRigaRow[];
-    const righe = righeOrdine.map((r) => ({
-      prodottoId: r.prodotto_id,
-      codice: r.prodotto_codice,
-      descrizione: r.prodotto_nome,
-      quantita: Number(r.quantita),
-      unitaMisura: r.unita_misura ?? "kg",
-      prezzoUnitario: Number(r.prezzo_unitario),
-      scontoPercentuale: 0,
-      ivaPercentuale: Number(r.iva_percentuale) || 22,
-      isSpedizione: false,
-      note: "",
-    }));
+    let righe: FatturaA4Riga[] = righeOrdine.map((r) => {
+      const mapped = listinoEScontoDaOrdine({
+        prezzoRiga: Number(r.prezzo_unitario),
+        prezzoListinoHeader: listinoHeader,
+        scontoExtraPct: scontoOrdine,
+        isSpedizione: false,
+      });
+      return {
+        prodottoId: r.prodotto_id,
+        codice: r.prodotto_codice,
+        descrizione: r.prodotto_nome,
+        quantita: Number(r.quantita),
+        unitaMisura: r.unita_misura ?? "kg",
+        prezzoUnitario: mapped.prezzoUnitario,
+        scontoPercentuale: mapped.scontoPercentuale,
+        ivaPercentuale: Number(r.iva_percentuale) || 22,
+        isSpedizione: false,
+        note: "",
+      };
+    });
     if (Number(ordine.trasporto_imponibile) > 0) {
       righe.push({
         prodottoId: null,
@@ -258,13 +386,51 @@ export async function getFatturaA4ContextAction(input: {
         note: "",
       });
     }
-    const totals = calcolaTotaliEmissione(
-      righe.map((r) => ({
-        importo: r.quantita * r.prezzoUnitario,
-        ivaPercentuale: r.ivaPercentuale,
-      }))
-    );
-    const dataDocumento = todayIsoDate();
+    let destinatario = destinatarioFromCliente(cliente);
+    let noteDocumento = "";
+    const { data: existing } = await supabase
+      .from("fatture_emesse")
+      .select("*")
+      .eq("ordine_id", ordine.id)
+      .is("deleted_at", null)
+      .eq("tipo_documento", "fattura")
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    const existingRow = existing as FatturaEmessaRow | null;
+    if (existingRow) {
+      noteDocumento = existingRow.note ?? "";
+      const snap = parseDestinatarioSnapshot(existingRow.destinatario_snapshot);
+      if (snap) destinatario = snap;
+      else if (existingRow.cliente_ragione_sociale) {
+        destinatario = {
+          ...destinatario,
+          ragioneSociale: existingRow.cliente_ragione_sociale,
+        };
+      }
+      let fatturaRighe: Awaited<ReturnType<typeof loadFatturaRighe>> = [];
+      try {
+        fatturaRighe = await loadFatturaRighe(supabase, existingRow.id);
+      } catch {
+        fatturaRighe = [];
+      }
+      if (fatturaRighe && fatturaRighe.length > 0) {
+        righe = fatturaRighe.map((r) => ({
+          prodottoId: r.prodotto_id,
+          codice: r.codice,
+          descrizione: r.descrizione,
+          quantita: Number(r.quantita),
+          unitaMisura: r.unita_misura || "nr",
+          prezzoUnitario: Number(r.prezzo_unitario),
+          scontoPercentuale: Number(r.sconto_percentuale) || 0,
+          ivaPercentuale: Number(r.iva_percentuale) || 22,
+          isSpedizione: Boolean(r.is_spedizione),
+          note: r.note ?? "",
+        }));
+      }
+    }
+    const totals = totalsFromFatturaRighe(righe);
+    const dataDocumento = existingRow?.data_emissione || todayIsoDate();
     const seq = await nextSeqEmissioneAnnoCliente(
       cliente.id,
       cliente.codiceTarga,
@@ -275,21 +441,13 @@ export async function getFatturaA4ContextAction(input: {
       codiceTarga: cliente.codiceTarga,
       seq,
     });
-    const { data: existing } = await supabase
-      .from("fatture_emesse")
-      .select("id")
-      .eq("ordine_id", ordine.id)
-      .is("deleted_at", null)
-      .eq("tipo_documento", "fattura")
-      .order("created_at", { ascending: false })
-      .limit(1)
-      .maybeSingle();
 
     return {
       success: true,
       ordineId: ordine.id,
       numeroOrdine: ordine.numero_interno,
       cliente,
+      destinatario,
       emails: emailsClienteUniche(cliente),
       piano: pianoFromOrdineRate(
         ordine,
@@ -304,13 +462,17 @@ export async function getFatturaA4ContextAction(input: {
       ),
       dataConsegna: ordine.data_consegna ?? ordine.data_consegna_stimata,
       dataDocumento,
-      numeroInterno: nums.numeroInterno,
-      numeroFattura: nums.numeroFattura,
+      numeroInterno: existingRow?.numero_interno || nums.numeroInterno,
+      numeroFattura:
+        existingRow?.numero_fattura ||
+        existingRow?.numero_documento_esterno ||
+        nums.numeroFattura,
       righe,
       totale: totals.totale,
       imponibile: totals.imponibile,
       imposta: totals.imposta,
-      fatturaEsistenteId: existing?.id ? String(existing.id) : null,
+      fatturaEsistenteId: existingRow?.id ?? null,
+      noteDocumento,
     };
   } catch (e) {
     return {
@@ -319,6 +481,35 @@ export async function getFatturaA4ContextAction(input: {
     };
   }
 }
+
+const sedeSchema = z.object({
+  nazione: z.string().optional().default(""),
+  provincia: z.string().optional().default(""),
+  citta: z.string().optional().default(""),
+  cap: z.string().optional().default(""),
+  indirizzo: z.string().optional().default(""),
+});
+
+const rigaDocumentoSchema = z.object({
+  prodottoId: z.string().uuid().nullable(),
+  codice: z.string().trim().min(1),
+  descrizione: z.string().trim().min(1),
+  quantita: z.number().positive(),
+  unitaMisura: z.string().trim().min(1).max(16),
+  prezzoUnitario: z.number().min(0),
+  scontoPercentuale: z.number().min(0).max(100),
+  ivaPercentuale: z.number().min(0).max(100),
+  isSpedizione: z.boolean(),
+  note: z.string().optional().default(""),
+});
+
+const destinatarioSchema = z.object({
+  ragioneSociale: z.string().trim().min(1).max(300),
+  partitaIva: z.string().trim().max(32).optional().default(""),
+  codiceFiscale: z.string().trim().max(32).optional().default(""),
+  sede: sedeSchema,
+  email: z.string().trim().max(200).optional().default(""),
+});
 
 const saveSchema = z.object({
   ordineId: z.string().uuid(),
@@ -329,6 +520,8 @@ const saveSchema = z.object({
   sendToSdi: z.boolean().optional().default(true),
   piano: ordinePagamentoPianoSchema,
   noteDocumento: z.string().optional().default(""),
+  righe: z.array(rigaDocumentoSchema).min(1).optional(),
+  destinatario: destinatarioSchema.optional(),
 });
 
 export type SalvaFatturaDaOrdineResult =
@@ -362,8 +555,23 @@ export async function saveFatturaDaOrdineAction(
   const ctx = await getFatturaA4ContextAction({ ordineId: input.ordineId });
   if (!ctx.success) return ctx;
 
-  const piano = applyTotaleToPiano(input.piano, ctx.totale);
-  const pianoErr = validatePianoVsTotale(piano, ctx.totale);
+  const righeDoc: FatturaA4Riga[] = (input.righe ?? ctx.righe).map((r) => ({
+    prodottoId: r.prodottoId,
+    codice: r.codice,
+    descrizione: r.descrizione,
+    quantita: r.quantita,
+    unitaMisura: r.unitaMisura,
+    prezzoUnitario: r.prezzoUnitario,
+    scontoPercentuale: r.scontoPercentuale,
+    ivaPercentuale: r.ivaPercentuale,
+    isSpedizione: r.isSpedizione,
+    note: r.note ?? "",
+  }));
+  const destinatario = input.destinatario ?? ctx.destinatario;
+  const totals = totalsFromFatturaRighe(righeDoc);
+
+  const piano = applyTotaleToPiano(input.piano, totals.totale);
+  const pianoErr = validatePianoVsTotale(piano, totals.totale);
   if (pianoErr) return { success: false, error: pianoErr };
 
   const supabase = await createClient();
@@ -382,8 +590,8 @@ export async function saveFatturaDaOrdineAction(
   }
 
   const ivaHeader =
-    ctx.righe.find((r) => !r.isSpedizione)?.ivaPercentuale ?? 22;
-  const spedizioneRiga = ctx.righe.find((r) => r.isSpedizione);
+    righeDoc.find((r) => !r.isSpedizione)?.ivaPercentuale ?? 22;
+  const spedizioneRiga = righeDoc.find((r) => r.isSpedizione);
   const payments = pianoToFicPayments({
     piano,
     oggi: input.dataDocumento,
@@ -413,30 +621,51 @@ export async function saveFatturaDaOrdineAction(
           sendToSdi: input.sendToSdi,
         });
       }
-      const { error: upErr } = await supabase
+      const headerPatch: Record<string, unknown> = {
+        data_emissione: input.dataDocumento,
+        data_scadenza: dataScadenza,
+        cliente_ragione_sociale: destinatario.ragioneSociale,
+        destinatario_snapshot: destinatario,
+        imponibile: totals.imponibile,
+        imposta: totals.imposta,
+        totale: totals.totale,
+        iva_percentuale: ivaHeader,
+        spedizione: spedizioneRiga?.prezzoUnitario ?? 0,
+        spedizione_iva_applicata: Boolean(
+          spedizioneRiga && spedizioneRiga.ivaPercentuale > 0
+        ),
+        note: input.noteDocumento.trim(),
+        invio_email: (input.invioEmail ?? "").trim(),
+        pagamento_modalita: piano.modalita,
+        tipo_scadenza_unica:
+          piano.modalita === "unica" ? piano.tipoUnica : null,
+        payment_method: "MP05",
+        iban: AGRINSICILIA_COORDINATE.iban,
+        versione: (row.versione ?? 1) + 1,
+        updated_by: auth.userId,
+      };
+      let { error: upErr } = await supabase
         .from("fatture_emesse")
-        .update({
-          data_emissione: input.dataDocumento,
-          data_scadenza: dataScadenza,
-          imponibile: ctx.imponibile,
-          imposta: ctx.imposta,
-          totale: ctx.totale,
-          iva_percentuale: ivaHeader,
-          spedizione: spedizioneRiga?.prezzoUnitario ?? 0,
-          spedizione_iva_applicata: Boolean(
-            spedizioneRiga && spedizioneRiga.ivaPercentuale > 0
-          ),
-          note: input.noteDocumento.trim(),
-          invio_email: (input.invioEmail ?? "").trim(),
-          pagamento_modalita: piano.modalita,
-          tipo_scadenza_unica:
-            piano.modalita === "unica" ? piano.tipoUnica : null,
-          payment_method: "MP05",
-          iban: AGRINSICILIA_COORDINATE.iban,
-          updated_by: auth.userId,
-        })
+        .update(headerPatch)
         .eq("id", fatturaId);
+      if (upErr && missingColumn(upErr, "destinatario_snapshot")) {
+        delete headerPatch.destinatario_snapshot;
+        const retry = await supabase
+          .from("fatture_emesse")
+          .update(headerPatch)
+          .eq("id", fatturaId);
+        upErr = retry.error;
+      }
       if (upErr) return { success: false, error: upErr.message };
+      const righeUpErr = await replaceFatturaRighe(
+        supabase,
+        fatturaId,
+        righeDoc,
+        auth.userId
+      );
+      if (righeUpErr) {
+        return { success: false, error: `Righe fattura: ${righeUpErr}` };
+      }
       await supabase
         .from("fatture_emesse_dilazioni")
         .update({
@@ -454,8 +683,9 @@ export async function saveFatturaDaOrdineAction(
     const insert: FatturaEmessaInsert & Record<string, unknown> = {
       numero_interno: numeroInterno,
       cliente_id: ctx.cliente.id,
-      cliente_ragione_sociale: ctx.cliente.ragioneSociale,
+      cliente_ragione_sociale: destinatario.ragioneSociale,
       cliente_codice_targa: ctx.cliente.codiceTarga,
+      destinatario_snapshot: destinatario,
       data_emissione: input.dataDocumento,
       numero_documento_esterno: numeroFattura,
       numero_fattura: numeroFattura,
@@ -464,10 +694,10 @@ export async function saveFatturaDaOrdineAction(
         spedizioneRiga && spedizioneRiga.ivaPercentuale > 0
       ),
       spedizione_iva_percentuale: spedizioneRiga?.ivaPercentuale ?? 22,
-      imponibile: ctx.imponibile,
+      imponibile: totals.imponibile,
       iva_percentuale: ivaHeader,
-      imposta: ctx.imposta,
-      totale: ctx.totale,
+      imposta: totals.imposta,
+      totale: totals.totale,
       stato_pagamento: "da_pagare",
       documento_stato: "bozza",
       note: input.noteDocumento.trim(),
@@ -483,11 +713,21 @@ export async function saveFatturaDaOrdineAction(
       pagamento_modalita: piano.modalita,
       tipo_scadenza_unica: piano.modalita === "unica" ? piano.tipoUnica : null,
     };
-    const { data: fatturaRow, error: insErr } = await supabase
+    let { data: fatturaRow, error: insErr } = await supabase
       .from("fatture_emesse")
       .insert(insert)
       .select("*")
       .single();
+    if (insErr && missingColumn(insErr, "destinatario_snapshot")) {
+      delete insert.destinatario_snapshot;
+      const retry = await supabase
+        .from("fatture_emesse")
+        .insert(insert)
+        .select("*")
+        .single();
+      fatturaRow = retry.data;
+      insErr = retry.error;
+    }
     if (insErr || !fatturaRow) {
       return {
         success: false,
@@ -495,28 +735,14 @@ export async function saveFatturaDaOrdineAction(
       };
     }
     fatturaId = (fatturaRow as FatturaEmessaRow).id;
-    const righeInsert: (FatturaEmessaRigaInsert & Record<string, unknown>)[] =
-      ctx.righe.map((r, i) => ({
-        fattura_id: fatturaId!,
-        prodotto_id: r.isSpedizione ? null : r.prodottoId,
-        codice: r.codice,
-        descrizione: r.descrizione,
-        quantita: r.quantita,
-        prezzo_unitario: r.prezzoUnitario,
-        sconto_percentuale: r.scontoPercentuale,
-        importo: r.quantita * r.prezzoUnitario,
-        sort_order: i,
-        iva_percentuale: r.ivaPercentuale,
-        is_spedizione: r.isSpedizione,
-        note: r.note,
-        created_by: auth.userId,
-        updated_by: auth.userId,
-      }));
-    const { error: righeErr } = await supabase
-      .from("fatture_emesse_righe")
-      .insert(righeInsert);
+    const righeErr = await replaceFatturaRighe(
+      supabase,
+      fatturaId,
+      righeDoc,
+      auth.userId
+    );
     if (righeErr) {
-      return { success: false, error: `Fattura salvata ma righe: ${righeErr.message}` };
+      return { success: false, error: `Fattura salvata ma righe: ${righeErr}` };
     }
   }
 
@@ -542,15 +768,6 @@ export async function saveFatturaDaOrdineAction(
     return { success: false, error: `Dilazioni: ${dilErr.message}` };
   }
 
-  await supabase
-    .from("ordini")
-    .update({
-      tipo_pagamento: tipoPagamentoFromPiano(piano),
-      pagamento_modalita: piano.modalita,
-      updated_by: auth.userId,
-    })
-    .eq("id", input.ordineId);
-
   await writeAuditLog({
     entity_type: "fatture_emesse",
     entity_id: fatturaId!,
@@ -561,6 +778,8 @@ export async function saveFatturaDaOrdineAction(
       ordineId: input.ordineId,
       inviaOra: input.inviaOra,
       modalita: piano.modalita,
+      scontoRighe: righeDoc.map((r) => r.scontoPercentuale),
+      destinatario: destinatario.ragioneSociale,
     },
   });
 
@@ -603,26 +822,29 @@ export async function inviaFatturaSalvataAction(input: {
     return { success: false, error: error?.message ?? "Fattura non trovata." };
   }
   const fattura = fatturaData as FatturaEmessaRow;
-  const [{ data: righe }, { data: dilazioni }, { data: clienteData }] =
-    await Promise.all([
-      supabase
-        .from("fatture_emesse_righe")
-        .select("*")
-        .eq("fattura_id", fattura.id)
-        .order("sort_order", { ascending: true }),
-      supabase
-        .from("fatture_emesse_dilazioni")
-        .select("*")
-        .eq("fattura_id", fattura.id)
-        .is("deleted_at", null)
-        .order("sort_order", { ascending: true }),
-      supabase
-        .from("clienti")
-        .select("*")
-        .eq("id", fattura.cliente_id)
-        .is("deleted_at", null)
-        .maybeSingle(),
-    ]);
+  const [{ data: dilazioni }, { data: clienteData }] = await Promise.all([
+    supabase
+      .from("fatture_emesse_dilazioni")
+      .select("*")
+      .eq("fattura_id", fattura.id)
+      .is("deleted_at", null)
+      .order("sort_order", { ascending: true }),
+    supabase
+      .from("clienti")
+      .select("*")
+      .eq("id", fattura.cliente_id)
+      .is("deleted_at", null)
+      .maybeSingle(),
+  ]);
+  let righe: Awaited<ReturnType<typeof loadFatturaRighe>> = [];
+  try {
+    righe = await loadFatturaRighe(supabase, fattura.id);
+  } catch (e) {
+    return {
+      success: false,
+      error: e instanceof Error ? e.message : "Righe fattura non leggibili.",
+    };
+  }
   if (!clienteData) return { success: false, error: "Cliente non trovato." };
   const cliente = clienteData as ClienteRow;
   const fisc = validateClienteFiscale(cliente);
@@ -652,15 +874,19 @@ export async function inviaFatturaSalvataAction(input: {
     qty: Number(r.quantita),
     vat: { id: resolveFicVatId(vatTypes, Number(r.iva_percentuale) || 22) },
   }));
+  const destSnap = parseDestinatarioSnapshot(fattura.destinatario_snapshot);
   const entity: Record<string, unknown> = {
-    name: cliente.ragione_sociale,
-    vat_number: cliente.is_privato ? "" : cliente.partita_iva ?? "",
-    tax_code: cliente.codice_fiscale ?? "",
-    address_street: cliente.sede_amm_indirizzo ?? "",
-    address_postal_code: cliente.sede_amm_cap ?? "",
-    address_city: cliente.sede_amm_citta ?? "",
-    address_province: cliente.sede_amm_provincia ?? "",
-    country: cliente.sede_amm_nazione || "Italia",
+    name: destSnap?.ragioneSociale || cliente.ragione_sociale,
+    vat_number: cliente.is_privato
+      ? ""
+      : destSnap?.partitaIva || cliente.partita_iva || "",
+    tax_code: destSnap?.codiceFiscale || cliente.codice_fiscale || "",
+    address_street: destSnap?.sede.indirizzo || cliente.sede_amm_indirizzo || "",
+    address_postal_code: destSnap?.sede.cap || cliente.sede_amm_cap || "",
+    address_city: destSnap?.sede.citta || cliente.sede_amm_citta || "",
+    address_province:
+      destSnap?.sede.provincia || cliente.sede_amm_provincia || "",
+    country: destSnap?.sede.nazione || cliente.sede_amm_nazione || "Italia",
   };
   if (cliente.sdi_code?.trim()) entity.ei_code = cliente.sdi_code.trim();
   if (cliente.pec?.trim()) entity.certified_email = cliente.pec.trim();
