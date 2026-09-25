@@ -35,6 +35,8 @@ import { ConsegnaCalendarioModal } from "@/components/amministrazione/ConsegnaCa
 import { ProdottoProprioFormModal } from "@/components/amministrazione/ProdottoProprioFormModal";
 import { ReferentiPickerField } from "@/components/amministrazione/ReferentiPickerField";
 import { FatturaA4Modal } from "@/components/amministrazione/FatturaA4Modal";
+import { FatturaWebmailComposeModal } from "@/components/amministrazione/FatturaWebmailComposeModal";
+import type { FatturaInvioMailDraft } from "@/lib/amministrazione/fattura-invio-mail";
 import { OrdinePagamentoPianoFields } from "@/components/amministrazione/OrdinePagamentoPianoFields";
 import { SpedizioneMailComposeModal } from "@/components/amministrazione/SpedizioneMailComposeModal";
 import { SpedizioneMailPanel } from "@/components/amministrazione/SpedizioneMailPanel";
@@ -215,6 +217,8 @@ export function OrdineNuovoWizardModal({
     to: string;
     ordine: Ordine;
   } | null>(null);
+  const [fatturaMailDraft, setFatturaMailDraft] =
+    useState<FatturaInvioMailDraft | null>(null);
 
   const [anagraficaFonte, setAnagraficaFonte] =
     useState<AnagraficaOrdineFonte>("cliente");
@@ -2572,10 +2576,21 @@ export function OrdineNuovoWizardModal({
           onSaved={({ inviata }) => {
             if (!inviata) return;
             setFatturaA4Open(false);
+          }}
+          onSimulaInvio={(mailDraft) => {
+            setFatturaA4Open(false);
+            setFatturaMailDraft(mailDraft);
             setSessioneMsg(
-              `Invio simulato in sessione (${savedOrdine.numeroInterno || "fattura"}). La finestra fattura è chiusa: nessuna email e nessuno SDI.`
+              "Scheda invio mail Webmail aperta: testo AI e PDF fattura già pronti. Nessuna email reale in sessione."
             );
           }}
+        />
+      ) : null}
+
+      {fatturaMailDraft ? (
+        <FatturaWebmailComposeModal
+          draft={fatturaMailDraft}
+          onClose={() => setFatturaMailDraft(null)}
         />
       ) : null}
 

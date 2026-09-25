@@ -27,6 +27,7 @@ import {
   type FatturaA4Riga,
   type FatturaDestinatarioSnapshot,
 } from "@/lib/amministrazione/fattura-a4-documento";
+import type { FatturaInvioMailDraft } from "@/lib/amministrazione/fattura-invio-mail";
 import { prezzoScontatoUnitario } from "@/lib/amministrazione/fatture";
 import {
   applyTotaleToPiano,
@@ -59,6 +60,7 @@ type Props = {
   pianoIniziale?: OrdinePagamentoPiano | null;
   onClose: () => void;
   onSaved?: (info: { fatturaId: string; inviata: boolean }) => void;
+  onSimulaInvio?: (draft: FatturaInvioMailDraft) => void;
 };
 
 type EditKind =
@@ -98,6 +100,7 @@ export function FatturaA4Modal({
   pianoIniziale,
   onClose,
   onSaved,
+  onSimulaInvio,
 }: Props) {
   const soloSessione =
     !ORDINI_PERSISTENZA_DEFINITIVA || Boolean(sessioneDraft) || !ordineId;
@@ -292,6 +295,17 @@ export function FatturaA4Modal({
       setConfirmOpen(false);
       onSaved?.({ fatturaId: prev.ordine.id, inviata: inviaOra });
       if (inviaOra) {
+        onSimulaInvio?.({
+          to: email,
+          numeroFattura: numero,
+          dataDocumento,
+          clienteNome:
+            destinatario.ragioneSociale || cliente?.ragioneSociale || "",
+          destinatario,
+          righe,
+          noteDocumento,
+          ordineNumero: prev.ordine.numeroInterno || prev.ordine.numero || "",
+        });
         onClose();
         return;
       }
@@ -325,6 +339,19 @@ export function FatturaA4Modal({
     setConfirmOpen(false);
     onSaved?.({ fatturaId: res.fatturaId, inviata: res.inviata });
     if (res.inviata) {
+      if (destinatario) {
+        onSimulaInvio?.({
+          to: email,
+          numeroFattura: res.numeroFattura,
+          dataDocumento,
+          clienteNome:
+            destinatario.ragioneSociale || cliente?.ragioneSociale || "",
+          destinatario,
+          righe,
+          noteDocumento,
+          ordineNumero: "",
+        });
+      }
       onClose();
       return;
     }
