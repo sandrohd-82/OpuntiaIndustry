@@ -61,6 +61,7 @@ export function labelModalitaPagamentoPreventivo(
 ): string {
   if (tipo === "anticipato") return "Pagamento anticipato";
   if (tipo === "alla_consegna") return "Pagamento alla consegna";
+  if (tipo === "pronto_magazzino") return "Pagamento a pronto magazzino";
   if (tipo === "posticipato") return "Pagamento posticipato";
   return "Pagamento dilazionato";
 }

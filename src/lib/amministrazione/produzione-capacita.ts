@@ -207,8 +207,44 @@ export const ordineWizardInputSchema = z
     webmailRichiestaId: z.string().uuid().nullable().optional(),
     referenteAccettazioneId: z.string().uuid().nullable().optional(),
     tipoPagamento: z
-      .enum(["anticipato", "alla_consegna", "posticipato", "dilazionato"])
+      .enum([
+        "anticipato",
+        "alla_consegna",
+        "pronto_magazzino",
+        "posticipato",
+        "dilazionato",
+      ])
       .default("alla_consegna"),
+    pagamentoPiano: z
+      .object({
+        modalita: z.enum(["unica", "dilazione"]),
+        tipoUnica: z.enum([
+          "anticipato",
+          "alla_consegna",
+          "pronto_magazzino",
+          "posticipato",
+        ]),
+        rate: z.array(
+          z.object({
+            sortOrder: z.number().int().min(0),
+            importo: z.number().min(0),
+            tipoScadenza: z
+              .enum([
+                "anticipato",
+                "alla_consegna",
+                "pronto_magazzino",
+                "posticipato",
+              ])
+              .nullable(),
+            dataPagamento: z
+              .string()
+              .regex(/^\d{4}-\d{2}-\d{2}$/)
+              .nullable(),
+            note: z.string().optional().default(""),
+          })
+        ),
+      })
+      .optional(),
     tipo: z.enum(["vendita", "campionatura"]).default("vendita"),
     scontoExtraPct: z.number().min(0).max(100).optional().default(0),
   })

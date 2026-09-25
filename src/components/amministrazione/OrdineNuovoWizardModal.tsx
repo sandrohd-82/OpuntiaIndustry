@@ -34,8 +34,16 @@ import { AziendaOrdineSelect } from "@/components/amministrazione/AziendaOrdineS
 import { ConsegnaCalendarioModal } from "@/components/amministrazione/ConsegnaCalendarioModal";
 import { ProdottoProprioFormModal } from "@/components/amministrazione/ProdottoProprioFormModal";
 import { ReferentiPickerField } from "@/components/amministrazione/ReferentiPickerField";
+import { FatturaA4Modal } from "@/components/amministrazione/FatturaA4Modal";
+import { OrdinePagamentoPianoFields } from "@/components/amministrazione/OrdinePagamentoPianoFields";
 import { SpedizioneMailComposeModal } from "@/components/amministrazione/SpedizioneMailComposeModal";
 import { SpedizioneMailPanel } from "@/components/amministrazione/SpedizioneMailPanel";
+import {
+  applyTotaleToPiano,
+  emptyPagamentoPiano,
+  tipoPagamentoFromPiano,
+  type OrdinePagamentoPiano,
+} from "@/lib/amministrazione/ordine-pagamento-piano";
 import {
   generaCorpoMailSpedizioneAction,
   upsertPrenotazioneSpedizioneMailAction,
@@ -241,6 +249,11 @@ export function OrdineNuovoWizardModal({
   const [timelineMailOpen, setTimelineMailOpen] = useState(false);
   const [tipoPagamento, setTipoPagamento] =
     useState<OrdineTipoPagamento>("alla_consegna");
+  const [pagamentoPiano, setPagamentoPiano] = useState<OrdinePagamentoPiano>(
+    () => emptyPagamentoPiano("alla_consegna")
+  );
+  const [savedOrdine, setSavedOrdine] = useState<Ordine | null>(null);
+  const [fatturaA4Open, setFatturaA4Open] = useState(false);
   const [tipoOrdine, setTipoOrdine] = useState<"vendita" | "campionatura">(
     variant === "campionatura" ? "campionatura" : "vendita"
   );
@@ -474,6 +487,10 @@ export function OrdineNuovoWizardModal({
   ]);
 
   useEffect(() => {
+    setPagamentoPiano((prev) => applyTotaleToPiano(prev, rigaImporti.totale));
+  }, [rigaImporti.totale]);
+
+  useEffect(() => {
     if (tipoOrdine === "campionatura") return;
     let cancelled = false;
     void getScontoFuoriListinoContextAction().then((res) => {
@@ -554,6 +571,8 @@ export function OrdineNuovoWizardModal({
     setMailAccettazione(null);
     setReferenteAccettazione(null);
     setTipoPagamento("alla_consegna");
+    setPagamentoPiano(emptyPagamentoPiano("alla_consegna"));
+    setSavedOrdine(null);
   }, [clienteId]);
 
   useEffect(() => {
@@ -628,6 +647,14 @@ export function OrdineNuovoWizardModal({
         return false;
       return true;
     }
+    if (step === 6 && tipoOrdine !== "campionatura") {
+      if (
+        pagamentoPiano.modalita === "dilazione" &&
+        pagamentoPiano.rate.some((r, i) => i > 0 && !r.dataPagamento)
+      ) {
+        return false;
+      }
+    }
     return true;
   }
 
@@ -649,6 +676,21 @@ export function OrdineNuovoWizardModal({
       setOverridesSeeded(false);
     }
     setTipoPagamento(item.tipoPagamento);
+    if (
+      item.tipoPagamento === "anticipato" ||
+      item.tipoPagamento === "alla_consegna" ||
+      item.tipoPagamento === "pronto_magazzino" ||
+      item.tipoPagamento === "posticipato"
+    ) {
+      setPagamentoPiano(emptyPagamentoPiano(item.tipoPagamento));
+    } else {
+      setPagamentoPiano(
+        applyTotaleToPiano(
+          { ...emptyPagamentoPiano(), modalita: "dilazione" },
+          rigaImporti.totale
+        )
+      );
+    }
   }
 
   async function onReferenteAccettazioneChange(next: RubricaContatto[]) {
@@ -663,10 +705,21 @@ export function OrdineNuovoWizardModal({
     });
   }
 
-  async function submit(modoMail?: "prenota" | "compila" | "salva") {
+  async function submit(
+    modoMail?: "prenota" | "compila" | "salva",
+    opts?: { keepOpen?: boolean }
+  ) {
     if (!prodotto) return;
     if (anagraficaFonte === "possibile" && !possibileClienteId) return;
     if (anagraficaFonte === "cliente" && !clienteId) return;
+    if (savedOrdine) {
+      if (opts?.keepOpen) {
+        setFatturaA4Open(true);
+        return;
+      }
+      onSaved(savedOrdine);
+      return;
+    }
     if (Math.abs(kgDelta) > 0.001 && conf.nodi.length > 0 && !conf.coerenzaIgnorata) {
       setFormError(
         kgDelta > 0
@@ -718,7 +771,8 @@ export function OrdineNuovoWizardModal({
         attivitaSnapshot,
         dataConsegnaCalendario,
         confezionamento: confNorm,
-        tipoPagamento,
+        tipoPagamento: tipoPagamentoFromPiano(pagamentoPiano),
+        pagamentoPiano,
         tipo: tipoOrdine,
         preventivoId: preventivoId || null,
         webmailAccettazioneId: mailAccettazione?.id ?? null,
@@ -732,12 +786,17 @@ export function OrdineNuovoWizardModal({
         setFormError(result.error);
         return;
       }
+      setSavedOrdine(result.ordine);
       if (spedDraft.current.sedePartenzaId) {
         await updateSedePartenzaAction({
           entityType: "ordine",
           entityId: result.ordine.id,
           sedeId: spedDraft.current.sedePartenzaId,
         });
+      }
+      if (opts?.keepOpen) {
+        setFatturaA4Open(true);
+        return;
       }
       if (modoMail) {
         const d = spedDraft.current;
@@ -2022,6 +2081,55 @@ export function OrdineNuovoWizardModal({
                   </p>
                 )}
               </div>
+
+              {tipoOrdine !== "campionatura" ? (
+                <div className="space-y-3 rounded-xl border border-[var(--border)] p-4">
+                  <p className="text-sm font-semibold">Pagamento</p>
+                  <p className="text-xs text-[var(--muted)]">
+                    Unica soluzione oppure dilazione. In dilazione la prima rata
+                    ha la stessa scadenza (anticipato, consegna, pronto
+                    magazzino, posticipato); le altre richiedono la data di
+                    pagamento.
+                  </p>
+                  <OrdinePagamentoPianoFields
+                    piano={pagamentoPiano}
+                    onChange={(next) => {
+                      setPagamentoPiano(next);
+                      setTipoPagamento(tipoPagamentoFromPiano(next));
+                    }}
+                    totale={rigaImporti.totale}
+                  />
+                </div>
+              ) : null}
+
+              {tipoOrdine !== "campionatura" ? (
+                <div className="space-y-2 rounded-xl border border-[var(--border)] p-4">
+                  <p className="text-sm font-semibold">Fattura</p>
+                  <p className="text-xs text-[var(--muted)]">
+                    Documento A4 come il preventivo (logo, intestazione, piè di
+                    pagina, area pagamento). Alla conferma la fattura viene
+                    sempre salvata; puoi inviarla subito (email + SDI via
+                    Fatture in Cloud) oppure dopo.
+                  </p>
+                  {anagraficaFonte !== "cliente" ? (
+                    <p className="text-xs text-amber-800">
+                      Per creare la fattura serve un cliente registrato (non un
+                      possibile cliente).
+                    </p>
+                  ) : (
+                    <button
+                      type="button"
+                      disabled={saving || !canNext()}
+                      onClick={() => void submit("salva", { keepOpen: true })}
+                      className="rounded-lg bg-[var(--primary)] px-3 py-2 text-sm font-medium text-white disabled:opacity-50"
+                    >
+                      {savedOrdine
+                        ? "Apri documento fattura"
+                        : "Crea fattura A4"}
+                    </button>
+                  )}
+                </div>
+              ) : null}
             </div>
           )}
 
@@ -2201,6 +2309,14 @@ export function OrdineNuovoWizardModal({
             setDataConsegnaCalendario(dataConsegna);
             setCalendarioOpen(false);
           }}
+        />
+      ) : null}
+
+      {fatturaA4Open && savedOrdine ? (
+        <FatturaA4Modal
+          ordineId={savedOrdine.id}
+          pianoIniziale={pagamentoPiano}
+          onClose={() => setFatturaA4Open(false)}
         />
       ) : null}
 

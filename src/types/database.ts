@@ -928,8 +928,15 @@ export type OrdineDocumentoStato =
 export type OrdineTipoPagamento =
   | "anticipato"
   | "alla_consegna"
+  | "pronto_magazzino"
   | "posticipato"
   | "dilazionato";
+export type OrdinePagamentoModalita = "unica" | "dilazione";
+export type PagamentoTipoScadenza =
+  | "anticipato"
+  | "alla_consegna"
+  | "pronto_magazzino"
+  | "posticipato";
 
 export type OrdineConsegnaTipo = "asap" | "data";
 
@@ -952,6 +959,7 @@ export interface OrdineRow {
   importo_euro: number;
   note: string;
   tipo_pagamento: OrdineTipoPagamento;
+  pagamento_modalita?: OrdinePagamentoModalita;
   pagato: boolean;
   data_pagamento: string | null;
   note_rateizzazione: string;
@@ -1021,6 +1029,7 @@ export interface OrdineInsert {
   importo_euro?: number;
   note?: string;
   tipo_pagamento?: OrdineTipoPagamento;
+  pagamento_modalita?: OrdinePagamentoModalita;
   pagato?: boolean;
   data_pagamento?: string | null;
   note_rateizzazione?: string;
@@ -1078,6 +1087,7 @@ export interface OrdineUpdate {
   importo_euro?: number;
   note?: string;
   tipo_pagamento?: OrdineTipoPagamento;
+  pagamento_modalita?: OrdinePagamentoModalita;
   pagato?: boolean;
   data_pagamento?: string | null;
   note_rateizzazione?: string;
@@ -1653,6 +1663,11 @@ export interface FatturaEmessaRow {
   ordine_id: string | null;
   courtesy_email_sent: boolean;
   emissione_errore: string;
+  invio_email: string;
+  sent_at: string | null;
+  sent_by: string | null;
+  pagamento_modalita: OrdinePagamentoModalita;
+  tipo_scadenza_unica: PagamentoTipoScadenza | null;
   /** Origine registrazione: manuale | sync_fic | emissione_gestionale */
   origine: "manuale" | "sync_fic" | "emissione_gestionale";
   created_by: string | null;
@@ -1704,6 +1719,11 @@ export type FatturaEmessaInsert = {
   ordine_id?: string | null;
   courtesy_email_sent?: boolean;
   emissione_errore?: string;
+  invio_email?: string;
+  sent_at?: string | null;
+  sent_by?: string | null;
+  pagamento_modalita?: OrdinePagamentoModalita;
+  tipo_scadenza_unica?: PagamentoTipoScadenza | null;
   origine?: "manuale" | "sync_fic" | "emissione_gestionale";
   created_by?: string | null;
   updated_by?: string | null;
@@ -2022,6 +2042,7 @@ export interface FatturaEmessaDilazioneRow {
   data_scadenza: string;
   importo: number;
   stato_pagamento: FatturaDilazioneStatoPagamento;
+  tipo_scadenza?: PagamentoTipoScadenza | null;
   sort_order: number;
   note: string;
   annullata_at: string | null;
@@ -2041,6 +2062,7 @@ export type FatturaEmessaDilazioneInsert = {
   importo?: number;
   stato_pagamento?: FatturaDilazioneStatoPagamento;
   sort_order?: number;
+  tipo_scadenza?: PagamentoTipoScadenza | null;
   note?: string;
   annullata_at?: string | null;
   annullata_by?: string | null;
@@ -2860,6 +2882,47 @@ export interface Database {
         Row: OrdineRigaRow;
         Insert: OrdineRigaInsert;
         Update: Partial<OrdineRigaInsert>;
+        Relationships: [];
+      };
+      ordini_pagamento_rate: {
+        Row: {
+          id: string;
+          ordine_id: string;
+          sort_order: number;
+          importo: number;
+          tipo_scadenza: PagamentoTipoScadenza | null;
+          data_pagamento: string | null;
+          note: string;
+          created_by: string | null;
+          updated_by: string | null;
+          created_at: string;
+          updated_at: string;
+          deleted_at: string | null;
+          deleted_by: string | null;
+        };
+        Insert: {
+          id?: string;
+          ordine_id: string;
+          sort_order?: number;
+          importo?: number;
+          tipo_scadenza?: PagamentoTipoScadenza | null;
+          data_pagamento?: string | null;
+          note?: string;
+          created_by?: string | null;
+          updated_by?: string | null;
+          deleted_at?: string | null;
+          deleted_by?: string | null;
+        };
+        Update: {
+          sort_order?: number;
+          importo?: number;
+          tipo_scadenza?: PagamentoTipoScadenza | null;
+          data_pagamento?: string | null;
+          note?: string;
+          updated_by?: string | null;
+          deleted_at?: string | null;
+          deleted_by?: string | null;
+        };
         Relationships: [];
       };
       campionature: {

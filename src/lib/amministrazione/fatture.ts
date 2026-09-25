@@ -173,6 +173,9 @@ export type Fattura = {
   contributiCassa: FatturaContributoCassa[];
   createdAt: string;
   updatedAt: string;
+  eiStatus?: string;
+  invioEmail?: string;
+  ordineId?: string | null;
 };
 
 export type FatturaInput = {
@@ -981,6 +984,9 @@ export function mapFatturaEmessaRow(
     contributiCassa: [],
     createdAt: row.created_at,
     updatedAt: row.updated_at,
+    eiStatus: row.ei_status ?? "",
+    invioEmail: row.invio_email ?? "",
+    ordineId: row.ordine_id ?? null,
   };
 }
 

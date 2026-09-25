@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
+import { inviaFatturaSalvataAction } from "@/app/actions/fattura-da-ordine";
 import { getFatturaByIdAction } from "@/app/actions/fatture";
 import { FatturaDettaglioView } from "@/components/amministrazione/FatturaDettaglioView";
 import { FatturaRegistrazioneModal } from "@/components/amministrazione/FatturaRegistrazioneModal";
@@ -23,6 +24,8 @@ export function FatturaDettaglioClient({ initial }: Props) {
   const [collegata, setCollegata] = useState<Fattura | null>(null);
   const [sostitutiva, setSostitutiva] = useState<Fattura | null>(null);
   const [previewError, setPreviewError] = useState<string | null>(null);
+  const [inviaBusy, setInviaBusy] = useState(false);
+  const [inviaMsg, setInviaMsg] = useState<string | null>(null);
 
   useEffect(() => {
     setFattura(initial);
@@ -95,9 +98,47 @@ export function FatturaDettaglioClient({ initial }: Props) {
 
   return (
     <div className="mx-auto w-[94%] max-w-none space-y-8">
+      {inviaMsg ? (
+        <p className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm">
+          {inviaMsg}
+        </p>
+      ) : null}
       <FatturaDettaglioView
         fattura={fattura}
         layoutWidth="full"
+        inviaBusy={inviaBusy}
+        onInviaFic={
+          fattura.kind === "emessa" && !fattura.ficId
+            ? () => {
+                void (async () => {
+                  setInviaBusy(true);
+                  setInviaMsg(null);
+                  const res = await inviaFatturaSalvataAction({
+                    fatturaId: fattura.id,
+                    invioEmail: fattura.invioEmail,
+                    sendToSdi: true,
+                  });
+                  setInviaBusy(false);
+                  if (!res.success) {
+                    setInviaMsg(res.error);
+                    return;
+                  }
+                  setInviaMsg(
+                    `Inviata ${res.numeroFattura}` +
+                      (res.sdiSent ? " allo SDI" : "") +
+                      (res.courtesyEmailSent ? " e per email" : "") +
+                      "."
+                  );
+                  const refreshed = await getFatturaByIdAction(
+                    "emessa",
+                    fattura.id
+                  );
+                  if (refreshed.success) setFattura(refreshed.fattura);
+                  router.refresh();
+                })();
+              }
+            : undefined
+        }
         onEdit={
           canModifica
             ? () => {

@@ -16,6 +16,8 @@ type Props = {
   onEditData?: () => void;
   commerciale: PreventivoCommercialeRiferimento | null;
   onEditCommerciale?: () => void;
+  /** Etichetta documento (default PREVENTIVO). */
+  documentoLabel?: string;
 };
 
 export function PreventivoA4Letterhead({
@@ -24,6 +26,7 @@ export function PreventivoA4Letterhead({
   onEditData,
   commerciale,
   onEditCommerciale,
+  documentoLabel = "PREVENTIVO",
 }: Props) {
   const ph = !commerciale;
   return (
@@ -53,7 +56,7 @@ export function PreventivoA4Letterhead({
             pencilRight
           >
             <p className="text-[12px] font-bold tracking-wide">
-              PREVENTIVO nr. {numero} del {formatPreventivoDataIt(dataPreventivo)}
+              {documentoLabel} nr. {numero} del {formatPreventivoDataIt(dataPreventivo)}
             </p>
           </PreventivoDocField>
           <PreventivoDocField

@@ -1124,9 +1124,23 @@ async function createOrdineWizardActionInner(
       importo_euro: importo,
       note: input.note?.trim() ?? "",
       tipo_pagamento: input.tipoPagamento,
+      pagamento_modalita:
+        input.pagamentoPiano?.modalita === "dilazione"
+          ? "dilazione"
+          : "unica",
       pagato: false,
       data_pagamento: null,
-      note_rateizzazione: "",
+      note_rateizzazione: input.pagamentoPiano
+        ? input.pagamentoPiano.modalita === "dilazione"
+          ? input.pagamentoPiano.rate
+              .map((r, i) =>
+                i === 0
+                  ? `Rata 1 ${r.tipoScadenza ?? ""} €${r.importo}`
+                  : `Rata ${i + 1} ${r.dataPagamento ?? ""} €${r.importo}`
+              )
+              .join(" · ")
+          : `Unica · ${input.pagamentoPiano.tipoUnica}`
+        : "",
       documento_stato: "registrato",
       versione: 1,
       consegna_tipo: input.consegnaTipo,
@@ -1202,6 +1216,26 @@ async function createOrdineWizardActionInner(
       },
     ]);
     if (righeErr) return { success: false, error: righeErr };
+
+    if (input.pagamentoPiano?.rate?.length) {
+      const { error: rateErr } = await supabase
+        .from("ordini_pagamento_rate")
+        .insert(
+          input.pagamentoPiano.rate.map((r, i) => ({
+            ordine_id: row.id,
+            sort_order: r.sortOrder ?? i,
+            importo: r.importo,
+            tipo_scadenza: i === 0 ? (r.tipoScadenza ?? input.pagamentoPiano?.tipoUnica ?? null) : null,
+            data_pagamento: i === 0 ? null : r.dataPagamento,
+            note: r.note ?? "",
+            created_by: auth.userId,
+            updated_by: auth.userId,
+          }))
+        );
+      if (rateErr) {
+        return { success: false, error: `Piano pagamento: ${rateErr.message}` };
+      }
+    }
 
     if (input.confezionamento) {
       const conf = normalizeConfezionamentoDraft(input.confezionamento);

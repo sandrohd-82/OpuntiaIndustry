@@ -120,6 +120,7 @@ export type OrdineDocumentoStato =
 export type OrdineTipoPagamento =
   | "anticipato"
   | "alla_consegna"
+  | "pronto_magazzino"
   | "posticipato"
   | "dilazionato";
 
@@ -129,6 +130,7 @@ export const ORDINE_TIPI_PAGAMENTO: {
 }[] = [
   { value: "anticipato", label: "Anticipato" },
   { value: "alla_consegna", label: "Alla consegna" },
+  { value: "pronto_magazzino", label: "Pronto magazzino" },
   { value: "posticipato", label: "Posticipato" },
   { value: "dilazionato", label: "Dilazionato" },
 ];
@@ -162,6 +164,7 @@ export type Ordine = {
   importoEuro: number;
   note: string;
   tipoPagamento: OrdineTipoPagamento;
+  pagamentoModalita: "unica" | "dilazione";
   pagato: boolean;
   dataPagamento: string | null;
   noteRateizzazione: string;
@@ -313,6 +316,7 @@ export const ordineInputSchema = z
     tipoPagamento: z.enum([
       "anticipato",
       "alla_consegna",
+      "pronto_magazzino",
       "posticipato",
       "dilazionato",
     ]),
@@ -405,6 +409,8 @@ export function mapOrdineRow(
     importoEuro: Number(row.importo_euro),
     note: row.note ?? "",
     tipoPagamento: tipo,
+    pagamentoModalita:
+      row.pagamento_modalita === "dilazione" ? "dilazione" : "unica",
     pagato: Boolean(row.pagato),
     dataPagamento: row.data_pagamento,
     noteRateizzazione: row.note_rateizzazione ?? "",

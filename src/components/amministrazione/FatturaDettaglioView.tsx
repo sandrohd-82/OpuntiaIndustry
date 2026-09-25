@@ -20,6 +20,8 @@ type Props = {
   variant?: "page" | "preview";
   previewTitle?: string;
   onEdit?: () => void;
+  onInviaFic?: () => void;
+  inviaBusy?: boolean;
 };
 
 export function FatturaDettaglioView({
@@ -28,6 +30,8 @@ export function FatturaDettaglioView({
   variant = "page",
   previewTitle,
   onEdit,
+  onInviaFic,
+  inviaBusy,
 }: Props) {
   const isPreview = variant === "preview";
   const listHref =
@@ -72,6 +76,16 @@ export function FatturaDettaglioView({
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
+          {onInviaFic && !isPreview && fattura.kind === "emessa" && !fattura.ficId ? (
+            <button
+              type="button"
+              onClick={onInviaFic}
+              disabled={inviaBusy}
+              className="inline-flex items-center rounded-lg border border-[var(--primary)] px-3 py-1.5 text-sm font-medium text-[var(--primary)] hover:bg-slate-50 disabled:opacity-50"
+            >
+              {inviaBusy ? "Invio…" : "Invia a FiC / SDI"}
+            </button>
+          ) : null}
           {onEdit && !isPreview ? (
             <button
               type="button"
