@@ -12,6 +12,12 @@ import { isUnrestrictedSuperadmin } from "@/lib/auth/roles";
 import { createClient, createServiceClient } from "@/lib/supabase/server";
 import type { AziendaTimelineItem } from "@/lib/amministrazione/azienda-timeline";
 import {
+  formatMailCaselleNote,
+  groupMailCopies,
+  preferLongerName,
+  type MailDedupeInput,
+} from "@/lib/amministrazione/mail-timeline-dedupe";
+import {
   etichettaStatoSchedaAzienda,
   isSchedaOrdineNotaTitolo,
   loadUltimoStatoSchede,
@@ -128,6 +134,37 @@ function domainOf(email: string): string {
   const at = e.lastIndexOf("@");
   if (at < 0) return "";
   return e.slice(at + 1);
+}
+
+async function loadAccountEmailsById(
+  service: ReturnType<typeof createServiceClient>,
+  accountIds: string[]
+): Promise<Map<string, string>> {
+  const ids = [...new Set(accountIds.filter(Boolean))];
+  if (ids.length === 0) return new Map();
+  const { data } = await service
+    .from("webmail_accounts")
+    .select("id, email_address")
+    .in("id", ids);
+  return new Map(
+    (data ?? []).map((a) => [
+      String(a.id),
+      String(a.email_address ?? "").trim(),
+    ])
+  );
+}
+
+function mailOccurredAt(row: {
+  direction?: string | null;
+  sent_at?: string | null;
+  received_at?: string | null;
+}): string | null {
+  const outbound = String(row.direction ?? "") === "outbound";
+  return (
+    (outbound
+      ? ((row.sent_at as string | null) ?? (row.received_at as string | null))
+      : (row.received_at as string | null)) ?? null
+  );
 }
 
 function pushUniqueEmail(
@@ -319,11 +356,11 @@ export async function listAziendaTimelineAction(raw: unknown): Promise<
     let mailQ = service
       .from("webmail_messaggi")
       .select(
-        "id, subject, from_address, from_name, to_addresses, received_at, sent_at, direction"
+        "id, account_id, message_id_header, subject, from_address, from_name, to_addresses, received_at, sent_at, direction"
       )
       .is("deleted_at", null)
       .order("received_at", { ascending: true })
-      .limit(300);
+      .limit(500);
     if (aziendaKeys.length === 1) {
       mailQ = mailQ
         .eq("azienda_tipo", aziendaKeys[0].tipo)
@@ -333,25 +370,59 @@ export async function listAziendaTimelineAction(raw: unknown): Promise<
     }
     if (grantedIds) mailQ = mailQ.in("account_id", grantedIds);
     const { data } = await mailQ;
-    for (const r of data ?? []) {
+    const mailRows = (data ?? []).flatMap((r) => {
+      const when = mailOccurredAt(r);
+      if (!when) return [];
       const outbound = String(r.direction ?? "") === "outbound";
-      const when =
-        (outbound
-          ? ((r.sent_at as string | null) ?? (r.received_at as string | null))
-          : (r.received_at as string | null)) ?? null;
-      if (!when) continue;
-      const toFirst = Array.isArray(r.to_addresses)
-        ? String(r.to_addresses[0] ?? "")
-        : "";
+      return [
+        {
+          id: String(r.id),
+          accountId: r.account_id ? String(r.account_id) : "",
+          messageIdHeader: r.message_id_header
+            ? String(r.message_id_header)
+            : null,
+          direction: (outbound ? "outbound" : "inbound") as
+            | "inbound"
+            | "outbound",
+          subject: String(r.subject ?? "(senza oggetto)"),
+          fromAddress: String(r.from_address ?? ""),
+          fromName: String(r.from_name ?? ""),
+          toFirst: Array.isArray(r.to_addresses)
+            ? String(r.to_addresses[0] ?? "")
+            : "",
+          occurredAt: when,
+        } satisfies MailDedupeInput & {
+          accountId: string;
+          fromName: string;
+          toFirst: string;
+        },
+      ];
+    });
+    const emailByAccount = await loadAccountEmailsById(
+      service,
+      mailRows.map((r) => r.accountId)
+    );
+    for (const group of groupMailCopies(mailRows)) {
+      const primary = group[0];
+      const fromName = preferLongerName(
+        ...group.map((g) => g.fromName),
+        primary.fromAddress
+      );
+      const caselleNote = formatMailCaselleNote(
+        group.map((g) => emailByAccount.get(g.accountId) ?? ""),
+        primary.direction
+      );
       pushSorted(items, {
-        id: `webmail:${r.id}`,
+        id: `webmail:${primary.id}`,
         kind: "webmail",
-        occurredAt: when,
-        title: String(r.subject ?? "(senza oggetto)"),
-        subtitle: outbound
-          ? `Mail inviata a ${toFirst || "—"}`
-          : `Mail da ${r.from_name || r.from_address || "—"}`,
-        sourceId: String(r.id),
+        occurredAt: primary.occurredAt,
+        title: primary.subject,
+        subtitle:
+          primary.direction === "outbound"
+            ? `Mail inviata a ${primary.toFirst || "—"}`
+            : `Mail da ${fromName || "—"}`,
+        mailCaselleNote: caselleNote ?? undefined,
+        sourceId: primary.id,
         href: "/app/webmail/caselle",
       });
     }
@@ -900,6 +971,9 @@ export type AziendaTimelineMailHit = {
   matchReason: string;
   probable?: boolean;
   relevanceScore?: number;
+  /** Copie della stessa mail su altre caselle. */
+  twinIds?: string[];
+  caselleNote?: string;
 };
 
 export async function listAziendaTimelineMailHintsAction(
@@ -980,7 +1054,7 @@ export async function searchWebmailForAziendaTimelineAction(
   let mailQ = supabase
     .from("webmail_messaggi")
     .select(
-      "id, subject, body_text, from_address, from_name, to_addresses, direction, received_at, sent_at, azienda_tipo, azienda_id, folder, ai_intent"
+      "id, account_id, message_id_header, subject, body_text, from_address, from_name, to_addresses, direction, received_at, sent_at, azienda_tipo, azienda_id, folder, ai_intent"
     )
     .is("deleted_at", null)
     .or(orParts.join(","))
@@ -1006,16 +1080,13 @@ export async function searchWebmailForAziendaTimelineAction(
       }
     : null;
 
-  const items: AziendaTimelineMailHit[] = (data ?? []).map((r) => {
+  const mapped = (data ?? []).flatMap((r) => {
     const from = normalizeEmail(String(r.from_address ?? ""));
     const toList = Array.isArray(r.to_addresses)
       ? (r.to_addresses as string[]).map((x) => normalizeEmail(String(x)))
       : [];
     const outbound = String(r.direction ?? "") === "outbound";
-    const receivedAt =
-      (outbound
-        ? ((r.sent_at as string | null) ?? (r.received_at as string | null))
-        : (r.received_at as string | null)) ?? null;
+    const receivedAt = mailOccurredAt(r);
     const dom = domainOf(from);
     const toDom = toList.map(domainOf).find(Boolean);
     let matchReason = "ricerca";
@@ -1052,20 +1123,79 @@ export async function searchWebmailForAziendaTimelineAction(
       String(r.azienda_tipo ?? "") === aziendaTipo &&
       String(r.azienda_id ?? "") === aziendaId;
 
+    if (!receivedAt) return [];
+    return [
+      {
+        id: String(r.id),
+        accountId: r.account_id ? String(r.account_id) : "",
+        messageIdHeader: r.message_id_header
+          ? String(r.message_id_header)
+          : null,
+        subject: String(r.subject ?? "(senza oggetto)"),
+        fromAddress: String(r.from_address ?? ""),
+        fromName: String(r.from_name ?? ""),
+        toAddresses: toList,
+        direction: (outbound ? "outbound" : "inbound") as
+          | "inbound"
+          | "outbound",
+        occurredAt: receivedAt,
+        receivedAt,
+        alreadyLinked,
+        matchReason,
+        probable: ranked ? isMailRichiestaProbabile(ranked) : undefined,
+        relevanceScore: ranked?.score,
+        bodyText: String(r.body_text ?? ""),
+      } satisfies MailDedupeInput & {
+        accountId: string;
+        fromName: string;
+        toAddresses: string[];
+        receivedAt: string;
+        alreadyLinked: boolean;
+        matchReason: string;
+        probable?: boolean;
+        relevanceScore?: number;
+        bodyText: string;
+      },
+    ];
+  });
+
+  const emailByAccount = await loadAccountEmailsById(
+    createServiceClient(),
+    mapped.map((r) => r.accountId)
+  );
+
+  const items: AziendaTimelineMailHit[] = groupMailCopies(mapped).map((group) => {
+    const primary = group[0];
+    const fromName = preferLongerName(
+      ...group.map((g) => g.fromName),
+      primary.fromAddress
+    );
+    const caselleNote =
+      formatMailCaselleNote(
+        group.map((g) => emailByAccount.get(g.accountId) ?? ""),
+        primary.direction
+      ) ?? undefined;
+    const alreadyLinked = group.some((g) => g.alreadyLinked);
+    const bestRanked = group.reduce((best, g) => {
+      if ((g.relevanceScore ?? 0) > (best.relevanceScore ?? 0)) return g;
+      return best;
+    }, primary);
     return {
-      id: String(r.id),
-      subject: String(r.subject ?? "(senza oggetto)"),
-      fromAddress: String(r.from_address ?? ""),
-      fromName: String(r.from_name ?? ""),
-      toAddresses: toList,
-      direction: outbound ? "outbound" : "inbound",
-      receivedAt,
+      id: primary.id,
+      subject: primary.subject,
+      fromAddress: primary.fromAddress,
+      fromName,
+      toAddresses: primary.toAddresses,
+      direction: primary.direction,
+      receivedAt: primary.receivedAt,
       alreadyLinked,
-      matchReason,
-      probable: ranked
-        ? isMailRichiestaProbabile(ranked)
-        : undefined,
-      relevanceScore: ranked?.score,
+      matchReason: caselleNote
+        ? `${bestRanked.matchReason} · ${caselleNote}`
+        : bestRanked.matchReason,
+      probable: group.some((g) => g.probable),
+      relevanceScore: bestRanked.relevanceScore,
+      twinIds: group.map((g) => g.id),
+      caselleNote,
     };
   });
 
@@ -1088,6 +1218,7 @@ export async function searchWebmailForAziendaTimelineAction(
 
 const linkSchema = inputSchema.extend({
   messaggioId: z.string().uuid(),
+  messaggioIds: z.array(z.string().uuid()).max(20).optional(),
   aziendaLabel: z.string().trim().max(300).optional().default(""),
 });
 
@@ -1098,15 +1229,33 @@ export async function linkWebmailToAziendaTimelineAction(
   const parsed = linkSchema.safeParse(raw);
   if (!parsed.success) return { success: false, error: "Dati non validi." };
 
-  const res = await linkWebmailMessaggioAnagraficaAction({
-    messaggioId: parsed.data.messaggioId,
-    aziendaTipo: parsed.data.aziendaTipo,
-    aziendaId: parsed.data.aziendaId,
-    aziendaLabel: parsed.data.aziendaLabel || "",
-    linkStato: "collegata",
-    rematch: false,
-  });
-  if (!res.success) return { success: false, error: res.error };
+  const ids = [
+    ...new Set(
+      [parsed.data.messaggioId, ...(parsed.data.messaggioIds ?? [])].filter(
+        Boolean
+      )
+    ),
+  ];
+  let lastError: string | null = null;
+  let linked = 0;
+  for (const messaggioId of ids) {
+    const res = await linkWebmailMessaggioAnagraficaAction({
+      messaggioId,
+      aziendaTipo: parsed.data.aziendaTipo,
+      aziendaId: parsed.data.aziendaId,
+      aziendaLabel: parsed.data.aziendaLabel || "",
+      linkStato: "collegata",
+      rematch: false,
+    });
+    if (!res.success) {
+      lastError = res.error;
+      continue;
+    }
+    linked += 1;
+  }
+  if (linked === 0) {
+    return { success: false, error: lastError ?? "Collegamento non riuscito." };
+  }
 
   await writeAuditLog({
     entity_type: "webmail_messaggi",
@@ -1117,6 +1266,7 @@ export async function linkWebmailToAziendaTimelineAction(
     payload: {
       aziendaId: parsed.data.aziendaId,
       aziendaTipo: parsed.data.aziendaTipo,
+      messaggioIds: ids,
     },
   });
 

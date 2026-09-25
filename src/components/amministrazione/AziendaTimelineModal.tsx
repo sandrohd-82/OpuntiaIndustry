@@ -270,8 +270,17 @@ function TimelineCard({
             allegati={item.notaAllegati}
           />
         </div>
-      ) : item.subtitle ? (
-        <p className="mt-0.5 text-xs text-[var(--muted)]">{item.subtitle}</p>
+      ) : item.subtitle || item.mailCaselleNote ? (
+        <div className="mt-0.5 space-y-1">
+          {item.subtitle ? (
+            <p className="text-xs text-[var(--muted)]">{item.subtitle}</p>
+          ) : null}
+          {item.mailCaselleNote ? (
+            <p className="text-xs font-medium text-cyan-900">
+              {item.mailCaselleNote}
+            </p>
+          ) : null}
+        </div>
       ) : null}
       {canVisualizza(item) && onVisualizza && !isScheda ? (
         <div
@@ -374,6 +383,11 @@ function TimelineMailHitRow({
               : hit.fromName || hit.fromAddress}{" "}
             · {formatWhen(hit.receivedAt)} · {hit.matchReason}
           </p>
+          {hit.caselleNote ? (
+            <p className="mt-0.5 text-[11px] font-medium text-cyan-900">
+              {hit.caselleNote}
+            </p>
+          ) : null}
         </div>
         <div className="flex shrink-0 items-center gap-1">
           {onVisualizza ? (
@@ -861,6 +875,7 @@ export function AziendaTimelineModal({
         aziendaId,
         aziendaLabel,
         messaggioId: hit.id,
+        messaggioIds: hit.twinIds,
       });
       if (!res.success) {
         setError(res.error);

@@ -29,6 +29,8 @@ export type AziendaTimelineItem = {
   ordineId?: string;
   campionaturaId?: string;
   href?: string | null;
+  /** Mail arrivata su più caselle: unica card + elenco caselle. */
+  mailCaselleNote?: string;
   /** Solo kind=nota */
   notaId?: string;
   notaBody?: string;
