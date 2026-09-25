@@ -26,13 +26,20 @@ export function BusyBanner({ label }: { label: string }) {
 
 export function PageLoading({ label }: { label: string }) {
   return (
-    <p
-      className="inline-flex items-center gap-2 text-sm text-[var(--muted)]"
-      role="status"
-      aria-live="polite"
-    >
-      <BusySpinner />
-      <span>{label}</span>
-    </p>
+    <div className="space-y-3 p-1" role="status" aria-live="polite">
+      <span className="sr-only">{label}</span>
+      <div className="ig-pulse h-7 w-44 rounded-lg" />
+      <div className="grid gap-2 sm:grid-cols-2">
+        <div className="ig-pulse h-20 rounded-lg" />
+        <div className="ig-pulse h-20 rounded-lg" />
+      </div>
+      <div className="ig-pulse h-10 w-full rounded-lg" />
+      <div className="space-y-2">
+        <div className="ig-pulse h-11 w-full rounded-lg" />
+        <div className="ig-pulse h-11 w-[94%] rounded-lg" />
+        <div className="ig-pulse h-11 w-full rounded-lg" />
+        <div className="ig-pulse h-11 w-[88%] rounded-lg" />
+      </div>
+    </div>
   );
 }

@@ -8,6 +8,7 @@ import {
   softDeletePostoLavoroAction,
 } from "@/app/actions/produzione-aree";
 import { ActionGate } from "@/components/layout/ActionAccessProvider";
+import { PageLoading } from "@/components/ui/BusyIndicator";
 import { AZ } from "@/lib/auth/action-access";
 import { PericolositaBandiera } from "@/components/produzione/PericolositaBandiera";
 import { WorkcenterCameraBar } from "@/components/produzione/WorkcenterCameraBar";
@@ -83,7 +84,7 @@ export function PostazioniBoard({ areaCodice }: Props) {
   }
 
   if (!area && !error) {
-    return <p className="text-sm text-[var(--muted)]">Caricamento postazioni…</p>;
+    return <PageLoading label="Caricamento postazioni" />;
   }
   if (!area) {
     return (

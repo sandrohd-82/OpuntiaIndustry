@@ -2161,29 +2161,35 @@ export async function getFatturaByIdAction(
   const supabase = await createClient();
 
   if (kind === "emessa" || kind === "nota_credito") {
-    const { data, error } = await supabase
-      .from("fatture_emesse")
-      .select("*")
-      .eq("id", id)
-      .is("deleted_at", null)
-      .maybeSingle();
+    const [
+      { data, error },
+      { data: righe, error: righeErr },
+      { data: dilazioni },
+    ] = await Promise.all([
+      supabase
+        .from("fatture_emesse")
+        .select("*")
+        .eq("id", id)
+        .is("deleted_at", null)
+        .maybeSingle(),
+      supabase
+        .from("fatture_emesse_righe")
+        .select("*")
+        .eq("fattura_id", id)
+        .order("sort_order", { ascending: true }),
+      supabase
+        .from("fatture_emesse_dilazioni")
+        .select("*")
+        .eq("fattura_id", id)
+        .is("deleted_at", null)
+        .order("sort_order", { ascending: true }),
+    ]);
     if (error) return { success: false, error: error.message };
     if (!data) return { success: false, error: "Documento non trovato." };
-    const { data: righe, error: righeErr } = await supabase
-      .from("fatture_emesse_righe")
-      .select("*")
-      .eq("fattura_id", id)
-      .order("sort_order", { ascending: true });
     if (righeErr) {
       console.error("[getFatturaByIdAction] righe", righeErr.message);
       return { success: false, error: `Righe documento: ${righeErr.message}` };
     }
-    const { data: dilazioni } = await supabase
-      .from("fatture_emesse_dilazioni")
-      .select("*")
-      .eq("fattura_id", id)
-      .is("deleted_at", null)
-      .order("sort_order", { ascending: true });
     const fattura = mapFatturaEmessaRow(
       data as FatturaEmessaRow,
       (righe ?? []) as FatturaEmessaRigaRow[],
@@ -2227,32 +2233,39 @@ export async function getFatturaByIdAction(
     };
   }
 
-  const { data, error } = await supabase
-    .from("fatture_ricevute")
-    .select("*")
-    .eq("id", id)
-    .is("deleted_at", null)
-    .maybeSingle();
+  const [
+    { data, error },
+    { data: righe, error: righeErr },
+    { data: dilazioni },
+    { data: contributi },
+  ] = await Promise.all([
+    supabase
+      .from("fatture_ricevute")
+      .select("*")
+      .eq("id", id)
+      .is("deleted_at", null)
+      .maybeSingle(),
+    supabase
+      .from("fatture_ricevute_righe")
+      .select("*")
+      .eq("fattura_id", id)
+      .order("sort_order", { ascending: true }),
+    supabase
+      .from("fatture_ricevute_dilazioni")
+      .select("*")
+      .eq("fattura_id", id)
+      .is("deleted_at", null)
+      .order("sort_order", { ascending: true }),
+    supabase
+      .from("fatture_ricevute_contributi_cassa")
+      .select("*")
+      .eq("fattura_id", id)
+      .is("deleted_at", null)
+      .order("sort_order", { ascending: true }),
+  ]);
   if (error) return { success: false, error: error.message };
   if (!data) return { success: false, error: "Fattura non trovata." };
-  const { data: righe, error: righeErr } = await supabase
-    .from("fatture_ricevute_righe")
-    .select("*")
-    .eq("fattura_id", id)
-    .order("sort_order", { ascending: true });
   if (righeErr) return { success: false, error: righeErr.message };
-  const { data: dilazioni } = await supabase
-    .from("fatture_ricevute_dilazioni")
-    .select("*")
-    .eq("fattura_id", id)
-    .is("deleted_at", null)
-    .order("sort_order", { ascending: true });
-  const { data: contributi } = await supabase
-    .from("fatture_ricevute_contributi_cassa")
-    .select("*")
-    .eq("fattura_id", id)
-    .is("deleted_at", null)
-    .order("sort_order", { ascending: true });
   return {
     success: true,
     fattura: mapFatturaRicevutaRow(

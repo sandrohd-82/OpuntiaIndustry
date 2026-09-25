@@ -44,6 +44,26 @@ body {
   font-family: var(--font-sans), system-ui, sans-serif;
 }
 
+@keyframes ig-shimmer {
+  0% {
+    background-position: 100% 0;
+  }
+  100% {
+    background-position: -100% 0;
+  }
+}
+
+.ig-pulse {
+  background-image: linear-gradient(
+    90deg,
+    #e2e8f0 0%,
+    #f1f5f9 45%,
+    #e2e8f0 90%
+  );
+  background-size: 200% 100%;
+  animation: ig-shimmer 1.15s ease-in-out infinite;
+}
+
 @keyframes ventilazione-spin {
   from {
     transform: rotate(0deg);

@@ -115,22 +115,23 @@ export async function listProduzioneAreeAction(): Promise<
 
   const ids = ((aree ?? []) as AreaRow[]).map((a) => a.id);
   const postiByArea = new Map<string, ProduzionePostoLavoro[]>();
-  if (ids.length) {
-    const { data: posti, error: pErr } = await supabase
-      .from("produzione_posti_lavoro")
-      .select("id, area_id, codice, nome, descrizione, attivo, sort_order, note, pericolosita, has_camera, camera_ip, camera_rtsp_path")
-      .is("deleted_at", null)
-      .in("area_id", ids)
-      .order("sort_order", { ascending: true });
-    if (pErr) return { success: false, error: pErr.message };
-    for (const p of (posti ?? []) as PostoRow[]) {
-      const list = postiByArea.get(p.area_id) ?? [];
-      list.push(mapPosto(p));
-      postiByArea.set(p.area_id, list);
-    }
+  const [postiRes, macRes] = await Promise.all([
+    ids.length
+      ? supabase
+          .from("produzione_posti_lavoro")
+          .select("id, area_id, codice, nome, descrizione, attivo, sort_order, note, pericolosita, has_camera, camera_ip, camera_rtsp_path")
+          .is("deleted_at", null)
+          .in("area_id", ids)
+          .order("sort_order", { ascending: true })
+      : Promise.resolve({ data: [] as PostoRow[], error: null }),
+    listMacchinariByAreaIdsAction(ids),
+  ]);
+  if (postiRes.error) return { success: false, error: postiRes.error.message };
+  for (const p of (postiRes.data ?? []) as PostoRow[]) {
+    const list = postiByArea.get(p.area_id) ?? [];
+    list.push(mapPosto(p));
+    postiByArea.set(p.area_id, list);
   }
-
-  const macRes = await listMacchinariByAreaIdsAction(ids);
   if (!macRes.success) return macRes;
   const macByArea = new Map<string, ProduzioneMacchinario[]>();
   for (const m of macRes.items) {

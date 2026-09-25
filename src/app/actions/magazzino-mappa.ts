@@ -772,19 +772,21 @@ export async function listMappaMenuNavAction(): Promise<
     "ricerca-sviluppo",
   ]);
   const supabase = await createClient();
-  const { data: nodi, error } = await supabase
-    .from("mappa_menu_nodi")
-    .select("id, parent_id, area_slug, etichetta, slug, tipo, sort_order")
-    .is("deleted_at", null)
-    .order("sort_order", { ascending: true });
+  const [{ data: nodi, error }, { data: mappe }] = await Promise.all([
+    supabase
+      .from("mappa_menu_nodi")
+      .select("id, parent_id, area_slug, etichetta, slug, tipo, sort_order")
+      .is("deleted_at", null)
+      .order("sort_order", { ascending: true }),
+    supabase
+      .from("magazzino_mappe")
+      .select("slug, luogo_nome, vista_etichetta, menu_nodo_id")
+      .is("deleted_at", null)
+      .eq("documento_stato", "approvato")
+      .not("slug", "is", null)
+      .not("menu_nodo_id", "is", null),
+  ]);
   if (error) return { success: false, error: error.message };
-  const { data: mappe } = await supabase
-    .from("magazzino_mappe")
-    .select("slug, luogo_nome, vista_etichetta, menu_nodo_id")
-    .is("deleted_at", null)
-    .eq("documento_stato", "approvato")
-    .not("slug", "is", null)
-    .not("menu_nodo_id", "is", null);
   return {
     success: true,
     nodi: ((nodi ?? []) as {
@@ -1111,12 +1113,21 @@ export async function getPiantaLuogoBySlugAction(
   if (!clean) return { success: false, error: "Percorso pianta non valido." };
   const supabase = await createClient();
 
-  const { data: nodi } = await supabase
-    .from("mappa_menu_nodi")
-    .select("id, etichetta, slug, area_slug")
-    .eq("slug", clean)
-    .eq("tipo", "luogo")
-    .is("deleted_at", null);
+  const [{ data: nodi }, { data: headerBySlug }] = await Promise.all([
+    supabase
+      .from("mappa_menu_nodi")
+      .select("id, etichetta, slug, area_slug")
+      .eq("slug", clean)
+      .eq("tipo", "luogo")
+      .is("deleted_at", null),
+    supabase
+      .from("magazzino_mappe")
+      .select("id, area_codice, menu_nodo_id")
+      .eq("slug", clean)
+      .eq("documento_stato", "approvato")
+      .is("deleted_at", null)
+      .maybeSingle(),
+  ]);
 
   let nodo = ((nodi ?? []) as {
     id: string;
@@ -1128,13 +1139,7 @@ export async function getPiantaLuogoBySlugAction(
   let redirectTo: string | null = null;
 
   if (!nodo) {
-    const { data: header } = await supabase
-      .from("magazzino_mappe")
-      .select("id, area_codice, menu_nodo_id")
-      .eq("slug", clean)
-      .eq("documento_stato", "approvato")
-      .is("deleted_at", null)
-      .maybeSingle();
+    const header = headerBySlug;
     const mapRow = header as {
       id: string;
       area_codice?: string;

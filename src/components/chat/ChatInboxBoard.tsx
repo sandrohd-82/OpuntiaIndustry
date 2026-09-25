@@ -12,6 +12,7 @@ import { fetchUnreadCount, lazyCleanupChats } from "@/lib/chat/messages";
 import { listConversationsForUser, updateMyChatStatus } from "@/lib/chat/queries";
 import type { ChatStatus, ConversationListItem } from "@/lib/chat/types";
 import { createClient } from "@/lib/supabase/client";
+import { PageLoading } from "@/components/ui/BusyIndicator";
 
 function statusColor(s: ChatStatus) {
   if (s === "available") return "text-emerald-500";
@@ -78,7 +79,7 @@ export function ChatInboxBoard({ userId }: Props) {
   }
 
   if (!ready) {
-    return <p className="text-sm text-[var(--muted)]">Caricamento inbox…</p>;
+    return <PageLoading label="Caricamento inbox" />;
   }
 
   return (

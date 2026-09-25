@@ -25,16 +25,24 @@ export async function countUnreadNotificheAction(tipo?: string): Promise<{
     return { success: false, error: "Non autenticato" };
   }
   const supabase = await createClient();
-  let q = supabase
+  if (tipo && (NOTIFICA_TIPI as readonly string[]).includes(tipo)) {
+    const { count, error } = await supabase
+      .from("app_notifiche")
+      .select("id", { count: "exact", head: true })
+      .eq("recipient_id", auth.userId)
+      .eq("tipo", tipo)
+      .is("deleted_at", null)
+      .is("read_at", null);
+    if (error) return { success: false, error: error.message };
+    const totale = count ?? 0;
+    return { success: true, totale, perTipo: { [tipo]: totale } };
+  }
+  const { data, error } = await supabase
     .from("app_notifiche")
     .select("tipo")
     .eq("recipient_id", auth.userId)
     .is("deleted_at", null)
     .is("read_at", null);
-  if (tipo && (NOTIFICA_TIPI as readonly string[]).includes(tipo)) {
-    q = q.eq("tipo", tipo);
-  }
-  const { data, error } = await q;
   if (error) return { success: false, error: error.message };
   const perTipo: Record<string, number> = {};
   for (const row of data ?? []) {

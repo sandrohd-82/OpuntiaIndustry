@@ -3,6 +3,7 @@
 import { useEffect, useState, useTransition } from "react";
 import Link from "next/link";
 import { listProduzioneAreeAction } from "@/app/actions/produzione-aree";
+import { PageLoading } from "@/components/ui/BusyIndicator";
 import { listIotDevicesForAreaAction } from "@/app/actions/produzione-iot";
 import {
   getEventoLineaApertoAction,
@@ -84,7 +85,7 @@ export function GestioneAreaBoard({ areaCodice }: Props) {
   }, [areaCodice]);
 
   if (pending && !area && !error) {
-    return <p className="text-sm text-[var(--muted)]">Caricamento area…</p>;
+    return <PageLoading label="Caricamento area" />;
   }
   if (!area) {
     return (

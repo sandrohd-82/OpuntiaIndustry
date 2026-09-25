@@ -9,6 +9,7 @@ import {
   updateRepartoAction,
 } from "@/app/actions/reparti";
 import { SoftDeleteConfirmModal } from "@/components/amministrazione/SoftDeleteConfirmModal";
+import { PageLoading } from "@/components/ui/BusyIndicator";
 import type { Reparto } from "@/lib/magazzino/types";
 
 export function RepartiBoard() {
@@ -81,7 +82,7 @@ export function RepartiBoard() {
   }
 
   if (!ready) {
-    return <p className="text-sm text-[var(--muted)]">Caricamento reparti…</p>;
+    return <PageLoading label="Caricamento reparti" />;
   }
 
   return (

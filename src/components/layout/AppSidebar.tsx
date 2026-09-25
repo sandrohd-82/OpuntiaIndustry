@@ -57,6 +57,7 @@ import {
   type NavContrast,
 } from "@/lib/areas/nav-layer";
 import { countOrdiniDaProcessareAction } from "@/app/actions/ordini";
+import { bootstrapAppNavAction } from "@/app/actions/nav-bootstrap";
 import { ORDINI_DA_PROCESSARE_NAV_EVENT } from "@/lib/amministrazione/ordini-nav";
 import { countUnreadNotificheAction } from "@/app/actions/notifiche";
 import { NOTIFICHE_NAV_EVENT } from "@/lib/notifiche/nav-event";
@@ -86,7 +87,6 @@ import {
 } from "@/lib/areas/archivio";
 import { isWebHubPath, webSectionsForAccess } from "@/lib/areas/web";
 import {
-  listWebmailAccountsAction,
   listWebmailMenuAccountsAction,
   setImpersonatedWebmailAreaAccessAction,
 } from "@/app/actions/webmail";
@@ -561,6 +561,7 @@ function NavTree({
             <div className="flex items-center gap-1">
               <Link
                 href={item.path}
+                prefetch
                 className={`min-w-0 flex-1 ${itemClass(pathname === item.path, true, false, tone, contrast)}`}
               >
                 <span className="truncate">{item.label}</span>
@@ -654,6 +655,82 @@ export function AppSidebar({
   }
 
   const hasAmministrazione = areas.some((a) => a.slug === "amministrazione");
+  const hasPn = areas.some((a) => a.slug === "promemorie-e-note");
+  const hasTicketMenu = areas.some(
+    (a) => a.slug === "strumenti" || a.slug === "amministrazione"
+  );
+  const hasProduzione = areas.some((a) => a.slug === "produzione");
+  const hasArchivio = areas.some((a) => a.slug === "archivio");
+  const areaSlugsKey = areas.map((a) => a.slug).join(",");
+  useEffect(() => {
+    let cancelled = false;
+    const archivioBase = filterArchivioNavByAccess(areas);
+    const wantWebmailAccounts =
+      hasArchivio && archivioBase.some((s) => s.slug === "webmail");
+    void bootstrapAppNavAction({
+      ordini: hasAmministrazione && isAdminLike,
+      notifiche: hasPn,
+      ticket: hasTicketMenu,
+      mappa: true,
+      produzione: hasProduzione,
+      webmailAccounts: wantWebmailAccounts,
+      webmailGrant: testMenuMode && canCreateProfiles,
+    })
+      .then((res) => {
+        if (cancelled) return;
+        if (res.ordini && res.ordini.success) {
+          setDaProcessareCount(res.ordini.totale);
+        }
+        if (res.notifiche && res.notifiche.success) {
+          setPnAttivitaUnread(res.notifiche.totale);
+        }
+        if (res.ticket && res.ticket.success) {
+          setTicketNav({
+            tickets: res.ticket.tickets,
+            messaggi: res.ticket.messaggi,
+          });
+        }
+        if (res.mappa && res.mappa.success) {
+          setMappaMenuNodi(res.mappa.nodi);
+          setMappaMenuMappe(res.mappa.mappe);
+        }
+        if (res.produzione && res.produzione.success) {
+          setProduzioneNav(mergeProduzioneNavWithAree(res.produzione.items));
+        }
+        if (res.webmailAccounts && res.webmailAccounts.success) {
+          setArchivioNav(
+            mergeArchivioWebmailCaselle(
+              archivioBase,
+              res.webmailAccounts.accounts.map((a) => ({
+                id: a.id,
+                label: a.label,
+              }))
+            )
+          );
+        } else if (!wantWebmailAccounts) {
+          setArchivioNav(archivioBase);
+        }
+        if (res.webmailGrant && res.webmailGrant.success) {
+          setWebmailGrantTone(res.webmailGrant.grantTone);
+        }
+      })
+      .catch(() => {
+        /* menu statico di fallback */
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    areaSlugsKey,
+    canCreateProfiles,
+    hasAmministrazione,
+    hasArchivio,
+    hasPn,
+    hasProduzione,
+    hasTicketMenu,
+    isAdminLike,
+    testMenuMode,
+  ]);
   useEffect(() => {
     if (!hasAmministrazione || !isAdminLike) {
       setDaProcessareCount(0);
@@ -670,7 +747,6 @@ export function AppSidebar({
           /* badge opzionale */
         });
     }
-    loadCount();
     window.addEventListener(ORDINI_DA_PROCESSARE_NAV_EVENT, loadCount);
     window.addEventListener("focus", loadCount);
     return () => {
@@ -680,7 +756,6 @@ export function AppSidebar({
     };
   }, [hasAmministrazione, isAdminLike]);
 
-  const hasPn = areas.some((a) => a.slug === "promemorie-e-note");
   useEffect(() => {
     if (!hasPn) {
       setPnAttivitaUnread(0);
@@ -697,7 +772,6 @@ export function AppSidebar({
           /* badge opzionale */
         });
     }
-    loadUnread();
     const supabase = createClient();
     const channel = supabase
       .channel(`app-notifiche-${userId}`)
@@ -722,9 +796,6 @@ export function AppSidebar({
     };
   }, [hasPn, userId]);
 
-  const hasTicketMenu = areas.some(
-    (a) => a.slug === "strumenti" || a.slug === "amministrazione"
-  );
   useEffect(() => {
     if (!hasTicketMenu) {
       setTicketNav({ tickets: 0, messaggi: 0 });
@@ -744,7 +815,6 @@ export function AppSidebar({
           /* badge opzionale */
         });
     }
-    loadTicketBadge();
     const supabase = createClient();
     const channel = supabase
       .channel(`strumenti-ticket-nav-${userId}`)
@@ -773,7 +843,7 @@ export function AppSidebar({
         loadTicketBadge
       )
       .subscribe();
-    const poll = window.setInterval(loadTicketBadge, 5000);
+    const poll = window.setInterval(loadTicketBadge, 30000);
     window.addEventListener(TICKET_NAV_EVENT, loadTicketBadge);
     window.addEventListener(NOTIFICHE_NAV_EVENT, loadTicketBadge);
     window.addEventListener("focus", loadTicketBadge);
@@ -800,7 +870,6 @@ export function AppSidebar({
           /* menu statico di fallback */
         });
     }
-    loadNav();
     window.addEventListener(MAPPA_MENU_NAV_EVENT, loadNav);
     window.addEventListener(MAGAZZINO_MAPPE_NAV_EVENT, loadNav);
     return () => {
@@ -810,7 +879,6 @@ export function AppSidebar({
     };
   }, []);
 
-  const hasProduzione = areas.some((a) => a.slug === "produzione");
   useEffect(() => {
     if (!hasProduzione) return;
     let cancelled = false;
@@ -824,7 +892,6 @@ export function AppSidebar({
           /* menu statico di fallback */
         });
     }
-    loadNav();
     window.addEventListener(PRODUZIONE_AREE_NAV_EVENT, loadNav);
     return () => {
       cancelled = true;
@@ -832,40 +899,9 @@ export function AppSidebar({
     };
   }, [hasProduzione]);
 
-  const hasArchivio = areas.some((a) => a.slug === "archivio");
   useEffect(() => {
-    const base = filterArchivioNavByAccess(areas);
-    if (!hasArchivio) {
-      setArchivioNav(base);
-      return;
-    }
-    const hasWebmail = base.some((s) => s.slug === "webmail");
-    if (!hasWebmail) {
-      setArchivioNav(base);
-      return;
-    }
-    let cancelled = false;
-    void listWebmailAccountsAction()
-      .then((res) => {
-        if (cancelled) return;
-        if (!res.success) {
-          setArchivioNav(base);
-          return;
-        }
-        setArchivioNav(
-          mergeArchivioWebmailCaselle(
-            base,
-            res.accounts.map((a) => ({ id: a.id, label: a.label }))
-          )
-        );
-      })
-      .catch(() => {
-        if (!cancelled) setArchivioNav(base);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [areas, hasArchivio]);
+    setArchivioNav(filterArchivioNavByAccess(areas));
+  }, [areaSlugsKey]);
 
   useEffect(() => {
     if (!testMenuMode || !canCreateProfiles) {
@@ -879,7 +915,6 @@ export function AppSidebar({
         setWebmailGrantTone(res.grantTone);
       });
     }
-    reload();
     window.addEventListener(WEBMAIL_GRANT_NAV_EVENT, reload);
     return () => {
       cancelled = true;
@@ -1192,6 +1227,7 @@ export function AppSidebar({
               ) : area.slug === "webmail" && isSuperadmin && !collapsed ? (
                 <Link
                   href="/app/webmail/impostazioni"
+                  prefetch
                   title="Impostazioni caselle (SuperAdmin)"
                   aria-label="Impostazioni caselle WebMail"
                   className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-[var(--sidebar-muted)] hover:bg-slate-700 hover:text-white"
@@ -1318,6 +1354,7 @@ export function AppSidebar({
                 <div className="flex items-center gap-1">
                   <Link
                     href={href}
+                    prefetch
                     title={area.name}
                     aria-label={area.name}
                     className={`min-w-0 flex-1 ${itemClass(active, false, collapsed, areaTone)}`}

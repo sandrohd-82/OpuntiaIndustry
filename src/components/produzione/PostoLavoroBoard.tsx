@@ -12,6 +12,7 @@ import {
   listProduzioneAreeAction,
   updatePostoPericolositaAction,
 } from "@/app/actions/produzione-aree";
+import { PageLoading } from "@/components/ui/BusyIndicator";
 import { PericolositaBandiera } from "@/components/produzione/PericolositaBandiera";
 import { WorkcenterCameraBar } from "@/components/produzione/WorkcenterCameraBar";
 import type { PersonaMinima, PostoAutorizzato } from "@/lib/amministrazione/organigramma";
@@ -55,7 +56,7 @@ export function PostoLavoroBoard({ areaCodice, postoCodice }: Props) {
   }, [areaCodice, postoCodice]);
 
   if (pending && !area) {
-    return <p className="text-sm text-[var(--muted)]">Caricamento posto…</p>;
+    return <PageLoading label="Caricamento posto" />;
   }
   if (error || !area || !posto) {
     return (

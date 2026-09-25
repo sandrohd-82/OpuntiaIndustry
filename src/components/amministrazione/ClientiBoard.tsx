@@ -37,6 +37,7 @@ import { FatturaSyncQueueModal } from "@/components/amministrazione/FatturaSyncQ
 import { PdfExportDetailModal } from "@/components/amministrazione/PdfExportDetailModal";
 import { ProdottoProprioProductTag } from "@/components/amministrazione/ProdottoProprioProductTag";
 import { SoftDeleteConfirmModal } from "@/components/amministrazione/SoftDeleteConfirmModal";
+import { PageLoading } from "@/components/ui/BusyIndicator";
 import { useClienti } from "@/hooks/useClienti";
 import {
   formatCommercialeAssegnazione,
@@ -418,7 +419,7 @@ export function ClientiBoard() {
   }
 
   if (!ready) {
-    return <p className="text-sm text-[var(--muted)]">Caricamento clienti…</p>;
+    return <PageLoading label="Caricamento clienti" />;
   }
 
   return (

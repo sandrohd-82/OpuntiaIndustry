@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { FaPlus } from "react-icons/fa6";
 import { ActionGate } from "@/components/layout/ActionAccessProvider";
+import { PageLoading } from "@/components/ui/BusyIndicator";
 import { AZ } from "@/lib/auth/action-access";
 import {
   listPreventiviAction,
@@ -62,7 +63,7 @@ export function PreventiviBoard() {
   }
 
   if (!ready) {
-    return <p className="text-sm text-[var(--muted)]">Caricamento preventivi…</p>;
+    return <PageLoading label="Caricamento preventivi" />;
   }
 
   return (

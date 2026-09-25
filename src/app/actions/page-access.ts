@@ -1,5 +1,6 @@
 "use server";
 
+import { cache } from "react";
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { isSuperadminProfile } from "@/lib/auth/roles";
@@ -92,7 +93,9 @@ async function activeTargetId(actorUserId: string): Promise<string | null> {
   return data?.target_user_id ? String(data.target_user_id) : null;
 }
 
-export async function loadAccessMaps(profileId: string): Promise<{
+const loadAccessMapsCached = cache(async function loadAccessMapsCached(
+  profileId: string
+): Promise<{
   pageAccess: PageAccessMap;
   actionAccess: PageAccessMap;
 }> {
@@ -112,6 +115,13 @@ export async function loadAccessMaps(profileId: string): Promise<{
     else pageAccess[key] = Boolean(row.visibile);
   }
   return { pageAccess, actionAccess };
+});
+
+export async function loadAccessMaps(profileId: string): Promise<{
+  pageAccess: PageAccessMap;
+  actionAccess: PageAccessMap;
+}> {
+  return loadAccessMapsCached(profileId);
 }
 
 export async function loadPageAccessMap(

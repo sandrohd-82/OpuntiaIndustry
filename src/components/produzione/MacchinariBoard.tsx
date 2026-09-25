@@ -3,6 +3,7 @@
 import { useEffect, useState, useTransition } from "react";
 import Link from "next/link";
 import { ActionGate } from "@/components/layout/ActionAccessProvider";
+import { PageLoading } from "@/components/ui/BusyIndicator";
 import { AZ } from "@/lib/auth/action-access";
 import { listProduzioneAreeAction } from "@/app/actions/produzione-aree";
 import { createMacchinarioAction } from "@/app/actions/produzione-macchinari";
@@ -95,7 +96,7 @@ export function MacchinariBoard({ areaCodice }: Props) {
   }
 
   if (!area && !error) {
-    return <p className="text-sm text-[var(--muted)]">Caricamento macchinari…</p>;
+    return <PageLoading label="Caricamento macchinari" />;
   }
   if (!area) {
     return <p className="text-sm text-red-700">{error ?? "Area non trovata."}</p>;

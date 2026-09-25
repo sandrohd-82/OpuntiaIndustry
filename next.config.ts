@@ -7,6 +7,10 @@ const nextConfig: NextConfig = {
       bodySizeLimit: "100mb",
     },
     middlewareClientMaxBodySize: "100mb",
+    staleTimes: {
+      dynamic: 30,
+      static: 180,
+    },
   },
   async headers() {
     return [

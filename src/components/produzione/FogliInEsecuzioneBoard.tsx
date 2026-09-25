@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { listProduzioneAreeAction } from "@/app/actions/produzione-aree";
+import { PageLoading } from "@/components/ui/BusyIndicator";
 import { FoglioBilancioPanel } from "@/components/produzione/FoglioBilancioPanel";
 import { FoglioProcessiPanel } from "@/components/produzione/FoglioProcessiPanel";
 import { LottoUscitaBox } from "@/components/produzione/LottoUscitaBox";
@@ -27,7 +28,7 @@ export function FogliInEsecuzioneBoard() {
   }, []);
 
   if (!ready) {
-    return <p className="text-sm text-[var(--muted)]">Caricamento fogli…</p>;
+    return <PageLoading label="Caricamento fogli" />;
   }
 
   if (fogliAperti.length === 0) {

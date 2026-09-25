@@ -11,6 +11,7 @@ import {
   FaXmark,
 } from "react-icons/fa6";
 import { ActionGate } from "@/components/layout/ActionAccessProvider";
+import { PageLoading } from "@/components/ui/BusyIndicator";
 import { AZ } from "@/lib/auth/action-access";
 import { listProduzioneAreeAction } from "@/app/actions/produzione-aree";
 import {
@@ -355,7 +356,7 @@ export function ProcessiBoard({ startCreate = false }: ProcessiBoardProps) {
   }
 
   if (!ready) {
-    return <p className="text-sm text-[var(--muted)]">Caricamento processi…</p>;
+    return <PageLoading label="Caricamento processi" />;
   }
 
   const showEdit = creating || Boolean(editing);

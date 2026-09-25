@@ -7,6 +7,7 @@ import {
   isUnrestrictedSuperadmin,
 } from "@/lib/auth/roles";
 import { AppSidebar } from "@/components/layout/AppSidebar";
+import { InstantNavOverlay } from "@/components/layout/InstantNavOverlay";
 import { PageAccessToggle } from "@/components/layout/PageAccessToggle";
 import { WelcomeModal } from "@/components/layout/WelcomeModal";
 import { LeadPromozioneGate } from "@/components/amministrazione/LeadPromozioneGate";
@@ -101,11 +102,12 @@ export default async function AppLayout({
   const testMenuMode = isTestImpersonation(auth);
   const unrestricted = isUnrestrictedSuperadmin(auth);
   const applyPageFilter = !unrestricted;
-  const { pageAccess: rawPageAccess, actionAccess } = await loadAccessMaps(
-    auth.userId
-  );
-  const { settings: rawAuthSettings, scopes: dataScopes } =
-    await loadProfileAuthBundle(auth.userId);
+  const [{ pageAccess: rawPageAccess, actionAccess }, authBundle] =
+    await Promise.all([
+      loadAccessMaps(auth.userId),
+      loadProfileAuthBundle(auth.userId),
+    ]);
+  const { settings: rawAuthSettings, scopes: dataScopes } = authBundle;
   const authSettings = unrestricted
     ? unrestrictedAuthSettings(rawAuthSettings)
     : rawAuthSettings;
@@ -210,7 +212,8 @@ export default async function AppLayout({
         applyPageFilter={applyPageFilter && !testMenuMode}
       />
 
-      <div className="flex min-w-0 flex-1 flex-col">
+      <div className="relative flex min-w-0 flex-1 flex-col">
+        <InstantNavOverlay />
         <NotificationConsentBanner />
         <ActionAccessProvider
           actionAccess={actionAccess}

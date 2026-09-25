@@ -1,3 +1,4 @@
+import { cache } from "react";
 import { cookies } from "next/headers";
 import { AREA_ROUTES } from "@/lib/areas/config";
 import { TWO_FA_SESSION_COOKIE } from "@/lib/auth/constants";
@@ -23,7 +24,7 @@ export interface AuthContext {
   welcomePending: boolean;
 }
 
-export async function getAuthUser() {
+export const getAuthUser = cache(async function getAuthUser() {
   const supabase = await createClient();
   const {
     data: { user },
@@ -31,32 +32,36 @@ export async function getAuthUser() {
   } = await supabase.auth.getUser();
   if (error || !user) return null;
   return user;
-}
+});
 
-export async function isSecondFactorVerified(): Promise<boolean> {
+export const isSecondFactorVerified = cache(async function isSecondFactorVerified(
+  userId?: string
+): Promise<boolean> {
   const cookieStore = await cookies();
   const token = cookieStore.get(TWO_FA_SESSION_COOKIE)?.value;
   if (!token) return false;
 
-  const supabase = await createClient();
-  const user = await getAuthUser();
-  if (!user) return false;
+  const uid = userId ?? (await getAuthUser())?.id;
+  if (!uid) return false;
 
+  const supabase = await createClient();
   const { hashSessionToken } = await import("@/lib/auth/two-factor");
   const tokenHash = hashSessionToken(token);
 
   const { data } = await supabase
     .from("auth_sessions_2fa")
-    .select("id, expires_at")
+    .select("id")
     .eq("session_token_hash", tokenHash)
-    .eq("user_id", user.id)
+    .eq("user_id", uid)
     .gt("expires_at", new Date().toISOString())
     .maybeSingle();
 
   return Boolean(data);
-}
+});
 
-export async function getProfile(userId: string): Promise<Profile | null> {
+export const getProfile = cache(async function getProfile(
+  userId: string
+): Promise<Profile | null> {
   const supabase = await createClient();
   const { data, error } = await supabase
     .from("profiles")
@@ -67,9 +72,11 @@ export async function getProfile(userId: string): Promise<Profile | null> {
 
   if (error || !data) return null;
   return data as Profile;
-}
+});
 
-export async function getUserAreas(userId: string): Promise<UserArea[]> {
+export const getUserAreas = cache(async function getUserAreas(
+  userId: string
+): Promise<UserArea[]> {
   const supabase = await createClient();
   const { data, error } = await supabase.rpc("get_user_areas", {
     p_user_id: userId,
@@ -77,10 +84,10 @@ export async function getUserAreas(userId: string): Promise<UserArea[]> {
 
   if (error || !data) return [];
   return data as UserArea[];
-}
+});
 
 /** Tutte le aree attive: Super Admin le vede tutte, anche senza riga RBAC. */
-export async function getAllActiveAreas(): Promise<UserArea[]> {
+export const getAllActiveAreas = cache(async function getAllActiveAreas(): Promise<UserArea[]> {
   const supabase = await createClient();
   const { data, error } = await supabase
     .from("areas")
@@ -105,9 +112,9 @@ export async function getAllActiveAreas(): Promise<UserArea[]> {
     icon: null,
     sort_order: i,
   }));
-}
+});
 
-async function getActiveImpersonationTargetId(
+const getActiveImpersonationTargetId = cache(async function getActiveImpersonationTargetId(
   actorUserId: string
 ): Promise<string | null> {
   const supabase = await createClient();
@@ -121,16 +128,19 @@ async function getActiveImpersonationTargetId(
     .limit(1)
     .maybeSingle();
   return data?.target_user_id ? String(data.target_user_id) : null;
-}
+});
 
-export async function getAuthContext(): Promise<AuthContext | null> {
+export const getAuthContext = cache(async function getAuthContext(): Promise<AuthContext | null> {
   const user = await getAuthUser();
   if (!user?.email) return null;
 
-  const actorProfile = await getProfile(user.id);
+  const [actorProfile, targetId, secondFactorOk] = await Promise.all([
+    getProfile(user.id),
+    getActiveImpersonationTargetId(user.id),
+    isSecondFactorVerified(user.id),
+  ]);
   if (!actorProfile) return null;
 
-  const targetId = await getActiveImpersonationTargetId(user.id);
   const effectiveId = targetId || user.id;
   const profile =
     effectiveId === user.id ? actorProfile : await getProfile(effectiveId);
@@ -141,10 +151,9 @@ export async function getAuthContext(): Promise<AuthContext | null> {
     profile,
     impersonating,
   });
-  const [areas, secondFactorOk] = await Promise.all([
-    unrestricted ? getAllActiveAreas() : getUserAreas(effectiveId),
-    isSecondFactorVerified(),
-  ]);
+  const areas = unrestricted
+    ? await getAllActiveAreas()
+    : await getUserAreas(effectiveId);
 
   const actorStato = parseProfileStatoOperativo(actorProfile.stato_operativo);
   const mustEnrollTotp = false;
@@ -166,7 +175,7 @@ export async function getAuthContext(): Promise<AuthContext | null> {
     mustEnrollTotp,
     welcomePending,
   };
-}
+});
 
 export function userCanAccessArea(
   areas: UserArea[],
