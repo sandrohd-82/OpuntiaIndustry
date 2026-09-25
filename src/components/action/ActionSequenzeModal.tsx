@@ -175,6 +175,94 @@ export function ActionSequenzeModal({
     setStalloMin(p.stalloDopoSec ? minutiDaSecondi(p.stalloDopoSec) : 5);
   }
 
+  function matchPassoCopia(
+    item: ActionSequenza,
+    p: SequenzaPasso,
+    index: number
+  ): SequenzaPasso | null {
+    return (
+      item.passi.find((x) => x.id === p.id) ??
+      item.passi.find(
+        (x) =>
+          x.componenteId === p.componenteId && x.sortOrder === p.sortOrder
+      ) ??
+      item.passi[index] ??
+      null
+    );
+  }
+
+  async function persistBozzaSeServe(): Promise<ActionSequenza | null> {
+    if (draftId) {
+      const res = await upsertSequenzaTestataAction({
+        id: draftId,
+        essiccatoreId: essiccatore.id,
+        nome,
+        descrizione,
+        tipo,
+      });
+      if (!res.success) {
+        setError(res.error);
+        return null;
+      }
+      setDraftId(res.item.id);
+      setNome(res.item.nome);
+      setDescrizione(res.item.descrizione);
+      setTipo(res.item.tipo);
+      setDraftPassi(res.item.passi);
+      return res.item;
+    }
+    if (copiaDaId) {
+      const res = await copiaSequenzaAction({
+        fonteId: copiaDaId,
+        essiccatoreId: essiccatore.id,
+        nome,
+        descrizione,
+        tipo,
+      });
+      if (!res.success) {
+        setError(res.error);
+        return null;
+      }
+      applyCopia(res.item);
+      return res.item;
+    }
+    const res = await upsertSequenzaTestataAction({
+      essiccatoreId: essiccatore.id,
+      nome,
+      descrizione,
+      tipo,
+    });
+    if (!res.success) {
+      setError(res.error);
+      return null;
+    }
+    setDraftId(res.item.id);
+    setNome(res.item.nome);
+    setDescrizione(res.item.descrizione);
+    setTipo(res.item.tipo);
+    setDraftPassi(res.item.passi);
+    setCopiaDaId("");
+    return res.item;
+  }
+
+  function openEditPassoAnteprima(p: SequenzaPasso, index: number) {
+    start(async () => {
+      const item = await persistBozzaSeServe();
+      if (!item) {
+        setPhase("testata");
+        return;
+      }
+      const target = matchPassoCopia(item, p, index);
+      if (!target) {
+        setEditingPassoId(null);
+        setPhase("azione");
+        return;
+      }
+      fillPassoForm(target);
+      setPhase("azione");
+    });
+  }
+
   function openEditPasso(item: ActionSequenza, p: SequenzaPasso) {
     setDraftId(item.id);
     setNome(item.nome);
@@ -548,7 +636,8 @@ export function ActionSequenzeModal({
                 </select>
                 <span className="mt-1 block text-xs text-[var(--muted)]">
                   Si copia tutto: nome, descrizione, tipo e tutte le Action
-                  (comando, valore, durata, stallo, precondizione). Poi adegui.
+                  (comando, valore, durata, stallo, precondizione). La matita
+                  su un’Action salva la bozza e apre la modifica.
                 </span>
               </label>
             ) : null}
@@ -560,10 +649,7 @@ export function ActionSequenzeModal({
                     index={i + 1}
                     passo={p}
                     essiccatoreId={essiccatore.id}
-                    onEdit={() => {
-                      fillPassoForm(p);
-                      setPhase("azione");
-                    }}
+                    onEdit={() => openEditPassoAnteprima(p, i)}
                   />
                 ))}
               </ol>
@@ -601,7 +687,7 @@ export function ActionSequenzeModal({
                     setDraftPassi(res.item.passi);
                     setEditingPassoId(null);
                     setCopiaDaId("");
-                    setPhase("testata");
+                    setPhase(draftId ? "azione" : "testata");
                   })
                 }
                 className="inline-flex items-center gap-1.5 rounded-lg bg-slate-900 px-3 py-2 text-sm font-medium text-white disabled:opacity-50"
@@ -645,6 +731,22 @@ export function ActionSequenzeModal({
                 Annulla
               </button>
             </div>
+          </div>
+        ) : null}
+
+        {phase === "azione" && !draftId ? (
+          <div className="space-y-3">
+            <p className="text-sm text-[var(--muted)]">
+              La bozza non è ancora stata salvata. Torna indietro e premi
+              «Copia sequenza», oppure la matita su un’Action.
+            </p>
+            <button
+              type="button"
+              onClick={() => setPhase("testata")}
+              className="rounded-lg px-3 py-2 text-sm"
+            >
+              Indietro
+            </button>
           </div>
         ) : null}
 
