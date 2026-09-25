@@ -20,6 +20,7 @@ import {
   useAnagraficaPrivileges,
 } from "@/components/layout/ActionAccessProvider";
 import { AZ } from "@/lib/auth/action-access";
+import { AnagraficaReferentiSection } from "@/components/amministrazione/AnagraficaReferentiSection";
 import { AziendaTimelineModal } from "@/components/amministrazione/AziendaTimelineModal";
 import { CodiceTargaBadge } from "@/components/amministrazione/CodiceTargaBadge";
 import { FatturaSyncQueueModal } from "@/components/amministrazione/FatturaSyncQueueModal";
@@ -198,6 +199,14 @@ function FornitoreRow({
                 title="Sede ritiro"
                 sede={fornitore.sedeMagazzino}
               />
+              <div className="sm:col-span-2">
+                <AnagraficaReferentiSection
+                  tipo="fornitore"
+                  entityId={fornitore.id}
+                  entityLabel={fornitore.ragioneSociale}
+                  canEdit={canEdit}
+                />
+              </div>
               <div className="sm:col-span-2">
                 <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-[var(--muted)]">
                   Fornitore di

@@ -242,6 +242,7 @@ function ClienteRow({
             <AnagraficaSchedaDetail
               prodottiByCode={prodottiByCode}
               canEditDocumenti={canEdit}
+              canEditReferenti={canEdit}
               model={{
                 id: cliente.id,
                 kind: "cliente",

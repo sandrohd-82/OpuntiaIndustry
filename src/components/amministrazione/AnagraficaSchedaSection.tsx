@@ -45,20 +45,27 @@ export function AnagraficaSchedaSection({
   tone,
   children,
   className = "",
+  actions,
 }: {
   title: string;
   tone: AnagraficaSectionTone;
   children: ReactNode;
   className?: string;
+  actions?: ReactNode;
 }) {
   return (
     <section
-      className={`overflow-hidden rounded-xl border ${ANAGRAFICA_SECTION_TONE[tone]} ${className}`}
+      className={`rounded-xl border ${ANAGRAFICA_SECTION_TONE[tone]} ${className}`}
     >
       <header
-        className={`px-3 py-2 text-xs font-semibold uppercase tracking-wide ${ANAGRAFICA_SECTION_HEAD[tone]}`}
+        className={`flex items-center justify-between gap-2 rounded-t-xl px-3 py-2 text-xs font-semibold uppercase tracking-wide ${ANAGRAFICA_SECTION_HEAD[tone]}`}
       >
-        {title}
+        <span>{title}</span>
+        {actions ? (
+          <div className="relative shrink-0 normal-case tracking-normal">
+            {actions}
+          </div>
+        ) : null}
       </header>
       <div className="space-y-3 p-3">{children}</div>
     </section>

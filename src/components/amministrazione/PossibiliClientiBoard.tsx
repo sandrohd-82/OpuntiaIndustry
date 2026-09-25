@@ -163,6 +163,7 @@ function PossibileClienteRow({
           <td colSpan={9} className="px-4 py-4">
             <AnagraficaSchedaDetail
               prodottiByCode={prodottiByCode}
+              canEditReferenti={canEdit}
               model={{
                 id: lead.id,
                 kind: "cliente_possibile",

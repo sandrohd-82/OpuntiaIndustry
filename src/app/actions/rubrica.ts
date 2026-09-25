@@ -564,7 +564,7 @@ export async function listEntityReferentiAction(input: {
 }): Promise<
   { success: true; items: RubricaContatto[] } | { success: false; error: string }
 > {
-  await guard();
+  await guardRubricaAnagrafica();
   const j = junctionFor(input.tipo);
   const supabase = await createClient();
   const { data: links, error } = await supabase
@@ -595,7 +595,7 @@ export async function syncEntityReferentiAction(input: {
   entityLabel: string;
   contattoIds: string[];
 }): Promise<{ success: true } | { success: false; error: string }> {
-  const { auth } = await guard();
+  const { auth } = await guardRubricaAnagrafica();
   const j = junctionFor(input.tipo);
   const ids = [...new Set(input.contattoIds.filter(Boolean))];
   const supabase = await createClient();
@@ -646,7 +646,7 @@ export async function linkEntityReferenteAction(input: {
   entityLabel: string;
   contattoId: string;
 }): Promise<{ success: true } | { success: false; error: string }> {
-  const { auth } = await guard();
+  const { auth } = await guardRubricaAnagrafica();
   const j = junctionFor(input.tipo);
   const supabase = await createClient();
   const { data: existing } = await supabase
@@ -675,5 +675,39 @@ export async function linkEntityReferenteAction(input: {
     })
     .eq("id", input.contattoId)
     .is("deleted_at", null);
+  await writeAuditLog({
+    entity_type: j.table,
+    entity_id: input.entityId,
+    action: "link_referente",
+    actor_id: auth.userId,
+    summary: `Collegato referente a ${input.tipo}`,
+    payload: { contatto_id: input.contattoId },
+  });
+  return { success: true };
+}
+
+/** Scollega un referente dall’anagrafica: il contatto in rubrica resta (soft-delete mai qui). */
+export async function unlinkEntityReferenteAction(input: {
+  tipo: EntityReferentiTipo;
+  entityId: string;
+  contattoId: string;
+}): Promise<{ success: true } | { success: false; error: string }> {
+  const { auth } = await guardRubricaAnagrafica();
+  const j = junctionFor(input.tipo);
+  const supabase = await createClient();
+  const { error } = await supabase
+    .from(j.table)
+    .delete()
+    .eq(j.fk, input.entityId)
+    .eq("contatto_id", input.contattoId);
+  if (error) return { success: false, error: error.message };
+  await writeAuditLog({
+    entity_type: j.table,
+    entity_id: input.entityId,
+    action: "unlink_referente",
+    actor_id: auth.userId,
+    summary: `Scollegato referente da ${input.tipo}`,
+    payload: { contatto_id: input.contattoId },
+  });
   return { success: true };
 }

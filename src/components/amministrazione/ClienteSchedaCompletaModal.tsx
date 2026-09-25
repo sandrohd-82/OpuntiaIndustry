@@ -147,6 +147,7 @@ export function ClienteSchedaCompletaModal({
             <AnagraficaSchedaDetail
               model={model}
               prodottiByCode={prodottiByCode}
+              canEditReferenti={canEdit}
               hideDocumenti
             />
             <AnagraficaDocumentiPanel

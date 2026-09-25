@@ -7,9 +7,9 @@ import {
   openSchedaFromTimelineAction,
   type AziendaSchedaCardItem,
 } from "@/app/actions/schede-ordini";
-import { listEntityReferentiAction } from "@/app/actions/rubrica";
 import { SchedaOrdineModal } from "@/components/produzione/SchedaOrdineModal";
 import { CanaleReadonlyActions } from "@/components/amministrazione/CanaleAttenzioneControls";
+import { AnagraficaReferentiSection } from "@/components/amministrazione/AnagraficaReferentiSection";
 import { ProdottoProprioProductTag } from "@/components/amministrazione/ProdottoProprioProductTag";
 import { TrattativaBadge } from "@/components/amministrazione/TrattativaSelectField";
 import {
@@ -22,7 +22,6 @@ import {
 import type { ConsegnaAltraAzienda, SedeCliente } from "@/lib/amministrazione/clienti";
 import type { ProdottoProprio } from "@/lib/amministrazione/prodotti-propri";
 import type { ClientePossibileTrattativa } from "@/lib/promemorie-e-note/trattativa";
-import { displayContattoName, type RubricaContatto } from "@/lib/rubrica/types";
 import { AnagraficaDocumentiPanel } from "@/components/amministrazione/AnagraficaDocumentiPanel";
 import {
   ANAGRAFICA_SEDE_TONE,
@@ -127,26 +126,22 @@ export function AnagraficaSchedaDetail({
   model,
   prodottiByCode,
   canEditDocumenti = false,
+  canEditReferenti,
   hideDocumenti = false,
 }: {
   model: AnagraficaSchedaDetailModel;
   prodottiByCode: Map<string, ProdottoProprio>;
   canEditDocumenti?: boolean;
+  canEditReferenti?: boolean;
   hideDocumenti?: boolean;
 }) {
-  const [referenti, setReferenti] = useState<RubricaContatto[]>([]);
   const [sediExtra, setSediExtra] = useState<AnagraficaSede[]>([]);
   const [brandExtra, setBrandExtra] = useState<AnagraficaBrand[]>([]);
   const [schede, setSchede] = useState<AziendaSchedaCardItem[]>([]);
   const [schedaApertaId, setSchedaApertaId] = useState<string | null>(null);
+  const manageReferenti = canEditReferenti ?? canEditDocumenti;
 
   useEffect(() => {
-    void listEntityReferentiAction({
-      tipo: model.kind === "cliente" ? "cliente" : "cliente_possibile",
-      entityId: model.id,
-    }).then((res) => {
-      if (res.success) setReferenti(res.items);
-    });
     void loadAnagraficaExtraAction({
       ownerKind: model.kind === "cliente" ? "cliente" : "cliente_possibile",
       ownerId: model.id,
@@ -410,28 +405,12 @@ export function AnagraficaSchedaDetail({
         )}
       </AnagraficaSchedaSection>
 
-      <AnagraficaSchedaSection title="Referenti" tone="referenti">
-        {referenti.length === 0 ? (
-          <p className="text-sm text-[var(--muted)]">Nessun referente</p>
-        ) : (
-          <ul className="space-y-2">
-            {referenti.map((r) => (
-              <li
-                key={r.id}
-                className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-cyan-100 bg-white px-3 py-2 text-sm"
-              >
-                <span>
-                  {displayContattoName(r)}
-                  {r.mansione ? ` · ${r.mansione}` : ""}
-                  {r.telefono ? ` · ${r.telefono}` : ""}
-                  {r.email ? ` · ${r.email}` : ""}
-                </span>
-                <CanaleReadonlyActions email={r.email} telefono={r.telefono} />
-              </li>
-            ))}
-          </ul>
-        )}
-      </AnagraficaSchedaSection>
+      <AnagraficaReferentiSection
+        tipo={model.kind === "cliente" ? "cliente" : "cliente_possibile"}
+        entityId={model.id}
+        entityLabel={model.ragioneSociale}
+        canEdit={manageReferenti}
+      />
 
       <AnagraficaSchedaSection title={model.prodottiLabel} tone="prodotti">
         {model.prodotti.length === 0 ? (
