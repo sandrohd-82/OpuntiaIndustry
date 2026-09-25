@@ -19,7 +19,10 @@ import {
   listGestionaleRubricaForChatAction,
   searchChatSchedaAction,
 } from "@/app/actions/chat-share";
-import { listNotaBozzePnAction } from "@/app/actions/promemorie-e-note";
+import {
+  listNotaBozzePnAction,
+  uploadNotaAllegatoAction,
+} from "@/app/actions/promemorie-e-note";
 import { createShippingTrackingAction } from "@/app/actions/shipping-tracking";
 import { ChatLocationMapModal } from "@/components/chat/ChatLocationMapModal";
 import { ChatSchedaShareFieldsModal } from "@/components/chat/ChatSchedaShareFieldsModal";
@@ -43,7 +46,6 @@ import type {
 import {
   buildTrackingInsertText,
 } from "@/lib/shipping/tracking";
-import { createClient } from "@/lib/supabase/client";
 
 type Sub =
   | null
@@ -68,8 +70,6 @@ type Props = {
   entityType?: PnEntityType | null;
   entityId?: string | null;
 };
-
-const MEDIA_BUCKET = "chat_media";
 
 const iconFor: Record<
   ChatShareActionId | "link" | "bozza" | "tracking",
@@ -232,45 +232,13 @@ export function NotaInserisciSheet({
     if (!files?.length) return;
     setBusy(true);
     try {
-      const supabase = createClient();
-      const {
-        data: { user },
-      } = await supabase.auth.getUser();
-      if (!user) throw new Error("Sessione non valida");
       const out: PnNotaAllegato[] = [];
       for (const file of Array.from(files)) {
-        const isVideo = (file.type || "").toLowerCase().startsWith("video/");
-        const maxBytes = isVideo ? 25 * 1024 * 1024 : 10 * 1024 * 1024;
-        if (file.size > maxBytes) {
-          throw new Error(
-            isVideo
-              ? "Video troppo grande (max 25 MB)."
-              : "Allegato troppo grande (max 10 MB)."
-          );
-        }
-        const safe = file.name.replace(/[^\w.\-]+/g, "_");
-        const path = `note-allegati/${user.id}/${Date.now()}-${safe}`;
-        const { error: upErr } = await supabase.storage
-          .from(MEDIA_BUCKET)
-          .upload(path, file, {
-            contentType: file.type || "application/octet-stream",
-            upsert: false,
-          });
-        if (upErr) throw new Error(upErr.message);
-        const { data: pub } = supabase.storage
-          .from(MEDIA_BUCKET)
-          .getPublicUrl(path);
-        out.push({
-          id: crypto.randomUUID(),
-          kind: isVideo
-            ? "video"
-            : (file.type || "").startsWith("image/")
-              ? "image"
-              : "doc",
-          label: file.name,
-          url: pub.publicUrl,
-          storagePath: path,
-        });
+        const fd = new FormData();
+        fd.set("file", file);
+        const res = await uploadNotaAllegatoAction(fd);
+        if (!res.success) throw new Error(res.error);
+        out.push(res.allegato);
       }
       onAddAllegati(out);
       closeSheetSoon();

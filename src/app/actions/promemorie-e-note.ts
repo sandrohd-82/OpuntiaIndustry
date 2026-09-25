@@ -42,6 +42,7 @@ import {
   type ClientePossibile,
   type PnAttivita,
   type PnNota,
+  type PnNotaAllegato,
   type PnNotaBozza,
   type PnPromemoria,
 } from "@/lib/promemorie-e-note/types";
@@ -1735,4 +1736,66 @@ export async function createNotaBozzaPnAction(input: unknown): Promise<
     },
   });
   return { success: true, item };
+}
+
+const PN_NOTE_MEDIA_BUCKET = "chat_media";
+
+/** Carica un allegato nota via service role: evita RLS chat_media (path conversazione). */
+export async function uploadNotaAllegatoAction(
+  formData: FormData
+): Promise<
+  { success: true; allegato: PnNotaAllegato } | { success: false; error: string }
+> {
+  const { auth } = await requireAnyAreaAccess([
+    "promemorie-e-note",
+    "amministrazione",
+    "commerciale",
+  ]);
+  const file = formData.get("file");
+  if (!(file instanceof File) || file.size === 0) {
+    return { success: false, error: "Seleziona un file." };
+  }
+  const mime = (file.type || "").toLowerCase();
+  const isVideo = mime.startsWith("video/");
+  const maxBytes = isVideo ? 25 * 1024 * 1024 : 10 * 1024 * 1024;
+  if (file.size > maxBytes) {
+    return {
+      success: false,
+      error: isVideo
+        ? "Video troppo grande (max 25 MB)."
+        : "Allegato troppo grande (max 10 MB).",
+    };
+  }
+  const safe = file.name.replace(/[^\w.\-]+/g, "_").slice(0, 120) || "allegato";
+  const path = `${auth.userId}/note-allegati/${Date.now()}-${safe}`;
+  const service = createServiceClient();
+  const { error: upErr } = await service.storage
+    .from(PN_NOTE_MEDIA_BUCKET)
+    .upload(path, file, {
+      contentType: file.type || "application/octet-stream",
+      upsert: false,
+    });
+  if (upErr) return { success: false, error: upErr.message };
+  const { data: pub } = service.storage
+    .from(PN_NOTE_MEDIA_BUCKET)
+    .getPublicUrl(path);
+  const allegatoId = crypto.randomUUID();
+  await writeAuditLog({
+    entity_type: "pn_note",
+    entity_id: allegatoId,
+    action: "upload_allegato",
+    actor_id: auth.userId,
+    summary: `Allegato nota: ${file.name}`,
+    payload: { storage_path: path, bytes: file.size, mime: file.type },
+  });
+  return {
+    success: true,
+    allegato: {
+      id: allegatoId,
+      kind: isVideo ? "video" : mime.startsWith("image/") ? "image" : "doc",
+      label: file.name,
+      url: pub.publicUrl,
+      storagePath: path,
+    },
+  };
 }
