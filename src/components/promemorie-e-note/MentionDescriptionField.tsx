@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type Ref } from "react";
 import { searchAttivitaMentionAction } from "@/app/actions/attivita-mentions";
 import { MentionMailModal } from "@/components/promemorie-e-note/MentionMailModal";
 import {
@@ -25,6 +25,9 @@ type Props = {
   onCollegamentiChange: (next: PnAttivitaCollegamento[]) => void;
   placeholder?: string;
   rows?: number;
+  label?: string;
+  textareaRef?: Ref<HTMLTextAreaElement>;
+  onMailPicked?: (hit: AttivitaMentionHit) => void | Promise<void>;
 };
 
 export function MentionDescriptionView({
@@ -69,8 +72,18 @@ export function MentionDescriptionField({
   onCollegamentiChange,
   placeholder,
   rows = 4,
+  label = "Descrizione",
+  textareaRef,
+  onMailPicked,
 }: Props) {
   const areaRef = useRef<HTMLTextAreaElement>(null);
+
+  function bindTextarea(el: HTMLTextAreaElement | null) {
+    areaRef.current = el;
+    if (!textareaRef) return;
+    if (typeof textareaRef === "function") textareaRef(el);
+    else textareaRef.current = el;
+  }
   const [legendOpen, setLegendOpen] = useState(false);
   const [active, setActive] = useState<ActiveMention | null>(null);
   const [hits, setHits] = useState<AttivitaMentionHit[]>([]);
@@ -133,7 +146,7 @@ export function MentionDescriptionField({
     };
   }, [active?.kind, active?.query, active?.start]);
 
-  function applyHit(kind: AttivitaMentionKind, hit: AttivitaMentionHit) {
+  async function applyHit(kind: AttivitaMentionKind, hit: AttivitaMentionHit) {
     const el = areaRef.current;
     const anchor = kind === "mail" ? mailAnchor.current : null;
     const start =
@@ -156,6 +169,9 @@ export function MentionDescriptionField({
     setActive(null);
     setHits([]);
     setLegendOpen(false);
+    if (kind === "mail" && onMailPicked) {
+      await Promise.resolve(onMailPicked(hit));
+    }
     setMailOpen(false);
     mailAnchor.current = null;
     requestAnimationFrame(() => {
@@ -199,7 +215,7 @@ export function MentionDescriptionField({
   return (
     <div>
       <div className="mb-1 flex items-center justify-between gap-2">
-        <span className="block text-xs font-medium">Descrizione</span>
+        <span className="block text-xs font-medium">{label}</span>
         <button
           type="button"
           onClick={() => setLegendOpen((v) => !v)}
@@ -210,7 +226,7 @@ export function MentionDescriptionField({
       </div>
       <div className="relative">
         <textarea
-          ref={areaRef}
+          ref={bindTextarea}
           value={value}
           rows={rows}
           placeholder={placeholder}
@@ -230,6 +246,7 @@ export function MentionDescriptionField({
           }}
           onClick={refreshActiveFromTextarea}
           onKeyUp={refreshActiveFromTextarea}
+          onSelect={refreshActiveFromTextarea}
           className="w-full rounded-lg border border-[var(--border)] px-3 py-2 text-sm"
         />
 
@@ -282,7 +299,7 @@ export function MentionDescriptionField({
                   <li key={hit.entityId}>
                     <button
                       type="button"
-                      onClick={() => applyHit(active!.kind, hit)}
+                      onClick={() => void applyHit(active!.kind, hit)}
                       className="w-full rounded-md px-2 py-1.5 text-left text-sm hover:bg-slate-50"
                     >
                       <span className="font-medium">{hit.label}</span>

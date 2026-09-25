@@ -1,13 +1,14 @@
 "use server";
 
-import { requireAreaAccess } from "@/lib/areas/guard";
-import { getAuthContext, userCanAccessArea } from "@/lib/auth/session";
+import { requireAnyAreaAccess } from "@/lib/areas/guard";
 import {
   ATTIVITA_MENTION_KINDS,
   type AttivitaMentionHit,
   type AttivitaMentionKind,
 } from "@/lib/promemorie-e-note/mention-tokens";
+import type { PnNotaAllegato } from "@/lib/promemorie-e-note/types";
 import { createServiceClient } from "@/lib/supabase/server";
+import { WEBMAIL_ALLEGATI_BUCKET } from "@/lib/webmail/html-render";
 import { z } from "zod";
 
 const searchSchema = z.object({
@@ -31,15 +32,19 @@ function asHits(
     .filter((r) => r.entityId && r.label);
 }
 
-async function guardPn() {
-  return requireAreaAccess("promemorie-e-note");
+async function guardMention() {
+  return requireAnyAreaAccess([
+    "promemorie-e-note",
+    "amministrazione",
+    "commerciale",
+  ]);
 }
 
 export async function searchAttivitaMentionAction(input: unknown): Promise<
   | { success: true; items: AttivitaMentionHit[] }
   | { success: false; error: string }
 > {
-  await guardPn();
+  await guardMention();
   const parsed = searchSchema.safeParse(input);
   if (!parsed.success) {
     return {
@@ -329,11 +334,7 @@ export async function searchAttivitaMentionMailsAction(input: {
   | { success: true; items: AttivitaMentionHit[] }
   | { success: false; error: string }
 > {
-  await guardPn();
-  const auth = await getAuthContext();
-  if (!auth || !userCanAccessArea(auth.areas, "webmail")) {
-    return { success: false, error: "Serve l’accesso Webmail per collegare una mail." };
-  }
+  await guardMention();
   const q = sanitizeLike(input.q ?? "");
   const service = createServiceClient();
   let query = service
@@ -401,7 +402,7 @@ export async function listAttivitaMentionCaselleAction(input: {
 }): Promise<
   { success: true; items: MentionCasella[] } | { success: false; error: string }
 > {
-  await guardPn();
+  await guardMention();
   const parsed = z
     .object({
       aziendaTipo: z.enum(["cliente", "cliente_possibile"]),
@@ -483,7 +484,7 @@ export async function listAttivitaMentionMailsByCasellaAction(input: {
   | { success: true; items: AttivitaMentionHit[] }
   | { success: false; error: string }
 > {
-  await guardPn();
+  await guardMention();
   const email = sanitizeLike(input.email).toLowerCase();
   if (!email.includes("@")) {
     return { success: false, error: "Email casella non valida" };
@@ -528,5 +529,65 @@ export async function listAttivitaMentionMailsByCasellaAction(input: {
       hint: String(r.from_address || ""),
       meta: { accountId: r.account_id, email },
     })),
+  };
+}
+
+export async function loadWebmailAllegatiPerNotaAction(
+  messaggioId: string
+): Promise<
+  | { success: true; allegati: PnNotaAllegato[]; subject: string }
+  | { success: false; error: string }
+> {
+  await guardMention();
+  if (!z.string().uuid().safeParse(messaggioId).success) {
+    return { success: false, error: "Mail non valida." };
+  }
+  const service = createServiceClient();
+  const { data: msg } = await service
+    .from("webmail_messaggi")
+    .select("id, subject")
+    .eq("id", messaggioId)
+    .is("deleted_at", null)
+    .maybeSingle();
+  if (!msg) return { success: false, error: "Mail non trovata." };
+
+  const { data: rows, error } = await service
+    .from("webmail_messaggi_allegati")
+    .select(
+      "id, filename, mime_type, is_inline, storage_bucket, storage_path"
+    )
+    .eq("messaggio_id", messaggioId)
+    .is("deleted_at", null);
+  if (error) return { success: false, error: error.message };
+
+  const allegati: PnNotaAllegato[] = [];
+  for (const r of rows ?? []) {
+    if (r.is_inline) continue;
+    const path = String(r.storage_path ?? "").trim();
+    if (!path) continue;
+    const bucket = String(r.storage_bucket || WEBMAIL_ALLEGATI_BUCKET);
+    const { data: signed } = await service.storage
+      .from(bucket)
+      .createSignedUrl(path, 60 * 60 * 24 * 7);
+    const mime = String(r.mime_type ?? "").toLowerCase();
+    const kind = mime.startsWith("image/")
+      ? "image"
+      : mime.startsWith("video/")
+        ? "video"
+        : mime.includes("pdf")
+          ? "pdf"
+          : "doc";
+    allegati.push({
+      id: String(r.id),
+      kind,
+      label: String(r.filename || "Allegato"),
+      url: (signed?.signedUrl ?? "").slice(0, 2000),
+      storagePath: path,
+    });
+  }
+  return {
+    success: true,
+    allegati,
+    subject: String(msg.subject ?? ""),
   };
 }

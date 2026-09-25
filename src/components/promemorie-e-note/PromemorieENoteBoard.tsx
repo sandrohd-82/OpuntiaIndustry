@@ -12,6 +12,7 @@ import {
   listPromemoriaAction,
   updatePromemoriaAction,
 } from "@/app/actions/promemorie-e-note";
+import { loadWebmailAllegatiPerNotaAction } from "@/app/actions/attivita-mentions";
 import { markNotificheReadAction } from "@/app/actions/notifiche";
 import { notifyNotificheNav } from "@/lib/notifiche/nav-event";
 import { operatorIdsFromCollegamenti } from "@/lib/promemorie-e-note/mention-tokens";
@@ -89,6 +90,7 @@ export function PromemorieENoteBoard({ kind, mode, userId }: Props) {
   const [collegamenti, setCollegamenti] = useState<PnAttivitaCollegamento[]>(
     []
   );
+  const [notaAllegati, setNotaAllegati] = useState<PnNota["allegati"]>([]);
   const [avvisi, setAvvisi] = useState<PnAvviso[]>([]);
   const [editing, setEditing] = useState<PnAttivita | null>(null);
   const [editingPromemoria, setEditingPromemoria] =
@@ -193,6 +195,7 @@ export function PromemorieENoteBoard({ kind, mode, userId }: Props) {
           linkedPromemoriaId: notaExtras.linkedPromemoriaId,
           linkedAttivitaId: notaExtras.linkedAttivitaId,
           collegamenti,
+          allegati: notaAllegati,
         });
         if (!res.success) {
           setError(res.error);
@@ -210,7 +213,20 @@ export function PromemorieENoteBoard({ kind, mode, userId }: Props) {
       setLuogo("");
       setBody("");
       setCollegamenti([]);
+      setNotaAllegati([]);
       setAvvisi([]);
+    });
+  }
+
+  async function onNotaMailPicked(messaggioId: string) {
+    const res = await loadWebmailAllegatiPerNotaAction(messaggioId);
+    if (!res.success) {
+      setError(res.error);
+      return;
+    }
+    setNotaAllegati((prev) => {
+      const seen = new Set(prev.map((a) => a.id));
+      return [...prev, ...res.allegati.filter((a) => !seen.has(a.id))];
     });
   }
 
@@ -274,13 +290,21 @@ export function PromemorieENoteBoard({ kind, mode, userId }: Props) {
             <>
               <label className="block text-xs font-medium">Testo nota</label>
               <MentionDescriptionField
+                label="Testo nota"
                 value={body}
                 onChange={setBody}
                 collegamenti={collegamenti}
                 onCollegamentiChange={setCollegamenti}
                 rows={4}
-                placeholder="Testo nota… @C- cliente, @Pc- possibile cliente, Leggenda @ per i comandi"
+                placeholder="Testo nota… @C- cliente, @Wm- mail. Leggenda @ per i comandi"
+                onMailPicked={(hit) => onNotaMailPicked(hit.entityId)}
               />
+              {notaAllegati.length > 0 ? (
+                <p className="text-[11px] text-slate-600">
+                  {notaAllegati.length} allegat
+                  {notaAllegati.length === 1 ? "o" : "i"} dalla mail
+                </p>
+              ) : null}
               <label className="block text-xs font-medium">Colore</label>
               <select
                 value={colore}

@@ -20,7 +20,9 @@ import {
   type AziendaTimelineMailHit,
   type TimelinePnPickItem,
 } from "@/app/actions/azienda-timeline";
+import { loadWebmailAllegatiPerNotaAction } from "@/app/actions/attivita-mentions";
 import { createNotaPnAction, updateNotaPnAction } from "@/app/actions/promemorie-e-note";
+import { MentionDescriptionField } from "@/components/promemorie-e-note/MentionDescriptionField";
 import { NotaBozzaFillEditor } from "@/components/promemorie-e-note/NotaBozzaFillEditor";
 import { NotaInserisciSheet } from "@/components/promemorie-e-note/NotaInserisciSheet";
 import { NotaSalvaBozzaModal } from "@/components/promemorie-e-note/NotaSalvaBozzaModal";
@@ -41,6 +43,7 @@ import {
   applyPlaceholderValues,
   richToPlain,
 } from "@/lib/promemorie-e-note/bozze";
+import type { PnAttivitaCollegamento } from "@/lib/promemorie-e-note/mention-tokens";
 import type {
   PnNotaAllegato,
   PnNotaBozza,
@@ -494,6 +497,9 @@ export function AziendaTimelineModal({
       : ""
   );
   const [notaAllegati, setNotaAllegati] = useState<PnNotaAllegato[]>([]);
+  const [notaCollegamenti, setNotaCollegamenti] = useState<
+    PnAttivitaCollegamento[]
+  >([]);
   const [notaBozzaId, setNotaBozzaId] = useState<string | null>(null);
   const [activeBozza, setActiveBozza] = useState<PnNotaBozza | null>(null);
   const [bozzaValues, setBozzaValues] = useState<Record<string, string>>({});
@@ -706,6 +712,7 @@ export function AziendaTimelineModal({
     setNotaTitolo("");
     setNotaBody("");
     setNotaAllegati([]);
+    setNotaCollegamenti([]);
     setNotaBozzaId(null);
     setActiveBozza(null);
     setBozzaValues({});
@@ -753,6 +760,7 @@ export function AziendaTimelineModal({
           bodyRich,
           dueAt: eventoDueAt(notaEventoDate, notaEventoTime),
           allegati: notaAllegati,
+          collegamenti: notaCollegamenti,
         });
         if (!res.success) {
           setError(res.error);
@@ -776,6 +784,7 @@ export function AziendaTimelineModal({
         entityLabel: aziendaLabel,
         bozzaId: notaBozzaId,
         allegati: notaAllegati,
+        collegamenti: notaCollegamenti,
       });
       if (!res.success) {
         setError(res.error);
@@ -858,8 +867,20 @@ export function AziendaTimelineModal({
         return;
       }
       setInfo("Mail collegata alla timeline.");
+      setPanel("none");
       await reload();
-      await runMailSearch(mailQuery);
+    });
+  }
+
+  async function onNotaMailPicked(messaggioId: string) {
+    const res = await loadWebmailAllegatiPerNotaAction(messaggioId);
+    if (!res.success) {
+      setError(res.error);
+      return;
+    }
+    setNotaAllegati((prev) => {
+      const seen = new Set(prev.map((a) => a.id));
+      return [...prev, ...res.allegati.filter((a) => !seen.has(a.id))];
     });
   }
 
@@ -925,6 +946,7 @@ export function AziendaTimelineModal({
     setInfo(null);
     if (selectedMail.alreadyLinked) {
       pickMode.onPicked(picked);
+      setPanel("none");
       return;
     }
     startTransition(async () => {
@@ -939,6 +961,7 @@ export function AziendaTimelineModal({
         return;
       }
       pickMode.onPicked(picked);
+      setPanel("none");
     });
   }
 
@@ -1159,17 +1182,19 @@ export function AziendaTimelineModal({
                   }
                 />
               ) : (
-                <textarea
-                  ref={notaBodyRef}
+                <MentionDescriptionField
+                  label="Testo nota *"
                   value={notaBody}
-                  onChange={(e) => setNotaBody(e.target.value)}
-                  onSelect={rememberNotaCursor}
-                  onKeyUp={rememberNotaCursor}
-                  onClick={rememberNotaCursor}
-                  onBlur={rememberNotaCursor}
+                  onChange={(next) => {
+                    setNotaBody(next);
+                    rememberNotaCursor();
+                  }}
+                  collegamenti={notaCollegamenti}
+                  onCollegamentiChange={setNotaCollegamenti}
+                  textareaRef={notaBodyRef}
                   rows={4}
-                  placeholder="Testo nota *"
-                  className="w-full rounded-lg border border-[var(--border)] bg-white px-3 py-2 text-sm"
+                  placeholder="Testo nota… @C- cliente, @Wm- mail. Leggenda @ per i comandi"
+                  onMailPicked={(hit) => onNotaMailPicked(hit.entityId)}
                 />
               )}
               {notaAllegati.length > 0 ? (

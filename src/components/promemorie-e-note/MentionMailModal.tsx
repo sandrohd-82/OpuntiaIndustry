@@ -20,7 +20,7 @@ type Step =
 
 type Props = {
   onClose: () => void;
-  onPick: (hit: AttivitaMentionHit) => void;
+  onPick: (hit: AttivitaMentionHit) => void | Promise<void>;
 };
 
 export function MentionMailModal({ onClose, onPick }: Props) {
@@ -36,6 +36,19 @@ export function MentionMailModal({ onClose, onPick }: Props) {
   >("cliente");
   const [azienda, setAzienda] = useState<AttivitaMentionHit | null>(null);
   const [casella, setCasella] = useState<MentionCasella | null>(null);
+  const [picking, setPicking] = useState(false);
+
+  async function pick(hit: AttivitaMentionHit) {
+    if (picking) return;
+    setPicking(true);
+    setError(null);
+    try {
+      await onPick(hit);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Caricamento mail non riuscito.");
+      setPicking(false);
+    }
+  }
 
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
@@ -148,6 +161,11 @@ export function MentionMailModal({ onClose, onPick }: Props) {
             {error}
           </p>
         ) : null}
+        {picking ? (
+          <p className="mt-3 rounded-lg border border-sky-200 bg-sky-50 px-3 py-2 text-sm text-sky-900">
+            Carico la mail e gli allegati…
+          </p>
+        ) : null}
 
         {step === "scelta" ? (
           <div className="mt-4 flex flex-col gap-2">
@@ -196,7 +214,7 @@ export function MentionMailModal({ onClose, onPick }: Props) {
             >
               {loading ? "Ricerca…" : "Cerca"}
             </button>
-            <HitList items={mails} empty="Nessuna mail." onPick={onPick} />
+            <HitList items={mails} empty="Nessuna mail." onPick={pick} disabled={picking} />
           </div>
         ) : null}
 
@@ -289,7 +307,12 @@ export function MentionMailModal({ onClose, onPick }: Props) {
             {loading ? (
               <p className="text-sm text-[var(--muted)]">Caricamento mail…</p>
             ) : (
-              <HitList items={mails} empty="Nessuna mail in questa casella." onPick={onPick} />
+              <HitList
+                items={mails}
+                empty="Nessuna mail in questa casella."
+                onPick={pick}
+                disabled={picking}
+              />
             )}
           </div>
         ) : null}
@@ -320,10 +343,12 @@ function HitList({
   items,
   empty,
   onPick,
+  disabled = false,
 }: {
   items: AttivitaMentionHit[];
   empty: string;
   onPick: (hit: AttivitaMentionHit) => void;
+  disabled?: boolean;
 }) {
   if (items.length === 0) {
     return <p className="text-sm text-[var(--muted)]">{empty}</p>;
@@ -334,8 +359,9 @@ function HitList({
         <li key={it.entityId}>
           <button
             type="button"
+            disabled={disabled}
             onClick={() => onPick(it)}
-            className="w-full rounded-lg px-2 py-1.5 text-left text-sm hover:bg-slate-50"
+            className="w-full rounded-lg px-2 py-1.5 text-left text-sm hover:bg-slate-50 disabled:opacity-50"
           >
             <span className="font-medium">{it.label}</span>
             {it.hint ? (

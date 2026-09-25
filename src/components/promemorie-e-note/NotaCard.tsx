@@ -2,11 +2,14 @@
 
 import { useState, useTransition } from "react";
 import { FaPen } from "react-icons/fa6";
+import { loadWebmailAllegatiPerNotaAction } from "@/app/actions/attivita-mentions";
 import { updateNotaPnAction } from "@/app/actions/promemorie-e-note";
 import {
   NotaFormExtras,
   type NotaExtrasValue,
 } from "@/components/promemorie-e-note/NotaFormExtras";
+import { MentionDescriptionField } from "@/components/promemorie-e-note/MentionDescriptionField";
+import type { PnAttivitaCollegamento } from "@/lib/promemorie-e-note/mention-tokens";
 import type { PnNota } from "@/lib/promemorie-e-note/types";
 import { NotaRichBody } from "@/components/promemorie-e-note/NotaRichBody";
 
@@ -53,13 +56,21 @@ export function NotaCard({ nota, onUpdated, compact, onError }: Props) {
   const [body, setBody] = useState(nota.body);
   const [colore, setColore] = useState<PnNota["colore"]>(nota.colore);
   const [extras, setExtras] = useState<NotaExtrasValue>(extrasFromNota(nota));
+  const [collegamenti, setCollegamenti] = useState<PnAttivitaCollegamento[]>(
+    []
+  );
+  const [allegati, setAllegati] = useState(nota.allegati ?? []);
   const [pending, startTransition] = useTransition();
+  const [mailError, setMailError] = useState<string | null>(null);
 
   function openEdit() {
     setTitolo(nota.titolo);
-    setBody(nota.body);
+    setBody(nota.bodyRich || nota.body);
     setColore(nota.colore);
     setExtras(extrasFromNota(nota));
+    setCollegamenti([]);
+    setAllegati(nota.allegati ?? []);
+    setMailError(null);
     setEditing(true);
   }
 
@@ -77,6 +88,8 @@ export function NotaCard({ nota, onUpdated, compact, onError }: Props) {
         createAttivita: extras.createAttivita,
         linkedPromemoriaId: extras.linkedPromemoriaId,
         linkedAttivitaId: extras.linkedAttivitaId,
+        collegamenti,
+        allegati,
       });
       if (!res.success) {
         onError?.(res.error);
@@ -150,13 +163,42 @@ export function NotaCard({ nota, onUpdated, compact, onError }: Props) {
               onChange={(e) => setTitolo(e.target.value.slice(0, 200))}
               className="mt-1 w-full rounded-lg border border-[var(--border)] px-3 py-2 text-sm"
             />
-            <label className="mt-3 block text-xs font-medium">Testo</label>
-            <textarea
-              value={body}
-              onChange={(e) => setBody(e.target.value)}
-              rows={4}
-              className="mt-1 w-full rounded-lg border border-[var(--border)] px-3 py-2 text-sm"
-            />
+            <div className="mt-3">
+              <MentionDescriptionField
+                label="Testo"
+                value={body}
+                onChange={setBody}
+                collegamenti={collegamenti}
+                onCollegamentiChange={setCollegamenti}
+                rows={4}
+                placeholder="Testo nota… @C- cliente, @Wm- mail. Leggenda @ per i comandi"
+                onMailPicked={async (hit) => {
+                  const res = await loadWebmailAllegatiPerNotaAction(
+                    hit.entityId
+                  );
+                  if (!res.success) {
+                    setMailError(res.error);
+                    return;
+                  }
+                  setMailError(null);
+                  setAllegati((prev) => {
+                    const seen = new Set(prev.map((a) => a.id));
+                    return [
+                      ...prev,
+                      ...res.allegati.filter((a) => !seen.has(a.id)),
+                    ];
+                  });
+                }}
+              />
+            </div>
+            {mailError ? (
+              <p className="mt-2 text-xs text-red-700">{mailError}</p>
+            ) : null}
+            {allegati.length > 0 ? (
+              <p className="mt-1 text-[11px] text-slate-600">
+                {allegati.length} allegat{allegati.length === 1 ? "o" : "i"}
+              </p>
+            ) : null}
             <label className="mt-3 block text-xs font-medium">Colore</label>
             <select
               value={colore}
