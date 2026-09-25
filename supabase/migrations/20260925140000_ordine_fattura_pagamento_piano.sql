@@ -1,29 +1,65 @@
--- Piano pagamento ordine (unica / dilazione) + tracciabilità invio fattura A4 → FiC/SDI
--- ISO 9001: audit, soft delete, mai delete fisico sulle rate
+-- Piano pagamento ordine + tracciabilità invio fattura A4 → FiC/SDI
+-- Idempotente e anti-deadlock: niente DROP+ADD nello stesso giro su più tabelle,
+-- CHECK aggiunti NOT VALID, un solo ALTER per tabella.
+
+set local lock_timeout = '15s';
+set local statement_timeout = '60s';
+set local deadlock_timeout = '1s';
 
 -- ---------------------------------------------------------------------------
--- ordini: modalità + pronto magazzino
+-- 1) ordini: colonna + check (senza toccare fatture)
 -- ---------------------------------------------------------------------------
 alter table public.ordini
   add column if not exists pagamento_modalita text not null default 'unica';
 
-alter table public.ordini drop constraint if exists ordini_pagamento_modalita_check;
-alter table public.ordini
-  add constraint ordini_pagamento_modalita_check
-  check (pagamento_modalita in ('unica', 'dilazione'));
+do $$
+begin
+  if not exists (
+    select 1 from pg_constraint
+    where conname = 'ordini_pagamento_modalita_check'
+  ) then
+    alter table public.ordini
+      add constraint ordini_pagamento_modalita_check
+      check (pagamento_modalita in ('unica', 'dilazione')) not valid;
+  end if;
+end $$;
 
-alter table public.ordini drop constraint if exists ordini_tipo_pagamento_check;
-alter table public.ordini
-  add constraint ordini_tipo_pagamento_check
-  check (
-    tipo_pagamento in (
-      'anticipato',
-      'alla_consegna',
-      'pronto_magazzino',
-      'posticipato',
-      'dilazionato'
-    )
-  );
+do $$
+declare
+  def text;
+begin
+  select pg_get_constraintdef(oid) into def
+  from pg_constraint
+  where conname = 'ordini_tipo_pagamento_check'
+  limit 1;
+
+  if def is null then
+    alter table public.ordini
+      add constraint ordini_tipo_pagamento_check
+      check (
+        tipo_pagamento in (
+          'anticipato',
+          'alla_consegna',
+          'pronto_magazzino',
+          'posticipato',
+          'dilazionato'
+        )
+      ) not valid;
+  elsif def not ilike '%pronto_magazzino%' then
+    alter table public.ordini drop constraint ordini_tipo_pagamento_check;
+    alter table public.ordini
+      add constraint ordini_tipo_pagamento_check
+      check (
+        tipo_pagamento in (
+          'anticipato',
+          'alla_consegna',
+          'pronto_magazzino',
+          'posticipato',
+          'dilazionato'
+        )
+      ) not valid;
+  end if;
+end $$;
 
 comment on column public.ordini.pagamento_modalita is
   'unica = una scadenza; dilazione = più rate (tipo_pagamento = dilazionato)';
@@ -31,7 +67,7 @@ comment on column public.ordini.tipo_pagamento is
   'Unica: anticipato | alla_consegna | pronto_magazzino | posticipato. Dilazione: dilazionato';
 
 -- ---------------------------------------------------------------------------
--- ordini_pagamento_rate
+-- 2) tabella rate (FK su ordini già chiuso sopra)
 -- ---------------------------------------------------------------------------
 create table if not exists public.ordini_pagamento_rate (
   id uuid primary key default gen_random_uuid(),
@@ -109,7 +145,7 @@ grant select, insert, update on table public.ordini_pagamento_rate to authentica
 grant all on table public.ordini_pagamento_rate to postgres, service_role;
 
 -- ---------------------------------------------------------------------------
--- fatture_emesse: invio email + piano
+-- 3) fatture_emesse (dopo aver rilasciato i lock su ordini)
 -- ---------------------------------------------------------------------------
 alter table public.fatture_emesse
   add column if not exists invio_email text not null default '',
@@ -118,23 +154,37 @@ alter table public.fatture_emesse
   add column if not exists pagamento_modalita text not null default 'unica',
   add column if not exists tipo_scadenza_unica text;
 
-alter table public.fatture_emesse drop constraint if exists fatture_emesse_pagamento_modalita_check;
-alter table public.fatture_emesse
-  add constraint fatture_emesse_pagamento_modalita_check
-  check (pagamento_modalita in ('unica', 'dilazione'));
+do $$
+begin
+  if not exists (
+    select 1 from pg_constraint
+    where conname = 'fatture_emesse_pagamento_modalita_check'
+  ) then
+    alter table public.fatture_emesse
+      add constraint fatture_emesse_pagamento_modalita_check
+      check (pagamento_modalita in ('unica', 'dilazione')) not valid;
+  end if;
+end $$;
 
-alter table public.fatture_emesse drop constraint if exists fatture_emesse_tipo_scadenza_unica_check;
-alter table public.fatture_emesse
-  add constraint fatture_emesse_tipo_scadenza_unica_check
-  check (
-    tipo_scadenza_unica is null
-    or tipo_scadenza_unica in (
-      'anticipato',
-      'alla_consegna',
-      'pronto_magazzino',
-      'posticipato'
-    )
-  );
+do $$
+begin
+  if not exists (
+    select 1 from pg_constraint
+    where conname = 'fatture_emesse_tipo_scadenza_unica_check'
+  ) then
+    alter table public.fatture_emesse
+      add constraint fatture_emesse_tipo_scadenza_unica_check
+      check (
+        tipo_scadenza_unica is null
+        or tipo_scadenza_unica in (
+          'anticipato',
+          'alla_consegna',
+          'pronto_magazzino',
+          'posticipato'
+        )
+      ) not valid;
+  end if;
+end $$;
 
 comment on column public.fatture_emesse.invio_email is
   'Destinatario mail di cortesia scelto in emissione A4';
@@ -142,20 +192,27 @@ comment on column public.fatture_emesse.sent_at is
   'Quando la fattura è stata inviata (mail + FiC/SDI)';
 
 -- ---------------------------------------------------------------------------
--- fatture_emesse_dilazioni: tipo prima rata
+-- 4) fatture_emesse_dilazioni
 -- ---------------------------------------------------------------------------
 alter table public.fatture_emesse_dilazioni
   add column if not exists tipo_scadenza text;
 
-alter table public.fatture_emesse_dilazioni drop constraint if exists fatture_emesse_dilazioni_tipo_scadenza_check;
-alter table public.fatture_emesse_dilazioni
-  add constraint fatture_emesse_dilazioni_tipo_scadenza_check
-  check (
-    tipo_scadenza is null
-    or tipo_scadenza in (
-      'anticipato',
-      'alla_consegna',
-      'pronto_magazzino',
-      'posticipato'
-    )
-  );
+do $$
+begin
+  if not exists (
+    select 1 from pg_constraint
+    where conname = 'fatture_emesse_dilazioni_tipo_scadenza_check'
+  ) then
+    alter table public.fatture_emesse_dilazioni
+      add constraint fatture_emesse_dilazioni_tipo_scadenza_check
+      check (
+        tipo_scadenza is null
+        or tipo_scadenza in (
+          'anticipato',
+          'alla_consegna',
+          'pronto_magazzino',
+          'posticipato'
+        )
+      ) not valid;
+  end if;
+end $$;
