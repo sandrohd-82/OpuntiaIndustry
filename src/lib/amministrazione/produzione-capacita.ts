@@ -77,25 +77,46 @@ export type CapacitaCalcoloResult = {
   snapshot: Record<string, unknown>;
 };
 
-export const calcoloConsegnaInputSchema = z.object({
-  prodottoId: z.string().uuid(),
-  prodottoCodice: z.string().trim().min(1),
-  quantitaKg: z.number().positive("Quantità deve essere > 0"),
-  consegnaTipo: z.enum(["asap", "data"]),
-  dataRichiesta: z
+const optionalIsoDate = z.preprocess(
+  (v) => (v == null || v === "" ? null : v),
+  z
     .string()
-    .regex(/^\d{4}-\d{2}-\d{2}$/)
+    .regex(/^\d{4}-\d{2}-\d{2}$/, "Data consegna non valida.")
     .nullable()
-    .optional(),
+);
+
+function optionalPositiveNumber(max?: number) {
+  return z.preprocess((v) => {
+    if (v == null || v === "") return null;
+    const n = typeof v === "number" ? v : Number(v);
+    if (!Number.isFinite(n) || n <= 0) return null;
+    return n;
+  }, max
+    ? z.number().positive().max(max).nullable()
+    : z.number().positive().nullable());
+}
+
+export function firstZodIssueIt(error: z.ZodError): string {
+  const issue = error.issues[0];
+  if (!issue) return "Dati non validi.";
+  if (issue.message && !issue.message.toLowerCase().startsWith("invalid input")) {
+    return issue.message;
+  }
+  const path = issue.path.filter(Boolean).join(".");
+  return path ? `Dato non valido (${path}).` : "Dati non validi.";
+}
+
+export const calcoloConsegnaInputSchema = z.object({
+  prodottoId: z.string().uuid("Prodotto non valido."),
+  prodottoCodice: z.string().trim().min(1, "Codice prodotto mancante."),
+  quantitaKg: z.coerce.number().positive("Quantità deve essere > 0"),
+  consegnaTipo: z.enum(["asap", "data"]),
+  dataRichiesta: optionalIsoDate,
   urgente: z.boolean(),
   usaMagazzino: z.boolean(),
   usaSabato: z.boolean(),
-  resaPercentualeOverride: z.number().positive().max(100).nullable().optional(),
-  capacitaIngressoKgPerEssiccatoreOverride: z
-    .number()
-    .positive()
-    .nullable()
-    .optional(),
+  resaPercentualeOverride: optionalPositiveNumber(100),
+  capacitaIngressoKgPerEssiccatoreOverride: optionalPositiveNumber(),
 });
 
 export type CalcoloConsegnaInput = z.infer<typeof calcoloConsegnaInputSchema>;

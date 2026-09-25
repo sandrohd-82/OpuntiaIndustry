@@ -545,24 +545,8 @@ export function OrdineNuovoWizardModal({
   }
 
   useEffect(() => {
-    if (step !== 4 || ordineSospeso || !prodotto || quantitaKg <= 0) return;
-    void runCalcolo();
-    // qty già convertita in unità base (g/ml → kg/lt)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [
-    step,
-    ordineSospeso,
-    prodotto?.id,
-    prodotto?.codice,
-    quantitaKg,
-    consegnaTipo,
-    dataRichiesta,
-    urgente,
-    usaMagazzino,
-    usaSabato,
-    resaOverride,
-    kgEssiccatore,
-  ]);
+    if (step === 4) setFormError(null);
+  }, [step]);
 
   useEffect(() => {
     setPreventivoId("");

@@ -4,6 +4,7 @@ import { createClient } from "@/lib/supabase/server";
 import {
   calcolaConsegnaCapacita,
   calcoloConsegnaInputSchema,
+  firstZodIssueIt,
   stagioneFromDate,
   type CapacitaCalcoloResult,
   type EssiccatoreCapacita,
@@ -177,7 +178,7 @@ async function calcolaConsegnaOrdineActionInner(
   if (!parsed.success) {
     return {
       success: false,
-      error: parsed.error.issues[0]?.message ?? "Dati calcolo non validi.",
+      error: firstZodIssueIt(parsed.error),
     };
   }
   const input = parsed.data;
