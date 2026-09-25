@@ -14,6 +14,7 @@ import {
   PreventivoDestinatarioPicker,
 } from "@/components/amministrazione/PreventivoDestinatarioPicker";
 import { PreventivoEditModal } from "@/components/amministrazione/PreventivoEditModal";
+import { FatturaA4RigaEditor } from "@/components/amministrazione/FatturaA4RigaEditor";
 import { PreventivoDocField } from "@/components/amministrazione/PreventivoDocPencil";
 import { ClearableNumberInput } from "@/components/ui/ClearableNumberInput";
 import type { Cliente } from "@/lib/amministrazione/clienti";
@@ -353,7 +354,7 @@ export function FatturaA4Modal({
           ? { ...righe[rigaIndex] }
           : {
               prodottoId: null,
-              codice: "VOCE",
+              codice: "",
               descrizione: "",
               quantita: 1,
               unitaMisura: "nr",
@@ -740,90 +741,14 @@ export function FatturaA4Modal({
             setEditKind(null);
           }}
         >
-          <label className="block text-sm">
-            <span className="mb-1 block font-medium">Codice</span>
-            <input
-              value={draftRiga.codice}
-              onChange={(e) =>
-                setDraftRiga({ ...draftRiga, codice: e.target.value })
-              }
-              className="w-full rounded border border-slate-300 px-3 py-2 text-sm"
-            />
-          </label>
-          <label className="block text-sm">
-            <span className="mb-1 block font-medium">Dicitura</span>
-            <input
-              value={draftRiga.descrizione}
-              onChange={(e) =>
-                setDraftRiga({ ...draftRiga, descrizione: e.target.value })
-              }
-              className="w-full rounded border border-slate-300 px-3 py-2 text-sm"
-            />
-          </label>
-          <div className="grid gap-2 sm:grid-cols-2">
-            <label className="block text-sm">
-              <span className="mb-1 block font-medium">Quantità</span>
-              <ClearableNumberInput
-                min={0}
-                value={draftRiga.quantita}
-                onValueChange={(v) =>
-                  setDraftRiga({ ...draftRiga, quantita: Number(v) || 0 })
-                }
-                className="w-full rounded border border-slate-300 px-3 py-2 text-sm"
-              />
-            </label>
-            <label className="block text-sm">
-              <span className="mb-1 block font-medium">Unità</span>
-              <input
-                value={draftRiga.unitaMisura}
-                onChange={(e) =>
-                  setDraftRiga({ ...draftRiga, unitaMisura: e.target.value })
-                }
-                className="w-full rounded border border-slate-300 px-3 py-2 text-sm"
-              />
-            </label>
-          </div>
-          <div className="grid gap-2 sm:grid-cols-2">
-            <label className="block text-sm">
-              <span className="mb-1 block font-medium">Listino (€)</span>
-              <ClearableNumberInput
-                min={0}
-                value={draftRiga.prezzoUnitario}
-                onValueChange={(v) =>
-                  setDraftRiga({
-                    ...draftRiga,
-                    prezzoUnitario: Number(v) || 0,
-                  })
-                }
-                className="w-full rounded border border-slate-300 px-3 py-2 text-sm"
-              />
-            </label>
-            <label className="block text-sm">
-              <span className="mb-1 block font-medium">Sconto (%)</span>
-              <ClearableNumberInput
-                min={0}
-                max={100}
-                value={draftRiga.scontoPercentuale}
-                onValueChange={(v) =>
-                  setDraftRiga({
-                    ...draftRiga,
-                    scontoPercentuale: Number(v) || 0,
-                  })
-                }
-                className="w-full rounded border border-slate-300 px-3 py-2 text-sm"
-              />
-            </label>
-          </div>
-          <p className="text-xs text-slate-500">
-            Netto:{" "}
-            {euro(
-              prezzoScontatoUnitario(
-                draftRiga.prezzoUnitario,
-                draftRiga.scontoPercentuale
-              )
-            )}{" "}
-            €
-          </p>
+          <FatturaA4RigaEditor
+            key={editRigaIndex ?? "nuova"}
+            value={draftRiga}
+            onChange={setDraftRiga}
+          />
+          {error && editKind === "prodotto" ? (
+            <p className="text-sm text-red-700">{error}</p>
+          ) : null}
           {editRigaIndex != null ? (
             <button
               type="button"
