@@ -272,6 +272,9 @@ export function AnagraficaBrandEditor({
                         className="w-full px-3 py-2 text-left text-sm hover:bg-slate-50"
                       >
                         {displayContattoName(r)}
+                        <span className="ml-1.5 inline-flex rounded-full bg-emerald-100 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-emerald-900">
+                          Consigliato
+                        </span>
                         {r.mansione ? ` · ${r.mansione}` : ""}
                       </button>
                     </li>

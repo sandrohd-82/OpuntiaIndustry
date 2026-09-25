@@ -78,6 +78,8 @@ export function AutistaIngressoScrematura({
       query: debouncedQuery,
       mansioneId: filtro || null,
       skipScope: true,
+      preferAziendaTipo: defaultAziendaId ? defaultAziendaTipo : undefined,
+      preferAziendaId: defaultAziendaId || null,
     }).then((res) => {
       if (cancelled) return;
       setFetching(false);
@@ -90,7 +92,14 @@ export function AutistaIngressoScrematura({
     return () => {
       cancelled = true;
     };
-  }, [filtro, debouncedQuery, mansioniReady, onError]);
+  }, [
+    filtro,
+    debouncedQuery,
+    mansioniReady,
+    onError,
+    defaultAziendaId,
+    defaultAziendaTipo,
+  ]);
 
   const loading = fetching || query !== debouncedQuery;
 
@@ -196,6 +205,7 @@ export function AutistaIngressoScrematura({
       >
         {options.map((c) => (
           <option key={c.id} value={c.id}>
+            {c.consigliato ? "Consigliato · " : ""}
             {displayContattoName(c)}
             {c.aziendaLabel ? ` — ${c.aziendaLabel}` : ""}
             {c.mansione ? ` · ${c.mansione}` : ""}

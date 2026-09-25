@@ -61,10 +61,14 @@ export function AnagraficaReferentiSection({
   useEffect(() => {
     if (!showPick) return;
     startTransition(async () => {
-      const res = await listRubricaContattiAction({ query });
+      const res = await listRubricaContattiAction({
+        query,
+        preferAziendaTipo: tipo,
+        preferAziendaId: entityId,
+      });
       if (res.success) setCatalog(res.items);
     });
-  }, [showPick, query]);
+  }, [showPick, query, tipo, entityId]);
 
   function collega(contatto: RubricaContatto) {
     setError(null);
@@ -235,7 +239,14 @@ export function AnagraficaReferentiSection({
                     onClick={() => collega(c)}
                     className="w-full rounded-lg px-3 py-2 text-left text-sm hover:bg-slate-50 disabled:opacity-50"
                   >
-                    <span className="font-medium">{displayContattoName(c)}</span>
+                    <span className="font-medium">
+                      {displayContattoName(c)}
+                      {c.consigliato ? (
+                        <span className="ml-1.5 inline-flex rounded-full bg-emerald-100 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-emerald-900">
+                          Consigliato
+                        </span>
+                      ) : null}
+                    </span>
                     <span className="block text-xs text-[var(--muted)]">
                       {[c.telefono, c.email, c.aziendaLabel, c.mansione]
                         .filter(Boolean)

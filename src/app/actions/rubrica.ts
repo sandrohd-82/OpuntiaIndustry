@@ -214,11 +214,46 @@ export async function createRubricaMansioneAction(input: unknown): Promise<
   return { success: true, item };
 }
 
+function isEntityReferentiTipo(
+  t: string | undefined
+): t is EntityReferentiTipo {
+  return t === "cliente" || t === "fornitore" || t === "cliente_possibile";
+}
+
+function contattoMatchQuery(c: RubricaContatto, query: string): boolean {
+  if (!query) return true;
+  const q = query.toLowerCase();
+  return [
+    c.nome,
+    c.cognome,
+    c.email,
+    c.telefono,
+    c.aziendaLabel,
+    c.mansione,
+    c.note,
+  ]
+    .join(" ")
+    .toLowerCase()
+    .includes(q);
+}
+
+function sortContattiConsigliati(items: RubricaContatto[]): RubricaContatto[] {
+  return [...items].sort((a, b) => {
+    if (!!a.consigliato !== !!b.consigliato) return a.consigliato ? -1 : 1;
+    const c = a.cognome.localeCompare(b.cognome, "it");
+    if (c !== 0) return c;
+    return a.nome.localeCompare(b.nome, "it");
+  });
+}
+
 export async function listRubricaContattiAction(input?: {
   query?: string;
   mansioneId?: string | null;
   senzaMansione?: boolean;
   skipScope?: boolean;
+  /** In cima, con flag consigliato, i referenti di questa anagrafica. */
+  preferAziendaTipo?: RubricaAziendaTipo | EntityReferentiTipo;
+  preferAziendaId?: string | null;
 }): Promise<
   { success: true; items: RubricaContatto[] } | { success: false; error: string }
 > {
@@ -251,10 +286,41 @@ export async function listRubricaContattiAction(input?: {
   }
   const { data, error } = await q;
   if (error) return { success: false, error: error.message };
-  return {
-    success: true,
-    items: (data ?? []).map((r) => mapContatto(r as Record<string, unknown>)),
-  };
+  const items = (data ?? []).map((r) =>
+    mapContatto(r as Record<string, unknown>)
+  );
+
+  const preferTipo = input?.preferAziendaTipo;
+  const preferId = input?.preferAziendaId?.trim() ?? "";
+  if (!preferId || !isEntityReferentiTipo(preferTipo)) {
+    return { success: true, items };
+  }
+
+  const j = junctionFor(preferTipo);
+  const { data: links } = await supabase
+    .from(j.table)
+    .select("contatto_id")
+    .eq(j.fk, preferId);
+  const linkedIds = new Set((links ?? []).map((r) => String(r.contatto_id)));
+  const missing = [...linkedIds].filter((id) => !items.some((c) => c.id === id));
+  if (missing.length > 0) {
+    const { data: extra } = await supabase
+      .from("rubrica_contatti")
+      .select(CONTATTO_SELECT)
+      .in("id", missing)
+      .is("deleted_at", null);
+    for (const r of extra ?? []) {
+      const c = mapContatto(r as Record<string, unknown>);
+      if (contattoMatchQuery(c, query ?? "")) items.push(c);
+    }
+  }
+
+  for (const c of items) {
+    c.consigliato =
+      linkedIds.has(c.id) ||
+      (c.aziendaId === preferId && c.aziendaTipo === preferTipo);
+  }
+  return { success: true, items: sortContattiConsigliati(items) };
 }
 
 export async function createRubricaContattoAction(input: unknown): Promise<

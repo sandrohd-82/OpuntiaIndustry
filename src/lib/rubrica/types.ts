@@ -37,6 +37,8 @@ export type RubricaContatto = {
   note: string;
   createdAt: string;
   updatedAt: string;
+  /** Collegato all’azienda del contesto (picker ordine/scheda). */
+  consigliato?: boolean;
 };
 
 export type RubricaTimelineItem = {

@@ -36,10 +36,14 @@ export function ReferentiPickerField({
   useEffect(() => {
     if (!showPick) return;
     startTransition(async () => {
-      const res = await listRubricaContattiAction({ query });
+      const res = await listRubricaContattiAction({
+        query,
+        preferAziendaTipo: defaultAziendaTipo,
+        preferAziendaId: defaultAziendaId || null,
+      });
       if (res.success) setCatalog(res.items);
     });
-  }, [showPick, query]);
+  }, [showPick, query, defaultAziendaTipo, defaultAziendaId]);
 
   const selectedIds = new Set(value.map((v) => v.id));
   const available = catalog.filter((c) => !selectedIds.has(c.id));
@@ -126,6 +130,11 @@ export function ReferentiPickerField({
                   >
                     <span className="font-medium">
                       {displayContattoName(c)}
+                      {c.consigliato ? (
+                        <span className="ml-1.5 inline-flex rounded-full bg-emerald-100 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-emerald-900">
+                          Consigliato
+                        </span>
+                      ) : null}
                     </span>
                     <span className="block text-xs text-[var(--muted)]">
                       {[c.telefono, c.email, c.note].filter(Boolean).join(" · ")}
