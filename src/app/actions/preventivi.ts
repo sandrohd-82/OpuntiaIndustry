@@ -51,6 +51,71 @@ import {
 } from "@/lib/ecosystem/listino-vigente";
 import type { ListinoDisponibilita } from "@/lib/ecosystem/listini";
 import type { PreventivoRigaRow, PreventivoRow } from "@/types/database";
+import {
+  colonneSuddivisione,
+  preparaSuddivisione,
+  registraFirmaSuddivisione,
+} from "@/lib/amministrazione/sconto-suddivisione-server";
+
+async function righeConSuddivisione<T extends {
+  scontoExtraPct?: number;
+  scontoSuddivisioneAttiva?: boolean;
+  scontoQuotaAziendaPct?: number;
+  scontoQuotaCommercialePct?: number;
+}>(input: {
+  actorId: string;
+  clienteId: string | null;
+  righe: T[];
+}): Promise<
+  | { ok: true; righe: Array<{ riga: T; colonne: ReturnType<typeof colonneSuddivisione>; approvata: boolean; approvatore: string | null; quotaAzienda: number; quotaCommerciale: number }> }
+  | { ok: false; error: string }
+> {
+  const righe = [];
+  for (const riga of input.righe) {
+    const sud = await preparaSuddivisione({
+      actorId: input.actorId,
+      clienteId: input.clienteId,
+      scontoPct: riga.scontoExtraPct ?? 0,
+      attiva: Boolean(riga.scontoSuddivisioneAttiva),
+      quotaAziendaPct: riga.scontoQuotaAziendaPct ?? 0,
+      quotaCommercialePct: riga.scontoQuotaCommercialePct ?? 0,
+    });
+    if (!sud.ok) return sud;
+    righe.push({
+      riga,
+      colonne: colonneSuddivisione(sud.value),
+      approvata: sud.value.stato === "approvata" && sud.value.attiva,
+      approvatore: sud.value.approvatore,
+      quotaAzienda: sud.value.quotaAziendaPct,
+      quotaCommerciale: sud.value.quotaCommercialePct,
+    });
+  }
+  return { ok: true, righe };
+}
+
+async function firmaSuddivisioniCreate(input: {
+  actorId: string;
+  preparate: Extract<
+    Awaited<ReturnType<typeof righeConSuddivisione>>,
+    { ok: true }
+  >["righe"];
+  righe: Array<{ id: string; sort_order: number }>;
+}): Promise<string | null> {
+  for (const row of input.righe) {
+    const prep = input.preparate[row.sort_order];
+    if (!prep?.approvata) continue;
+    const err = await registraFirmaSuddivisione({
+      entityType: "preventivo_riga",
+      entityId: row.id,
+      ruolo: prep.approvatore === "azienda" ? "azienda" : "commerciale_senior",
+      esito: "approvato",
+      actorId: input.actorId,
+      summary: `Suddivisione sconto già approvata in inserimento (${prep.quotaAzienda}% azienda, ${prep.quotaCommerciale}% commerciale)`,
+    });
+    if (err) return err;
+  }
+  return null;
+}
 
 async function requirePreventiviAccess() {
   const auth = await getAuthContext();
@@ -78,6 +143,15 @@ function mapRiga(row: PreventivoRigaRow): PreventivoRiga {
     listinoId: row.listino_id,
     prezzoDaListino: Boolean(row.prezzo_da_listino),
     scontoExtraPct: Number(row.sconto_extra_pct ?? 0),
+    scontoQuotaAziendaPct: Number(row.sconto_quota_azienda_pct ?? 0),
+    scontoQuotaCommercialePct: Number(row.sconto_quota_commerciale_pct ?? 0),
+    scontoSuddivisioneAttiva: Boolean(row.sconto_suddivisione_attiva),
+    scontoSuddivisioneStato:
+      row.sconto_suddivisione_stato === "in_attesa" ||
+      row.sconto_suddivisione_stato === "approvata" ||
+      row.sconto_suddivisione_stato === "rifiutata"
+        ? row.sconto_suddivisione_stato
+        : "non_richiesta",
     confezionamento: row.confezionamento,
     imballaggioVoceId: row.imballaggio_voce_id ?? null,
   };
@@ -383,10 +457,16 @@ export async function createPreventivoAction(
     return { success: false, error: error?.message ?? "Inserimento fallito" };
   }
   const header = data as PreventivoRow;
+  const preparate = await righeConSuddivisione({
+    actorId: gate.auth.userId,
+    clienteId: input.clienteId ?? null,
+    righe: input.righe,
+  });
+  if (!preparate.ok) return { success: false, error: preparate.error };
   const { data: righe, error: rErr } = await supabase
     .from("preventivi_righe")
     .insert(
-      input.righe.map((r, i) => ({
+      preparate.righe.map(({ riga: r, colonne }, i) => ({
         preventivo_id: header.id,
         prodotto_id: r.prodottoId,
         prodotto_codice: r.prodottoCodice,
@@ -398,6 +478,7 @@ export async function createPreventivoAction(
         listino_id: r.listinoId ?? null,
         prezzo_da_listino: Boolean(r.prezzoDaListino),
         sconto_extra_pct: r.scontoExtraPct ?? 0,
+        ...colonne,
         confezionamento: r.confezionamento ?? "",
         imballaggio_voce_id: r.imballaggioVoceId ?? null,
         sort_order: i,
@@ -416,6 +497,12 @@ export async function createPreventivoAction(
       .eq("id", header.id);
     return { success: false, error: rErr.message };
   }
+  const firmaErr = await firmaSuddivisioniCreate({
+    actorId: gate.auth.userId,
+    preparate: preparate.righe,
+    righe: (righe ?? []) as Array<{ id: string; sort_order: number }>,
+  });
+  if (firmaErr) return { success: false, error: firmaErr };
   await writeAuditLog({
     entity_type: "preventivi",
     entity_id: header.id,
@@ -554,11 +641,17 @@ export async function savePreventivoAction(
     return { success: false, error: error?.message ?? "Aggiornamento fallito" };
   }
   const header = data as PreventivoRow;
+  const preparate = await righeConSuddivisione({
+    actorId: gate.auth.userId,
+    clienteId: input.clienteId ?? null,
+    righe: input.righe,
+  });
+  if (!preparate.ok) return { success: false, error: preparate.error };
   await supabase.from("preventivi_righe").delete().eq("preventivo_id", header.id);
   const { data: righe, error: rErr } = await supabase
     .from("preventivi_righe")
     .insert(
-      input.righe.map((r, i) => ({
+      preparate.righe.map(({ riga: r, colonne }, i) => ({
         preventivo_id: header.id,
         prodotto_id: r.prodottoId,
         prodotto_codice: r.prodottoCodice,
@@ -570,6 +663,7 @@ export async function savePreventivoAction(
         listino_id: r.listinoId ?? null,
         prezzo_da_listino: Boolean(r.prezzoDaListino),
         sconto_extra_pct: r.scontoExtraPct ?? 0,
+        ...colonne,
         confezionamento: r.confezionamento ?? "",
         imballaggio_voce_id: r.imballaggioVoceId ?? null,
         sort_order: i,
@@ -581,6 +675,12 @@ export async function savePreventivoAction(
   if (rErr) {
     return { success: false, error: rErr.message };
   }
+  const firmaErr = await firmaSuddivisioniCreate({
+    actorId: gate.auth.userId,
+    preparate: preparate.righe,
+    righe: (righe ?? []) as Array<{ id: string; sort_order: number }>,
+  });
+  if (firmaErr) return { success: false, error: firmaErr };
   await writeAuditLog({
     entity_type: "preventivi",
     entity_id: header.id,

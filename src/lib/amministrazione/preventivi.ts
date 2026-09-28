@@ -103,6 +103,10 @@ export type PreventivoRiga = {
   listinoId: string | null;
   prezzoDaListino: boolean;
   scontoExtraPct: number;
+  scontoQuotaAziendaPct: number;
+  scontoQuotaCommercialePct: number;
+  scontoSuddivisioneAttiva: boolean;
+  scontoSuddivisioneStato: "non_richiesta" | "in_attesa" | "approvata" | "rifiutata";
   confezionamento: string;
   imballaggioVoceId: string | null;
 };
@@ -166,6 +170,9 @@ export const preventivoRigaSchema = z.object({
   listinoId: z.string().uuid().nullable().optional().default(null),
   prezzoDaListino: z.boolean().optional().default(false),
   scontoExtraPct: z.number().min(0).max(100).optional().default(0),
+  scontoSuddivisioneAttiva: z.boolean().optional().default(false),
+  scontoQuotaAziendaPct: z.number().min(0).max(100).optional().default(0),
+  scontoQuotaCommercialePct: z.number().min(0).max(100).optional().default(0),
   confezionamento: z.string().trim().max(400).optional().default(""),
   imballaggioVoceId: z.string().uuid().nullable().optional().default(null),
 });

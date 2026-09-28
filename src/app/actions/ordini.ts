@@ -51,6 +51,11 @@ import {
 } from "@/lib/amministrazione/sconto-fuori-listino-server";
 import { prezzoNettoDaSconto } from "@/lib/amministrazione/sconto-fuori-listino";
 import {
+  colonneSuddivisione,
+  preparaSuddivisione,
+  registraFirmaSuddivisione,
+} from "@/lib/amministrazione/sconto-suddivisione-server";
+import {
   ORDINI_PERSISTENZA_BLOCCATA_MSG,
   ORDINI_PERSISTENZA_DEFINITIVA,
 } from "@/lib/amministrazione/ordine-sessione";
@@ -117,7 +122,7 @@ async function resolveOperatorLabels(
   return map;
 }
 
-async function loadOrdineWithRighe(id: string): Promise<Ordine | null> {
+export async function loadOrdineWithRighe(id: string): Promise<Ordine | null> {
   const supabase = await createClient();
   const { data: row, error } = await supabase
     .from("ordini")
@@ -244,7 +249,9 @@ export async function listOrdiniAction(
   }
   q = stati.length === 1 ? q.eq("stato", stati[0]) : q.in("stato", stati);
   if (opts?.escludiScontoInAttesa) {
-    q = q.neq("sconto_approvazione_stato", "in_attesa");
+    q = q
+      .neq("sconto_approvazione_stato", "in_attesa")
+      .neq("sconto_suddivisione_stato", "in_attesa");
   }
   const { data, error } = await q.order(
     stati.includes("storico") ? "data_consegna" : "data_ordine",
@@ -298,7 +305,7 @@ export async function countOrdiniDaProcessareAction(): Promise<
   const [{ data, error }, { data: camps, error: campErr }] = await Promise.all([
     supabase
       .from("ordini")
-      .select("id, tipo, sconto_approvazione_stato")
+      .select("id, tipo, sconto_approvazione_stato, sconto_suddivisione_stato")
       .is("deleted_at", null)
       .in("stato", ["in_attesa", "ricevuto", "sospeso"]),
     supabase
@@ -311,8 +318,17 @@ export async function countOrdiniDaProcessareAction(): Promise<
   let merce = 0;
   let campionature = 0;
   for (const row of data ?? []) {
-    const r = row as { tipo?: string; sconto_approvazione_stato?: string };
-    if (r.sconto_approvazione_stato === "in_attesa") continue;
+    const r = row as {
+      tipo?: string;
+      sconto_approvazione_stato?: string;
+      sconto_suddivisione_stato?: string;
+    };
+    if (
+      r.sconto_approvazione_stato === "in_attesa" ||
+      r.sconto_suddivisione_stato === "in_attesa"
+    ) {
+      continue;
+    }
     if (String(r.tipo ?? "vendita") === "campionatura") {
       campionature += 1;
     } else {
@@ -1026,6 +1042,26 @@ async function createOrdineWizardActionInner(
         isSenior: scontoCtx.isSenior,
       });
   if (!scontoVal.ok) return { success: false, error: scontoVal.error };
+  const suddivisione = campionaturaGratis
+    ? {
+        ok: true as const,
+        value: {
+          attiva: false,
+          quotaAziendaPct: 0,
+          quotaCommercialePct: 0,
+          stato: "non_richiesta" as const,
+          approvatore: null,
+        },
+      }
+    : await preparaSuddivisione({
+        actorId: auth.userId,
+        clienteId: resolved.clienteId,
+        scontoPct: scontoVal.pct,
+        attiva: Boolean(input.scontoSuddivisioneAttiva),
+        quotaAziendaPct: input.scontoQuotaAziendaPct ?? 0,
+        quotaCommercialePct: input.scontoQuotaCommercialePct ?? 0,
+      });
+  if (!suddivisione.ok) return { success: false, error: suddivisione.error };
   const prezzoListino = campionaturaGratis ? 0 : input.prezzoUnitario;
   const prezzoUnitario = campionaturaGratis
     ? 0
@@ -1199,6 +1235,7 @@ async function createOrdineWizardActionInner(
       sconto_extra_pct: scontoVal.pct,
       sconto_fascia: scontoVal.fascia,
       sconto_approvazione_stato: scontoApprovazioneStato,
+      ...colonneSuddivisione(suddivisione.value),
       prezzo_listino_unitario: campionaturaGratis ? null : prezzoListino,
       created_by: auth.userId,
       updated_by: auth.userId,
@@ -1211,6 +1248,21 @@ async function createOrdineWizardActionInner(
       .single();
     if (error || !row) {
       return { success: false, error: error?.message ?? "Creazione fallita." };
+    }
+
+    if (suddivisione.value.stato === "approvata" && suddivisione.value.attiva) {
+      const firmaErr = await registraFirmaSuddivisione({
+        entityType: "ordine",
+        entityId: row.id,
+        ruolo:
+          suddivisione.value.approvatore === "azienda"
+            ? "azienda"
+            : "commerciale_senior",
+        esito: "approvato",
+        actorId: auth.userId,
+        summary: `Suddivisione sconto già approvata in inserimento (${suddivisione.value.quotaAziendaPct}% azienda, ${suddivisione.value.quotaCommercialePct}% commerciale)`,
+      });
+      if (firmaErr) return { success: false, error: firmaErr };
     }
 
     const righeErr = await replaceRighe(row.id, [
@@ -1360,6 +1412,9 @@ async function createOrdineWizardActionInner(
         preventivo_id: input.preventivoId ?? null,
         sconto_extra_pct: scontoVal.pct,
         sconto_fascia: scontoVal.fascia,
+        sconto_suddivisione_stato: suddivisione.value.stato,
+        sconto_quota_azienda_pct: suddivisione.value.quotaAziendaPct,
+        sconto_quota_commerciale_pct: suddivisione.value.quotaCommercialePct,
       },
     });
 

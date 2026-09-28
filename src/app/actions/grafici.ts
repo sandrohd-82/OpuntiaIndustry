@@ -28,6 +28,7 @@ import {
   type GraficiProvvigioniFiltro,
 } from "@/lib/amministrazione/grafici";
 import { calcolaProvvigione, parseProvvigionePctInput } from "@/lib/auth/commerciale";
+import { imponibilePerProvvigione } from "@/lib/amministrazione/sconto-suddivisione";
 import { loadCommercialLineageUserIds } from "@/lib/auth/commerciale-lineage";
 import { isSuperadminProfile } from "@/lib/auth/roles";
 import { getAuthContext } from "@/lib/auth/session";
@@ -938,7 +939,7 @@ async function loadProvvigioniDettaglioAnno(
   let q = service
     .from("fatture_emesse")
     .select(
-      "id, data_emissione, totale, cliente_id, cliente_ragione_sociale, cliente_codice_targa, tipo_documento, stato_pagamento, fattura_collegata_id"
+      "id, data_emissione, totale, imponibile, imposta, ordine_id, cliente_id, cliente_ragione_sociale, cliente_codice_targa, tipo_documento, stato_pagamento, fattura_collegata_id"
     )
     .is("deleted_at", null);
   q = applyDateRange(q, "data_emissione", range, null);
@@ -947,6 +948,7 @@ async function loadProvvigioniDettaglioAnno(
   if (error) {
     return { ok: false, error: `Provvigioni da fatture: ${error.message}` };
   }
+  const fattureGrezze = [];
   for (const r of data ?? []) {
     if (!includeInContabilitaFatturaEmessa(r)) continue;
     const cid = String(r.cliente_id ?? "");
@@ -954,13 +956,62 @@ async function loadProvvigioniDettaglioAnno(
     const dateStr = String(r.data_emissione ?? "");
     const m = Number(dateStr.slice(5, 7));
     if (mese != null && m !== mese) continue;
+    fattureGrezze.push(r);
+  }
+  const ordineIds = [
+    ...new Set(
+      fattureGrezze
+        .map((r) => String(r.ordine_id ?? ""))
+        .filter(Boolean)
+    ),
+  ];
+  const scontoByOrdine = new Map<
+    string,
+    {
+      scontoPct: number;
+      quotaCommercialePct: number;
+      approvata: boolean;
+    }
+  >();
+  if (ordineIds.length > 0) {
+    const { data: ordiniSconto } = await service
+      .from("ordini")
+      .select(
+        "id, sconto_extra_pct, sconto_quota_commerciale_pct, sconto_suddivisione_stato"
+      )
+      .in("id", ordineIds)
+      .is("deleted_at", null);
+    for (const ordine of ordiniSconto ?? []) {
+      scontoByOrdine.set(String(ordine.id), {
+        scontoPct: Number(ordine.sconto_extra_pct ?? 0),
+        quotaCommercialePct: Number(ordine.sconto_quota_commerciale_pct ?? 0),
+        approvata: ordine.sconto_suddivisione_stato === "approvata",
+      });
+    }
+  }
+  for (const r of fattureGrezze) {
+    const cid = String(r.cliente_id ?? "");
+    const dateStr = String(r.data_emissione ?? "");
     const isNc = r.tipo_documento === "nota_credito";
     let amount = Number(r.totale) || 0;
     if (isNc) amount = amount <= 0 ? amount : -Math.abs(amount);
+    let imponibile = Number(r.imponibile) || 0;
+    if (imponibile === 0 && amount !== 0) {
+      const imposta = Number(r.imposta) || 0;
+      imponibile = imposta !== 0 ? amount - Math.abs(imposta) * Math.sign(amount || 1) : amount;
+    }
+    if (isNc && imponibile > 0) imponibile = -Math.abs(imponibile);
+    const sconto = scontoByOrdine.get(String(r.ordine_id ?? ""));
+    const base = imponibilePerProvvigione({
+      imponibileNetto: imponibile,
+      scontoPct: sconto?.scontoPct ?? 0,
+      quotaCommercialePct: sconto?.quotaCommercialePct ?? 0,
+      suddivisioneApprovata: Boolean(sconto?.approvata),
+    });
     rows.push({
       dateStr,
       amount,
-      provvigione: calcolaProvvigione(amount, aziende.pctByCliente[cid]),
+      provvigione: calcolaProvvigione(base, aziende.pctByCliente[cid]),
       clienteId: cid,
       clienteLabel: String(r.cliente_ragione_sociale ?? "Cliente"),
       codiceTarga: String(r.cliente_codice_targa ?? ""),

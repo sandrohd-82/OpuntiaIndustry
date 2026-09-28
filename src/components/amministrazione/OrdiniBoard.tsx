@@ -14,6 +14,7 @@ import {
   purgeOrdiniTestAction,
 } from "@/app/actions/ordini";
 import { approveOrdineScontoAction } from "@/app/actions/ordine-sconto";
+import { approveScontoSuddivisioneOrdineAction } from "@/app/actions/sconto-suddivisione";
 import { ActionGate } from "@/components/layout/ActionAccessProvider";
 import { AZ } from "@/lib/auth/action-access";
 import { CampionaturaFormModal } from "@/components/amministrazione/CampionaturaFormModal";
@@ -29,6 +30,7 @@ import {
   fraseConfermaEliminazione,
   isOrdineDaProcessare,
   isOrdineScontoInAttesa,
+  isOrdineSuddivisioneInAttesa,
   hintStatoOrdine,
   labelStatoOrdine,
   labelStatoOrdineConSconto,
@@ -113,6 +115,7 @@ function OrdineTableRow({
   onDelete,
   onProcess,
   onApproveSconto,
+  onApproveSuddivisione,
 }: {
   ordine: Ordine;
   open: boolean;
@@ -123,6 +126,7 @@ function OrdineTableRow({
   onDelete: () => void;
   onProcess: () => void;
   onApproveSconto: () => void;
+  onApproveSuddivisione: () => void;
 }) {
   return (
     <>
@@ -151,6 +155,15 @@ function OrdineTableRow({
                 ? " · approvato"
                 : ""}{" "}
               ({labelScontoFascia(ordine.scontoFascia)})
+              {ordine.scontoSuddivisioneAttiva
+                ? ` · azienda ${ordine.scontoQuotaAziendaPct.toLocaleString("it-IT")}% / commerciale ${ordine.scontoQuotaCommercialePct.toLocaleString("it-IT")}%${
+                    ordine.scontoSuddivisioneStato === "in_attesa"
+                      ? " · suddivisione in attesa"
+                      : ordine.scontoSuddivisioneStato === "approvata"
+                        ? " · suddivisione approvata"
+                        : ""
+                  }`
+                : ""}
             </span>
           ) : null}
           {ordine.stato === "sospeso" && ordine.dataDisponibilitaPresunta ? (
@@ -214,9 +227,21 @@ function OrdineTableRow({
                 {approving ? "Approvo…" : "Approva sconto"}
               </button>
             ) : null}
+            {isOrdineSuddivisioneInAttesa(ordine) && !processMode ? (
+              <button
+                type="button"
+                title="Approva suddivisione sconto"
+                disabled={approving}
+                onClick={onApproveSuddivisione}
+                className="rounded-lg bg-sky-700 px-2.5 py-1.5 text-xs font-medium text-white hover:bg-sky-800 disabled:opacity-60"
+              >
+                {approving ? "Approvo…" : "Approva suddivisione"}
+              </button>
+            ) : null}
             {processMode &&
             isOrdineDaProcessare(ordine.stato) &&
-            !isOrdineScontoInAttesa(ordine) ? (
+            !isOrdineScontoInAttesa(ordine) &&
+            !isOrdineSuddivisioneInAttesa(ordine) ? (
               <ActionGate actionKey={AZ.processaOrdine}>
                 <button
                   type="button"
@@ -640,6 +665,22 @@ export function OrdiniBoard({
                       notifyOrdiniDaProcessareNav();
                       void refresh();
                     });
+                  }}
+                  onApproveSuddivisione={() => {
+                    setActionError(null);
+                    setApprovingId(ordine.id);
+                    void approveScontoSuddivisioneOrdineAction(ordine.id).then(
+                      (res) => {
+                        setApprovingId(null);
+                        if (!res.success) {
+                          setActionError(res.error);
+                          return;
+                        }
+                        upsertLocal(res.ordine);
+                        notifyOrdiniDaProcessareNav();
+                        void refresh();
+                      }
+                    );
                   }}
                 />
               ))}

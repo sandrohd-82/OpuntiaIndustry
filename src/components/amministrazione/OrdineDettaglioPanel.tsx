@@ -188,6 +188,15 @@ export function OrdineDettaglioPanel({ ordine, onEdit }: Props) {
                 : ordine.scontoApprovazioneStato === "approvata"
                   ? " · approvato"
                   : ""}
+              {ordine.scontoSuddivisioneAttiva
+                ? ` · Agrinsicilia ${ordine.scontoQuotaAziendaPct.toLocaleString("it-IT")}% · commerciale ${ordine.scontoQuotaCommercialePct.toLocaleString("it-IT")}%${
+                    ordine.scontoSuddivisioneStato === "in_attesa"
+                      ? " · suddivisione in attesa"
+                      : ordine.scontoSuddivisioneStato === "approvata"
+                        ? " · suddivisione approvata"
+                        : ""
+                  }`
+                : ""}
             </dd>
           </div>
         ) : null}

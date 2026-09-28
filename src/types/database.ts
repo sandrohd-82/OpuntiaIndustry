@@ -1019,6 +1019,11 @@ export interface OrdineRow {
   sconto_extra_pct?: number;
   sconto_fascia?: string;
   sconto_approvazione_stato?: string;
+  sconto_quota_azienda_pct?: number;
+  sconto_quota_commerciale_pct?: number;
+  sconto_suddivisione_attiva?: boolean;
+  sconto_suddivisione_stato?: string;
+  sconto_suddivisione_approvatore?: string;
   prezzo_listino_unitario?: number | null;
   created_by: string | null;
   updated_by: string | null;
@@ -1084,6 +1089,11 @@ export interface OrdineInsert {
   sconto_extra_pct?: number;
   sconto_fascia?: string;
   sconto_approvazione_stato?: string;
+  sconto_quota_azienda_pct?: number;
+  sconto_quota_commerciale_pct?: number;
+  sconto_suddivisione_attiva?: boolean;
+  sconto_suddivisione_stato?: string;
+  sconto_suddivisione_approvatore?: string;
   prezzo_listino_unitario?: number | null;
   created_by?: string | null;
   updated_by?: string | null;
@@ -1139,6 +1149,11 @@ export interface OrdineUpdate {
   sconto_extra_pct?: number;
   sconto_fascia?: string;
   sconto_approvazione_stato?: string;
+  sconto_quota_azienda_pct?: number;
+  sconto_quota_commerciale_pct?: number;
+  sconto_suddivisione_attiva?: boolean;
+  sconto_suddivisione_stato?: string;
+  sconto_suddivisione_approvatore?: string;
   prezzo_listino_unitario?: number | null;
   updated_by?: string | null;
   deleted_at?: string | null;
@@ -1509,6 +1524,11 @@ export interface PreventivoRigaRow {
   listino_id: string | null;
   prezzo_da_listino: boolean;
   sconto_extra_pct: number;
+  sconto_quota_azienda_pct?: number;
+  sconto_quota_commerciale_pct?: number;
+  sconto_suddivisione_attiva?: boolean;
+  sconto_suddivisione_stato?: string;
+  sconto_suddivisione_approvatore?: string;
   confezionamento: string;
   imballaggio_voce_id: string | null;
   sort_order: number;

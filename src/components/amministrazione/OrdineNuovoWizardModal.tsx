@@ -15,6 +15,8 @@ import {
   SCONTO_FUORI_LISTINO_REGOLE,
   SCONTO_FUORI_LISTINO_TITOLO,
 } from "@/lib/amministrazione/sconto-fuori-listino";
+import { ScontoSuddivisioneFields } from "@/components/amministrazione/ScontoSuddivisioneFields";
+import { validaQuoteSuddivisione } from "@/lib/amministrazione/sconto-suddivisione";
 import { getListinoVoceVigenteAction } from "@/app/actions/listini";
 import {
   LISTINO_CONTRATTO_MSG,
@@ -245,6 +247,11 @@ export function OrdineNuovoWizardModal({
   );
   const [prezzoUnitario, setPrezzoUnitario] = useState<number | "">("");
   const [scontoExtraPct, setScontoExtraPct] = useState<number | "">("");
+  const [scontoSuddivisioneAttiva, setScontoSuddivisioneAttiva] = useState(false);
+  const [scontoQuotaAzienda, setScontoQuotaAzienda] = useState<number | "">("");
+  const [scontoQuotaCommerciale, setScontoQuotaCommerciale] = useState<
+    number | ""
+  >("");
   const [scontoCtx, setScontoCtx] = useState<{
     canOltre30: boolean;
     isSuperadmin: boolean;
@@ -837,6 +844,19 @@ export function OrdineNuovoWizardModal({
       );
       return;
     }
+    if (tipoOrdine !== "campionatura" && scontoSuddivisioneAttiva) {
+      const quote = validaQuoteSuddivisione({
+        scontoPct,
+        attiva: true,
+        quotaAziendaPct: scontoQuotaAzienda === "" ? 0 : scontoQuotaAzienda,
+        quotaCommercialePct:
+          scontoQuotaCommerciale === "" ? 0 : scontoQuotaCommerciale,
+      });
+      if (!quote.ok) {
+        setFormError(quote.error);
+        return;
+      }
+    }
     setSaving(true);
     setFormError(null);
     const confNorm = normalizeConfezionamentoDraft(conf);
@@ -919,6 +939,16 @@ export function OrdineNuovoWizardModal({
         unitaMisura: umEffettiva,
         prezzoUnitario: tipoOrdine === "campionatura" ? 0 : numberOrZero(prezzoUnitario),
         scontoExtraPct: tipoOrdine === "campionatura" ? 0 : scontoPct,
+        scontoSuddivisioneAttiva:
+          tipoOrdine === "campionatura" ? false : scontoSuddivisioneAttiva,
+        scontoQuotaAziendaPct:
+          tipoOrdine === "campionatura" || scontoQuotaAzienda === ""
+            ? 0
+            : scontoQuotaAzienda,
+        scontoQuotaCommercialePct:
+          tipoOrdine === "campionatura" || scontoQuotaCommerciale === ""
+            ? 0
+            : scontoQuotaCommerciale,
         ivaPercentuale: tipoOrdine === "campionatura" ? 0 : 22,
         consegnaTipo,
         dataRichiesta: consegnaTipo === "data" ? dataRichiesta || null : null,
@@ -1521,6 +1551,17 @@ export function OrdineNuovoWizardModal({
                     value={scontoExtraPct}
                     onValueChange={setScontoExtraPct}
                     className="w-full max-w-xs rounded-lg border border-[var(--border)] px-3 py-2 outline-none focus:border-[var(--primary)]"
+                  />
+                  <ScontoSuddivisioneFields
+                    scontoPct={scontoPct}
+                    attiva={scontoSuddivisioneAttiva}
+                    quotaAzienda={scontoQuotaAzienda}
+                    quotaCommerciale={scontoQuotaCommerciale}
+                    onChange={(next) => {
+                      setScontoSuddivisioneAttiva(next.attiva);
+                      setScontoQuotaAzienda(next.quotaAzienda);
+                      setScontoQuotaCommerciale(next.quotaCommerciale);
+                    }}
                   />
                   {scontoPct > 0 ? (
                     <p className="mt-1 text-xs text-[var(--muted)]">

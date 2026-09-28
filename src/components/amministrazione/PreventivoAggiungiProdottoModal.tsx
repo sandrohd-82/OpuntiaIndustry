@@ -9,6 +9,8 @@ import {
   type PreventivoConfezioneOption,
   type PreventivoScontisticaRiga,
 } from "@/lib/amministrazione/preventivi";
+import { ScontoSuddivisioneFields } from "@/components/amministrazione/ScontoSuddivisioneFields";
+import { validaQuoteSuddivisione } from "@/lib/amministrazione/sconto-suddivisione";
 import { LISTINO_CONTRATTO_MSG } from "@/lib/ecosystem/listino-vigente";
 import type { ListinoDisponibilita } from "@/lib/ecosystem/listini";
 import type { ProdottoProprio } from "@/lib/amministrazione/prodotti-propri";
@@ -17,6 +19,9 @@ export type PreventivoProdottoDraft = {
   prodottoId: string;
   quantita: number;
   scontoExtraPct: number;
+  scontoSuddivisioneAttiva: boolean;
+  scontoQuotaAziendaPct: number;
+  scontoQuotaCommercialePct: number;
   confezioneValue: string;
   confezionamento: string;
   imballaggioVoceId: string | null;
@@ -72,6 +77,15 @@ export function PreventivoAggiungiProdottoModal({
   const [scontoExtra, setScontoExtra] = useState<number | "">(
     initial?.scontoExtraPct ?? ""
   );
+  const [scontoSuddivisioneAttiva, setScontoSuddivisioneAttiva] = useState(
+    Boolean(initial?.scontoSuddivisioneAttiva)
+  );
+  const [scontoQuotaAzienda, setScontoQuotaAzienda] = useState<number | "">(
+    initial?.scontoQuotaAziendaPct ?? ""
+  );
+  const [scontoQuotaCommerciale, setScontoQuotaCommerciale] = useState<
+    number | ""
+  >(initial?.scontoQuotaCommercialePct ?? "");
   const [confezioneValue, setConfezioneValue] = useState(
     initial?.confezioneValue ?? CONFEZIONE_STANDARD
   );
@@ -165,6 +179,19 @@ export function PreventivoAggiungiProdottoModal({
       return;
     }
     const extra = scontoExtra === "" ? 0 : scontoExtra;
+    if (scontoSuddivisioneAttiva) {
+      const quote = validaQuoteSuddivisione({
+        scontoPct: extra,
+        attiva: true,
+        quotaAziendaPct: scontoQuotaAzienda === "" ? 0 : scontoQuotaAzienda,
+        quotaCommercialePct:
+          scontoQuotaCommerciale === "" ? 0 : scontoQuotaCommerciale,
+      });
+      if (!quote.ok) {
+        setError(quote.error);
+        return;
+      }
+    }
     const opt =
       confezioni.find((c) => c.value === confezioneValue) ??
       confezioni.find((c) => c.isStandard);
@@ -173,6 +200,10 @@ export function PreventivoAggiungiProdottoModal({
       prodottoId,
       quantita: qty,
       scontoExtraPct: extra,
+      scontoSuddivisioneAttiva,
+      scontoQuotaAziendaPct: scontoQuotaAzienda === "" ? 0 : scontoQuotaAzienda,
+      scontoQuotaCommercialePct:
+        scontoQuotaCommerciale === "" ? 0 : scontoQuotaCommerciale,
       confezioneValue: opt?.value ?? CONFEZIONE_STANDARD,
       confezionamento: label,
       imballaggioVoceId: opt?.imballaggioVoceId ?? null,
@@ -337,6 +368,17 @@ export function PreventivoAggiungiProdottoModal({
               value={scontoExtra}
               onValueChange={setScontoExtra}
               className="w-full rounded border border-slate-300 px-3 py-2 text-sm"
+            />
+            <ScontoSuddivisioneFields
+              scontoPct={extraNum}
+              attiva={scontoSuddivisioneAttiva}
+              quotaAzienda={scontoQuotaAzienda}
+              quotaCommerciale={scontoQuotaCommerciale}
+              onChange={(next) => {
+                setScontoSuddivisioneAttiva(next.attiva);
+                setScontoQuotaAzienda(next.quotaAzienda);
+                setScontoQuotaCommerciale(next.quotaCommerciale);
+              }}
             />
             {netto != null && prezzo != null ? (
               <p className="mt-1 text-xs text-slate-500">

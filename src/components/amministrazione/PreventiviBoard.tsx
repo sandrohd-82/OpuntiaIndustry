@@ -5,6 +5,7 @@ import { FaPlus } from "react-icons/fa6";
 import { ActionGate } from "@/components/layout/ActionAccessProvider";
 import { PageLoading } from "@/components/ui/BusyIndicator";
 import { AZ } from "@/lib/auth/action-access";
+import { approveScontoSuddivisionePreventivoRigaAction } from "@/app/actions/sconto-suddivisione";
 import {
   listPreventiviAction,
   setPreventivoStatoAction,
@@ -167,6 +168,28 @@ export function PreventiviBoard() {
                   </td>
                   <td className="px-4 py-3 text-right">
                     <div className="flex flex-wrap justify-end gap-1">
+                      {item.righe
+                        .filter((r) => r.scontoSuddivisioneStato === "in_attesa")
+                        .map((r) => (
+                          <button
+                            key={r.id}
+                            type="button"
+                            onClick={() =>
+                              void approveScontoSuddivisionePreventivoRigaAction(
+                                r.id
+                              ).then((res) => {
+                                if (!res.success) {
+                                  setError(res.error);
+                                  return;
+                                }
+                                void reload();
+                              })
+                            }
+                            className="rounded-lg bg-sky-700 px-2 py-1 text-xs text-white"
+                          >
+                            Approva suddivisione {r.prodottoCodice}
+                          </button>
+                        ))}
                       {item.stato === "creato" ? (
                         <button
                           type="button"

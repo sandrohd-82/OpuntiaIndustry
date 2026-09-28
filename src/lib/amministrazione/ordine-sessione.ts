@@ -184,6 +184,11 @@ export function buildOrdineSessioneLocale(input: {
     scontoExtraPct: pct,
     scontoFascia: fasciaFromPct(pct),
     scontoApprovazioneStato: "non_richiesta",
+    scontoQuotaAziendaPct: 0,
+    scontoQuotaCommercialePct: pct,
+    scontoSuddivisioneAttiva: false,
+    scontoSuddivisioneStato: "non_richiesta",
+    scontoSuddivisioneApprovatore: "",
     prezzoListinoUnitario: input.prezzoListino,
     righe: [
       {

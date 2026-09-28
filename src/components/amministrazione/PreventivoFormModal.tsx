@@ -212,6 +212,9 @@ export function PreventivoFormModal({ onClose, onSaved }: Props) {
       setRighe(
         sessione.righe.map((r) => ({
           ...r,
+          scontoSuddivisioneAttiva: Boolean(r.scontoSuddivisioneAttiva),
+          scontoQuotaAziendaPct: r.scontoQuotaAziendaPct ?? 0,
+          scontoQuotaCommercialePct: r.scontoQuotaCommercialePct ?? 0,
           disponibilita: (r.disponibilita as DraftRiga["disponibilita"]) ?? null,
           blocco: (r.blocco as DraftRiga["blocco"]) ?? null,
         }))
@@ -362,6 +365,9 @@ export function PreventivoFormModal({ onClose, onSaved }: Props) {
         listinoId: r.listinoId,
         prezzoDaListino: r.prezzoDaListino,
         scontoExtraPct: r.scontoExtraPct,
+        scontoSuddivisioneAttiva: r.scontoSuddivisioneAttiva,
+        scontoQuotaAziendaPct: r.scontoQuotaAziendaPct,
+        scontoQuotaCommercialePct: r.scontoQuotaCommercialePct,
         confezioneValue: r.confezioneValue,
         confezionamento: r.confezionamento,
         imballaggioVoceId: r.imballaggioVoceId,
@@ -431,6 +437,9 @@ export function PreventivoFormModal({ onClose, onSaved }: Props) {
       listinoId: r.listinoId,
       prezzoDaListino: r.prezzoDaListino,
       scontoExtraPct: r.scontoExtraPct,
+      scontoSuddivisioneAttiva: Boolean(r.scontoSuddivisioneAttiva),
+      scontoQuotaAziendaPct: r.scontoQuotaAziendaPct ?? 0,
+      scontoQuotaCommercialePct: r.scontoQuotaCommercialePct ?? 0,
       confezionamento: r.confezionamento,
       imballaggioVoceId: r.imballaggioVoceId,
     }));
@@ -694,7 +703,11 @@ export function PreventivoFormModal({ onClose, onSaved }: Props) {
                             </td>
                             <td className="py-1.5 pr-2 tabular-nums">
                               {riga.scontoExtraPct
-                                ? `${riga.scontoExtraPct} %`
+                                ? `${riga.scontoExtraPct} %${
+                                    riga.scontoSuddivisioneAttiva
+                                      ? ` (az. ${riga.scontoQuotaAziendaPct ?? 0} / comm. ${riga.scontoQuotaCommercialePct ?? 0})`
+                                      : ""
+                                  }`
                                 : "—"}
                             </td>
                             <td className="py-1.5 pr-2 tabular-nums font-medium">
@@ -882,6 +895,9 @@ export function PreventivoFormModal({ onClose, onSaved }: Props) {
                   prodottoId: editing.prodottoId,
                   quantita: editing.quantita,
                   scontoExtraPct: editing.scontoExtraPct,
+                  scontoSuddivisioneAttiva: Boolean(editing.scontoSuddivisioneAttiva),
+                  scontoQuotaAziendaPct: editing.scontoQuotaAziendaPct ?? 0,
+                  scontoQuotaCommercialePct: editing.scontoQuotaCommercialePct ?? 0,
                   confezioneValue:
                     editing.confezioneValue || CONFEZIONE_STANDARD,
                   confezionamento: editing.confezionamento,

@@ -185,6 +185,11 @@ export type Ordine = {
   scontoExtraPct: number;
   scontoFascia: ScontoFascia;
   scontoApprovazioneStato: ScontoApprovazioneStato;
+  scontoQuotaAziendaPct: number;
+  scontoQuotaCommercialePct: number;
+  scontoSuddivisioneAttiva: boolean;
+  scontoSuddivisioneStato: "non_richiesta" | "in_attesa" | "approvata" | "rifiutata";
+  scontoSuddivisioneApprovatore: string;
   prezzoListinoUnitario: number | null;
   righe: OrdineRigaProdotto[];
   createdAt: string;
@@ -445,6 +450,18 @@ export function mapOrdineRow(
       row.sconto_approvazione_stato === "rifiutata"
         ? row.sconto_approvazione_stato
         : "non_richiesta",
+    scontoQuotaAziendaPct: Number(row.sconto_quota_azienda_pct ?? 0),
+    scontoQuotaCommercialePct: Number(row.sconto_quota_commerciale_pct ?? 0),
+    scontoSuddivisioneAttiva: Boolean(row.sconto_suddivisione_attiva),
+    scontoSuddivisioneStato:
+      row.sconto_suddivisione_stato === "in_attesa" ||
+      row.sconto_suddivisione_stato === "approvata" ||
+      row.sconto_suddivisione_stato === "rifiutata"
+        ? row.sconto_suddivisione_stato
+        : "non_richiesta",
+    scontoSuddivisioneApprovatore: String(
+      row.sconto_suddivisione_approvatore ?? ""
+    ),
     prezzoListinoUnitario:
       row.prezzo_listino_unitario != null
         ? Number(row.prezzo_listino_unitario)
@@ -519,6 +536,12 @@ export function isOrdineScontoInAttesa(
   ordine: Pick<Ordine, "scontoApprovazioneStato">
 ): boolean {
   return ordine.scontoApprovazioneStato === "in_attesa";
+}
+
+export function isOrdineSuddivisioneInAttesa(
+  ordine: Pick<Ordine, "scontoSuddivisioneStato">
+): boolean {
+  return ordine.scontoSuddivisioneStato === "in_attesa";
 }
 
 export function labelTipoOrdine(tipo: OrdineTipoDocumento): string {
