@@ -3,6 +3,7 @@
 import { z } from "zod";
 import { writeAuditLog } from "@/lib/audit";
 import { mapClienteRow, type Cliente } from "@/lib/amministrazione/clienti";
+import { emptySede } from "@/lib/amministrazione/fornitori";
 import type { ClienteRow } from "@/types/database";
 import { requireAreaAccess } from "@/lib/areas/guard";
 import {
@@ -142,6 +143,59 @@ async function subtreeAreaFilterOptions(
   return options.sort((a, b) => a.label.localeCompare(b.label, "it"));
 }
 
+/** Super Admin: ogni Senior, Professional ed Executive, anche senza login. */
+async function allCommercialeAreaOptions(): Promise<CommercialeAreaOption[]> {
+  const service = createServiceClient();
+  const { data: persone } = await service
+    .from("organigramma_persone")
+    .select("id, user_id, nome, cognome, commerciale_grado")
+    .is("deleted_at", null)
+    .in("commerciale_grado", ["senior", "professional", "executive"]);
+  const options: CommercialeAreaOption[] = [];
+  const usati = new Set<string>();
+  for (const raw of persone ?? []) {
+    const row = raw as {
+      id: string;
+      user_id?: string | null;
+      nome?: string | null;
+      cognome?: string | null;
+      commerciale_grado?: string | null;
+    };
+    if (!parseCommercialeGrado(row.commerciale_grado)) continue;
+    const nome = `${row.nome ?? ""} ${row.cognome ?? ""}`.trim();
+    if (!nome) continue;
+    const value = row.user_id ? String(row.user_id) : String(row.id);
+    if (usati.has(value)) continue;
+    usati.add(value);
+    options.push({ value, label: formatCommercialeAreaBreve(nome) });
+  }
+  const { data: profiles } = await service
+    .from("profiles")
+    .select("id, full_name, first_name, last_name, email, commerciale_grado")
+    .eq("is_active", true)
+    .in("commerciale_grado", ["senior", "professional", "executive"]);
+  for (const raw of profiles ?? []) {
+    const row = raw as {
+      id: string;
+      full_name?: string | null;
+      first_name?: string | null;
+      last_name?: string | null;
+      email?: string | null;
+    };
+    const id = String(row.id);
+    if (usati.has(id)) continue;
+    const nome =
+      row.full_name?.trim() ||
+      `${row.first_name ?? ""} ${row.last_name ?? ""}`.trim() ||
+      row.email ||
+      "";
+    if (!nome) continue;
+    usati.add(id);
+    options.push({ value: id, label: formatCommercialeAreaBreve(nome) });
+  }
+  return options.sort((a, b) => a.label.localeCompare(b.label, "it"));
+}
+
 function canAssignCommerciale(auth: {
   actorProfile: Parameters<typeof isSuperadminProfile>[0];
   impersonating: boolean;
@@ -179,8 +233,9 @@ export async function getCommercialeAnagraficaContextAction(): Promise<
   const includeAziendaArea = showAreaFilter;
   const defaultAreaFilter =
     !skip && op.isCommerciale && showAreaFilter ? auth.userId : "";
-  const areaFilterOptions =
-    op.isCommerciale && showAreaFilter
+  const areaFilterOptions = skip
+    ? await allCommercialeAreaOptions()
+    : op.isCommerciale && showAreaFilter
       ? await subtreeAreaFilterOptions(auth.userId, op.subtreeIds, personaIds)
       : [];
 
@@ -416,9 +471,55 @@ export async function assignCommercialeAnagraficaAction(
 
 export type AziendaCommercialePortfolio = Cliente & {
   origine: CommercialeAziendaOrigine;
+  schedaKind: "cliente" | "possibile";
 };
 
 const personaIdSchema = z.object({ personaId: z.string().uuid() });
+
+function testo(value: unknown): string {
+  return value == null ? "" : String(value);
+}
+
+function possibileComeCliente(row: Record<string, unknown>): Cliente {
+  return {
+    id: testo(row.id),
+    codiceTarga: "",
+    ragioneSociale: testo(row.ragione_sociale),
+    partitaIva: testo(row.partita_iva),
+    codiceFiscale: testo(row.codice_fiscale),
+    isPrivato: Boolean(row.is_privato),
+    email: testo(row.email),
+    pec: testo(row.pec),
+    sdiCode: testo(row.sdi_code),
+    telefono: testo(row.telefono),
+    sitoWeb: testo(row.sito_web),
+    emailGeneriche: [],
+    telefoniGenerici: [],
+    sitiWebGenerici: [],
+    sedeAmministrativa: emptySede(),
+    sedeMagazzino: emptySede(),
+    consegneAltraAzienda: [],
+    prodottiAcquistati: [],
+    createdAt: testo(row.created_at),
+    createdBy: row.created_by ? testo(row.created_by) : null,
+    commercialeId: row.commerciale_id ? testo(row.commerciale_id) : null,
+    commercialePersonaId: row.commerciale_persona_id
+      ? testo(row.commerciale_persona_id)
+      : null,
+    commercialeNome: "",
+    commercialeGrado: null,
+    affiancatoId: row.affiancato_id ? testo(row.affiancato_id) : null,
+    affiancatoPersonaId: row.affiancato_persona_id
+      ? testo(row.affiancato_persona_id)
+      : null,
+    aziendaMadreId: null,
+    inviaPreventivi: true,
+    fatturare: true,
+    inviaCampionature: true,
+    inviaProdotti: true,
+    tipologiaRispettoMadre: "",
+  };
+}
 
 /** Aziende caricate o collegate al profilo gestionale dell’operatore. */
 export async function listAziendeCommercialePersonaAction(
@@ -449,21 +550,55 @@ export async function listAziendeCommercialePersonaAction(
     ? `created_by.eq.${userId},commerciale_id.eq.${userId},affiancato_id.eq.${userId},commerciale_persona_id.eq.${personaId},affiancato_persona_id.eq.${personaId}`
     : `commerciale_persona_id.eq.${personaId},affiancato_persona_id.eq.${personaId}`;
 
-  const { data: rows, error } = await service
-    .from("clienti")
-    .select("*")
-    .or(filtro)
-    .is("deleted_at", null)
-    .order("ragione_sociale", { ascending: true });
-  if (error) return { success: false, error: error.message };
+  const [{ data: clienti, error: clientiError }, { data: possibili, error: possibiliError }] =
+    await Promise.all([
+      service
+        .from("clienti")
+        .select("*")
+        .or(filtro)
+        .is("deleted_at", null)
+        .order("ragione_sociale", { ascending: true }),
+      service
+        .from("clienti_possibili")
+        .select(
+          "id, ragione_sociale, partita_iva, codice_fiscale, is_privato, email, pec, sdi_code, telefono, sito_web, created_by, created_at, commerciale_id, commerciale_persona_id, affiancato_id, affiancato_persona_id, stato"
+        )
+        .or(filtro)
+        .is("deleted_at", null)
+        .neq("stato", "scartato")
+        .order("ragione_sociale", { ascending: true }),
+    ]);
+  if (clientiError) return { success: false, error: clientiError.message };
+  if (possibiliError) return { success: false, error: possibiliError.message };
 
   const labels = await loadCommercialeLabels(
-    (rows ?? [])
+    (clienti ?? [])
       .map((r) => String((r as { commerciale_id?: string | null }).commerciale_id ?? ""))
       .filter(Boolean)
   );
 
-  const aziende = (rows ?? []).map((row) => {
+  const origineDi = (
+    mapped: Pick<
+      Cliente,
+      "createdBy" | "commercialeId" | "affiancatoId" | "affiancatoPersonaId"
+    >
+  ): CommercialeAziendaOrigine => {
+    if (
+      mapped.affiancatoPersonaId === personaId ||
+      (userId != null && mapped.affiancatoId === userId)
+    ) {
+      return "affiancata";
+    }
+    if (!userId) return "collegata";
+    return commercialeAziendaOrigine({
+      userId,
+      createdBy: mapped.createdBy,
+      commercialeId: mapped.commercialeId,
+      affiancatoId: mapped.affiancatoId,
+    });
+  };
+
+  const aziende: AziendaCommercialePortfolio[] = (clienti ?? []).map((row) => {
     const mapped = mapClienteRow(
       row as ClienteRow,
       row.commerciale_id
@@ -472,18 +607,20 @@ export async function listAziendeCommercialePersonaAction(
     );
     return {
       ...mapped,
-      origine: userId
-        ? commercialeAziendaOrigine({
-            userId,
-            createdBy: mapped.createdBy,
-            commercialeId: mapped.commercialeId,
-            affiancatoId: mapped.affiancatoId,
-          })
-        : mapped.affiancatoPersonaId === personaId
-          ? "affiancata"
-          : "collegata",
+      schedaKind: "cliente" as const,
+      origine: origineDi(mapped),
     };
   });
+  for (const raw of possibili ?? []) {
+    const row = raw as Record<string, unknown>;
+    const mapped = possibileComeCliente(row);
+    aziende.push({
+      ...mapped,
+      schedaKind: "possibile",
+      origine: origineDi(mapped),
+    });
+  }
+  aziende.sort((a, b) => a.ragioneSociale.localeCompare(b.ragioneSociale, "it"));
 
   return { success: true, userId, aziende };
 }

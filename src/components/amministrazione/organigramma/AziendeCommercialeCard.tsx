@@ -7,6 +7,7 @@ import {
   type AziendaCommercialePortfolio,
 } from "@/app/actions/commerciale-anagrafica";
 import { updateClienteAction } from "@/app/actions/clienti";
+import { updateClientePossibileAction } from "@/app/actions/promemorie-e-note";
 import { AziendaTimelineModal } from "@/components/amministrazione/AziendaTimelineModal";
 import { ClienteFormModal } from "@/components/amministrazione/ClienteFormModal";
 import { useAnagraficaPrivileges } from "@/components/layout/ActionAccessProvider";
@@ -105,7 +106,13 @@ export function AziendeCommercialeCard({ persona, lineageIds }: Props) {
                 key={az.id}
                 className="flex flex-wrap items-center gap-2 px-3 py-2.5"
               >
-                <CodiceTargaBadge code={az.codiceTarga} />
+                {az.schedaKind === "possibile" ? (
+                  <span className="rounded-md bg-amber-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-amber-950">
+                    Possibile
+                  </span>
+                ) : (
+                  <CodiceTargaBadge code={az.codiceTarga} />
+                )}
                 <div className="min-w-0 flex-1">
                   <p className="text-sm font-semibold">{az.ragioneSociale}</p>
                   <p className="text-xs text-[var(--muted)]">
@@ -144,10 +151,14 @@ export function AziendeCommercialeCard({ persona, lineageIds }: Props) {
       {editing ? (
         <ClienteFormModal
           mode="edit"
+          variant={editing.schedaKind === "possibile" ? "possibile" : "cliente"}
           initial={editing}
           onClose={() => setEditing(null)}
           onSave={async (values) => {
-            const res = await updateClienteAction(editing.id, values);
+            const res =
+              editing.schedaKind === "possibile"
+                ? await updateClientePossibileAction(editing.id, values)
+                : await updateClienteAction(editing.id, values);
             if (!res.success) return false;
             setEditing(null);
             setRefresh((n) => n + 1);
@@ -158,7 +169,9 @@ export function AziendeCommercialeCard({ persona, lineageIds }: Props) {
 
       {timelineFor ? (
         <AziendaTimelineModal
-          aziendaTipo="cliente"
+          aziendaTipo={
+            timelineFor.schedaKind === "possibile" ? "cliente_possibile" : "cliente"
+          }
           aziendaId={timelineFor.id}
           aziendaLabel={timelineFor.ragioneSociale}
           onClose={() => setTimelineFor(null)}

@@ -173,6 +173,8 @@ export function matchesCommercialeArea(
   record: {
     commercialeId: string | null | undefined;
     commercialePersonaId?: string | null;
+    affiancatoId?: string | null;
+    affiancatoPersonaId?: string | null;
   },
   filter: string
 ): boolean {
@@ -182,7 +184,10 @@ export function matchesCommercialeArea(
     return !record.commercialeId && !record.commercialePersonaId;
   }
   return (
-    record.commercialeId === value || record.commercialePersonaId === value
+    record.commercialeId === value ||
+    record.commercialePersonaId === value ||
+    record.affiancatoId === value ||
+    record.affiancatoPersonaId === value
   );
 }
 
