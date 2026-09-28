@@ -30,7 +30,16 @@ import { AZ } from "@/lib/auth/action-access";
 import { AziendaTimelineModal } from "@/components/amministrazione/AziendaTimelineModal";
 import { AnagraficaDuplicatiBlockModal } from "@/components/amministrazione/AnagraficaDuplicatiBlockModal";
 import { AnagraficaSchedaDetail } from "@/components/amministrazione/AnagraficaSchedaDetail";
+import { CollegaAziendaScelteModal } from "@/components/amministrazione/CollegaAziendaScelteModal";
 import { ClienteFormModal } from "@/components/amministrazione/ClienteFormModal";
+import {
+  AziendaFigliaRaccordo,
+  SchedaDock,
+} from "@/components/amministrazione/SchedaDock";
+import {
+  elencoCollegato,
+  type CollegamentoScelte,
+} from "@/lib/amministrazione/azienda-collegata";
 import { ClientiFiltersPanel } from "@/components/amministrazione/ClientiFiltersPanel";
 import type { AnagraficaDuplicatoHit } from "@/lib/amministrazione/anagrafica-duplicati";
 import { ProdottoProprioProductTag } from "@/components/amministrazione/ProdottoProprioProductTag";
@@ -63,12 +72,22 @@ function PossibileClienteRow({
   onTimeline,
   prodottiByCode,
   lineageIds,
+  nested = false,
+  hasFiglie = false,
+  schedaAperta = false,
+  onScheda,
+  onCollega,
 }: {
   lead: ClientePossibile;
   onEdit: (lead: ClientePossibile) => void;
   onTimeline: (lead: ClientePossibile) => void;
+  onScheda: (lead: ClientePossibile) => void;
   prodottiByCode: Map<string, ProdottoProprio>;
   lineageIds: string[];
+  nested?: boolean;
+  hasFiglie?: boolean;
+  schedaAperta?: boolean;
+  onCollega?: (lead: ClientePossibile) => void;
 }) {
   const [open, setOpen] = useState(false);
   const priv = useAnagraficaPrivileges("cliente_possibile");
@@ -85,7 +104,12 @@ function PossibileClienteRow({
 
   return (
     <>
-      <tr className="border-t border-[var(--border)]">
+      <tr
+        data-azienda-row={lead.id}
+        className={`border-t border-[var(--border)] ${
+          nested ? "bg-sky-50" : hasFiglie ? "bg-amber-50" : ""
+        } ${schedaAperta ? "ring-2 ring-inset ring-sky-500" : ""}`}
+      >
         <td className="px-4 py-3">
           <span className="rounded bg-slate-100 px-1.5 py-0.5 text-[10px] font-semibold uppercase text-slate-700">
             {statoLabel(lead.stato)}
@@ -94,7 +118,19 @@ function PossibileClienteRow({
         <td className="px-4 py-3">
           <TrattativaBadge value={lead.trattativa} />
         </td>
-        <td className="px-4 py-3 font-semibold">{lead.ragioneSociale}</td>
+        <td className="px-4 py-3 font-semibold">
+          <span className={`inline-flex items-center gap-2 ${nested ? "pl-2" : ""}`}>
+            {nested ? <AziendaFigliaRaccordo /> : null}
+            <span>
+              {lead.ragioneSociale}
+              {nested && lead.tipologiaRispettoMadre ? (
+                <span className="mt-0.5 block text-[10px] font-normal text-sky-900">
+                  {lead.tipologiaRispettoMadre}
+                </span>
+              ) : null}
+            </span>
+          </span>
+        </td>
         <td className="px-4 py-3 tabular-nums">
           {lead.partitaIva || lead.codiceFiscale || "—"}
         </td>
@@ -125,6 +161,22 @@ function PossibileClienteRow({
         </td>
         <td className="px-4 py-3 text-right">
           <div className="inline-flex items-center gap-1">
+            <button
+              type="button"
+              onClick={() => onScheda(lead)}
+              className="inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-xs font-medium text-indigo-800 hover:bg-indigo-50"
+            >
+              Scheda
+            </button>
+            {onCollega && canEdit ? (
+              <button
+                type="button"
+                onClick={() => onCollega(lead)}
+                className="inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-xs font-medium text-sky-800 hover:bg-sky-100"
+              >
+                Collega azienda
+              </button>
+            ) : null}
             {canTimeline ? (
               <button
                 type="button"
@@ -205,6 +257,13 @@ export function PossibiliClientiBoard() {
   const [showLeadForm, setShowLeadForm] = useState(false);
   const [editingLead, setEditingLead] = useState<ClientePossibile | null>(null);
   const [timelineFor, setTimelineFor] = useState<ClientePossibile | null>(null);
+  const [schedaFor, setSchedaFor] = useState<ClientePossibile | null>(null);
+  const [collegaMadre, setCollegaMadre] = useState<ClientePossibile | null>(
+    null
+  );
+  const [collegaScelte, setCollegaScelte] = useState<CollegamentoScelte | null>(
+    null
+  );
   const [deleting, setDeleting] = useState<ClientePossibile | null>(null);
   const [duplicati, setDuplicati] = useState<AnagraficaDuplicatoHit[] | null>(
     null
@@ -226,6 +285,10 @@ export function PossibiliClientiBoard() {
     commercialeArea: defaultCommercialeArea,
   });
   const filtered = useMemo(() => filterClienti(items, filters), [items, filters]);
+  const elenco = useMemo(
+    () => elencoCollegato(items, filtered),
+    [items, filtered]
+  );
   const cittaOptions = useMemo(() => uniqueClientiCitta(items), [items]);
 
   function reload() {
@@ -362,7 +425,8 @@ export function PossibiliClientiBoard() {
           </button>
         </div>
       ) : (
-        <div className="overflow-x-auto rounded-xl border border-[var(--border)] bg-[var(--card)]">
+        <div className="flex flex-col items-start gap-3 xl:flex-row">
+        <div className="min-w-0 flex-1 overflow-x-auto rounded-xl border border-[var(--border)] bg-[var(--card)]">
           <table className="w-full min-w-[780px] text-left text-sm">
             <thead className="bg-slate-50 text-xs uppercase tracking-wide text-[var(--muted)]">
               <tr>
@@ -378,20 +442,125 @@ export function PossibiliClientiBoard() {
               </tr>
             </thead>
             <tbody>
-              {filtered.map((lead) => (
+              {elenco.map(({ item: lead, nested, hasFiglie }) => (
                 <PossibileClienteRow
                   key={lead.id}
                   lead={lead}
+                  nested={nested}
+                  hasFiglie={hasFiglie}
+                  schedaAperta={schedaFor?.id === lead.id}
                   prodottiByCode={prodottiByCode}
                   lineageIds={lineageIds}
                   onEdit={(item) => setEditingLead(item)}
                   onTimeline={(item) => setTimelineFor(item)}
+                  onScheda={(item) => setSchedaFor(item)}
+                  onCollega={
+                    !nested && !lead.isPrivato
+                      ? (item) => {
+                          setSchedaFor(item);
+                          setCollegaMadre(item);
+                          setCollegaScelte(null);
+                        }
+                      : undefined
+                  }
                 />
               ))}
             </tbody>
           </table>
         </div>
+        {schedaFor ? (
+          <SchedaDock
+            anchorId={schedaFor.id}
+            tone={schedaFor.aziendaMadreId ? "figlia" : "madre"}
+            title="Scheda possibile cliente"
+            subtitle={
+              schedaFor.tipologiaRispettoMadre
+                ? `${schedaFor.ragioneSociale} · ${schedaFor.tipologiaRispettoMadre}`
+                : schedaFor.ragioneSociale
+            }
+            onClose={() => setSchedaFor(null)}
+            onCollega={
+              !schedaFor.aziendaMadreId && !schedaFor.isPrivato
+                ? () => {
+                    setCollegaMadre(schedaFor);
+                    setCollegaScelte(null);
+                  }
+                : undefined
+            }
+          >
+            <AnagraficaSchedaDetail
+              prodottiByCode={prodottiByCode}
+              model={{
+                id: schedaFor.id,
+                kind: "cliente_possibile",
+                ragioneSociale: schedaFor.ragioneSociale,
+                partitaIva: schedaFor.partitaIva,
+                codiceFiscale: schedaFor.codiceFiscale,
+                isPrivato: schedaFor.isPrivato,
+                email: schedaFor.email,
+                pec: schedaFor.pec,
+                sdiCode: schedaFor.sdiCode,
+                telefono: schedaFor.telefono,
+                sitoWeb: schedaFor.sitoWeb,
+                emailGeneriche: schedaFor.emailGeneriche,
+                telefoniGenerici: schedaFor.telefoniGenerici,
+                sitiWebGenerici: schedaFor.sitiWebGenerici,
+                sedeAmministrativa: schedaFor.sedeAmministrativa,
+                sedeMagazzino: schedaFor.sedeMagazzino,
+                consegneAltraAzienda: schedaFor.consegneAltraAzienda,
+                prodotti: schedaFor.prodottiInteressati,
+                prodottiLabel: "Prodotti interessati",
+                commercialeLabel: formatCommercialeAssegnazione(schedaFor),
+                trattativa: schedaFor.trattativa,
+                statoLabel: statoLabel(schedaFor.stato),
+                referente: schedaFor.referente,
+                noteInterne: schedaFor.noteInterne,
+              }}
+            />
+          </SchedaDock>
+        ) : null}
+        </div>
       )}
+
+      {collegaMadre && !collegaScelte ? (
+        <CollegaAziendaScelteModal
+          madreLabel={collegaMadre.ragioneSociale}
+          onClose={() => setCollegaMadre(null)}
+          onContinue={(scelte) => {
+            setCollegaScelte(scelte);
+            setSchedaFor(null);
+          }}
+        />
+      ) : null}
+
+      {collegaMadre && collegaScelte ? (
+        <ClienteFormModal
+          mode="create"
+          variant="possibile"
+          collega={{
+            madre: clienteSchedaFromPossibile(collegaMadre),
+            scelte: collegaScelte,
+          }}
+          onClose={() => {
+            setCollegaMadre(null);
+            setCollegaScelte(null);
+          }}
+          onSave={async (values) => {
+            const res = await createClientePossibileAction(values);
+            if (!res.success) {
+              if (res.duplicati?.length) setDuplicati(res.duplicati);
+              setError(res.error);
+              return false;
+            }
+            setCollegaMadre(null);
+            setCollegaScelte(null);
+            setError(null);
+            reload();
+            setSchedaFor(res.item);
+            return { id: res.item.id };
+          }}
+        />
+      ) : null}
 
       {showLeadForm ? (
         <ClienteFormModal

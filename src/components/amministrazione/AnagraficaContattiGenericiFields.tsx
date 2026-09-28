@@ -7,6 +7,7 @@ import {
   CanaleCallButton,
   CanaleMailButton,
 } from "@/components/amministrazione/CanaleAttenzioneControls";
+import { GhostConfirmInput } from "@/components/amministrazione/GhostConfirmField";
 import { CONTATTI_GENERICI_REMINDER } from "@/lib/amministrazione/contatti-generici";
 import type { ContattoCanaleKind } from "@/lib/amministrazione/contatto-canale-attenzione";
 
@@ -34,6 +35,17 @@ type Props = {
   reminderTick: number;
   onAdd: (kind: Kind) => void;
   afterTelefono?: ReactNode;
+  ghost?: {
+    email: string;
+    telefono: string;
+    sitoWeb: string;
+    emailConfirmed: boolean;
+    telefonoConfirmed: boolean;
+    sitoConfirmed: boolean;
+    onEmail: (value: string, confirmed: boolean) => void;
+    onTelefono: (value: string, confirmed: boolean) => void;
+    onSito: (value: string, confirmed: boolean) => void;
+  };
 };
 
 function ExtraList({
@@ -108,6 +120,7 @@ export function AnagraficaContattiGenericiFields({
   reminderTick,
   onAdd,
   afterTelefono,
+  ghost,
 }: Props) {
   const reminderRef = useRef<HTMLParagraphElement>(null);
 
@@ -121,12 +134,23 @@ export function AnagraficaContattiGenericiFields({
       <div className="block text-sm">
         <span className="mb-1 block font-medium">Mail</span>
         <div className="flex items-center gap-2">
+          {ghost ? (
+            <GhostConfirmInput
+              type="email"
+              suggestion={ghost.email}
+              value={email}
+              confirmed={ghost.emailConfirmed}
+              onChange={ghost.onEmail}
+              className="w-full rounded-lg border border-[var(--border)] px-3 py-2 outline-none focus:border-[var(--primary)]"
+            />
+          ) : (
           <input
             type="email"
             value={email}
             onChange={(e) => onEmailChange(e.target.value)}
             className="min-w-0 flex-1 rounded-lg border border-[var(--border)] px-3 py-2 outline-none focus:border-[var(--primary)]"
           />
+          )}
           <CanaleAttenzioneButton canale="email" valore={email} />
           <CanaleMailButton valore={email} />
         </div>
@@ -150,11 +174,21 @@ export function AnagraficaContattiGenericiFields({
       <div className="block text-sm">
         <span className="mb-1 block font-medium">Telefono</span>
         <div className="flex items-center gap-2">
+          {ghost ? (
+            <GhostConfirmInput
+              suggestion={ghost.telefono}
+              value={telefono}
+              confirmed={ghost.telefonoConfirmed}
+              onChange={ghost.onTelefono}
+              className="w-full rounded-lg border border-[var(--border)] px-3 py-2 outline-none focus:border-[var(--primary)]"
+            />
+          ) : (
           <input
             value={telefono}
             onChange={(e) => onTelefonoChange(e.target.value)}
             className="min-w-0 flex-1 rounded-lg border border-[var(--border)] px-3 py-2 outline-none focus:border-[var(--primary)]"
           />
+          )}
           <CanaleAttenzioneButton canale="telefono" valore={telefono} />
           <CanaleCallButton valore={telefono} />
         </div>
@@ -178,6 +212,18 @@ export function AnagraficaContattiGenericiFields({
 
       <label className="block text-sm">
         <span className="mb-1 block font-medium">Sito Web</span>
+        {ghost ? (
+          <GhostConfirmInput
+            type="text"
+            inputMode="url"
+            placeholder="https://"
+            suggestion={ghost.sitoWeb}
+            value={sitoWeb}
+            confirmed={ghost.sitoConfirmed}
+            onChange={ghost.onSito}
+            className="w-full rounded-lg border border-[var(--border)] px-3 py-2 outline-none focus:border-[var(--primary)]"
+          />
+        ) : (
         <input
           type="text"
           inputMode="url"
@@ -186,6 +232,7 @@ export function AnagraficaContattiGenericiFields({
           onChange={(e) => onSitoWebChange(e.target.value)}
           className="w-full rounded-lg border border-[var(--border)] px-3 py-2 outline-none focus:border-[var(--primary)]"
         />
+        )}
       </label>
       <ExtraList
         values={sitoExtra}

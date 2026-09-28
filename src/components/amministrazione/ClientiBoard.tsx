@@ -32,7 +32,16 @@ import {
 import { AZ } from "@/lib/auth/action-access";
 import { getCommercialeAnagraficaContextAction } from "@/app/actions/commerciale-anagrafica";
 import { AziendaTimelineModal } from "@/components/amministrazione/AziendaTimelineModal";
+import { CollegaAziendaScelteModal } from "@/components/amministrazione/CollegaAziendaScelteModal";
 import { ClienteFormModal } from "@/components/amministrazione/ClienteFormModal";
+import {
+  AziendaFigliaRaccordo,
+  SchedaDock,
+} from "@/components/amministrazione/SchedaDock";
+import {
+  elencoCollegato,
+  type CollegamentoScelte,
+} from "@/lib/amministrazione/azienda-collegata";
 import { ClientiFiltersPanel } from "@/components/amministrazione/ClientiFiltersPanel";
 import { CodiceTargaBadge } from "@/components/amministrazione/CodiceTargaBadge";
 import { FatturaSyncQueueModal } from "@/components/amministrazione/FatturaSyncQueueModal";
@@ -71,6 +80,10 @@ function ClienteRow({
   onToggleSelect,
   lineageIds,
   isSuperAdmin,
+  nested = false,
+  hasFiglie = false,
+  schedaAperta = false,
+  onCollega,
 }: {
   cliente: Cliente;
   onEdit: (cliente: Cliente) => void;
@@ -82,6 +95,10 @@ function ClienteRow({
   onToggleSelect: (id: string) => void;
   lineageIds: string[];
   isSuperAdmin: boolean;
+  nested?: boolean;
+  hasFiglie?: boolean;
+  schedaAperta?: boolean;
+  onCollega?: (cliente: Cliente) => void;
 }) {
   const [open, setOpen] = useState(false);
   const priv = useAnagraficaPrivileges("cliente");
@@ -101,7 +118,12 @@ function ClienteRow({
 
   return (
     <>
-      <tr className="border-t border-[var(--border)]">
+      <tr
+        data-azienda-row={cliente.id}
+        className={`border-t border-[var(--border)] ${
+          nested ? "bg-sky-50" : hasFiglie ? "bg-amber-50" : ""
+        } ${schedaAperta ? "ring-2 ring-inset ring-sky-500" : ""}`}
+      >
         {selectMode ? (
           <td className="px-3 py-3">
             <input
@@ -117,7 +139,8 @@ function ClienteRow({
           <CodiceTargaBadge code={cliente.codiceTarga} />
         </td>
         <td className="px-4 py-3 font-semibold">
-          <span className="inline-flex items-center gap-2">
+          <span className={`inline-flex items-center gap-2 ${nested ? "pl-2" : ""}`}>
+            {nested ? <AziendaFigliaRaccordo /> : null}
             {cliente.isPrivato ? (
               <span
                 title="Cliente privato"
@@ -127,7 +150,14 @@ function ClienteRow({
                 <FaUser size={13} />
               </span>
             ) : null}
-            {cliente.ragioneSociale}
+            <span>
+              {cliente.ragioneSociale}
+              {nested && cliente.tipologiaRispettoMadre ? (
+                <span className="mt-0.5 block text-[10px] font-normal text-sky-900">
+                  {cliente.tipologiaRispettoMadre}
+                </span>
+              ) : null}
+            </span>
             {cliente.cancellazionePrenotata ? (
               <span className="rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-semibold uppercase text-amber-900">
                 Canc. prenotata
@@ -193,6 +223,15 @@ function ClienteRow({
               <FaClockRotateLeft size={11} />
               Timeline
             </button>
+            ) : null}
+            {onCollega && canEdit ? (
+              <button
+                type="button"
+                onClick={() => onCollega(cliente)}
+                className="inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-xs font-medium text-sky-800 hover:bg-sky-100"
+              >
+                Collega azienda
+              </button>
             ) : null}
             {canOpenScheda ? (
             <button
@@ -290,6 +329,10 @@ export function ClientiBoard() {
   const [editing, setEditing] = useState<Cliente | null>(null);
   const [timelineFor, setTimelineFor] = useState<Cliente | null>(null);
   const [schedaCompleta, setSchedaCompleta] = useState<Cliente | null>(null);
+  const [collegaMadre, setCollegaMadre] = useState<Cliente | null>(null);
+  const [collegaScelte, setCollegaScelte] = useState<CollegamentoScelte | null>(
+    null
+  );
   const [deleting, setDeleting] = useState<Cliente | null>(null);
   const [confirmingCanc, setConfirmingCanc] = useState<Cliente | null>(null);
   const [pendingCanc, setPendingCanc] = useState<
@@ -392,6 +435,10 @@ export function ClientiBoard() {
   const filtered = useMemo(
     () => filterClienti(clienti, filters),
     [clienti, filters]
+  );
+  const elenco = useMemo(
+    () => elencoCollegato(clienti, filtered),
+    [clienti, filtered]
   );
 
   const cittaOptions = useMemo(() => uniqueClientiCitta(clienti), [clienti]);
@@ -646,7 +693,8 @@ export function ClientiBoard() {
           </button>
         </div>
       ) : (
-        <div className="overflow-x-auto rounded-xl border border-[var(--border)] bg-[var(--card)]">
+        <div className="flex flex-col items-start gap-3 xl:flex-row">
+        <div className="min-w-0 flex-1 overflow-x-auto rounded-xl border border-[var(--border)] bg-[var(--card)]">
           {pdfSelectMode && (
             <div className="flex flex-wrap items-center justify-between gap-2 border-b border-[var(--border)] bg-slate-50 px-4 py-2 text-xs">
               <span className="font-medium text-slate-700">
@@ -690,10 +738,13 @@ export function ClientiBoard() {
               </tr>
             </thead>
             <tbody>
-              {filtered.map((cliente) => (
+              {elenco.map(({ item: cliente, nested, hasFiglie }) => (
                 <ClienteRow
                   key={cliente.id}
                   cliente={cliente}
+                  nested={nested}
+                  hasFiglie={hasFiglie}
+                  schedaAperta={schedaCompleta?.id === cliente.id}
                   prodottiByCode={prodottiByCode}
                   selectMode={pdfSelectMode}
                   selected={selectedIds.has(cliente.id)}
@@ -704,12 +755,55 @@ export function ClientiBoard() {
                   }}
                   onTimeline={(item) => setTimelineFor(item)}
                   onSchedaCompleta={(item) => setSchedaCompleta(item)}
+                  onCollega={
+                    !nested && !cliente.isPrivato
+                      ? (item) => {
+                          setSchedaCompleta(item);
+                          setCollegaMadre(item);
+                          setCollegaScelte(null);
+                        }
+                      : undefined
+                  }
                   lineageIds={lineageIds}
                   isSuperAdmin={bypassPrivileges}
                 />
               ))}
             </tbody>
           </table>
+        </div>
+        {schedaCompleta ? (
+          <SchedaDock
+            anchorId={schedaCompleta.id}
+            tone={schedaCompleta.aziendaMadreId ? "figlia" : "madre"}
+            title="Scheda completa"
+            subtitle={
+              schedaCompleta.aziendaMadreId
+                ? `${schedaCompleta.codiceTarga} · ${schedaCompleta.ragioneSociale}${
+                    schedaCompleta.tipologiaRispettoMadre
+                      ? ` · ${schedaCompleta.tipologiaRispettoMadre}`
+                      : ""
+                  }`
+                : `${schedaCompleta.codiceTarga} · ${schedaCompleta.ragioneSociale}`
+            }
+            onClose={() => setSchedaCompleta(null)}
+            onCollega={
+              !schedaCompleta.aziendaMadreId && !schedaCompleta.isPrivato
+                ? () => {
+                    setCollegaMadre(schedaCompleta);
+                    setCollegaScelte(null);
+                  }
+                : undefined
+            }
+          >
+            <ClienteSchedaCompletaModal
+              embedded
+              cliente={schedaCompleta}
+              prodottiByCode={prodottiByCode}
+              lineageIds={lineageIds}
+              onClose={() => setSchedaCompleta(null)}
+            />
+          </SchedaDock>
+        ) : null}
         </div>
       )}
 
@@ -796,12 +890,37 @@ export function ClientiBoard() {
         />
       ) : null}
 
-      {schedaCompleta ? (
-        <ClienteSchedaCompletaModal
-          cliente={schedaCompleta}
-          prodottiByCode={prodottiByCode}
-          lineageIds={lineageIds}
-          onClose={() => setSchedaCompleta(null)}
+      {collegaMadre && !collegaScelte ? (
+        <CollegaAziendaScelteModal
+          madreLabel={collegaMadre.ragioneSociale}
+          onClose={() => setCollegaMadre(null)}
+          onContinue={(scelte) => {
+            setCollegaScelte(scelte);
+            setSchedaCompleta(null);
+          }}
+        />
+      ) : null}
+
+      {collegaMadre && collegaScelte ? (
+        <ClienteFormModal
+          mode="create"
+          collega={{ madre: collegaMadre, scelte: collegaScelte }}
+          onClose={() => {
+            setCollegaMadre(null);
+            setCollegaScelte(null);
+          }}
+          onSave={async (values) => {
+            const created = await addCliente(values);
+            if (created) {
+              setSaveError(null);
+              setCollegaMadre(null);
+              setCollegaScelte(null);
+              setSchedaCompleta(created);
+              return { id: created.id };
+            }
+            setSaveError("Salvataggio non riuscito. Riprova.");
+            return false;
+          }}
         />
       ) : null}
 

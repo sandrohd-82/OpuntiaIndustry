@@ -13,6 +13,11 @@ import { AZ } from "@/lib/auth/action-access";
 import { PossibileClienteFormModal } from "@/components/amministrazione/PossibileClienteFormModal";
 import { FieldLoadingOverlay } from "@/components/ui/SelectMenu";
 import { useClientiPossibili } from "@/hooks/useClientiPossibili";
+import {
+  collegamentoAttivo,
+  sceltaConConsiglio,
+  type CollegamentoPreferenza,
+} from "@/lib/amministrazione/azienda-collegata";
 import type { ClientePossibile } from "@/lib/promemorie-e-note/types";
 import { CommercialeAreaFilterSelect } from "@/components/amministrazione/CommercialeAreaFilterSelect";
 import { useCommercialeAreaFilter } from "@/hooks/useCommercialeAreaFilter";
@@ -28,6 +33,7 @@ type Props = {
   autoFocus?: boolean;
   required?: boolean;
   id?: string;
+  preferenza?: CollegamentoPreferenza;
 };
 
 function normalizeSearch(s: string) {
@@ -54,6 +60,7 @@ export function PossibileClienteSelectField({
   autoFocus,
   required = true,
   id,
+  preferenza,
 }: Props) {
   const { items, ready, error, addPossibile } = useClientiPossibili();
   const {
@@ -73,6 +80,8 @@ export function PossibileClienteSelectField({
     setCommercialeArea(defaultArea);
   }, [filterReady, defaultArea]);
   const [open, setOpen] = useState(false);
+  const [consiglioNotice, setConsiglioNotice] = useState<string | null>(null);
+  const bouncedFrom = useRef<string | null>(null);
   const [highlight, setHighlight] = useState(0);
   const rootRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -131,6 +140,22 @@ export function PossibileClienteSelectField({
   }, [selected]);
 
   function pick(lead: ClientePossibile | null) {
+    if (lead && preferenza) {
+      const scelta = sceltaConConsiglio(
+        items,
+        lead,
+        preferenza,
+        bouncedFrom.current
+      );
+      bouncedFrom.current = scelta.bouncedFrom;
+      setConsiglioNotice(scelta.notice);
+      onChange(scelta.next);
+      setQuery(labelLead(scelta.next));
+      setOpen(false);
+      return;
+    }
+    bouncedFrom.current = null;
+    setConsiglioNotice(null);
     onChange(lead);
     setQuery(lead ? labelLead(lead) : "");
     setOpen(false);
@@ -228,12 +253,21 @@ export function PossibileClienteSelectField({
                       onMouseEnter={() => setHighlight(i)}
                       onClick={() => pick(c)}
                       className={`flex w-full flex-col px-3 py-1.5 text-left text-sm ${
+                        c.aziendaMadreId ? "pl-7" : ""
+                      } ${
                         i === highlight || c.id === value
                           ? "bg-slate-100"
                           : "hover:bg-slate-50"
                       }`}
                     >
-                      <span className="font-medium">{c.ragioneSociale}</span>
+                      <span className="font-medium">
+                        {c.ragioneSociale}
+                        {preferenza && collegamentoAttivo(c, preferenza) ? (
+                          <span className="ml-2 rounded bg-sky-100 px-1.5 py-0.5 text-[10px] font-semibold uppercase text-sky-900">
+                            Consigliato
+                          </span>
+                        ) : null}
+                      </span>
                       <span className="text-xs text-[var(--muted)]">
                         {statoLabel(c.stato)}
                         {c.partitaIva ? ` · P.IVA ${c.partitaIva}` : ""}
@@ -262,6 +296,9 @@ export function PossibileClienteSelectField({
         </ActionGate>
       </div>
 
+      {consiglioNotice ? (
+        <p className="text-xs text-sky-800">{consiglioNotice}</p>
+      ) : null}
       {(error || saveError) && (
         <p className="text-xs text-red-600">{saveError || error}</p>
       )}

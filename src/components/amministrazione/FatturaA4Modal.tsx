@@ -616,6 +616,7 @@ export function FatturaA4Modal({
 
       {editKind === "intestazione" && destPicker ? (
         <PreventivoDestinatarioModal
+          preferenza="fatture"
           value={destPicker}
           onChange={(next) => {
             if (next) setDestinatario(destinatarioFromPreventivo(next));

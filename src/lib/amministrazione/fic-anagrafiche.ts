@@ -327,6 +327,12 @@ export function draftToClientePreview(
     commercialeId: null,
     commercialeNome: "",
     commercialeGrado: null,
+    aziendaMadreId: null,
+    inviaPreventivi: true,
+    fatturare: true,
+    inviaCampionature: true,
+    inviaProdotti: true,
+    tipologiaRispettoMadre: "",
   };
 }
 

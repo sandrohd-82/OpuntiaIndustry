@@ -322,6 +322,7 @@ export function OrdineFormModal({
             <span className="mb-1 block font-medium">Cliente</span>
             {mode === "create" ? (
               <AziendaOrdineSelect
+                preferenza="prodotti"
                 fonte={anagraficaFonte}
                 clienteId={clienteId}
                 possibileClienteId={possibileClienteId}
@@ -341,6 +342,7 @@ export function OrdineFormModal({
               />
             ) : (
               <ClienteSelectField
+                preferenza="prodotti"
                 value={clienteId}
                 onChange={(cliente) => {
                   setClienteId(cliente?.id ?? "");

@@ -64,6 +64,14 @@ export type Cliente = {
   /** Prenotazione cancellazione in attesa di Super Admin. */
   cancellazionePrenotata?: boolean;
   cancellazioneId?: string | null;
+  /** Null = scheda madre o azienda singola. */
+  aziendaMadreId: string | null;
+  /** Figlia: destinatario consigliato, non obbligatorio. */
+  inviaPreventivi: boolean;
+  fatturare: boolean;
+  inviaCampionature: boolean;
+  inviaProdotti: boolean;
+  tipologiaRispettoMadre: string;
 };
 
 export type ClienteInput = {
@@ -92,6 +100,12 @@ export type ClienteInput = {
   trattativa?: ClientePossibileTrattativa;
   sedi?: AnagraficaSedeInput[];
   brand?: AnagraficaBrandInput[];
+  aziendaMadreId?: string | null;
+  inviaPreventivi?: boolean;
+  fatturare?: boolean;
+  inviaCampionature?: boolean;
+  inviaProdotti?: boolean;
+  tipologiaRispettoMadre?: string;
 };
 
 export { emptySede, formatSedeBreve };
@@ -156,6 +170,12 @@ export function normalizeClienteInput(input: ClienteInput): ClienteInput {
     trattativa: input.trattativa,
     sedi: input.sedi,
     brand: input.brand,
+    aziendaMadreId: input.aziendaMadreId ?? null,
+    inviaPreventivi: input.inviaPreventivi,
+    fatturare: input.fatturare,
+    inviaCampionature: input.inviaCampionature,
+    inviaProdotti: input.inviaProdotti,
+    tipologiaRispettoMadre: input.tipologiaRispettoMadre?.trim() ?? "",
   };
 }
 
@@ -285,6 +305,12 @@ export function mapClienteRow(
         : null,
     cancellazionePrenotata: false,
     cancellazioneId: null,
+    aziendaMadreId: row.azienda_madre_id ? String(row.azienda_madre_id) : null,
+    inviaPreventivi: row.invia_preventivi !== false,
+    fatturare: row.fatturare !== false,
+    inviaCampionature: row.invia_campionature !== false,
+    inviaProdotti: row.invia_prodotti !== false,
+    tipologiaRispettoMadre: row.tipologia_rispetto_madre ?? "",
   };
 }
 

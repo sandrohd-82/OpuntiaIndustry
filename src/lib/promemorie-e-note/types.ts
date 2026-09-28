@@ -137,6 +137,12 @@ export type ClientePossibile = {
   commercialeId: string | null;
   commercialeNome: string;
   commercialeGrado: "senior" | "professional" | "executive" | null;
+  aziendaMadreId: string | null;
+  inviaPreventivi: boolean;
+  fatturare: boolean;
+  inviaCampionature: boolean;
+  inviaProdotti: boolean;
+  tipologiaRispettoMadre: string;
 };
 
 export const createPromemoriaSchema = z.object({
@@ -317,6 +323,12 @@ export const createClientePossibileSchema = z.object({
   referente: z.string().trim().max(120).optional().default(""),
   noteInterne: z.string().trim().max(2000).optional().default(""),
   trattativa: z.enum(CLIENTE_POSSIBILE_TRATTATIVE).optional().default("da_creare"),
+  aziendaMadreId: z.string().uuid().nullable().optional(),
+  inviaPreventivi: z.boolean().optional(),
+  fatturare: z.boolean().optional(),
+  inviaCampionature: z.boolean().optional(),
+  inviaProdotti: z.boolean().optional(),
+  tipologiaRispettoMadre: z.string().trim().max(500).optional().default(""),
 });
 
 export function emptyClientePossibileSedi() {
@@ -350,6 +362,12 @@ export function clienteFromPossibile(lead: ClientePossibile): Cliente {
     commercialeNome: lead.commercialeNome,
     commercialeGrado: lead.commercialeGrado,
     trattativa: lead.trattativa,
+    aziendaMadreId: lead.aziendaMadreId,
+    inviaPreventivi: lead.inviaPreventivi,
+    fatturare: lead.fatturare,
+    inviaCampionature: lead.inviaCampionature,
+    inviaProdotti: lead.inviaProdotti,
+    tipologiaRispettoMadre: lead.tipologiaRispettoMadre,
   };
 }
 

@@ -1940,6 +1940,7 @@ export function FatturaRegistrazioneModal({
                 </div>
               ) : kind === "emessa" || kind === "nota_credito" ? (
                 <ClienteSelectField
+                  preferenza="fatture"
                   value={anagraficaId}
                   onChange={(c) => {
                     setAnagraficaId(c?.id ?? "");

@@ -5,6 +5,7 @@ import { PossibileClienteSelectField } from "@/components/amministrazione/Possib
 import { useClienti } from "@/hooks/useClienti";
 import type { Cliente } from "@/lib/amministrazione/clienti";
 import type { AnagraficaOrdineFonte } from "@/lib/amministrazione/ordine-anagrafica";
+import type { CollegamentoPreferenza } from "@/lib/amministrazione/azienda-collegata";
 import type { ClientePossibile } from "@/lib/promemorie-e-note/types";
 
 export type AziendaOrdineSelection = {
@@ -21,6 +22,7 @@ type Props = {
   onChange: (selection: AziendaOrdineSelection) => void;
   autoFocus?: boolean;
   allowFonteSwitch?: boolean;
+  preferenza?: CollegamentoPreferenza;
 };
 
 export function AziendaOrdineSelect({
@@ -31,6 +33,7 @@ export function AziendaOrdineSelect({
   onChange,
   autoFocus,
   allowFonteSwitch = true,
+  preferenza,
 }: Props) {
   const { clienti } = useClienti();
 
@@ -74,6 +77,7 @@ export function AziendaOrdineSelect({
         <ClienteSelectField
           value={clienteId}
           autoFocus={autoFocus}
+          preferenza={preferenza}
           onChange={(cliente) =>
             onChange({ fonte: "cliente", cliente, possibile: null })
           }
@@ -81,6 +85,7 @@ export function AziendaOrdineSelect({
       ) : (
         <PossibileClienteSelectField
           value={possibileClienteId}
+          preferenza={preferenza}
           autoFocus={autoFocus}
           onChange={(possibile) => {
             const existing =

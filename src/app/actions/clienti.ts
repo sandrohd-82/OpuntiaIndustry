@@ -18,6 +18,7 @@ import {
 } from "@/app/actions/anagrafica-extra";
 import { markAnagraficaArchivioRipescatoAction } from "@/app/actions/anagrafiche-archivio";
 import { writeAuditLog } from "@/lib/audit";
+import { fiscalConflictMessage } from "@/lib/amministrazione/azienda-collegata";
 import { normalizeVatKey } from "@/lib/amministrazione/fic-anagrafiche";
 import { fraseConfermaSoftDelete } from "@/lib/soft-delete";
 import { requireAnyAreaAccess, requireAreaAccess } from "@/lib/areas/guard";
@@ -80,64 +81,49 @@ async function loadUsedCodiciTarga(): Promise<string[]> {
   return [...new Set([...active, ...softBusy])];
 }
 
-async function assertPartitaIvaUnica(
+async function assertFiscaliFamiglia(
   supabase: Awaited<ReturnType<typeof createClient>>,
-  partitaIva: string,
-  excludeId?: string
+  input: {
+    partitaIva: string;
+    codiceFiscale: string;
+    selfId?: string;
+    madreId?: string | null;
+  }
 ): Promise<string | null> {
-  const vat = normalizeVatKey(partitaIva);
-  if (!vat) return null;
+  if (!normalizeVatKey(input.partitaIva) && !normalizeVatKey(input.codiceFiscale)) {
+    return null;
+  }
   const { data, error } = await supabase
     .from("clienti")
-    .select("id, partita_iva, codice_targa, ragione_sociale")
+    .select(
+      "id, partita_iva, codice_fiscale, codice_targa, ragione_sociale, azienda_madre_id"
+    )
     .is("deleted_at", null);
   if (error) return error.message;
-  const dup = (
+  const rows = (
     (data ?? []) as Array<{
       id: string;
       partita_iva: string;
-      codice_targa: string;
-      ragione_sociale: string;
-    }>
-  ).find(
-    (row) =>
-      normalizeVatKey(row.partita_iva) === vat &&
-      (!excludeId || row.id !== excludeId)
-  );
-  if (dup) {
-    return `P. IVA già presente su ${dup.codice_targa} — ${dup.ragione_sociale}.`;
-  }
-  return null;
-}
-
-async function assertCodiceFiscaleUnico(
-  supabase: Awaited<ReturnType<typeof createClient>>,
-  codiceFiscale: string,
-  excludeId?: string
-): Promise<string | null> {
-  const cf = normalizeVatKey(codiceFiscale);
-  if (!cf) return null;
-  const { data, error } = await supabase
-    .from("clienti")
-    .select("id, codice_fiscale, codice_targa, ragione_sociale")
-    .is("deleted_at", null);
-  if (error) return error.message;
-  const dup = (
-    (data ?? []) as Array<{
-      id: string;
       codice_fiscale: string;
       codice_targa: string;
       ragione_sociale: string;
+      azienda_madre_id: string | null;
     }>
-  ).find(
-    (row) =>
-      normalizeVatKey(row.codice_fiscale) === cf &&
-      (!excludeId || row.id !== excludeId)
-  );
-  if (dup) {
-    return `Codice fiscale già presente su ${dup.codice_targa} — ${dup.ragione_sociale}.`;
-  }
-  return null;
+  ).map((row) => ({
+    id: row.id,
+    partitaIva: row.partita_iva ?? "",
+    codiceFiscale: row.codice_fiscale ?? "",
+    codiceTarga: row.codice_targa,
+    ragioneSociale: row.ragione_sociale,
+    aziendaMadreId: row.azienda_madre_id,
+  }));
+  return fiscalConflictMessage({
+    rows,
+    selfId: input.selfId,
+    madreId: input.madreId,
+    partitaIva: input.partitaIva,
+    codiceFiscale: input.codiceFiscale,
+  });
 }
 
 export async function previewNextCodiceTargaClienteAction(): Promise<
@@ -239,16 +225,20 @@ export async function createClienteAction(
     return { success: false, error: fiscalErr };
   }
 
-  const vatError = await assertPartitaIvaUnica(
-    supabase,
-    normalized.partitaIva
-  );
-  if (vatError) return { success: false, error: vatError };
-  const cfError = await assertCodiceFiscaleUnico(
-    supabase,
-    normalized.codiceFiscale
-  );
-  if (cfError) return { success: false, error: cfError };
+  const madreId = normalized.aziendaMadreId?.trim() || null;
+  const tipologiaMadre = normalized.tipologiaRispettoMadre?.trim() ?? "";
+  if (madreId && !tipologiaMadre) {
+    return {
+      success: false,
+      error: "Indica di cosa si occupa l’azienda rispetto alla madre.",
+    };
+  }
+  const fiscalFamilyError = await assertFiscaliFamiglia(supabase, {
+    partitaIva: normalized.partitaIva,
+    codiceFiscale: normalized.codiceFiscale,
+    madreId,
+  });
+  if (fiscalFamilyError) return { success: false, error: fiscalFamilyError };
 
   let codiceTarga: string;
   try {
@@ -295,6 +285,16 @@ export async function createClienteAction(
     }),
     created_by: auth.userId,
     updated_by: auth.userId,
+    ...(madreId
+      ? {
+          azienda_madre_id: madreId,
+          invia_preventivi: normalized.inviaPreventivi !== false,
+          fatturare: normalized.fatturare !== false,
+          invia_campionature: normalized.inviaCampionature !== false,
+          invia_prodotti: normalized.inviaProdotti !== false,
+          tipologia_rispetto_madre: tipologiaMadre,
+        }
+      : {}),
   };
 
   const { data, error } = await supabase
@@ -337,10 +337,14 @@ export async function createClienteAction(
     entity_id: row.id,
     action: "create",
     actor_id: auth.userId,
-    summary: `Creata scheda cliente ${row.codice_targa}`,
+    summary: madreId
+      ? `Creata scheda cliente ${row.codice_targa} collegata a un'azienda madre`
+      : `Creata scheda cliente ${row.codice_targa}`,
     payload: {
       codice_targa: row.codice_targa,
       ragione_sociale: row.ragione_sociale,
+      azienda_madre_id: madreId,
+      tipologia_rispetto_madre: tipologiaMadre,
     },
   });
 
@@ -376,7 +380,7 @@ export async function updateClienteAction(
   const supabase = await createClient();
   const { data: existingCliente } = await supabase
     .from("clienti")
-    .select("created_by, commerciale_id")
+    .select("created_by, commerciale_id, azienda_madre_id")
     .eq("id", id)
     .is("deleted_at", null)
     .maybeSingle();
@@ -398,18 +402,15 @@ export async function updateClienteAction(
     return { success: false, error: fiscalErr };
   }
 
-  const vatError = await assertPartitaIvaUnica(
-    supabase,
-    normalized.partitaIva,
-    id
-  );
-  if (vatError) return { success: false, error: vatError };
-  const cfError = await assertCodiceFiscaleUnico(
-    supabase,
-    normalized.codiceFiscale,
-    id
-  );
-  if (cfError) return { success: false, error: cfError };
+  const fiscalFamilyError = await assertFiscaliFamiglia(supabase, {
+    partitaIva: normalized.partitaIva,
+    codiceFiscale: normalized.codiceFiscale,
+    selfId: id,
+    madreId: existingCliente?.azienda_madre_id
+      ? String(existingCliente.azienda_madre_id)
+      : null,
+  });
+  if (fiscalFamilyError) return { success: false, error: fiscalFamilyError };
 
   const { data, error } = await supabase
     .from("clienti")

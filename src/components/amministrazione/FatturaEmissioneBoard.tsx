@@ -219,6 +219,7 @@ export function FatturaEmissioneBoard() {
           Cliente
         </h2>
         <ClienteSelectField
+          preferenza="fatture"
           value={cliente?.id ?? ""}
           onChange={setCliente}
           required

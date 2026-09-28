@@ -39,6 +39,15 @@ import { ReferentiPickerField } from "@/components/amministrazione/ReferentiPick
 import { CommercialeAssignField } from "@/components/amministrazione/CommercialeAssignField";
 import { AnagraficaContattiGenericiFields } from "@/components/amministrazione/AnagraficaContattiGenericiFields";
 import { CanaleInputRow } from "@/components/amministrazione/CanaleAttenzioneControls";
+import {
+  GhostBlockConfirm,
+  GhostConfirmInput,
+} from "@/components/amministrazione/GhostConfirmField";
+import {
+  anteprimaSediMadre,
+  etichetteConsiglio,
+  type CollegamentoScelte,
+} from "@/lib/amministrazione/azienda-collegata";
 import { CONTATTI_GENERICI_MAX_ITEMS } from "@/lib/amministrazione/contatti-generici";
 import type { FatturaKind } from "@/lib/amministrazione/fatture";
 import {
@@ -95,6 +104,8 @@ type Props = {
   onConfirmCancellazione?: () => void;
   /** Super Admin: rifiuta la prenotazione. */
   onRifiutaCancellazione?: () => void;
+  /** Nuova scheda collegata: i campi della madre sono solo un suggerimento. */
+  collega?: { madre: Cliente; scelte: CollegamentoScelte } | null;
 };
 
 function isSedeFilled(sede: SedeCliente): boolean {
@@ -120,6 +131,7 @@ export function ClienteFormModal({
   onRequestDelete,
   onConfirmCancellazione,
   onRifiutaCancellazione,
+  collega = null,
 }: Props) {
   const isPossibile = variant === "possibile";
   const isEdit = mode === "edit";
@@ -207,6 +219,14 @@ export function ClienteFormModal({
   const [trattativa, setTrattativa] = useState(() =>
     parseTrattativa(initial?.trattativa)
   );
+  const [ghostOk, setGhostOk] = useState<Record<string, boolean>>({});
+  const madre = collega?.madre ?? null;
+  function takeGhost(key: string, setValue: (value: string) => void) {
+    return (value: string, ok: boolean) => {
+      setValue(value);
+      setGhostOk((prev) => ({ ...prev, [key]: ok }));
+    };
+  }
   const [saving, setSaving] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
   const [duplicati, setDuplicati] = useState<AnagraficaDuplicatoHit[] | null>(
@@ -254,15 +274,27 @@ export function ClienteFormModal({
   function buildValues(): ClienteInput | null {
     const codice = codiceTarga.trim().toUpperCase();
     if (!ragioneSociale.trim()) {
-      setFormError("Compila la ragione sociale prima di continuare.");
+      setFormError(
+        madre
+          ? "Conferma la ragione sociale oppure scrivila."
+          : "Compila la ragione sociale prima di continuare."
+      );
       return null;
     }
     if (!isPrivato && !partitaIva.trim()) {
-      setFormError("La partita IVA è obbligatoria per i clienti azienda.");
+      setFormError(
+        madre
+          ? "Conferma la partita IVA oppure scrivila."
+          : "La partita IVA è obbligatoria per i clienti azienda."
+      );
       return null;
     }
     if (!isPrivato && !codiceFiscale.trim()) {
-      setFormError("Il codice fiscale è obbligatorio per i clienti azienda.");
+      setFormError(
+        madre
+          ? "Conferma il codice fiscale oppure scrivilo."
+          : "Il codice fiscale è obbligatorio per i clienti azienda."
+      );
       return null;
     }
     const sediErr = validateSediDrafts(sedi, {
@@ -334,6 +366,16 @@ export function ClienteFormModal({
       brand: brandsToInput(brand),
       ...(isEdit && canAssignCommerciale ? { commercialeId } : {}),
       ...(isPossibile ? { trattativa } : {}),
+      ...(collega
+        ? {
+            aziendaMadreId: collega.madre.id,
+            inviaPreventivi: collega.scelte.inviaPreventivi,
+            fatturare: collega.scelte.fatturare,
+            inviaCampionature: collega.scelte.inviaCampionature,
+            inviaProdotti: collega.scelte.inviaProdotti,
+            tipologiaRispettoMadre: collega.scelte.tipologia,
+          }
+        : {}),
     };
   }
 
@@ -514,7 +556,9 @@ export function ClienteFormModal({
         onClick={(e) => e.stopPropagation()}
       >
         <h2 id={titleId} className="text-lg font-semibold">
-          {isPossibile
+          {collega
+            ? "Nuova azienda collegata"
+            : isPossibile
             ? isEdit
               ? "Modifica possibile cliente"
               : "Nuovo possibile cliente"
@@ -522,8 +566,30 @@ export function ClienteFormModal({
               ? "Modifica scheda cliente"
               : "Nuovo cliente"}
         </h2>
+        {collega ? (
+          <div className="mt-3 rounded-lg border border-sky-200 bg-sky-50 px-3 py-2 text-sm text-sky-950">
+            <p className="font-medium">
+              Collegata a {collega.madre.ragioneSociale}
+            </p>
+            <p className="mt-1">{collega.scelte.tipologia}</p>
+            <p className="mt-1 text-xs">
+              Consigliata per:{" "}
+              {etichetteConsiglio(collega.scelte).join(", ") ||
+                "nessuna destinazione"}
+              . Non è un obbligo di invio.
+            </p>
+            <p className="mt-2 text-xs">
+              Ogni campo mostra il dato della madre in trasparenza. La spunta
+              Conferma lo rende il valore della nuova scheda. Senza spunta
+              puoi scrivere liberamente, anche partita IVA e codice fiscale:
+              le due aziende possono essere diverse.
+            </p>
+          </div>
+        ) : null}
         <p className="mt-1 text-sm text-[var(--muted)]">
-          {isPossibile
+          {collega
+            ? "Timeline e anagrafica restano separate da quelle della madre."
+            : isPossibile
             ? isEdit
               ? "Aggiorna i dati del lead. La targa verrà assegnata solo in conversione a cliente."
               : "Stessi campi del cliente: i prodotti sono «interessati», non ancora acquistati. Nessuna targa finché non converti."
@@ -578,13 +644,24 @@ export function ClienteFormModal({
           <div className="grid gap-3 sm:grid-cols-2">
             <label className="block text-sm sm:col-span-2">
               <span className="mb-1 block font-medium">R. Sociale</span>
-              <input
-                value={ragioneSociale}
-                onChange={(e) => setRagioneSociale(e.target.value)}
-                required
-                autoFocus
-                className="w-full rounded-lg border border-[var(--border)] px-3 py-2 outline-none focus:border-[var(--primary)]"
-              />
+              {madre ? (
+                <GhostConfirmInput
+                  suggestion={madre.ragioneSociale}
+                  value={ragioneSociale}
+                  confirmed={Boolean(ghostOk.ragioneSociale)}
+                  onChange={takeGhost("ragioneSociale", setRagioneSociale)}
+                  autoFocus
+                  className="w-full rounded-lg border border-[var(--border)] px-3 py-2 outline-none focus:border-[var(--primary)]"
+                />
+              ) : (
+                <input
+                  value={ragioneSociale}
+                  onChange={(e) => setRagioneSociale(e.target.value)}
+                  required
+                  autoFocus
+                  className="w-full rounded-lg border border-[var(--border)] px-3 py-2 outline-none focus:border-[var(--primary)]"
+                />
+              )}
             </label>
             {isEdit ? (
               <CommercialeAssignField
@@ -623,6 +700,20 @@ export function ClienteFormModal({
               <span className="mb-1 block font-medium">
                 P. IVA{isPrivato ? "" : " *"}
               </span>
+              {madre && !isPrivato ? (
+                <GhostConfirmInput
+                  suggestion={madre.partitaIva}
+                  value={partitaIva}
+                  confirmed={Boolean(ghostOk.partitaIva)}
+                  onChange={(value, ok) => {
+                    setArchivioHint(null);
+                    setArchivioId(null);
+                    takeGhost("partitaIva", setPartitaIva)(value, ok);
+                  }}
+                  onBlur={() => void checkArchivioByVat(partitaIva)}
+                  className="w-full rounded-lg border border-[var(--border)] px-3 py-2 outline-none focus:border-[var(--primary)]"
+                />
+              ) : (
               <input
                 value={partitaIva}
                 onChange={(e) => {
@@ -638,6 +729,7 @@ export function ClienteFormModal({
                 }
                 className="w-full rounded-lg border border-[var(--border)] px-3 py-2 outline-none focus:border-[var(--primary)] disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-[var(--muted)]"
               />
+              )}
               {archivioHint ? (
                 <p className="mt-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-950">
                   {archivioHint}
@@ -649,12 +741,22 @@ export function ClienteFormModal({
                 <span className="mb-1 block font-medium">
                   Codice fiscale{isPrivato ? " (facoltativo)" : " *"}
                 </span>
+                {madre ? (
+                  <GhostConfirmInput
+                    suggestion={madre.codiceFiscale}
+                    value={codiceFiscale}
+                    confirmed={Boolean(ghostOk.codiceFiscale)}
+                    onChange={takeGhost("codiceFiscale", setCodiceFiscale)}
+                    className="w-full rounded-lg border border-[var(--border)] px-3 py-2 outline-none focus:border-[var(--primary)]"
+                  />
+                ) : (
                 <input
                   value={codiceFiscale}
                   onChange={(e) => setCodiceFiscale(e.target.value)}
                   required={!isPrivato}
                   className="w-full rounded-lg border border-[var(--border)] px-3 py-2 outline-none focus:border-[var(--primary)]"
                 />
+                )}
               </label>
               {!isPrivato ? (
                 <button
@@ -678,6 +780,21 @@ export function ClienteFormModal({
             <AnagraficaContattiGenericiFields
               email={email}
               onEmailChange={setEmail}
+              ghost={
+                madre
+                  ? {
+                      email: madre.email,
+                      telefono: madre.telefono,
+                      sitoWeb: madre.sitoWeb,
+                      emailConfirmed: Boolean(ghostOk.email),
+                      telefonoConfirmed: Boolean(ghostOk.telefono),
+                      sitoConfirmed: Boolean(ghostOk.sitoWeb),
+                      onEmail: takeGhost("email", setEmail),
+                      onTelefono: takeGhost("telefono", setTelefono),
+                      onSito: takeGhost("sitoWeb", setSitoWeb),
+                    }
+                  : undefined
+              }
               emailExtra={emailExtra}
               onEmailExtraChange={setEmailExtra}
               telefono={telefono}
@@ -722,14 +839,29 @@ export function ClienteFormModal({
                     inputMode="email"
                     value={pec}
                     onChange={setPec}
+                    ghostSuggestion={madre?.pec}
+                    ghostConfirmed={Boolean(ghostOk.pec)}
+                    onGhostChange={
+                      madre ? takeGhost("pec", setPec) : undefined
+                    }
                   />
                   <label className="block text-sm">
                     <span className="mb-1 block font-medium">SDI</span>
+                    {madre ? (
+                      <GhostConfirmInput
+                        suggestion={madre.sdiCode}
+                        value={sdiCode}
+                        confirmed={Boolean(ghostOk.sdiCode)}
+                        onChange={takeGhost("sdiCode", setSdiCode)}
+                        className="w-full rounded-lg border border-[var(--border)] px-3 py-2 outline-none focus:border-[var(--primary)]"
+                      />
+                    ) : (
                     <input
                       value={sdiCode}
                       onChange={(e) => setSdiCode(e.target.value)}
                       className="w-full rounded-lg border border-[var(--border)] px-3 py-2 outline-none focus:border-[var(--primary)]"
                     />
+                    )}
                   </label>
                 </div>
               }
@@ -737,6 +869,27 @@ export function ClienteFormModal({
           </div>
           </AnagraficaSchedaSection>
 
+          {madre ? (
+            <GhostBlockConfirm
+              title="Sedi della madre"
+              preview={anteprimaSediMadre(madre)}
+              confirmed={Boolean(ghostOk.sedi)}
+              onConfirm={(ok) => {
+                setGhostOk((prev) => ({ ...prev, sedi: ok }));
+                setSedi(
+                  ok
+                    ? draftsFromLegacy(
+                        {
+                          sedeAmministrativa: madre.sedeAmministrativa,
+                          sedeMagazzino: madre.sedeMagazzino,
+                        },
+                        { openPrimary: true }
+                      )
+                    : draftsFromLegacy({}, { openPrimary: true })
+                );
+              }}
+            />
+          ) : null}
           <AnagraficaSediEditor
             value={sedi}
             onChange={setSedi}
@@ -840,6 +993,17 @@ export function ClienteFormModal({
           </div>
           </AnagraficaSchedaSection>
 
+          {madre && madre.prodottiAcquistati.length > 0 ? (
+            <GhostBlockConfirm
+              title={isPossibile ? "Prodotti interessati della madre" : "Prodotti acquistati della madre"}
+              preview={madre.prodottiAcquistati.join(", ")}
+              confirmed={Boolean(ghostOk.prodotti)}
+              onConfirm={(ok) => {
+                setGhostOk((prev) => ({ ...prev, prodotti: ok }));
+                setProdotti(ok ? [...madre.prodottiAcquistati] : []);
+              }}
+            />
+          ) : null}
           <ProdottiAcquistatiTags
             value={prodotti}
             onChange={setProdotti}

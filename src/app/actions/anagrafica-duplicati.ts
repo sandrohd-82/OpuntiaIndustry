@@ -25,6 +25,7 @@ const draftSchema = z.object({
       indirizzo: z.string().optional().default(""),
     })
     .optional(),
+  aziendaMadreId: z.string().uuid().nullable().optional(),
 });
 
 function mapClienteCandidate(r: Record<string, unknown>): AnagraficaCandidateCompare {
@@ -88,14 +89,14 @@ export async function findAnagraficaDuplicati(
     supabase
       .from("clienti")
       .select(
-        "id, codice_targa, ragione_sociale, partita_iva, codice_fiscale, email, pec, telefono, email_generiche, telefoni_generici, sede_amm_citta, sede_amm_indirizzo"
+        "id, codice_targa, ragione_sociale, partita_iva, codice_fiscale, email, pec, telefono, email_generiche, telefoni_generici, sede_amm_citta, sede_amm_indirizzo, azienda_madre_id"
       )
       .is("deleted_at", null)
       .limit(2000),
     supabase
       .from("clienti_possibili")
       .select(
-        "id, ragione_sociale, partita_iva, codice_fiscale, email, pec, telefono, email_generiche, telefoni_generici, sede_amm_citta, sede_amm_indirizzo, stato"
+        "id, ragione_sociale, partita_iva, codice_fiscale, email, pec, telefono, email_generiche, telefoni_generici, sede_amm_citta, sede_amm_indirizzo, stato, azienda_madre_id"
       )
       .is("deleted_at", null)
       .neq("stato", "scartato")
@@ -105,8 +106,15 @@ export async function findAnagraficaDuplicati(
   if (clientiRes.error) return { success: false, error: clientiRes.error.message };
   if (leadRes.error) return { success: false, error: leadRes.error.message };
 
+  const madreId = parsed.data.aziendaMadreId ?? "";
+  const inFamiglia = (row: Record<string, unknown>) =>
+    Boolean(madreId) &&
+    (String(row.id) === madreId ||
+      String(row.azienda_madre_id ?? "") === madreId);
+
   const matches: AnagraficaDuplicatoHit[] = [];
   for (const r of clientiRes.data ?? []) {
+    if (inFamiglia(r as Record<string, unknown>)) continue;
     const hit = compareAnagraficaDraft(
       draft,
       mapClienteCandidate(r as Record<string, unknown>)
@@ -114,6 +122,7 @@ export async function findAnagraficaDuplicati(
     if (hit) matches.push(hit);
   }
   for (const r of leadRes.data ?? []) {
+    if (inFamiglia(r as Record<string, unknown>)) continue;
     const hit = compareAnagraficaDraft(
       draft,
       mapLeadCandidate(r as Record<string, unknown>)

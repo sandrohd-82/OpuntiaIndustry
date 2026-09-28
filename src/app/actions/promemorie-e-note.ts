@@ -71,7 +71,7 @@ import type { ClienteConsegnaAltraAziendaRow } from "@/types/database";
 import { z } from "zod";
 
 const CLIENTI_POSSIBILI_SELECT =
-  "id, ragione_sociale, partita_iva, codice_fiscale, is_privato, email, pec, sdi_code, telefono, sito_web, telefoni_generici, email_generiche, siti_web_generici, sede_amm_nazione, sede_amm_provincia, sede_amm_citta, sede_amm_cap, sede_amm_indirizzo, sede_mag_nazione, sede_mag_provincia, sede_mag_citta, sede_mag_cap, sede_mag_indirizzo, prodotti_interessati, consegne_altra_azienda, referente, note_interne, stato, trattativa, cliente_id, created_by, created_at, updated_at, commerciale_id";
+  "id, ragione_sociale, partita_iva, codice_fiscale, is_privato, email, pec, sdi_code, telefono, sito_web, telefoni_generici, email_generiche, siti_web_generici, sede_amm_nazione, sede_amm_provincia, sede_amm_citta, sede_amm_cap, sede_amm_indirizzo, sede_mag_nazione, sede_mag_provincia, sede_mag_citta, sede_mag_cap, sede_mag_indirizzo, prodotti_interessati, consegne_altra_azienda, referente, note_interne, stato, trattativa, cliente_id, created_by, created_at, updated_at, commerciale_id, azienda_madre_id, invia_preventivi, fatturare, invia_campionature, invia_prodotti, tipologia_rispetto_madre";
 
 async function syncPnMentionsToTimeline(input: {
   userId: string;
@@ -168,6 +168,12 @@ function mapClientePossibileRow(r: Record<string, unknown>): ClientePossibile {
     commercialeId: r.commerciale_id ? String(r.commerciale_id) : null,
     commercialeNome: "",
     commercialeGrado: null,
+    aziendaMadreId: r.azienda_madre_id ? String(r.azienda_madre_id) : null,
+    inviaPreventivi: r.invia_preventivi !== false,
+    fatturare: r.fatturare !== false,
+    inviaCampionature: r.invia_campionature !== false,
+    inviaProdotti: r.invia_prodotti !== false,
+    tipologiaRispettoMadre: String(r.tipologia_rispetto_madre ?? ""),
   };
 }
 
@@ -1276,10 +1282,23 @@ export async function createClientePossibileAction(
         [],
       sedi: asCliente.sedi,
       brand: asCliente.brand,
+      aziendaMadreId: asCliente.aziendaMadreId ?? null,
+      inviaPreventivi: asCliente.inviaPreventivi,
+      fatturare: asCliente.fatturare,
+      inviaCampionature: asCliente.inviaCampionature,
+      inviaProdotti: asCliente.inviaProdotti,
+      tipologiaRispettoMadre: asCliente.tipologiaRispettoMadre,
     })
   );
   const fiscalErr = validateClienteFiscali(normalized);
   if (fiscalErr) return { success: false, error: fiscalErr };
+  const tipologiaMadre = normalized.tipologiaRispettoMadre?.trim() ?? "";
+  if (normalized.aziendaMadreId && !tipologiaMadre) {
+    return {
+      success: false,
+      error: "Indica di cosa si occupa l’azienda rispetto alla madre.",
+    };
+  }
 
   const dup = await findAnagraficaDuplicati(normalized);
   if (!dup.success) return { success: false, error: dup.error };
@@ -1341,6 +1360,16 @@ export async function createClientePossibileAction(
       commerciale_id: commercialeId,
       created_by: auth.userId,
       updated_by: auth.userId,
+      ...(normalized.aziendaMadreId
+        ? {
+            azienda_madre_id: normalized.aziendaMadreId,
+            invia_preventivi: normalized.inviaPreventivi !== false,
+            fatturare: normalized.fatturare !== false,
+            invia_campionature: normalized.inviaCampionature !== false,
+            invia_prodotti: normalized.inviaProdotti !== false,
+            tipologia_rispetto_madre: tipologiaMadre,
+          }
+        : {}),
     })
     .select(CLIENTI_POSSIBILI_SELECT)
     .single();
@@ -1404,8 +1433,15 @@ export async function createClientePossibileAction(
     entity_id: item.id,
     action: "create",
     actor_id: auth.userId,
-    summary: `Possibile cliente: ${item.ragioneSociale}`,
-    payload: { referenti: referenteIds.length, trattativa: item.trattativa },
+    summary: normalized.aziendaMadreId
+      ? `Possibile cliente collegato: ${item.ragioneSociale}`
+      : `Possibile cliente: ${item.ragioneSociale}`,
+    payload: {
+      referenti: referenteIds.length,
+      trattativa: item.trattativa,
+      azienda_madre_id: normalized.aziendaMadreId,
+      tipologia_rispetto_madre: tipologiaMadre,
+    },
   });
   return { success: true, item };
 }

@@ -316,6 +316,12 @@ export interface ClienteRow {
   commerciale_id?: string | null;
   commerciale_assegnato_at?: string | null;
   commerciale_assegnato_by?: string | null;
+  azienda_madre_id?: string | null;
+  invia_preventivi?: boolean;
+  fatturare?: boolean;
+  invia_campionature?: boolean;
+  invia_prodotti?: boolean;
+  tipologia_rispetto_madre?: string;
 }
 
 export interface ClienteInsert {
@@ -354,6 +360,12 @@ export interface ClienteInsert {
   commerciale_id?: string | null;
   commerciale_assegnato_at?: string | null;
   commerciale_assegnato_by?: string | null;
+  azienda_madre_id?: string | null;
+  invia_preventivi?: boolean;
+  fatturare?: boolean;
+  invia_campionature?: boolean;
+  invia_prodotti?: boolean;
+  tipologia_rispetto_madre?: string;
 }
 
 export interface ClienteUpdate {
@@ -392,6 +404,12 @@ export interface ClienteUpdate {
   commerciale_id?: string | null;
   commerciale_assegnato_at?: string | null;
   commerciale_assegnato_by?: string | null;
+  azienda_madre_id?: string | null;
+  invia_preventivi?: boolean;
+  fatturare?: boolean;
+  invia_campionature?: boolean;
+  invia_prodotti?: boolean;
+  tipologia_rispetto_madre?: string;
 }
 
 export interface MateriaPrimaRow {

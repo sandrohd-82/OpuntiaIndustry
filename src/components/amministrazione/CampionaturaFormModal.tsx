@@ -463,6 +463,7 @@ export function CampionaturaFormModal({ onClose, onSaved }: Props) {
             <label className="block text-sm sm:col-span-2">
               <span className="mb-1 block font-medium">Azienda</span>
               <AziendaOrdineSelect
+                preferenza="campionature"
                 fonte={anagraficaFonte}
                 clienteId={
                   anagraficaFonte === "cliente" ? (cliente?.id ?? "") : ""

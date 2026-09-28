@@ -41,11 +41,13 @@ export function ClienteSchedaCompletaModal({
   prodottiByCode,
   lineageIds,
   onClose,
+  embedded = false,
 }: {
   cliente: Cliente;
   prodottiByCode: Map<string, ProdottoProprio>;
   lineageIds: string[];
   onClose: () => void;
+  embedded?: boolean;
 }) {
   const priv = useAnagraficaPrivileges("cliente");
   const canEdit = priv.canEdit(
@@ -106,34 +108,8 @@ export function ClienteSchedaCompletaModal({
     cancellazionePrenotata: cliente.cancellazionePrenotata,
   };
 
-  return (
-    <div
-      className="fixed inset-0 z-[70] flex items-center justify-center bg-slate-950/60 p-4"
-      role="presentation"
-      onClick={onClose}
-    >
-      <div
-        role="dialog"
-        aria-modal="true"
-        className="max-h-[94vh] w-full max-w-5xl overflow-y-auto rounded-xl border border-[var(--border)] bg-[var(--card)] p-5 shadow-xl"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <div className="mb-4 flex items-start justify-between gap-3">
-          <div>
-            <h2 className="text-lg font-semibold">Scheda completa</h2>
-            <p className="text-sm text-[var(--muted)]">
-              {cliente.codiceTarga} · {cliente.ragioneSociale}
-            </p>
-          </div>
-          <button
-            type="button"
-            onClick={onClose}
-            className="rounded-lg px-2 py-1 text-sm text-slate-600 hover:bg-slate-100"
-          >
-            Chiudi
-          </button>
-        </div>
-
+  const body = (
+    <>
         {error ? (
           <p className="mb-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">
             {error}
@@ -210,6 +186,39 @@ export function ClienteSchedaCompletaModal({
             </AnagraficaSchedaSection>
           </div>
         )}
+    </>
+  );
+
+  if (embedded) return body;
+
+  return (
+    <div
+      className="fixed inset-0 z-[70] flex items-center justify-center bg-slate-950/60 p-4"
+      role="presentation"
+      onClick={onClose}
+    >
+      <div
+        role="dialog"
+        aria-modal="true"
+        className="max-h-[94vh] w-full max-w-5xl overflow-y-auto rounded-xl border border-[var(--border)] bg-[var(--card)] p-5 shadow-xl"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="mb-4 flex items-start justify-between gap-3">
+          <div>
+            <h2 className="text-lg font-semibold">Scheda completa</h2>
+            <p className="text-sm text-[var(--muted)]">
+              {cliente.codiceTarga} · {cliente.ragioneSociale}
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            className="rounded-lg px-2 py-1 text-sm text-slate-600 hover:bg-slate-100"
+          >
+            Chiudi
+          </button>
+        </div>
+        {body}
       </div>
     </div>
   );

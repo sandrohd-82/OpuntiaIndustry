@@ -10,6 +10,7 @@ import {
   upsertContattoCanaleAttenzioneAction,
 } from "@/app/actions/contatto-canale-attenzione";
 import { listWebmailMenuAccountsAction } from "@/app/actions/webmail";
+import { GhostConfirmInput } from "@/components/amministrazione/GhostConfirmField";
 import {
   parseCanaleEmailList,
   telHref,
@@ -367,6 +368,9 @@ export function CanaleInputRow({
   type,
   inputMode,
   placeholder,
+  ghostSuggestion,
+  ghostConfirmed,
+  onGhostChange,
 }: {
   label?: string;
   canale: ContattoCanaleKind;
@@ -375,6 +379,9 @@ export function CanaleInputRow({
   type?: "email" | "text";
   inputMode?: "tel" | "email";
   placeholder?: string;
+  ghostSuggestion?: string;
+  ghostConfirmed?: boolean;
+  onGhostChange?: (value: string, confirmed: boolean) => void;
 }) {
   return (
     <div className="block text-sm">
@@ -382,6 +389,18 @@ export function CanaleInputRow({
         <span className="mb-1 block font-medium">{label}</span>
       ) : null}
       <div className="flex items-center gap-2">
+        {onGhostChange ? (
+          <GhostConfirmInput
+            type={type ?? "text"}
+            inputMode={inputMode}
+            placeholder={placeholder}
+            suggestion={ghostSuggestion ?? ""}
+            value={value}
+            confirmed={Boolean(ghostConfirmed)}
+            onChange={onGhostChange}
+            className="w-full rounded-lg border border-[var(--border)] px-3 py-2 outline-none focus:border-[var(--primary)]"
+          />
+        ) : (
         <input
           type={type ?? "text"}
           inputMode={inputMode}
@@ -390,6 +409,7 @@ export function CanaleInputRow({
           onChange={(e) => onChange(e.target.value)}
           className="min-w-0 flex-1 rounded-lg border border-[var(--border)] px-3 py-2 outline-none focus:border-[var(--primary)]"
         />
+        )}
         <CanaleAttenzioneButton canale={canale} valore={value} />
         {canale === "telefono" ? <CanaleCallButton valore={value} /> : null}
         {canale === "email" ? <CanaleMailButton valore={value} /> : null}

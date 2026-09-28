@@ -22,6 +22,11 @@ import { FieldLoadingOverlay } from "@/components/ui/SelectMenu";
 import { useClienti } from "@/hooks/useClienti";
 import { useClientiPossibili } from "@/hooks/useClientiPossibili";
 import { useCommercialeAreaFilter } from "@/hooks/useCommercialeAreaFilter";
+import {
+  collegamentoAttivo,
+  sceltaConConsiglio,
+  type CollegamentoPreferenza,
+} from "@/lib/amministrazione/azienda-collegata";
 import type { Cliente } from "@/lib/amministrazione/clienti";
 import {
   formatDestinatarioIndirizzo,
@@ -44,6 +49,7 @@ type ModalProps = {
   value: DestinatarioPreventivo | null;
   onChange: (dest: DestinatarioPreventivo | null) => void;
   onClose: () => void;
+  preferenza?: CollegamentoPreferenza;
 };
 
 type Hit =
@@ -143,6 +149,7 @@ export function PreventivoDestinatarioModal({
   value,
   onChange,
   onClose,
+  preferenza = "preventivi",
 }: ModalProps) {
   const { clienti, ready: clientiReady, addCliente } = useClienti();
   const { items: possibili, ready: leadReady, addPossibile } =
@@ -163,6 +170,8 @@ export function PreventivoDestinatarioModal({
     null
   );
   const [saveError, setSaveError] = useState<string | null>(null);
+  const [consiglioNotice, setConsiglioNotice] = useState<string | null>(null);
+  const bouncedFrom = useRef<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
   const ready = clientiReady && leadReady;
@@ -210,11 +219,39 @@ export function PreventivoDestinatarioModal({
     if (!hit) {
       onChange(null);
       setQuery("");
+      setConsiglioNotice(null);
       return;
     }
-    onChange(
-      hit.kind === "cliente" ? fromCliente(hit.item) : fromPossibile(hit.item)
+    if (hit.kind === "cliente") {
+      const scelta = sceltaConConsiglio(
+        clienti,
+        hit.item,
+        preferenza,
+        bouncedFrom.current
+      );
+      bouncedFrom.current = scelta.bouncedFrom;
+      setConsiglioNotice(scelta.notice);
+      onChange(fromCliente(scelta.next));
+      if (scelta.notice) {
+        setQuery("");
+        return;
+      }
+      onClose();
+      return;
+    }
+    const scelta = sceltaConConsiglio(
+      possibili,
+      hit.item,
+      preferenza,
+      bouncedFrom.current
     );
+    bouncedFrom.current = scelta.bouncedFrom;
+    setConsiglioNotice(scelta.notice);
+    onChange(fromPossibile(scelta.next));
+    if (scelta.notice) {
+      setQuery("");
+      return;
+    }
     onClose();
   }
 
@@ -298,7 +335,13 @@ export function PreventivoDestinatarioModal({
                         }`}
                       >
                         <span className="font-medium">
+                          {hit.item.aziendaMadreId ? "↳ " : ""}
                           {hit.item.ragioneSociale}
+                          {collegamentoAttivo(hit.item, preferenza) ? (
+                            <span className="ml-2 rounded bg-sky-100 px-1.5 py-0.5 text-[10px] font-semibold uppercase text-sky-900">
+                              Consigliato
+                            </span>
+                          ) : null}
                         </span>
                         <span className="text-xs text-slate-500">
                           {hit.kind === "cliente"
@@ -349,6 +392,9 @@ export function PreventivoDestinatarioModal({
           <p className="text-sm text-slate-600">
             Selezionato: <span className="font-medium">{value.ragioneSociale}</span>
           </p>
+        ) : null}
+        {consiglioNotice ? (
+          <p className="text-xs text-sky-800">{consiglioNotice}</p>
         ) : null}
         {saveError ? (
           <p className="text-xs text-red-600">{saveError}</p>
