@@ -47,9 +47,12 @@ import {
 } from "@/components/amministrazione/organigramma/FluidaLinkBadge";
 import { linkFluidaOperatoriAction } from "@/app/actions/presenze";
 import {
+  ATTRIBUZIONE_RUOLO_LABEL,
   certificatoAlertLabel,
   docTipoLabel,
   personaLabel,
+  ruoloAttribuzionePersona,
+  type AttribuzioneRuolo,
   type CertificatoScadenzaAlert,
   type OrganigrammaDocTipo,
   type OrganigrammaMansione,
@@ -391,6 +394,7 @@ export function OrganigrammaElencoBoard() {
         <OperatoreCreateModal
           mansioni={mansioni}
           reparti={reparti}
+          persone={items}
           onClose={() => setShowForm(false)}
         />
       ) : null}
@@ -486,10 +490,12 @@ const IDENTITA_CREATE: OrganigrammaDocTipo[] = [
 function OperatoreCreateModal({
   mansioni,
   reparti,
+  persone,
   onClose,
 }: {
   mansioni: OrganigrammaMansione[];
   reparti: OrganigrammaReparto[];
+  persone: OrganigrammaPersona[];
   onClose: () => void;
 }) {
   const router = useRouter();
@@ -499,6 +505,10 @@ function OperatoreCreateModal({
   const [cartaIdentita, setCi] = useState("");
   const [cellulare, setCellulare] = useState("");
   const [repartoId, setRepartoId] = useState("");
+  const [parentId, setParentId] = useState("");
+  const [qualificaSenior, setQualificaSenior] = useState<
+    "" | "professional" | "executive"
+  >("");
   const [commercialeGrado, setCommercialeGrado] = useState("");
   const [commercialeProvvigionePct, setCommercialeProvvigionePct] =
     useState("");
@@ -513,10 +523,31 @@ function OperatoreCreateModal({
   );
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const superiori = useMemo(() => {
+    const groups: Record<AttribuzioneRuolo, OrganigrammaPersona[]> = {
+      capo_area: [],
+      responsabile: [],
+      senior: [],
+    };
+    for (const persona of persone) {
+      const ruolo = ruoloAttribuzionePersona(persona);
+      if (ruolo) groups[ruolo].push(persona);
+    }
+    return groups;
+  }, [persone]);
+  const parent = persone.find((p) => p.id === parentId) ?? null;
+  const parentRuolo = parent ? ruoloAttribuzionePersona(parent) : null;
+  const sottoSenior = parentRuolo === "senior";
 
   async function submit() {
     setBusy(true);
     setError(null);
+    if (sottoSenior && !qualificaSenior) {
+      setBusy(false);
+      setError("Sotto un Senior indica la qualifica: Professional o Executive.");
+      return;
+    }
+    const repartoComm = reparti.find((r) => isRepartoCommerciale(r));
     const res = await createPersonaAction({
       nome,
       cognome,
@@ -525,10 +556,12 @@ function OperatoreCreateModal({
       cellulare,
       note,
       mansioneIds,
-      repartoId: repartoId || undefined,
-      commercialeGrado:
-        (commercialeGrado as "senior" | "professional" | "executive") ||
-        null,
+      parentId: parentId || null,
+      repartoId: sottoSenior ? repartoComm?.id : repartoId || undefined,
+      commercialeGrado: sottoSenior
+        ? qualificaSenior || null
+        : (commercialeGrado as "senior" | "professional" | "executive") ||
+          null,
       commercialeProvvigionePct: commercialeProvvigionePct || null,
       bancaIban,
       bancaBic,
@@ -661,10 +694,64 @@ function OperatoreCreateModal({
             />
           </label>
           <label className="text-xs text-[var(--muted)] sm:col-span-2">
+            Attribuzione
+            <select
+              value={parentId}
+              onChange={(e) => {
+                setParentId(e.target.value);
+                setQualificaSenior("");
+              }}
+              className={inputCls}
+            >
+              <option value="">Non attribuito</option>
+              {(
+                ["capo_area", "responsabile", "senior"] as AttribuzioneRuolo[]
+              ).map((ruolo) =>
+                superiori[ruolo].length ? (
+                  <optgroup key={ruolo} label={ATTRIBUZIONE_RUOLO_LABEL[ruolo]}>
+                    {superiori[ruolo].map((p) => (
+                      <option key={p.id} value={p.id}>
+                        {p.cognome} {p.nome}
+                        {p.matricola ? ` · ${p.matricola}` : ""}
+                      </option>
+                    ))}
+                  </optgroup>
+                ) : null
+              )}
+            </select>
+          </label>
+          {sottoSenior ? (
+            <label className="text-xs text-[var(--muted)] sm:col-span-2">
+              Qualifica
+              <select
+                value={qualificaSenior}
+                onChange={(e) =>
+                  setQualificaSenior(
+                    e.target.value as "" | "professional" | "executive"
+                  )
+                }
+                className={inputCls}
+                required
+              >
+                <option value="">Seleziona qualifica</option>
+                <option value="professional">
+                  {COMMERCIALE_GRADO_LABELS.professional}
+                </option>
+                <option value="executive">
+                  {COMMERCIALE_GRADO_LABELS.executive}
+                </option>
+              </select>
+              <span className="mt-1 block text-[11px]">
+                Viene applicata in automatico, insieme al reparto commerciale.
+              </span>
+            </label>
+          ) : null}
+          <label className="text-xs text-[var(--muted)] sm:col-span-2">
             Reparto
             <select
-              value={repartoId}
+              value={sottoSenior ? (reparti.find((r) => isRepartoCommerciale(r))?.id ?? "") : repartoId}
               onChange={(e) => setRepartoId(e.target.value)}
+              disabled={sottoSenior}
               className={inputCls}
             >
               <option value="">Nessun reparto</option>
@@ -675,7 +762,7 @@ function OperatoreCreateModal({
               ))}
             </select>
           </label>
-          {isRepartoCommerciale(reparti.find((r) => r.id === repartoId)) ? (
+          {!sottoSenior && isRepartoCommerciale(reparti.find((r) => r.id === repartoId)) ? (
             <label className="text-xs text-[var(--muted)] sm:col-span-2">
               Grado commerciale
               <select
@@ -692,7 +779,7 @@ function OperatoreCreateModal({
               </select>
             </label>
           ) : null}
-          {isRepartoCommerciale(reparti.find((r) => r.id === repartoId)) ? (
+          {sottoSenior || isRepartoCommerciale(reparti.find((r) => r.id === repartoId)) ? (
             <label className="text-xs text-[var(--muted)] sm:col-span-2">
               Provvigione %
               <input

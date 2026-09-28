@@ -37,6 +37,8 @@ import {
   type PersonaSchedaExportFile,
   type PersonaSchedaExportPayload,
   type OrganigrammaMansione,
+  ruoloAttribuzionePersona,
+  type AttribuzioneRuolo,
   type OrganigrammaPermesso,
   type OrganigrammaPersona,
   type OrganigrammaProfiloLink,
@@ -1251,6 +1253,58 @@ function resolveCampiBancari(v: {
   };
 }
 
+async function assertAttribuzioneSuperiore(
+  parentId: string | null
+): Promise<
+  | { ok: true; ruolo: AttribuzioneRuolo | null; label: string }
+  | { ok: false; error: string }
+> {
+  if (!parentId) return { ok: true, ruolo: null, label: "" };
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from("organigramma_persone")
+    .select("id, nome, cognome, commerciale_grado, user_id, in_forza, deleted_at")
+    .eq("id", parentId)
+    .maybeSingle();
+  if (error) return { ok: false, error: error.message };
+  const row = data as {
+    id: string;
+    nome: string;
+    cognome: string;
+    commerciale_grado: string | null;
+    user_id: string | null;
+    in_forza: boolean | null;
+    deleted_at: string | null;
+  } | null;
+  if (!row || row.deleted_at || row.in_forza === false) {
+    return { ok: false, error: "Il superiore scelto non è più attivo." };
+  }
+  const profili = row.user_id ? await loadProfiliFor([row.user_id]) : new Map();
+  const ruolo = ruoloAttribuzionePersona({
+    inForza: true,
+    cessatoAt: null,
+    commercialeGrado:
+      row.commerciale_grado === "senior" ||
+      row.commerciale_grado === "professional" ||
+      row.commerciale_grado === "executive"
+        ? row.commerciale_grado
+        : null,
+    profilo: row.user_id ? (profili.get(row.user_id) ?? null) : null,
+  });
+  if (!ruolo) {
+    return {
+      ok: false,
+      error:
+        "Si può attribuire solo a un Capo area, un Responsabile o un commerciale Senior.",
+    };
+  }
+  return {
+    ok: true,
+    ruolo,
+    label: `${row.cognome} ${row.nome}`.trim(),
+  };
+}
+
 export async function createPersonaAction(
   raw: unknown
 ): Promise<
@@ -1266,7 +1320,32 @@ export async function createPersonaAction(
   }
   const v = parsed.data;
   const supabase = await createClient();
-  const comm = await resolveCampiCommerciale(v);
+  const attribuzione = await assertAttribuzioneSuperiore(v.parentId ?? null);
+  if (!attribuzione.ok) return { success: false, error: attribuzione.error };
+  let repartoId = v.repartoId ?? null;
+  let commercialeGrado = v.commercialeGrado ?? null;
+  if (attribuzione.ruolo === "senior") {
+    if (commercialeGrado !== "professional" && commercialeGrado !== "executive") {
+      return {
+        success: false,
+        error: "Sotto un Senior indica la qualifica: Professional o Executive.",
+      };
+    }
+    const reparti = await loadRepartiById();
+    const commerciale = [...reparti.values()].find((r) => isRepartoCommerciale(r));
+    if (!commerciale) {
+      return {
+        success: false,
+        error: "Manca il reparto commerciale: non si può applicare la qualifica.",
+      };
+    }
+    repartoId = commerciale.id;
+  }
+  const comm = await resolveCampiCommerciale({
+    ...v,
+    repartoId,
+    commercialeGrado,
+  });
   if (!comm.ok) return { success: false, error: comm.error };
   const banca = resolveCampiBancari(v);
   if (!banca.ok) return { success: false, error: banca.error };
@@ -1286,7 +1365,7 @@ export async function createPersonaAction(
       cellulare: v.cellulare ?? "",
       note: v.note ?? "",
       parent_id: v.parentId ?? null,
-      reparto_id: v.repartoId ?? null,
+      reparto_id: repartoId,
       commerciale_grado: comm.grado,
       commerciale_provvigione_pct: comm.provvigionePct,
       banca_iban: banca.iban,
@@ -1314,15 +1393,24 @@ export async function createPersonaAction(
     azione: "create",
     actorId: auth.userId,
     actorNome: actorNome(auth.profile),
-    note: `Creata anagrafica ${v.cognome} ${v.nome} · matricola ${mat.value}`,
+    note: attribuzione.ruolo
+      ? `Creata anagrafica ${v.cognome} ${v.nome} · matricola ${mat.value} · attribuito a ${attribuzione.label}`
+      : `Creata anagrafica ${v.cognome} ${v.nome} · matricola ${mat.value}`,
   });
   await writeAuditLog({
     entity_type: "organigramma_persone",
     entity_id: row.id,
     action: "create",
     actor_id: auth.userId,
-    summary: `Creato operatore ${v.cognome} ${v.nome} (${mat.value})`,
-    payload: { matricola: mat.value },
+    summary: attribuzione.ruolo
+      ? `Creato operatore ${v.cognome} ${v.nome} (${mat.value}), attribuito a ${attribuzione.label}`
+      : `Creato operatore ${v.cognome} ${v.nome} (${mat.value})`,
+    payload: {
+      matricola: mat.value,
+      parent_id: v.parentId ?? null,
+      attribuzione: attribuzione.ruolo,
+      qualifica: comm.grado,
+    },
   });
   if (comm.grado && comm.provvigionePct != null) {
     await writeAuditLog({

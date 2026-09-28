@@ -71,6 +71,28 @@ export type OrganigrammaProfiloLink = {
   potere: string;
 };
 
+export type AttribuzioneRuolo = "capo_area" | "responsabile" | "senior";
+
+export const ATTRIBUZIONE_RUOLO_LABEL: Record<AttribuzioneRuolo, string> = {
+  capo_area: "Capo area",
+  responsabile: "Responsabile",
+  senior: "Commerciale Senior",
+};
+
+/** Capo area e Responsabile dal profilo. Il Senior commerciale ha priorità: la qualifica si applica da sola. */
+export function ruoloAttribuzionePersona(persona: {
+  inForza: boolean;
+  cessatoAt: string | null;
+  commercialeGrado: "senior" | "professional" | "executive" | null;
+  profilo: { gerarchia: string } | null;
+}): AttribuzioneRuolo | null {
+  if (!persona.inForza || persona.cessatoAt) return null;
+  if (persona.commercialeGrado === "senior") return "senior";
+  if (persona.profilo?.gerarchia === "capo_area") return "capo_area";
+  if (persona.profilo?.gerarchia === "responsabile") return "responsabile";
+  return null;
+}
+
 export type OrganigrammaPersona = {
   id: string;
   nome: string;
