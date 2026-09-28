@@ -9,10 +9,18 @@ type Props = {
   wide?: boolean;
   /** Classi extra sul pulsante «i» (es. angolo card). */
   buttonClassName?: string;
+  /** Sopra modali con z-index alto. */
+  overlayClassName?: string;
 };
 
 /** Icona «i»: al click apre la spiegazione (niente tooltip al solo hover). */
-export function InfoHint({ title, children, wide, buttonClassName }: Props) {
+export function InfoHint({
+  title,
+  children,
+  wide,
+  buttonClassName,
+  overlayClassName,
+}: Props) {
   const titleId = useId();
   const [open, setOpen] = useState(false);
 
@@ -31,7 +39,7 @@ export function InfoHint({ title, children, wide, buttonClassName }: Props) {
       </button>
       {open ? (
         <span
-          className="fixed inset-0 z-[80] flex items-center justify-center bg-slate-950/50 p-4"
+          className={`fixed inset-0 flex items-center justify-center bg-slate-950/50 p-4 ${overlayClassName ?? "z-[80]"}`}
           role="presentation"
           onClick={(e) => {
             if (e.target === e.currentTarget) setOpen(false);

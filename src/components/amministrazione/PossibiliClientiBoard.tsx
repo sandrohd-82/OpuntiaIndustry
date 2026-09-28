@@ -33,6 +33,7 @@ import { AnagraficaSchedaDetail } from "@/components/amministrazione/AnagraficaS
 import { collegaAziendeEsistentiAction } from "@/app/actions/aziende-collegate";
 import { CollegaAziendaScelteModal } from "@/components/amministrazione/CollegaAziendaScelteModal";
 import { ClienteFormModal } from "@/components/amministrazione/ClienteFormModal";
+import { ClienteCediAffiancaFields } from "@/components/amministrazione/ClienteCediAffiancaFields";
 import {
   AziendaFigliaRaccordo,
   SchedaDock,
@@ -80,6 +81,7 @@ function PossibileClienteRow({
   schedaAperta = false,
   onScheda,
   onCollega,
+  onChanged,
 }: {
   lead: ClientePossibile;
   onEdit: (lead: ClientePossibile) => void;
@@ -91,6 +93,7 @@ function PossibileClienteRow({
   hasFiglie?: boolean;
   schedaAperta?: boolean;
   onCollega?: (lead: ClientePossibile) => void;
+  onChanged?: () => void;
 }) {
   const [open, setOpen] = useState(false);
   const priv = useAnagraficaPrivileges("cliente_possibile");
@@ -219,6 +222,11 @@ function PossibileClienteRow({
                 </button>
               </div>
             ) : null}
+            <ClienteCediAffiancaFields
+              kind="possibile"
+              recordId={lead.id}
+              onChanged={onChanged}
+            />
             <AnagraficaSchedaDetail
               prodottiByCode={prodottiByCode}
               canEditReferenti={canEdit}
@@ -469,6 +477,7 @@ export function PossibiliClientiBoard() {
                         }
                       : undefined
                   }
+                  onChanged={reload}
                 />
               ))}
             </tbody>
@@ -494,6 +503,11 @@ export function PossibiliClientiBoard() {
                 : undefined
             }
           >
+            <ClienteCediAffiancaFields
+              kind="possibile"
+              recordId={schedaFor.id}
+              onChanged={reload}
+            />
             <AnagraficaSchedaDetail
               prodottiByCode={prodottiByCode}
               model={{

@@ -747,6 +747,20 @@ export function ClienteFormModal({
           onClick={(e) => e.stopPropagation()}
           className="mt-5 space-y-4"
         >
+          {isEdit && initial?.id ? (
+            <ClienteCediAffiancaFields
+              kind={isPossibile ? "possibile" : "cliente"}
+              recordId={initial.id}
+              onCommercialeCeduto={(userId, intermediarioAzzerato) => {
+                setCommercialeId(userId);
+                if (intermediarioAzzerato) {
+                  setIntermediarioId(null);
+                  setIntermediarioPct("");
+                }
+                router.refresh();
+              }}
+            />
+          ) : null}
           <AnagraficaSchedaSection title="Dati anagrafici" tone="identita">
           <div className="grid gap-3 sm:grid-cols-2">
             <label className="block text-sm sm:col-span-2">
@@ -824,20 +838,6 @@ export function ClienteFormModal({
                   </span>
                 </label>
               </div>
-            ) : null}
-            {isEdit && initial?.id ? (
-              <ClienteCediAffiancaFields
-                kind={isPossibile ? "possibile" : "cliente"}
-                recordId={initial.id}
-                onCommercialeCeduto={(userId, intermediarioAzzerato) => {
-                  setCommercialeId(userId);
-                  if (intermediarioAzzerato) {
-                    setIntermediarioId(null);
-                    setIntermediarioPct("");
-                  }
-                  router.refresh();
-                }}
-              />
             ) : null}
             {isPossibile ? (
               <TrattativaSelectField

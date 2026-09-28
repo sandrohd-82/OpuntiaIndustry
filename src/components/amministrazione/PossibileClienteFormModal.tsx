@@ -31,6 +31,7 @@ import {
 } from "@/lib/amministrazione/anagrafica-extra";
 import { ReferentiPickerField } from "@/components/amministrazione/ReferentiPickerField";
 import { CommercialeAssignField } from "@/components/amministrazione/CommercialeAssignField";
+import { ClienteCediAffiancaFields } from "@/components/amministrazione/ClienteCediAffiancaFields";
 import { AnagraficaContattiGenericiFields } from "@/components/amministrazione/AnagraficaContattiGenericiFields";
 import { CanaleInputRow } from "@/components/amministrazione/CanaleAttenzioneControls";
 import { CONTATTI_GENERICI_MAX_ITEMS } from "@/lib/amministrazione/contatti-generici";
@@ -325,6 +326,13 @@ export function PossibileClienteFormModal({
         </div>
 
         <form onSubmit={submit} className="mt-5 space-y-4">
+          {isEdit && initial?.id ? (
+            <ClienteCediAffiancaFields
+              kind="possibile"
+              recordId={initial.id}
+              onCommercialeCeduto={(userId) => setCommercialeId(userId)}
+            />
+          ) : null}
           <AnagraficaSchedaSection title="Dati anagrafici" tone="identita">
           <div className="grid gap-3 sm:grid-cols-2">
             <label className="block text-sm sm:col-span-2">

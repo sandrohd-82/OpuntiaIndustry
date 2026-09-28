@@ -3,11 +3,12 @@
 import { writeAuditLog } from "@/lib/audit";
 import {
   aziendaNellaLinea,
-  destinatariCessione,
+  destinatariVisibili,
   personaAttore,
   type PersonaLinea,
 } from "@/lib/amministrazione/cliente-affiancamento";
 import { requireAnyAreaAccess } from "@/lib/areas/guard";
+import { isAdminLikeProfile } from "@/lib/auth/roles";
 import { createServiceClient } from "@/lib/supabase/server";
 import { z } from "zod";
 
@@ -81,23 +82,28 @@ export async function contestoCessioneAffiancamentoAction(input: {
   if (!row) return { success: false, error: "Scheda non trovata." };
   const persone = await loadPersoneLinea();
   const actor = personaAttore(persone, auth.userId);
+  const admin = isAdminLikeProfile(auth.profile);
   const commercialeId = (row as { commerciale_id?: string | null }).commerciale_id
     ? String((row as { commerciale_id: string }).commerciale_id)
     : null;
   const affiancatoId = (row as { affiancato_id?: string | null }).affiancato_id
     ? String((row as { affiancato_id: string }).affiancato_id)
     : null;
-  const nellaLinea = actor
-    ? aziendaNellaLinea({ actor, persone, commercialeId })
-    : false;
-  const destinatari = actor && nellaLinea
-    ? destinatariCessione({ actor, persone })
-        .filter((p): p is PersonaLinea & { userId: string; grado: "professional" | "executive" } =>
-          Boolean(p.userId) &&
-          (p.grado === "professional" || p.grado === "executive")
-        )
-        .map((p) => ({ id: p.userId, nome: p.nome, grado: p.grado }))
-    : [];
+  const destinatari = destinatariVisibili({
+    admin,
+    actor,
+    persone,
+    commercialeId,
+  })
+    .filter(
+      (p): p is PersonaLinea & { userId: string; grado: "professional" | "executive" } =>
+        Boolean(p.userId) &&
+        (p.grado === "professional" || p.grado === "executive")
+    )
+    .map((p) => ({ id: p.userId, nome: p.nome, grado: p.grado }));
+  const nellaLinea =
+    admin ||
+    (actor ? aziendaNellaLinea({ actor, persone, commercialeId }) : false);
   return {
     success: true,
     puoAgire: nellaLinea && (destinatari.length > 0 || Boolean(affiancatoId)),
@@ -149,7 +155,8 @@ export async function cediOAffiancaAnagraficaAction(
 
   const persone = await loadPersoneLinea();
   const actor = personaAttore(persone, auth.userId);
-  if (!actor) {
+  const admin = isAdminLikeProfile(auth.profile);
+  if (!actor && !admin) {
     return {
       success: false,
       error: "Solo un Senior o un Professional può cedere o affiancare.",
@@ -157,14 +164,17 @@ export async function cediOAffiancaAnagraficaAction(
   }
   const commercialeId = row.commerciale_id ? String(row.commerciale_id) : null;
   const affiancatoId = row.affiancato_id ? String(row.affiancato_id) : null;
-  if (!aziendaNellaLinea({ actor, persone, commercialeId })) {
+  const nellaLinea =
+    admin ||
+    (actor ? aziendaNellaLinea({ actor, persone, commercialeId }) : false);
+  if (!nellaLinea) {
     return {
       success: false,
       error: "Puoi agire solo sulle aziende della tua linea.",
     };
   }
   const ammessi = new Set(
-    destinatariCessione({ actor, persone })
+    destinatariVisibili({ admin, actor, persone, commercialeId })
       .map((p) => p.userId)
       .filter((uid): uid is string => Boolean(uid))
   );

@@ -38,7 +38,9 @@ export function aziendaNellaLinea(input: {
   persone: PersonaLinea[];
   commercialeId: string | null;
 }): boolean {
-  if (!input.commercialeId || !input.actor.userId) return false;
+  if (!input.commercialeId || !input.actor.userId) {
+    return input.actor.grado === "senior" && !input.commercialeId;
+  }
   if (input.commercialeId === input.actor.userId) return true;
   if (input.actor.grado !== "senior") return false;
   const sotto = idsSottoalbero(input.actor, input.persone);
@@ -72,4 +74,30 @@ export function destinatariCessione(input: {
       (p.grado === "professional" || p.grado === "executive") &&
       Boolean(p.userId)
   );
+}
+
+export function destinatariVisibili(input: {
+  admin: boolean;
+  actor: PersonaLinea | null;
+  persone: PersonaLinea[];
+  commercialeId: string | null;
+}): PersonaLinea[] {
+  const conUtente = (lista: PersonaLinea[]) =>
+    lista.filter(
+      (p) =>
+        Boolean(p.userId) &&
+        (p.grado === "professional" || p.grado === "executive")
+    );
+  if (input.admin) {
+    return conUtente(input.persone);
+  }
+  if (!input.actor) return [];
+  if (!aziendaNellaLinea({
+    actor: input.actor,
+    persone: input.persone,
+    commercialeId: input.commercialeId,
+  })) {
+    return [];
+  }
+  return conUtente(destinatariCessione({ actor: input.actor, persone: input.persone }));
 }
