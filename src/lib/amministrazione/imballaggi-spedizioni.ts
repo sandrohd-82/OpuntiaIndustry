@@ -340,19 +340,37 @@ export function emptyNodo(
   };
 }
 
-/** Totale kg prodotto lungo l’albero (prodotto delle qty × kg foglia). */
+function kgFogliaNodo(n: ConfezionamentoNodoDraft): number {
+  return typeof n.kgProdotto === "number" ? n.kgProdotto : 0;
+}
+
+function qtyNodo(n: ConfezionamentoNodoDraft): number {
+  return typeof n.quantita === "number" ? n.quantita : 0;
+}
+
+/**
+ * Totale kg prodotto lungo l’albero.
+ * Un solo peso sotto l’isolamento vale per ogni pezzo (N × kg).
+ * Più pesi sono isolamenti diversi: si sommano, senza moltiplicare di nuovo per N.
+ */
 export function totaleKgConfezionati(nodi: ConfezionamentoNodoDraft[]): number {
   function walk(nodes: ConfezionamentoNodoDraft[], parentMult: number): number {
     let sum = 0;
     for (const n of nodes) {
-      const q = typeof n.quantita === "number" ? n.quantita : 0;
-      const kg = typeof n.kgProdotto === "number" ? n.kgProdotto : 0;
-      const mult = parentMult * q;
+      const q = qtyNodo(n);
       if (n.stadio === "prodotto_kg") {
-        sum += parentMult * q * kg;
-      } else {
-        sum += walk(n.children, mult);
+        sum += parentMult * q * kgFogliaNodo(n);
+        continue;
       }
+      const prodotti = n.children.filter((c) => c.stadio === "prodotto_kg");
+      const altri = n.children.filter((c) => c.stadio !== "prodotto_kg");
+      const mult = parentMult * q;
+      if (prodotti.length > 1) {
+        for (const p of prodotti) sum += parentMult * kgFogliaNodo(p);
+      } else if (prodotti.length === 1) {
+        sum += walk(prodotti, mult);
+      }
+      sum += walk(altri, mult);
     }
     return sum;
   }

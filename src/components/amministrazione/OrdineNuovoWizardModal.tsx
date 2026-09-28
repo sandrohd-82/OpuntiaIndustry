@@ -142,7 +142,10 @@ function formatDateIt(iso: string | null) {
   }
 }
 
-function domandaKgPerUnita(parent: ConfezionamentoNodoDraft | null): string {
+function domandaKgPerUnita(
+  parent: ConfezionamentoNodoDraft | null,
+  pesiDiversi = false
+): string {
   const q =
     parent && typeof parent.quantita === "number" && Number.isFinite(parent.quantita)
       ? parent.quantita
@@ -153,6 +156,9 @@ function domandaKgPerUnita(parent: ConfezionamentoNodoDraft | null): string {
       return "Indica prima quanti isolamenti ci sono nella confezione. Poi scrivi quanti kg di prodotto sono presenti dentro un isolamento.";
     }
     const pezzi = q === 1 ? "1 isolamento" : `${n} isolamenti`;
+    if (pesiDiversi) {
+      return `Hai impostato ${pezzi}. Indica i kg di prodotto dentro ciascun isolamento.`;
+    }
     return `Hai impostato ${pezzi}. Quanti kg di prodotto sono presenti dentro un isolamento?`;
   }
   if (parent.stadio === "confezione") {
@@ -160,9 +166,25 @@ function domandaKgPerUnita(parent: ConfezionamentoNodoDraft | null): string {
       return "Indica prima quante confezioni ci sono. Poi scrivi quanti kg di prodotto sono presenti dentro una confezione.";
     }
     const pezzi = q === 1 ? "1 confezione" : `${n} confezioni`;
+    if (pesiDiversi) {
+      return `Hai impostato ${pezzi}. Indica i kg di prodotto dentro ciascuna confezione.`;
+    }
     return `Hai impostato ${pezzi}. Quanti kg di prodotto sono presenti dentro una confezione?`;
   }
   return "Quanti kg di prodotto sono presenti in questa unità?";
+}
+
+function nuovoPesoProdotto(
+  prodotto: { nome: string; codice: string } | null
+): ConfezionamentoNodoDraft {
+  const child = emptyNodo("prodotto_kg");
+  child.quantita = 1;
+  child.kgProdotto = "";
+  if (prodotto) {
+    child.nome = prodotto.nome;
+    child.codice = prodotto.codice;
+  }
+  return child;
 }
 
 function bloccaQtyProdotto(nodes: ConfezionamentoNodoDraft[]): {
@@ -1122,11 +1144,7 @@ export function OrdineNuovoWizardModal({
     }));
   }
 
-  function renderNodo(
-    nodo: ConfezionamentoNodoDraft,
-    depth: number,
-    parent: ConfezionamentoNodoDraft | null = null
-  ) {
+  function renderNodo(nodo: ConfezionamentoNodoDraft, depth: number) {
     const parentVoce = catalogo.find((v) => v.id === nodo.catalogoId) ?? null;
     const nextStadio = childStadioFor(
       nodo.stadio,
@@ -1148,6 +1166,57 @@ export function OrdineNuovoWizardModal({
     const options = selectedVoce
       ? [selectedVoce, ...optionsBase]
       : optionsBase;
+    const pesi = nodo.children.filter((c) => c.stadio === "prodotto_kg");
+    const altriFigli = nodo.children.filter((c) => c.stadio !== "prodotto_kg");
+    const pesiDiversi = pesi.length > 1;
+    const sommaPesi = pesi.reduce((s, p) => {
+      return s + (typeof p.kgProdotto === "number" ? p.kgProdotto : 0);
+    }, 0);
+
+    function scriviPesi(
+      nextPesi: ConfezionamentoNodoDraft[],
+      quantita?: ConfezionamentoNodoDraft["quantita"]
+    ) {
+      const q =
+        quantita !== undefined
+          ? quantita
+          : nextPesi.length > 1
+            ? nextPesi.length
+            : nodo.quantita;
+      setConf((prev) => ({
+        ...prev,
+        nodi: updateNodoInTree(prev.nodi, nodo.localId, {
+          quantita: q,
+          children: [...altriFigli, ...nextPesi],
+        }),
+      }));
+    }
+
+    function aggiungiAltroPeso() {
+      if (pesi.length === 0) return;
+      if (pesi.length === 1) {
+        const nAttuale =
+          typeof nodo.quantita === "number" && nodo.quantita > 1
+            ? Math.round(nodo.quantita)
+            : 1;
+        if (nAttuale <= 1) {
+          scriviPesi([pesi[0], nuovoPesoProdotto(prodotto)], 2);
+          return;
+        }
+        const next = [pesi[0]];
+        while (next.length < nAttuale) {
+          const extra = nuovoPesoProdotto(prodotto);
+          extra.kgProdotto = pesi[0].kgProdotto;
+          extra.nome = pesi[0].nome;
+          extra.codice = pesi[0].codice;
+          next.push(extra);
+        }
+        scriviPesi(next, next.length);
+        return;
+      }
+      const next = [...pesi, nuovoPesoProdotto(prodotto)];
+      scriviPesi(next, next.length);
+    }
     return (
       <div
         key={nodo.localId}
@@ -1189,19 +1258,26 @@ export function OrdineNuovoWizardModal({
               <ClearableNumberInput
                 min={0}
                 value={nodo.quantita}
-                onValueChange={(v) =>
+                onValueChange={(v) => {
+                  if (pesiDiversi && typeof v === "number" && v >= 1) {
+                    const n = Math.max(1, Math.round(v));
+                    const next = pesi.slice(0, n);
+                    while (next.length < n) next.push(nuovoPesoProdotto(prodotto));
+                    scriviPesi(next, n);
+                    return;
+                  }
                   setConf((prev) => ({
                     ...prev,
                     nodi: updateNodoInTree(prev.nodi, nodo.localId, {
                       quantita: v,
                     }),
-                  }))
-                }
+                  }));
+                }}
                 className="ml-1 w-16 rounded border border-[var(--border)] px-2 py-1.5 text-sm"
               />
             </label>
           )}
-          {nextStadio ? (
+          {nextStadio && !(nextStadio === "prodotto_kg" && pesi.length > 0) ? (
             <button
               type="button"
               className="rounded border border-[var(--border)] px-2 py-1 text-xs hover:bg-slate-50"
@@ -1254,32 +1330,83 @@ export function OrdineNuovoWizardModal({
               : "— (aggiungi livello successivo)"}
           </p>
         ) : null}
-        {nodo.stadio === "prodotto_kg" ? (
-          <label className="mt-2 block text-sm text-slate-800">
-            {domandaKgPerUnita(parent)}
-            <span className="mt-1 inline-flex items-center gap-2">
-              <ClearableNumberInput
-                min={0}
-                value={nodo.kgProdotto ?? ""}
-                onValueChange={(v) =>
-                  setConf((prev) => ({
-                    ...prev,
-                    nodi: updateNodoInTree(prev.nodi, nodo.localId, {
-                      quantita: 1,
-                      kgProdotto: v,
-                      nome: prodotto?.nome ?? (nodo.nome || "Prodotto"),
-                      codice: prodotto?.codice ?? nodo.codice,
-                    }),
-                  }))
-                }
-                className="w-28 rounded border border-[var(--border)] px-2 py-1.5 text-sm"
-              />
-              <span className="text-sm text-slate-600">kg</span>
-            </span>
-          </label>
+        {pesi.length > 0 ? (
+          <div className="mt-2 space-y-2 rounded-lg border border-slate-200 bg-slate-50 p-3">
+            <p className="text-sm text-slate-800">
+              {domandaKgPerUnita(nodo, pesiDiversi)}
+            </p>
+            {pesiDiversi ? (
+              <p className="text-xs text-[var(--muted)]">
+                Ogni riga ha il suo peso. Esempio: 10 kg e 5 kg per un acquisto
+                di 15 kg. Il totale di questo livello è la somma.
+              </p>
+            ) : (
+              <p className="text-xs text-[var(--muted)]">
+                Questo peso vale per ogni isolamento. Per pesi diversi, per
+                esempio un sacchetto da 10 kg e uno da 5 kg, usa «Aggiungi
+                altro peso».
+              </p>
+            )}
+            {pesi.map((peso, index) => (
+              <div key={peso.localId} className="flex flex-wrap items-center gap-2">
+                {pesiDiversi ? (
+                  <span className="w-28 text-xs font-medium text-slate-700">
+                    Isolamento {index + 1}
+                  </span>
+                ) : null}
+                <ClearableNumberInput
+                  min={0}
+                  value={peso.kgProdotto ?? ""}
+                  onValueChange={(v) => {
+                    const next = pesi.map((p) =>
+                      p.localId === peso.localId
+                        ? {
+                            ...p,
+                            quantita: 1,
+                            kgProdotto: v,
+                            nome: prodotto?.nome ?? (p.nome || "Prodotto"),
+                            codice: prodotto?.codice ?? p.codice,
+                          }
+                        : p
+                    );
+                    scriviPesi(next);
+                  }}
+                  className="w-28 rounded border border-[var(--border)] px-2 py-1.5 text-sm"
+                />
+                <span className="text-sm text-slate-600">kg</span>
+                <button
+                  type="button"
+                  className="rounded p-1.5 text-red-600 hover:bg-red-50"
+                  aria-label={
+                    pesiDiversi
+                      ? `Rimuovi isolamento ${index + 1}`
+                      : "Rimuovi kg prodotto"
+                  }
+                  onClick={() => {
+                    const next = pesi.filter((p) => p.localId !== peso.localId);
+                    scriviPesi(next, next.length > 1 ? next.length : 1);
+                  }}
+                >
+                  <FaTrash size={11} />
+                </button>
+              </div>
+            ))}
+            <button
+              type="button"
+              className="rounded border border-[var(--border)] bg-white px-2 py-1 text-xs hover:bg-slate-50"
+              onClick={aggiungiAltroPeso}
+            >
+              Aggiungi altro peso
+            </button>
+            {pesiDiversi ? (
+              <p className="text-xs font-medium text-slate-800">
+                Somma isolamenti: {sommaPesi.toLocaleString("it-IT")} kg
+              </p>
+            ) : null}
+          </div>
         ) : null}
         <div className="mt-2 space-y-2">
-          {nodo.children.map((c) => renderNodo(c, depth + 1, nodo))}
+          {altriFigli.map((c) => renderNodo(c, depth + 1))}
         </div>
       </div>
     );
