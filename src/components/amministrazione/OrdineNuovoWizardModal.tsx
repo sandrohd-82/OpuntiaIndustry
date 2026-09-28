@@ -191,11 +191,13 @@ function bloccaQtyProdotto(nodes: ConfezionamentoNodoDraft[]): {
   nodi: ConfezionamentoNodoDraft[];
   changed: boolean;
 } {
+  const unSoloPeso =
+    nodes.filter((n) => n.stadio === "prodotto_kg").length <= 1;
   let changed = false;
   const nodi = nodes.map((n) => {
     const kids = bloccaQtyProdotto(n.children);
     if (kids.changed) changed = true;
-    if (n.stadio === "prodotto_kg" && n.quantita !== 1) {
+    if (unSoloPeso && n.stadio === "prodotto_kg" && n.quantita !== 1) {
       changed = true;
       return { ...n, quantita: 1, children: kids.nodi };
     }
@@ -203,6 +205,14 @@ function bloccaQtyProdotto(nodes: ConfezionamentoNodoDraft[]): {
     return n;
   });
   return { nodi, changed };
+}
+
+function pezziPeso(n: ConfezionamentoNodoDraft): number {
+  return typeof n.quantita === "number" && n.quantita > 0 ? n.quantita : 0;
+}
+
+function sommaPezziPesi(pesi: ConfezionamentoNodoDraft[]): number {
+  return pesi.reduce((s, p) => s + pezziPeso(p), 0);
 }
 
 const STEPS: { n: Step; label: string }[] = [
@@ -1171,8 +1181,10 @@ export function OrdineNuovoWizardModal({
     const pesi = nodo.children.filter((c) => c.stadio === "prodotto_kg");
     const altriFigli = nodo.children.filter((c) => c.stadio !== "prodotto_kg");
     const pesiDiversi = pesi.length > 1;
+    const pezziTotali = sommaPezziPesi(pesi);
     const sommaPesi = pesi.reduce((s, p) => {
-      return s + (typeof p.kgProdotto === "number" ? p.kgProdotto : 0);
+      const kg = typeof p.kgProdotto === "number" ? p.kgProdotto : 0;
+      return s + (pesiDiversi ? pezziPeso(p) * kg : kg);
     }, 0);
 
     function scriviPesi(
@@ -1183,7 +1195,7 @@ export function OrdineNuovoWizardModal({
         quantita !== undefined
           ? quantita
           : nextPesi.length > 1
-            ? nextPesi.length
+            ? sommaPezziPesi(nextPesi)
             : nodo.quantita;
       setConf((prev) => ({
         ...prev,
@@ -1196,28 +1208,21 @@ export function OrdineNuovoWizardModal({
 
     function aggiungiAltroPeso() {
       if (pesi.length === 0) return;
+      const extra = nuovoPesoProdotto(prodotto);
+      extra.quantita = 1;
       if (pesi.length === 1) {
         const nAttuale =
           typeof nodo.quantita === "number" && nodo.quantita > 1
             ? Math.round(nodo.quantita)
             : 1;
-        if (nAttuale <= 1) {
-          scriviPesi([pesi[0], nuovoPesoProdotto(prodotto)], 2);
-          return;
-        }
-        const next = [pesi[0]];
-        while (next.length < nAttuale) {
-          const extra = nuovoPesoProdotto(prodotto);
-          extra.kgProdotto = pesi[0].kgProdotto;
-          extra.nome = pesi[0].nome;
-          extra.codice = pesi[0].codice;
-          next.push(extra);
-        }
-        scriviPesi(next, next.length);
+        const primo = {
+          ...pesi[0],
+          quantita: nAttuale > 1 ? nAttuale - 1 : 1,
+        };
+        scriviPesi([primo, extra]);
         return;
       }
-      const next = [...pesi, nuovoPesoProdotto(prodotto)];
-      scriviPesi(next, next.length);
+      scriviPesi([...pesi, extra]);
     }
     return (
       <div
@@ -1259,15 +1264,15 @@ export function OrdineNuovoWizardModal({
               N
               <ClearableNumberInput
                 min={0}
-                value={nodo.quantita}
+                value={pesiDiversi ? pezziTotali : nodo.quantita}
+                disabled={pesiDiversi}
+                title={
+                  pesiDiversi
+                    ? "Somma dei numeri sulle righe dei pesi"
+                    : undefined
+                }
                 onValueChange={(v) => {
-                  if (pesiDiversi && typeof v === "number" && v >= 1) {
-                    const n = Math.max(1, Math.round(v));
-                    const next = pesi.slice(0, n);
-                    while (next.length < n) next.push(nuovoPesoProdotto(prodotto));
-                    scriviPesi(next, n);
-                    return;
-                  }
+                  if (pesiDiversi) return;
                   setConf((prev) => ({
                     ...prev,
                     nodi: updateNodoInTree(prev.nodi, nodo.localId, {
@@ -1323,9 +1328,15 @@ export function OrdineNuovoWizardModal({
               ? nodo.children
                   .map((c) =>
                     c.stadio === "prodotto_kg"
-                      ? typeof c.kgProdotto === "number"
-                        ? `${c.kgProdotto.toLocaleString("it-IT")} kg`
-                        : "kg da indicare"
+                      ? pesiDiversi
+                        ? `N${c.quantita} × ${
+                            typeof c.kgProdotto === "number"
+                              ? c.kgProdotto.toLocaleString("it-IT")
+                              : "?"
+                          } kg`
+                        : typeof c.kgProdotto === "number"
+                          ? `${c.kgProdotto.toLocaleString("it-IT")} kg`
+                          : "kg da indicare"
                       : `N${c.quantita} ${c.nome || c.stadio}`
                   )
                   .join(" + ")
@@ -1339,8 +1350,8 @@ export function OrdineNuovoWizardModal({
             </p>
             {pesiDiversi ? (
               <p className="text-xs text-[var(--muted)]">
-                Ogni riga ha il suo peso. Esempio: 10 kg e 5 kg per un acquisto
-                di 15 kg. Il totale di questo livello è la somma.
+                Su ogni riga il numero è modificabile: quanti isolamenti hanno
+                quel peso. Esempio: 4 da 10 kg e 1 da 5 kg per 45 kg.
               </p>
             ) : (
               <p className="text-xs text-[var(--muted)]">
@@ -1352,9 +1363,20 @@ export function OrdineNuovoWizardModal({
             {pesi.map((peso, index) => (
               <div key={peso.localId} className="flex flex-wrap items-center gap-2">
                 {pesiDiversi ? (
-                  <span className="w-28 text-xs font-medium text-slate-700">
-                    Isolamento {index + 1}
-                  </span>
+                  <label className="text-xs">
+                    N
+                    <ClearableNumberInput
+                      min={0}
+                      value={peso.quantita}
+                      onValueChange={(v) => {
+                        const next = pesi.map((p) =>
+                          p.localId === peso.localId ? { ...p, quantita: v } : p
+                        );
+                        scriviPesi(next);
+                      }}
+                      className="ml-1 w-16 rounded border border-[var(--border)] px-2 py-1.5 text-sm"
+                    />
+                  </label>
                 ) : null}
                 <ClearableNumberInput
                   min={0}
@@ -1364,7 +1386,6 @@ export function OrdineNuovoWizardModal({
                       p.localId === peso.localId
                         ? {
                             ...p,
-                            quantita: 1,
                             kgProdotto: v,
                             nome: prodotto?.nome ?? (p.nome || "Prodotto"),
                             codice: prodotto?.codice ?? p.codice,
@@ -1380,13 +1401,16 @@ export function OrdineNuovoWizardModal({
                   type="button"
                   className="rounded p-1.5 text-red-600 hover:bg-red-50"
                   aria-label={
-                    pesiDiversi
-                      ? `Rimuovi isolamento ${index + 1}`
-                      : "Rimuovi kg prodotto"
+                    pesiDiversi ? `Rimuovi peso ${index + 1}` : "Rimuovi kg prodotto"
                   }
                   onClick={() => {
                     const next = pesi.filter((p) => p.localId !== peso.localId);
-                    scriviPesi(next, next.length > 1 ? next.length : 1);
+                    if (next.length === 1) {
+                      const n = pezziPeso(next[0]) || 1;
+                      scriviPesi([{ ...next[0], quantita: 1 }], n);
+                      return;
+                    }
+                    scriviPesi(next, next.length === 0 ? 1 : undefined);
                   }}
                 >
                   <FaTrash size={11} />
@@ -1402,7 +1426,8 @@ export function OrdineNuovoWizardModal({
             </button>
             {pesiDiversi ? (
               <p className="text-xs font-medium text-slate-800">
-                Somma isolamenti: {sommaPesi.toLocaleString("it-IT")} kg
+                Somma: {pezziTotali.toLocaleString("it-IT")} isolamenti ·{" "}
+                {sommaPesi.toLocaleString("it-IT")} kg
               </p>
             ) : null}
           </div>

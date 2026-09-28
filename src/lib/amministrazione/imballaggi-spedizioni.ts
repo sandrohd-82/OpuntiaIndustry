@@ -351,7 +351,7 @@ function qtyNodo(n: ConfezionamentoNodoDraft): number {
 /**
  * Totale kg prodotto lungo l’albero.
  * Un solo peso sotto l’isolamento vale per ogni pezzo (N × kg).
- * Più pesi sono isolamenti diversi: si sommano, senza moltiplicare di nuovo per N.
+ * Più pesi sono gruppi: ogni riga è (numero isolamenti × kg), senza moltiplicare di nuovo per N del padre.
  */
 export function totaleKgConfezionati(nodi: ConfezionamentoNodoDraft[]): number {
   function walk(nodes: ConfezionamentoNodoDraft[], parentMult: number): number {
@@ -366,7 +366,9 @@ export function totaleKgConfezionati(nodi: ConfezionamentoNodoDraft[]): number {
       const altri = n.children.filter((c) => c.stadio !== "prodotto_kg");
       const mult = parentMult * q;
       if (prodotti.length > 1) {
-        for (const p of prodotti) sum += parentMult * kgFogliaNodo(p);
+        for (const p of prodotti) {
+          sum += parentMult * qtyNodo(p) * kgFogliaNodo(p);
+        }
       } else if (prodotti.length === 1) {
         sum += walk(prodotti, mult);
       }
