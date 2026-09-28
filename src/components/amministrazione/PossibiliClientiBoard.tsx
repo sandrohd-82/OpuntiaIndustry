@@ -196,6 +196,11 @@ function PossibileClienteRow({
                 Modifica
               </button>
             ) : null}
+            <ClienteCediAffiancaFields
+              kind="possibile"
+              recordId={lead.id}
+              onChanged={onChanged}
+            />
             <button
               type="button"
               onClick={() => setOpen((v) => !v)}

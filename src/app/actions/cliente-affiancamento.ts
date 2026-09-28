@@ -26,7 +26,15 @@ async function loadPersoneLinea(): Promise<PersonaLinea[]> {
     .is("deleted_at", null);
   if (error || !data) return [];
   return data.map((row) => {
-    const grado = (row as { commerciale_grado?: string | null }).commerciale_grado;
+    const gradoRaw = String(
+      (row as { commerciale_grado?: string | null }).commerciale_grado ?? ""
+    ).toLowerCase();
+    const grado =
+      gradoRaw === "senior" ||
+      gradoRaw === "professional" ||
+      gradoRaw === "executive"
+        ? gradoRaw
+        : null;
     const nome = `${(row as { cognome?: string }).cognome ?? ""} ${(row as { nome?: string }).nome ?? ""}`.trim();
     return {
       id: String((row as { id: string }).id),
@@ -36,10 +44,7 @@ async function loadPersoneLinea(): Promise<PersonaLinea[]> {
       parentId: (row as { parent_id?: string | null }).parent_id
         ? String((row as { parent_id: string }).parent_id)
         : null,
-      grado:
-        grado === "senior" || grado === "professional" || grado === "executive"
-          ? grado
-          : null,
+      grado,
       nome: nome || "Operatore",
     };
   });
@@ -73,12 +78,13 @@ export async function contestoCessioneAffiancamentoAction(input: {
     return { success: false, error: "Scheda non valida." };
   }
   const service = createServiceClient();
-  const { data: row } = await service
+  const { data: row, error } = await service
     .from(tableOf(input.kind))
     .select("commerciale_id, affiancato_id")
     .eq("id", id)
     .is("deleted_at", null)
     .maybeSingle();
+  if (error) return { success: false, error: error.message };
   if (!row) return { success: false, error: "Scheda non trovata." };
   const persone = await loadPersoneLinea();
   const actor = personaAttore(persone, auth.userId);

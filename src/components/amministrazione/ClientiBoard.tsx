@@ -240,6 +240,11 @@ function ClienteRow({
               Modifica
             </button>
             ) : null}
+            <ClienteCediAffiancaFields
+              kind="cliente"
+              recordId={cliente.id}
+              onChanged={onChanged}
+            />
             <button
               type="button"
               onClick={() => setOpen((v) => !v)}
