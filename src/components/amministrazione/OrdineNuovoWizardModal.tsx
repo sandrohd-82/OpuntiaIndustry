@@ -142,6 +142,47 @@ function formatDateIt(iso: string | null) {
   }
 }
 
+function domandaKgPerUnita(parent: ConfezionamentoNodoDraft | null): string {
+  const q =
+    parent && typeof parent.quantita === "number" && Number.isFinite(parent.quantita)
+      ? parent.quantita
+      : 0;
+  const n = q.toLocaleString("it-IT");
+  if (!parent || parent.stadio === "isolamento") {
+    if (q <= 0) {
+      return "Indica prima quanti isolamenti ci sono nella confezione. Poi scrivi quanti kg di prodotto sono presenti dentro un isolamento.";
+    }
+    const pezzi = q === 1 ? "1 isolamento" : `${n} isolamenti`;
+    return `Hai impostato ${pezzi}. Quanti kg di prodotto sono presenti dentro un isolamento?`;
+  }
+  if (parent.stadio === "confezione") {
+    if (q <= 0) {
+      return "Indica prima quante confezioni ci sono. Poi scrivi quanti kg di prodotto sono presenti dentro una confezione.";
+    }
+    const pezzi = q === 1 ? "1 confezione" : `${n} confezioni`;
+    return `Hai impostato ${pezzi}. Quanti kg di prodotto sono presenti dentro una confezione?`;
+  }
+  return "Quanti kg di prodotto sono presenti in questa unità?";
+}
+
+function bloccaQtyProdotto(nodes: ConfezionamentoNodoDraft[]): {
+  nodi: ConfezionamentoNodoDraft[];
+  changed: boolean;
+} {
+  let changed = false;
+  const nodi = nodes.map((n) => {
+    const kids = bloccaQtyProdotto(n.children);
+    if (kids.changed) changed = true;
+    if (n.stadio === "prodotto_kg" && n.quantita !== 1) {
+      changed = true;
+      return { ...n, quantita: 1, children: kids.nodi };
+    }
+    if (kids.changed) return { ...n, children: kids.nodi };
+    return n;
+  });
+  return { nodi, changed };
+}
+
 const STEPS: { n: Step; label: string }[] = [
   { n: 1, label: "Azienda" },
   { n: 2, label: "Prodotto" },
@@ -345,6 +386,12 @@ export function OrdineNuovoWizardModal({
   const [conf, setConf] = useState<ConfezionamentoDraft>(
     emptyConfezionamentoDraft()
   );
+
+  useEffect(() => {
+    const fixed = bloccaQtyProdotto(conf.nodi);
+    if (!fixed.changed) return;
+    setConf((prev) => ({ ...prev, nodi: bloccaQtyProdotto(prev.nodi).nodi }));
+  }, [conf.nodi]);
 
   useEffect(() => {
     clearOrdineSessione();
@@ -1075,7 +1122,11 @@ export function OrdineNuovoWizardModal({
     }));
   }
 
-  function renderNodo(nodo: ConfezionamentoNodoDraft, depth: number) {
+  function renderNodo(
+    nodo: ConfezionamentoNodoDraft,
+    depth: number,
+    parent: ConfezionamentoNodoDraft | null = null
+  ) {
     const parentVoce = catalogo.find((v) => v.id === nodo.catalogoId) ?? null;
     const nextStadio = childStadioFor(
       nodo.stadio,
@@ -1132,52 +1183,37 @@ export function OrdineNuovoWizardModal({
               {prodotto ? `${prodotto.codice} — ${prodotto.nome}` : "Prodotto"}
             </span>
           )}
-          <label className="text-xs">
-            N
-            <ClearableNumberInput
-              min={0}
-              value={nodo.quantita}
-              onValueChange={(v) =>
-                setConf((prev) => ({
-                  ...prev,
-                  nodi: updateNodoInTree(prev.nodi, nodo.localId, {
-                    quantita: v,
-                  }),
-                }))
-              }
-              className="ml-1 w-16 rounded border border-[var(--border)] px-2 py-1.5 text-sm"
-            />
-          </label>
-          {nodo.stadio === "prodotto_kg" ? (
+          {nodo.stadio === "prodotto_kg" ? null : (
             <label className="text-xs">
-              kg
+              N
               <ClearableNumberInput
                 min={0}
-                value={nodo.kgProdotto ?? ""}
+                value={nodo.quantita}
                 onValueChange={(v) =>
                   setConf((prev) => ({
                     ...prev,
                     nodi: updateNodoInTree(prev.nodi, nodo.localId, {
-                      kgProdotto: v,
-                      nome: prodotto?.nome ?? "Prodotto",
-                      codice: prodotto?.codice ?? "",
+                      quantita: v,
                     }),
                   }))
                 }
-                className="ml-1 w-20 rounded border border-[var(--border)] px-2 py-1.5 text-sm"
+                className="ml-1 w-16 rounded border border-[var(--border)] px-2 py-1.5 text-sm"
               />
             </label>
-          ) : null}
+          )}
           {nextStadio ? (
             <button
               type="button"
               className="rounded border border-[var(--border)] px-2 py-1 text-xs hover:bg-slate-50"
               onClick={() => {
                 const child = emptyNodo(nextStadio);
-                if (nextStadio === "prodotto_kg" && prodotto) {
-                  child.nome = prodotto.nome;
-                  child.codice = prodotto.codice;
-                  child.kgProdotto = 20;
+                if (nextStadio === "prodotto_kg") {
+                  child.quantita = 1;
+                  child.kgProdotto = "";
+                  if (prodotto) {
+                    child.nome = prodotto.nome;
+                    child.codice = prodotto.codice;
+                  }
                 }
                 setConf((prev) => ({
                   ...prev,
@@ -1207,13 +1243,43 @@ export function OrdineNuovoWizardModal({
             1 {nodo.nome} composto da:{" "}
             {nodo.children.length
               ? nodo.children
-                  .map((c) => `N${c.quantita} ${c.nome || c.stadio}`)
+                  .map((c) =>
+                    c.stadio === "prodotto_kg"
+                      ? typeof c.kgProdotto === "number"
+                        ? `${c.kgProdotto.toLocaleString("it-IT")} kg`
+                        : "kg da indicare"
+                      : `N${c.quantita} ${c.nome || c.stadio}`
+                  )
                   .join(" + ")
               : "— (aggiungi livello successivo)"}
           </p>
         ) : null}
+        {nodo.stadio === "prodotto_kg" ? (
+          <label className="mt-2 block text-sm text-slate-800">
+            {domandaKgPerUnita(parent)}
+            <span className="mt-1 inline-flex items-center gap-2">
+              <ClearableNumberInput
+                min={0}
+                value={nodo.kgProdotto ?? ""}
+                onValueChange={(v) =>
+                  setConf((prev) => ({
+                    ...prev,
+                    nodi: updateNodoInTree(prev.nodi, nodo.localId, {
+                      quantita: 1,
+                      kgProdotto: v,
+                      nome: prodotto?.nome ?? nodo.nome || "Prodotto",
+                      codice: prodotto?.codice ?? nodo.codice,
+                    }),
+                  }))
+                }
+                className="w-28 rounded border border-[var(--border)] px-2 py-1.5 text-sm"
+              />
+              <span className="text-sm text-slate-600">kg</span>
+            </span>
+          </label>
+        ) : null}
         <div className="mt-2 space-y-2">
-          {nodo.children.map((c) => renderNodo(c, depth + 1))}
+          {nodo.children.map((c) => renderNodo(c, depth + 1, nodo))}
         </div>
       </div>
     );
