@@ -38,6 +38,7 @@ import { CodiceTargaBadge } from "@/components/amministrazione/CodiceTargaBadge"
 import { ProdottiAcquistatiTags } from "@/components/amministrazione/ProdottiAcquistatiTags";
 import { ReferentiPickerField } from "@/components/amministrazione/ReferentiPickerField";
 import { CommercialeAssignField } from "@/components/amministrazione/CommercialeAssignField";
+import { ClienteCediAffiancaFields } from "@/components/amministrazione/ClienteCediAffiancaFields";
 import { AnagraficaContattiGenericiFields } from "@/components/amministrazione/AnagraficaContattiGenericiFields";
 import { CanaleInputRow } from "@/components/amministrazione/CanaleAttenzioneControls";
 import {
@@ -148,6 +149,7 @@ export function ClienteFormModal({
     userId: priv.userId,
     createdBy: initial?.createdBy,
     commercialeId: initial?.commercialeId,
+    affiancatoId: initial?.affiancatoId,
     lineageIds,
   });
   const canDeleteRecord = priv.canDelete(initial?.createdBy, treatAsOwn);
@@ -822,6 +824,20 @@ export function ClienteFormModal({
                   </span>
                 </label>
               </div>
+            ) : null}
+            {isEdit && initial?.id ? (
+              <ClienteCediAffiancaFields
+                kind={isPossibile ? "possibile" : "cliente"}
+                recordId={initial.id}
+                onCommercialeCeduto={(userId, intermediarioAzzerato) => {
+                  setCommercialeId(userId);
+                  if (intermediarioAzzerato) {
+                    setIntermediarioId(null);
+                    setIntermediarioPct("");
+                  }
+                  router.refresh();
+                }}
+              />
             ) : null}
             {isPossibile ? (
               <TrattativaSelectField

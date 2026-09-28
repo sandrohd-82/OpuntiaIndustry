@@ -285,7 +285,7 @@ export function anagraficaLineageOrFilter(lineageIds: string[]): string {
   const ids = [...new Set(lineageIds.filter(Boolean))];
   if (ids.length === 0) return "id.eq.00000000-0000-0000-0000-000000000000";
   const inList = ids.join(",");
-  return `created_by.in.(${inList}),commerciale_id.in.(${inList})`;
+  return `created_by.in.(${inList}),commerciale_id.in.(${inList}),affiancato_id.in.(${inList})`;
 }
 
 /**

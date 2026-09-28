@@ -457,7 +457,7 @@ export async function updateClienteAction(
   const supabase = await createClient();
   const { data: existingCliente } = await supabase
     .from("clienti")
-    .select("created_by, commerciale_id, azienda_madre_id")
+    .select("created_by, commerciale_id, affiancato_id, azienda_madre_id")
     .eq("id", id)
     .is("deleted_at", null)
     .maybeSingle();
@@ -469,6 +469,9 @@ export async function updateClienteAction(
       : null,
     commercialeId: existingCliente?.commerciale_id
       ? String(existingCliente.commerciale_id)
+      : null,
+    affiancatoId: existingCliente?.affiancato_id
+      ? String(existingCliente.affiancato_id)
       : null,
   });
   if (!editGate.ok) return { success: false, error: editGate.error };
@@ -721,7 +724,7 @@ export async function prenotaCancellazioneClienteAction(input: {
   const supabase = await createClient();
   const { data: existing, error: loadError } = await supabase
     .from("clienti")
-    .select("id, codice_targa, ragione_sociale, created_by, commerciale_id, deleted_at")
+    .select("id, codice_targa, ragione_sociale, created_by, commerciale_id, affiancato_id, deleted_at")
     .eq("id", input.id)
     .maybeSingle();
   if (loadError) return { success: false, error: loadError.message };
@@ -734,6 +737,9 @@ export async function prenotaCancellazioneClienteAction(input: {
     createdBy: existing.created_by ? String(existing.created_by) : null,
     commercialeId: existing.commerciale_id
       ? String(existing.commerciale_id)
+      : null,
+    affiancatoId: existing.affiancato_id
+      ? String(existing.affiancato_id)
       : null,
   });
   if (!delGate.ok) return { success: false, error: delGate.error };
@@ -1050,6 +1056,9 @@ export async function convertClientePossibileAdClienteAction(
     commercialeId: leadRow.commerciale_id
       ? String(leadRow.commerciale_id)
       : null,
+    affiancatoId: leadRow.affiancato_id
+      ? String(leadRow.affiancato_id)
+      : null,
   });
   if (!gate.ok) return { success: false, error: gate.error };
 
@@ -1191,6 +1200,25 @@ export async function convertClientePossibileAdClienteAction(
   const created = await createClienteAction(input);
   if (!created.success) return created;
 
+  const affiancatoId = leadRow.affiancato_id
+    ? String(leadRow.affiancato_id)
+    : null;
+  if (affiancatoId) {
+    await createServiceClient()
+      .from("clienti")
+      .update({
+        affiancato_id: affiancatoId,
+        affiancato_at: leadRow.affiancato_at
+          ? String(leadRow.affiancato_at)
+          : new Date().toISOString(),
+        affiancato_by: leadRow.affiancato_by
+          ? String(leadRow.affiancato_by)
+          : auth.userId,
+        updated_by: auth.userId,
+      })
+      .eq("id", created.cliente.id);
+  }
+
   await markLeadConvertito({
     supabase,
     leadId: String(leadRow.id),
@@ -1211,6 +1239,7 @@ export type AnagraficaDocumentoResolved = {
   ragioneSociale: string;
   codiceTarga: string;
   commercialeId: string | null;
+  affiancatoId?: string | null;
   createdBy: string | null;
 };
 
@@ -1237,7 +1266,7 @@ export async function resolveClientePerOrdineAction(input: {
     const supabase = await createClient();
     const { data: leadRow, error: leadErr } = await supabase
       .from("clienti_possibili")
-      .select("id, ragione_sociale, stato, cliente_id, commerciale_id, created_by")
+      .select("id, ragione_sociale, stato, cliente_id, commerciale_id, affiancato_id, created_by")
       .eq("id", parsed.possibileClienteId)
       .is("deleted_at", null)
       .maybeSingle();
@@ -1266,6 +1295,7 @@ export async function resolveClientePerOrdineAction(input: {
           ragioneSociale: cliente.ragioneSociale,
           codiceTarga: cliente.codiceTarga,
           commercialeId: cliente.commercialeId,
+          affiancatoId: cliente.affiancatoId,
           createdBy: cliente.createdBy,
         };
       }
@@ -1280,6 +1310,9 @@ export async function resolveClientePerOrdineAction(input: {
       codiceTarga: LEAD_TARGA_PLACEHOLDER,
       commercialeId: leadRow.commerciale_id
         ? String(leadRow.commerciale_id)
+        : null,
+      affiancatoId: leadRow.affiancato_id
+        ? String(leadRow.affiancato_id)
         : null,
       createdBy: leadRow.created_by ? String(leadRow.created_by) : null,
     };
@@ -1302,6 +1335,7 @@ export async function resolveClientePerOrdineAction(input: {
     ragioneSociale: cliente.ragioneSociale,
     codiceTarga: cliente.codiceTarga,
     commercialeId: cliente.commercialeId,
+    affiancatoId: cliente.affiancatoId,
     createdBy: cliente.createdBy,
   };
 }

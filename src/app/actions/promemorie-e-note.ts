@@ -71,7 +71,7 @@ import type { ClienteConsegnaAltraAziendaRow } from "@/types/database";
 import { z } from "zod";
 
 const CLIENTI_POSSIBILI_SELECT =
-  "id, ragione_sociale, partita_iva, codice_fiscale, is_privato, email, pec, sdi_code, telefono, sito_web, telefoni_generici, email_generiche, siti_web_generici, sede_amm_nazione, sede_amm_provincia, sede_amm_citta, sede_amm_cap, sede_amm_indirizzo, sede_mag_nazione, sede_mag_provincia, sede_mag_citta, sede_mag_cap, sede_mag_indirizzo, prodotti_interessati, consegne_altra_azienda, referente, note_interne, stato, trattativa, cliente_id, created_by, created_at, updated_at, commerciale_id, azienda_madre_id, invia_preventivi, fatturare, invia_campionature, invia_prodotti, tipologia_rispetto_madre";
+  "id, ragione_sociale, partita_iva, codice_fiscale, is_privato, email, pec, sdi_code, telefono, sito_web, telefoni_generici, email_generiche, siti_web_generici, sede_amm_nazione, sede_amm_provincia, sede_amm_citta, sede_amm_cap, sede_amm_indirizzo, sede_mag_nazione, sede_mag_provincia, sede_mag_citta, sede_mag_cap, sede_mag_indirizzo, prodotti_interessati, consegne_altra_azienda, referente, note_interne, stato, trattativa, cliente_id, created_by, created_at, updated_at, commerciale_id, affiancato_id, azienda_madre_id, invia_preventivi, fatturare, invia_campionature, invia_prodotti, tipologia_rispetto_madre";
 
 async function syncPnMentionsToTimeline(input: {
   userId: string;
@@ -166,6 +166,7 @@ function mapClientePossibileRow(r: Record<string, unknown>): ClientePossibile {
     updatedAt: String(r.updated_at),
     createdBy: r.created_by ? String(r.created_by) : null,
     commercialeId: r.commerciale_id ? String(r.commerciale_id) : null,
+    affiancatoId: r.affiancato_id ? String(r.affiancato_id) : null,
     commercialeNome: "",
     commercialeGrado: null,
     aziendaMadreId: r.azienda_madre_id ? String(r.azienda_madre_id) : null,
@@ -1457,7 +1458,7 @@ export async function updateClientePossibileAction(
   const supabaseGate = await createClient();
   const { data: existingLead } = await supabaseGate
     .from("clienti_possibili")
-    .select("created_by, commerciale_id, trattativa")
+    .select("created_by, commerciale_id, affiancato_id, trattativa")
     .eq("id", id)
     .is("deleted_at", null)
     .maybeSingle();
@@ -1469,6 +1470,9 @@ export async function updateClientePossibileAction(
       : null,
     commercialeId: existingLead?.commerciale_id
       ? String(existingLead.commerciale_id)
+      : null,
+    affiancatoId: existingLead?.affiancato_id
+      ? String(existingLead.affiancato_id)
       : null,
   });
   if (!editGate.ok) return { success: false, error: editGate.error };
@@ -1659,7 +1663,7 @@ export async function softDeleteClientePossibileAction(input: {
   const supabase = await createClient();
   const { data: existing, error: loadError } = await supabase
     .from("clienti_possibili")
-    .select("id, ragione_sociale, created_by, commerciale_id, deleted_at")
+    .select("id, ragione_sociale, created_by, commerciale_id, affiancato_id, deleted_at")
     .eq("id", input.id)
     .maybeSingle();
   if (loadError) return { success: false, error: loadError.message };
@@ -1672,6 +1676,9 @@ export async function softDeleteClientePossibileAction(input: {
     createdBy: existing.created_by ? String(existing.created_by) : null,
     commercialeId: existing.commerciale_id
       ? String(existing.commerciale_id)
+      : null,
+    affiancatoId: existing.affiancato_id
+      ? String(existing.affiancato_id)
       : null,
   });
   if (!delGate.ok) return { success: false, error: delGate.error };

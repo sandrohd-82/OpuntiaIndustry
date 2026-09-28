@@ -40,6 +40,7 @@ type SchedaLink = {
   azienda_madre_id: string | null;
   created_by: string | null;
   commerciale_id: string | null;
+  affiancato_id: string | null;
 };
 
 export async function collegaAziendeEsistentiAction(
@@ -62,7 +63,7 @@ export async function collegaAziendeEsistentiAction(
   const { data: rows, error: loadError } = await supabase
     .from(table)
     .select(
-      "id, ragione_sociale, is_privato, azienda_madre_id, created_by, commerciale_id"
+      "id, ragione_sociale, is_privato, azienda_madre_id, created_by, commerciale_id, affiancato_id"
     )
     .in("id", [data.origineId, data.altraId])
     .is("deleted_at", null);
@@ -104,6 +105,7 @@ export async function collegaAziendeEsistentiAction(
       op: "update",
       createdBy: scheda.created_by,
       commercialeId: scheda.commerciale_id,
+      affiancatoId: scheda.affiancato_id,
     });
     if (!gate.ok) return { success: false, error: gate.error };
   }

@@ -322,16 +322,20 @@ export async function listAziendaTimelineAction(raw: unknown): Promise<
     return { success: false, error: "Azienda non trovata." };
   }
   let commercialeId: string | null = null;
+  let affiancatoId: string | null = null;
   if (aziendaTipo !== "fornitore") {
     const { data: azComm } = await service
       .from(table)
-      .select("commerciale_id")
+      .select("commerciale_id, affiancato_id")
       .eq("id", aziendaId)
       .is("deleted_at", null)
       .maybeSingle();
-    const raw = (azComm as { commerciale_id?: string | null } | null)
+    const raw = (azComm as { commerciale_id?: string | null; affiancato_id?: string | null } | null)
       ?.commerciale_id;
     commercialeId = raw ? String(raw) : null;
+    affiancatoId = (azComm as { affiancato_id?: string | null } | null)?.affiancato_id
+      ? String((azComm as { affiancato_id: string }).affiancato_id)
+      : null;
   }
   const timelineKind = kindFromAziendaTipo(aziendaTipo);
   if (timelineKind) {
@@ -340,6 +344,7 @@ export async function listAziendaTimelineAction(raw: unknown): Promise<
       op: "timeline",
       createdBy: azRow.created_by ? String(azRow.created_by) : null,
       commercialeId,
+      affiancatoId,
     });
     if (!tlGate.ok) return { success: false, error: tlGate.error };
   }
@@ -1487,22 +1492,25 @@ async function assertTimelineSyncAccess(raw: unknown): Promise<
     .maybeSingle();
   if (!azRow) return { ok: false, error: "Azienda non trovata." };
   let commercialeId: string | null = null;
+  let affiancatoId: string | null = null;
   if (aziendaTipo === "cliente") {
     const { data: comm } = await service
       .from("clienti")
-      .select("commerciale_id")
+      .select("commerciale_id, affiancato_id")
       .eq("id", aziendaId)
       .is("deleted_at", null)
       .maybeSingle();
     commercialeId = comm?.commerciale_id ? String(comm.commerciale_id) : null;
+    affiancatoId = comm?.affiancato_id ? String(comm.affiancato_id) : null;
   } else if (aziendaTipo === "cliente_possibile") {
     const { data: comm } = await service
       .from("clienti_possibili")
-      .select("commerciale_id")
+      .select("commerciale_id, affiancato_id")
       .eq("id", aziendaId)
       .is("deleted_at", null)
       .maybeSingle();
     commercialeId = comm?.commerciale_id ? String(comm.commerciale_id) : null;
+    affiancatoId = comm?.affiancato_id ? String(comm.affiancato_id) : null;
   }
   const timelineKind = kindFromAziendaTipo(aziendaTipo);
   if (timelineKind) {
@@ -1511,6 +1519,7 @@ async function assertTimelineSyncAccess(raw: unknown): Promise<
       op: "timeline",
       createdBy: azRow.created_by ? String(azRow.created_by) : null,
       commercialeId,
+      affiancatoId,
     });
     if (!tlGate.ok) return { ok: false, error: tlGate.error };
   }

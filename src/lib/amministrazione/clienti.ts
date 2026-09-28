@@ -61,6 +61,7 @@ export type Cliente = {
   commercialeGrado: "senior" | "professional" | "executive" | null;
   intermediarioId?: string | null;
   intermediarioProvvigionePct?: number | null;
+  affiancatoId?: string | null;
   /** Solo possibile cliente: stato trattativa commerciale. */
   trattativa?: ClientePossibileTrattativa;
   /** Prenotazione cancellazione in attesa di Super Admin. */
@@ -315,6 +316,7 @@ export function mapClienteRow(
       row.intermediario_provvigione_pct == null
         ? null
         : Number(row.intermediario_provvigione_pct),
+    affiancatoId: row.affiancato_id ? String(row.affiancato_id) : null,
     cancellazionePrenotata: false,
     cancellazioneId: null,
     aziendaMadreId: row.azienda_madre_id ? String(row.azienda_madre_id) : null,

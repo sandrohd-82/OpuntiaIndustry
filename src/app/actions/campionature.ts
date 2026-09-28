@@ -305,6 +305,7 @@ async function createCampionaturaActionInner(
         userId: gate.auth.userId,
         createdBy: resolved.createdBy,
         commercialeId: resolved.commercialeId,
+        affiancatoId: resolved.affiancatoId,
         lineageIds: lineage,
       });
       if (!own && !isSuperadminProfile(gate.auth.profile)) {

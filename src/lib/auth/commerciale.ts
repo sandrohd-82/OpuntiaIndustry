@@ -214,19 +214,28 @@ export type CommercialeAssegnabile = {
   grado: CommercialeGrado | null;
 };
 
-export type CommercialeAziendaOrigine = "caricata" | "collegata" | "entrambe";
+export type CommercialeAziendaOrigine =
+  | "caricata"
+  | "collegata"
+  | "entrambe"
+  | "affiancata";
 
 export function commercialeAziendaOrigine(opts: {
   userId: string;
   createdBy?: string | null;
   commercialeId?: string | null;
+  affiancatoId?: string | null;
 }): CommercialeAziendaOrigine {
   const caricata = Boolean(opts.createdBy && opts.createdBy === opts.userId);
   const collegata = Boolean(
     opts.commercialeId && opts.commercialeId === opts.userId
   );
+  const affiancata = Boolean(
+    opts.affiancatoId && opts.affiancatoId === opts.userId
+  );
   if (caricata && collegata) return "entrambe";
   if (collegata) return "collegata";
+  if (affiancata) return "affiancata";
   return "caricata";
 }
 
@@ -235,6 +244,7 @@ export function commercialeAziendaOrigineLabel(
 ): string {
   if (origine === "collegata") return "Collegata";
   if (origine === "entrambe") return "Caricata e collegata";
+  if (origine === "affiancata") return "Affiancata";
   return "Caricata da lui";
 }
 
@@ -242,6 +252,7 @@ export function isCommercialOwnRecord(opts: {
   userId: string;
   createdBy?: string | null;
   commercialeId?: string | null;
+  affiancatoId?: string | null;
   lineageIds: string[];
 }): boolean {
   const lineage = new Set(opts.lineageIds);
@@ -251,6 +262,12 @@ export function isCommercialOwnRecord(opts: {
   if (
     opts.commercialeId &&
     (opts.commercialeId === opts.userId || lineage.has(opts.commercialeId))
+  ) {
+    return true;
+  }
+  if (
+    opts.affiancatoId &&
+    (opts.affiancatoId === opts.userId || lineage.has(opts.affiancatoId))
   ) {
     return true;
   }

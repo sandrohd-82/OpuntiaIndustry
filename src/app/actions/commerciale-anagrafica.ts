@@ -425,7 +425,7 @@ export async function listAziendeCommercialePersonaAction(
   const { data: rows, error } = await service
     .from("clienti")
     .select("*")
-    .or(`created_by.eq.${userId},commerciale_id.eq.${userId}`)
+    .or(`created_by.eq.${userId},commerciale_id.eq.${userId},affiancato_id.eq.${userId}`)
     .is("deleted_at", null)
     .order("ragione_sociale", { ascending: true });
   if (error) return { success: false, error: error.message };
@@ -449,6 +449,7 @@ export async function listAziendeCommercialePersonaAction(
         userId,
         createdBy: mapped.createdBy,
         commercialeId: mapped.commercialeId,
+        affiancatoId: mapped.affiancatoId,
       }),
     };
   });

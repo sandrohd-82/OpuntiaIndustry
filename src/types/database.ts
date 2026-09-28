@@ -318,6 +318,9 @@ export interface ClienteRow {
   commerciale_assegnato_by?: string | null;
   intermediario_id?: string | null;
   intermediario_provvigione_pct?: number | null;
+  affiancato_id?: string | null;
+  affiancato_at?: string | null;
+  affiancato_by?: string | null;
   azienda_madre_id?: string | null;
   invia_preventivi?: boolean;
   fatturare?: boolean;
@@ -364,6 +367,9 @@ export interface ClienteInsert {
   commerciale_assegnato_by?: string | null;
   intermediario_id?: string | null;
   intermediario_provvigione_pct?: number | null;
+  affiancato_id?: string | null;
+  affiancato_at?: string | null;
+  affiancato_by?: string | null;
   azienda_madre_id?: string | null;
   invia_preventivi?: boolean;
   fatturare?: boolean;
@@ -410,6 +416,9 @@ export interface ClienteUpdate {
   commerciale_assegnato_by?: string | null;
   intermediario_id?: string | null;
   intermediario_provvigione_pct?: number | null;
+  affiancato_id?: string | null;
+  affiancato_at?: string | null;
+  affiancato_by?: string | null;
   azienda_madre_id?: string | null;
   invia_preventivi?: boolean;
   fatturare?: boolean;

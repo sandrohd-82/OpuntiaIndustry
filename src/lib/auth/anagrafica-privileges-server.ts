@@ -11,6 +11,7 @@ export async function assertAnagraficaPrivilege(opts: {
   op: "timeline" | "update" | "delete";
   createdBy?: string | null;
   commercialeId?: string | null;
+  affiancatoId?: string | null;
 }): Promise<{ ok: true } | { ok: false; error: string }> {
   const auth = await getAuthContext();
   if (!auth) return { ok: false, error: "Non autenticato." };
@@ -22,6 +23,7 @@ export async function assertAnagraficaPrivilege(opts: {
     userId: auth.userId,
     createdBy: opts.createdBy,
     commercialeId: opts.commercialeId,
+    affiancatoId: opts.affiancatoId,
     lineageIds,
   });
 

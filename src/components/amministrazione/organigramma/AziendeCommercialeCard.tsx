@@ -95,6 +95,7 @@ export function AziendeCommercialeCard({ persona, lineageIds }: Props) {
               userId: priv.userId,
               createdBy: az.createdBy,
               commercialeId: az.commercialeId,
+              affiancatoId: az.affiancatoId,
               lineageIds,
             });
             const canTl = priv.canTimelineRecord(treatAsOwn);

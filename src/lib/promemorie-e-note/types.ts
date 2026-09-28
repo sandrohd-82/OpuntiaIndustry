@@ -135,6 +135,7 @@ export type ClientePossibile = {
   updatedAt: string;
   createdBy: string | null;
   commercialeId: string | null;
+  affiancatoId?: string | null;
   commercialeNome: string;
   commercialeGrado: "senior" | "professional" | "executive" | null;
   aziendaMadreId: string | null;
