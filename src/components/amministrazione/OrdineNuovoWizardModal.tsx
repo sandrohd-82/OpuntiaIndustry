@@ -1267,7 +1267,7 @@ export function OrdineNuovoWizardModal({
                     nodi: updateNodoInTree(prev.nodi, nodo.localId, {
                       quantita: 1,
                       kgProdotto: v,
-                      nome: prodotto?.nome ?? nodo.nome || "Prodotto",
+                      nome: prodotto?.nome ?? (nodo.nome || "Prodotto"),
                       codice: prodotto?.codice ?? nodo.codice,
                     }),
                   }))
