@@ -417,11 +417,13 @@ export function OrdineNuovoWizardModal({
 
   useEffect(() => {
     clearOrdineSessione();
-    setSavedOrdine(null);
-    setFatturaMailDraft(null);
-    setSessioneMsg(
-      "Sessione precedente cancellata: ordine e fattura di prova non ci sono più. Puoi ricominciare il test da zero."
-    );
+    if (!ORDINI_PERSISTENZA_DEFINITIVA) {
+      setSavedOrdine(null);
+      setFatturaMailDraft(null);
+      setSessioneMsg(
+        "Sessione precedente cancellata: ordine e fattura di prova non ci sono più. Puoi ricominciare il test da zero."
+      );
+    }
     const prev = document.body.style.overflow;
     document.body.style.overflow = "hidden";
     return () => {

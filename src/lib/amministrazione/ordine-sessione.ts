@@ -17,10 +17,10 @@ import {
 } from "@/lib/amministrazione/sconto-fuori-listino";
 
 /**
- * Finché è false, wizard ordine + fattura A4 non scrivono su DB / FiC / SDI.
- * Riattivare solo quando l’utente chiede il salvataggio definitivo.
+ * Ordine, fattura A4 e invio scrivono su database (e, se richiesto, email / SDI).
+ * Il ramo sessione browser resta nel codice ma non è più il percorso attivo.
  */
-export const ORDINI_PERSISTENZA_DEFINITIVA = false;
+export const ORDINI_PERSISTENZA_DEFINITIVA = true;
 
 export const ORDINI_PERSISTENZA_BLOCCATA_MSG =
   "Salvataggio definitivo disattivato: ordine e fattura restano solo in sessione del browser.";

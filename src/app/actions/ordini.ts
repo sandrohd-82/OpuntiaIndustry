@@ -965,7 +965,7 @@ export async function listOrdineAuditLogAction(
 
 /**
  * Wizard: crea ordine vendita/campionatura in attesa di processazione.
- * Non inserisce giorni in scaletta. Marca is_test=true (purge).
+ * Non inserisce giorni in scaletta. L’ordine è definitivo (non è un dato di prova).
  */
 export async function createOrdineWizardAction(
   raw: unknown
@@ -1212,7 +1212,7 @@ async function createOrdineWizardActionInner(
             sconto_fascia: scontoVal.fascia,
           },
       giorni_produzione: [],
-      is_test: true,
+      is_test: false,
       spedizione_mezzo: "corriere",
       corriere_id: input.corriereDaCompilare
         ? null
@@ -1404,7 +1404,7 @@ async function createOrdineWizardActionInner(
         : `Creato ordine ${input.tipo ?? "vendita"} ${numeroInterno} in attesa di processazione`,
       payload: {
         wizard: true,
-        is_test: true,
+        is_test: false,
         tipo: input.tipo ?? "vendita",
         stato: ordineSospeso ? "sospeso" : "in_attesa",
         consegna_tipo: input.consegnaTipo,
