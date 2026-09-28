@@ -1323,7 +1323,7 @@ export async function createPersonaAction(
   const attribuzione = await assertAttribuzioneSuperiore(v.parentId ?? null);
   if (!attribuzione.ok) return { success: false, error: attribuzione.error };
   let repartoId = v.repartoId ?? null;
-  let commercialeGrado = v.commercialeGrado ?? null;
+  const commercialeGrado = v.commercialeGrado ?? null;
   if (attribuzione.ruolo === "senior") {
     if (commercialeGrado !== "professional" && commercialeGrado !== "executive") {
       return {
