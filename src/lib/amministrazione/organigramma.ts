@@ -117,6 +117,8 @@ export type OrganigrammaPersona = {
   repartoCodice: string;
   commercialeGrado: "senior" | "professional" | "executive" | null;
   commercialeProvvigionePct: number | null;
+  /** Punti percentuali che il Senior cede a questo Professional. */
+  provvigioneQuotaSuperiorePct: number | null;
   bancaIban: string | null;
   bancaBic: string | null;
   bancaIstituto: string;
@@ -365,6 +367,9 @@ export const personaInputSchema = z.object({
     .nullable()
     .optional(),
   commercialeProvvigionePct: z
+    .union([z.number(), z.string(), z.null()])
+    .optional(),
+  provvigioneQuotaSuperiorePct: z
     .union([z.number(), z.string(), z.null()])
     .optional(),
   bancaIban: z.string().optional().nullable(),

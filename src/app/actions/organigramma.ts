@@ -51,6 +51,7 @@ import {
   isRepartoCommerciale,
   parseProvvigionePctInput,
 } from "@/lib/auth/commerciale";
+import { validaQuotaDalSenior } from "@/lib/amministrazione/provvigione-riparto";
 import { parseBicInput, parseIbanInput } from "@/lib/iban";
 import {
   generateMatricola,
@@ -63,7 +64,7 @@ import { createClient, createServiceClient } from "@/lib/supabase/server";
 
 const BUCKET = "organigramma-docs";
 const PERSONA_COLS =
-  "id, nome, cognome, matricola, fluida_user_id, fluida_contract_id, codice_fiscale, carta_identita, cellulare, user_id, parent_id, co_parent_ids, sort_order, foto_path, documento_stato, note, reparto_id, commerciale_grado, commerciale_provvigione_pct, banca_iban, banca_bic, banca_istituto, banca_intestatario, albero_etichetta, albero_gap_dopo, in_forza, cessato_at";
+  "id, nome, cognome, matricola, fluida_user_id, fluida_contract_id, codice_fiscale, carta_identita, cellulare, user_id, parent_id, co_parent_ids, sort_order, foto_path, documento_stato, note, reparto_id, commerciale_grado, commerciale_provvigione_pct, provvigione_quota_superiore_pct, provvigione_quota_superiore_by, banca_iban, banca_bic, banca_istituto, banca_intestatario, albero_etichetta, albero_gap_dopo, in_forza, cessato_at";
 
 const DOC_COLS =
   "id, persona_id, tipo, titolo, periodo, note, file_name, mime, created_at, certificato_catalogo_id, data_rilascio, validita_anni, data_scadenza";
@@ -88,6 +89,8 @@ type PersonaRow = {
   reparto_id?: string | null;
   commerciale_grado?: string | null;
   commerciale_provvigione_pct?: number | string | null;
+  provvigione_quota_superiore_pct?: number | string | null;
+  provvigione_quota_superiore_by?: string | null;
   banca_iban?: string | null;
   banca_bic?: string | null;
   banca_istituto?: string | null;
@@ -221,6 +224,10 @@ function mapPersona(
         : null,
     commercialeProvvigionePct: (() => {
       const parsed = parseProvvigionePctInput(row.commerciale_provvigione_pct);
+      return parsed.ok ? parsed.value : null;
+    })(),
+    provvigioneQuotaSuperiorePct: (() => {
+      const parsed = parseProvvigionePctInput(row.provvigione_quota_superiore_pct);
       return parsed.ok ? parsed.value : null;
     })(),
     bancaIban: row.banca_iban?.trim() || null,
@@ -1004,6 +1011,7 @@ export async function getPersonaAction(
       item: OrganigrammaPersona;
       isAdmin: boolean;
       isSuperadmin: boolean;
+      puoCedereQuota: boolean;
     }
   | { success: false; error: string }
 > {
@@ -1034,12 +1042,101 @@ export async function getPersonaAction(
     row.reparto_id ? reparti.get(row.reparto_id) : undefined
   );
   item.profilo = row.user_id ? (profili.get(row.user_id) ?? null) : null;
+  let puoCedereQuota = isAdminLikeProfile(auth.profile);
+  if (!puoCedereQuota && row.parent_id && row.commerciale_grado === "professional") {
+    const { data: parent } = await supabase
+      .from("organigramma_persone")
+      .select("user_id, commerciale_grado")
+      .eq("id", row.parent_id)
+      .is("deleted_at", null)
+      .maybeSingle();
+    puoCedereQuota =
+      (parent as { commerciale_grado?: string } | null)?.commerciale_grado ===
+        "senior" &&
+      (parent as { user_id?: string | null } | null)?.user_id === auth.userId;
+  }
   return {
     success: true,
     isAdmin: isAdminLikeProfile(auth.profile),
     isSuperadmin: isSuperadminProfile(auth.actorProfile),
+    puoCedereQuota,
     item,
   };
+}
+
+export async function impostaQuotaDalSeniorAction(raw: {
+  personaId: string;
+  quota: number | string | null;
+}): Promise<{ success: true } | { success: false; error: string }> {
+  const { auth } = await requireAreaAccess("amministrazione");
+  const parsed = parseProvvigionePctInput(raw.quota);
+  const quota = parsed.ok ? parsed.value : null;
+  const service = createServiceClient();
+  const { data: row } = await service
+    .from("organigramma_persone")
+    .select("id, nome, cognome, parent_id, commerciale_grado, provvigione_quota_superiore_pct")
+    .eq("id", raw.personaId)
+    .is("deleted_at", null)
+    .maybeSingle();
+  if (!row) return { success: false, error: "Operatore non trovato." };
+  if ((row as { commerciale_grado?: string }).commerciale_grado !== "professional") {
+    return { success: false, error: "La quota dal Senior vale solo per un Professional." };
+  }
+  const parentId = (row as { parent_id?: string | null }).parent_id;
+  if (!parentId) {
+    return { success: false, error: "Manca il Senior sopra questo Professional." };
+  }
+  const { data: parent } = await service
+    .from("organigramma_persone")
+    .select("user_id, commerciale_grado, commerciale_provvigione_pct")
+    .eq("id", parentId)
+    .is("deleted_at", null)
+    .maybeSingle();
+  if ((parent as { commerciale_grado?: string } | null)?.commerciale_grado !== "senior") {
+    return { success: false, error: "Sopra deve esserci un commerciale Senior." };
+  }
+  const parentUser = (parent as { user_id?: string | null } | null)?.user_id;
+  if (!isAdminLikeProfile(auth.profile) && parentUser !== auth.userId) {
+    return { success: false, error: "Solo il Senior di questa linea può cedere la quota." };
+  }
+  const pool = parseProvvigionePctInput(
+    (parent as { commerciale_provvigione_pct?: number | null } | null)
+      ?.commerciale_provvigione_pct
+  );
+  const check = validaQuotaDalSenior({
+    quota,
+    poolSenior: pool.ok ? pool.value : null,
+  });
+  if (!check.ok) return { success: false, error: check.error };
+  const prev = parseProvvigionePctInput(
+    (row as { provvigione_quota_superiore_pct?: number | null })
+      .provvigione_quota_superiore_pct
+  );
+  const { error } = await service
+    .from("organigramma_persone")
+    .update({
+      provvigione_quota_superiore_pct: quota,
+      provvigione_quota_superiore_by: quota == null ? null : auth.userId,
+      updated_by: auth.userId,
+    })
+    .eq("id", raw.personaId)
+    .is("deleted_at", null);
+  if (error) return { success: false, error: error.message };
+  const prima = prev.ok ? prev.value : null;
+  if (prima !== quota) {
+    await writeAuditLog({
+      entity_type: "organigramma_persone",
+      entity_id: raw.personaId,
+      action: "provvigione_quota_superiore_set",
+      actor_id: auth.userId,
+      summary:
+        quota == null
+          ? `Rimossa la quota ceduta a ${(row as { cognome: string }).cognome} ${(row as { nome: string }).nome}`
+          : `Quota dal Senior ${quota}% per ${(row as { cognome: string }).cognome} ${(row as { nome: string }).nome}`,
+      payload: { da: prima, a: quota },
+    });
+  }
+  return { success: true };
 }
 
 const IDENTITA_TIPI = new Set(["cf_fronte", "cf_retro", "ci_fronte", "ci_retro"]);
@@ -1471,7 +1568,7 @@ export async function updatePersonaAction(
   if (!banca.ok) return { success: false, error: banca.error };
   const { data: prev } = await supabase
     .from("organigramma_persone")
-    .select("commerciale_provvigione_pct, banca_iban, matricola")
+    .select("commerciale_provvigione_pct, provvigione_quota_superiore_pct, parent_id, banca_iban, matricola")
     .eq("id", v.id)
     .is("deleted_at", null)
     .maybeSingle();
@@ -1490,6 +1587,61 @@ export async function updatePersonaAction(
     nextMatricola = mat.value;
   }
   const prevPct = parseProvvigionePctInput(prev?.commerciale_provvigione_pct);
+  const prevQuota = parseProvvigionePctInput(
+    (prev as { provvigione_quota_superiore_pct?: number | string | null } | null)
+      ?.provvigione_quota_superiore_pct
+  );
+  let quotaSuperiore: number | null =
+    comm.grado === "professional" && prevQuota.ok ? prevQuota.value : null;
+  if (
+    comm.grado === "professional" &&
+    v.provvigioneQuotaSuperiorePct !== undefined
+  ) {
+    const chiesta = parseProvvigionePctInput(v.provvigioneQuotaSuperiorePct);
+    quotaSuperiore = chiesta.ok ? chiesta.value : null;
+    if (quotaSuperiore != null) {
+      const parentId = (prev as { parent_id?: string | null } | null)?.parent_id;
+      if (!parentId) {
+        return {
+          success: false,
+          error: "Il Professional non ha un Senior sopra: non si può cedere una quota.",
+        };
+      }
+      const { data: parent } = await supabase
+        .from("organigramma_persone")
+        .select("commerciale_grado, commerciale_provvigione_pct, user_id")
+        .eq("id", parentId)
+        .is("deleted_at", null)
+        .maybeSingle();
+      const parentGrado = (parent as { commerciale_grado?: string } | null)
+        ?.commerciale_grado;
+      if (parentGrado !== "senior") {
+        return {
+          success: false,
+          error: "La quota si cede solo da un commerciale Senior.",
+        };
+      }
+      const pool = parseProvvigionePctInput(
+        (parent as { commerciale_provvigione_pct?: number | null } | null)
+          ?.commerciale_provvigione_pct
+      );
+      const check = validaQuotaDalSenior({
+        quota: quotaSuperiore,
+        poolSenior: pool.ok ? pool.value : null,
+      });
+      if (!check.ok) return { success: false, error: check.error };
+      const parentUser = (parent as { user_id?: string | null } | null)?.user_id;
+      if (
+        !isAdminLikeProfile(auth.profile) &&
+        parentUser !== auth.userId
+      ) {
+        return {
+          success: false,
+          error: "Solo il Senior di questa linea può cedere la quota.",
+        };
+      }
+    }
+  }
   const prevIban = String(
     (prev as { banca_iban?: string | null } | null)?.banca_iban ?? ""
   )
@@ -1514,6 +1666,9 @@ export async function updatePersonaAction(
       reparto_id: v.repartoId ?? null,
       commerciale_grado: comm.grado,
       commerciale_provvigione_pct: comm.provvigionePct,
+      provvigione_quota_superiore_pct: quotaSuperiore,
+      provvigione_quota_superiore_by:
+        quotaSuperiore == null ? null : auth.userId,
       banca_iban: banca.iban,
       banca_bic: banca.bic,
       banca_istituto: banca.istituto || null,
@@ -1577,6 +1732,20 @@ export async function updatePersonaAction(
         da: prevValue,
         a: comm.provvigionePct,
       },
+    });
+  }
+  const prevQuotaValue = prevQuota.ok ? prevQuota.value : null;
+  if (prevQuotaValue !== quotaSuperiore) {
+    await writeAuditLog({
+      entity_type: "organigramma_persone",
+      entity_id: v.id,
+      action: "provvigione_quota_superiore_set",
+      actor_id: auth.userId,
+      summary:
+        quotaSuperiore == null
+          ? "Rimossa la quota di provvigione ceduta dal Senior"
+          : `Quota dal Senior impostata a ${quotaSuperiore}% sull'imponibile`,
+      payload: { da: prevQuotaValue, a: quotaSuperiore },
     });
   }
   if (prevIban !== banca.iban) {

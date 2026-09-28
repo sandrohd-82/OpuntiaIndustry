@@ -27,7 +27,8 @@ import {
   type GraficiProvvigioniDettaglio,
   type GraficiProvvigioniFiltro,
 } from "@/lib/amministrazione/grafici";
-import { calcolaProvvigione, parseProvvigionePctInput } from "@/lib/auth/commerciale";
+import { calcolaProvvigione, parseProvvigionePctInput, type CommercialeGrado } from "@/lib/auth/commerciale";
+import { quoteProvvigioneVendita } from "@/lib/amministrazione/provvigione-riparto";
 import { imponibilePerProvvigione } from "@/lib/amministrazione/sconto-suddivisione";
 import { loadCommercialLineageUserIds } from "@/lib/auth/commerciale-lineage";
 import { isSuperadminProfile } from "@/lib/auth/roles";
@@ -792,45 +793,118 @@ function emptyProvvigioniDettaglio(anno: number): GraficiProvvigioniDettaglio {
   };
 }
 
-async function loadPctByCommerciale(
-  commercialeIds: string[]
-): Promise<Map<string, number | null>> {
-  const map = new Map<string, number | null>();
-  const ids = [...new Set(commercialeIds.filter(Boolean))];
-  if (ids.length === 0) return map;
+type PersonaProvvigione = {
+  id: string;
+  userId: string;
+  grado: CommercialeGrado | null;
+  pct: number | null;
+  quota: number | null;
+  parentId: string | null;
+};
+
+async function loadPersoneProvvigione(): Promise<PersonaProvvigione[]> {
   const service = createServiceClient();
-  const [{ data: profiles, error: pErr }, { data: persone, error: oErr }] =
-    await Promise.all([
-      service
-        .from("profiles")
-        .select("id, commerciale_provvigione_pct")
-        .in("id", ids),
-      service
-        .from("organigramma_persone")
-        .select("user_id, commerciale_provvigione_pct")
-        .in("user_id", ids)
-        .is("deleted_at", null),
-    ]);
-  if (pErr) console.error("[provvigioni] profiles pct", pErr.message);
-  if (oErr) console.error("[provvigioni] organigramma pct", oErr.message);
-  for (const p of persone ?? []) {
-    const uid = String((p as { user_id?: string }).user_id ?? "");
-    const parsed = parseProvvigionePctInput(
-      (p as { commerciale_provvigione_pct?: number | null })
+  const { data, error } = await service
+    .from("organigramma_persone")
+    .select(
+      "id, user_id, parent_id, commerciale_grado, commerciale_provvigione_pct, provvigione_quota_superiore_pct"
+    )
+    .is("deleted_at", null)
+    .not("user_id", "is", null);
+  if (error) {
+    console.error("[provvigioni] persone", error.message);
+    return [];
+  }
+  return (data ?? []).map((row) => {
+    const grado = (row as { commerciale_grado?: string | null }).commerciale_grado;
+    const pct = parseProvvigionePctInput(
+      (row as { commerciale_provvigione_pct?: number | null })
         .commerciale_provvigione_pct
     );
-    if (uid) map.set(uid, parsed.ok ? parsed.value : null);
-  }
-  for (const p of profiles ?? []) {
-    const id = String((p as { id: string }).id);
-    if (map.has(id) && map.get(id) != null) continue;
-    const parsed = parseProvvigionePctInput(
-      (p as { commerciale_provvigione_pct?: number | null })
-        .commerciale_provvigione_pct
+    const quota = parseProvvigionePctInput(
+      (row as { provvigione_quota_superiore_pct?: number | null })
+        .provvigione_quota_superiore_pct
     );
-    map.set(id, parsed.ok ? parsed.value : null);
+    return {
+      id: String((row as { id: string }).id),
+      userId: String((row as { user_id: string }).user_id),
+      grado:
+        grado === "senior" || grado === "professional" || grado === "executive"
+          ? grado
+          : null,
+      pct: pct.ok ? pct.value : null,
+      quota: quota.ok ? quota.value : null,
+      parentId: (row as { parent_id?: string | null }).parent_id ?? null,
+    };
+  });
+}
+
+function pctPerCliente(input: {
+  commercialeId: string;
+  intermediarioId: string | null;
+  intermediarioPct: number | null;
+  persone: PersonaProvvigione[];
+  filtroUserId: string | null;
+  ammessi: Set<string> | null;
+}): number | null {
+  const byUser = new Map(input.persone.map((p) => [p.userId, p]));
+  const assegnato = byUser.get(input.commercialeId) ?? null;
+  const superiore = assegnato?.parentId
+    ? input.persone.find((p) => p.id === assegnato.parentId) ?? null
+    : null;
+  const executive = input.intermediarioId
+    ? byUser.get(input.intermediarioId) ?? null
+    : null;
+  const executiveParent = executive?.parentId
+    ? input.persone.find((p) => p.id === executive.parentId) ?? null
+    : null;
+  const quote = quoteProvvigioneVendita({
+    assegnato: assegnato
+      ? {
+          userId: assegnato.userId,
+          grado: assegnato.grado,
+          pctPropria: assegnato.pct,
+          quotaDalSuperiorePct: assegnato.quota,
+          superioreUserId: superiore?.userId ?? null,
+        }
+      : {
+          userId: input.commercialeId,
+          grado: null,
+          pctPropria: null,
+          quotaDalSuperiorePct: null,
+          superioreUserId: null,
+        },
+    superiore: superiore
+      ? {
+          userId: superiore.userId,
+          grado: superiore.grado,
+          pctPropria: superiore.pct,
+          quotaDalSuperiorePct: superiore.quota,
+          superioreUserId: null,
+        }
+      : null,
+    intermediarioUserId: input.intermediarioId,
+    intermediarioPct: input.intermediarioPct,
+    intermediarioParentUserId: executiveParent?.userId ?? null,
+  });
+  const visibili = input.ammessi
+    ? quote.filter((q) => input.ammessi?.has(q.userId))
+    : quote;
+  const coinvolto =
+    !input.ammessi ||
+    input.ammessi.has(input.commercialeId) ||
+    (input.intermediarioId != null &&
+      input.ammessi.has(input.intermediarioId)) ||
+    (superiore != null && input.ammessi.has(superiore.userId));
+  if (input.filtroUserId) {
+    const mine = visibili.find((q) => q.userId === input.filtroUserId);
+    return mine && mine.pct > 0 ? mine.pct : null;
   }
-  return map;
+  if (!coinvolto) return null;
+  if (visibili.length === 0) return 0;
+  return Math.round(
+    (visibili.reduce((s, q) => s + q.pct, 0) + Number.EPSILON) * 100
+  ) / 100;
 }
 
 async function resolveProvvigioniClienti(opts: {
@@ -868,12 +942,9 @@ async function resolveProvvigioniClienti(opts: {
 
   let q = service
     .from("clienti")
-    .select("id, commerciale_id")
+    .select("id, commerciale_id, intermediario_id, intermediario_provvigione_pct")
     .is("deleted_at", null)
     .not("commerciale_id", "is", null);
-  if (commercialIds && commercialIds.length > 0) {
-    q = q.in("commerciale_id", commercialIds);
-  }
   if (stats.ids) q = q.in("id", stats.ids);
   const { data, error } = await q;
   if (error) {
@@ -888,17 +959,29 @@ async function resolveProvvigioniClienti(opts: {
     return { empty: true, ids: [], pctByCliente: {} };
   }
 
-  const commIds = data
-    .map((r) => String((r as { commerciale_id?: string }).commerciale_id ?? ""))
-    .filter(Boolean);
-  const pctByComm = await loadPctByCommerciale(commIds);
+  const persone = await loadPersoneProvvigione();
+  const ammessi = commercialIds ? new Set(commercialIds) : null;
   const pctByCliente: Record<string, number | null> = {};
   const ids: string[] = [];
   for (const r of data) {
     const id = String((r as { id: string }).id);
     const cid = String((r as { commerciale_id?: string }).commerciale_id ?? "");
+    const interId = (r as { intermediario_id?: string | null }).intermediario_id;
+    const interPct = Number(
+      (r as { intermediario_provvigione_pct?: number | null })
+        .intermediario_provvigione_pct ?? 0
+    );
+    const pct = pctPerCliente({
+      commercialeId: cid,
+      intermediarioId: interId ? String(interId) : null,
+      intermediarioPct: Number.isFinite(interPct) ? interPct : null,
+      persone,
+      filtroUserId: filterComm,
+      ammessi,
+    });
+    if (pct == null) continue;
     ids.push(id);
-    pctByCliente[id] = cid ? (pctByComm.get(cid) ?? null) : null;
+    pctByCliente[id] = pct;
   }
   return { empty: ids.length === 0, ids, pctByCliente };
 }

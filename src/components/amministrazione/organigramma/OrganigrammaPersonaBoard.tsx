@@ -23,6 +23,7 @@ import {
   softDeleteContrattoAction,
   softDeleteDocumentoAction,
   updatePersonaAction,
+  impostaQuotaDalSeniorAction,
   uploadPersonaContrattoAction,
   uploadPersonaDocumentoAction,
   uploadPersonaFotoAction,
@@ -114,6 +115,7 @@ export function OrganigrammaPersonaBoard({ personaId }: Props) {
   const [item, setItem] = useState<OrganigrammaPersona | null>(null);
   const [isAdmin, setIsAdmin] = useState(false);
   const [isSuperadmin, setIsSuperadmin] = useState(false);
+  const [puoCedereQuota, setPuoCedereQuota] = useState(false);
   const [linkingProfile, setLinkingProfile] = useState(false);
   const [mansioni, setMansioni] = useState<OrganigrammaMansione[]>([]);
   const [reparti, setReparti] = useState<OrganigrammaReparto[]>([]);
@@ -142,6 +144,7 @@ export function OrganigrammaPersonaBoard({ personaId }: Props) {
       setItem(p.item);
       setIsAdmin(p.isAdmin);
       setIsSuperadmin(p.isSuperadmin);
+      setPuoCedereQuota(p.puoCedereQuota);
       if (m.success) setMansioni(m.items);
       if (r.success) setReparti(r.items);
     })();
@@ -190,6 +193,7 @@ export function OrganigrammaPersonaBoard({ personaId }: Props) {
         reparti={reparti}
         isAdmin={isAdmin}
         isSuperadmin={isSuperadmin}
+        puoCedereQuota={puoCedereQuota}
         onOpenProfilo={() => setLinkingProfile(true)}
         onSaved={() => setRefresh((n) => n + 1)}
         onError={setError}
@@ -240,6 +244,7 @@ function AnagraficaCard({
   reparti,
   isAdmin,
   isSuperadmin,
+  puoCedereQuota,
   onOpenProfilo,
   onSaved,
   onError,
@@ -249,6 +254,7 @@ function AnagraficaCard({
   reparti: OrganigrammaReparto[];
   isAdmin: boolean;
   isSuperadmin: boolean;
+  puoCedereQuota: boolean;
   onOpenProfilo: () => void;
   onSaved: () => void;
   onError: (msg: string | null) => void;
@@ -267,6 +273,11 @@ function AnagraficaCard({
   const [commercialeProvvigionePct, setCommercialeProvvigionePct] = useState(
     item.commercialeProvvigionePct != null
       ? String(item.commercialeProvvigionePct)
+      : ""
+  );
+  const [quotaSuperiorePct, setQuotaSuperiorePct] = useState(
+    item.provvigioneQuotaSuperiorePct != null
+      ? String(item.provvigioneQuotaSuperiorePct)
       : ""
   );
   const [bancaIban, setBancaIban] = useState(formatIbanDisplay(item.bancaIban));
@@ -296,6 +307,11 @@ function AnagraficaCard({
         ? String(item.commercialeProvvigionePct)
         : ""
     );
+    setQuotaSuperiorePct(
+      item.provvigioneQuotaSuperiorePct != null
+        ? String(item.provvigioneQuotaSuperiorePct)
+        : ""
+    );
     setBancaIban(formatIbanDisplay(item.bancaIban));
     setBancaBic(item.bancaBic ?? "");
     setBancaIstituto(item.bancaIstituto ?? "");
@@ -321,6 +337,8 @@ function AnagraficaCard({
         (commercialeGrado as "senior" | "professional" | "executive") ||
         null,
       commercialeProvvigionePct: commercialeProvvigionePct || null,
+      provvigioneQuotaSuperiorePct:
+        commercialeGrado === "professional" ? quotaSuperiorePct || null : null,
       bancaIban,
       bancaBic,
       bancaIstituto,
@@ -593,9 +611,54 @@ function AnagraficaCard({
                   placeholder="Es. 5"
                 />
                 <span className="mt-1 block text-[11px]">
-                  Si applica all&apos;incasso delle fatture delle aziende
-                  collegate. Usata nelle statistiche Provvigioni.
+                  Monte sull&apos;imponibile. Per un Senior è la provvigione
+                  intera; al Professional se ne cede una quota sulla sua scheda.
                 </span>
+              </label>
+            ) : null}
+            {commercialeGrado === "professional" && puoCedereQuota ? (
+              <label className="text-xs text-[var(--muted)] sm:col-span-2">
+                Quota dal Senior %
+                <input
+                  type="number"
+                  min={0}
+                  max={100}
+                  step="0.01"
+                  value={quotaSuperiorePct}
+                  onChange={(e) => setQuotaSuperiorePct(e.target.value)}
+                  className={inputCls}
+                  placeholder="Es. 10"
+                />
+                <span className="mt-1 block text-[11px]">
+                  Punti sull&apos;imponibile. Se il Senior ha il 30% e qui
+                  scrivi 10, in vendita il Senior tiene 20 e questo Professional
+                  10. Può cederne una parte all&apos;intermediario del cliente.
+                </span>
+                {!isAdmin ? (
+                  <button
+                    type="button"
+                    disabled={busy}
+                    className="mt-2 rounded-lg border border-[var(--border)] bg-white px-3 py-1.5 text-sm font-medium"
+                    onClick={() => {
+                      void (async () => {
+                        setBusy(true);
+                        onError(null);
+                        const res = await impostaQuotaDalSeniorAction({
+                          personaId: item.id,
+                          quota: quotaSuperiorePct === "" ? null : quotaSuperiorePct,
+                        });
+                        setBusy(false);
+                        if (!res.success) {
+                          onError(res.error);
+                          return;
+                        }
+                        onSaved();
+                      })();
+                    }}
+                  >
+                    Registra quota
+                  </button>
+                ) : null}
               </label>
             ) : null}
           </div>

@@ -9,6 +9,7 @@ import { findAnagraficaArchivioByVatAction } from "@/app/actions/anagrafiche-arc
 import { AnagraficaDuplicatiBlockModal } from "@/components/amministrazione/AnagraficaDuplicatiBlockModal";
 import type { AnagraficaDuplicatoHit } from "@/lib/amministrazione/anagrafica-duplicati";
 import { previewNextCodiceTargaClienteAction } from "@/app/actions/clienti";
+import { listIntermediariProfessionalAction } from "@/app/actions/provvigione-riparto";
 import { AddressSedeFields } from "@/components/amministrazione/AddressSedeFields";
 import {
   AnagraficaBrandEditor,
@@ -218,10 +219,46 @@ export function ClienteFormModal({
   const [commercialeId, setCommercialeId] = useState<string | null>(
     initial?.commercialeId ?? null
   );
+  const [intermediarioId, setIntermediarioId] = useState<string | null>(
+    initial?.intermediarioId ?? null
+  );
+  const [intermediarioPct, setIntermediarioPct] = useState(
+    initial?.intermediarioProvvigionePct != null
+      ? String(initial.intermediarioProvvigionePct)
+      : ""
+  );
+  const [intermediari, setIntermediari] = useState<
+    { id: string; nome: string }[]
+  >([]);
+  const [quotaProfessional, setQuotaProfessional] = useState<number | null>(
+    null
+  );
+  const [commercialeProfessional, setCommercialeProfessional] = useState(
+    initial?.commercialeGrado === "professional"
+  );
   const [canAssignCommerciale, setCanAssignCommerciale] = useState(false);
   const [trattativa, setTrattativa] = useState(() =>
     parseTrattativa(initial?.trattativa)
   );
+
+  useEffect(() => {
+    if (isPossibile || !commercialeId) {
+      setCommercialeProfessional(false);
+      setIntermediari([]);
+      setQuotaProfessional(null);
+      return;
+    }
+    let cancelled = false;
+    void listIntermediariProfessionalAction(commercialeId).then((res) => {
+      if (cancelled || !res.success) return;
+      setCommercialeProfessional(res.grado === "professional");
+      setQuotaProfessional(res.quotaProfessional);
+      setIntermediari(res.intermediari);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [commercialeId, isPossibile]);
   const [ghostOk, setGhostOk] = useState<Record<string, boolean>>({});
   const madre = collega?.madre ?? null;
   function takeGhost(key: string, setValue: (value: string) => void) {
@@ -368,6 +405,15 @@ export function ClienteFormModal({
       sedi: sediToInput(sedi),
       brand: brandsToInput(brand),
       ...(isEdit && canAssignCommerciale ? { commercialeId } : {}),
+      ...(isEdit && !isPossibile
+        ? {
+            intermediarioId: commercialeProfessional ? intermediarioId : null,
+            intermediarioProvvigionePct:
+              commercialeProfessional && intermediarioPct !== ""
+                ? Number(intermediarioPct)
+                : null,
+          }
+        : {}),
       ...(isPossibile ? { trattativa } : {}),
       ...(collega
         ? {
@@ -728,6 +774,54 @@ export function ClienteFormModal({
                 onChange={setCommercialeId}
                 onCanAssign={setCanAssignCommerciale}
               />
+            ) : null}
+            {isEdit && !isPossibile && commercialeProfessional ? (
+              <div className="space-y-2 sm:col-span-2">
+                <label className="block text-sm">
+                  <span className="mb-1 block font-medium">
+                    Intermediario
+                  </span>
+                  <select
+                    value={intermediarioId ?? ""}
+                    onChange={(e) => setIntermediarioId(e.target.value || null)}
+                    className="w-full rounded-lg border border-[var(--border)] px-3 py-2 outline-none focus:border-[var(--primary)]"
+                  >
+                    <option value="">Nessun intermediario</option>
+                    {intermediari.map((p) => (
+                      <option key={p.id} value={p.id}>
+                        {p.nome}
+                      </option>
+                    ))}
+                  </select>
+                  <span className="mt-1 block text-xs text-[var(--muted)]">
+                    Executive sotto questo Professional. La sua quota esce da
+                    quella del Professional
+                    {quotaProfessional != null
+                      ? ` (${quotaProfessional}%)`
+                      : ""}
+                    .
+                  </span>
+                </label>
+                <label className="block text-sm">
+                  <span className="mb-1 block font-medium">
+                    Quota intermediario %
+                  </span>
+                  <input
+                    type="number"
+                    min={0}
+                    max={100}
+                    step="0.01"
+                    value={intermediarioPct}
+                    onChange={(e) => setIntermediarioPct(e.target.value)}
+                    placeholder="Es. 3"
+                    className="w-full rounded-lg border border-[var(--border)] px-3 py-2 outline-none focus:border-[var(--primary)]"
+                  />
+                  <span className="mt-1 block text-xs text-[var(--muted)]">
+                    Esempio: quota Professional 10, qui 3. Restano 7 al
+                    Professional e 3 all&apos;intermediario, sull&apos;imponibile.
+                  </span>
+                </label>
+              </div>
             ) : null}
             {isPossibile ? (
               <TrattativaSelectField

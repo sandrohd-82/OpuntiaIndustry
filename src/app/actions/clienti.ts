@@ -1,7 +1,7 @@
 "use server";
 
 import { LEAD_TARGA_PLACEHOLDER } from "@/lib/amministrazione/lead-promozione";
-import { createClient } from "@/lib/supabase/server";
+import { createClient, createServiceClient } from "@/lib/supabase/server";
 import { nextSequentialCodiceTarga } from "@/lib/amministrazione/codice-targa";
 import {
   applySediToLegacy,
@@ -18,6 +18,8 @@ import {
 } from "@/app/actions/anagrafica-extra";
 import { markAnagraficaArchivioRipescatoAction } from "@/app/actions/anagrafiche-archivio";
 import { writeAuditLog } from "@/lib/audit";
+import { validaQuotaIntermediario } from "@/lib/amministrazione/provvigione-riparto";
+import { parseProvvigionePctInput } from "@/lib/auth/commerciale";
 import { fiscalConflictMessage } from "@/lib/amministrazione/azienda-collegata";
 import { normalizeVatKey } from "@/lib/amministrazione/fic-anagrafiche";
 import { fraseConfermaSoftDelete } from "@/lib/soft-delete";
@@ -372,6 +374,81 @@ export async function createClienteAction(
   };
 }
 
+async function normalizzaIntermediarioCliente(
+  input: {
+    commercialeId: string | null;
+    intermediarioId: string | null | undefined;
+    intermediarioPct: number | null | undefined;
+  }
+): Promise<
+  | {
+      ok: true;
+      applica: boolean;
+      intermediarioId: string | null;
+      pct: number | null;
+    }
+  | { ok: false; error: string }
+> {
+  if (input.intermediarioId === undefined && input.intermediarioPct === undefined) {
+    return { ok: true, applica: false, intermediarioId: null, pct: null };
+  }
+  const intermediarioId = input.intermediarioId?.trim() || null;
+  const pctParsed = parseProvvigionePctInput(input.intermediarioPct);
+  const pct = pctParsed.ok ? pctParsed.value : null;
+  if (!intermediarioId && pct == null) {
+    return { ok: true, applica: true, intermediarioId: null, pct: null };
+  }
+  if (!input.commercialeId) {
+    return {
+      ok: false,
+      error: "Assegna prima un Professional, poi l'intermediario.",
+    };
+  }
+  const service = createServiceClient();
+  const { data: persone } = await service
+    .from("organigramma_persone")
+    .select(
+      "id, user_id, parent_id, commerciale_grado, provvigione_quota_superiore_pct"
+    )
+    .in("user_id", [input.commercialeId, intermediarioId].filter(Boolean) as string[])
+    .is("deleted_at", null);
+  const righe = (persone ?? []) as {
+    id: string;
+    user_id: string | null;
+    parent_id: string | null;
+    commerciale_grado: string | null;
+    provvigione_quota_superiore_pct: number | null;
+  }[];
+  const professional = righe.find((r) => r.user_id === input.commercialeId);
+  if (professional?.commerciale_grado !== "professional") {
+    return {
+      ok: false,
+      error: "L'intermediario si indica solo se il commerciale è un Professional.",
+    };
+  }
+  const executive = righe.find((r) => r.user_id === intermediarioId);
+  if (!executive || executive.commerciale_grado !== "executive") {
+    return {
+      ok: false,
+      error: "L'intermediario deve essere un commerciale Executive.",
+    };
+  }
+  if (executive.parent_id !== professional.id) {
+    return {
+      ok: false,
+      error: "L'intermediario deve essere sotto questo Professional.",
+    };
+  }
+  const quota = parseProvvigionePctInput(professional.provvigione_quota_superiore_pct);
+  const check = validaQuotaIntermediario({
+    pct,
+    haIntermediario: true,
+    quotaProfessional: quota.ok ? quota.value : null,
+  });
+  if (!check.ok) return check;
+  return { ok: true, applica: true, intermediarioId, pct };
+}
+
 export async function updateClienteAction(
   id: string,
   input: ClienteInput
@@ -412,6 +489,18 @@ export async function updateClienteAction(
   });
   if (fiscalFamilyError) return { success: false, error: fiscalFamilyError };
 
+  const inter = await normalizzaIntermediarioCliente({
+    commercialeId:
+      input.commercialeId !== undefined
+        ? input.commercialeId
+        : existingCliente?.commerciale_id
+          ? String(existingCliente.commerciale_id)
+          : null,
+    intermediarioId: input.intermediarioId,
+    intermediarioPct: input.intermediarioProvvigionePct,
+  });
+  if (!inter.ok) return { success: false, error: inter.error };
+
   const { data, error } = await supabase
     .from("clienti")
     .update({
@@ -439,6 +528,12 @@ export async function updateClienteAction(
       sede_mag_indirizzo: normalized.sedeMagazzino.indirizzo,
       prodotti_acquistati: normalized.prodottiAcquistati,
       consegne_altra_azienda: consegneToDb(normalized.consegneAltraAzienda),
+      ...(inter.applica
+        ? {
+            intermediario_id: inter.intermediarioId,
+            intermediario_provvigione_pct: inter.pct,
+          }
+        : {}),
       updated_by: auth.userId,
     })
     .eq("id", id)
@@ -482,6 +577,12 @@ export async function updateClienteAction(
     payload: {
       codice_targa: row.codice_targa,
       ragione_sociale: row.ragione_sociale,
+      ...(inter.applica
+        ? {
+            intermediario_id: inter.intermediarioId,
+            intermediario_provvigione_pct: inter.pct,
+          }
+        : {}),
     },
   });
 

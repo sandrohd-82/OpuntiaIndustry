@@ -316,6 +316,8 @@ export interface ClienteRow {
   commerciale_id?: string | null;
   commerciale_assegnato_at?: string | null;
   commerciale_assegnato_by?: string | null;
+  intermediario_id?: string | null;
+  intermediario_provvigione_pct?: number | null;
   azienda_madre_id?: string | null;
   invia_preventivi?: boolean;
   fatturare?: boolean;
@@ -360,6 +362,8 @@ export interface ClienteInsert {
   commerciale_id?: string | null;
   commerciale_assegnato_at?: string | null;
   commerciale_assegnato_by?: string | null;
+  intermediario_id?: string | null;
+  intermediario_provvigione_pct?: number | null;
   azienda_madre_id?: string | null;
   invia_preventivi?: boolean;
   fatturare?: boolean;
@@ -404,6 +408,8 @@ export interface ClienteUpdate {
   commerciale_id?: string | null;
   commerciale_assegnato_at?: string | null;
   commerciale_assegnato_by?: string | null;
+  intermediario_id?: string | null;
+  intermediario_provvigione_pct?: number | null;
   azienda_madre_id?: string | null;
   invia_preventivi?: boolean;
   fatturare?: boolean;

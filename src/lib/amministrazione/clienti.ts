@@ -59,6 +59,8 @@ export type Cliente = {
   commercialeId: string | null;
   commercialeNome: string;
   commercialeGrado: "senior" | "professional" | "executive" | null;
+  intermediarioId?: string | null;
+  intermediarioProvvigionePct?: number | null;
   /** Solo possibile cliente: stato trattativa commerciale. */
   trattativa?: ClientePossibileTrattativa;
   /** Prenotazione cancellazione in attesa di Super Admin. */
@@ -96,6 +98,9 @@ export type ClienteInput = {
   archivioId?: string | null;
   /** Solo in modifica Super Admin: null = azienda, uuid = commerciale. */
   commercialeId?: string | null;
+  /** Executive sotto il Professional, e punti percentuali che gli vengono ceduti. */
+  intermediarioId?: string | null;
+  intermediarioProvvigionePct?: number | null;
   /** Solo possibile cliente. */
   trattativa?: ClientePossibileTrattativa;
   sedi?: AnagraficaSedeInput[];
@@ -167,6 +172,8 @@ export function normalizeClienteInput(input: ClienteInput): ClienteInput {
       .filter(Boolean),
     archivioId: input.archivioId,
     commercialeId: input.commercialeId,
+    intermediarioId: input.intermediarioId,
+    intermediarioProvvigionePct: input.intermediarioProvvigionePct,
     trattativa: input.trattativa,
     sedi: input.sedi,
     brand: input.brand,
@@ -303,6 +310,11 @@ export function mapClienteRow(
       typeof commerciale === "object" && commerciale
         ? (commerciale.grado ?? null)
         : null,
+    intermediarioId: row.intermediario_id ? String(row.intermediario_id) : null,
+    intermediarioProvvigionePct:
+      row.intermediario_provvigione_pct == null
+        ? null
+        : Number(row.intermediario_provvigione_pct),
     cancellazionePrenotata: false,
     cancellazioneId: null,
     aziendaMadreId: row.azienda_madre_id ? String(row.azienda_madre_id) : null,
