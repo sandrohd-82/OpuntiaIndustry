@@ -109,6 +109,8 @@ function ClienteRow({
     createdBy: cliente.createdBy,
     commercialeId: cliente.commercialeId,
     affiancatoId: cliente.affiancatoId,
+    commercialePersonaId: cliente.commercialePersonaId,
+    affiancatoPersonaId: cliente.affiancatoPersonaId,
     lineageIds,
   });
   const canEdit = priv.canEdit(cliente.createdBy, treatAsOwn);

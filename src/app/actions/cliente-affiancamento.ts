@@ -25,7 +25,7 @@ async function loadPersoneLinea(): Promise<PersonaLinea[]> {
     .select("id, user_id, parent_id, nome, cognome, commerciale_grado")
     .is("deleted_at", null);
   if (error || !data) return [];
-  const persone = data.map((row) => {
+  const persone: PersonaLinea[] = data.map((row) => {
     const gradoRaw = String(
       (row as { commerciale_grado?: string | null }).commerciale_grado ?? ""
     ).toLowerCase();
@@ -46,6 +46,7 @@ async function loadPersoneLinea(): Promise<PersonaLinea[]> {
         : null,
       grado,
       nome: nome || "Operatore",
+      scheda: true,
     } satisfies PersonaLinea;
   });
   const { data: profiles } = await service
@@ -88,14 +89,24 @@ async function loadPersoneLinea(): Promise<PersonaLinea[]> {
       parentId: null,
       grado,
       nome,
+      scheda: false,
     });
   }
   return persone;
 }
 
-function nomeDi(persone: PersonaLinea[], userId: string | null): string {
-  if (!userId) return "";
-  return persone.find((p) => p.userId === userId)?.nome ?? "";
+function nomeDi(persone: PersonaLinea[], id: string | null): string {
+  if (!id) return "";
+  return persone.find((p) => p.id === id || p.userId === id)?.nome ?? "";
+}
+
+function stessaPersona(
+  persona: PersonaLinea,
+  userId: string | null,
+  personaId: string | null
+): boolean {
+  if (personaId && persona.id === personaId) return true;
+  return Boolean(persona.userId && userId && persona.userId === userId);
 }
 
 export async function contestoCessioneAffiancamentoAction(input: {
@@ -123,7 +134,9 @@ export async function contestoCessioneAffiancamentoAction(input: {
   const service = createServiceClient();
   const { data: row, error } = await service
     .from(tableOf(input.kind))
-    .select("commerciale_id, affiancato_id")
+    .select(
+      "commerciale_id, affiancato_id, commerciale_persona_id, affiancato_persona_id"
+    )
     .eq("id", id)
     .is("deleted_at", null)
     .maybeSingle();
@@ -138,25 +151,32 @@ export async function contestoCessioneAffiancamentoAction(input: {
   const affiancatoId = (row as { affiancato_id?: string | null }).affiancato_id
     ? String((row as { affiancato_id: string }).affiancato_id)
     : null;
+  const commercialePersonaId = (row as { commerciale_persona_id?: string | null })
+    .commerciale_persona_id
+    ? String((row as { commerciale_persona_id: string }).commerciale_persona_id)
+    : null;
+  const affiancatoPersonaId = (row as { affiancato_persona_id?: string | null })
+    .affiancato_persona_id
+    ? String((row as { affiancato_persona_id: string }).affiancato_persona_id)
+    : null;
   const destinatari = destinatariVisibili({
     admin,
     actor,
     persone,
     commercialeId,
+    commercialePersonaId,
   })
     .filter(
       (
         p
       ): p is PersonaLinea & {
-        userId: string;
         grado: "senior" | "professional" | "executive";
       } =>
-        Boolean(p.userId) &&
-        (p.grado === "senior" ||
-          p.grado === "professional" ||
-          p.grado === "executive")
+        p.grado === "senior" ||
+        p.grado === "professional" ||
+        p.grado === "executive"
     )
-    .map((p) => ({ id: p.userId, nome: p.nome, grado: p.grado }))
+    .map((p) => ({ id: p.id, nome: p.nome, grado: p.grado }))
     .sort((a, b) => {
       const ordine = { senior: 0, professional: 1, executive: 2 };
       const diff = ordine[a.grado] - ordine[b.grado];
@@ -165,12 +185,21 @@ export async function contestoCessioneAffiancamentoAction(input: {
     });
   const nellaLinea =
     admin ||
-    (actor ? aziendaNellaLinea({ actor, persone, commercialeId }) : false);
+    (actor
+      ? aziendaNellaLinea({
+          actor,
+          persone,
+          commercialeId,
+          commercialePersonaId,
+        })
+      : false);
   return {
     success: true,
-    puoAgire: nellaLinea && (destinatari.length > 0 || Boolean(affiancatoId)),
+    puoAgire:
+      nellaLinea &&
+      (destinatari.length > 0 || Boolean(affiancatoId || affiancatoPersonaId)),
     affiancatoId,
-    affiancatoNome: nomeDi(persone, affiancatoId),
+    affiancatoNome: nomeDi(persone, affiancatoPersonaId || affiancatoId),
     destinatari,
   };
 }
@@ -179,7 +208,7 @@ const azioneSchema = z.object({
   kind: z.enum(["cliente", "possibile"]),
   id: z.string().uuid(),
   mode: z.enum(["cedi", "affianca", "togli"]),
-  targetUserId: z.string().uuid().nullable().optional(),
+  targetPersonaId: z.string().uuid().nullable().optional(),
 });
 
 export async function cediOAffiancaAnagraficaAction(
@@ -198,12 +227,14 @@ export async function cediOAffiancaAnagraficaAction(
     return { success: false, error: "Dati non validi." };
   }
   const { kind, id, mode } = parsed.data;
-  const targetUserId = parsed.data.targetUserId?.trim() || null;
+  const targetPersonaId = parsed.data.targetPersonaId?.trim() || null;
   const service = createServiceClient();
   const table = tableOf(kind);
   const { data } = await service
     .from(table)
-    .select("id, ragione_sociale, commerciale_id, affiancato_id")
+    .select(
+      "id, ragione_sociale, commerciale_id, affiancato_id, commerciale_persona_id, affiancato_persona_id"
+    )
     .eq("id", id)
     .is("deleted_at", null)
     .maybeSingle();
@@ -212,6 +243,8 @@ export async function cediOAffiancaAnagraficaAction(
     ragione_sociale?: string | null;
     commerciale_id?: string | null;
     affiancato_id?: string | null;
+    commerciale_persona_id?: string | null;
+    affiancato_persona_id?: string | null;
   } | null;
   if (!row) return { success: false, error: "Scheda non trovata." };
 
@@ -226,31 +259,49 @@ export async function cediOAffiancaAnagraficaAction(
   }
   const commercialeId = row.commerciale_id ? String(row.commerciale_id) : null;
   const affiancatoId = row.affiancato_id ? String(row.affiancato_id) : null;
+  const commercialePersonaId = row.commerciale_persona_id
+    ? String(row.commerciale_persona_id)
+    : null;
+  const affiancatoPersonaId = row.affiancato_persona_id
+    ? String(row.affiancato_persona_id)
+    : null;
   const nellaLinea =
     admin ||
-    (actor ? aziendaNellaLinea({ actor, persone, commercialeId }) : false);
+    (actor
+      ? aziendaNellaLinea({
+          actor,
+          persone,
+          commercialeId,
+          commercialePersonaId,
+        })
+      : false);
   if (!nellaLinea) {
     return {
       success: false,
       error: "Puoi agire solo sulle aziende della tua linea.",
     };
   }
-  const ammessi = new Set(
-    destinatariVisibili({ admin, actor, persone, commercialeId })
-      .map((p) => p.userId)
-      .filter((uid): uid is string => Boolean(uid))
+  const ammessi = new Map(
+    destinatariVisibili({
+      admin,
+      actor,
+      persone,
+      commercialeId,
+      commercialePersonaId,
+    }).map((p) => [p.id, p])
   );
   const now = new Date().toISOString();
   const ragione = String(row.ragione_sociale ?? "");
 
   if (mode === "togli") {
-    if (!affiancatoId) {
+    if (!affiancatoId && !affiancatoPersonaId) {
       return { success: false, error: "Non c'è un affiancato da togliere." };
     }
     const { error } = await service
       .from(table)
       .update({
         affiancato_id: null,
+        affiancato_persona_id: null,
         affiancato_at: null,
         affiancato_by: null,
         updated_by: auth.userId,
@@ -264,11 +315,13 @@ export async function cediOAffiancaAnagraficaAction(
       entity_id: id,
       action: "update",
       actor_id: auth.userId,
-      summary: `Affiancamento tolto su ${ragione}: non è più ${nomeDi(persone, affiancatoId) || "l'affiancato"}.`,
+      summary: `Affiancamento tolto su ${ragione}: non è più ${nomeDi(persone, affiancatoPersonaId || affiancatoId) || "l'affiancato"}.`,
       payload: {
         modalita: "affiancamento_tolto",
         da_user_id: affiancatoId,
+        da_persona_id: affiancatoPersonaId,
         a_user_id: null,
+        a_persona_id: null,
       },
     });
     return {
@@ -278,27 +331,30 @@ export async function cediOAffiancaAnagraficaAction(
     };
   }
 
-  if (!targetUserId || !ammessi.has(targetUserId)) {
+  const target = targetPersonaId ? ammessi.get(targetPersonaId) : undefined;
+  if (!target) {
     return {
       success: false,
       error: "Scegli un sottoposto della tua linea.",
     };
   }
-  if (targetUserId === commercialeId) {
+  if (stessaPersona(target, commercialeId, commercialePersonaId)) {
     return {
       success: false,
       error: "Questa persona è già il commerciale della scheda.",
     };
   }
+  const personaColonna = target.scheda ? target.id : null;
 
   if (mode === "affianca") {
-    if (targetUserId === affiancatoId) {
+    if (stessaPersona(target, affiancatoId, affiancatoPersonaId)) {
       return { success: false, error: "Questa persona è già affiancata." };
     }
     const { error } = await service
       .from(table)
       .update({
-        affiancato_id: targetUserId,
+        affiancato_id: target.userId,
+        affiancato_persona_id: personaColonna,
         affiancato_at: now,
         affiancato_by: auth.userId,
         updated_by: auth.userId,
@@ -312,11 +368,13 @@ export async function cediOAffiancaAnagraficaAction(
       entity_id: id,
       action: "update",
       actor_id: auth.userId,
-      summary: `Affiancato ${nomeDi(persone, targetUserId)} su ${ragione}. Il commerciale resta ${nomeDi(persone, commercialeId) || "invariato"}.`,
+      summary: `Affiancato ${target.nome} su ${ragione}. Il commerciale resta ${nomeDi(persone, commercialePersonaId || commercialeId) || "invariato"}.`,
       payload: {
         modalita: "affiancamento",
         da_user_id: affiancatoId,
-        a_user_id: targetUserId,
+        da_persona_id: affiancatoPersonaId,
+        a_user_id: target.userId,
+        a_persona_id: personaColonna,
       },
     });
     return {
@@ -328,7 +386,8 @@ export async function cediOAffiancaAnagraficaAction(
 
   let intermediarioAzzerato = false;
   const patch: Record<string, string | null> = {
-    commerciale_id: targetUserId,
+    commerciale_id: target.userId,
+    commerciale_persona_id: personaColonna,
     commerciale_assegnato_at: now,
     commerciale_assegnato_by: auth.userId,
     updated_by: auth.userId,
@@ -343,22 +402,22 @@ export async function cediOAffiancaAnagraficaAction(
     const interRaw = (extra as { intermediario_id?: string | null } | null)
       ?.intermediario_id;
     const interId = interRaw ? String(interRaw) : null;
-    const nuovo = persone.find((p) => p.userId === targetUserId) ?? null;
     const inter = interId
       ? persone.find((p) => p.userId === interId) ?? null
       : null;
     const coerente =
-      nuovo?.grado === "professional" &&
+      target.grado === "professional" &&
       inter?.grado === "executive" &&
-      inter.parentId === nuovo.id;
+      inter.parentId === target.id;
     if (interId && !coerente) {
       patch.intermediario_id = null;
       patch.intermediario_provvigione_pct = null;
       intermediarioAzzerato = true;
     }
   }
-  if (affiancatoId === targetUserId) {
+  if (stessaPersona(target, affiancatoId, affiancatoPersonaId)) {
     patch.affiancato_id = null;
+    patch.affiancato_persona_id = null;
     patch.affiancato_at = null;
     patch.affiancato_by = null;
   }
@@ -373,17 +432,19 @@ export async function cediOAffiancaAnagraficaAction(
     entity_id: id,
     action: "commerciale_assegna",
     actor_id: auth.userId,
-    summary: `Cliente ceduto: ${ragione} passa da ${nomeDi(persone, commercialeId) || "nessun commerciale"} a ${nomeDi(persone, targetUserId)}.`,
+    summary: `Cliente ceduto: ${ragione} passa da ${nomeDi(persone, commercialePersonaId || commercialeId) || "nessun commerciale"} a ${target.nome}.`,
     payload: {
       modalita: "cessione",
       da_user_id: commercialeId,
-      a_user_id: targetUserId,
+      da_persona_id: commercialePersonaId,
+      a_user_id: target.userId,
+      a_persona_id: personaColonna,
       intermediario_azzerato: intermediarioAzzerato,
     },
   });
   return {
     success: true,
-    commercialeId: targetUserId,
+    commercialeId: target.userId,
     intermediarioAzzerato,
   };
 }

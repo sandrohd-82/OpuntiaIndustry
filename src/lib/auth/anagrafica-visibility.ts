@@ -2,6 +2,7 @@ import { cache } from "react";
 import {
   anagraficaLineageOrAziendaFilter,
   anagraficaLineageOrFilter,
+  loadCommercialLineagePersonaIds,
   loadCommercialeOperatorContext,
   loadCommercialeUserIds,
 } from "@/lib/auth/commerciale-lineage";
@@ -83,7 +84,17 @@ export const resolveVisibleClienteIds = cache(
 export async function anagraficaListOrClause(): Promise<string | null> {
   const vis = await resolveAnagraficaListVisibility();
   if (!vis.ownerIds) return null;
-  if (!vis.includeAzienda) return anagraficaLineageOrFilter(vis.ownerIds);
+  const auth = await getAuthContext();
+  const personaIds = auth
+    ? await loadCommercialLineagePersonaIds(auth.userId)
+    : [];
+  if (!vis.includeAzienda) {
+    return anagraficaLineageOrFilter(vis.ownerIds, personaIds);
+  }
   const commercialIds = await loadCommercialeUserIds();
-  return anagraficaLineageOrAziendaFilter(vis.ownerIds, commercialIds);
+  return anagraficaLineageOrAziendaFilter(
+    vis.ownerIds,
+    commercialIds,
+    personaIds
+  );
 }

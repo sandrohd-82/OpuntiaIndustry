@@ -321,6 +321,8 @@ export interface ClienteRow {
   affiancato_id?: string | null;
   affiancato_at?: string | null;
   affiancato_by?: string | null;
+  commerciale_persona_id?: string | null;
+  affiancato_persona_id?: string | null;
   azienda_madre_id?: string | null;
   invia_preventivi?: boolean;
   fatturare?: boolean;
@@ -370,6 +372,8 @@ export interface ClienteInsert {
   affiancato_id?: string | null;
   affiancato_at?: string | null;
   affiancato_by?: string | null;
+  commerciale_persona_id?: string | null;
+  affiancato_persona_id?: string | null;
   azienda_madre_id?: string | null;
   invia_preventivi?: boolean;
   fatturare?: boolean;
@@ -419,6 +423,8 @@ export interface ClienteUpdate {
   affiancato_id?: string | null;
   affiancato_at?: string | null;
   affiancato_by?: string | null;
+  commerciale_persona_id?: string | null;
+  affiancato_persona_id?: string | null;
   azienda_madre_id?: string | null;
   invia_preventivi?: boolean;
   fatturare?: boolean;

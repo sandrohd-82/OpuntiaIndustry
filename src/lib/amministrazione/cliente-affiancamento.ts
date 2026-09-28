@@ -4,6 +4,8 @@ export type PersonaLinea = {
   parentId: string | null;
   grado: "senior" | "professional" | "executive" | null;
   nome: string;
+  /** Riga vera di organigramma. I profili senza scheda non possono ricevere l'azienda prima del login. */
+  scheda: boolean;
 };
 
 export function personaAttore(
@@ -37,7 +39,14 @@ export function aziendaNellaLinea(input: {
   actor: PersonaLinea;
   persone: PersonaLinea[];
   commercialeId: string | null;
+  commercialePersonaId?: string | null;
 }): boolean {
+  const personaId = input.commercialePersonaId ?? null;
+  if (personaId) {
+    if (personaId === input.actor.id) return true;
+    if (input.actor.grado !== "senior") return false;
+    return idsSottoalbero(input.actor, input.persone).has(personaId);
+  }
   if (!input.commercialeId || !input.actor.userId) {
     return input.actor.grado === "senior" && !input.commercialeId;
   }
@@ -61,8 +70,7 @@ export function destinatariCessione(input: {
     return input.persone.filter(
       (p) =>
         p.parentId === input.actor.id &&
-        p.grado === "executive" &&
-        Boolean(p.userId)
+        p.grado === "executive"
     );
   }
   if (input.actor.grado !== "senior") return [];
@@ -71,8 +79,7 @@ export function destinatariCessione(input: {
     (p) =>
       p.id !== input.actor.id &&
       sotto.has(p.id) &&
-      (p.grado === "professional" || p.grado === "executive") &&
-      Boolean(p.userId)
+      (p.grado === "professional" || p.grado === "executive")
   );
 }
 
@@ -81,20 +88,18 @@ export function destinatariVisibili(input: {
   actor: PersonaLinea | null;
   persone: PersonaLinea[];
   commercialeId: string | null;
+  commercialePersonaId?: string | null;
 }): PersonaLinea[] {
-  const conUtente = (lista: PersonaLinea[]) =>
+  const conGrado = (lista: PersonaLinea[]) =>
     lista.filter(
-      (p) =>
-        Boolean(p.userId) &&
-        (p.grado === "professional" || p.grado === "executive")
+      (p) => p.grado === "professional" || p.grado === "executive"
     );
   if (input.admin) {
     return input.persone.filter(
       (p) =>
-        Boolean(p.userId) &&
-        (p.grado === "senior" ||
-          p.grado === "professional" ||
-          p.grado === "executive")
+        p.grado === "senior" ||
+        p.grado === "professional" ||
+        p.grado === "executive"
     );
   }
   if (!input.actor) return [];
@@ -102,8 +107,9 @@ export function destinatariVisibili(input: {
     actor: input.actor,
     persone: input.persone,
     commercialeId: input.commercialeId,
+    commercialePersonaId: input.commercialePersonaId,
   })) {
     return [];
   }
-  return conUtente(destinatariCessione({ actor: input.actor, persone: input.persone }));
+  return conGrado(destinatariCessione({ actor: input.actor, persone: input.persone }));
 }

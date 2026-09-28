@@ -32,6 +32,7 @@ import {
 import {
   loadCommercialeLabels,
   loadCommercialeUserIds,
+  loadOrganigrammaNomi,
   resolveDefaultCommercialeId,
 } from "@/lib/auth/commerciale-lineage";
 import { resolveCommercialeAppartenenza } from "@/lib/auth/commerciale";
@@ -175,6 +176,11 @@ export async function listClientiAction(): Promise<
       .flatMap((r) => [r.commerciale_id ?? "", r.created_by ?? ""])
       .filter(Boolean)
   );
+  const nomiPersona = await loadOrganigrammaNomi(
+    rows
+      .filter((r) => !r.commerciale_id && r.commerciale_persona_id)
+      .map((r) => String(r.commerciale_persona_id))
+  );
   const prenotate = new Map<string, string>();
   if (rows.length > 0) {
     const { data: canc } = await supabase
@@ -204,6 +210,14 @@ export async function listClientiAction(): Promise<
         grado: resolved.commercialeGrado,
       });
       cliente.commercialeId = resolved.commercialeId;
+      if (!row.commerciale_id && row.commerciale_persona_id) {
+        const personaId = String(row.commerciale_persona_id);
+        const etichetta = nomiPersona.get(personaId);
+        cliente.commercialeId = null;
+        cliente.commercialePersonaId = personaId;
+        cliente.commercialeNome = etichetta?.nome ?? "Commerciale";
+        cliente.commercialeGrado = etichetta?.grado ?? null;
+      }
       cliente.cancellazioneId = prenotate.get(row.id) ?? null;
       cliente.cancellazionePrenotata = prenotate.has(row.id);
       return cliente;
@@ -457,7 +471,9 @@ export async function updateClienteAction(
   const supabase = await createClient();
   const { data: existingCliente } = await supabase
     .from("clienti")
-    .select("created_by, commerciale_id, affiancato_id, azienda_madre_id")
+    .select(
+      "created_by, commerciale_id, affiancato_id, commerciale_persona_id, affiancato_persona_id, azienda_madre_id"
+    )
     .eq("id", id)
     .is("deleted_at", null)
     .maybeSingle();
@@ -472,6 +488,12 @@ export async function updateClienteAction(
       : null,
     affiancatoId: existingCliente?.affiancato_id
       ? String(existingCliente.affiancato_id)
+      : null,
+    commercialePersonaId: existingCliente?.commerciale_persona_id
+      ? String(existingCliente.commerciale_persona_id)
+      : null,
+    affiancatoPersonaId: existingCliente?.affiancato_persona_id
+      ? String(existingCliente.affiancato_persona_id)
       : null,
   });
   if (!editGate.ok) return { success: false, error: editGate.error };
@@ -724,7 +746,9 @@ export async function prenotaCancellazioneClienteAction(input: {
   const supabase = await createClient();
   const { data: existing, error: loadError } = await supabase
     .from("clienti")
-    .select("id, codice_targa, ragione_sociale, created_by, commerciale_id, affiancato_id, deleted_at")
+    .select(
+      "id, codice_targa, ragione_sociale, created_by, commerciale_id, affiancato_id, commerciale_persona_id, affiancato_persona_id, deleted_at"
+    )
     .eq("id", input.id)
     .maybeSingle();
   if (loadError) return { success: false, error: loadError.message };
@@ -740,6 +764,12 @@ export async function prenotaCancellazioneClienteAction(input: {
       : null,
     affiancatoId: existing.affiancato_id
       ? String(existing.affiancato_id)
+      : null,
+    commercialePersonaId: existing.commerciale_persona_id
+      ? String(existing.commerciale_persona_id)
+      : null,
+    affiancatoPersonaId: existing.affiancato_persona_id
+      ? String(existing.affiancato_persona_id)
       : null,
   });
   if (!delGate.ok) return { success: false, error: delGate.error };
@@ -1203,17 +1233,34 @@ export async function convertClientePossibileAdClienteAction(
   const affiancatoId = leadRow.affiancato_id
     ? String(leadRow.affiancato_id)
     : null;
-  if (affiancatoId) {
+  const commercialePersonaId = leadRow.commerciale_persona_id
+    ? String(leadRow.commerciale_persona_id)
+    : null;
+  const affiancatoPersonaId = leadRow.affiancato_persona_id
+    ? String(leadRow.affiancato_persona_id)
+    : null;
+  if (affiancatoId || affiancatoPersonaId || commercialePersonaId) {
     await createServiceClient()
       .from("clienti")
       .update({
+        commerciale_id: leadRow.commerciale_id
+          ? String(leadRow.commerciale_id)
+          : null,
+        commerciale_persona_id: commercialePersonaId,
         affiancato_id: affiancatoId,
-        affiancato_at: leadRow.affiancato_at
-          ? String(leadRow.affiancato_at)
-          : new Date().toISOString(),
-        affiancato_by: leadRow.affiancato_by
-          ? String(leadRow.affiancato_by)
-          : auth.userId,
+        affiancato_persona_id: affiancatoPersonaId,
+        affiancato_at:
+          affiancatoId || affiancatoPersonaId
+            ? leadRow.affiancato_at
+              ? String(leadRow.affiancato_at)
+              : new Date().toISOString()
+            : null,
+        affiancato_by:
+          affiancatoId || affiancatoPersonaId
+            ? leadRow.affiancato_by
+              ? String(leadRow.affiancato_by)
+              : auth.userId
+            : null,
         updated_by: auth.userId,
       })
       .eq("id", created.cliente.id);

@@ -36,15 +36,13 @@ export function AziendeCommercialeCard({ persona, lineageIds }: Props) {
   const [refresh, setRefresh] = useState(0);
 
   const showForCommerciale =
-    Boolean(persona.userId) &&
-    (isRepartoCommerciale({
+    isRepartoCommerciale({
       codice: persona.repartoCodice,
       nome: persona.repartoNome,
-    }) ||
-      Boolean(persona.commercialeGrado));
+    }) || Boolean(persona.commercialeGrado);
 
   useEffect(() => {
-    if (!persona.userId) {
+    if (!persona.userId && !showForCommerciale) {
       setAziende([]);
       setReady(true);
       return;
@@ -63,9 +61,9 @@ export function AziendeCommercialeCard({ persona, lineageIds }: Props) {
       setAziende(res.aziende);
       setReady(true);
     })();
-  }, [persona.id, persona.userId, refresh]);
+  }, [persona.id, persona.userId, refresh, showForCommerciale]);
 
-  if (!persona.userId) return null;
+  if (!persona.userId && !showForCommerciale) return null;
   if (ready && aziende.length === 0 && !showForCommerciale && !error) {
     return null;
   }
@@ -96,6 +94,8 @@ export function AziendeCommercialeCard({ persona, lineageIds }: Props) {
               createdBy: az.createdBy,
               commercialeId: az.commercialeId,
               affiancatoId: az.affiancatoId,
+              commercialePersonaId: az.commercialePersonaId,
+              affiancatoPersonaId: az.affiancatoPersonaId,
               lineageIds,
             });
             const canTl = priv.canTimelineRecord(treatAsOwn);

@@ -99,6 +99,8 @@ function PossibileClienteRow({
     createdBy: lead.createdBy,
     commercialeId: lead.commercialeId,
     affiancatoId: lead.affiancatoId,
+    commercialePersonaId: lead.commercialePersonaId,
+    affiancatoPersonaId: lead.affiancatoPersonaId,
     lineageIds,
   });
   const canEdit = priv.canEdit(lead.createdBy, treatAsOwn);

@@ -57,11 +57,13 @@ export type Cliente = {
   createdAt: string;
   createdBy: string | null;
   commercialeId: string | null;
+  commercialePersonaId?: string | null;
   commercialeNome: string;
   commercialeGrado: "senior" | "professional" | "executive" | null;
   intermediarioId?: string | null;
   intermediarioProvvigionePct?: number | null;
   affiancatoId?: string | null;
+  affiancatoPersonaId?: string | null;
   /** Solo possibile cliente: stato trattativa commerciale. */
   trattativa?: ClientePossibileTrattativa;
   /** Prenotazione cancellazione in attesa di Super Admin. */
@@ -303,6 +305,9 @@ export function mapClienteRow(
     createdAt: row.created_at,
     createdBy: row.created_by ?? null,
     commercialeId: row.commerciale_id ?? null,
+    commercialePersonaId: row.commerciale_persona_id
+      ? String(row.commerciale_persona_id)
+      : null,
     commercialeNome:
       typeof commerciale === "object" && commerciale
         ? (commerciale.nome ?? "")
@@ -317,6 +322,9 @@ export function mapClienteRow(
         ? null
         : Number(row.intermediario_provvigione_pct),
     affiancatoId: row.affiancato_id ? String(row.affiancato_id) : null,
+    affiancatoPersonaId: row.affiancato_persona_id
+      ? String(row.affiancato_persona_id)
+      : null,
     cancellazionePrenotata: false,
     cancellazioneId: null,
     aziendaMadreId: row.azienda_madre_id ? String(row.azienda_madre_id) : null,

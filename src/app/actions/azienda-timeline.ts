@@ -323,10 +323,14 @@ export async function listAziendaTimelineAction(raw: unknown): Promise<
   }
   let commercialeId: string | null = null;
   let affiancatoId: string | null = null;
+  let commercialePersonaId: string | null = null;
+  let affiancatoPersonaId: string | null = null;
   if (aziendaTipo !== "fornitore") {
     const { data: azComm } = await service
       .from(table)
-      .select("commerciale_id, affiancato_id")
+      .select(
+        "commerciale_id, affiancato_id, commerciale_persona_id, affiancato_persona_id"
+      )
       .eq("id", aziendaId)
       .is("deleted_at", null)
       .maybeSingle();
@@ -335,6 +339,14 @@ export async function listAziendaTimelineAction(raw: unknown): Promise<
     commercialeId = raw ? String(raw) : null;
     affiancatoId = (azComm as { affiancato_id?: string | null } | null)?.affiancato_id
       ? String((azComm as { affiancato_id: string }).affiancato_id)
+      : null;
+    commercialePersonaId = (azComm as { commerciale_persona_id?: string | null } | null)
+      ?.commerciale_persona_id
+      ? String((azComm as { commerciale_persona_id: string }).commerciale_persona_id)
+      : null;
+    affiancatoPersonaId = (azComm as { affiancato_persona_id?: string | null } | null)
+      ?.affiancato_persona_id
+      ? String((azComm as { affiancato_persona_id: string }).affiancato_persona_id)
       : null;
   }
   const timelineKind = kindFromAziendaTipo(aziendaTipo);
@@ -345,6 +357,8 @@ export async function listAziendaTimelineAction(raw: unknown): Promise<
       createdBy: azRow.created_by ? String(azRow.created_by) : null,
       commercialeId,
       affiancatoId,
+      commercialePersonaId,
+      affiancatoPersonaId,
     });
     if (!tlGate.ok) return { success: false, error: tlGate.error };
   }
@@ -1493,24 +1507,48 @@ async function assertTimelineSyncAccess(raw: unknown): Promise<
   if (!azRow) return { ok: false, error: "Azienda non trovata." };
   let commercialeId: string | null = null;
   let affiancatoId: string | null = null;
+  let commercialePersonaId: string | null = null;
+  let affiancatoPersonaId: string | null = null;
   if (aziendaTipo === "cliente") {
     const { data: comm } = await service
       .from("clienti")
-      .select("commerciale_id, affiancato_id")
+      .select(
+        "commerciale_id, affiancato_id, commerciale_persona_id, affiancato_persona_id"
+      )
       .eq("id", aziendaId)
       .is("deleted_at", null)
       .maybeSingle();
     commercialeId = comm?.commerciale_id ? String(comm.commerciale_id) : null;
     affiancatoId = comm?.affiancato_id ? String(comm.affiancato_id) : null;
+    commercialePersonaId = comm?.commerciale_persona_id
+      ? String(comm.commerciale_persona_id)
+      : null;
+    affiancatoPersonaId = comm?.affiancato_persona_id
+      ? String(comm.affiancato_persona_id)
+      : null;
   } else if (aziendaTipo === "cliente_possibile") {
     const { data: comm } = await service
       .from("clienti_possibili")
-      .select("commerciale_id, affiancato_id")
+      .select(
+        "commerciale_id, affiancato_id, commerciale_persona_id, affiancato_persona_id"
+      )
       .eq("id", aziendaId)
       .is("deleted_at", null)
       .maybeSingle();
-    commercialeId = comm?.commerciale_id ? String(comm.commerciale_id) : null;
-    affiancatoId = comm?.affiancato_id ? String(comm.affiancato_id) : null;
+    const row = comm as {
+      commerciale_id?: string | null;
+      affiancato_id?: string | null;
+      commerciale_persona_id?: string | null;
+      affiancato_persona_id?: string | null;
+    } | null;
+    commercialeId = row?.commerciale_id ? String(row.commerciale_id) : null;
+    affiancatoId = row?.affiancato_id ? String(row.affiancato_id) : null;
+    commercialePersonaId = row?.commerciale_persona_id
+      ? String(row.commerciale_persona_id)
+      : null;
+    affiancatoPersonaId = row?.affiancato_persona_id
+      ? String(row.affiancato_persona_id)
+      : null;
   }
   const timelineKind = kindFromAziendaTipo(aziendaTipo);
   if (timelineKind) {
@@ -1520,6 +1558,8 @@ async function assertTimelineSyncAccess(raw: unknown): Promise<
       createdBy: azRow.created_by ? String(azRow.created_by) : null,
       commercialeId,
       affiancatoId,
+      commercialePersonaId,
+      affiancatoPersonaId,
     });
     if (!tlGate.ok) return { ok: false, error: tlGate.error };
   }

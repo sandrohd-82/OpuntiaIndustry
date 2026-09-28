@@ -158,6 +158,37 @@ export async function createTestProfileAction(
   return { success: true, redirectTo: firstAreaPath(areas) ?? "/app/dashboard" };
 }
 
+async function ereditaAssegnazioniPersona(
+  service: ReturnType<typeof createServiceClient>,
+  personaId: string,
+  userId: string,
+  actorId: string
+) {
+  const now = new Date().toISOString();
+  for (const table of ["clienti", "clienti_possibili"] as const) {
+    await service
+      .from(table)
+      .update({
+        commerciale_id: userId,
+        updated_at: now,
+        updated_by: actorId,
+      })
+      .eq("commerciale_persona_id", personaId)
+      .is("commerciale_id", null)
+      .is("deleted_at", null);
+    await service
+      .from(table)
+      .update({
+        affiancato_id: userId,
+        updated_at: now,
+        updated_by: actorId,
+      })
+      .eq("affiancato_persona_id", personaId)
+      .is("affiancato_id", null)
+      .is("deleted_at", null);
+  }
+}
+
 export async function createOrganigrammaProfileAction(
   formData: FormData
 ): Promise<{ success: true; userId: string } | { success: false; error: string }> {
@@ -234,6 +265,12 @@ export async function createOrganigrammaProfileAction(
   if (linkErr) {
     return { success: false, error: linkErr.message };
   }
+  await ereditaAssegnazioniPersona(
+    service,
+    parsed.data.personaId,
+    result.userId,
+    gate.actorUserId
+  );
 
   const rep = await replaceProfileReparti(
     service,
@@ -439,6 +476,12 @@ export async function linkOrganigrammaProfileAction(input: {
     .eq("id", personaId.data)
     .is("deleted_at", null);
   if (linkErr) return { success: false, error: linkErr.message };
+  await ereditaAssegnazioniPersona(
+    service,
+    personaId.data,
+    profileId.data,
+    gate.actorUserId
+  );
 
   const gradoLink = parseCommercialeGrado(
     (persona as { commerciale_grado?: string | null }).commerciale_grado

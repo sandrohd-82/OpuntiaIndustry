@@ -2,7 +2,10 @@ import { loadAccessMaps } from "@/app/actions/page-access";
 import type { AnagraficaPrivilegeKind } from "@/lib/auth/action-access";
 import { evaluateAnagraficaPrivilege } from "@/lib/auth/anagrafica-privileges";
 import { isCommercialOwnRecord } from "@/lib/auth/commerciale";
-import { loadCommercialLineageUserIds } from "@/lib/auth/commerciale-lineage";
+import {
+  loadCommercialLineagePersonaIds,
+  loadCommercialLineageUserIds,
+} from "@/lib/auth/commerciale-lineage";
 import { isSuperadminProfile } from "@/lib/auth/roles";
 import { getAuthContext } from "@/lib/auth/session";
 
@@ -12,19 +15,26 @@ export async function assertAnagraficaPrivilege(opts: {
   createdBy?: string | null;
   commercialeId?: string | null;
   affiancatoId?: string | null;
+  commercialePersonaId?: string | null;
+  affiancatoPersonaId?: string | null;
 }): Promise<{ ok: true } | { ok: false; error: string }> {
   const auth = await getAuthContext();
   if (!auth) return { ok: false, error: "Non autenticato." };
   const bypass = isSuperadminProfile(auth.profile) && !auth.impersonating;
   if (bypass) return { ok: true };
 
-  const lineageIds = await loadCommercialLineageUserIds(auth.userId);
+  const [lineageIds, personaIds] = await Promise.all([
+    loadCommercialLineageUserIds(auth.userId),
+    loadCommercialLineagePersonaIds(auth.userId),
+  ]);
   const treatAsOwn = isCommercialOwnRecord({
     userId: auth.userId,
     createdBy: opts.createdBy,
     commercialeId: opts.commercialeId,
     affiancatoId: opts.affiancatoId,
-    lineageIds,
+    commercialePersonaId: opts.commercialePersonaId,
+    affiancatoPersonaId: opts.affiancatoPersonaId,
+    lineageIds: [...lineageIds, ...personaIds],
   });
 
   const { actionAccess } = await loadAccessMaps(auth.userId);

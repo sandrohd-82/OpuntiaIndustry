@@ -17,6 +17,7 @@ import {
   type CommercialeGrado,
 } from "@/lib/auth/commerciale";
 import {
+  loadCommercialLineagePersonaIds,
   loadCommercialeLabels,
   loadCommercialeOperatorContext,
 } from "@/lib/auth/commerciale-lineage";
@@ -55,7 +56,8 @@ const EMPTY_COMMERCIALE_CONTEXT: CommercialeAnagraficaContext = {
 
 async function subtreeAreaFilterOptions(
   userId: string,
-  subtreeIds: string[]
+  subtreeIds: string[],
+  personaIds: string[]
 ): Promise<CommercialeAreaOption[]> {
   const ids = [...new Set(subtreeIds.filter(Boolean))];
   if (ids.length === 0) return [];
@@ -106,15 +108,38 @@ async function subtreeAreaFilterOptions(
     if (uid) allowed.add(uid);
   }
   const labels = await loadCommercialeLabels([...allowed]);
-  return [...allowed]
-    .map((id) => ({
-      value: id,
-      label: formatCommercialeAreaBreve(
-        labels.get(id)?.nome?.trim() ||
-          (id === userId ? "Il mio profilo" : "Commerciale")
-      ),
-    }))
-    .sort((a, b) => a.label.localeCompare(b.label, "it"));
+  const options: CommercialeAreaOption[] = [...allowed].map((id) => ({
+    value: id,
+    label: formatCommercialeAreaBreve(
+      labels.get(id)?.nome?.trim() ||
+        (id === userId ? "Il mio profilo" : "Commerciale")
+    ),
+  }));
+  const senzaLogin = [...new Set(personaIds.filter(Boolean))];
+  if (senzaLogin.length > 0) {
+    const { data: orfani } = await service
+      .from("organigramma_persone")
+      .select("id, nome, cognome, commerciale_grado, user_id")
+      .in("id", senzaLogin)
+      .is("user_id", null)
+      .is("deleted_at", null);
+    for (const raw of orfani ?? []) {
+      const row = raw as {
+        id: string;
+        nome?: string | null;
+        cognome?: string | null;
+        commerciale_grado?: string | null;
+      };
+      if (!parseCommercialeGrado(row.commerciale_grado)) continue;
+      const nome = `${row.nome ?? ""} ${row.cognome ?? ""}`.trim();
+      if (!nome) continue;
+      options.push({
+        value: String(row.id),
+        label: formatCommercialeAreaBreve(nome),
+      });
+    }
+  }
+  return options.sort((a, b) => a.label.localeCompare(b.label, "it"));
 }
 
 function canAssignCommerciale(auth: {
@@ -142,7 +167,8 @@ export async function getCommercialeAnagraficaContextAction(): Promise<
 
   const skip = isSuperadminProfile(auth.profile) && !auth.impersonating;
   const op = await loadCommercialeOperatorContext(auth.userId);
-  const lineageIds = op.subtreeIds;
+  const personaIds = await loadCommercialLineagePersonaIds(auth.userId);
+  const lineageIds = [...new Set([...op.subtreeIds, ...personaIds])];
   const canAssign = canAssignCommerciale(auth);
   const hasSubordinates = lineageIds.some((id) => id !== auth.userId);
   const showAreaFilter =
@@ -155,7 +181,7 @@ export async function getCommercialeAnagraficaContextAction(): Promise<
     !skip && op.isCommerciale && showAreaFilter ? auth.userId : "";
   const areaFilterOptions =
     op.isCommerciale && showAreaFilter
-      ? await subtreeAreaFilterOptions(auth.userId, lineageIds)
+      ? await subtreeAreaFilterOptions(auth.userId, op.subtreeIds, personaIds)
       : [];
 
   if (!canAssign) {
@@ -418,14 +444,15 @@ export async function listAziendeCommercialePersonaAction(
   if (!persona) return { success: false, error: "Operatore non trovato." };
 
   const userId = persona.user_id ? String(persona.user_id) : null;
-  if (!userId) {
-    return { success: true, userId: null, aziende: [] };
-  }
+  const personaId = String(persona.id);
+  const filtro = userId
+    ? `created_by.eq.${userId},commerciale_id.eq.${userId},affiancato_id.eq.${userId},commerciale_persona_id.eq.${personaId},affiancato_persona_id.eq.${personaId}`
+    : `commerciale_persona_id.eq.${personaId},affiancato_persona_id.eq.${personaId}`;
 
   const { data: rows, error } = await service
     .from("clienti")
     .select("*")
-    .or(`created_by.eq.${userId},commerciale_id.eq.${userId},affiancato_id.eq.${userId}`)
+    .or(filtro)
     .is("deleted_at", null)
     .order("ragione_sociale", { ascending: true });
   if (error) return { success: false, error: error.message };
@@ -445,12 +472,16 @@ export async function listAziendeCommercialePersonaAction(
     );
     return {
       ...mapped,
-      origine: commercialeAziendaOrigine({
-        userId,
-        createdBy: mapped.createdBy,
-        commercialeId: mapped.commercialeId,
-        affiancatoId: mapped.affiancatoId,
-      }),
+      origine: userId
+        ? commercialeAziendaOrigine({
+            userId,
+            createdBy: mapped.createdBy,
+            commercialeId: mapped.commercialeId,
+            affiancatoId: mapped.affiancatoId,
+          })
+        : mapped.affiancatoPersonaId === personaId
+          ? "affiancata"
+          : "collegata",
     };
   });
 

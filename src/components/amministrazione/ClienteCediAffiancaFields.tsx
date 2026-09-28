@@ -28,7 +28,7 @@ export function ClienteCediAffiancaFields({
   kind: "cliente" | "possibile";
   recordId: string;
   onCommercialeCeduto?: (
-    commercialeId: string,
+    commercialeId: string | null,
     intermediarioAzzerato: boolean
   ) => void;
   onChanged?: () => void;
@@ -94,14 +94,14 @@ export function ClienteCediAffiancaFields({
       kind,
       id: recordId,
       mode,
-      targetUserId: mode === "togli" ? null : targetId || null,
+      targetPersonaId: mode === "togli" ? null : targetId || null,
     });
     setBusy(false);
     if (!res.success) {
       setError(res.error);
       return;
     }
-    if (mode === "cedi" && res.commercialeId) {
+    if (mode === "cedi") {
       onCommercialeCeduto?.(res.commercialeId, res.intermediarioAzzerato);
       setNota("Scheda ceduta. Il sottoposto è il commerciale.");
     } else if (mode === "affianca") {

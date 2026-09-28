@@ -1,6 +1,7 @@
 import { cache } from "react";
 import {
   anagraficaLineageOrFilter,
+  loadCommercialLineagePersonaIds,
   loadCommercialLineageUserIds,
   loadCommercialeOperatorContext,
 } from "@/lib/auth/commerciale-lineage";
@@ -190,11 +191,14 @@ export async function loadOwnedAziendaIds(
   const tables: Array<"clienti" | "fornitori"> =
     kind === "entrambi" ? ["clienti", "fornitori"] : [kind];
   const ids: string[] = [];
-  const lineage = await loadCommercialLineageUserIds(userId);
+  const [lineage, personaIds] = await Promise.all([
+    loadCommercialLineageUserIds(userId),
+    loadCommercialLineagePersonaIds(userId),
+  ]);
   for (const table of tables) {
     let q = supabase.from(table).select("id").is("deleted_at", null);
     if (table === "clienti") {
-      q = q.or(anagraficaLineageOrFilter(lineage));
+      q = q.or(anagraficaLineageOrFilter(lineage, personaIds));
     } else {
       q = q.eq("created_by", userId);
     }

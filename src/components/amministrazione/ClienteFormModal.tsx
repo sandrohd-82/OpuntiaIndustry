@@ -150,6 +150,8 @@ export function ClienteFormModal({
     createdBy: initial?.createdBy,
     commercialeId: initial?.commercialeId,
     affiancatoId: initial?.affiancatoId,
+    commercialePersonaId: initial?.commercialePersonaId,
+    affiancatoPersonaId: initial?.affiancatoPersonaId,
     lineageIds,
   });
   const canDeleteRecord = priv.canDelete(initial?.createdBy, treatAsOwn);

@@ -170,13 +170,20 @@ export function resolveCommercialeAppartenenza(opts: {
 }
 
 export function matchesCommercialeArea(
-  record: { commercialeId: string | null | undefined },
+  record: {
+    commercialeId: string | null | undefined;
+    commercialePersonaId?: string | null;
+  },
   filter: string
 ): boolean {
   const value = filter.trim();
   if (!value) return true;
-  if (value === COMMERCIALE_AREA_AZIENDA) return !record.commercialeId;
-  return record.commercialeId === value;
+  if (value === COMMERCIALE_AREA_AZIENDA) {
+    return !record.commercialeId && !record.commercialePersonaId;
+  }
+  return (
+    record.commercialeId === value || record.commercialePersonaId === value
+  );
 }
 
 export function commercialeAreaFilterLabel(
@@ -253,6 +260,8 @@ export function isCommercialOwnRecord(opts: {
   createdBy?: string | null;
   commercialeId?: string | null;
   affiancatoId?: string | null;
+  commercialePersonaId?: string | null;
+  affiancatoPersonaId?: string | null;
   lineageIds: string[];
 }): boolean {
   const lineage = new Set(opts.lineageIds);
@@ -269,6 +278,15 @@ export function isCommercialOwnRecord(opts: {
     opts.affiancatoId &&
     (opts.affiancatoId === opts.userId || lineage.has(opts.affiancatoId))
   ) {
+    return true;
+  }
+  if (
+    opts.commercialePersonaId &&
+    lineage.has(opts.commercialePersonaId)
+  ) {
+    return true;
+  }
+  if (opts.affiancatoPersonaId && lineage.has(opts.affiancatoPersonaId)) {
     return true;
   }
   return false;

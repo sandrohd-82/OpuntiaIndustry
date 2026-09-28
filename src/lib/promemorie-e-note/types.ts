@@ -135,7 +135,9 @@ export type ClientePossibile = {
   updatedAt: string;
   createdBy: string | null;
   commercialeId: string | null;
+  commercialePersonaId?: string | null;
   affiancatoId?: string | null;
+  affiancatoPersonaId?: string | null;
   commercialeNome: string;
   commercialeGrado: "senior" | "professional" | "executive" | null;
   aziendaMadreId: string | null;
@@ -360,6 +362,9 @@ export function clienteFromPossibile(lead: ClientePossibile): Cliente {
     createdAt: "",
     createdBy: null,
     commercialeId: lead.commercialeId,
+    commercialePersonaId: lead.commercialePersonaId ?? null,
+    affiancatoId: lead.affiancatoId ?? null,
+    affiancatoPersonaId: lead.affiancatoPersonaId ?? null,
     commercialeNome: lead.commercialeNome,
     commercialeGrado: lead.commercialeGrado,
     trattativa: lead.trattativa,

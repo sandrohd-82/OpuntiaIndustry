@@ -57,6 +57,8 @@ export function ClienteSchedaCompletaModal({
       createdBy: cliente.createdBy,
       commercialeId: cliente.commercialeId,
       affiancatoId: cliente.affiancatoId,
+      commercialePersonaId: cliente.commercialePersonaId,
+      affiancatoPersonaId: cliente.affiancatoPersonaId,
       lineageIds,
     })
   );

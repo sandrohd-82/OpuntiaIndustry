@@ -8,6 +8,7 @@ import type { AnagraficaDuplicatoHit } from "@/lib/amministrazione/anagrafica-du
 import { assertAnagraficaPrivilege } from "@/lib/auth/anagrafica-privileges-server";
 import {
   loadCommercialeLabels,
+  loadOrganigrammaNomi,
   loadCommercialeUserIds,
   loadSuperadminUserIds,
   resolveDefaultCommercialeId,
@@ -71,7 +72,7 @@ import type { ClienteConsegnaAltraAziendaRow } from "@/types/database";
 import { z } from "zod";
 
 const CLIENTI_POSSIBILI_SELECT =
-  "id, ragione_sociale, partita_iva, codice_fiscale, is_privato, email, pec, sdi_code, telefono, sito_web, telefoni_generici, email_generiche, siti_web_generici, sede_amm_nazione, sede_amm_provincia, sede_amm_citta, sede_amm_cap, sede_amm_indirizzo, sede_mag_nazione, sede_mag_provincia, sede_mag_citta, sede_mag_cap, sede_mag_indirizzo, prodotti_interessati, consegne_altra_azienda, referente, note_interne, stato, trattativa, cliente_id, created_by, created_at, updated_at, commerciale_id, affiancato_id, azienda_madre_id, invia_preventivi, fatturare, invia_campionature, invia_prodotti, tipologia_rispetto_madre";
+  "id, ragione_sociale, partita_iva, codice_fiscale, is_privato, email, pec, sdi_code, telefono, sito_web, telefoni_generici, email_generiche, siti_web_generici, sede_amm_nazione, sede_amm_provincia, sede_amm_citta, sede_amm_cap, sede_amm_indirizzo, sede_mag_nazione, sede_mag_provincia, sede_mag_citta, sede_mag_cap, sede_mag_indirizzo, prodotti_interessati, consegne_altra_azienda, referente, note_interne, stato, trattativa, cliente_id, created_by, created_at, updated_at, commerciale_id, affiancato_id, commerciale_persona_id, affiancato_persona_id, azienda_madre_id, invia_preventivi, fatturare, invia_campionature, invia_prodotti, tipologia_rispetto_madre";
 
 async function syncPnMentionsToTimeline(input: {
   userId: string;
@@ -166,7 +167,13 @@ function mapClientePossibileRow(r: Record<string, unknown>): ClientePossibile {
     updatedAt: String(r.updated_at),
     createdBy: r.created_by ? String(r.created_by) : null,
     commercialeId: r.commerciale_id ? String(r.commerciale_id) : null,
+    commercialePersonaId: r.commerciale_persona_id
+      ? String(r.commerciale_persona_id)
+      : null,
     affiancatoId: r.affiancato_id ? String(r.affiancato_id) : null,
+    affiancatoPersonaId: r.affiancato_persona_id
+      ? String(r.affiancato_persona_id)
+      : null,
     commercialeNome: "",
     commercialeGrado: null,
     aziendaMadreId: r.azienda_madre_id ? String(r.azienda_madre_id) : null,
@@ -1199,7 +1206,14 @@ export async function listClientiPossibiliAction(): Promise<
   const labels = await loadCommercialeLabels(
     items.flatMap((i) => [i.commercialeId ?? "", i.createdBy ?? ""]).filter(Boolean)
   );
+  const nomiPersona = await loadOrganigrammaNomi(
+    items
+      .filter((i) => !i.commercialeId && i.commercialePersonaId)
+      .map((i) => String(i.commercialePersonaId))
+  );
   for (const item of items) {
+    const personaId = item.commercialePersonaId ?? null;
+    const userCommercialeId = item.commercialeId;
     const resolved = resolveCommercialeAppartenenza({
       commercialeId: item.commercialeId,
       createdBy: item.createdBy,
@@ -1210,6 +1224,13 @@ export async function listClientiPossibiliAction(): Promise<
     item.commercialeId = resolved.commercialeId;
     item.commercialeNome = resolved.commercialeNome;
     item.commercialeGrado = resolved.commercialeGrado;
+    if (!userCommercialeId && personaId) {
+      const etichetta = nomiPersona.get(personaId);
+      item.commercialeId = null;
+      item.commercialePersonaId = personaId;
+      item.commercialeNome = etichetta?.nome ?? "Commerciale";
+      item.commercialeGrado = etichetta?.grado ?? null;
+    }
   }
   const noteCounts: Record<string, number> = {};
   if (items.length > 0) {
@@ -1458,7 +1479,9 @@ export async function updateClientePossibileAction(
   const supabaseGate = await createClient();
   const { data: existingLead } = await supabaseGate
     .from("clienti_possibili")
-    .select("created_by, commerciale_id, affiancato_id, trattativa")
+    .select(
+      "created_by, commerciale_id, affiancato_id, commerciale_persona_id, affiancato_persona_id, trattativa"
+    )
     .eq("id", id)
     .is("deleted_at", null)
     .maybeSingle();
@@ -1473,6 +1496,12 @@ export async function updateClientePossibileAction(
       : null,
     affiancatoId: existingLead?.affiancato_id
       ? String(existingLead.affiancato_id)
+      : null,
+    commercialePersonaId: existingLead?.commerciale_persona_id
+      ? String(existingLead.commerciale_persona_id)
+      : null,
+    affiancatoPersonaId: existingLead?.affiancato_persona_id
+      ? String(existingLead.affiancato_persona_id)
       : null,
   });
   if (!editGate.ok) return { success: false, error: editGate.error };
@@ -1663,7 +1692,9 @@ export async function softDeleteClientePossibileAction(input: {
   const supabase = await createClient();
   const { data: existing, error: loadError } = await supabase
     .from("clienti_possibili")
-    .select("id, ragione_sociale, created_by, commerciale_id, affiancato_id, deleted_at")
+    .select(
+      "id, ragione_sociale, created_by, commerciale_id, affiancato_id, commerciale_persona_id, affiancato_persona_id, deleted_at"
+    )
     .eq("id", input.id)
     .maybeSingle();
   if (loadError) return { success: false, error: loadError.message };
@@ -1679,6 +1710,12 @@ export async function softDeleteClientePossibileAction(input: {
       : null,
     affiancatoId: existing.affiancato_id
       ? String(existing.affiancato_id)
+      : null,
+    commercialePersonaId: existing.commerciale_persona_id
+      ? String(existing.commerciale_persona_id)
+      : null,
+    affiancatoPersonaId: existing.affiancato_persona_id
+      ? String(existing.affiancato_persona_id)
       : null,
   });
   if (!delGate.ok) return { success: false, error: delGate.error };

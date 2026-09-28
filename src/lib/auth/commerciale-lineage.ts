@@ -27,10 +27,12 @@ function parentIdsOf(p: PersonaLink): string[] {
  * Io + subordinati in organigramma. Mai i superiori:
  * un agente non vede le aziende del Senior, il Senior non vede un gradino sopra.
  */
-export const loadCommercialLineageUserIds = cache(
-  async (userId: string): Promise<string[]> => {
+const loadCommercialLineageScope = cache(
+  async (
+    userId: string
+  ): Promise<{ userIds: string[]; personaIds: string[] }> => {
     const mine = String(userId ?? "").trim();
-    if (!mine) return [];
+    if (!mine) return { userIds: [], personaIds: [] };
 
     const service = createServiceClient();
     const { data } = await service
@@ -41,7 +43,7 @@ export const loadCommercialLineageUserIds = cache(
     const rows = (data ?? []) as PersonaLink[];
     const byId = new Map(rows.map((r) => [r.id, r]));
     const me = rows.find((r) => r.user_id === mine);
-    if (!me) return [mine];
+    if (!me) return { userIds: [mine], personaIds: [] };
 
     const children = new Map<string, string[]>();
     for (const r of rows) {
@@ -65,7 +67,19 @@ export const loadCommercialLineageUserIds = cache(
       const uid = byId.get(id)?.user_id;
       if (uid) userIds.add(uid);
     }
-    return [...userIds];
+    return { userIds: [...userIds], personaIds: [...subtree] };
+  }
+);
+
+export const loadCommercialLineageUserIds = cache(
+  async (userId: string): Promise<string[]> => {
+    return (await loadCommercialLineageScope(userId)).userIds;
+  }
+);
+
+export const loadCommercialLineagePersonaIds = cache(
+  async (userId: string): Promise<string[]> => {
+    return (await loadCommercialLineageScope(userId)).personaIds;
   }
 );
 
@@ -227,6 +241,34 @@ export async function resolveDefaultCommercialeId(opts: {
   return ids.has(opts.userId) ? opts.userId : null;
 }
 
+export async function loadOrganigrammaNomi(
+  personaIds: string[]
+): Promise<Map<string, { nome: string; grado: CommercialeGrado | null }>> {
+  const ids = [...new Set(personaIds.filter(Boolean))];
+  const map = new Map<string, { nome: string; grado: CommercialeGrado | null }>();
+  if (ids.length === 0) return map;
+  const service = createServiceClient();
+  const { data } = await service
+    .from("organigramma_persone")
+    .select("id, nome, cognome, commerciale_grado")
+    .in("id", ids)
+    .is("deleted_at", null);
+  for (const raw of data ?? []) {
+    const row = raw as {
+      id: string;
+      nome?: string | null;
+      cognome?: string | null;
+      commerciale_grado?: string | null;
+    };
+    const nome = `${row.nome ?? ""} ${row.cognome ?? ""}`.trim() || "Commerciale";
+    map.set(String(row.id), {
+      nome,
+      grado: parseCommercialeGrado(row.commerciale_grado),
+    });
+  }
+  return map;
+}
+
 export async function loadCommercialeLabels(
   userIds: string[]
 ): Promise<Map<string, { nome: string; grado: CommercialeGrado | null }>> {
@@ -281,11 +323,32 @@ export async function loadCommercialeLabels(
   return map;
 }
 
-export function anagraficaLineageOrFilter(lineageIds: string[]): string {
+export function anagraficaLineageOrFilter(
+  lineageIds: string[],
+  personaIds: string[] = []
+): string {
   const ids = [...new Set(lineageIds.filter(Boolean))];
-  if (ids.length === 0) return "id.eq.00000000-0000-0000-0000-000000000000";
-  const inList = ids.join(",");
-  return `created_by.in.(${inList}),commerciale_id.in.(${inList}),affiancato_id.in.(${inList})`;
+  const persone = [...new Set(personaIds.filter(Boolean))];
+  const parts: string[] = [];
+  if (ids.length > 0) {
+    const inList = ids.join(",");
+    parts.push(
+      `created_by.in.(${inList})`,
+      `commerciale_id.in.(${inList})`,
+      `affiancato_id.in.(${inList})`
+    );
+  }
+  if (persone.length > 0) {
+    const inList = persone.join(",");
+    parts.push(
+      `commerciale_persona_id.in.(${inList})`,
+      `affiancato_persona_id.in.(${inList})`
+    );
+  }
+  if (parts.length === 0) {
+    return "id.eq.00000000-0000-0000-0000-000000000000";
+  }
+  return parts.join(",");
 }
 
 /**
@@ -294,14 +357,16 @@ export function anagraficaLineageOrFilter(lineageIds: string[]): string {
  */
 export function anagraficaLineageOrAziendaFilter(
   lineageIds: string[],
-  commercialIds: Iterable<string>
+  commercialIds: Iterable<string>,
+  personaIds: string[] = []
 ): string {
-  const lineage = anagraficaLineageOrFilter(lineageIds);
+  const lineage = anagraficaLineageOrFilter(lineageIds, personaIds);
   const commercials = [...new Set([...commercialIds].filter(Boolean))];
+  const libera = "commerciale_id.is.null,commerciale_persona_id.is.null";
   const azienda =
     commercials.length === 0
-      ? "commerciale_id.is.null"
-      : `and(commerciale_id.is.null,or(created_by.is.null,created_by.not.in.(${commercials.join(",")})))`;
+      ? `and(${libera})`
+      : `and(${libera},or(created_by.is.null,created_by.not.in.(${commercials.join(",")})))`;
   return `${lineage},${azienda}`;
 }
 

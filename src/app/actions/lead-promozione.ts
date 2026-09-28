@@ -204,7 +204,9 @@ export async function listMiePromozioniAperteAction(): Promise<
   const leadIds = [...new Set(rows.map((r) => String(r.cliente_possibile_id)))];
   const { data: leads } = await service
     .from("clienti_possibili")
-    .select("id, ragione_sociale, partita_iva, created_by, commerciale_id, affiancato_id, stato")
+    .select(
+      "id, ragione_sociale, partita_iva, created_by, commerciale_id, affiancato_id, commerciale_persona_id, affiancato_persona_id, stato"
+    )
     .in("id", leadIds)
     .is("deleted_at", null);
   const leadById = new Map(
@@ -221,6 +223,12 @@ export async function listMiePromozioniAperteAction(): Promise<
       createdBy: lead.created_by ? String(lead.created_by) : null,
       commercialeId: lead.commerciale_id ? String(lead.commerciale_id) : null,
       affiancatoId: lead.affiancato_id ? String(lead.affiancato_id) : null,
+      commercialePersonaId: lead.commerciale_persona_id
+        ? String(lead.commerciale_persona_id)
+        : null,
+      affiancatoPersonaId: lead.affiancato_persona_id
+        ? String(lead.affiancato_persona_id)
+        : null,
     });
     if (!gate.ok) continue;
     items.push({
