@@ -31,7 +31,11 @@ import { loadAnagraficaExtraAction } from "@/app/actions/anagrafica-extra";
 import { AnagraficaSchedaSection } from "@/components/amministrazione/AnagraficaSchedaSection";
 import {
   firstSedeOfTipo,
+  isSedeAddressEmpty,
   primarySedeAddress,
+  sediFromLegacy,
+  type AnagraficaBrand,
+  type AnagraficaSede,
 } from "@/lib/amministrazione/anagrafica-extra";
 import { ApriFatturaFicActions } from "@/components/amministrazione/ApriFatturaFicButton";
 import { CodiceTargaBadge } from "@/components/amministrazione/CodiceTargaBadge";
@@ -41,12 +45,8 @@ import { CommercialeAssignField } from "@/components/amministrazione/Commerciale
 import { ClienteCediAffiancaFields } from "@/components/amministrazione/ClienteCediAffiancaFields";
 import { AnagraficaContattiGenericiFields } from "@/components/amministrazione/AnagraficaContattiGenericiFields";
 import { CanaleInputRow } from "@/components/amministrazione/CanaleAttenzioneControls";
+import { BusySpinner } from "@/components/ui/BusyIndicator";
 import {
-  GhostBlockConfirm,
-  GhostConfirmInput,
-} from "@/components/amministrazione/GhostConfirmField";
-import {
-  anteprimaSediMadre,
   etichetteConsiglio,
   type CollegamentoScelte,
 } from "@/lib/amministrazione/azienda-collegata";
@@ -106,11 +106,31 @@ type Props = {
   onConfirmCancellazione?: () => void;
   /** Super Admin: rifiuta la prenotazione. */
   onRifiutaCancellazione?: () => void;
-  /** Nuova scheda collegata: i campi della madre sono solo un suggerimento. */
+  /** Nuova scheda collegata: dati e sedi della madre sono già copiati. */
   collega?: { madre: Cliente; scelte: CollegamentoScelte } | null;
+  /** Scheda già esistente appena collegata: copia dati e sedi dalla madre. */
+  copiaDa?: Cliente | null;
   /** Apre il collegamento di un'altra azienda sotto questa scheda. */
   onCollega?: (madre: Cliente) => void;
 };
+
+function clonaSedi(sedi: AnagraficaSede[]): AnagraficaSedeDraft[] {
+  const piene = sedi.filter((s) => !isSedeAddressEmpty(s));
+  return draftsFromSedi(
+    (piene.length ? piene : sedi).map((s) => ({
+      ...s,
+      id: crypto.randomUUID(),
+    }))
+  );
+}
+
+function clonaBrand(brand: AnagraficaBrand[]): AnagraficaBrandDraft[] {
+  return brand.map((b) => ({
+    ...b,
+    id: crypto.randomUUID(),
+    logoFile: null,
+  }));
+}
 
 function isSedeFilled(sede: SedeCliente): boolean {
   return Boolean(
@@ -136,6 +156,7 @@ export function ClienteFormModal({
   onConfirmCancellazione,
   onRifiutaCancellazione,
   collega = null,
+  copiaDa = null,
   onCollega,
 }: Props) {
   const isPossibile = variant === "possibile";
@@ -173,55 +194,70 @@ export function ClienteFormModal({
   const showAttesaCliente =
     isEdit && !isPossibile && prenotata && !bypassPrivileges;
   const titleId = useId();
+  const seme = collega?.madre ?? null;
   const [codiceTarga, setCodiceTarga] = useState(initial?.codiceTarga ?? "");
   const [codiceError, setCodiceError] = useState<string | null>(null);
   const [codiceLoading, setCodiceLoading] = useState(!isEdit && !isPossibile);
   const [ragioneSociale, setRagioneSociale] = useState(
-    initial?.ragioneSociale ?? ""
+    initial?.ragioneSociale ?? seme?.ragioneSociale ?? ""
   );
-  const [isPrivato, setIsPrivato] = useState(initial?.isPrivato ?? false);
-  const [partitaIva, setPartitaIva] = useState(initial?.partitaIva ?? "");
+  const [isPrivato, setIsPrivato] = useState(
+    initial?.isPrivato ?? seme?.isPrivato ?? false
+  );
+  const [partitaIva, setPartitaIva] = useState(
+    initial?.partitaIva ?? seme?.partitaIva ?? ""
+  );
   const [codiceFiscale, setCodiceFiscale] = useState(
-    initial?.codiceFiscale ?? ""
+    initial?.codiceFiscale ?? seme?.codiceFiscale ?? ""
   );
   const [archivioId, setArchivioId] = useState<string | null>(null);
   const [archivioHint, setArchivioHint] = useState<string | null>(null);
-  const [email, setEmail] = useState(initial?.email ?? "");
-  const [pec, setPec] = useState(initial?.pec ?? "");
-  const [sdiCode, setSdiCode] = useState(initial?.sdiCode ?? "");
-  const [telefono, setTelefono] = useState(initial?.telefono ?? "");
-  const [sitoWeb, setSitoWeb] = useState(initial?.sitoWeb ?? "");
-  const [emailExtra, setEmailExtra] = useState(initial?.emailGeneriche ?? []);
-  const [telefonoExtra, setTelefonoExtra] = useState(
-    initial?.telefoniGenerici ?? []
+  const [email, setEmail] = useState(initial?.email ?? seme?.email ?? "");
+  const [pec, setPec] = useState(initial?.pec ?? seme?.pec ?? "");
+  const [sdiCode, setSdiCode] = useState(initial?.sdiCode ?? seme?.sdiCode ?? "");
+  const [telefono, setTelefono] = useState(
+    initial?.telefono ?? seme?.telefono ?? ""
   );
-  const [sitoExtra, setSitoExtra] = useState(initial?.sitiWebGenerici ?? []);
+  const [sitoWeb, setSitoWeb] = useState(initial?.sitoWeb ?? seme?.sitoWeb ?? "");
+  const [emailExtra, setEmailExtra] = useState(
+    initial?.emailGeneriche ?? seme?.emailGeneriche ?? []
+  );
+  const [telefonoExtra, setTelefonoExtra] = useState(
+    initial?.telefoniGenerici ?? seme?.telefoniGenerici ?? []
+  );
+  const [sitoExtra, setSitoExtra] = useState(
+    initial?.sitiWebGenerici ?? seme?.sitiWebGenerici ?? []
+  );
   const [reminderTick, setReminderTick] = useState(0);
   const [sedi, setSedi] = useState<AnagraficaSedeDraft[]>(() =>
     draftsFromLegacy(
       {
-        sedeAmministrativa: initial?.sedeAmministrativa,
-        sedeMagazzino: initial?.sedeMagazzino,
+        sedeAmministrativa:
+          initial?.sedeAmministrativa ?? seme?.sedeAmministrativa,
+        sedeMagazzino: initial?.sedeMagazzino ?? seme?.sedeMagazzino,
       },
       { openPrimary: true }
     )
   );
+  const [fonteSedi, setFonteSedi] = useState<AnagraficaSede[]>([]);
   const [brand, setBrand] = useState<AnagraficaBrandDraft[]>([]);
   const [extraReady, setExtraReady] = useState(!initial?.id);
   const [consegneEnabled, setConsegneEnabled] = useState(
-    Boolean(initial?.consegneAltraAzienda?.length)
+    Boolean(
+      (initial?.consegneAltraAzienda ?? seme?.consegneAltraAzienda)?.length
+    )
   );
   const [consegne, setConsegne] = useState<ConsegnaAltraAzienda[]>(
-    initial?.consegneAltraAzienda?.length
-      ? initial.consegneAltraAzienda
+    (initial?.consegneAltraAzienda ?? seme?.consegneAltraAzienda)?.length
+      ? (initial?.consegneAltraAzienda ?? seme?.consegneAltraAzienda ?? [])
       : []
   );
   const [prodotti, setProdotti] = useState<string[]>(
-    initial?.prodottiAcquistati ?? []
+    initial?.prodottiAcquistati ?? seme?.prodottiAcquistati ?? []
   );
   const [referenti, setReferenti] = useState<RubricaContatto[]>([]);
   const [commercialeId, setCommercialeId] = useState<string | null>(
-    initial?.commercialeId ?? null
+    initial?.commercialeId ?? seme?.commercialeId ?? null
   );
   const [intermediarioId, setIntermediarioId] = useState<string | null>(
     initial?.intermediarioId ?? null
@@ -242,8 +278,10 @@ export function ClienteFormModal({
   );
   const [canAssignCommerciale, setCanAssignCommerciale] = useState(false);
   const [trattativa, setTrattativa] = useState(() =>
-    parseTrattativa(initial?.trattativa)
+    parseTrattativa(initial?.trattativa ?? seme?.trattativa)
   );
+  const [fontePronta, setFontePronta] = useState(!seme && !copiaDa);
+  const [collegando, setCollegando] = useState(false);
 
   useEffect(() => {
     if (isPossibile || !commercialeId) {
@@ -263,14 +301,7 @@ export function ClienteFormModal({
       cancelled = true;
     };
   }, [commercialeId, isPossibile]);
-  const [ghostOk, setGhostOk] = useState<Record<string, boolean>>({});
-  const madre = collega?.madre ?? null;
-  function takeGhost(key: string, setValue: (value: string) => void) {
-    return (value: string, ok: boolean) => {
-      setValue(value);
-      setGhostOk((prev) => ({ ...prev, [key]: ok }));
-    };
-  }
+  const madre = collega?.madre ?? copiaDa ?? null;
   const [saving, setSaving] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
   const [duplicati, setDuplicati] = useState<AnagraficaDuplicatoHit[] | null>(
@@ -290,13 +321,66 @@ export function ClienteFormModal({
       ownerId: initial.id,
     })
       .then((res) => {
-        if (res.success) {
+        if (res.success && !copiaDa) {
           if (res.sedi.length) setSedi(draftsFromSedi(res.sedi));
           setBrand(res.brand);
         }
       })
       .finally(() => setExtraReady(true));
-  }, [isPossibile, initial?.id]);
+  }, [copiaDa, isPossibile, initial?.id]);
+
+  useEffect(() => {
+    const fonte = collega?.madre ?? copiaDa;
+    if (!fonte?.id) {
+      setFontePronta(true);
+      return;
+    }
+    let cancelled = false;
+    setFontePronta(false);
+    void loadAnagraficaExtraAction({
+      ownerKind: isPossibile ? "cliente_possibile" : "cliente",
+      ownerId: fonte.id,
+    }).then((res) => {
+      if (cancelled) return;
+      const sediFonte =
+        res.success && res.sedi.some((s) => !isSedeAddressEmpty(s))
+          ? res.sedi
+          : sediFromLegacy({
+              sedeAmministrativa: fonte.sedeAmministrativa,
+              sedeMagazzino: fonte.sedeMagazzino,
+            });
+      setFonteSedi(sediFonte);
+      if (collega) {
+        setSedi(clonaSedi(sediFonte));
+        if (res.success && res.brand.length) setBrand(clonaBrand(res.brand));
+      }
+      if (copiaDa) {
+        setRagioneSociale(fonte.ragioneSociale);
+        setIsPrivato(fonte.isPrivato);
+        setPartitaIva(fonte.partitaIva);
+        setCodiceFiscale(fonte.codiceFiscale);
+        setEmail(fonte.email);
+        setPec(fonte.pec);
+        setSdiCode(fonte.sdiCode);
+        setTelefono(fonte.telefono);
+        setSitoWeb(fonte.sitoWeb);
+        setEmailExtra(fonte.emailGeneriche ?? []);
+        setTelefonoExtra(fonte.telefoniGenerici ?? []);
+        setSitoExtra(fonte.sitiWebGenerici ?? []);
+        setProdotti(fonte.prodottiAcquistati ?? []);
+        setConsegne(fonte.consegneAltraAzienda ?? []);
+        setConsegneEnabled(Boolean(fonte.consegneAltraAzienda?.length));
+        setCommercialeId(fonte.commercialeId);
+        setTrattativa(parseTrattativa(fonte.trattativa));
+        setSedi(clonaSedi(sediFonte));
+        if (res.success && res.brand.length) setBrand(clonaBrand(res.brand));
+      }
+      setFontePronta(true);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [collega?.madre.id, copiaDa?.id, isPossibile]);
 
   function updateConsegna(index: number, next: ConsegnaAltraAzienda) {
     setConsegne((prev) => prev.map((item, i) => (i === index ? next : item)));
@@ -603,13 +687,18 @@ export function ClienteFormModal({
 
   async function avviaCollega() {
     if (!onCollega || collega || isPrivato || initial?.aziendaMadreId) return;
-    if (saving || !extraReady || (!isPossibile && codiceLoading)) return;
+    if (saving || collegando || !extraReady || (!isPossibile && codiceLoading)) return;
     const values = buildValues();
     if (!values) return;
+    setCollegando(true);
     const savedId = await persist(values);
-    if (savedId === false) return;
+    if (savedId === false) {
+      setCollegando(false);
+      return;
+    }
     if (!savedId || savedId === "saved") {
       if (!initial?.id) {
+        setCollegando(false);
         setFormError("Salva la scheda prima di collegare un'altra azienda.");
         return;
       }
@@ -631,7 +720,9 @@ export function ClienteFormModal({
     const ok = await persist(values);
     if (!ok) {
       setFormError("Salvataggio non riuscito. Controlla i dati e riprova.");
+      return;
     }
+    onClose();
   }
 
   async function saveAndOpenNuovoProdotto() {
@@ -643,6 +734,7 @@ export function ClienteFormModal({
       setFormError("Salvataggio non riuscito. Controlla i dati e riprova.");
       return;
     }
+    onClose();
     router.push(PRODOTTI_PROPRI_NUOVO_PATH);
   }
 
@@ -661,9 +753,23 @@ export function ClienteFormModal({
         aria-modal="true"
         aria-labelledby={titleId}
         data-elevated={elevated ? "true" : undefined}
-        className="w-full max-w-2xl rounded-xl border border-[var(--border)] bg-[var(--card)] p-5 shadow-xl"
+        className="relative w-full max-w-2xl rounded-xl border border-[var(--border)] bg-[var(--card)] p-5 shadow-xl"
         onClick={(e) => e.stopPropagation()}
       >
+        {collegando || ((collega || copiaDa) && !fontePronta) ? (
+          <div
+            className="absolute inset-0 z-20 flex flex-col items-center justify-center gap-3 rounded-xl bg-white/90"
+            role="status"
+            aria-live="polite"
+          >
+            <BusySpinner className="h-8 w-8 border-4" />
+            <p className="text-sm font-medium text-slate-800">
+              {collegando
+                ? "Collegamento in corso…"
+                : "Copia di dati e sedi in corso…"}
+            </p>
+          </div>
+        ) : null}
         <h2 id={titleId} className="text-lg font-semibold">
           {collega
             ? "Nuova azienda collegata"
@@ -688,10 +794,19 @@ export function ClienteFormModal({
               . Non è un obbligo di invio.
             </p>
             <p className="mt-2 text-xs">
-              Ogni campo mostra il dato della madre in trasparenza. La spunta
-              Conferma lo rende il valore della nuova scheda. Senza spunta
-              puoi scrivere liberamente, anche partita IVA e codice fiscale:
-              le due aziende possono essere diverse.
+              Dati e sedi sono già copiati da {collega.madre.ragioneSociale}.
+              Modificali se le due aziende sono diverse, poi salva. I pulsanti
+              «Copia sede…» ricompilano un indirizzo.
+            </p>
+          </div>
+        ) : copiaDa ? (
+          <div className="mt-3 rounded-lg border border-sky-200 bg-sky-50 px-3 py-2 text-sm text-sky-950">
+            <p className="font-medium">
+              Dati e sedi copiati da {copiaDa.ragioneSociale}
+            </p>
+            <p className="mt-1 text-xs">
+              I campi sono già compilati. I pulsanti «Copia sede…» ricompilano
+              un indirizzo. Salva per tenerli su questa scheda.
             </p>
           </div>
         ) : null}
@@ -767,24 +882,13 @@ export function ClienteFormModal({
           <div className="grid gap-3 sm:grid-cols-2">
             <label className="block text-sm sm:col-span-2">
               <span className="mb-1 block font-medium">R. Sociale</span>
-              {madre ? (
-                <GhostConfirmInput
-                  suggestion={madre.ragioneSociale}
-                  value={ragioneSociale}
-                  confirmed={Boolean(ghostOk.ragioneSociale)}
-                  onChange={takeGhost("ragioneSociale", setRagioneSociale)}
-                  autoFocus
-                  className="w-full rounded-lg border border-[var(--border)] px-3 py-2 outline-none focus:border-[var(--primary)]"
-                />
-              ) : (
-                <input
-                  value={ragioneSociale}
-                  onChange={(e) => setRagioneSociale(e.target.value)}
-                  required
-                  autoFocus
-                  className="w-full rounded-lg border border-[var(--border)] px-3 py-2 outline-none focus:border-[var(--primary)]"
-                />
-              )}
+              <input
+                value={ragioneSociale}
+                onChange={(e) => setRagioneSociale(e.target.value)}
+                required
+                autoFocus
+                className="w-full rounded-lg border border-[var(--border)] px-3 py-2 outline-none focus:border-[var(--primary)]"
+              />
             </label>
             {isEdit ? (
               <CommercialeAssignField
@@ -871,20 +975,6 @@ export function ClienteFormModal({
               <span className="mb-1 block font-medium">
                 P. IVA{isPrivato ? "" : " *"}
               </span>
-              {madre && !isPrivato ? (
-                <GhostConfirmInput
-                  suggestion={madre.partitaIva}
-                  value={partitaIva}
-                  confirmed={Boolean(ghostOk.partitaIva)}
-                  onChange={(value, ok) => {
-                    setArchivioHint(null);
-                    setArchivioId(null);
-                    takeGhost("partitaIva", setPartitaIva)(value, ok);
-                  }}
-                  onBlur={() => void checkArchivioByVat(partitaIva)}
-                  className="w-full rounded-lg border border-[var(--border)] px-3 py-2 outline-none focus:border-[var(--primary)]"
-                />
-              ) : (
               <input
                 value={partitaIva}
                 onChange={(e) => {
@@ -900,7 +990,6 @@ export function ClienteFormModal({
                 }
                 className="w-full rounded-lg border border-[var(--border)] px-3 py-2 outline-none focus:border-[var(--primary)] disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-[var(--muted)]"
               />
-              )}
               {archivioHint ? (
                 <p className="mt-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-950">
                   {archivioHint}
@@ -912,22 +1001,12 @@ export function ClienteFormModal({
                 <span className="mb-1 block font-medium">
                   Codice fiscale{isPrivato ? " (facoltativo)" : " *"}
                 </span>
-                {madre ? (
-                  <GhostConfirmInput
-                    suggestion={madre.codiceFiscale}
-                    value={codiceFiscale}
-                    confirmed={Boolean(ghostOk.codiceFiscale)}
-                    onChange={takeGhost("codiceFiscale", setCodiceFiscale)}
-                    className="w-full rounded-lg border border-[var(--border)] px-3 py-2 outline-none focus:border-[var(--primary)]"
-                  />
-                ) : (
                 <input
                   value={codiceFiscale}
                   onChange={(e) => setCodiceFiscale(e.target.value)}
                   required={!isPrivato}
                   className="w-full rounded-lg border border-[var(--border)] px-3 py-2 outline-none focus:border-[var(--primary)]"
                 />
-                )}
               </label>
               {!isPrivato ? (
                 <button
@@ -951,21 +1030,6 @@ export function ClienteFormModal({
             <AnagraficaContattiGenericiFields
               email={email}
               onEmailChange={setEmail}
-              ghost={
-                madre
-                  ? {
-                      email: madre.email,
-                      telefono: madre.telefono,
-                      sitoWeb: madre.sitoWeb,
-                      emailConfirmed: Boolean(ghostOk.email),
-                      telefonoConfirmed: Boolean(ghostOk.telefono),
-                      sitoConfirmed: Boolean(ghostOk.sitoWeb),
-                      onEmail: takeGhost("email", setEmail),
-                      onTelefono: takeGhost("telefono", setTelefono),
-                      onSito: takeGhost("sitoWeb", setSitoWeb),
-                    }
-                  : undefined
-              }
               emailExtra={emailExtra}
               onEmailExtraChange={setEmailExtra}
               telefono={telefono}
@@ -1010,29 +1074,14 @@ export function ClienteFormModal({
                     inputMode="email"
                     value={pec}
                     onChange={setPec}
-                    ghostSuggestion={madre?.pec}
-                    ghostConfirmed={Boolean(ghostOk.pec)}
-                    onGhostChange={
-                      madre ? takeGhost("pec", setPec) : undefined
-                    }
                   />
                   <label className="block text-sm">
                     <span className="mb-1 block font-medium">SDI</span>
-                    {madre ? (
-                      <GhostConfirmInput
-                        suggestion={madre.sdiCode}
-                        value={sdiCode}
-                        confirmed={Boolean(ghostOk.sdiCode)}
-                        onChange={takeGhost("sdiCode", setSdiCode)}
-                        className="w-full rounded-lg border border-[var(--border)] px-3 py-2 outline-none focus:border-[var(--primary)]"
-                      />
-                    ) : (
                     <input
                       value={sdiCode}
                       onChange={(e) => setSdiCode(e.target.value)}
                       className="w-full rounded-lg border border-[var(--border)] px-3 py-2 outline-none focus:border-[var(--primary)]"
                     />
-                    )}
                   </label>
                 </div>
               }
@@ -1040,31 +1089,11 @@ export function ClienteFormModal({
           </div>
           </AnagraficaSchedaSection>
 
-          {madre ? (
-            <GhostBlockConfirm
-              title="Sedi della madre"
-              preview={anteprimaSediMadre(madre)}
-              confirmed={Boolean(ghostOk.sedi)}
-              onConfirm={(ok) => {
-                setGhostOk((prev) => ({ ...prev, sedi: ok }));
-                setSedi(
-                  ok
-                    ? draftsFromLegacy(
-                        {
-                          sedeAmministrativa: madre.sedeAmministrativa,
-                          sedeMagazzino: madre.sedeMagazzino,
-                        },
-                        { openPrimary: true }
-                      )
-                    : draftsFromLegacy({}, { openPrimary: true })
-                );
-              }}
-            />
-          ) : null}
           <AnagraficaSediEditor
             value={sedi}
             onChange={setSedi}
             requireLegale={!isPossibile}
+            copiaDa={fonteSedi}
           />
 
           <AnagraficaBrandEditor
@@ -1164,17 +1193,6 @@ export function ClienteFormModal({
           </div>
           </AnagraficaSchedaSection>
 
-          {madre && madre.prodottiAcquistati.length > 0 ? (
-            <GhostBlockConfirm
-              title={isPossibile ? "Prodotti interessati della madre" : "Prodotti acquistati della madre"}
-              preview={madre.prodottiAcquistati.join(", ")}
-              confirmed={Boolean(ghostOk.prodotti)}
-              onConfirm={(ok) => {
-                setGhostOk((prev) => ({ ...prev, prodotti: ok }));
-                setProdotti(ok ? [...madre.prodottiAcquistati] : []);
-              }}
-            />
-          ) : null}
           <ProdottiAcquistatiTags
             value={prodotti}
             onChange={setProdotti}
@@ -1287,13 +1305,15 @@ export function ClienteFormModal({
               type="button"
               disabled={
                 saving ||
+                collegando ||
                 !extraReady ||
                 (!isPossibile && (codiceLoading || codiceTarga.length !== 4))
               }
               onClick={() => void avviaCollega()}
-              className="w-full rounded-lg border border-sky-300 bg-sky-50 py-2.5 text-sm font-semibold text-sky-950 hover:bg-sky-100 disabled:opacity-60"
+              className="inline-flex w-full items-center justify-center gap-2 rounded-lg border border-sky-300 bg-sky-50 py-2.5 text-sm font-semibold text-sky-950 hover:bg-sky-100 disabled:opacity-60"
             >
-              Collega azienda
+              {collegando ? <BusySpinner /> : null}
+              {collegando ? "Collegamento in corso…" : "Collega azienda"}
             </button>
           ) : null}
 

@@ -132,8 +132,8 @@ export function CollegaAziendaScelteModal({
             >
               <span className="block text-sm font-semibold">Nuova azienda</span>
               <span className="mt-0.5 block text-xs text-[var(--muted)]">
-                Apre una scheda nuova. I dati della madre restano suggeriti in
-                trasparenza, da confermare campo per campo.
+                Apre una scheda nuova con dati e sedi già copiati. Si possono
+                modificare prima di salvare.
               </span>
             </button>
             <button
@@ -145,8 +145,8 @@ export function CollegaAziendaScelteModal({
                 Azienda già esistente
               </span>
               <span className="mt-0.5 block text-xs text-[var(--muted)]">
-                Unisce due schede già presenti. I campi restano quelli già
-                salvati: si scelgono solo la madre e le indicazioni di invio.
+                Unisce due schede già presenti e apre la figlia con dati e sedi
+                copiati dalla madre. Il salvataggio li conferma.
               </span>
             </button>
           </div>
@@ -257,7 +257,8 @@ export function CollegaAziendaScelteModal({
                   </label>
                 </fieldset>
                 <p className="text-sm text-[var(--muted)]">
-                  I dati già presenti sulle due schede restano invariati.
+                  Dopo il collegamento si apre la scheda figlia con i dati e le
+                  sedi copiati. Puoi correggerli prima di salvare.
                 </p>
                 <p className="text-sm font-medium">A {figliaLabel} si deve:</p>
                 <ScelteCollegamento

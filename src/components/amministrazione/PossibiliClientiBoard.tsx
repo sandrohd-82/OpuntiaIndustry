@@ -266,6 +266,7 @@ export function PossibiliClientiBoard() {
   const [editingLead, setEditingLead] = useState<ClientePossibile | null>(null);
   const [timelineFor, setTimelineFor] = useState<ClientePossibile | null>(null);
   const [schedaFor, setSchedaFor] = useState<ClientePossibile | null>(null);
+  const [copiaDa, setCopiaDa] = useState<Cliente | null>(null);
   const [collegaMadre, setCollegaMadre] = useState<Cliente | null>(
     null
   );
@@ -459,7 +460,10 @@ export function PossibiliClientiBoard() {
                   schedaAperta={schedaFor?.id === lead.id}
                   prodottiByCode={prodottiByCode}
                   lineageIds={lineageIds}
-                  onEdit={(item) => setEditingLead(item)}
+                  onEdit={(item) => {
+                    setCopiaDa(null);
+                    setEditingLead(item);
+                  }}
                   onTimeline={(item) => setTimelineFor(item)}
                   onScheda={(item) => setSchedaFor(item)}
                   onCollega={
@@ -552,10 +556,21 @@ export function PossibiliClientiBoard() {
               tipologia: scelte.tipologia,
             });
             if (!res.success) return res.error;
+            const madreScheda = items.find((row) => row.id === res.madreId);
+            const figliaScheda = items.find((row) => row.id === res.figliaId);
+            const madreCliente = madreScheda
+              ? clienteSchedaFromPossibile(madreScheda)
+              : collegaMadre.id === res.madreId
+                ? collegaMadre
+                : null;
             setCollegaMadre(null);
             setCollegaScelte(null);
             setSchedaFor(null);
             setError(null);
+            if (figliaScheda && madreCliente) {
+              setCopiaDa(madreCliente);
+              setEditingLead(figliaScheda);
+            }
             reload();
             return null;
           }}
@@ -598,6 +613,7 @@ export function PossibiliClientiBoard() {
           onCollega={(madre) => {
             setShowLeadForm(false);
             setSchedaFor(null);
+            setCopiaDa(null);
             setCollegaMadre(madre);
             setCollegaScelte(null);
           }}
@@ -609,7 +625,6 @@ export function PossibiliClientiBoard() {
               setError(res.error);
               return false;
             }
-            setShowLeadForm(false);
             setError(null);
             reload();
             return { id: res.item.id };
@@ -623,13 +638,18 @@ export function PossibiliClientiBoard() {
           variant="possibile"
           onCollega={(madre) => {
             setEditingLead(null);
+            setCopiaDa(null);
             setSchedaFor(null);
             setCollegaMadre(madre);
             setCollegaScelte(null);
           }}
+          copiaDa={copiaDa}
           initial={clienteSchedaFromPossibile(editingLead)}
           lineageIds={lineageIds}
-          onClose={() => setEditingLead(null)}
+          onClose={() => {
+            setEditingLead(null);
+            setCopiaDa(null);
+          }}
           onRequestDelete={() => setDeleting(editingLead)}
           onSave={async (values) => {
             const res = await updateClientePossibileAction(
@@ -640,7 +660,6 @@ export function PossibiliClientiBoard() {
               setError(res.error);
               return false;
             }
-            setEditingLead(null);
             setError(null);
             reload();
             return { id: editingLead.id };

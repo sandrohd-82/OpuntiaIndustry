@@ -340,6 +340,7 @@ export function ClientiBoard() {
   const [timelineFor, setTimelineFor] = useState<Cliente | null>(null);
   const [schedaCompleta, setSchedaCompleta] = useState<Cliente | null>(null);
   const [collegaMadre, setCollegaMadre] = useState<Cliente | null>(null);
+  const [copiaDa, setCopiaDa] = useState<Cliente | null>(null);
   const [collegaScelte, setCollegaScelte] = useState<CollegamentoScelte | null>(
     null
   );
@@ -761,6 +762,7 @@ export function ClientiBoard() {
                   onToggleSelect={toggleSelect}
                   onEdit={(item) => {
                     setSaveError(null);
+                    setCopiaDa(null);
                     setEditing(item);
                   }}
                   onTimeline={(item) => setTimelineFor(item)}
@@ -823,6 +825,7 @@ export function ClientiBoard() {
           onCollega={(madre) => {
             setCreating(false);
             setSchedaCompleta(null);
+            setCopiaDa(null);
             setCollegaMadre(madre);
             setCollegaScelte(null);
           }}
@@ -831,7 +834,6 @@ export function ClientiBoard() {
             const created = await addCliente(values);
             if (created) {
               setSaveError(null);
-              setCreating(false);
               return { id: created.id };
             }
             setSaveError("Salvataggio non riuscito. Riprova.");
@@ -845,13 +847,18 @@ export function ClientiBoard() {
           mode="edit"
           onCollega={(madre) => {
             setEditing(null);
+            setCopiaDa(null);
             setSchedaCompleta(null);
             setCollegaMadre(madre);
             setCollegaScelte(null);
           }}
+          copiaDa={copiaDa}
           initial={editing}
           lineageIds={lineageIds}
-          onClose={() => setEditing(null)}
+          onClose={() => {
+            setEditing(null);
+            setCopiaDa(null);
+          }}
           onRequestDelete={() => {
             setSaveError(null);
             setDeleting(editing);
@@ -892,7 +899,6 @@ export function ClientiBoard() {
             const updated = await updateCliente(editing.id, values);
             if (updated) {
               setSaveError(null);
-              setEditing(null);
               return { id: editing.id };
             }
             setSaveError(
@@ -938,11 +944,21 @@ export function ClientiBoard() {
               tipologia: scelte.tipologia,
             });
             if (!res.success) return res.error;
+            const madreScheda =
+              clienti.find((row) => row.id === res.madreId) ??
+              (collegaMadre.id === res.madreId ? collegaMadre : null);
+            const figliaScheda =
+              clienti.find((row) => row.id === res.figliaId) ??
+              (collegaMadre.id === res.figliaId ? collegaMadre : null);
             setCollegaMadre(null);
             setCollegaScelte(null);
             setSchedaCompleta(null);
             setSaveError(null);
-            await refresh();
+            if (figliaScheda && madreScheda) {
+              setCopiaDa(madreScheda);
+              setEditing(figliaScheda);
+            }
+            void refresh();
             return null;
           }}
         />

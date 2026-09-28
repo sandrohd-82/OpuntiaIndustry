@@ -131,12 +131,15 @@ export function AnagraficaSediEditor({
   onChange,
   requireLegale = false,
   requireAmministrativa = false,
+  copiaDa = null,
 }: {
   value: AnagraficaSedeDraft[];
   onChange: (next: AnagraficaSedeDraft[]) => void;
   requireLegale?: boolean;
   /** @deprecated usa requireLegale: l’indirizzo primario è la sede legale. */
   requireAmministrativa?: boolean;
+  /** Sedi di un’altra scheda: ogni pulsante compila tutti i campi di quel tipo. */
+  copiaDa?: AnagraficaSede[] | null;
 }) {
   const mustHaveLegale = requireLegale || requireAmministrativa;
   const radioName = useId();
@@ -168,6 +171,44 @@ export function AnagraficaSediEditor({
       return;
     }
     onChange(value.filter((s) => s.id !== id));
+  }
+
+  function copiaTipo(tipo: AnagraficaSedeTipo) {
+    const src = (copiaDa ?? []).find(
+      (s) => s.tipo === tipo && !isSedeAddressEmpty(s)
+    );
+    if (!src) return;
+    const idx = value.findIndex((s) => s.tipo === tipo);
+    if (idx >= 0) {
+      const current = value[idx]!;
+      onChange(
+        value.map((s) =>
+          s.id === current.id
+            ? {
+                ...s,
+                nazione: src.nazione,
+                provincia: src.provincia,
+                citta: src.citta,
+                cap: src.cap,
+                indirizzo: src.indirizzo,
+                ricezioneCampionature: src.ricezioneCampionature,
+                ricezioneAcquisti: src.ricezioneAcquisti,
+                open: true,
+              }
+            : s
+        )
+      );
+      return;
+    }
+    const next = [
+      ...value,
+      {
+        ...src,
+        id: crypto.randomUUID(),
+        open: true,
+      },
+    ];
+    onChange(tipo === "legale" ? sortSediLegalePrima(next) : next);
   }
 
   function patch(id: string, nextSede: SedeCliente) {
@@ -251,6 +292,27 @@ export function AnagraficaSediEditor({
         le campionature (piccoli pacchi) e uno per gli acquisti (quantitativi).
         Possono coincidere.
       </p>
+      {copiaDa && copiaDa.some((s) => !isSedeAddressEmpty(s)) ? (
+        <div className="flex flex-wrap gap-2">
+          {ANAGRAFICA_SEDE_TIPI.map((tipo) => {
+            const src = copiaDa.find(
+              (s) => s.tipo === tipo && !isSedeAddressEmpty(s)
+            );
+            if (!src) return null;
+            const etichetta = ANAGRAFICA_SEDE_LABEL[tipo].toLowerCase();
+            return (
+              <button
+                key={tipo}
+                type="button"
+                onClick={() => copiaTipo(tipo)}
+                className="rounded-lg border border-sky-300 bg-sky-50 px-3 py-1.5 text-xs font-semibold text-sky-950 hover:bg-sky-100"
+              >
+                Copia {etichetta}
+              </button>
+            );
+          })}
+        </div>
+      ) : null}
 
       {value.map((sede, index) => {
         const countSame = value.filter((s) => s.tipo === sede.tipo).length;
