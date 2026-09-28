@@ -106,6 +106,8 @@ type Props = {
   onRifiutaCancellazione?: () => void;
   /** Nuova scheda collegata: i campi della madre sono solo un suggerimento. */
   collega?: { madre: Cliente; scelte: CollegamentoScelte } | null;
+  /** Apre il collegamento di un'altra azienda sotto questa scheda. */
+  onCollega?: (madre: Cliente) => void;
 };
 
 function isSedeFilled(sede: SedeCliente): boolean {
@@ -132,6 +134,7 @@ export function ClienteFormModal({
   onConfirmCancellazione,
   onRifiutaCancellazione,
   collega = null,
+  onCollega,
 }: Props) {
   const isPossibile = variant === "possibile";
   const isEdit = mode === "edit";
@@ -464,7 +467,42 @@ export function ClienteFormModal({
     };
   }, [isEdit, isPossibile, initial?.codiceTarga]);
 
-  async function persist(values: ClienteInput): Promise<boolean> {
+  function schedaDaForm(id: string, values: ClienteInput): Cliente {
+    return {
+      id,
+      codiceTarga: values.codiceTarga || initial?.codiceTarga || codiceTarga,
+      ragioneSociale: values.ragioneSociale,
+      partitaIva: values.partitaIva,
+      codiceFiscale: values.codiceFiscale,
+      isPrivato: values.isPrivato,
+      email: values.email ?? "",
+      pec: values.pec ?? "",
+      sdiCode: values.sdiCode ?? "",
+      telefono: values.telefono ?? "",
+      sitoWeb: values.sitoWeb ?? "",
+      emailGeneriche: values.emailGeneriche ?? [],
+      telefoniGenerici: values.telefoniGenerici ?? [],
+      sitiWebGenerici: values.sitiWebGenerici ?? [],
+      sedeAmministrativa: values.sedeAmministrativa,
+      sedeMagazzino: values.sedeMagazzino,
+      consegneAltraAzienda: values.consegneAltraAzienda,
+      prodottiAcquistati: values.prodottiAcquistati,
+      createdAt: initial?.createdAt ?? "",
+      createdBy: initial?.createdBy ?? null,
+      commercialeId: values.commercialeId ?? initial?.commercialeId ?? null,
+      commercialeNome: initial?.commercialeNome ?? "",
+      commercialeGrado: initial?.commercialeGrado ?? null,
+      trattativa: values.trattativa ?? initial?.trattativa,
+      aziendaMadreId: null,
+      inviaPreventivi: true,
+      fatturare: true,
+      inviaCampionature: true,
+      inviaProdotti: true,
+      tipologiaRispettoMadre: "",
+    };
+  }
+
+  async function persist(values: ClienteInput): Promise<string | false> {
     setSaving(true);
     try {
       if (isPossibile && !isEdit) {
@@ -507,11 +545,32 @@ export function ClienteFormModal({
           return false;
         }
       }
-      return true;
+      return entityId || initial?.id || "saved";
     } finally {
       setSaving(false);
     }
   }
+
+  async function avviaCollega() {
+    if (!onCollega || collega || isPrivato || initial?.aziendaMadreId) return;
+    if (saving || !extraReady || (!isPossibile && codiceLoading)) return;
+    const values = buildValues();
+    if (!values) return;
+    const savedId = await persist(values);
+    if (savedId === false) return;
+    if (!savedId || savedId === "saved") {
+      if (!initial?.id) {
+        setFormError("Salva la scheda prima di collegare un'altra azienda.");
+        return;
+      }
+      onCollega(schedaDaForm(initial.id, values));
+      return;
+    }
+    onCollega(schedaDaForm(savedId, values));
+  }
+
+  const puoCollegare =
+    Boolean(onCollega) && !collega && !isPrivato && !initial?.aziendaMadreId;
 
   async function submit(e: FormEvent) {
     e.preventDefault();
@@ -1109,6 +1168,21 @@ export function ClienteFormModal({
                 </>
               ) : null}
             </div>
+          ) : null}
+
+          {puoCollegare ? (
+            <button
+              type="button"
+              disabled={
+                saving ||
+                !extraReady ||
+                (!isPossibile && (codiceLoading || codiceTarga.length !== 4))
+              }
+              onClick={() => void avviaCollega()}
+              className="w-full rounded-lg border border-sky-300 bg-sky-50 py-2.5 text-sm font-semibold text-sky-950 hover:bg-sky-100 disabled:opacity-60"
+            >
+              Collega azienda
+            </button>
           ) : null}
 
           <div className="flex gap-2 pt-1">

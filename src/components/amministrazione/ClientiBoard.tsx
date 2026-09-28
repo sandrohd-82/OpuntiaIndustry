@@ -258,8 +258,20 @@ function ClienteRow({
       {open && (
         <tr className="border-t border-[var(--border)] bg-slate-50/70">
           <td colSpan={9} className="px-4 py-4">
-            {canOpenScheda ? (
-            <div className="mb-3 flex justify-end gap-2">
+            {canOpenScheda ||
+            (onCollega && canEdit && !cliente.isPrivato && !cliente.aziendaMadreId) ? (
+            <div className="mb-3 flex flex-wrap justify-end gap-2">
+              {onCollega && canEdit && !cliente.isPrivato && !cliente.aziendaMadreId ? (
+                <button
+                  type="button"
+                  onClick={() => onCollega(cliente)}
+                  className="inline-flex items-center gap-1.5 rounded-lg border border-sky-300 bg-white px-3 py-1.5 text-xs font-semibold text-sky-950 hover:bg-sky-50"
+                >
+                  Collega azienda
+                </button>
+              ) : null}
+              {canOpenScheda ? (
+              <>
               <button
                 type="button"
                 onClick={() => onSchedaCompleta(cliente)}
@@ -276,6 +288,8 @@ function ClienteRow({
                 <FaPen size={11} />
                 Modifica scheda
               </button>
+              </>
+              ) : null}
             </div>
             ) : null}
             <AnagraficaSchedaDetail
@@ -810,6 +824,12 @@ export function ClientiBoard() {
       {creating && (
         <ClienteFormModal
           mode="create"
+          onCollega={(madre) => {
+            setCreating(false);
+            setSchedaCompleta(null);
+            setCollegaMadre(madre);
+            setCollegaScelte(null);
+          }}
           onClose={() => setCreating(false)}
           onSave={async (values) => {
             const created = await addCliente(values);
@@ -827,6 +847,12 @@ export function ClientiBoard() {
       {editing && (
         <ClienteFormModal
           mode="edit"
+          onCollega={(madre) => {
+            setEditing(null);
+            setSchedaCompleta(null);
+            setCollegaMadre(madre);
+            setCollegaScelte(null);
+          }}
           initial={editing}
           lineageIds={lineageIds}
           onClose={() => setEditing(null)}

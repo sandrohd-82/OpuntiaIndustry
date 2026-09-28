@@ -51,6 +51,7 @@ import {
   hasActiveClientiFilters,
   uniqueClientiCitta,
   type ClientiFilters,
+  type Cliente,
 } from "@/lib/amministrazione/clienti";
 import type { ProdottoProprio } from "@/lib/amministrazione/prodotti-propri";
 import {
@@ -213,6 +214,17 @@ function PossibileClienteRow({
       {open ? (
         <tr className="border-t border-[var(--border)] bg-slate-50/70">
           <td colSpan={9} className="px-4 py-4">
+            {onCollega && canEdit && !lead.isPrivato && !lead.aziendaMadreId ? (
+              <div className="mb-3 flex justify-end">
+                <button
+                  type="button"
+                  onClick={() => onCollega(lead)}
+                  className="inline-flex items-center gap-1.5 rounded-lg border border-sky-300 bg-white px-3 py-1.5 text-xs font-semibold text-sky-950 hover:bg-sky-50"
+                >
+                  Collega azienda
+                </button>
+              </div>
+            ) : null}
             <AnagraficaSchedaDetail
               prodottiByCode={prodottiByCode}
               canEditReferenti={canEdit}
@@ -258,7 +270,7 @@ export function PossibiliClientiBoard() {
   const [editingLead, setEditingLead] = useState<ClientePossibile | null>(null);
   const [timelineFor, setTimelineFor] = useState<ClientePossibile | null>(null);
   const [schedaFor, setSchedaFor] = useState<ClientePossibile | null>(null);
-  const [collegaMadre, setCollegaMadre] = useState<ClientePossibile | null>(
+  const [collegaMadre, setCollegaMadre] = useState<Cliente | null>(
     null
   );
   const [collegaScelte, setCollegaScelte] = useState<CollegamentoScelte | null>(
@@ -458,7 +470,7 @@ export function PossibiliClientiBoard() {
                     !nested && !lead.isPrivato
                       ? (item) => {
                           setSchedaFor(item);
-                          setCollegaMadre(item);
+                          setCollegaMadre(clienteSchedaFromPossibile(item));
                           setCollegaScelte(null);
                         }
                       : undefined
@@ -482,7 +494,7 @@ export function PossibiliClientiBoard() {
             onCollega={
               !schedaFor.aziendaMadreId && !schedaFor.isPrivato
                 ? () => {
-                    setCollegaMadre(schedaFor);
+                    setCollegaMadre(clienteSchedaFromPossibile(schedaFor));
                     setCollegaScelte(null);
                   }
                 : undefined
@@ -538,7 +550,7 @@ export function PossibiliClientiBoard() {
           mode="create"
           variant="possibile"
           collega={{
-            madre: clienteSchedaFromPossibile(collegaMadre),
+            madre: collegaMadre,
             scelte: collegaScelte,
           }}
           onClose={() => {
@@ -566,6 +578,12 @@ export function PossibiliClientiBoard() {
         <ClienteFormModal
           mode="create"
           variant="possibile"
+          onCollega={(madre) => {
+            setShowLeadForm(false);
+            setSchedaFor(null);
+            setCollegaMadre(madre);
+            setCollegaScelte(null);
+          }}
           onClose={() => setShowLeadForm(false)}
           onSave={async (values) => {
             const res = await createClientePossibileAction(values);
@@ -586,6 +604,12 @@ export function PossibiliClientiBoard() {
         <ClienteFormModal
           mode="edit"
           variant="possibile"
+          onCollega={(madre) => {
+            setEditingLead(null);
+            setSchedaFor(null);
+            setCollegaMadre(madre);
+            setCollegaScelte(null);
+          }}
           initial={clienteSchedaFromPossibile(editingLead)}
           lineageIds={lineageIds}
           onClose={() => setEditingLead(null)}
