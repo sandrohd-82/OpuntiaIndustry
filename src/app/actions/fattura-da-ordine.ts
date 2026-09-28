@@ -810,10 +810,22 @@ export async function saveFatturaDaOrdineAction(
   });
 }
 
+export async function inviaFatturaAttraversoSdiAction(
+  fatturaId: string
+): Promise<SalvaFatturaDaOrdineResult> {
+  return inviaFatturaSalvataAction({
+    fatturaId,
+    sendToSdi: true,
+    sendCourtesyEmail: false,
+  });
+}
+
 export async function inviaFatturaSalvataAction(input: {
   fatturaId: string;
   invioEmail?: string;
   sendToSdi?: boolean;
+  /** La mail di cortesia FiC non sostituisce l'invio Webmail. */
+  sendCourtesyEmail?: boolean;
 }): Promise<SalvaFatturaDaOrdineResult> {
   const { auth } = await requireAreaAccess("amministrazione");
   const supabase = await createClient();
@@ -964,7 +976,9 @@ export async function inviaFatturaSalvataAction(input: {
 
   let sdiSent = false;
   const sendToSdi = input.sendToSdi !== false;
-  if (sendToSdi && ficId) {
+  if (sendToSdi && ficId && fattura.ei_status === "sent") {
+    sdiSent = true;
+  } else if (sendToSdi && ficId) {
     try {
       await sendIssuedDocumentToSdi({ ficId, dryRun: false });
       sdiSent = true;
@@ -986,7 +1000,8 @@ export async function inviaFatturaSalvataAction(input: {
   }
 
   let courtesyEmailSent = Boolean(fattura.courtesy_email_sent);
-  if (mailTo && ficId) {
+  const sendCourtesy = input.sendCourtesyEmail !== false;
+  if (sendCourtesy && mailTo && ficId) {
     try {
       await sendIssuedDocumentCourtesyEmail({
         ficId,
@@ -1049,12 +1064,17 @@ export async function inviaFatturaSalvataAction(input: {
     { onConflict: "fic_id,type" }
   );
 
+  const soloSdi = input.sendCourtesyEmail === false;
   await writeAuditLog({
     entity_type: "fatture_emesse",
     entity_id: fattura.id,
-    action: "emissione_fic",
+    action: soloSdi ? "invio_sdi" : "emissione_fic",
     actor_id: auth.userId,
-    summary: `Emessa fattura ${numeroFattura} (FiC ${ficId})`,
+    summary: soloSdi
+      ? fattura.ei_status === "sent"
+        ? `Fattura ${numeroFattura} già inviata allo SDI`
+        : `Fattura ${numeroFattura} inviata attraverso lo SDI (FiC ${ficId ?? "—"})`
+      : `Emessa fattura ${numeroFattura} (FiC ${ficId})`,
     payload: { ficId, eiStatus, sdiSent, courtesyEmailSent, mailTo },
   });
   void scanPromozioniDaFattureAction();
@@ -1073,6 +1093,8 @@ export async function inviaFatturaSalvataAction(input: {
     warning:
       eiStatus === "send_error"
         ? "Fattura creata su Fatture in Cloud ma l’invio SDI non è riuscito."
-        : undefined,
+        : sendToSdi && fattura.ei_status === "sent"
+          ? "La fattura risulta già inviata allo SDI."
+          : undefined,
   };
 }

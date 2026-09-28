@@ -115,8 +115,8 @@ export function FatturaDettaglioClient({ initial }: Props) {
                   setInviaMsg(null);
                   const res = await inviaFatturaSalvataAction({
                     fatturaId: fattura.id,
-                    invioEmail: fattura.invioEmail,
                     sendToSdi: true,
+                    sendCourtesyEmail: false,
                   });
                   setInviaBusy(false);
                   if (!res.success) {

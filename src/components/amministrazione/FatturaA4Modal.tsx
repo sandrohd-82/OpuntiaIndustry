@@ -322,8 +322,8 @@ export function FatturaA4Modal({
       fatturaId,
       dataDocumento,
       invioEmail: email,
-      inviaOra,
-      sendToSdi: inviaOra,
+      inviaOra: false,
+      sendToSdi: false,
       piano,
       noteDocumento,
       righe,
@@ -337,21 +337,20 @@ export function FatturaA4Modal({
     setFatturaId(res.fatturaId);
     setNumero(res.numeroFattura);
     setConfirmOpen(false);
-    onSaved?.({ fatturaId: res.fatturaId, inviata: res.inviata });
-    if (res.inviata) {
-      if (destinatario) {
-        onSimulaInvio?.({
-          to: email,
-          numeroFattura: res.numeroFattura,
-          dataDocumento,
-          clienteNome:
-            destinatario.ragioneSociale || cliente?.ragioneSociale || "",
-          destinatario,
-          righe,
-          noteDocumento,
-          ordineNumero: "",
-        });
-      }
+    onSaved?.({ fatturaId: res.fatturaId, inviata: inviaOra });
+    if (inviaOra && destinatario) {
+      onSimulaInvio?.({
+        fatturaId: res.fatturaId,
+        to: email,
+        numeroFattura: res.numeroFattura,
+        dataDocumento,
+        clienteNome:
+          destinatario.ragioneSociale || cliente?.ragioneSociale || "",
+        destinatario,
+        righe,
+        noteDocumento,
+        ordineNumero: "",
+      });
       onClose();
       return;
     }
@@ -855,7 +854,7 @@ export function FatturaA4Modal({
             <p className="mt-1 text-sm text-[var(--muted)]">
               {soloSessione
                 ? "Per ora la fattura resta solo in sessione: niente database, email o SDI. Ti dirò io quando salvare in modo definitivo."
-                : "La fattura viene sempre salvata come documento proprio (anche se diversa dall’ordine). Scegli se inviarla subito (email + SDI) o dopo."}
+                : "La fattura viene salvata. Se prosegui, si apre la scheda di invio: da lì parte la mail Webmail e, con un comando separato, la fattura attraverso lo SDI."}
             </p>
             <label className="mt-4 flex items-center gap-2 text-sm">
               <input
@@ -929,10 +928,10 @@ export function FatturaA4Modal({
                 className="rounded-lg bg-[var(--primary)] px-3 py-1.5 text-sm font-medium text-white"
               >
                 {saving
-                  ? "Invio…"
+                  ? "Salvataggio…"
                   : soloSessione
                     ? "Simula invio (sessione)"
-                    : "Salva e invia subito"}
+                    : "Apri scheda di invio"}
               </button>
             </div>
           </div>

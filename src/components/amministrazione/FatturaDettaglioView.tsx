@@ -83,7 +83,7 @@ export function FatturaDettaglioView({
               disabled={inviaBusy}
               className="inline-flex items-center rounded-lg border border-[var(--primary)] px-3 py-1.5 text-sm font-medium text-[var(--primary)] hover:bg-slate-50 disabled:opacity-50"
             >
-              {inviaBusy ? "Invio…" : "Invia a FiC / SDI"}
+              {inviaBusy ? "Invio…" : "Invia fattura attraverso SDI"}
             </button>
           ) : null}
           {onEdit && !isPreview ? (

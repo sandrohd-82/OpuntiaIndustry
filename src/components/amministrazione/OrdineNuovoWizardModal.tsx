@@ -2849,7 +2849,7 @@ export function OrdineNuovoWizardModal({
             setFatturaA4Open(false);
             setFatturaMailDraft(mailDraft);
             setSessioneMsg(
-              "Scheda invio mail Webmail aperta: testo AI e PDF fattura già pronti. Nessuna email reale in sessione."
+              "Scheda di invio aperta: da qui parte la mail Webmail e, a parte, la fattura attraverso lo SDI."
             );
           }}
         />

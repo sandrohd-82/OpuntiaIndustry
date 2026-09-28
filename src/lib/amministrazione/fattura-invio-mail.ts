@@ -4,6 +4,7 @@ import type {
 } from "@/lib/amministrazione/fattura-a4-documento";
 
 export type FatturaInvioMailDraft = {
+  fatturaId?: string | null;
   to: string;
   numeroFattura: string;
   dataDocumento: string;

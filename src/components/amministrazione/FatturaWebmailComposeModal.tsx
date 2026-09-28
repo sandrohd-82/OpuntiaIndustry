@@ -1,7 +1,11 @@
 "use client";
 
 import { useEffect, useId, useState } from "react";
-import { generaCorpoMailFatturaAction } from "@/app/actions/fattura-mail";
+import { inviaFatturaAttraversoSdiAction } from "@/app/actions/fattura-da-ordine";
+import {
+  generaCorpoMailFatturaAction,
+  inviaFatturaDaWebmailAction,
+} from "@/app/actions/fattura-mail";
 import { listCaselleSpedizioneMailAction } from "@/app/actions/spedizione-mail";
 import { CanaleAttenzioneBanners } from "@/components/amministrazione/CanaleAttenzioneControls";
 import { buildFatturaA4PdfBlob } from "@/lib/amministrazione/fattura-a4-pdf";
@@ -34,6 +38,10 @@ export function FatturaWebmailComposeModal({ draft, onClose }: Props) {
   const [pdfUrl, setPdfUrl] = useState<string | null>(null);
   const [pdfName, setPdfName] = useState("Fattura.pdf");
   const [loading, setLoading] = useState(true);
+  const [sendingMail, setSendingMail] = useState(false);
+  const [sendingSdi, setSendingSdi] = useState(false);
+  const [mailInviata, setMailInviata] = useState(false);
+  const [sdiInviato, setSdiInviato] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [msg, setMsg] = useState<string | null>(null);
 
@@ -102,9 +110,67 @@ export function FatturaWebmailComposeModal({ draft, onClose }: Props) {
     };
   }, [draft]);
 
-  function confermaSessione() {
+  async function inviaDaWebmail() {
+    if (!ORDINI_PERSISTENZA_DEFINITIVA) {
+      setMsg(
+        "Sessione di prova: nessuna email reale parte da questa scheda."
+      );
+      return;
+    }
+    if (!draft.fatturaId) {
+      setError("Salva prima la fattura, poi inviala da questa scheda.");
+      return;
+    }
+    if (!accountId) {
+      setError("Seleziona la casella mittente.");
+      return;
+    }
+    setSendingMail(true);
+    setError(null);
+    const res = await inviaFatturaDaWebmailAction({
+      fatturaId: draft.fatturaId,
+      accountId,
+      to: to.trim(),
+      subject: subject.trim(),
+      bodyText: bodyText.trim(),
+    });
+    setSendingMail(false);
+    if (!res.success) {
+      setError(res.error);
+      return;
+    }
+    setMailInviata(true);
+    setMsg(`Email inviata a ${to.trim()} con allegato ${pdfName}.`);
+  }
+
+  async function inviaAttraversoSdi() {
+    if (!ORDINI_PERSISTENZA_DEFINITIVA) {
+      setMsg("Sessione di prova: nessun invio allo SDI.");
+      return;
+    }
+    if (!draft.fatturaId) {
+      setError("Salva prima la fattura, poi inviala attraverso lo SDI.");
+      return;
+    }
+    setSendingSdi(true);
+    setError(null);
+    const res = await inviaFatturaAttraversoSdiAction(draft.fatturaId);
+    setSendingSdi(false);
+    if (!res.success) {
+      setError(res.error);
+      return;
+    }
+    if (res.eiStatus === "send_error" || !res.sdiSent) {
+      setError(
+        res.warning ??
+          "La fattura è su Fatture in Cloud ma l’invio attraverso lo SDI non è riuscito."
+      );
+      return;
+    }
+    setSdiInviato(true);
     setMsg(
-      "Bozza Webmail pronta in sessione. Nessuna email è partita: quando riattiveremo l’invio definitivo, partirà da questa scheda con lo stesso allegato."
+      res.warning ??
+        `Fattura ${res.numeroFattura} inviata attraverso lo SDI.`
     );
   }
 
@@ -214,7 +280,7 @@ export function FatturaWebmailComposeModal({ draft, onClose }: Props) {
           </p>
         ) : null}
 
-        <div className="mt-4 flex justify-end gap-2">
+        <div className="mt-4 flex flex-wrap justify-end gap-2">
           <button
             type="button"
             onClick={onClose}
@@ -224,13 +290,38 @@ export function FatturaWebmailComposeModal({ draft, onClose }: Props) {
           </button>
           <button
             type="button"
-            disabled={loading || !subject.trim() || !bodyText.trim()}
-            onClick={confermaSessione}
+            disabled={
+              loading ||
+              sendingMail ||
+              sendingSdi ||
+              sdiInviato ||
+              !draft.fatturaId
+            }
+            onClick={() => void inviaAttraversoSdi()}
+            className="rounded-lg border border-[var(--primary)] px-4 py-2 text-sm font-medium text-[var(--primary)] disabled:opacity-50"
+          >
+            {sendingSdi ? "Invio SDI…" : "Invia fattura attraverso SDI"}
+          </button>
+          <button
+            type="button"
+            disabled={
+              loading ||
+              sendingMail ||
+              sendingSdi ||
+              mailInviata ||
+              !subject.trim() ||
+              !bodyText.trim() ||
+              !to.trim() ||
+              !accountId
+            }
+            onClick={() => void inviaDaWebmail()}
             className="rounded-lg bg-[var(--primary)] px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
           >
-            {ORDINI_PERSISTENZA_DEFINITIVA
-              ? "Invia da Webmail"
-              : "Conferma bozza (sessione)"}
+            {sendingMail
+              ? "Invio mail…"
+              : ORDINI_PERSISTENZA_DEFINITIVA
+                ? "Invia da Webmail"
+                : "Conferma bozza (sessione)"}
           </button>
         </div>
       </div>
