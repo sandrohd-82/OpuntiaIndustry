@@ -208,6 +208,51 @@ export function fiscalConflictMessage(input: {
   return check("partitaIva", "P. IVA") ?? check("codiceFiscale", "Codice fiscale");
 }
 
+export type AziendaEsistenteCandidata = {
+  id: string;
+  ragioneSociale: string;
+  codice: string;
+  partitaIva: string;
+  hasFiglie: boolean;
+};
+
+/** Aziende già in elenco che possono entrare nella famiglia, un solo livello. */
+export function elencoPerCollegamentoEsistente<
+  T extends {
+    id: string;
+    ragioneSociale: string;
+    partitaIva: string;
+    isPrivato: boolean;
+    aziendaMadreId: string | null;
+  },
+>(
+  all: T[],
+  origineId: string,
+  codiceDi: (row: T) => string
+): { origineHaFiglie: boolean; candidate: AziendaEsistenteCandidata[] } {
+  const origineHaFiglie = all.some((row) => row.aziendaMadreId === origineId);
+  const conFiglie = new Set(
+    all.flatMap((row) => (row.aziendaMadreId ? [row.aziendaMadreId] : []))
+  );
+  const candidate = all
+    .filter(
+      (row) =>
+        row.id !== origineId &&
+        !row.isPrivato &&
+        !row.aziendaMadreId &&
+        !(origineHaFiglie && conFiglie.has(row.id))
+    )
+    .map((row) => ({
+      id: row.id,
+      ragioneSociale: row.ragioneSociale,
+      codice: codiceDi(row),
+      partitaIva: row.partitaIva,
+      hasFiglie: conFiglie.has(row.id),
+    }))
+    .sort((a, b) => a.ragioneSociale.localeCompare(b.ragioneSociale, "it"));
+  return { origineHaFiglie, candidate };
+}
+
 export function anteprimaSediMadre(madre: Cliente): string {
   const legale = formatSedeBreve(madre.sedeAmministrativa);
   const mag = formatSedeBreve(madre.sedeMagazzino);

@@ -16,6 +16,7 @@ import {
 import { rinumeraTutteFattureEmesseAction } from "@/app/actions/fatture";
 import { startFattureEmesseSyncAction } from "@/app/actions/fatture-sync";
 import { listProdottiPropriAction } from "@/app/actions/prodotti-propri";
+import { collegaAziendeEsistentiAction } from "@/app/actions/aziende-collegate";
 import {
   confermaCancellazioneClienteAction,
   listCancellazioniClientePrenotateAction,
@@ -40,6 +41,7 @@ import {
 } from "@/components/amministrazione/SchedaDock";
 import {
   elencoCollegato,
+  elencoPerCollegamentoEsistente,
   type CollegamentoScelte,
 } from "@/lib/amministrazione/azienda-collegata";
 import { ClientiFiltersPanel } from "@/components/amministrazione/ClientiFiltersPanel";
@@ -909,11 +911,36 @@ export function ClientiBoard() {
 
       {collegaMadre && !collegaScelte ? (
         <CollegaAziendaScelteModal
-          madreLabel={collegaMadre.ragioneSociale}
+          origineLabel={collegaMadre.ragioneSociale}
+          {...elencoPerCollegamentoEsistente(
+            clienti,
+            collegaMadre.id,
+            (row) => row.codiceTarga
+          )}
           onClose={() => setCollegaMadre(null)}
-          onContinue={(scelte) => {
+          onNuova={(scelte) => {
             setCollegaScelte(scelte);
             setSchedaCompleta(null);
+          }}
+          onEsistente={async ({ altraId, madre, scelte }) => {
+            const res = await collegaAziendeEsistentiAction({
+              kind: "cliente",
+              origineId: collegaMadre.id,
+              altraId,
+              madreId: madre === "origine" ? collegaMadre.id : altraId,
+              inviaPreventivi: scelte.inviaPreventivi,
+              fatturare: scelte.fatturare,
+              inviaCampionature: scelte.inviaCampionature,
+              inviaProdotti: scelte.inviaProdotti,
+              tipologia: scelte.tipologia,
+            });
+            if (!res.success) return res.error;
+            setCollegaMadre(null);
+            setCollegaScelte(null);
+            setSchedaCompleta(null);
+            setSaveError(null);
+            await refresh();
+            return null;
           }}
         />
       ) : null}

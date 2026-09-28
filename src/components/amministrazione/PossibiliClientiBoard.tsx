@@ -30,6 +30,7 @@ import { AZ } from "@/lib/auth/action-access";
 import { AziendaTimelineModal } from "@/components/amministrazione/AziendaTimelineModal";
 import { AnagraficaDuplicatiBlockModal } from "@/components/amministrazione/AnagraficaDuplicatiBlockModal";
 import { AnagraficaSchedaDetail } from "@/components/amministrazione/AnagraficaSchedaDetail";
+import { collegaAziendeEsistentiAction } from "@/app/actions/aziende-collegate";
 import { CollegaAziendaScelteModal } from "@/components/amministrazione/CollegaAziendaScelteModal";
 import { ClienteFormModal } from "@/components/amministrazione/ClienteFormModal";
 import {
@@ -38,6 +39,7 @@ import {
 } from "@/components/amministrazione/SchedaDock";
 import {
   elencoCollegato,
+  elencoPerCollegamentoEsistente,
   type CollegamentoScelte,
 } from "@/lib/amministrazione/azienda-collegata";
 import { ClientiFiltersPanel } from "@/components/amministrazione/ClientiFiltersPanel";
@@ -527,11 +529,32 @@ export function PossibiliClientiBoard() {
 
       {collegaMadre && !collegaScelte ? (
         <CollegaAziendaScelteModal
-          madreLabel={collegaMadre.ragioneSociale}
+          origineLabel={collegaMadre.ragioneSociale}
+          {...elencoPerCollegamentoEsistente(items, collegaMadre.id, () => "")}
           onClose={() => setCollegaMadre(null)}
-          onContinue={(scelte) => {
+          onNuova={(scelte) => {
             setCollegaScelte(scelte);
             setSchedaFor(null);
+          }}
+          onEsistente={async ({ altraId, madre, scelte }) => {
+            const res = await collegaAziendeEsistentiAction({
+              kind: "cliente_possibile",
+              origineId: collegaMadre.id,
+              altraId,
+              madreId: madre === "origine" ? collegaMadre.id : altraId,
+              inviaPreventivi: scelte.inviaPreventivi,
+              fatturare: scelte.fatturare,
+              inviaCampionature: scelte.inviaCampionature,
+              inviaProdotti: scelte.inviaProdotti,
+              tipologia: scelte.tipologia,
+            });
+            if (!res.success) return res.error;
+            setCollegaMadre(null);
+            setCollegaScelte(null);
+            setSchedaFor(null);
+            setError(null);
+            reload();
+            return null;
           }}
         />
       ) : null}
