@@ -10,10 +10,11 @@ import { InfoHint } from "@/components/ui/InfoHint";
 type Destinatario = {
   id: string;
   nome: string;
-  grado: "professional" | "executive";
+  grado: "senior" | "professional" | "executive";
 };
 
 const GRADO: Record<Destinatario["grado"], string> = {
+  senior: "Senior",
   professional: "Professional",
   executive: "Executive",
 };
@@ -68,7 +69,7 @@ export function ClienteCediAffiancaFields({
       if (!res.puoAgire && !mantieniEsito) {
         setError(
           res.destinatari.length === 0
-            ? "Non ci sono Professional o Executive a cui passare questa scheda."
+            ? "Non ci sono commerciali Senior, Professional o Executive a cui passare questa scheda."
             : "Puoi cedere o affiancare solo le aziende della tua linea."
         );
       }

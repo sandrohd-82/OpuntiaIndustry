@@ -35,7 +35,6 @@ import { getCommercialeAnagraficaContextAction } from "@/app/actions/commerciale
 import { AziendaTimelineModal } from "@/components/amministrazione/AziendaTimelineModal";
 import { CollegaAziendaScelteModal } from "@/components/amministrazione/CollegaAziendaScelteModal";
 import { ClienteFormModal } from "@/components/amministrazione/ClienteFormModal";
-import { ClienteCediAffiancaFields } from "@/components/amministrazione/ClienteCediAffiancaFields";
 import {
   AziendaFigliaRaccordo,
   SchedaDock,
@@ -87,7 +86,6 @@ function ClienteRow({
   hasFiglie = false,
   schedaAperta = false,
   onCollega,
-  onChanged,
 }: {
   cliente: Cliente;
   onEdit: (cliente: Cliente) => void;
@@ -103,7 +101,6 @@ function ClienteRow({
   hasFiglie?: boolean;
   schedaAperta?: boolean;
   onCollega?: (cliente: Cliente) => void;
-  onChanged?: () => void;
 }) {
   const [open, setOpen] = useState(false);
   const priv = useAnagraficaPrivileges("cliente");
@@ -240,11 +237,6 @@ function ClienteRow({
               Modifica
             </button>
             ) : null}
-            <ClienteCediAffiancaFields
-              kind="cliente"
-              recordId={cliente.id}
-              onChanged={onChanged}
-            />
             <button
               type="button"
               onClick={() => setOpen((v) => !v)}
@@ -294,11 +286,6 @@ function ClienteRow({
               ) : null}
             </div>
             ) : null}
-            <ClienteCediAffiancaFields
-              kind="cliente"
-              recordId={cliente.id}
-              onChanged={onChanged}
-            />
             <AnagraficaSchedaDetail
               prodottiByCode={prodottiByCode}
               canEditDocumenti={canEdit}
@@ -785,7 +772,6 @@ export function ClientiBoard() {
                         }
                       : undefined
                   }
-                  onChanged={() => void refresh()}
                   lineageIds={lineageIds}
                   isSuperAdmin={bypassPrivileges}
                 />

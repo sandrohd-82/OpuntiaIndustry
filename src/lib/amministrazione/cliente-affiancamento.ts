@@ -89,7 +89,13 @@ export function destinatariVisibili(input: {
         (p.grado === "professional" || p.grado === "executive")
     );
   if (input.admin) {
-    return conUtente(input.persone);
+    return input.persone.filter(
+      (p) =>
+        Boolean(p.userId) &&
+        (p.grado === "senior" ||
+          p.grado === "professional" ||
+          p.grado === "executive")
+    );
   }
   if (!input.actor) return [];
   if (!aziendaNellaLinea({

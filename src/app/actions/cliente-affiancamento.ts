@@ -25,7 +25,7 @@ async function loadPersoneLinea(): Promise<PersonaLinea[]> {
     .select("id, user_id, parent_id, nome, cognome, commerciale_grado")
     .is("deleted_at", null);
   if (error || !data) return [];
-  return data.map((row) => {
+  const persone = data.map((row) => {
     const gradoRaw = String(
       (row as { commerciale_grado?: string | null }).commerciale_grado ?? ""
     ).toLowerCase();
@@ -46,8 +46,51 @@ async function loadPersoneLinea(): Promise<PersonaLinea[]> {
         : null,
       grado,
       nome: nome || "Operatore",
-    };
+    } satisfies PersonaLinea;
   });
+  const { data: profiles } = await service
+    .from("profiles")
+    .select("id, full_name, first_name, last_name, email, commerciale_grado")
+    .eq("is_active", true)
+    .not("commerciale_grado", "is", null);
+  const noti = new Set(persone.map((p) => p.userId).filter(Boolean));
+  for (const raw of profiles ?? []) {
+    const profile = raw as {
+      id: string;
+      full_name?: string | null;
+      first_name?: string | null;
+      last_name?: string | null;
+      email?: string | null;
+      commerciale_grado?: string | null;
+    };
+    const gradoRaw = String(profile.commerciale_grado ?? "").toLowerCase();
+    const grado =
+      gradoRaw === "senior" ||
+      gradoRaw === "professional" ||
+      gradoRaw === "executive"
+        ? gradoRaw
+        : null;
+    if (!grado) continue;
+    const esistente = persone.find((p) => p.userId === profile.id);
+    if (esistente) {
+      if (!esistente.grado) esistente.grado = grado;
+      continue;
+    }
+    if (noti.has(profile.id)) continue;
+    const nome =
+      profile.full_name?.trim() ||
+      `${profile.first_name ?? ""} ${profile.last_name ?? ""}`.trim() ||
+      profile.email ||
+      "Operatore";
+    persone.push({
+      id: profile.id,
+      userId: profile.id,
+      parentId: null,
+      grado,
+      nome,
+    });
+  }
+  return persone;
 }
 
 function nomeDi(persone: PersonaLinea[], userId: string | null): string {
@@ -67,7 +110,7 @@ export async function contestoCessioneAffiancamentoAction(input: {
       destinatari: {
         id: string;
         nome: string;
-        grado: "professional" | "executive";
+        grado: "senior" | "professional" | "executive";
       }[];
     }
   | { success: false; error: string }
@@ -102,11 +145,24 @@ export async function contestoCessioneAffiancamentoAction(input: {
     commercialeId,
   })
     .filter(
-      (p): p is PersonaLinea & { userId: string; grado: "professional" | "executive" } =>
+      (
+        p
+      ): p is PersonaLinea & {
+        userId: string;
+        grado: "senior" | "professional" | "executive";
+      } =>
         Boolean(p.userId) &&
-        (p.grado === "professional" || p.grado === "executive")
+        (p.grado === "senior" ||
+          p.grado === "professional" ||
+          p.grado === "executive")
     )
-    .map((p) => ({ id: p.userId, nome: p.nome, grado: p.grado }));
+    .map((p) => ({ id: p.userId, nome: p.nome, grado: p.grado }))
+    .sort((a, b) => {
+      const ordine = { senior: 0, professional: 1, executive: 2 };
+      const diff = ordine[a.grado] - ordine[b.grado];
+      if (diff !== 0) return diff;
+      return a.nome.localeCompare(b.nome, "it");
+    });
   const nellaLinea =
     admin ||
     (actor ? aziendaNellaLinea({ actor, persone, commercialeId }) : false);

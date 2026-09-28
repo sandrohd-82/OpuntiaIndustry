@@ -8,7 +8,6 @@ import {
   type AnagraficaSchedaDetailModel,
 } from "@/components/amministrazione/AnagraficaSchedaDetail";
 import { AnagraficaSchedaSection } from "@/components/amministrazione/AnagraficaSchedaSection";
-import { ClienteCediAffiancaFields } from "@/components/amministrazione/ClienteCediAffiancaFields";
 import { PageLoading } from "@/components/ui/BusyIndicator";
 import type {
   AnagraficaDocumento,
@@ -122,7 +121,6 @@ export function ClienteSchedaCompletaModal({
           <PageLoading label="Caricamento scheda completa" />
         ) : (
           <div className="space-y-4">
-            <ClienteCediAffiancaFields kind="cliente" recordId={cliente.id} />
             <AnagraficaSchedaDetail
               model={model}
               prodottiByCode={prodottiByCode}
