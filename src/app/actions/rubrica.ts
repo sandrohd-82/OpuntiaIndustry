@@ -20,6 +20,7 @@ import {
 import { resolveScopeMode } from "@/lib/auth/data-scope-enforce";
 import { resolveWebmailAccountVisibility } from "@/lib/webmail/account-access";
 import { createClient } from "@/lib/supabase/server";
+import { z } from "zod";
 
 async function guard() {
   return requireAreaAccess("amministrazione");
@@ -703,6 +704,135 @@ export async function syncEntityReferentiAction(input: {
     payload: { contatto_ids: ids },
   });
   return { success: true };
+}
+
+function stessaAnagraficaReferente(
+  a: { nome: string; cognome: string; email: string },
+  b: { nome: string; cognome: string; email: string }
+): boolean {
+  const norm = (value: string) => value.trim().toLowerCase();
+  return (
+    norm(a.nome) === norm(b.nome) &&
+    norm(a.cognome) === norm(b.cognome) &&
+    norm(a.email) === norm(b.email)
+  );
+}
+
+/**
+ * Copia i referenti su un'altra scheda come contatti nuovi.
+ * Quelli della scheda di origine restano al loro posto.
+ */
+export async function clonaReferentiSuSchedaAction(input: {
+  tipo: EntityReferentiTipo;
+  entityId: string;
+  entityLabel: string;
+  contattoIds: string[];
+}): Promise<
+  { success: true; items: RubricaContatto[] } | { success: false; error: string }
+> {
+  const schema = z.object({
+    tipo: z.enum(["cliente", "fornitore", "cliente_possibile"]),
+    entityId: z.string().uuid(),
+    entityLabel: z.string().trim().min(1).max(200),
+    contattoIds: z.array(z.string().uuid()).max(40),
+  });
+  const parsed = schema.safeParse(input);
+  if (!parsed.success) {
+    return {
+      success: false,
+      error: parsed.error.issues[0]?.message ?? "Referenti da copiare non validi.",
+    };
+  }
+  const data = parsed.data;
+  if (data.contattoIds.length === 0) return { success: true, items: [] };
+
+  const { auth } = await guardRubricaAnagrafica();
+  const j = junctionFor(data.tipo);
+  const supabase = await createClient();
+  const { data: fonti, error: fontiErr } = await supabase
+    .from("rubrica_contatti")
+    .select(CONTATTO_SELECT)
+    .in("id", data.contattoIds)
+    .is("deleted_at", null);
+  if (fontiErr) return { success: false, error: fontiErr.message };
+
+  const { data: links, error: linksErr } = await supabase
+    .from(j.table)
+    .select("contatto_id")
+    .eq(j.fk, data.entityId);
+  if (linksErr) return { success: false, error: linksErr.message };
+  const giaIds = (links ?? []).map((row) => String(row.contatto_id));
+  const esistenti: RubricaContatto[] = [];
+  if (giaIds.length) {
+    const { data: rows, error: rowsErr } = await supabase
+      .from("rubrica_contatti")
+      .select(CONTATTO_SELECT)
+      .in("id", giaIds)
+      .is("deleted_at", null);
+    if (rowsErr) return { success: false, error: rowsErr.message };
+    esistenti.push(
+      ...(rows ?? []).map((row) => mapContatto(row as Record<string, unknown>))
+    );
+  }
+
+  const copie: RubricaContatto[] = [];
+  for (const raw of fonti ?? []) {
+    const fonte = mapContatto(raw as Record<string, unknown>);
+    const gia = esistenti.find((row) => stessaAnagraficaReferente(row, fonte));
+    if (gia) {
+      copie.push(gia);
+      continue;
+    }
+    const { data: inserted, error: insErr } = await supabase
+      .from("rubrica_contatti")
+      .insert({
+        nome: fonte.nome,
+        cognome: fonte.cognome,
+        telefono: fonte.telefono,
+        email: fonte.email,
+        rapporto: fonte.rapporto,
+        azienda_tipo: j.aziendaTipo,
+        azienda_id: data.entityId,
+        azienda_label: data.entityLabel,
+        mansione_id: fonte.mansioneId,
+        mansione: fonte.mansione,
+        note: fonte.note,
+        created_by: auth.userId,
+        updated_by: auth.userId,
+      })
+      .select(CONTATTO_SELECT)
+      .single();
+    if (insErr || !inserted) {
+      return {
+        success: false,
+        error: insErr?.message ?? "Copia referente non riuscita.",
+      };
+    }
+    const copia = mapContatto(inserted as Record<string, unknown>);
+    const { error: linkErr } = await supabase.from(j.table).insert({
+      [j.fk]: data.entityId,
+      contatto_id: copia.id,
+      created_by: auth.userId,
+    });
+    if (linkErr && !/duplicate|unique/i.test(linkErr.message)) {
+      return { success: false, error: linkErr.message };
+    }
+    esistenti.push(copia);
+    copie.push(copia);
+  }
+
+  await writeAuditLog({
+    entity_type: j.table,
+    entity_id: data.entityId,
+    action: "create",
+    actor_id: auth.userId,
+    summary: `Copiati ${copie.length} referenti su ${data.entityLabel}`,
+    payload: {
+      da_contatto_ids: data.contattoIds,
+      copie_ids: copie.map((row) => row.id),
+    },
+  });
+  return { success: true, items: copie };
 }
 
 /** Aggiunge un referente all’anagrafica senza sostituire gli altri. */

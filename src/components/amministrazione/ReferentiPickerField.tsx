@@ -18,6 +18,8 @@ type Props = {
   defaultAziendaTipo?: RubricaAziendaTipo;
   defaultAziendaLabel?: string;
   defaultAziendaId?: string;
+  /** Referenti di un'altra scheda: ogni pulsante riporta quella persona. */
+  copiaDa?: RubricaContatto[] | null;
 };
 
 export function ReferentiPickerField({
@@ -26,6 +28,7 @@ export function ReferentiPickerField({
   defaultAziendaTipo = "nessuna",
   defaultAziendaLabel = "",
   defaultAziendaId = "",
+  copiaDa = null,
 }: Props) {
   const [showCreate, setShowCreate] = useState(false);
   const [showPick, setShowPick] = useState(false);
@@ -71,6 +74,23 @@ export function ReferentiPickerField({
           </button>
         </div>
       </div>
+      {copiaDa && copiaDa.length > 0 ? (
+        <div className="mt-3 flex flex-wrap gap-2">
+          {copiaDa.map((persona) => (
+            <button
+              key={persona.id}
+              type="button"
+              onClick={() => {
+                if (value.some((row) => row.id === persona.id)) return;
+                onChange([...value, persona]);
+              }}
+              className="rounded-lg border border-sky-300 bg-sky-50 px-3 py-1.5 text-xs font-semibold text-sky-950 hover:bg-sky-100"
+            >
+              Copia {displayContattoName(persona)}
+            </button>
+          ))}
+        </div>
+      ) : null}
 
       <ul className="mt-3 space-y-2">
         {value.map((r) => (

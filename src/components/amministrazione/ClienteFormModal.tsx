@@ -67,6 +67,7 @@ import { isCommercialOwnRecord } from "@/lib/auth/commerciale";
 import { parseTrattativa } from "@/lib/promemorie-e-note/trattativa";
 import { TrattativaSelectField } from "@/components/amministrazione/TrattativaSelectField";
 import {
+  clonaReferentiSuSchedaAction,
   listEntityReferentiAction,
   syncEntityReferentiAction,
 } from "@/app/actions/rubrica";
@@ -256,6 +257,7 @@ export function ClienteFormModal({
     initial?.prodottiAcquistati ?? seme?.prodottiAcquistati ?? []
   );
   const [referenti, setReferenti] = useState<RubricaContatto[]>([]);
+  const [fonteReferenti, setFonteReferenti] = useState<RubricaContatto[]>([]);
   const [commercialeId, setCommercialeId] = useState<string | null>(
     initial?.commercialeId ?? seme?.commercialeId ?? null
   );
@@ -314,7 +316,7 @@ export function ClienteFormModal({
       tipo: isPossibile ? "cliente_possibile" : "cliente",
       entityId: initial.id,
     }).then((res) => {
-      if (res.success) setReferenti(res.items);
+      if (res.success && !copiaDa) setReferenti(res.items);
     });
     void loadAnagraficaExtraAction({
       ownerKind: isPossibile ? "cliente_possibile" : "cliente",
@@ -337,10 +339,17 @@ export function ClienteFormModal({
     }
     let cancelled = false;
     setFontePronta(false);
-    void loadAnagraficaExtraAction({
-      ownerKind: isPossibile ? "cliente_possibile" : "cliente",
-      ownerId: fonte.id,
-    }).then((res) => {
+    const tipoScheda = isPossibile ? "cliente_possibile" : "cliente";
+    void Promise.all([
+      loadAnagraficaExtraAction({
+        ownerKind: tipoScheda,
+        ownerId: fonte.id,
+      }),
+      listEntityReferentiAction({
+        tipo: tipoScheda,
+        entityId: fonte.id,
+      }),
+    ]).then(([res, refs]) => {
       if (cancelled) return;
       const sediFonte =
         res.success && res.sedi.some((s) => !isSedeAddressEmpty(s))
@@ -349,7 +358,10 @@ export function ClienteFormModal({
               sedeAmministrativa: fonte.sedeAmministrativa,
               sedeMagazzino: fonte.sedeMagazzino,
             });
+      const persone = refs.success ? refs.items : [];
       setFonteSedi(sediFonte);
+      setFonteReferenti(persone);
+      if (collega || copiaDa) setReferenti(persone);
       if (collega) {
         setSedi(clonaSedi(sediFonte));
         if (res.success && res.brand.length) setBrand(clonaBrand(res.brand));
@@ -663,11 +675,28 @@ export function ClienteFormModal({
           ? result.id
           : null) || initial?.id;
       if (entityId) {
+        const fonteIds = new Set(fonteReferenti.map((row) => row.id));
+        const daClonare = referenti.filter((row) => fonteIds.has(row.id));
+        const altri = referenti.filter((row) => !fonteIds.has(row.id));
+        let copieIds: string[] = [];
+        if (daClonare.length) {
+          const copie = await clonaReferentiSuSchedaAction({
+            tipo: isPossibile ? "cliente_possibile" : "cliente",
+            entityId,
+            entityLabel: values.ragioneSociale,
+            contattoIds: daClonare.map((row) => row.id),
+          });
+          if (!copie.success) {
+            setFormError(copie.error);
+            return false;
+          }
+          copieIds = copie.items.map((row) => row.id);
+        }
         await syncEntityReferentiAction({
           tipo: isPossibile ? "cliente_possibile" : "cliente",
           entityId,
           entityLabel: values.ragioneSociale,
-          contattoIds: referenti.map((r) => r.id),
+          contattoIds: [...altri.map((row) => row.id), ...copieIds],
         });
         const logoErr = await uploadPendingBrandLogos({
           ownerKind: isPossibile ? "cliente_possibile" : "cliente",
@@ -766,7 +795,7 @@ export function ClienteFormModal({
             <p className="text-sm font-medium text-slate-800">
               {collegando
                 ? "Collegamento in corso…"
-                : "Copia di dati e sedi in corso…"}
+                : "Copia di dati, sedi e referenti in corso…"}
             </p>
           </div>
         ) : null}
@@ -794,19 +823,20 @@ export function ClienteFormModal({
               . Non è un obbligo di invio.
             </p>
             <p className="mt-2 text-xs">
-              Dati e sedi sono già copiati da {collega.madre.ragioneSociale}.
+              Dati, sedi e referenti sono già copiati da {collega.madre.ragioneSociale}.
               Modificali se le due aziende sono diverse, poi salva. I pulsanti
-              «Copia sede…» ricompilano un indirizzo.
+              «Copia sede…» e «Copia …» sui referenti ricompilano quel blocco.
             </p>
           </div>
         ) : copiaDa ? (
           <div className="mt-3 rounded-lg border border-sky-200 bg-sky-50 px-3 py-2 text-sm text-sky-950">
             <p className="font-medium">
-              Dati e sedi copiati da {copiaDa.ragioneSociale}
+              Dati, sedi e referenti copiati da {copiaDa.ragioneSociale}
             </p>
             <p className="mt-1 text-xs">
-              I campi sono già compilati. I pulsanti «Copia sede…» ricompilano
-              un indirizzo. Salva per tenerli su questa scheda.
+              I campi sono già compilati. I pulsanti «Copia sede…» e «Copia …»
+              sui referenti ricompilano quel blocco. Salva per tenerli su
+              questa scheda.
             </p>
           </div>
         ) : null}
@@ -1209,6 +1239,7 @@ export function ClienteFormModal({
           <ReferentiPickerField
             value={referenti}
             onChange={setReferenti}
+            copiaDa={fonteReferenti}
             defaultAziendaTipo={isPossibile ? "cliente_possibile" : "cliente"}
             defaultAziendaLabel={ragioneSociale}
             defaultAziendaId={initial?.id ?? ""}
