@@ -224,15 +224,6 @@ function ClienteRow({
               Timeline
             </button>
             ) : null}
-            {onCollega && canEdit ? (
-              <button
-                type="button"
-                onClick={() => onCollega(cliente)}
-                className="inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-xs font-medium text-sky-800 hover:bg-sky-100"
-              >
-                Collega azienda
-              </button>
-            ) : null}
             {canOpenScheda ? (
             <button
               type="button"

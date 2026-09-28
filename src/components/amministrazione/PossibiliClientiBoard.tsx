@@ -169,15 +169,6 @@ function PossibileClienteRow({
             >
               Scheda
             </button>
-            {onCollega && canEdit ? (
-              <button
-                type="button"
-                onClick={() => onCollega(lead)}
-                className="inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-xs font-medium text-sky-800 hover:bg-sky-100"
-              >
-                Collega azienda
-              </button>
-            ) : null}
             {canTimeline ? (
               <button
                 type="button"
