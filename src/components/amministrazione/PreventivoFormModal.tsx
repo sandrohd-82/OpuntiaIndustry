@@ -1,6 +1,13 @@
 "use client";
 
-import { useEffect, useId, useMemo, useState, type FormEvent } from "react";
+import {
+  Fragment,
+  useEffect,
+  useId,
+  useMemo,
+  useState,
+  type FormEvent,
+} from "react";
 import { FaPlus, FaTrash } from "react-icons/fa6";
 import {
   listPreventivoCommercialiRiferimentoAction,
@@ -732,13 +739,13 @@ export function PreventivoFormModal({ onClose, onSaved }: Props) {
                 <table className="w-full text-left text-[11px]">
                   <thead className="border-b border-slate-300 text-slate-600">
                     <tr>
-                      <th className="py-1.5 pr-2 font-medium">Prodotto</th>
+                      <th className="py-1.5 pr-2 font-medium">Codice</th>
+                      <th className="py-1.5 pr-2 font-medium">Nome prodotto</th>
+                      <th className="py-1.5 pr-2 font-medium">Prezzo U</th>
                       <th className="py-1.5 pr-2 font-medium">Qty</th>
-                      <th className="py-1.5 pr-2 font-medium">Listino</th>
-                      <th className="py-1.5 pr-2 font-medium">Extra</th>
-                      <th className="py-1.5 pr-2 font-medium">Netto</th>
-                      <th className="py-1.5 pr-2 font-medium">Conf.</th>
-                      <th className="py-1.5 font-medium" />
+                      <th className="py-1.5 pr-2 font-medium">Sconto</th>
+                      <th className="py-1.5 pr-2 font-medium">Totale</th>
+                      <th className="py-1.5 font-medium print:hidden" />
                     </tr>
                   </thead>
                   <tbody>
@@ -748,7 +755,7 @@ export function PreventivoFormModal({ onClose, onSaved }: Props) {
                           colSpan={7}
                           className="py-2 text-slate-400 italic"
                         >
-                          Descrizione prodotto, quantità, prezzo…
+                          Codice, nome, prezzo, quantità, sconto e totale…
                         </td>
                       </tr>
                     ) : (
@@ -758,65 +765,73 @@ export function PreventivoFormModal({ onClose, onSaved }: Props) {
                           riga.scontoExtraPct,
                           riga.scontoListinoPct ?? 0
                         );
+                        const totaleRiga = roundEuro(netto * riga.quantita);
+                        const scontoParti: string[] = [];
+                        if ((riga.scontoListinoPct ?? 0) > 0) {
+                          scontoParti.push(
+                            `${(riga.scontoListinoPct ?? 0).toLocaleString("it-IT")}%`
+                          );
+                        }
+                        if (riga.scontoExtraPct > 0) {
+                          scontoParti.push(
+                            `extra ${riga.scontoExtraPct.toLocaleString("it-IT")}%`
+                          );
+                        }
+                        const dettaglio =
+                          (riga.confezionamento ?? "").trim() ||
+                          "Nessun dettaglio di confezionamento";
                         return (
-                          <tr
-                            key={riga.key}
-                            className="border-b border-slate-100"
-                          >
-                            <td className="py-1.5 pr-2">
-                              {riga.prodottoCodice} — {riga.prodottoNome}
-                            </td>
-                            <td className="py-1.5 pr-2 tabular-nums">
-                              {riga.quantita} {riga.unitaMisura}
-                            </td>
-                            <td className="py-1.5 pr-2 tabular-nums">
-                              {euro(riga.prezzoUnitario)} €
-                              {riga.scontoListinoPct ? (
-                                <span className="mt-0.5 block text-[10px] font-medium text-emerald-800">
-                                  sconto {riga.scontoListinoPct.toLocaleString("it-IT")}%
-                                  {riga.scontoListinoTarga
-                                    ? ` ${riga.scontoListinoTarga}`
-                                    : ""}
-                                </span>
-                              ) : null}
-                            </td>
-                            <td className="py-1.5 pr-2 tabular-nums">
-                              {riga.scontoExtraPct
-                                ? `${riga.scontoExtraPct} %${
-                                    riga.scontoSuddivisioneAttiva
-                                      ? ` (az. ${riga.scontoQuotaAziendaPct ?? 0} / comm. ${riga.scontoQuotaCommercialePct ?? 0})`
-                                      : ""
-                                  }`
-                                : "—"}
-                            </td>
-                            <td className="py-1.5 pr-2 tabular-nums font-medium">
-                              {euro(netto)} €
-                            </td>
-                            <td className="py-1.5 pr-2">
-                              {riga.confezionamento || "Standard"}
-                            </td>
-                            <td className="py-1.5 text-right print:hidden">
-                              <button
-                                type="button"
-                                onClick={() => openEdit("prodotto", riga.key)}
-                                className="mr-1 text-[10px] text-slate-500 underline"
-                              >
-                                modifica
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() =>
-                                  setRighe((prev) =>
-                                    prev.filter((r) => r.key !== riga.key)
-                                  )
-                                }
-                                className="text-red-600"
-                                aria-label="Rimuovi riga"
-                              >
-                                <FaTrash size={11} />
-                              </button>
-                            </td>
-                          </tr>
+                          <Fragment key={riga.key}>
+                            <tr className="border-t border-slate-300">
+                              <td className="py-1.5 pr-2 font-medium">
+                                {riga.prodottoCodice}
+                              </td>
+                              <td className="py-1.5 pr-2">
+                                {riga.prodottoNome}
+                              </td>
+                              <td className="py-1.5 pr-2 tabular-nums">
+                                {euro(riga.prezzoUnitario)} €
+                              </td>
+                              <td className="py-1.5 pr-2 tabular-nums">
+                                {riga.quantita} {riga.unitaMisura}
+                              </td>
+                              <td className="py-1.5 pr-2 tabular-nums">
+                                {scontoParti.length ? scontoParti.join(" + ") : "—"}
+                              </td>
+                              <td className="py-1.5 pr-2 tabular-nums font-medium">
+                                {euro(totaleRiga)} €
+                              </td>
+                              <td className="py-1.5 text-right print:hidden">
+                                <button
+                                  type="button"
+                                  onClick={() => openEdit("prodotto", riga.key)}
+                                  className="mr-1 text-[10px] text-slate-500 underline"
+                                >
+                                  modifica
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    setRighe((prev) =>
+                                      prev.filter((r) => r.key !== riga.key)
+                                    )
+                                  }
+                                  className="text-red-600"
+                                  aria-label="Rimuovi riga"
+                                >
+                                  <FaTrash size={11} />
+                                </button>
+                              </td>
+                            </tr>
+                            <tr className="border-b border-slate-200">
+                              <td colSpan={7} className="px-0 pb-2 pt-0">
+                                <p className="ml-6 max-w-[78%] text-[9px] leading-tight text-slate-500">
+                                  Sconto applicato a proposta di confezionamento.{" "}
+                                  {dettaglio}
+                                </p>
+                              </td>
+                            </tr>
+                          </Fragment>
                         );
                       })
                     )}
