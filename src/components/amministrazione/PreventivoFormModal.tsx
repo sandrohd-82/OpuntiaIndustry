@@ -58,6 +58,8 @@ import { LISTINO_CONTRATTO_MSG } from "@/lib/ecosystem/listino-vigente";
 import {
   labelIntenzionePreventivo,
   loadPreventivoSessione,
+  PREVENTIVI_SESSIONE_PROVA,
+  PREVENTIVI_SESSIONE_PROVA_MSG,
   savePreventivoSessione,
   type PreventivoIntenzione,
 } from "@/lib/amministrazione/preventivo-sessione";
@@ -449,6 +451,56 @@ export function PreventivoFormModal({ onClose, onSaved }: Props) {
         : 0;
     setSaving(true);
     setFormError(null);
+    if (PREVENTIVI_SESSIONE_PROVA) {
+      const id = savedId ?? `prova-${crypto.randomUUID()}`;
+      const numero =
+        numeroPreview && numeroPreview !== "N/ANNO"
+          ? numeroPreview
+          : `N/${dataPreventivo.slice(0, 4)}`;
+      setSaving(false);
+      setSavedId(id);
+      setNumeroPreview(numero);
+      setIntenzione(nextIntenzione);
+      snapshotSessione(nextIntenzione, id, numero);
+      const stato = nextIntenzione === "inviato" ? "inviato" : "creato";
+      const item: Preventivo = {
+        id,
+        numeroInterno: numero,
+        clienteId: destinatario.kind === "cliente" ? destinatario.id : "",
+        cliente: destinatario.ragioneSociale,
+        clienteCodiceTarga: destinatario.codiceTarga || "PC",
+        dataPreventivo,
+        stato,
+        documentoStato: nextIntenzione === "bozza" ? "bozza" : "approvato",
+        versione: 1,
+        consegnaMetodo,
+        spedizioneACarico,
+        spedizioneImporto,
+        spedizioneImportoBase: base,
+        spedizioneMarkupPct: SPEDIZIONE_MARKUP_SICUREZZA_PCT,
+        spedizioneFonte,
+        tipoPagamento,
+        tempiPagamentoGiorni: null,
+        tempiPagamentoNote: "",
+        giorniConsegna: giorniConsegna.trim() || GIORNI_CONSEGNA_DEFAULT,
+        validitaGiorni,
+        includeCoordinateBancarie: true,
+        coordinateBanca: AGRINSICILIA_COORDINATE.banca,
+        coordinateIban: AGRINSICILIA_COORDINATE.iban,
+        coordinateBic: AGRINSICILIA_COORDINATE.bic,
+        commercialeRiferimentoId: commerciale.id,
+        commercialeRiferimentoNome: commerciale.nome,
+        commercialeRiferimentoTelefono: commerciale.telefono,
+        commercialeRiferimentoEmail: commerciale.email,
+        note: note.trim() || PREVENTIVO_NOTE_DEFAULT,
+        webmailAccettazioneId: null,
+        referenteAccettazioneId: null,
+        referenteAccettazioneLabel: "",
+        righe: [],
+        createdAt: new Date().toISOString(),
+      };
+      return item;
+    }
     const result = await savePreventivoAction({
       id: savedId ?? undefined,
       intenzione: nextIntenzione,
@@ -495,14 +547,18 @@ export function PreventivoFormModal({ onClose, onSaved }: Props) {
   async function onSalvaBozza() {
     const item = await persist("bozza");
     if (item) {
-      setSessioneMsg("Bozza salvata in sessione. Il foglio resta aperto per i test.");
+      setSessioneMsg(
+        "Bozza tenuta in sessione di prova. Il foglio resta aperto e l’archivio non è stato toccato."
+      );
     }
   }
 
   async function onSalva() {
     const item = await persist("salvato");
     if (item) {
-      setSessioneMsg("Preventivo salvato in sessione. Il foglio resta aperto per i test.");
+      setSessioneMsg(
+        "Preventivo tenuto in sessione di prova. Il foglio resta aperto e l’archivio non è stato toccato."
+      );
     }
   }
 
@@ -575,7 +631,11 @@ export function PreventivoFormModal({ onClose, onSaved }: Props) {
     >
       <div className="mx-auto mb-4 flex max-w-[210mm] items-center justify-between gap-3 print:hidden">
         <h2 id={titleId} className="text-sm font-semibold text-white">
-          {savedId ? "Preventivo in sessione" : "Nuovo preventivo"}
+          {PREVENTIVI_SESSIONE_PROVA
+            ? "Nuovo preventivo · sessione di prova"
+            : savedId
+              ? "Preventivo in sessione"
+              : "Nuovo preventivo"}
           <span className="ml-2 text-xs font-normal text-white/70">
             {labelIntenzionePreventivo(intenzione)}
           </span>
@@ -616,6 +676,11 @@ export function PreventivoFormModal({ onClose, onSaved }: Props) {
         </div>
       </div>
 
+      {PREVENTIVI_SESSIONE_PROVA ? (
+        <p className="mx-auto mb-3 max-w-[210mm] rounded border border-amber-300 bg-amber-100 px-3 py-2 text-sm font-medium text-amber-950 print:hidden">
+          {PREVENTIVI_SESSIONE_PROVA_MSG}
+        </p>
+      ) : null}
       {sessioneMsg ? (
         <p className="mx-auto mb-3 max-w-[210mm] rounded border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900 print:hidden">
           {sessioneMsg}
@@ -1080,8 +1145,8 @@ export function PreventivoFormModal({ onClose, onSaved }: Props) {
           }}
         >
           <p className="text-sm text-slate-600">
-            Per ora l’invio resta in sessione provvisoria: registra lo stato
-            «inviato» e non spedisce email reali. Serve a testare il flusso.
+            Conferma solo la prova: lo stato «inviato» resta in questa sessione
+            del browser. Nessuna email parte e il preventivo non entra in archivio.
           </p>
           <label className="block text-sm">
             <span className="mb-1 block font-medium">Destinatario (email)</span>

@@ -2,6 +2,10 @@
 
 import { writeAuditLog } from "@/lib/audit";
 import {
+  PREVENTIVI_SESSIONE_PROVA,
+  PREVENTIVI_SESSIONE_PROVA_MSG,
+} from "@/lib/amministrazione/preventivo-sessione";
+import {
   CONFEZIONE_STANDARD,
   createPreventivoSchema,
   formatNumeroPreventivo,
@@ -357,6 +361,9 @@ export async function createPreventivoAction(
 ): Promise<
   { success: true; item: Preventivo } | { success: false; error: string }
 > {
+  if (PREVENTIVI_SESSIONE_PROVA) {
+    return { success: false, error: PREVENTIVI_SESSIONE_PROVA_MSG };
+  }
   const gate = await requirePreventiviAccess();
   if (!gate.ok) return { success: false, error: gate.error };
   const parsed = createPreventivoSchema.safeParse(raw);
@@ -529,6 +536,9 @@ export async function savePreventivoAction(
 ): Promise<
   { success: true; item: Preventivo } | { success: false; error: string }
 > {
+  if (PREVENTIVI_SESSIONE_PROVA) {
+    return { success: false, error: PREVENTIVI_SESSIONE_PROVA_MSG };
+  }
   const parsed = createPreventivoSchema.safeParse(raw);
   if (!parsed.success) {
     return {

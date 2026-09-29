@@ -6,6 +6,16 @@ import type { PreventivoSpedizioneFonte } from "@/lib/amministrazione/preventivo
 
 export const PREVENTIVO_SESSIONE_KEY = "opuntia.preventivo.sessione-provvisoria";
 
+/**
+ * Prova di funzionamento: Salva bozza, Salva e Salva e invia restano in
+ * sessionStorage. Nessuna riga in archivio e nessuna email.
+ * Rimettere a false per tornare al salvataggio definitivo.
+ */
+export const PREVENTIVI_SESSIONE_PROVA = true;
+
+export const PREVENTIVI_SESSIONE_PROVA_MSG =
+  "Sessione di prova: il preventivo resta solo in questo browser. Non viene scritto in archivio e non parte nessuna email.";
+
 export type PreventivoIntenzione = "bozza" | "salvato" | "inviato";
 
 export type PreventivoSessioneRiga = {
