@@ -328,6 +328,11 @@ export function PreventiviBoard() {
               next[i] = item;
               return next;
             });
+            if (item.stato === "in_attesa_spedizione") {
+              setNotice(
+                `${item.numeroInterno} in elenco, in attesa di inserimento costo spedizione.`
+              );
+            }
           }}
         />
       ) : null}

@@ -179,7 +179,6 @@ export function PreventivoFormModal({ onClose, onSaved }: Props) {
   const [draftPrezzoModo, setDraftPrezzoModo] = useState<"inserito" | "richiesto">(
     "inserito"
   );
-  const [richiestaSalvata, setRichiestaSalvata] = useState(false);
   const [mailError, setMailError] = useState<string | null>(null);
 
   const editing = editKey
@@ -740,13 +739,9 @@ export function PreventivoFormModal({ onClose, onSaved }: Props) {
       return;
     }
     setInviaOpen(false);
-    setRichiestaSalvata(true);
-    setSavedId(result.item.id);
-    setNumeroPreview(result.item.numeroInterno);
-    setSessioneMsg(
-      `Preventivo ${result.item.numeroInterno} in attesa del calcolo. La mail partirà all'indirizzo inserito, ${mailTo.trim()}. Dopo l'invio la prova esce dall'archivio.`
-    );
+    closeEdit();
     onSaved(result.item);
+    onClose();
   }
 
   async function onConfermaInvioProva() {
@@ -845,7 +840,7 @@ export function PreventivoFormModal({ onClose, onSaved }: Props) {
           <button
             type="button"
             onClick={onFase2Mail}
-            disabled={saving || richiestaSalvata}
+            disabled={saving}
             className="rounded-lg bg-[var(--primary)] px-3 py-1.5 text-sm font-medium text-white disabled:opacity-50"
           >
             Fase 2 Mail
