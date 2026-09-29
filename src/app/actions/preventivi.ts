@@ -1050,6 +1050,90 @@ export async function listPreventivoCommercialiRiferimentoAction(): Promise<
   }
 }
 
+export async function contestoSpedizionePreventivoAction(
+  preventivoId: string
+): Promise<
+  | { success: true; azienda: string; indirizzo: string }
+  | { success: false; error: string }
+> {
+  const auth = await getAuthContext();
+  if (!auth?.isSecondFactorVerified) {
+    return { success: false, error: "Non autenticato" };
+  }
+  const incaricati = await profiliCalcoloSpedizioni();
+  if (!isSuperadminProfile(auth.profile) && !incaricati.includes(auth.userId)) {
+    return { success: false, error: "Solo chi è assegnato a Calcolo spedizioni può aprire la scheda." };
+  }
+  const service = createServiceClient();
+  const { data: prev, error } = await service
+    .from("preventivi")
+    .select("cliente_id, cliente_ragione_sociale")
+    .eq("id", preventivoId)
+    .is("deleted_at", null)
+    .maybeSingle();
+  if (error || !prev) {
+    return { success: false, error: error?.message ?? "Preventivo non trovato." };
+  }
+  const aziendaPreventivo = String(prev.cliente_ragione_sociale ?? "").trim();
+  const clienteId = prev.cliente_id ? String(prev.cliente_id) : "";
+  if (!clienteId) {
+    return {
+      success: true,
+      azienda: aziendaPreventivo,
+      indirizzo: "Indirizzo non indicato in anagrafica.",
+    };
+  }
+  const { data: cliente, error: cErr } = await service
+    .from("clienti")
+    .select(
+      "ragione_sociale, sede_amm_indirizzo, sede_amm_cap, sede_amm_citta, sede_amm_provincia, sede_amm_nazione, sede_mag_indirizzo, sede_mag_cap, sede_mag_citta, sede_mag_provincia, sede_mag_nazione, consegne_altra_azienda"
+    )
+    .eq("id", clienteId)
+    .is("deleted_at", null)
+    .maybeSingle();
+  if (cErr || !cliente) {
+    return {
+      success: true,
+      azienda: aziendaPreventivo,
+      indirizzo: "Indirizzo non indicato in anagrafica.",
+    };
+  }
+  const altra = Array.isArray(cliente.consegne_altra_azienda)
+    ? (cliente.consegne_altra_azienda as Array<Record<string, unknown>>)[0]
+    : null;
+  const altraNome = String(altra?.ragione_sociale ?? "").trim();
+  const altraIndirizzo = altra ? rigaIndirizzoSpedizione(altra) : "";
+  if (altraNome && altraIndirizzo) {
+    return { success: true, azienda: altraNome, indirizzo: altraIndirizzo };
+  }
+  const mag = rigaIndirizzoSpedizione({
+    indirizzo: cliente.sede_mag_indirizzo,
+    cap: cliente.sede_mag_cap,
+    citta: cliente.sede_mag_citta,
+    provincia: cliente.sede_mag_provincia,
+    nazione: cliente.sede_mag_nazione,
+  });
+  const amm = rigaIndirizzoSpedizione({
+    indirizzo: cliente.sede_amm_indirizzo,
+    cap: cliente.sede_amm_cap,
+    citta: cliente.sede_amm_citta,
+    provincia: cliente.sede_amm_provincia,
+    nazione: cliente.sede_amm_nazione,
+  });
+  return {
+    success: true,
+    azienda: aziendaPreventivo || String(cliente.ragione_sociale ?? ""),
+    indirizzo: mag || amm || "Indirizzo non indicato in anagrafica.",
+  };
+}
+
+function rigaIndirizzoSpedizione(sede: Record<string, unknown>): string {
+  return ["indirizzo", "cap", "citta", "provincia", "nazione"]
+    .map((key) => String(sede[key] ?? "").trim())
+    .filter(Boolean)
+    .join(", ");
+}
+
 export async function listCasellePreventivoMailAction(): Promise<
   | { success: true; accounts: Array<{ id: string; label: string; email: string }> }
   | { success: false; error: string }
