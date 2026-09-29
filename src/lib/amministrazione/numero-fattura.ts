@@ -1,6 +1,22 @@
-/** Numero fiscale fattura emessa: YY/CCCC (es. 26/0001). */
+/**
+ * Numero fiscale.
+ * Fino al 31/12/2026: NN/ANNO (es. 22/2026).
+ * Dal 01/01/2027: YY/CCCC (es. 27/0001). Lo sceglie la data di emissione.
+ */
 
-export const NUMERO_FATTURA_RE = /^(\d{2})\/(\d{4})$/;
+/** 22/2026, 01/2026 */
+export const NUMERO_FATTURA_ANNO_RE = /^(\d+)\/(20\d{2})$/;
+/** 27/0001 */
+export const NUMERO_FATTURA_PROGRESSIVO_RE = /^(\d{2})\/(\d{4})$/;
+
+export function isNumeroFatturaEmessa(value: string): boolean {
+  const s = value.trim();
+  const anno = s.match(NUMERO_FATTURA_ANNO_RE);
+  if (anno && Number(anno[2]) <= 2026) return true;
+  const prog = s.match(NUMERO_FATTURA_PROGRESSIVO_RE);
+  if (!prog) return false;
+  return Number(prog[2]) < 2000;
+}
 
 export type NumeroFatturaAssegnato = {
   numeroFattura: string;
@@ -24,7 +40,7 @@ function parsePayload(data: unknown): NumeroFatturaAssegnato {
       ? (JSON.parse(row) as { numero_fattura?: string; numero_interno?: string })
       : (row as { numero_fattura?: string; numero_interno?: string } | null);
   const numeroFattura = String(obj?.numero_fattura ?? "").trim();
-  if (!NUMERO_FATTURA_RE.test(numeroFattura)) {
+  if (!isNumeroFatturaEmessa(numeroFattura)) {
     throw new Error("Numerazione fattura non valida.");
   }
   const numeroInterno =
@@ -56,12 +72,12 @@ export async function assegnaNumeroFattura(
   return parsePayload(data);
 }
 
-/** Se il documento importato è già YY/CCCC, il contatore non può restare indietro. */
+/** Se il documento importato ha già un numero della serie attiva, il contatore non resta indietro. */
 export async function allineaProgressivoFattura(
   supabase: RpcClient,
   numeroFattura: string
 ): Promise<void> {
-  if (!NUMERO_FATTURA_RE.test(numeroFattura.trim())) return;
+  if (!isNumeroFatturaEmessa(numeroFattura.trim())) return;
   const { error } = await supabase.rpc("allinea_progressivo_fattura", {
     p_numero: numeroFattura.trim(),
   });
@@ -70,7 +86,7 @@ export async function allineaProgressivoFattura(
 
 /**
  * Numero da mostrare in elenchi, dettaglio e anteprima.
- * Nuove fatture: 26/0001. Storico: il numero già salvato (es. 26-C00E/1).
+ * Fino al 2026: 22/2026. Dal 2027: 27/0001. Storico: il numero già salvato.
  */
 export function numeroFatturaVisibile(input: {
   kind?: string | null;

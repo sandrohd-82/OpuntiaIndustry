@@ -549,7 +549,7 @@ export const TUTORIAL_CORE_ARTICLES: TutorialArticle[] = [
     sectionTitle: "Lotti e numerazioni",
     title: "Numeri ordine, fattura, preventivo, campionatura",
     summary:
-      "Ordini, preventivi e campionature: anno e targa. Fatture emesse: YY/CCCC (es. 26/0001).",
+      "Ordini, preventivi e campionature: anno e targa. Fatture 2026: NN/ANNO (es. 23/2026). Dal 2027: 27/0001.",
     path: "/app/amministrazione/ordini/nuovo",
     tags: ["Or-", "Ft-", "Nc-", "Pv-", "Cp-", "numero interno"],
     blocks: [
@@ -559,7 +559,7 @@ export const TUTORIAL_CORE_ARTICLES: TutorialArticle[] = [
         rows: [
           ["Or-", "Ordine (anche se è una campionatura-ordine)", "Or-26-C003/391"],
           ["Pv-", "Preventivo", "Pv-26-C003/12"],
-          ["Ft-", "Fattura emessa (a video 26/0001)", "26/0001"],
+          ["Ft-", "Fattura emessa", "23/2026 fino al 2026, poi 27/0001"],
           ["Nc-", "Nota di credito", "Nc-26-C005/2"],
           ["Cp-", "Campionatura", "Cp-26-C003/1"],
         ],

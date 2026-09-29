@@ -167,17 +167,22 @@ export function calcolaTotaliEmissione(
 
 /**
  * Split per FiC. Il numero visibile è number + numeration.
- * 26/0001 → number 26, numeration "/0001".
+ * 22/2026 → number 22, numeration "/2026".
+ * 27/0001 → number 27, numeration "/0001".
  * Storico 26-C005/1 resta leggibile allo stesso modo.
- * L'account FiC non deve aggiungere l'anno in coda, altrimenti compare /2026.
+ * L'account FiC non deve aggiungere un altro anno in coda.
  */
 export function splitNumeroForFic(numeroFattura: string): {
   number: number;
   numeration: string;
 } {
   const raw = numeroFattura.trim();
+  const perAnno = raw.match(/^(\d+)\/(20\d{2})$/);
+  if (perAnno && Number(perAnno[2]) <= 2026) {
+    return { number: Number(perAnno[1]), numeration: `/${perAnno[2]}` };
+  }
   const nuovo = raw.match(/^(\d{2})\/(\d{4})$/);
-  if (nuovo) {
+  if (nuovo && Number(nuovo[2]) < 2000) {
     return { number: Number(nuovo[1]), numeration: `/${nuovo[2]}` };
   }
   const storico = raw.match(/^(\d{2})-([A-Z0-9]+)\/(\d+)$/i);

@@ -359,7 +359,7 @@ export const PAGE_EXTRAS: Record<string, TutorialBlock[]> = {
   "/app/area-fiscale/fatture/nuova": [
     {
       type: "p",
-      text: "Emissione fattura interna, allineata a Fatture in Cloud. Numero YY/CCCC (es. 26/0001): progressivo unico aziendale, riparte da 0001 ogni anno. Le fatture già emesse restano col numero storico. Stati documento: bozza / registrato / approvato / chiuso. Gli scostamenti di totale restano in audit.",
+      text: "Emissione fattura interna, allineata a Fatture in Cloud. Fino al 31/12/2026 il numero è NN/ANNO (es. 23/2026). Dal 01/01/2027, in base alla data di emissione, diventa YY/CCCC (es. 27/0001). Le fatture già emesse restano col numero salvato. Stati documento: bozza / registrato / approvato / chiuso. Gli scostamenti di totale restano in audit.",
     },
   ],
   "/app/area-fiscale/commercialista": [

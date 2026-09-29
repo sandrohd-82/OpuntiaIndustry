@@ -22,7 +22,7 @@ import { buildNumeroInternoFattura } from "@/lib/amministrazione/fatture";
 import {
   allineaProgressivoFattura,
   assegnaNumeroFattura,
-  NUMERO_FATTURA_RE,
+  isNumeroFatturaEmessa,
 } from "@/lib/amministrazione/numero-fattura";
 import { writeAuditLog } from "@/lib/audit";
 import {
@@ -504,7 +504,7 @@ export async function registraFatturaVeloce(input: {
       const rpc = supabase as unknown as Parameters<
         typeof assegnaNumeroFattura
       >[0];
-      if (NUMERO_FATTURA_RE.test(esterno)) {
+      if (isNumeroFatturaEmessa(esterno)) {
         numeroFatturaPubblico = esterno;
         numeroInterno = `Ft-${esterno}`;
         await allineaProgressivoFattura(rpc, esterno);

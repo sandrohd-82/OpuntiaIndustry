@@ -204,9 +204,10 @@ export function FatturaEmissioneBoard() {
     <form onSubmit={onSubmit} className="space-y-6">
       <p className="text-sm text-[var(--muted)]">
         Compila e invia la fattura elettronica a Fatture in Cloud / SDI. Il
-        numero fattura è progressivo aziendale{" "}
-        <span className="font-mono">YY/CCCC</span> (es.{" "}
-        <span className="font-mono">26/0001</span>), unico per tutto l&apos;anno.
+        numero fattura, fino al 31/12/2026, è{" "}
+        <span className="font-mono">NN/ANNO</span> (es.{" "}
+        <span className="font-mono">23/2026</span>). Dal 01/01/2027 diventa{" "}
+        <span className="font-mono">27/0001</span>, in base alla data di emissione.
         I codici riga usano la
         targa prodotto interna (es. NCL1).
       </p>
