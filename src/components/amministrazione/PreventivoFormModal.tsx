@@ -177,11 +177,8 @@ export function PreventivoFormModal({ onClose, onSaved }: Props) {
   const [draftPrezzoModo, setDraftPrezzoModo] = useState<"inserito" | "richiesto">(
     "inserito"
   );
-  const [draftMailAccountId, setDraftMailAccountId] = useState("");
-  const [draftMailTo, setDraftMailTo] = useState("");
-  const [draftMailOggetto, setDraftMailOggetto] = useState("");
-  const [draftMailTesto, setDraftMailTesto] = useState("");
   const [richiestaSalvata, setRichiestaSalvata] = useState(false);
+  const [mailError, setMailError] = useState<string | null>(null);
 
   const editing = editKey
     ? (righe.find((r) => r.key === editKey) ?? null)
@@ -353,16 +350,6 @@ export function PreventivoFormModal({ onClose, onSaved }: Props) {
       setDraftConsegna(consegnaMetodo);
       setDraftNolo(spedizioneBase);
       setDraftPrezzoModo(prezzoAcquirenteModo);
-      setDraftMailAccountId(mailAccountId);
-      setDraftMailTo(mailTo || destinatario?.email || "");
-      setDraftMailOggetto(
-        mailOggetto ||
-          `Preventivo n. ${numeroPreview} del ${dataPreventivo.split("-").reverse().join("/")}`
-      );
-      setDraftMailTesto(mailTesto);
-      void listCasellePreventivoMailAction().then((res) => {
-        if (res.success) setCaselle(res.accounts);
-      });
     }
     if (kind === "giorni") setDraftGiorni(giorniConsegna);
     if (kind === "pagamento") setDraftPagamento(tipoPagamento);
@@ -629,18 +616,26 @@ export function PreventivoFormModal({ onClose, onSaved }: Props) {
     }
   }
 
-  async function onSalvaEInvia() {
-    const item = await persist("salvato");
-    if (!item) return;
-    setInvioEmail(invioEmail.trim() || destinatario?.email || "");
-    setInvioOggetto(
-      `Preventivo n. ${item.numeroInterno} del ${item.dataPreventivo.split("-").reverse().join("/")}`
-    );
-    setInvioMessaggio(
-      `In allegato il preventivo n. ${item.numeroInterno}.\nValidità ${validitaGiorni} giorni.\n\n(Invio in sessione di prova: nessuna email reale.)`
-    );
+  function onPassaAllaMail() {
+    if (!savedId) return;
+    if (!mailTo.trim()) {
+      setMailTo(invioEmail.trim() || destinatario?.email || "");
+    }
+    if (!mailOggetto.trim()) {
+      setMailOggetto(
+        `Preventivo n. ${numeroPreview} del ${dataPreventivo.split("-").reverse().join("/")}`
+      );
+    }
+    if (!mailTesto.trim()) {
+      setMailTesto(
+        `In allegato il preventivo n. ${numeroPreview}.\nValidità ${validitaGiorni} giorni.`
+      );
+    }
+    setMailError(null);
+    void listCasellePreventivoMailAction().then((res) => {
+      if (res.success) setCaselle(res.accounts);
+    });
     setInviaOpen(true);
-    setSessioneMsg("Pronto per il test di invio. Conferma nella modale.");
   }
 
   async function onSalvaRichiestaCalcolo() {
@@ -662,8 +657,8 @@ export function PreventivoFormModal({ onClose, onSaved }: Props) {
       !mailOggetto.trim() ||
       !mailTesto.trim()
     ) {
-      setFormError(
-        "Per richiedere il calcolo compila casella, destinatario, oggetto e testo della mail."
+      setMailError(
+        "Compila casella, destinatario, oggetto e testo della mail."
       );
       return;
     }
@@ -686,6 +681,7 @@ export function PreventivoFormModal({ onClose, onSaved }: Props) {
     }));
     setSaving(true);
     setFormError(null);
+    setMailError(null);
     const result = await createPreventivoAction({
       intenzione: "salvato",
       clienteId: destinatario.kind === "cliente" ? destinatario.id : null,
@@ -718,9 +714,11 @@ export function PreventivoFormModal({ onClose, onSaved }: Props) {
     });
     setSaving(false);
     if (!result.success) {
+      setMailError(result.error);
       setFormError(result.error);
       return;
     }
+    setInviaOpen(false);
     setRichiestaSalvata(true);
     setSavedId(result.item.id);
     setNumeroPreview(result.item.numeroInterno);
@@ -731,11 +729,18 @@ export function PreventivoFormModal({ onClose, onSaved }: Props) {
   }
 
   async function onConfermaInvioProva() {
+    if (!mailAccountId || !mailTo.includes("@") || !mailOggetto.trim() || !mailTesto.trim()) {
+      setMailError("Compila casella, destinatario, oggetto e testo della mail.");
+      return;
+    }
+    setInvioEmail(mailTo.trim());
+    setInvioOggetto(mailOggetto.trim());
+    setInvioMessaggio(mailTesto.trim());
     const item = await persist("inviato");
     if (!item) return;
     setInviaOpen(false);
     setSessioneMsg(
-      `Invio di prova registrato per ${invioEmail || "destinatario senza email"}. Nessuna email reale è partita.`
+      `Invio di prova registrato per ${mailTo.trim()}. Nessuna email reale è partita.`
     );
   }
 
@@ -824,23 +829,14 @@ export function PreventivoFormModal({ onClose, onSaved }: Props) {
           >
             Salva
           </button>
-          <button
-            type="button"
-            onClick={() => void onSalvaEInvia()}
-            disabled={saving}
-            className="rounded-lg bg-[var(--primary)] px-3 py-1.5 text-sm font-medium text-white disabled:opacity-50"
-          >
-            {saving ? "Salvataggio…" : "Salva e invia"}
-          </button>
-          {consegnaMetodo === "corriere_cliente" &&
-          prezzoAcquirenteModo === "richiesto" ? (
+          {savedId ? (
             <button
               type="button"
-              onClick={() => void onSalvaRichiestaCalcolo()}
+              onClick={onPassaAllaMail}
               disabled={saving || richiestaSalvata}
-              className="rounded-lg bg-red-700 px-3 py-1.5 text-sm font-medium text-white disabled:opacity-50"
+              className="rounded-lg bg-[var(--primary)] px-3 py-1.5 text-sm font-medium text-white disabled:opacity-50"
             >
-              {richiestaSalvata ? "Richiesta salvata" : "Salva richiesta calcolo"}
+              Passa alla mail
             </button>
           ) : null}
         </div>
@@ -1015,7 +1011,7 @@ export function PreventivoFormModal({ onClose, onSaved }: Props) {
                       <tr className="border-t border-slate-300">
                         <td colSpan={7} className="py-1.5 text-[11px] text-slate-600">
                           Spedizione a carico dell&apos;acquirente: prezzo da calcolare.
-                          La mail è preparata e partirà al completamento.
+                          Dopo il salvataggio, passa alla mail e prenota l&apos;invio.
                         </td>
                       </tr>
                     ) : null}
@@ -1204,29 +1200,12 @@ export function PreventivoFormModal({ onClose, onSaved }: Props) {
           onConfirm={() => {
             if (
               draftConsegna === "corriere_cliente" &&
-              draftPrezzoModo === "richiesto" &&
-              (!draftMailAccountId ||
-                !draftMailTo.includes("@") ||
-                !draftMailOggetto.trim() ||
-                !draftMailTesto.trim())
-            ) {
-              setFormError(
-                "Per richiedere il calcolo compila casella, destinatario, oggetto e testo della mail."
-              );
-              return;
-            }
-            if (
-              draftConsegna === "corriere_cliente" &&
               draftPrezzoModo === "inserito" &&
               (draftNolo === "" || Number(draftNolo) <= 0)
             ) {
               setFormError("Inserisci il prezzo della spedizione.");
               return;
             }
-            setMailAccountId(draftMailAccountId);
-            setMailTo(draftMailTo.trim());
-            setMailOggetto(draftMailOggetto.trim());
-            setMailTesto(draftMailTesto.trim());
             setFormError(null);
             applyConsegna(draftConsegna, draftNolo, draftPrezzoModo);
             closeEdit();
@@ -1302,53 +1281,10 @@ export function PreventivoFormModal({ onClose, onSaved }: Props) {
                 Richiedi l&apos;inserimento del prezzo
               </label>
               {draftPrezzoModo === "richiesto" ? (
-                <div className="space-y-2 rounded border border-slate-200 p-3">
-                  <p className="text-xs text-slate-600">
-                    Compila la mail adesso. Chi calcola la spedizione inserirà solo
-                    l&apos;importo e la invierà.
-                  </p>
-                  <label className="block">
-                    <span className="mb-1 block font-medium">Casella</span>
-                    <select
-                      value={draftMailAccountId}
-                      onChange={(e) => setDraftMailAccountId(e.target.value)}
-                      className="w-full rounded border border-slate-300 px-3 py-2 text-sm"
-                    >
-                      <option value="">Seleziona…</option>
-                      {caselle.map((c) => (
-                        <option key={c.id} value={c.id}>
-                          {c.label} ({c.email})
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                  <label className="block">
-                    <span className="mb-1 block font-medium">Destinatario</span>
-                    <input
-                      type="email"
-                      value={draftMailTo}
-                      onChange={(e) => setDraftMailTo(e.target.value)}
-                      className="w-full rounded border border-slate-300 px-3 py-2 text-sm"
-                    />
-                  </label>
-                  <label className="block">
-                    <span className="mb-1 block font-medium">Oggetto</span>
-                    <input
-                      value={draftMailOggetto}
-                      onChange={(e) => setDraftMailOggetto(e.target.value)}
-                      className="w-full rounded border border-slate-300 px-3 py-2 text-sm"
-                    />
-                  </label>
-                  <label className="block">
-                    <span className="mb-1 block font-medium">Testo</span>
-                    <textarea
-                      value={draftMailTesto}
-                      onChange={(e) => setDraftMailTesto(e.target.value)}
-                      rows={5}
-                      className="w-full rounded border border-slate-300 px-3 py-2 text-sm"
-                    />
-                  </label>
-                </div>
+                <p className="text-xs text-slate-600">
+                  Il prezzo non si inserisce ora. Dopo aver salvato il preventivo,
+                  passa alla mail e prenota l&apos;invio.
+                </p>
               ) : null}
             </fieldset>
           ) : null}
@@ -1463,24 +1399,67 @@ export function PreventivoFormModal({ onClose, onSaved }: Props) {
 
       {inviaOpen ? (
         <PreventivoEditModal
-          title="Salva e invia (sessione di prova)"
+          title="Mail del preventivo"
           onClose={() => setInviaOpen(false)}
-          confirmLabel={saving ? "Invio…" : "Invia in prova"}
+          confirmLabel={
+            saving
+              ? "Salvataggio…"
+              : consegnaMetodo === "corriere_cliente" &&
+                  prezzoAcquirenteModo === "richiesto"
+                ? "Salva e prenota invio"
+                : "Salva e invia"
+          }
           confirmDisabled={saving}
           onConfirm={() => {
+            if (
+              consegnaMetodo === "corriere_cliente" &&
+              prezzoAcquirenteModo === "richiesto"
+            ) {
+              void onSalvaRichiestaCalcolo();
+              return;
+            }
             void onConfermaInvioProva();
           }}
         >
-          <p className="text-sm text-slate-600">
-            Conferma solo la prova: lo stato «inviato» resta in questa sessione
-            del browser. Nessuna email parte e il preventivo non entra in archivio.
-          </p>
+          {consegnaMetodo === "corriere_cliente" &&
+          prezzoAcquirenteModo === "richiesto" ? (
+            <p className="text-sm text-slate-600">
+              La mail resta pronta. Parte solo quando chi calcola la spedizione
+              inserisce l&apos;importo e completa.
+            </p>
+          ) : (
+            <p className="text-sm text-slate-600">
+              {PREVENTIVI_SESSIONE_PROVA
+                ? "Conferma l'invio in sessione di prova: nessuna email reale parte."
+                : "Conferma l'invio del preventivo con la mail compilata."}
+            </p>
+          )}
+          {mailError ? (
+            <p className="rounded border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+              {mailError}
+            </p>
+          ) : null}
           <label className="block text-sm">
-            <span className="mb-1 block font-medium">Destinatario (email)</span>
+            <span className="mb-1 block font-medium">Casella</span>
+            <select
+              value={mailAccountId}
+              onChange={(e) => setMailAccountId(e.target.value)}
+              className="w-full rounded border border-slate-300 px-3 py-2 text-sm"
+            >
+              <option value="">Seleziona…</option>
+              {caselle.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.label} ({c.email})
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="block text-sm">
+            <span className="mb-1 block font-medium">Destinatario</span>
             <input
               type="email"
-              value={invioEmail}
-              onChange={(e) => setInvioEmail(e.target.value)}
+              value={mailTo}
+              onChange={(e) => setMailTo(e.target.value)}
               className="w-full rounded border border-slate-300 px-3 py-2 text-sm"
               placeholder="email@cliente.it"
             />
@@ -1488,16 +1467,16 @@ export function PreventivoFormModal({ onClose, onSaved }: Props) {
           <label className="block text-sm">
             <span className="mb-1 block font-medium">Oggetto</span>
             <input
-              value={invioOggetto}
-              onChange={(e) => setInvioOggetto(e.target.value)}
+              value={mailOggetto}
+              onChange={(e) => setMailOggetto(e.target.value)}
               className="w-full rounded border border-slate-300 px-3 py-2 text-sm"
             />
           </label>
           <label className="block text-sm">
-            <span className="mb-1 block font-medium">Messaggio</span>
+            <span className="mb-1 block font-medium">Testo</span>
             <textarea
-              value={invioMessaggio}
-              onChange={(e) => setInvioMessaggio(e.target.value)}
+              value={mailTesto}
+              onChange={(e) => setMailTesto(e.target.value)}
               rows={5}
               className="w-full rounded border border-slate-300 px-3 py-2 text-sm"
             />
