@@ -1494,6 +1494,19 @@ export function PreventivoFormModal({ onClose, onSaved }: Props) {
               className="w-full rounded border border-slate-300 px-3 py-2 text-sm"
             />
           </label>
+          <div className="flex items-center gap-2 rounded border border-slate-200 bg-slate-50 px-3 py-2">
+            <span className="rounded bg-red-700 px-1.5 py-0.5 text-[10px] font-semibold text-white">
+              PDF
+            </span>
+            <span className="min-w-0">
+              <span className="block truncate text-sm font-medium text-slate-900">
+                {numeroPreview}.pdf
+              </span>
+              <span className="block text-xs text-slate-500">
+                Promemoria allegato. Il file non è ancora generato.
+              </span>
+            </span>
+          </div>
         </PreventivoEditModal>
       ) : null}
     </div>
