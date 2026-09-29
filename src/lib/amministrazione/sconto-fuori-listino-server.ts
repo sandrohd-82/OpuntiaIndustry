@@ -322,15 +322,14 @@ export async function autoFirmaScontoOnCreate(input: {
   fascia: ScontoFascia;
   actorId: string;
   isSuperadmin: boolean;
-}): Promise<void> {
-  if (input.fascia === "nessuno" || input.fascia === "fino_10") return;
-  if (input.isSuperadmin) {
-    await insertApprovazioneSconto({
-      ordineId: input.ordineId,
-      ruolo: "superadmin",
-      actorId: input.actorId,
-    });
-  }
+}): Promise<string | null> {
+  if (input.fascia === "nessuno" || input.fascia === "fino_10") return null;
+  if (!input.isSuperadmin) return null;
+  return insertApprovazioneSconto({
+    ordineId: input.ordineId,
+    ruolo: "superadmin",
+    actorId: input.actorId,
+  });
 }
 
 export function ruoloApprovazionePossibile(input: {
@@ -351,19 +350,21 @@ export async function finalizeScontoOnCreate(input: {
   cliente: string;
   actorId: string;
   isSuperadmin: boolean;
-}): Promise<void> {
-  await autoFirmaScontoOnCreate({
+}): Promise<string | null> {
+  const firmaErr = await autoFirmaScontoOnCreate({
     ordineId: input.ordineId,
     fascia: input.fascia,
     actorId: input.actorId,
     isSuperadmin: input.isSuperadmin,
   });
+  if (firmaErr) return firmaErr;
   const recomputed = await recomputeScontoApprovazione({
     ordineId: input.ordineId,
     fascia: input.fascia,
     clienteId: input.clienteId,
     actorId: input.actorId,
   });
+  if (recomputed.error) return recomputed.error;
   if (recomputed.stato === "in_attesa") {
     await notifyScontoDaApprovare({
       ordineId: input.ordineId,
@@ -375,4 +376,5 @@ export async function finalizeScontoOnCreate(input: {
       actorId: input.actorId,
     });
   }
+  return null;
 }

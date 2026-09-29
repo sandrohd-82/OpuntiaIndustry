@@ -1383,7 +1383,7 @@ async function createOrdineWizardActionInner(
       possibileClienteId: resolved.possibileClienteId,
     });
 
-    await finalizeScontoOnCreate({
+    const scontoErr = await finalizeScontoOnCreate({
       ordineId: row.id,
       fascia: scontoVal.fascia,
       pct: scontoVal.pct,
@@ -1393,6 +1393,12 @@ async function createOrdineWizardActionInner(
       actorId: auth.userId,
       isSuperadmin: scontoCtx.isSuperadmin,
     });
+    if (scontoErr) {
+      return {
+        success: false,
+        error: `Ordine creato, ma la firma dello sconto non è stata registrata: ${scontoErr}`,
+      };
+    }
 
     await writeAudit({
       entity_type: "ordini",

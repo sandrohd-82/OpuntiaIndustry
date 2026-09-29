@@ -145,7 +145,7 @@ export const SCONTO_FUORI_LISTINO_REGOLE = [
     fascia: "10,01–20%",
     inserisce: "Chi ha Crea ordine o Crea preventivo.",
     approva:
-      "Un commerciale Senior della linea dell’azienda, oppure un Super Admin.",
+      "Un commerciale Senior della linea, oppure un Super Admin. Se l’ordine lo crea un Super Admin, quella creazione è già la firma: non serve un secondo clic. Senza commerciale sull’azienda il Senior non entra.",
   },
   {
     fascia: "20,01–30%",
