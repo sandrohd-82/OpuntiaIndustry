@@ -30,6 +30,8 @@ export type PreventivoSessioneRiga = {
   listinoId: string | null;
   prezzoDaListino: boolean;
   scontoExtraPct: number;
+  scontoListinoPct?: number;
+  scontoListinoTarga?: string;
   scontoSuddivisioneAttiva?: boolean;
   scontoQuotaAziendaPct?: number;
   scontoQuotaCommercialePct?: number;

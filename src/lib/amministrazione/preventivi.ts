@@ -81,6 +81,8 @@ export type PreventivoScontisticaRiga = {
   kgStandard: number | null;
   kgForzato: boolean;
   targa: string;
+  imballaggioCodice?: string;
+  imballaggioNome?: string;
   preview: string | null;
 };
 
@@ -113,13 +115,18 @@ export type PreventivoRiga = {
 
 export function prezzoNettoRigaPreventivo(
   prezzoListino: number,
-  scontoExtraPct: number
+  scontoExtraPct: number,
+  scontoListinoPct = 0
 ): number {
   if (!Number.isFinite(prezzoListino) || prezzoListino < 0) return 0;
+  const listino = Number.isFinite(scontoListinoPct)
+    ? Math.min(100, Math.max(0, scontoListinoPct))
+    : 0;
   const extra = Number.isFinite(scontoExtraPct)
     ? Math.min(100, Math.max(0, scontoExtraPct))
     : 0;
-  return Math.round(prezzoListino * (1 - extra / 100) * 100) / 100;
+  const dopoListino = prezzoListino * (1 - listino / 100);
+  return Math.round(dopoListino * (1 - extra / 100) * 100) / 100;
 }
 
 export type Preventivo = {

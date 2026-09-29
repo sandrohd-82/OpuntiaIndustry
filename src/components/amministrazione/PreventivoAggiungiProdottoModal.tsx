@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useId, useState } from "react";
+import { useEffect, useId, useMemo, useState } from "react";
 import { getPreventivoProdottoContestoAction } from "@/app/actions/preventivi";
 import { ClearableNumberInput } from "@/components/ui/ClearableNumberInput";
 import {
@@ -9,6 +9,12 @@ import {
   type PreventivoConfezioneOption,
   type PreventivoScontisticaRiga,
 } from "@/lib/amministrazione/preventivi";
+import {
+  CONFEZIONE_SISTEMA,
+  confezioniListinoDistinte,
+  modoConfezioneApplicato,
+  pianoConfezionamento,
+} from "@/lib/amministrazione/preventivo-confezionamento";
 import { ScontoSuddivisioneFields } from "@/components/amministrazione/ScontoSuddivisioneFields";
 import { validaQuoteSuddivisione } from "@/lib/amministrazione/sconto-suddivisione";
 import { LISTINO_CONTRATTO_MSG } from "@/lib/ecosystem/listino-vigente";
@@ -19,6 +25,8 @@ export type PreventivoProdottoDraft = {
   prodottoId: string;
   quantita: number;
   scontoExtraPct: number;
+  scontoListinoPct: number;
+  scontoListinoTarga: string;
   scontoSuddivisioneAttiva: boolean;
   scontoQuotaAziendaPct: number;
   scontoQuotaCommercialePct: number;
@@ -51,6 +59,10 @@ function euro(n: number) {
 
 function qtyLabel(n: number) {
   return n.toLocaleString("it-IT", { maximumFractionDigits: 3 });
+}
+
+function fmtPack(n: number) {
+  return qtyLabel(n);
 }
 
 function bloccoDaContesto(
@@ -87,7 +99,7 @@ export function PreventivoAggiungiProdottoModal({
     number | ""
   >(initial?.scontoQuotaCommercialePct ?? "");
   const [confezioneValue, setConfezioneValue] = useState(
-    initial?.confezioneValue ?? CONFEZIONE_STANDARD
+    initial?.confezioneValue || CONFEZIONE_SISTEMA
   );
   const [prezzo, setPrezzo] = useState<number | null>(
     initial?.prezzoUnitario ?? null
@@ -152,7 +164,7 @@ export function PreventivoAggiungiProdottoModal({
       setConfezioni(res.confezioni);
       setConfezioneValue((prev) => {
         if (initial?.prodottoId === prodottoId && prev) return prev;
-        return CONFEZIONE_STANDARD;
+        return CONFEZIONE_SISTEMA;
       });
     });
     return () => {
@@ -195,18 +207,38 @@ export function PreventivoAggiungiProdottoModal({
     const opt =
       confezioni.find((c) => c.value === confezioneValue) ??
       confezioni.find((c) => c.isStandard);
-    const label = opt?.label ?? "Standard";
+    const packListino = confezioniListinoDistinte(condizioni);
+    const usaListino = packListino.length > 0;
+    const modo = modoConfezioneApplicato(
+      confezioneValue,
+      packListino.map((p) => p.imballaggioVoceId)
+    );
+    const piano = usaListino
+      ? pianoConfezionamento({
+          quantita: qty,
+          condizioni,
+          modo,
+        })
+      : null;
+    const label = piano?.testo || opt?.label || "Standard";
+    const voceId = piano
+      ? piano.manuale
+        ? piano.modo
+        : (piano.pezzi[0]?.imballaggioVoceId ?? null)
+      : (opt?.imballaggioVoceId ?? null);
     onConfirm({
       prodottoId,
       quantita: qty,
       scontoExtraPct: extra,
+      scontoListinoPct: piano?.scontoPct ?? 0,
+      scontoListinoTarga: piano?.targa ?? "",
       scontoSuddivisioneAttiva,
       scontoQuotaAziendaPct: scontoQuotaAzienda === "" ? 0 : scontoQuotaAzienda,
       scontoQuotaCommercialePct:
         scontoQuotaCommerciale === "" ? 0 : scontoQuotaCommerciale,
-      confezioneValue: opt?.value ?? CONFEZIONE_STANDARD,
+      confezioneValue: piano ? piano.modo : (opt?.value ?? CONFEZIONE_STANDARD),
       confezionamento: label,
-      imballaggioVoceId: opt?.imballaggioVoceId ?? null,
+      imballaggioVoceId: voceId,
       prezzoUnitario: prezzo ?? 0,
       ivaPercentuale: iva,
       listinoId,
@@ -218,8 +250,35 @@ export function PreventivoAggiungiProdottoModal({
   }
 
   const extraNum = scontoExtra === "" ? 0 : scontoExtra;
+  const qtyNum = quantita === "" ? 0 : quantita;
+  const packListino = useMemo(
+    () => confezioniListinoDistinte(condizioni),
+    [condizioni]
+  );
+  const modo = modoConfezioneApplicato(
+    confezioneValue,
+    packListino.map((p) => p.imballaggioVoceId)
+  );
+  const piano = useMemo(() => {
+    if (!packListino.length || !(qtyNum > 0)) return null;
+    return pianoConfezionamento({
+      quantita: qtyNum,
+      condizioni,
+      modo,
+    });
+  }, [packListino.length, qtyNum, condizioni, modo]);
+  const proposta = useMemo(() => {
+    if (!packListino.length || !(qtyNum > 0)) return null;
+    return pianoConfezionamento({
+      quantita: qtyNum,
+      condizioni,
+      modo: CONFEZIONE_SISTEMA,
+    });
+  }, [packListino.length, qtyNum, condizioni]);
   const netto =
-    prezzo != null ? prezzoNettoRigaPreventivo(prezzo, extraNum) : null;
+    prezzo != null
+      ? prezzoNettoRigaPreventivo(prezzo, extraNum, piano?.scontoPct ?? 0)
+      : null;
 
   return (
     <div
@@ -383,33 +442,80 @@ export function PreventivoAggiungiProdottoModal({
             {netto != null && prezzo != null ? (
               <p className="mt-1 text-xs text-slate-500">
                 Prezzo netto riga: {euro(netto)} € / {um}
+                {piano && piano.scontoPct > 0
+                  ? ` · sconto listino ${piano.scontoPct.toLocaleString("it-IT")}%${
+                      piano.targa ? ` ${piano.targa}` : ""
+                    }`
+                  : ""}
               </p>
             ) : null}
           </label>
 
           <label className="block text-sm">
             <span className="mb-1 block font-medium">Confezionamento</span>
-            <select
-              value={confezioneValue}
-              onChange={(e) => setConfezioneValue(e.target.value)}
-              className="w-full rounded border border-slate-300 bg-white px-3 py-2 text-sm"
-            >
-              {(confezioni.length
-                ? confezioni
-                : [
-                    {
-                      value: CONFEZIONE_STANDARD,
-                      label: "Standard",
-                      isStandard: true,
-                      imballaggioVoceId: null,
-                    },
-                  ]
-              ).map((c) => (
-                <option key={c.value} value={c.value}>
-                  {c.label}
-                </option>
-              ))}
-            </select>
+            {packListino.length > 0 ? (
+              <>
+                <select
+                  value={modo}
+                  onChange={(e) => setConfezioneValue(e.target.value)}
+                  className="w-full rounded border border-slate-300 bg-white px-3 py-2 text-sm"
+                >
+                  <option value={CONFEZIONE_SISTEMA}>
+                    Soluzione migliore (sconto di listino più alto)
+                  </option>
+                  {packListino.map((p) => (
+                    <option key={p.imballaggioVoceId} value={p.imballaggioVoceId}>
+                      Solo {fmtPack(p.kg)} kg — {p.etichetta}
+                    </option>
+                  ))}
+                </select>
+                {proposta ? (
+                  <p className="mt-2 rounded border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs text-emerald-950">
+                    Proposta: {proposta.testo}
+                    {proposta.scontoPct > 0
+                      ? `. Sconto listino ${proposta.scontoPct.toLocaleString("it-IT")}%${
+                          proposta.targa ? ` ${proposta.targa}` : ""
+                        }.`
+                      : ". Nessuno sconto di listino su questa quantità."}
+                  </p>
+                ) : null}
+                {piano && modo !== CONFEZIONE_SISTEMA ? (
+                  <p className="mt-2 text-xs text-slate-600">
+                    Scelta operatore: {piano.testo}. Sconto applicato{" "}
+                    {piano.scontoPct > 0
+                      ? `${piano.scontoPct.toLocaleString("it-IT")}%${
+                          piano.targa ? ` ${piano.targa}` : ""
+                        }`
+                      : "nessuno"}
+                    {proposta && piano.scontoPct === proposta.scontoPct
+                      ? ". Il prezzo non cambia rispetto alla proposta."
+                      : ". Il prezzo segue lo sconto di questa confezione."}
+                  </p>
+                ) : null}
+              </>
+            ) : (
+              <select
+                value={confezioneValue}
+                onChange={(e) => setConfezioneValue(e.target.value)}
+                className="w-full rounded border border-slate-300 bg-white px-3 py-2 text-sm"
+              >
+                {(confezioni.length
+                  ? confezioni
+                  : [
+                      {
+                        value: CONFEZIONE_STANDARD,
+                        label: "Standard",
+                        isStandard: true,
+                        imballaggioVoceId: null,
+                      },
+                    ]
+                ).map((c) => (
+                  <option key={c.value} value={c.value}>
+                    {c.label}
+                  </option>
+                ))}
+              </select>
+            )}
           </label>
 
           {error ? (

@@ -858,6 +858,8 @@ export async function getPreventivoProdottoContestoAction(
           kgStandard: mapped.kgStandard,
           kgForzato: mapped.kgForzato,
           targa: mapped.targa,
+          imballaggioCodice: mapped.imballaggioCodice ?? "",
+          imballaggioNome: mapped.imballaggioNome ?? "",
           preview: previewScontoListino({
             prezzo: voce.prezzo,
             scontoPct: mapped.scontoPct,
