@@ -5,6 +5,7 @@ import { AppHeader } from "@/components/layout/AppHeader";
 import { requireAreaAccess } from "@/lib/areas/guard";
 import { canCurrentUserModificaFattura } from "@/lib/auth/fattura-privileges-server";
 import type { FatturaKind } from "@/lib/amministrazione/fatture";
+import { numeroFatturaVisibile } from "@/lib/amministrazione/numero-fattura";
 
 type Props = {
   params: Promise<{ kind: string; id: string }>;
@@ -41,11 +42,12 @@ export default async function FatturaDettaglioPage({ params }: Props) {
         ? "Dettaglio fattura emessa"
         : "Dettaglio fattura ricevuta";
 
+  const numero = numeroFatturaVisibile(result.fattura);
   const subtitle = canEdit
     ? kind === "nota_credito"
-      ? `Modificabile · anteprima fatture collegate · ${result.fattura.numeroInterno}`
-      : `Modificabile · condizioni (sconti, prezzi, IVA spedizione) — ${result.fattura.numeroInterno}`
-    : `Sola lettura · ${result.fattura.numeroInterno}`;
+      ? `Modificabile · anteprima fatture collegate · ${numero}`
+      : `Modificabile · condizioni (sconti, prezzi, IVA spedizione) — ${numero}`
+    : `Sola lettura · ${numero}`;
 
   return (
     <>

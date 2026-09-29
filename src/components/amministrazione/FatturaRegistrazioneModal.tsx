@@ -102,6 +102,7 @@ import {
   type FatturaKind,
   type FatturaRiga,
 } from "@/lib/amministrazione/fatture";
+import { numeroFatturaVisibile } from "@/lib/amministrazione/numero-fattura";
 import type {
   FatturaModalitaCollegamentoNc,
   FatturaNaturaDocumento,
@@ -666,7 +667,7 @@ export function FatturaRegistrazioneModal({
     setFatturaSostitutivaId(doc.fatturaSostitutivaId ?? "");
     setRiferimentoFatturaEsterno(doc.riferimentoFatturaEsterno || "");
     setNote(doc.note || "");
-    setNumeroInterno(doc.numeroInterno);
+    setNumeroInterno(numeroFatturaVisibile(doc));
     setRighe(toEditableRighe(doc.righe, doc.kind));
     setDilazioni(
       (doc.dilazioni ?? []).map((d) => ({
@@ -1259,7 +1260,7 @@ export function FatturaRegistrazioneModal({
 
   useEffect(() => {
     if (isEdit) {
-      setNumeroInterno(initial?.numeroInterno ?? "");
+      setNumeroInterno(initial ? numeroFatturaVisibile(initial) : "");
       return;
     }
     if (!anagraficaId || !anagraficaCodiceTarga || !dataEmissione) {

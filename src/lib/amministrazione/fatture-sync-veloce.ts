@@ -19,6 +19,11 @@ import {
   type FatturaSyncQueueItem,
 } from "@/lib/amministrazione/fatture-sync";
 import { buildNumeroInternoFattura } from "@/lib/amministrazione/fatture";
+import {
+  allineaProgressivoFattura,
+  assegnaNumeroFattura,
+  NUMERO_FATTURA_RE,
+} from "@/lib/amministrazione/numero-fattura";
 import { writeAuditLog } from "@/lib/audit";
 import {
   findActiveFatturaIdByFicId,
@@ -492,18 +497,44 @@ export async function registraFatturaVeloce(input: {
   }
 
   try {
-    const seq = await nextSeqFatturaWithClient(
-      supabase,
-      item.kind,
-      input.anagrafica.id,
-      input.anagrafica.codiceTarga
-    );
-    const numeroInterno = buildNumeroInternoFattura({
-      dataEmissione: item.dataEmissione,
-      codiceTarga: input.anagrafica.codiceTarga,
-      seq,
-      kind: item.kind,
-    });
+    let numeroInterno: string;
+    let numeroFatturaPubblico = "";
+    if (item.kind === "emessa") {
+      const esterno = String(item.numeroEsterno ?? "").trim();
+      const rpc = supabase as unknown as Parameters<
+        typeof assegnaNumeroFattura
+      >[0];
+      if (NUMERO_FATTURA_RE.test(esterno)) {
+        numeroFatturaPubblico = esterno;
+        numeroInterno = `Ft-${esterno}`;
+        await allineaProgressivoFattura(rpc, esterno);
+      } else if (esterno) {
+        numeroFatturaPubblico = esterno.replace(/^FT-/i, "");
+        numeroInterno = esterno.toUpperCase().startsWith("FT-")
+          ? esterno
+          : `Ft-${esterno}`;
+      } else {
+        const assegnato = await assegnaNumeroFattura(
+          rpc,
+          item.dataEmissione
+        );
+        numeroInterno = assegnato.numeroInterno;
+        numeroFatturaPubblico = assegnato.numeroFattura;
+      }
+    } else {
+      const seq = await nextSeqFatturaWithClient(
+        supabase,
+        item.kind,
+        input.anagrafica.id,
+        input.anagrafica.codiceTarga
+      );
+      numeroInterno = buildNumeroInternoFattura({
+        dataEmissione: item.dataEmissione,
+        codiceTarga: input.anagrafica.codiceTarga,
+        seq,
+        kind: item.kind,
+      });
+    }
 
     if (item.kind === "emessa" || item.kind === "nota_credito") {
       const { data, error } = await (
@@ -520,6 +551,8 @@ export async function registraFatturaVeloce(input: {
       )
         .insert({
           numero_interno: numeroInterno,
+          numero_fattura:
+            item.kind === "emessa" ? numeroFatturaPubblico : "",
           cliente_id: input.anagrafica.id,
           cliente_ragione_sociale: input.anagrafica.ragioneSociale,
           cliente_codice_targa: input.anagrafica.codiceTarga,

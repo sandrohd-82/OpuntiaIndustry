@@ -61,7 +61,7 @@ export function buildFatturaA4PdfBlob(input: {
   doc.setFontSize(14);
   doc.text("FATTURA", 14, y);
   doc.setFontSize(10);
-  doc.text(input.numeroFattura || "N/ANNO", 196, y, { align: "right" });
+  doc.text(input.numeroFattura || "AA/NNNN", 196, y, { align: "right" });
   y += 6;
   doc.setFont("helvetica", "normal");
   doc.setFontSize(9);

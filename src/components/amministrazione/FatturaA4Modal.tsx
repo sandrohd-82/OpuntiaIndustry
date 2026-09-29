@@ -112,7 +112,7 @@ export function FatturaA4Modal({
   const [cliente, setCliente] = useState<Cliente | null>(null);
   const [destinatario, setDestinatario] =
     useState<FatturaDestinatarioSnapshot | null>(null);
-  const [numero, setNumero] = useState("N/ANNO");
+  const [numero, setNumero] = useState("AA/NNNN");
   const [dataDocumento, setDataDocumento] = useState("");
   const [righe, setRighe] = useState<FatturaA4Riga[]>([]);
   const [noteDocumento, setNoteDocumento] = useState("");

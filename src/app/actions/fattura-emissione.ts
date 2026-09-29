@@ -6,14 +6,16 @@ import { requireAreaAccess } from "@/lib/areas/guard";
 import {
   aliquoteIvaOptions,
   buildDescrizioneDocumento,
-  buildNumeroInternoEmissione,
   calcolaTotaliEmissione,
   emissioneInputSchema,
   splitNumeroForFic,
   type EmissioneParsed,
 } from "@/lib/amministrazione/fattura-emissione";
 import { mapCompanyFiscalProfileRow } from "@/lib/amministrazione/fiscal-profile";
-import { year2FromDate } from "@/lib/amministrazione/fatture";
+import {
+  anteprimaNumeroFattura,
+  assegnaNumeroFattura,
+} from "@/lib/amministrazione/numero-fattura";
 import {
   createIssuedDocument,
   fetchFicVatTypes,
@@ -30,40 +32,8 @@ import type {
   FatturaEmessaRow,
 } from "@/types/database";
 
-async function nextSeqEmissioneAnnoCliente(
-  clienteId: string,
-  codiceTarga: string,
-  dataDocumento: string
-): Promise<number> {
-  const supabase = await createClient();
-  const aa = year2FromDate(dataDocumento);
-  const targa = codiceTarga.trim().toUpperCase();
-  const { data, error } = await supabase
-    .from("fatture_emesse")
-    .select("numero_interno, cliente_id, data_emissione")
-    .eq("cliente_id", clienteId)
-    .is("deleted_at", null);
-
-  if (error) throw new Error(error.message);
-
-  const re = new RegExp(
-    `^Ft-${aa}-${targa.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}/(\\d+)$`,
-    "i"
-  );
-  let maxParsed = 0;
-  for (const row of data ?? []) {
-    const year = String(row.data_emissione ?? "").slice(0, 4);
-    const yy = year.length === 4 ? year.slice(2) : "";
-    if (yy !== aa) continue;
-    const m = String(row.numero_interno).match(re);
-    if (m) maxParsed = Math.max(maxParsed, Number(m[1]));
-  }
-  return maxParsed + 1;
-}
-
 export async function previewNumeroEmissioneAction(input: {
   clienteId: string;
-  codiceTarga: string;
   dataDocumento: string;
 }): Promise<
   | { success: true; numeroInterno: string; numeroFattura: string }
@@ -71,16 +41,8 @@ export async function previewNumeroEmissioneAction(input: {
 > {
   await requireAreaAccess("amministrazione");
   try {
-    const seq = await nextSeqEmissioneAnnoCliente(
-      input.clienteId,
-      input.codiceTarga,
-      input.dataDocumento
-    );
-    const nums = buildNumeroInternoEmissione({
-      dataDocumento: input.dataDocumento,
-      codiceTarga: input.codiceTarga,
-      seq,
-    });
+    const supabase = await createClient();
+    const nums = await anteprimaNumeroFattura(supabase, input.dataDocumento);
     return { success: true, ...nums };
   } catch (e) {
     return {
@@ -255,16 +217,21 @@ export async function createAndSendInvoiceAction(
   const fiscaleErr = validateClienteFiscale(cliente);
   if (fiscaleErr) return { success: false, error: fiscaleErr };
 
-  const seq = await nextSeqEmissioneAnnoCliente(
-    cliente.id,
-    cliente.codice_targa,
-    parsed.dataDocumento
-  );
-  const { numeroInterno, numeroFattura } = buildNumeroInternoEmissione({
-    dataDocumento: parsed.dataDocumento,
-    codiceTarga: cliente.codice_targa,
-    seq,
-  });
+  let numeroInterno: string;
+  let numeroFattura: string;
+  try {
+    const assegnato = await assegnaNumeroFattura(supabase, parsed.dataDocumento);
+    numeroInterno = assegnato.numeroInterno;
+    numeroFattura = assegnato.numeroFattura;
+  } catch (e) {
+    return {
+      success: false,
+      error:
+        e instanceof Error
+          ? e.message
+          : "Impossibile assegnare il numero fattura.",
+    };
+  }
 
   const totals = calcolaTotaliEmissione(parsed.righe);
   const ivaHeader =

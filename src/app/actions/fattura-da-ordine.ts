@@ -5,8 +5,8 @@ import { scanPromozioniDaFattureAction } from "@/app/actions/lead-promozione";
 import { requireAreaAccess } from "@/lib/areas/guard";
 import {
   buildDescrizioneDocumento,
-  buildNumeroInternoEmissione,
   splitNumeroForFic,
+  toNumeroFatturaGestionale,
 } from "@/lib/amministrazione/fattura-emissione";
 import { mapClienteRow, type Cliente } from "@/lib/amministrazione/clienti";
 import {
@@ -18,7 +18,7 @@ import {
   type FatturaA4Riga,
   type FatturaDestinatarioSnapshot,
 } from "@/lib/amministrazione/fattura-a4-documento";
-import { importoRiga, todayIsoDate, year2FromDate } from "@/lib/amministrazione/fatture";
+import { importoRiga, todayIsoDate } from "@/lib/amministrazione/fatture";
 import {
   applyTotaleToPiano,
   emailsClienteUniche,
@@ -27,6 +27,10 @@ import {
   validatePianoVsTotale,
   type OrdinePagamentoPiano,
 } from "@/lib/amministrazione/ordine-pagamento-piano";
+import {
+  anteprimaNumeroFattura,
+  assegnaNumeroFattura,
+} from "@/lib/amministrazione/numero-fattura";
 import { AGRINSICILIA_COORDINATE } from "@/lib/amministrazione/preventivo-letterhead";
 import {
   ORDINI_PERSISTENZA_BLOCCATA_MSG,
@@ -72,35 +76,6 @@ function validateClienteFiscale(c: ClienteRow): string | null {
     return "Indica Codice SDI oppure PEC sul cliente (necessari per la fattura elettronica).";
   }
   return null;
-}
-
-async function nextSeqEmissioneAnnoCliente(
-  clienteId: string,
-  codiceTarga: string,
-  dataDocumento: string
-): Promise<number> {
-  const supabase = await createClient();
-  const aa = year2FromDate(dataDocumento);
-  const targa = codiceTarga.trim().toUpperCase();
-  const { data, error } = await supabase
-    .from("fatture_emesse")
-    .select("numero_interno, cliente_id, data_emissione")
-    .eq("cliente_id", clienteId)
-    .is("deleted_at", null);
-  if (error) throw new Error(error.message);
-  const re = new RegExp(
-    `^Ft-${aa}-${targa.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}/(\\d+)$`,
-    "i"
-  );
-  let maxParsed = 0;
-  for (const row of data ?? []) {
-    const year = String(row.data_emissione ?? "").slice(0, 4);
-    const yy = year.length === 4 ? year.slice(2) : "";
-    if (yy !== aa) continue;
-    const m = String(row.numero_interno).match(re);
-    if (m) maxParsed = Math.max(maxParsed, Number(m[1]));
-  }
-  return maxParsed + 1;
 }
 
 function missingColumn(error: { message?: string } | null, col: string): boolean {
@@ -433,16 +408,14 @@ export async function getFatturaA4ContextAction(input: {
     }
     const totals = totalsFromFatturaRighe(righe);
     const dataDocumento = existingRow?.data_emissione || todayIsoDate();
-    const seq = await nextSeqEmissioneAnnoCliente(
-      cliente.id,
-      cliente.codiceTarga,
-      dataDocumento
-    );
-    const nums = buildNumeroInternoEmissione({
-      dataDocumento,
-      codiceTarga: cliente.codiceTarga,
-      seq,
-    });
+    const nums = existingRow?.numero_interno
+      ? {
+          numeroInterno: existingRow.numero_interno,
+          numeroFattura:
+            existingRow.numero_fattura ||
+            toNumeroFatturaGestionale(existingRow.numero_interno),
+        }
+      : await anteprimaNumeroFattura(supabase, dataDocumento);
 
     return {
       success: true,
@@ -685,6 +658,22 @@ export async function saveFatturaDaOrdineAction(
   }
 
   if (!fatturaId) {
+    try {
+      const assegnato = await assegnaNumeroFattura(
+        supabase,
+        input.dataDocumento
+      );
+      numeroInterno = assegnato.numeroInterno;
+      numeroFattura = assegnato.numeroFattura;
+    } catch (e) {
+      return {
+        success: false,
+        error:
+          e instanceof Error
+            ? e.message
+            : "Impossibile assegnare il numero fattura.",
+      };
+    }
     const insert: FatturaEmessaInsert & Record<string, unknown> = {
       numero_interno: numeroInterno,
       cliente_id: ctx.cliente.id,

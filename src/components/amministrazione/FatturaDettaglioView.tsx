@@ -10,6 +10,7 @@ import {
   prezzoScontatoUnitario,
   type Fattura,
 } from "@/lib/amministrazione/fatture";
+import { numeroFatturaVisibile } from "@/lib/amministrazione/numero-fattura";
 import { fatturaDetailPath } from "@/lib/amministrazione/fatture-storico";
 import Link from "next/link";
 
@@ -65,11 +66,12 @@ export function FatturaDettaglioView({
           <h2
             className={`font-mono font-semibold ${isPreview ? "mt-1 text-lg" : "mt-2 text-xl"}`}
           >
-            {fattura.numeroInterno}
+            {numeroFatturaVisibile(fattura)}
           </h2>
           <p className="mt-1 text-sm text-[var(--muted)]">
             {formatDateIt(fattura.dataEmissione)}
-            {fattura.numeroDocumentoEsterno
+            {fattura.numeroDocumentoEsterno &&
+            fattura.numeroDocumentoEsterno !== numeroFatturaVisibile(fattura)
               ? ` · Doc. esterno ${fattura.numeroDocumentoEsterno}`
               : ""}
             {fattura.versione ? ` · v${fattura.versione}` : ""}

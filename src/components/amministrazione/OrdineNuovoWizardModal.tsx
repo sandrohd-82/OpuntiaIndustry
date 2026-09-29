@@ -893,7 +893,7 @@ export function OrdineNuovoWizardModal({
                     ),
                   }
                 : {
-                    numeroFattura: "N/ANNO",
+                    numeroFattura: "AA/NNNN",
                     dataDocumento: todayIsoDate(),
                     destinatario: destinatarioSessioneDaCliente(
                       clienteSped,
@@ -985,7 +985,7 @@ export function OrdineNuovoWizardModal({
                 ),
               }
             : {
-                numeroFattura: "N/ANNO",
+                numeroFattura: "AA/NNNN",
                 dataDocumento: todayIsoDate(),
                 destinatario: destinatarioSessioneDaCliente(
                   clienteSped,
@@ -2834,7 +2834,7 @@ export function OrdineNuovoWizardModal({
                   ),
                   piano: pagamentoPiano,
                   emails: emailsDaCliente(clienteSped),
-                  numeroFattura: "N/ANNO",
+                  numeroFattura: "AA/NNNN",
                   dataDocumento: todayIsoDate(),
                   noteDocumento: "",
                 }

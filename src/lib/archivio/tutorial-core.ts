@@ -549,7 +549,7 @@ export const TUTORIAL_CORE_ARTICLES: TutorialArticle[] = [
     sectionTitle: "Lotti e numerazioni",
     title: "Numeri ordine, fattura, preventivo, campionatura",
     summary:
-      "Numerazione per anno e targa anagrafica. Non sostituiscono i lotti di magazzino.",
+      "Ordini, preventivi e campionature: anno e targa. Fatture emesse: YY/CCCC (es. 26/0001).",
     path: "/app/amministrazione/ordini/nuovo",
     tags: ["Or-", "Ft-", "Nc-", "Pv-", "Cp-", "numero interno"],
     blocks: [
@@ -559,7 +559,7 @@ export const TUTORIAL_CORE_ARTICLES: TutorialArticle[] = [
         rows: [
           ["Or-", "Ordine (anche se è una campionatura-ordine)", "Or-26-C003/391"],
           ["Pv-", "Preventivo", "Pv-26-C003/12"],
-          ["Ft-", "Fattura interna (a video spesso 26-C005/1)", "Ft-26-C005/1"],
+          ["Ft-", "Fattura emessa (a video 26/0001)", "26/0001"],
           ["Nc-", "Nota di credito", "Nc-26-C005/2"],
           ["Cp-", "Campionatura", "Cp-26-C003/1"],
         ],

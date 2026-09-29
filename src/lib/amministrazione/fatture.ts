@@ -119,6 +119,8 @@ export type Fattura = {
   id: string;
   kind: FatturaKind;
   numeroInterno: string;
+  /** Numero fiscale mostrato (YY/CCCC o storico 26-C00E/1). */
+  numeroFattura?: string;
   anagraficaId: string | null;
   anagraficaRagioneSociale: string;
   anagraficaCodiceTarga: string;
@@ -540,13 +542,19 @@ export function bilancioDilazioni(
   };
 }
 
-/** Ft-26-C001/1 — oppure Nc-26-C001/1 per note di credito. */
+/** Ft-26-C001/1 per ricevute, Nc-26-C001/1 per note di credito.
+ *  Le fatture emesse non passano da qui: usano il progressivo aziendale YY/CCCC. */
 export function buildNumeroInternoFattura(input: {
   dataEmissione: string;
   codiceTarga: string;
   seq: number;
   kind?: FatturaKind;
 }): string {
+  if (input.kind === "emessa") {
+    throw new Error(
+      "Le fatture emesse usano il progressivo aziendale YY/CCCC, non la targa."
+    );
+  }
   const aa = year2FromDate(input.dataEmissione);
   const targa = input.codiceTarga.trim().toUpperCase() || "X000";
   const seq = Math.max(1, Math.floor(input.seq));
@@ -940,6 +948,7 @@ export function mapFatturaEmessaRow(
     id: row.id,
     kind: isNc ? "nota_credito" : "emessa",
     numeroInterno: row.numero_interno,
+    numeroFattura: row.numero_fattura || undefined,
     anagraficaId: row.cliente_id,
     anagraficaRagioneSociale: row.cliente_ragione_sociale,
     anagraficaCodiceTarga: row.cliente_codice_targa,

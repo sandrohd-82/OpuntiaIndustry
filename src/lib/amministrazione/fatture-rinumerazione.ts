@@ -30,8 +30,9 @@ export function compareFatturaCronologica(
 }
 
 /**
- * Calcola i nuovi numeri interni: progressivo 1…n per azienda e tipo
- * (Ft / Nc) in ordine di data emissione.
+ * Note di credito: progressivo per cliente (Nc-AA-TARGA/N).
+ * Le fatture emesse non si rinumerano: il numero fiscale YY/CCCC è assegnato
+ * una sola volta e le fatture già emesse restano col numero storico.
  */
 export function planRinumeraFattureEmesse(
   rows: FatturaRinumeraRow[]
@@ -43,6 +44,7 @@ export function planRinumeraFattureEmesse(
       r.numeroInterno.toUpperCase().startsWith("NC-")
         ? "nota_credito"
         : "fattura";
+    if (tipo === "fattura") continue;
     const key = `${r.clienteId}::${tipo}`;
     const list = byClienteTipo.get(key) ?? [];
     list.push({ ...r, tipoDocumento: tipo });

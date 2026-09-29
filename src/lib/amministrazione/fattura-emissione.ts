@@ -131,7 +131,7 @@ export const emissioneInputSchema = z
 
 export type EmissioneParsed = z.infer<typeof emissioneInputSchema>;
 
-/** Ft-26-C005/1 → 26-C005/1 */
+/** Ft-26/0001 → 26/0001. Storico Ft-26-C005/1 → 26-C005/1. */
 export function toNumeroFatturaGestionale(numeroInterno: string): string {
   const s = numeroInterno.trim();
   if (s.toUpperCase().startsWith("FT-")) return s.slice(3);
@@ -165,35 +165,42 @@ export function calcolaTotaliEmissione(
   };
 }
 
-/** Split per FiC: number=26, numeration="-C005/1" → display "26-C005/1". */
+/**
+ * Split per FiC. Il numero visibile è number + numeration.
+ * 26/0001 → number 26, numeration "/0001".
+ * Storico 26-C005/1 resta leggibile allo stesso modo.
+ * L'account FiC non deve aggiungere l'anno in coda, altrimenti compare /2026.
+ */
 export function splitNumeroForFic(numeroFattura: string): {
   number: number;
   numeration: string;
 } {
-  const m = numeroFattura
-    .trim()
-    .match(/^(\d{2})-([A-Z0-9]+)\/(\d+)$/i);
-  if (!m) {
-    return { number: 1, numeration: `/${numeroFattura}` };
+  const raw = numeroFattura.trim();
+  const nuovo = raw.match(/^(\d{2})\/(\d{4})$/);
+  if (nuovo) {
+    return { number: Number(nuovo[1]), numeration: `/${nuovo[2]}` };
   }
-  return {
-    number: Number(m[1]),
-    numeration: `-${m[2].toUpperCase()}/${m[3]}`,
-  };
+  const storico = raw.match(/^(\d{2})-([A-Z0-9]+)\/(\d+)$/i);
+  if (storico) {
+    return {
+      number: Number(storico[1]),
+      numeration: `-${storico[2].toUpperCase()}/${storico[3]}`,
+    };
+  }
+  return { number: 1, numeration: `/${raw}` };
 }
 
+/** Solo formattazione. Il progressivo vero lo assegna next_numero_fattura. */
 export function buildNumeroInternoEmissione(input: {
   dataDocumento: string;
-  codiceTarga: string;
   seq: number;
 }): { numeroInterno: string; numeroFattura: string } {
   const aa = year2FromDate(input.dataDocumento);
-  const targa = input.codiceTarga.trim().toUpperCase() || "X000";
-  const seq = Math.max(1, Math.floor(input.seq));
-  const numeroInterno = `${NUMERO_INTERNO_PREFIX}${aa}-${targa}/${seq}`;
+  const seq = Math.max(1, Math.min(9999, Math.floor(input.seq)));
+  const numeroFattura = `${aa}/${String(seq).padStart(4, "0")}`;
   return {
-    numeroInterno,
-    numeroFattura: toNumeroFatturaGestionale(numeroInterno),
+    numeroInterno: `${NUMERO_INTERNO_PREFIX}${numeroFattura}`,
+    numeroFattura,
   };
 }
 

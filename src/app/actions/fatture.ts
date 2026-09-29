@@ -30,6 +30,10 @@ import {
   type FatturaRicevutaRinumeraRow,
   type FatturaRinumeraRow,
 } from "@/lib/amministrazione/fatture-rinumerazione";
+import {
+  anteprimaNumeroFattura,
+  assegnaNumeroFattura,
+} from "@/lib/amministrazione/numero-fattura";
 import { requireAreaAccess } from "@/lib/areas/guard";
 import { assertModificaFatturaPrivilege } from "@/lib/auth/fattura-privileges-server";
 import { todayRomeDate } from "@/lib/auth/data-scope";
@@ -406,6 +410,14 @@ export async function previewNumeroInternoFatturaAction(input: {
 > {
   await requireAreaAccess("amministrazione");
   try {
+    if (input.kind === "emessa") {
+      const supabase = await createClient();
+      const nums = await anteprimaNumeroFattura(
+        supabase,
+        input.dataEmissione
+      );
+      return { success: true, numeroInterno: nums.numeroFattura };
+    }
     const seq = await nextSeqFattura(
       input.kind,
       input.anagraficaId,
@@ -1083,26 +1095,41 @@ export async function createFatturaAction(
   }
 
   try {
-    const seq = await nextSeqFattura(
-      kind,
-      input.anagraficaId,
-      input.anagraficaCodiceTarga
-    );
-    const numeroInterno = buildNumeroInternoFattura({
-      dataEmissione: input.dataEmissione,
-      codiceTarga: input.anagraficaCodiceTarga,
-      seq,
-      kind,
-    });
+    let numeroInterno: string;
+    let numeroFatturaPubblico = "";
+    if (kind === "emessa") {
+      const assegnato = await assegnaNumeroFattura(
+        supabase,
+        input.dataEmissione
+      );
+      numeroInterno = assegnato.numeroInterno;
+      numeroFatturaPubblico = assegnato.numeroFattura;
+    } else {
+      const seq = await nextSeqFattura(
+        kind,
+        input.anagraficaId,
+        input.anagraficaCodiceTarga
+      );
+      numeroInterno = buildNumeroInternoFattura({
+        dataEmissione: input.dataEmissione,
+        codiceTarga: input.anagraficaCodiceTarga,
+        seq,
+        kind,
+      });
+    }
 
     if (kind === "emessa" || kind === "nota_credito") {
       const insert: FatturaEmessaInsert = {
         numero_interno: numeroInterno,
+        numero_fattura: kind === "emessa" ? numeroFatturaPubblico : "",
         cliente_id: input.anagraficaId,
         cliente_ragione_sociale: input.anagraficaRagioneSociale,
         cliente_codice_targa: input.anagraficaCodiceTarga,
         data_emissione: input.dataEmissione,
-        numero_documento_esterno: input.numeroDocumentoEsterno,
+        numero_documento_esterno:
+          kind === "emessa" && !input.numeroDocumentoEsterno.trim()
+            ? numeroFatturaPubblico
+            : input.numeroDocumentoEsterno,
         fic_id: input.ficId,
         spedizione: input.spedizione,
         spedizione_iva_applicata: input.spedizioneIvaApplicata,

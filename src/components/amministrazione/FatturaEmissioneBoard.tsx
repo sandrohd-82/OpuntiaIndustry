@@ -54,7 +54,6 @@ export function FatturaEmissioneBoard() {
   ]);
   const [spedizione, setSpedizione] = useState(emptySpedizioneRiga(0, false, 22));
   const [includeSpedizione, setIncludeSpedizione] = useState(false);
-  const [numeroInterno, setNumeroInterno] = useState("");
   const [numeroFattura, setNumeroFattura] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -76,19 +75,16 @@ export function FatturaEmissioneBoard() {
 
   useEffect(() => {
     if (!cliente) {
-      setNumeroInterno("");
       setNumeroFattura("");
       return;
     }
     let cancelled = false;
     void previewNumeroEmissioneAction({
       clienteId: cliente.id,
-      codiceTarga: cliente.codiceTarga,
       dataDocumento,
     }).then((r) => {
       if (cancelled) return;
       if (r.success) {
-        setNumeroInterno(r.numeroInterno);
         setNumeroFattura(r.numeroFattura);
       }
     });
@@ -208,9 +204,10 @@ export function FatturaEmissioneBoard() {
     <form onSubmit={onSubmit} className="space-y-6">
       <p className="text-sm text-[var(--muted)]">
         Compila e invia la fattura elettronica a Fatture in Cloud / SDI. Il
-        numero fattura è il gestionale senza prefisso{" "}
-        <span className="font-mono">Ft-</span> (es.{" "}
-        <span className="font-mono">26-C005/1</span>). I codici riga usano la
+        numero fattura è progressivo aziendale{" "}
+        <span className="font-mono">YY/CCCC</span> (es.{" "}
+        <span className="font-mono">26/0001</span>), unico per tutto l&apos;anno.
+        I codici riga usano la
         targa prodotto interna (es. NCL1).
       </p>
 
@@ -261,9 +258,6 @@ export function FatturaEmissioneBoard() {
           <p className="rounded-lg bg-slate-50 px-3 py-2 text-sm">
             Numero fattura:{" "}
             <strong className="font-mono text-base">{numeroFattura}</strong>
-            <span className="ml-2 text-xs text-[var(--muted)]">
-              (interno {numeroInterno})
-            </span>
           </p>
         ) : null}
       </section>

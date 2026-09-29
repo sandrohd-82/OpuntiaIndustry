@@ -1,6 +1,7 @@
 "use server";
 
 import { writeAuditLog } from "@/lib/audit";
+import { numeroFatturaVisibile } from "@/lib/amministrazione/numero-fattura";
 import { requireAnyAreaAccess } from "@/lib/areas/guard";
 import { resolveAnagraficaListVisibility } from "@/lib/auth/anagrafica-visibility";
 import { loadCommercialeUserIds } from "@/lib/auth/commerciale-lineage";
@@ -580,7 +581,7 @@ export async function loadClienteSchedaCompletaAction(
     supabase
       .from("fatture_emesse")
       .select(
-        "id, numero_interno, data_emissione, totale, stato_pagamento, tipo_documento"
+        "id, numero_interno, numero_fattura, data_emissione, totale, stato_pagamento, tipo_documento"
       )
       .eq("cliente_id", clienteId)
       .is("deleted_at", null)
@@ -606,7 +607,14 @@ export async function loadClienteSchedaCompletaAction(
     })),
     fatture: (fatRes.data ?? []).map((r) => ({
       id: String(r.id),
-      numeroInterno: String(r.numero_interno ?? ""),
+      numeroInterno: numeroFatturaVisibile({
+        kind:
+          String(r.tipo_documento ?? "") === "nota_credito"
+            ? "nota_credito"
+            : "emessa",
+        numeroFattura: String(r.numero_fattura ?? ""),
+        numeroInterno: String(r.numero_interno ?? ""),
+      }),
       dataEmissione: String(r.data_emissione ?? ""),
       totale: Number(r.totale ?? 0),
       statoPagamento: String(r.stato_pagamento ?? ""),

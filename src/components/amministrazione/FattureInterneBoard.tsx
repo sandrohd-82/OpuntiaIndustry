@@ -57,6 +57,7 @@ import {
   nextSortState,
   type SortState,
 } from "@/lib/ui/list-sort";
+import { numeroFatturaVisibile } from "@/lib/amministrazione/numero-fattura";
 import Link from "next/link";
 
 type Props = {
@@ -92,7 +93,7 @@ function prodottoMatch(f: Fattura, query: string): boolean {
 function sortValue(f: Fattura, key: SortKey): string | number {
   switch (key) {
     case "numeroInterno":
-      return f.numeroInterno;
+      return numeroFatturaVisibile(f);
     case "dataEmissione":
       return f.dataEmissione;
     case "anagrafica":
@@ -801,7 +802,7 @@ export function FattureInterneBoard({ kind }: Props) {
                       href={fatturaDetailPath(f.kind, f.id)}
                       className="font-mono text-sm font-medium text-[var(--primary)] hover:underline"
                     >
-                      {f.numeroInterno}
+                      {numeroFatturaVisibile(f)}
                     </Link>
                   </td>
                   <td className="px-4 py-3 tabular-nums">
