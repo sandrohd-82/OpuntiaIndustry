@@ -80,10 +80,17 @@ export function FatturaWebmailComposeModal({ draft, onClose }: Props) {
       });
       if (cancelled) return;
       if (ai.success) {
-        setSubject(ai.subject);
+        setSubject(
+          draft.kind === "proforma"
+            ? `Proforma ${draft.numeroFattura}`
+            : ai.subject
+        );
         setBodyText(ai.bodyText);
         setAiModel(ai.model);
       } else {
+        if (draft.kind === "proforma") {
+          setSubject(`Proforma ${draft.numeroFattura}`);
+        }
         setError(ai.error);
       }
       try {
@@ -93,6 +100,7 @@ export function FatturaWebmailComposeModal({ draft, onClose }: Props) {
           destinatario: draft.destinatario,
           righe: draft.righe,
           noteDocumento: draft.noteDocumento,
+          proforma: draft.kind === "proforma",
         });
         objectUrl = URL.createObjectURL(pdf.blob);
         setPdfUrl(objectUrl);
@@ -288,6 +296,7 @@ export function FatturaWebmailComposeModal({ draft, onClose }: Props) {
           >
             Chiudi
           </button>
+          {draft.kind === "proforma" ? null : (
           <button
             type="button"
             disabled={
@@ -302,6 +311,7 @@ export function FatturaWebmailComposeModal({ draft, onClose }: Props) {
           >
             {sendingSdi ? "Invio SDI…" : "Invia fattura attraverso SDI"}
           </button>
+          )}
           <button
             type="button"
             disabled={

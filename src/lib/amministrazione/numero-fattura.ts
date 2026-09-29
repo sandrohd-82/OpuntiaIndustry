@@ -60,7 +60,43 @@ export async function anteprimaNumeroFattura(
   return parsePayload(data);
 }
 
-/** Incremento atomico del progressivo aziendale dell'anno della data di emissione. */
+export async function anteprimaNumeroProforma(
+  supabase: RpcClient,
+  dataDocumento: string
+): Promise<NumeroFatturaAssegnato> {
+  const { data, error } = await supabase.rpc("anteprima_numero_proforma", {
+    p_data: dataDocumento,
+  });
+  if (error) throw new Error(error.message);
+  return parsePayloadProforma(data);
+}
+
+export async function assegnaNumeroProforma(
+  supabase: RpcClient,
+  dataDocumento: string
+): Promise<NumeroFatturaAssegnato> {
+  const { data, error } = await supabase.rpc("next_numero_proforma", {
+    p_data: dataDocumento,
+  });
+  if (error) throw new Error(error.message);
+  return parsePayloadProforma(data);
+}
+
+function parsePayloadProforma(data: unknown): NumeroFatturaAssegnato {
+  const row = Array.isArray(data) ? data[0] : data;
+  const obj =
+    typeof row === "string"
+      ? (JSON.parse(row) as { numero_fattura?: string; numero_interno?: string })
+      : (row as { numero_fattura?: string; numero_interno?: string } | null);
+  const numeroFattura = String(obj?.numero_fattura ?? "").trim();
+  if (!/^PR-\d+\/20\d{2}$/.test(numeroFattura)) {
+    throw new Error("Numerazione proforma non valida.");
+  }
+  return {
+    numeroFattura,
+    numeroInterno: String(obj?.numero_interno ?? "").trim() || numeroFattura,
+  };
+}
 export async function assegnaNumeroFattura(
   supabase: RpcClient,
   dataDocumento: string

@@ -70,7 +70,7 @@ export async function inviaFatturaDaWebmailAction(
   const { data: fattura, error: fatErr } = await supabase
     .from("fatture_emesse")
     .select(
-      "id, numero_fattura, numero_documento_esterno, data_emissione, note, cliente_id, cliente_ragione_sociale, destinatario_snapshot"
+      "id, numero_fattura, numero_documento_esterno, data_emissione, note, cliente_id, cliente_ragione_sociale, destinatario_snapshot, tipo_documento"
     )
     .eq("id", input.fatturaId)
     .is("deleted_at", null)
@@ -135,6 +135,7 @@ export async function inviaFatturaDaWebmailAction(
     destinatario,
     righe,
     noteDocumento: String(fattura.note ?? ""),
+    proforma: String(fattura.tipo_documento ?? "") === "proforma",
   });
   const pdfBytes = Buffer.from(await pdf.blob.arrayBuffer());
 

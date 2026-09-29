@@ -30,6 +30,7 @@ import {
 import {
   anteprimaNumeroFattura,
   assegnaNumeroFattura,
+  assegnaNumeroProforma,
 } from "@/lib/amministrazione/numero-fattura";
 import { AGRINSICILIA_COORDINATE } from "@/lib/amministrazione/preventivo-letterhead";
 import {
@@ -277,6 +278,9 @@ export async function getFatturaA4ContextAction(input: {
       imponibile: number;
       imposta: number;
       fatturaEsistenteId: string | null;
+      proformaId: string | null;
+      proformaNumero: string | null;
+      proformaConvertitaNumero: string | null;
       noteDocumento: string;
     }
   | { success: false; error: string }
@@ -417,6 +421,33 @@ export async function getFatturaA4ContextAction(input: {
         }
       : await anteprimaNumeroFattura(supabase, dataDocumento);
 
+    const { data: proformaRow } = await supabase
+      .from("fatture_emesse")
+      .select("id, numero_fattura, numero_interno, fattura_definitiva_id")
+      .eq("ordine_id", ordine.id)
+      .eq("tipo_documento", "proforma")
+      .is("deleted_at", null)
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    const proforma = proformaRow as {
+      id: string;
+      numero_fattura: string;
+      numero_interno: string;
+      fattura_definitiva_id: string | null;
+    } | null;
+    let proformaConvertitaNumero: string | null = null;
+    if (proforma?.fattura_definitiva_id) {
+      const { data: def } = await supabase
+        .from("fatture_emesse")
+        .select("numero_fattura")
+        .eq("id", proforma.fattura_definitiva_id)
+        .maybeSingle();
+      proformaConvertitaNumero = String(
+        (def as { numero_fattura?: string } | null)?.numero_fattura ?? ""
+      ).trim() || null;
+    }
+
     return {
       success: true,
       ordineId: ordine.id,
@@ -447,6 +478,12 @@ export async function getFatturaA4ContextAction(input: {
       imponibile: totals.imponibile,
       imposta: totals.imposta,
       fatturaEsistenteId: existingRow?.id ?? null,
+      proformaId: proforma && !proforma.fattura_definitiva_id ? proforma.id : null,
+      proformaNumero:
+        proforma && !proforma.fattura_definitiva_id
+          ? proforma.numero_fattura || proforma.numero_interno
+          : null,
+      proformaConvertitaNumero,
       noteDocumento,
     };
   } catch (e) {
@@ -828,6 +865,13 @@ export async function inviaFatturaSalvataAction(input: {
     return { success: false, error: error?.message ?? "Fattura non trovata." };
   }
   const fattura = fatturaData as FatturaEmessaRow;
+  if (fattura.tipo_documento === "proforma") {
+    return {
+      success: false,
+      error:
+        "La proforma non si invia allo SDI. Convertila in fattura e poi usa Invia fattura attraverso SDI.",
+    };
+  }
   const [{ data: dilazioni }, { data: clienteData }] = await Promise.all([
     supabase
       .from("fatture_emesse_dilazioni")
@@ -1085,5 +1129,289 @@ export async function inviaFatturaSalvataAction(input: {
         : sendToSdi && fattura.ei_status === "sent"
           ? "La fattura risulta già inviata allo SDI."
           : undefined,
+  };
+}
+
+const proformaSaveSchema = z.object({
+  ordineId: z.string().uuid(),
+  proformaId: z.string().uuid().nullable().optional(),
+  dataDocumento: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  noteDocumento: z.string().optional().default(""),
+  righe: z.array(rigaDocumentoSchema).min(1),
+  destinatario: destinatarioSchema,
+});
+
+export async function saveProformaDaOrdineAction(raw: unknown): Promise<
+  | { success: true; proformaId: string; numeroProforma: string }
+  | { success: false; error: string }
+> {
+  if (!ORDINI_PERSISTENZA_DEFINITIVA) {
+    return { success: false, error: ORDINI_PERSISTENZA_BLOCCATA_MSG };
+  }
+  const { auth } = await requireAreaAccess("amministrazione");
+  const parsed = proformaSaveSchema.safeParse(raw);
+  if (!parsed.success) {
+    return {
+      success: false,
+      error: parsed.error.issues[0]?.message ?? "Dati proforma non validi.",
+    };
+  }
+  const input = parsed.data;
+  const ctx = await getFatturaA4ContextAction({ ordineId: input.ordineId });
+  if (!ctx.success) return ctx;
+  const supabase = await createClient();
+  const totals = totalsFromFatturaRighe(input.righe);
+  const ivaHeader =
+    input.righe.find((r) => !r.isSpedizione)?.ivaPercentuale ?? 22;
+
+  let proformaId = input.proformaId ?? ctx.proformaId;
+  let numeroProforma = ctx.proformaNumero ?? "";
+
+  if (proformaId) {
+    const { data: existing } = await supabase
+      .from("fatture_emesse")
+      .select("id, numero_fattura, fattura_definitiva_id, tipo_documento")
+      .eq("id", proformaId)
+      .is("deleted_at", null)
+      .maybeSingle();
+    const row = existing as {
+      numero_fattura: string;
+      fattura_definitiva_id: string | null;
+      tipo_documento: string;
+    } | null;
+    if (!row || row.tipo_documento !== "proforma") {
+      return { success: false, error: "Proforma non trovata." };
+    }
+    if (row.fattura_definitiva_id) {
+      return {
+        success: false,
+        error: "Questa proforma è già stata convertita in fattura.",
+      };
+    }
+    numeroProforma = row.numero_fattura;
+    const { error: upErr } = await supabase
+      .from("fatture_emesse")
+      .update({
+        data_emissione: input.dataDocumento,
+        cliente_ragione_sociale: input.destinatario.ragioneSociale,
+        destinatario_snapshot: input.destinatario,
+        imponibile: totals.imponibile,
+        imposta: totals.imposta,
+        totale: totals.totale,
+        iva_percentuale: ivaHeader,
+        note: input.noteDocumento.trim(),
+        updated_by: auth.userId,
+      })
+      .eq("id", proformaId);
+    if (upErr) return { success: false, error: upErr.message };
+    const righeErr = await replaceFatturaRighe(
+      supabase,
+      proformaId,
+      input.righe,
+      auth.userId
+    );
+    if (righeErr) return { success: false, error: righeErr };
+  } else {
+    let assegnato: { numeroFattura: string; numeroInterno: string };
+    try {
+      assegnato = await assegnaNumeroProforma(supabase, input.dataDocumento);
+    } catch (e) {
+      return {
+        success: false,
+        error: e instanceof Error ? e.message : "Numero proforma non assegnato.",
+      };
+    }
+    numeroProforma = assegnato.numeroFattura;
+    const { data: inserted, error: insErr } = await supabase
+      .from("fatture_emesse")
+      .insert({
+        numero_interno: assegnato.numeroInterno,
+        numero_fattura: assegnato.numeroFattura,
+        numero_documento_esterno: assegnato.numeroFattura,
+        tipo_documento: "proforma",
+        cliente_id: ctx.cliente.id,
+        cliente_ragione_sociale: input.destinatario.ragioneSociale,
+        cliente_codice_targa: ctx.cliente.codiceTarga,
+        destinatario_snapshot: input.destinatario,
+        data_emissione: input.dataDocumento,
+        imponibile: totals.imponibile,
+        iva_percentuale: ivaHeader,
+        imposta: totals.imposta,
+        totale: totals.totale,
+        stato_pagamento: "da_pagare",
+        documento_stato: "registrata",
+        note: input.noteDocumento.trim(),
+        ordine_id: input.ordineId,
+        origine: "emissione_gestionale",
+        courtesy_email_sent: false,
+        created_by: auth.userId,
+        updated_by: auth.userId,
+      })
+      .select("id")
+      .single();
+    if (insErr || !inserted) {
+      return { success: false, error: insErr?.message ?? "Proforma non salvata." };
+    }
+    proformaId = String((inserted as { id: string }).id);
+    const righeErr = await replaceFatturaRighe(
+      supabase,
+      proformaId,
+      input.righe,
+      auth.userId
+    );
+    if (righeErr) return { success: false, error: righeErr };
+    await writeAuditLog({
+      entity_type: "fatture_emesse",
+      entity_id: proformaId,
+      action: "create",
+      actor_id: auth.userId,
+      summary: `Creata proforma ${numeroProforma} da ordine ${ctx.numeroOrdine}`,
+      payload: { ordineId: input.ordineId, numeroProforma },
+    });
+  }
+
+  return { success: true, proformaId, numeroProforma };
+}
+
+export async function convertProformaInFatturaAction(input: {
+  proformaId: string;
+}): Promise<
+  | { success: true; fatturaId: string; numeroFattura: string }
+  | { success: false; error: string }
+> {
+  const { auth } = await requireAreaAccess("amministrazione");
+  const proformaId = String(input.proformaId ?? "").trim();
+  if (!proformaId) return { success: false, error: "Proforma non indicata." };
+  const supabase = await createClient();
+  const { data: row, error } = await supabase
+    .from("fatture_emesse")
+    .select("*")
+    .eq("id", proformaId)
+    .is("deleted_at", null)
+    .maybeSingle();
+  if (error || !row) {
+    return { success: false, error: error?.message ?? "Proforma non trovata." };
+  }
+  const proforma = row as FatturaEmessaRow;
+  if (proforma.tipo_documento !== "proforma") {
+    return { success: false, error: "Il documento non è una proforma." };
+  }
+  if (proforma.fattura_definitiva_id) {
+    const { data: gia } = await supabase
+      .from("fatture_emesse")
+      .select("id, numero_fattura")
+      .eq("id", proforma.fattura_definitiva_id)
+      .maybeSingle();
+    const num = String(
+      (gia as { numero_fattura?: string } | null)?.numero_fattura ?? ""
+    );
+    return {
+      success: true,
+      fatturaId: proforma.fattura_definitiva_id,
+      numeroFattura: num,
+    };
+  }
+
+  let assegnato: { numeroFattura: string; numeroInterno: string };
+  try {
+    assegnato = await assegnaNumeroFattura(supabase, proforma.data_emissione);
+  } catch (e) {
+    return {
+      success: false,
+      error: e instanceof Error ? e.message : "Numero fattura non assegnato.",
+    };
+  }
+
+  const { data: inserted, error: insErr } = await supabase
+    .from("fatture_emesse")
+    .insert({
+      numero_interno: assegnato.numeroInterno,
+      numero_fattura: assegnato.numeroFattura,
+      numero_documento_esterno: assegnato.numeroFattura,
+      tipo_documento: "fattura",
+      proforma_origine_id: proforma.id,
+      cliente_id: proforma.cliente_id,
+      cliente_ragione_sociale: proforma.cliente_ragione_sociale,
+      cliente_codice_targa: proforma.cliente_codice_targa,
+      destinatario_snapshot: proforma.destinatario_snapshot,
+      data_emissione: proforma.data_emissione,
+      data_scadenza: proforma.data_scadenza,
+      imponibile: proforma.imponibile,
+      iva_percentuale: proforma.iva_percentuale,
+      imposta: proforma.imposta,
+      totale: proforma.totale,
+      stato_pagamento: "da_pagare",
+      documento_stato: "bozza",
+      note: proforma.note,
+      ordine_id: proforma.ordine_id,
+      origine: "emissione_gestionale",
+      payment_method: proforma.payment_method,
+      iban: proforma.iban,
+      courtesy_email_sent: false,
+      created_by: auth.userId,
+      updated_by: auth.userId,
+    })
+    .select("id")
+    .single();
+  if (insErr || !inserted) {
+    return { success: false, error: insErr?.message ?? "Fattura non creata." };
+  }
+  const fatturaId = String((inserted as { id: string }).id);
+  let rawRighe: Awaited<ReturnType<typeof loadFatturaRighe>> = [];
+  try {
+    rawRighe = await loadFatturaRighe(supabase, proforma.id);
+  } catch (e) {
+    return {
+      success: false,
+      error: e instanceof Error ? e.message : "Righe proforma non leggibili.",
+    };
+  }
+  const righe = rawRighe.map((r) => ({
+    prodottoId: r.prodotto_id,
+    codice: r.codice,
+    descrizione: r.descrizione,
+    quantita: Number(r.quantita),
+    unitaMisura: r.unita_misura || "nr",
+    prezzoUnitario: Number(r.prezzo_unitario),
+    scontoPercentuale: Number(r.sconto_percentuale) || 0,
+    ivaPercentuale: Number(r.iva_percentuale) || 22,
+    isSpedizione: Boolean(r.is_spedizione),
+    note: r.note ?? "",
+  }));
+  const righeErr = await replaceFatturaRighe(
+    supabase,
+    fatturaId,
+    righe,
+    auth.userId
+  );
+  if (righeErr) return { success: false, error: righeErr };
+
+  const { error: linkErr } = await supabase
+    .from("fatture_emesse")
+    .update({
+      fattura_definitiva_id: fatturaId,
+      documento_stato: "chiusa",
+      updated_by: auth.userId,
+    })
+    .eq("id", proforma.id);
+  if (linkErr) return { success: false, error: linkErr.message };
+
+  await writeAuditLog({
+    entity_type: "fatture_emesse",
+    entity_id: fatturaId,
+    action: "create",
+    actor_id: auth.userId,
+    summary: `Proforma ${proforma.numero_fattura} convertita in fattura ${assegnato.numeroFattura}`,
+    payload: {
+      proformaId: proforma.id,
+      numeroProforma: proforma.numero_fattura,
+      numeroFattura: assegnato.numeroFattura,
+    },
+  });
+
+  return {
+    success: true,
+    fatturaId,
+    numeroFattura: assegnato.numeroFattura,
   };
 }

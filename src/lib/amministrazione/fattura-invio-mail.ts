@@ -5,6 +5,8 @@ import type {
 
 export type FatturaInvioMailDraft = {
   fatturaId?: string | null;
+  /** Proforma: mail sì, invio SDI no. */
+  kind?: "fattura" | "proforma";
   to: string;
   numeroFattura: string;
   dataDocumento: string;

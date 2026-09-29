@@ -1670,7 +1670,7 @@ export type FatturaDilazioneStatoPagamento =
 /** Solo fatture ricevute: acconto vs saldo. */
 export type FatturaNaturaDocumento = "acconto" | "saldo";
 export type FatturaDocumentoStato = "bozza" | "registrata" | "chiusa";
-export type FatturaTipoDocumento = "fattura" | "nota_credito";
+export type FatturaTipoDocumento = "fattura" | "nota_credito" | "proforma";
 export type FatturaStatoIncassoNc = "gia_incassata" | "non_incassata";
 export type FatturaRimborsoMezzo =
   | "denaro"
@@ -1708,6 +1708,8 @@ export interface FatturaEmessaRow {
   documento_stato: FatturaDocumentoStato;
   note: string;
   tipo_documento: FatturaTipoDocumento;
+  fattura_definitiva_id?: string | null;
+  proforma_origine_id?: string | null;
   fattura_collegata_id: string | null;
   riferimento_fattura_esterno: string;
   annullata_da_nc_id: string | null;
@@ -1769,6 +1771,8 @@ export type FatturaEmessaInsert = {
   documento_stato?: FatturaDocumentoStato;
   note?: string;
   tipo_documento?: FatturaTipoDocumento;
+  fattura_definitiva_id?: string | null;
+  proforma_origine_id?: string | null;
   fattura_collegata_id?: string | null;
   riferimento_fattura_esterno?: string;
   numero_fattura?: string;

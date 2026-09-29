@@ -26,9 +26,13 @@ function safeFilePart(value: string) {
   return value.replace(/[^\w.\-]+/g, "_").replace(/_+/g, "_").slice(0, 48);
 }
 
-export function fatturaA4PdfFileName(numeroFattura: string) {
-  return `Fattura_${safeFilePart(numeroFattura || "bozza")}.pdf`;
+export function fatturaA4PdfFileName(numeroFattura: string, proforma = false) {
+  const prefix = proforma ? "Proforma" : "Fattura";
+  return `${prefix}_${safeFilePart(numeroFattura || "bozza")}.pdf`;
 }
+
+export const PROFORMA_DICITURA_FISCALE =
+  "Documento privo di valenza fiscale emesso ai sensi dell'art. 21 D.P.R. 633/72. La fattura definitiva verrà emessa al saldo del pagamento.";
 
 export function buildFatturaA4PdfBlob(input: {
   numeroFattura: string;
@@ -36,6 +40,7 @@ export function buildFatturaA4PdfBlob(input: {
   destinatario: FatturaDestinatarioSnapshot;
   righe: FatturaA4Riga[];
   noteDocumento: string;
+  proforma?: boolean;
 }): { blob: Blob; fileName: string } {
   const doc = new jsPDF({ unit: "mm", format: "a4" });
   const L = AGRINSICILIA_LETTERHEAD;
@@ -59,14 +64,28 @@ export function buildFatturaA4PdfBlob(input: {
 
   doc.setFont("helvetica", "bold");
   doc.setFontSize(14);
-  doc.text("FATTURA", 14, y);
+  doc.text(input.proforma ? "PROFORMA" : "FATTURA", 14, y);
   doc.setFontSize(10);
-  doc.text(input.numeroFattura || "AA/NNNN", 196, y, { align: "right" });
+  doc.text(input.numeroFattura || "NN/ANNO", 196, y, { align: "right" });
   y += 6;
   doc.setFont("helvetica", "normal");
   doc.setFontSize(9);
   doc.text(`Data: ${dataIt(input.dataDocumento)}`, 196, y, { align: "right" });
   y += 8;
+
+  if (input.proforma) {
+    const boxY = y;
+    const lines = doc.splitTextToSize(PROFORMA_DICITURA_FISCALE, 176);
+    const boxH = 8 + lines.length * 4.2;
+    doc.setFillColor(220, 38, 38);
+    doc.rect(14, boxY, 182, boxH, "F");
+    doc.setTextColor(255, 255, 255);
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(9);
+    doc.text(lines, 18, boxY + 6);
+    doc.setTextColor(0, 0, 0);
+    y = boxY + boxH + 6;
+  }
 
   const dest = input.destinatario;
   doc.setFont("helvetica", "bold");
@@ -136,6 +155,6 @@ export function buildFatturaA4PdfBlob(input: {
     doc.text(notes, 14, y);
   }
 
-  const fileName = fatturaA4PdfFileName(input.numeroFattura);
+  const fileName = fatturaA4PdfFileName(input.numeroFattura, Boolean(input.proforma));
   return { blob: doc.output("blob"), fileName };
 }

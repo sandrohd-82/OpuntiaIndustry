@@ -3,8 +3,10 @@
 import { useEffect, useId, useMemo, useState } from "react";
 import { listPreventivoCommercialiRiferimentoAction } from "@/app/actions/preventivi";
 import {
+  convertProformaInFatturaAction,
   getFatturaA4ContextAction,
   saveFatturaDaOrdineAction,
+  saveProformaDaOrdineAction,
 } from "@/app/actions/fattura-da-ordine";
 import { FatturaA4PiePagina } from "@/components/amministrazione/FatturaA4PiePagina";
 import { OrdinePagamentoPianoFields } from "@/components/amministrazione/OrdinePagamentoPianoFields";
@@ -27,6 +29,10 @@ import {
   type FatturaA4Riga,
   type FatturaDestinatarioSnapshot,
 } from "@/lib/amministrazione/fattura-a4-documento";
+import {
+  buildFatturaA4PdfBlob,
+  PROFORMA_DICITURA_FISCALE,
+} from "@/lib/amministrazione/fattura-a4-pdf";
 import type { FatturaInvioMailDraft } from "@/lib/amministrazione/fattura-invio-mail";
 import { prezzoScontatoUnitario } from "@/lib/amministrazione/fatture";
 import {
@@ -118,6 +124,12 @@ export function FatturaA4Modal({
   const [noteDocumento, setNoteDocumento] = useState("");
   const [piano, setPiano] = useState<OrdinePagamentoPiano>(emptyPagamentoPiano());
   const [fatturaId, setFatturaId] = useState<string | null>(null);
+  const [vista, setVista] = useState<"fattura" | "proforma">("fattura");
+  const [proformaId, setProformaId] = useState<string | null>(null);
+  const [proformaNumero, setProformaNumero] = useState<string | null>(null);
+  const [proformaConvertitaNumero, setProformaConvertitaNumero] = useState<
+    string | null
+  >(null);
   const [commerciale, setCommerciale] =
     useState<PreventivoCommercialeRiferimento | null>(null);
   const [commerciali, setCommerciali] = useState<
@@ -212,6 +224,10 @@ export function FatturaA4Modal({
       setRighe(ctx.righe);
       setNoteDocumento(ctx.noteDocumento);
       setFatturaId(ctx.fatturaEsistenteId);
+      setProformaId(ctx.proformaId);
+      setProformaNumero(ctx.proformaNumero);
+      setProformaConvertitaNumero(ctx.proformaConvertitaNumero);
+      if (ctx.proformaId) setVista("proforma");
       setPiano(applyTotaleToPiano(pianoIniziale ?? ctx.piano, ctx.totale));
       setEmails(ctx.emails);
       setEmailSel(ctx.emails[0] ?? "");
@@ -359,6 +375,131 @@ export function FatturaA4Modal({
     );
   }
 
+  function scaricaDocumento(proforma: boolean, numeroDoc: string) {
+    if (!destinatario) return;
+    const pdf = buildFatturaA4PdfBlob({
+      numeroFattura: numeroDoc,
+      dataDocumento,
+      destinatario,
+      righe,
+      noteDocumento,
+      proforma,
+    });
+    const url = URL.createObjectURL(pdf.blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = pdf.fileName;
+    a.click();
+    URL.revokeObjectURL(url);
+  }
+
+  function mailDestinatario() {
+    return (emailNuova.trim() || emailSel).toLowerCase();
+  }
+
+  async function salvaProforma(poi: "scarica" | "mail") {
+    if (!ordineId || !destinatario) {
+      setError("Ordine o intestazione mancante.");
+      return;
+    }
+    setSaving(true);
+    setError(null);
+    const res = await saveProformaDaOrdineAction({
+      ordineId,
+      proformaId,
+      dataDocumento,
+      noteDocumento,
+      righe,
+      destinatario,
+    });
+    setSaving(false);
+    if (!res.success) {
+      setError(res.error);
+      return;
+    }
+    setProformaId(res.proformaId);
+    setProformaNumero(res.numeroProforma);
+    setVista("proforma");
+    if (poi === "scarica") {
+      scaricaDocumento(true, res.numeroProforma);
+      setMsg(
+        `Proforma ${res.numeroProforma} salvata e scaricata. Non è una fattura fiscale e non è stata inviata allo SDI.`
+      );
+      return;
+    }
+    onSimulaInvio?.({
+      kind: "proforma",
+      fatturaId: res.proformaId,
+      to: mailDestinatario(),
+      numeroFattura: res.numeroProforma,
+      dataDocumento,
+      clienteNome: destinatario.ragioneSociale || cliente?.ragioneSociale || "",
+      destinatario,
+      righe,
+      noteDocumento,
+      ordineNumero: "",
+    });
+    onClose();
+  }
+
+  async function convertiProforma(apriInvio: boolean) {
+    if (!ordineId || !destinatario) {
+      setError("Ordine o intestazione mancante.");
+      return;
+    }
+    setSaving(true);
+    setError(null);
+    const saved = await saveProformaDaOrdineAction({
+      ordineId,
+      proformaId,
+      dataDocumento,
+      noteDocumento,
+      righe,
+      destinatario,
+    });
+    if (!saved.success) {
+      setSaving(false);
+      setError(saved.error);
+      return;
+    }
+    const res = await convertProformaInFatturaAction({
+      proformaId: saved.proformaId,
+    });
+    setSaving(false);
+    if (!res.success) {
+      setProformaId(saved.proformaId);
+      setProformaNumero(saved.numeroProforma);
+      setError(res.error);
+      return;
+    }
+    setFatturaId(res.fatturaId);
+    setNumero(res.numeroFattura);
+    setProformaId(null);
+    setProformaNumero(saved.numeroProforma);
+    setProformaConvertitaNumero(res.numeroFattura);
+    setVista("fattura");
+    if (apriInvio) {
+      onSimulaInvio?.({
+        kind: "fattura",
+        fatturaId: res.fatturaId,
+        to: mailDestinatario(),
+        numeroFattura: res.numeroFattura,
+        dataDocumento,
+        clienteNome:
+          destinatario.ragioneSociale || cliente?.ragioneSociale || "",
+        destinatario,
+        righe,
+        noteDocumento,
+        ordineNumero: "",
+      });
+      onClose();
+      return;
+    }
+    setMsg(
+      `Proforma ${saved.numeroProforma} convertita in fattura ${res.numeroFattura}. Non è stata inviata: usa Invia da Webmail o Invia fattura attraverso SDI.`
+    );
+  }
+
   function openEdit(kind: EditKind, rigaIndex?: number) {
     setError(null);
     if (kind === "data") setDraftData(dataDocumento);
@@ -402,7 +543,7 @@ export function FatturaA4Modal({
     >
       <div className="mx-auto mb-4 flex max-w-[210mm] items-center justify-between gap-3 print:hidden">
         <h2 id={titleId} className="text-sm font-semibold text-white">
-          Fattura da ordine
+          {vista === "proforma" ? "Proforma da ordine" : "Fattura da ordine"}
           {soloSessione ? " · sessione" : ""}
         </h2>
         <div className="flex flex-wrap justify-end gap-2">
@@ -414,14 +555,80 @@ export function FatturaA4Modal({
           >
             Chiudi
           </button>
-          <button
-            type="button"
-            onClick={() => setConfirmOpen(true)}
-            disabled={saving || loading || !destinatario}
-            className="rounded-lg bg-[var(--primary)] px-3 py-1.5 text-sm font-medium text-white disabled:opacity-50"
-          >
-            {soloSessione ? "Salva in sessione" : "Salva fattura"}
-          </button>
+          {!soloSessione && vista === "fattura" ? (
+            <button
+              type="button"
+              onClick={() => setVista("proforma")}
+              disabled={saving || loading || !destinatario}
+              className="rounded-lg border border-red-300 bg-red-600 px-3 py-1.5 text-sm font-semibold text-white hover:bg-red-500 disabled:opacity-50"
+            >
+              Proforma
+            </button>
+          ) : null}
+          {!soloSessione && vista === "proforma" ? (
+            <>
+              <button
+                type="button"
+                onClick={() => setVista("fattura")}
+                disabled={saving}
+                className="rounded-lg border border-white/20 bg-white/10 px-3 py-1.5 text-sm text-white hover:bg-white/20 disabled:opacity-50"
+              >
+                Fattura
+              </button>
+              <button
+                type="button"
+                onClick={() => void salvaProforma("scarica")}
+                disabled={saving || loading || !destinatario}
+                className="rounded-lg bg-red-600 px-3 py-1.5 text-sm font-semibold text-white hover:bg-red-500 disabled:opacity-50"
+              >
+                Crea e scarica proforma
+              </button>
+              {proformaId && proformaNumero ? (
+                <button
+                  type="button"
+                  onClick={() => scaricaDocumento(true, proformaNumero)}
+                  disabled={saving || loading}
+                  className="rounded-lg border border-red-300 bg-white px-3 py-1.5 text-sm font-semibold text-red-700 disabled:opacity-50"
+                >
+                  Scarica
+                </button>
+              ) : null}
+              <button
+                type="button"
+                onClick={() => void salvaProforma("mail")}
+                disabled={saving || loading || !destinatario}
+                className="rounded-lg border border-white/20 bg-white/10 px-3 py-1.5 text-sm text-white hover:bg-white/20 disabled:opacity-50"
+              >
+                Invia proforma
+              </button>
+              <button
+                type="button"
+                onClick={() => void convertiProforma(false)}
+                disabled={saving || loading || !destinatario}
+                className="rounded-lg bg-[var(--primary)] px-3 py-1.5 text-sm font-medium text-white disabled:opacity-50"
+              >
+                Converti in fattura
+              </button>
+              <button
+                type="button"
+                onClick={() => void convertiProforma(true)}
+                disabled={saving || loading || !destinatario}
+                className="rounded-lg border border-white/30 bg-white px-3 py-1.5 text-sm font-medium text-slate-900 disabled:opacity-50"
+              >
+                Converti e apri scheda di invio
+              </button>
+            </>
+          ) : null}
+          {vista === "fattura" ? (
+            <button
+              type="button"
+              onClick={() => setConfirmOpen(true)}
+              disabled={saving || loading || !destinatario}
+              className="rounded-lg bg-[var(--primary)] px-3 py-1.5 text-sm font-medium text-white disabled:opacity-50"
+            >
+              {soloSessione ? "Salva in sessione" : "Salva fattura"}
+            </button>
+          ) : null}
         </div>
       </div>
 
@@ -451,13 +658,25 @@ export function FatturaA4Modal({
         >
           <div className="box-border flex min-h-[297mm] flex-col px-[14mm] py-[12mm]">
             <PreventivoA4Letterhead
-              numero={numero}
+              numero={
+                vista === "proforma" ? proformaNumero || "PR-…" : numero
+              }
               dataPreventivo={dataDocumento}
               commerciale={commerciale}
-              documentoLabel="FATTURA"
+              documentoLabel={vista === "proforma" ? "PROFORMA" : "FATTURA"}
               onEditData={() => openEdit("data")}
               onEditCommerciale={() => openEdit("commerciale")}
             />
+            {vista === "proforma" ? (
+              <p className="mt-4 rounded-md bg-red-600 px-4 py-3 text-base font-bold leading-snug text-white">
+                {PROFORMA_DICITURA_FISCALE}
+              </p>
+            ) : null}
+            {proformaConvertitaNumero && vista === "fattura" ? (
+              <p className="mt-3 text-sm font-medium text-slate-700 print:hidden">
+                Proforma già convertita nella fattura {proformaConvertitaNumero}.
+              </p>
+            ) : null}
 
             {destPicker ? (
               <PreventivoDestinatarioPicker
