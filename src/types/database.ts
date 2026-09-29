@@ -1475,6 +1475,7 @@ export interface CampionaturaRigaRow {
 
 export type PreventivoStatoDb =
   | "creato"
+  | "in_attesa_spedizione"
   | "inviato"
   | "accettato"
   | "respinto";
@@ -1518,6 +1519,11 @@ export interface PreventivoRow {
   commerciale_riferimento_telefono: string;
   commerciale_riferimento_email: string;
   note: string;
+  modalita_spedizione_prezzo: "non_applicabile" | "inserito" | "richiesto";
+  mail_bozza_account_id: string | null;
+  mail_bozza_to: string;
+  mail_bozza_oggetto: string;
+  mail_bozza_testo: string;
   webmail_accettazione_id: string | null;
   referente_accettazione_id: string | null;
   sent_at: string | null;
@@ -3023,6 +3029,66 @@ export interface Database {
           data_preventivo: string;
         };
         Update: Partial<PreventivoRow>;
+        Relationships: [];
+      };
+      compiti_adempimenti: {
+        Row: {
+          id: string;
+          codice: string;
+          titolo: string;
+          spiegazione: string;
+          sort_order: number;
+          attivo: boolean;
+          created_at: string;
+          updated_at: string;
+          created_by: string | null;
+          updated_by: string | null;
+          deleted_at: string | null;
+          deleted_by: string | null;
+        };
+        Insert: {
+          codice: string;
+          titolo: string;
+          spiegazione?: string;
+          sort_order?: number;
+          attivo?: boolean;
+          created_by?: string | null;
+          updated_by?: string | null;
+        };
+        Update: {
+          titolo?: string;
+          spiegazione?: string;
+          sort_order?: number;
+          attivo?: boolean;
+          updated_by?: string | null;
+          deleted_at?: string | null;
+          deleted_by?: string | null;
+        };
+        Relationships: [];
+      };
+      compiti_adempimenti_persone: {
+        Row: {
+          id: string;
+          compito_id: string;
+          profile_id: string;
+          created_at: string;
+          updated_at: string;
+          created_by: string | null;
+          updated_by: string | null;
+          deleted_at: string | null;
+          deleted_by: string | null;
+        };
+        Insert: {
+          compito_id: string;
+          profile_id: string;
+          created_by?: string | null;
+          updated_by?: string | null;
+        };
+        Update: {
+          updated_by?: string | null;
+          deleted_at?: string | null;
+          deleted_by?: string | null;
+        };
         Relationships: [];
       };
       preventivi_righe: {

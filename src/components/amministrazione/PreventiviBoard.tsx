@@ -7,6 +7,7 @@ import { PageLoading } from "@/components/ui/BusyIndicator";
 import { AZ } from "@/lib/auth/action-access";
 import { approveScontoSuddivisionePreventivoRigaAction } from "@/app/actions/sconto-suddivisione";
 import {
+  completaCalcoloSpedizionePreventivoAction,
   listPreventiviAction,
   setPreventivoStatoAction,
 } from "@/app/actions/preventivi";
@@ -30,6 +31,7 @@ function formatDate(iso: string) {
 function statoClass(stato: PreventivoStato) {
   if (stato === "accettato") return "bg-emerald-50 text-emerald-800";
   if (stato === "inviato") return "bg-sky-50 text-sky-800";
+  if (stato === "in_attesa_spedizione") return "bg-amber-50 text-amber-900";
   if (stato === "respinto") return "bg-red-50 text-red-700";
   return "bg-slate-100 text-slate-700";
 }
@@ -39,6 +41,9 @@ export function PreventiviBoard() {
   const [ready, setReady] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
+  const [completaId, setCompletaId] = useState<string | null>(null);
+  const [completaImporto, setCompletaImporto] = useState("");
+  const [completaBusy, setCompletaBusy] = useState(false);
 
   async function reload() {
     const res = await listPreventiviAction();
@@ -190,6 +195,19 @@ export function PreventiviBoard() {
                             Approva suddivisione {r.prodottoCodice}
                           </button>
                         ))}
+                      {item.stato === "in_attesa_spedizione" ? (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setCompletaId(item.id);
+                            setCompletaImporto("");
+                            setError(null);
+                          }}
+                          className="rounded-lg bg-amber-700 px-2 py-1 text-xs text-white"
+                        >
+                          Inserisci spedizione e completa
+                        </button>
+                      ) : null}
                       {item.stato === "creato" ? (
                         <button
                           type="button"
@@ -225,6 +243,68 @@ export function PreventiviBoard() {
           </table>
         </div>
       )}
+
+      {completaId ? (
+        <div className="fixed inset-0 z-[70] flex items-center justify-center bg-slate-950/50 px-4">
+          <form
+            className="w-full max-w-sm rounded-xl bg-white p-4 shadow-xl"
+            onSubmit={(e) => {
+              e.preventDefault();
+              const importo = Number(completaImporto.replace(",", "."));
+              if (!Number.isFinite(importo) || importo < 0) {
+                setError("Inserisci l'importo della spedizione.");
+                return;
+              }
+              setCompletaBusy(true);
+              void completaCalcoloSpedizionePreventivoAction({
+                preventivoId: completaId,
+                importo,
+              }).then(async (res) => {
+                setCompletaBusy(false);
+                if (!res.success) {
+                  setError(res.error);
+                  return;
+                }
+                setCompletaId(null);
+                await reload();
+              });
+            }}
+          >
+            <h3 className="text-sm font-semibold">Completa il calcolo spedizione</h3>
+            <p className="mt-1 text-xs text-[var(--muted)]">
+              Inserisci solo l&apos;importo. La mail già preparata viene inviata e il
+              preventivo passa a inviato.
+            </p>
+            <label className="mt-3 block text-sm">
+              <span className="mb-1 block font-medium">Importo spedizione (€)</span>
+              <input
+                inputMode="decimal"
+                value={completaImporto}
+                onChange={(e) => setCompletaImporto(e.target.value)}
+                className="w-full rounded border border-[var(--border)] px-3 py-2"
+                required
+              />
+            </label>
+            <div className="mt-4 flex justify-end gap-2">
+              <button
+                type="button"
+                disabled={completaBusy}
+                onClick={() => setCompletaId(null)}
+                className="rounded-lg border border-[var(--border)] px-3 py-1.5 text-sm"
+              >
+                Annulla
+              </button>
+              <button
+                type="submit"
+                disabled={completaBusy}
+                className="rounded-lg bg-[var(--primary)] px-3 py-1.5 text-sm font-medium text-white disabled:opacity-50"
+              >
+                {completaBusy ? "Invio…" : "Completa"}
+              </button>
+            </div>
+          </form>
+        </div>
+      ) : null}
 
       {creating ? (
         <PreventivoFormModal

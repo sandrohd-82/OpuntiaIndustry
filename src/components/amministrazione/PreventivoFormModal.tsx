@@ -10,6 +10,8 @@ import {
 } from "react";
 import { FaPlus, FaTrash } from "react-icons/fa6";
 import {
+  createPreventivoAction,
+  listCasellePreventivoMailAction,
   listPreventivoCommercialiRiferimentoAction,
   peekNextNumeroPreventivoAction,
   savePreventivoAction,
@@ -162,6 +164,24 @@ export function PreventivoFormModal({ onClose, onSaved }: Props) {
   const [invioOggetto, setInvioOggetto] = useState("");
   const [invioMessaggio, setInvioMessaggio] = useState("");
   const [sessioneMsg, setSessioneMsg] = useState<string | null>(null);
+  const [prezzoAcquirenteModo, setPrezzoAcquirenteModo] = useState<
+    "inserito" | "richiesto"
+  >("inserito");
+  const [mailAccountId, setMailAccountId] = useState("");
+  const [mailTo, setMailTo] = useState("");
+  const [mailOggetto, setMailOggetto] = useState("");
+  const [mailTesto, setMailTesto] = useState("");
+  const [caselle, setCaselle] = useState<Array<{ id: string; label: string; email: string }>>(
+    []
+  );
+  const [draftPrezzoModo, setDraftPrezzoModo] = useState<"inserito" | "richiesto">(
+    "inserito"
+  );
+  const [draftMailAccountId, setDraftMailAccountId] = useState("");
+  const [draftMailTo, setDraftMailTo] = useState("");
+  const [draftMailOggetto, setDraftMailOggetto] = useState("");
+  const [draftMailTesto, setDraftMailTesto] = useState("");
+  const [richiestaSalvata, setRichiestaSalvata] = useState(false);
 
   const editing = editKey
     ? (righe.find((r) => r.key === editKey) ?? null)
@@ -180,7 +200,11 @@ export function PreventivoFormModal({ onClose, onSaved }: Props) {
   const spedizioneImporto =
     consegnaMetodo === "corriere_nostro" && spedizioneBase !== ""
       ? applicaMargineSpedizione(spedizioneBase)
-      : 0;
+      : consegnaMetodo === "corriere_cliente" &&
+          prezzoAcquirenteModo === "inserito" &&
+          spedizioneBase !== ""
+        ? Number(spedizioneBase)
+        : 0;
 
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
@@ -288,16 +312,35 @@ export function PreventivoFormModal({ onClose, onSaved }: Props) {
     };
   }, [consegnaMetodo, destinatario, pesoKg, spedizioneBase]);
 
-  function applyConsegna(next: PreventivoConsegna, nolo: number | "") {
+  function applyConsegna(
+    next: PreventivoConsegna,
+    nolo: number | "",
+    modo: "inserito" | "richiesto"
+  ) {
     setConsegnaMetodo(next);
     setSpedizioneACarico(caricoDefaultDaConsegna(next));
-    setSpedizioneFonte(fonteDefaultDaConsegna(next));
-    if (next !== "corriere_nostro") {
-      setSpedizioneBase("");
-      setSpedizioneMsg(null);
-    } else {
+    if (next === "corriere_nostro") {
+      setSpedizioneFonte(fonteDefaultDaConsegna(next));
       setSpedizioneBase(nolo);
+      setPrezzoAcquirenteModo("inserito");
+      return;
     }
+    if (next === "corriere_cliente") {
+      setPrezzoAcquirenteModo(modo);
+      if (modo === "inserito") {
+        setSpedizioneFonte("manuale");
+        setSpedizioneBase(nolo);
+      } else {
+        setSpedizioneFonte("a_carico_acquirente");
+        setSpedizioneBase("");
+        setSpedizioneMsg(null);
+      }
+      return;
+    }
+    setSpedizioneFonte(fonteDefaultDaConsegna(next));
+    setSpedizioneBase("");
+    setSpedizioneMsg(null);
+    setPrezzoAcquirenteModo("inserito");
   }
 
   function openEdit(kind: Exclude<EditKind, null>, rowKey: string | null = null) {
@@ -309,6 +352,17 @@ export function PreventivoFormModal({ onClose, onSaved }: Props) {
     if (kind === "spedizione") {
       setDraftConsegna(consegnaMetodo);
       setDraftNolo(spedizioneBase);
+      setDraftPrezzoModo(prezzoAcquirenteModo);
+      setDraftMailAccountId(mailAccountId);
+      setDraftMailTo(mailTo || destinatario?.email || "");
+      setDraftMailOggetto(
+        mailOggetto ||
+          `Preventivo n. ${numeroPreview} del ${dataPreventivo.split("-").reverse().join("/")}`
+      );
+      setDraftMailTesto(mailTesto);
+      void listCasellePreventivoMailAction().then((res) => {
+        if (res.success) setCaselle(res.accounts);
+      });
     }
     if (kind === "giorni") setDraftGiorni(giorniConsegna);
     if (kind === "pagamento") setDraftPagamento(tipoPagamento);
@@ -457,7 +511,9 @@ export function PreventivoFormModal({ onClose, onSaved }: Props) {
       imballaggioVoceId: r.imballaggioVoceId,
     }));
     const base =
-      consegnaMetodo === "corriere_nostro" && spedizioneBase !== ""
+      spedizioneBase !== "" &&
+      (consegnaMetodo === "corriere_nostro" ||
+        (consegnaMetodo === "corriere_cliente" && prezzoAcquirenteModo === "inserito"))
         ? spedizioneBase
         : 0;
     setSaving(true);
@@ -587,6 +643,93 @@ export function PreventivoFormModal({ onClose, onSaved }: Props) {
     setSessioneMsg("Pronto per il test di invio. Conferma nella modale.");
   }
 
+  async function onSalvaRichiestaCalcolo() {
+    if (!destinatario) {
+      setFormError("Seleziona un destinatario.");
+      return;
+    }
+    if (!commerciale) {
+      setFormError("Seleziona il commerciale di riferimento.");
+      return;
+    }
+    if (!righe.length) {
+      setFormError("Aggiungi almeno un prodotto.");
+      return;
+    }
+    if (
+      !mailAccountId ||
+      !mailTo.includes("@") ||
+      !mailOggetto.trim() ||
+      !mailTesto.trim()
+    ) {
+      setFormError(
+        "Per richiedere il calcolo compila casella, destinatario, oggetto e testo della mail."
+      );
+      return;
+    }
+    const mapped = righe.map((r) => ({
+      prodottoId: r.prodottoId,
+      prodottoCodice: r.prodottoCodice,
+      prodottoNome: r.prodottoNome,
+      quantita: r.quantita,
+      unitaMisura: r.unitaMisura,
+      prezzoUnitario: r.prezzoUnitario,
+      ivaPercentuale: r.ivaPercentuale || ivaDocumento,
+      listinoId: r.listinoId,
+      prezzoDaListino: r.prezzoDaListino,
+      scontoExtraPct: r.scontoExtraPct,
+      scontoSuddivisioneAttiva: Boolean(r.scontoSuddivisioneAttiva),
+      scontoQuotaAziendaPct: r.scontoQuotaAziendaPct ?? 0,
+      scontoQuotaCommercialePct: r.scontoQuotaCommercialePct ?? 0,
+      confezionamento: r.confezionamento,
+      imballaggioVoceId: r.imballaggioVoceId,
+    }));
+    setSaving(true);
+    setFormError(null);
+    const result = await createPreventivoAction({
+      intenzione: "salvato",
+      clienteId: destinatario.kind === "cliente" ? destinatario.id : null,
+      clientePossibileId:
+        destinatario.kind === "possibile" ? destinatario.id : null,
+      cliente: destinatario.ragioneSociale,
+      codiceTargaCliente: destinatario.codiceTarga || "PC",
+      dataPreventivo,
+      consegnaMetodo: "corriere_cliente",
+      spedizioneACarico: "cliente",
+      spedizioneImporto: 0,
+      spedizioneImportoBase: 0,
+      spedizioneMarkupPct: 0,
+      spedizioneFonte: "a_carico_acquirente",
+      tipoPagamento,
+      giorniConsegna: giorniConsegna.trim() || GIORNI_CONSEGNA_DEFAULT,
+      includeCoordinateBancarie: true,
+      coordinateBanca: AGRINSICILIA_COORDINATE.banca,
+      coordinateIban: AGRINSICILIA_COORDINATE.iban,
+      coordinateBic: AGRINSICILIA_COORDINATE.bic,
+      commercialeRiferimentoId: commerciale.id,
+      validitaGiorni,
+      note: note.trim() || PREVENTIVO_NOTE_DEFAULT,
+      righe: mapped,
+      modalitaSpedizionePrezzo: "richiesto",
+      mailAccountId,
+      mailTo: mailTo.trim(),
+      mailOggetto: mailOggetto.trim(),
+      mailTesto: mailTesto.trim(),
+    });
+    setSaving(false);
+    if (!result.success) {
+      setFormError(result.error);
+      return;
+    }
+    setRichiestaSalvata(true);
+    setSavedId(result.item.id);
+    setNumeroPreview(result.item.numeroInterno);
+    setSessioneMsg(
+      `Preventivo ${result.item.numeroInterno} salvato in attesa del calcolo spedizione. Le persone incaricate hanno ricevuto la notifica urgente. La mail partirà solo quando completeranno l'importo.`
+    );
+    onSaved(result.item);
+  }
+
   async function onConfermaInvioProva() {
     const item = await persist("inviato");
     if (!item) return;
@@ -629,9 +772,13 @@ export function PreventivoFormModal({ onClose, onSaved }: Props) {
   }, [righe, spedizioneImporto, ivaDocumento]);
 
   const spedizioneTesto =
-    consegnaMetodo === "corriere_nostro" && spedizioneImporto > 0
-      ? `${PREVENTIVO_CONSEGNA_LABEL[consegnaMetodo]} · ${euro(spedizioneImporto)} €`
-      : PREVENTIVO_CONSEGNA_LABEL[consegnaMetodo];
+    consegnaMetodo === "corriere_cliente" && prezzoAcquirenteModo === "richiesto"
+      ? "A carico dell'acquirente · prezzo da calcolare"
+      : consegnaMetodo === "corriere_cliente" && spedizioneImporto > 0
+        ? `A carico dell'acquirente · ${euro(spedizioneImporto)} €`
+        : consegnaMetodo === "corriere_nostro" && spedizioneImporto > 0
+          ? `${PREVENTIVO_CONSEGNA_LABEL[consegnaMetodo]} · ${euro(spedizioneImporto)} €`
+          : PREVENTIVO_CONSEGNA_LABEL[consegnaMetodo];
 
   return (
     <div
@@ -685,6 +832,17 @@ export function PreventivoFormModal({ onClose, onSaved }: Props) {
           >
             {saving ? "Salvataggio…" : "Salva e invia"}
           </button>
+          {consegnaMetodo === "corriere_cliente" &&
+          prezzoAcquirenteModo === "richiesto" ? (
+            <button
+              type="button"
+              onClick={() => void onSalvaRichiestaCalcolo()}
+              disabled={saving || richiestaSalvata}
+              className="rounded-lg bg-red-700 px-3 py-1.5 text-sm font-medium text-white disabled:opacity-50"
+            >
+              {richiestaSalvata ? "Richiesta salvata" : "Salva richiesta calcolo"}
+            </button>
+          ) : null}
         </div>
       </div>
 
@@ -835,6 +993,32 @@ export function PreventivoFormModal({ onClose, onSaved }: Props) {
                         );
                       })
                     )}
+                    {consegnaMetodo === "corriere_cliente" &&
+                    prezzoAcquirenteModo === "inserito" &&
+                    spedizioneImporto > 0 ? (
+                      <tr className="border-t border-slate-300">
+                        <td className="py-1.5 pr-2 font-medium">SPD</td>
+                        <td className="py-1.5 pr-2">Spedizione</td>
+                        <td className="py-1.5 pr-2 tabular-nums">
+                          {euro(spedizioneImporto)} €
+                        </td>
+                        <td className="py-1.5 pr-2 tabular-nums">1</td>
+                        <td className="py-1.5 pr-2">—</td>
+                        <td className="py-1.5 pr-2 tabular-nums font-medium">
+                          {euro(spedizioneImporto)} €
+                        </td>
+                        <td className="print:hidden" />
+                      </tr>
+                    ) : null}
+                    {consegnaMetodo === "corriere_cliente" &&
+                    prezzoAcquirenteModo === "richiesto" ? (
+                      <tr className="border-t border-slate-300">
+                        <td colSpan={7} className="py-1.5 text-[11px] text-slate-600">
+                          Spedizione a carico dell&apos;acquirente: prezzo da calcolare.
+                          La mail è preparata e partirà al completamento.
+                        </td>
+                      </tr>
+                    ) : null}
                   </tbody>
                 </table>
               </PreventivoDocField>
@@ -1018,7 +1202,33 @@ export function PreventivoFormModal({ onClose, onSaved }: Props) {
           title="Spedizione e consegna"
           onClose={closeEdit}
           onConfirm={() => {
-            applyConsegna(draftConsegna, draftNolo);
+            if (
+              draftConsegna === "corriere_cliente" &&
+              draftPrezzoModo === "richiesto" &&
+              (!draftMailAccountId ||
+                !draftMailTo.includes("@") ||
+                !draftMailOggetto.trim() ||
+                !draftMailTesto.trim())
+            ) {
+              setFormError(
+                "Per richiedere il calcolo compila casella, destinatario, oggetto e testo della mail."
+              );
+              return;
+            }
+            if (
+              draftConsegna === "corriere_cliente" &&
+              draftPrezzoModo === "inserito" &&
+              (draftNolo === "" || Number(draftNolo) <= 0)
+            ) {
+              setFormError("Inserisci il prezzo della spedizione.");
+              return;
+            }
+            setMailAccountId(draftMailAccountId);
+            setMailTo(draftMailTo.trim());
+            setMailOggetto(draftMailOggetto.trim());
+            setMailTesto(draftMailTesto.trim());
+            setFormError(null);
+            applyConsegna(draftConsegna, draftNolo, draftPrezzoModo);
             closeEdit();
           }}
         >
@@ -1055,6 +1265,92 @@ export function PreventivoFormModal({ onClose, onSaved }: Props) {
                 {spedizioneMsg ? ` · ${spedizioneMsg}` : ""}
               </p>
             </>
+          ) : null}
+          {draftConsegna === "corriere_cliente" ? (
+            <fieldset className="space-y-3 text-sm">
+              <legend className="font-medium">Prezzo a carico dell&apos;acquirente</legend>
+              <label className="flex items-center gap-2">
+                <input
+                  type="radio"
+                  name="prezzo-acquirente"
+                  checked={draftPrezzoModo === "inserito"}
+                  onChange={() => setDraftPrezzoModo("inserito")}
+                />
+                Inserisci il prezzo ora
+              </label>
+              {draftPrezzoModo === "inserito" ? (
+                <label className="block">
+                  <span className="mb-1 block font-medium">Importo spedizione (€)</span>
+                  <ClearableNumberInput
+                    min={0}
+                    value={draftNolo}
+                    onValueChange={setDraftNolo}
+                    className="w-full rounded border border-slate-300 px-3 py-2 text-sm"
+                  />
+                  <span className="mt-1 block text-xs text-slate-500">
+                    Questo importo entra come riga nel totale, senza maggiorazione.
+                  </span>
+                </label>
+              ) : null}
+              <label className="flex items-center gap-2">
+                <input
+                  type="radio"
+                  name="prezzo-acquirente"
+                  checked={draftPrezzoModo === "richiesto"}
+                  onChange={() => setDraftPrezzoModo("richiesto")}
+                />
+                Richiedi l&apos;inserimento del prezzo
+              </label>
+              {draftPrezzoModo === "richiesto" ? (
+                <div className="space-y-2 rounded border border-slate-200 p-3">
+                  <p className="text-xs text-slate-600">
+                    Compila la mail adesso. Chi calcola la spedizione inserirà solo
+                    l&apos;importo e la invierà.
+                  </p>
+                  <label className="block">
+                    <span className="mb-1 block font-medium">Casella</span>
+                    <select
+                      value={draftMailAccountId}
+                      onChange={(e) => setDraftMailAccountId(e.target.value)}
+                      className="w-full rounded border border-slate-300 px-3 py-2 text-sm"
+                    >
+                      <option value="">Seleziona…</option>
+                      {caselle.map((c) => (
+                        <option key={c.id} value={c.id}>
+                          {c.label} ({c.email})
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <label className="block">
+                    <span className="mb-1 block font-medium">Destinatario</span>
+                    <input
+                      type="email"
+                      value={draftMailTo}
+                      onChange={(e) => setDraftMailTo(e.target.value)}
+                      className="w-full rounded border border-slate-300 px-3 py-2 text-sm"
+                    />
+                  </label>
+                  <label className="block">
+                    <span className="mb-1 block font-medium">Oggetto</span>
+                    <input
+                      value={draftMailOggetto}
+                      onChange={(e) => setDraftMailOggetto(e.target.value)}
+                      className="w-full rounded border border-slate-300 px-3 py-2 text-sm"
+                    />
+                  </label>
+                  <label className="block">
+                    <span className="mb-1 block font-medium">Testo</span>
+                    <textarea
+                      value={draftMailTesto}
+                      onChange={(e) => setDraftMailTesto(e.target.value)}
+                      rows={5}
+                      className="w-full rounded border border-slate-300 px-3 py-2 text-sm"
+                    />
+                  </label>
+                </div>
+              ) : null}
+            </fieldset>
           ) : null}
         </PreventivoEditModal>
       ) : null}

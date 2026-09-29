@@ -15,6 +15,7 @@ export type { PreventivoSpedizioneFonte };
 
 export const PREVENTIVO_STATI = [
   "creato",
+  "in_attesa_spedizione",
   "inviato",
   "accettato",
   "respinto",
@@ -24,6 +25,7 @@ export type PreventivoStato = (typeof PREVENTIVO_STATI)[number];
 
 export const PREVENTIVO_STATO_LABEL: Record<PreventivoStato, string> = {
   creato: "Creato (non inviato)",
+  in_attesa_spedizione: "In attesa spedizione",
   inviato: "Inviato",
   accettato: "Accettato",
   respinto: "Respinto",
@@ -245,10 +247,28 @@ export const createPreventivoSchema = z
       .optional()
       .default(PREVENTIVO_NOTE_DEFAULT),
     righe: z.array(preventivoRigaSchema).min(1, "Aggiungi almeno un prodotto"),
+    modalitaSpedizionePrezzo: z
+      .enum(["non_applicabile", "inserito", "richiesto"])
+      .optional()
+      .default("non_applicabile"),
+    mailAccountId: z.string().uuid().optional(),
+    mailTo: z.string().trim().max(200).optional().default(""),
+    mailOggetto: z.string().trim().max(300).optional().default(""),
+    mailTesto: z.string().trim().max(8000).optional().default(""),
   })
   .refine((d) => Boolean(d.clienteId || d.clientePossibileId), {
     message: "Seleziona un destinatario.",
-  });
+  })
+  .refine(
+    (d) =>
+      d.modalitaSpedizionePrezzo !== "richiesto" ||
+      (d.consegnaMetodo === "corriere_cliente" &&
+        Boolean(d.mailAccountId) &&
+        d.mailTo.includes("@") &&
+        d.mailOggetto.length > 0 &&
+        d.mailTesto.length > 0),
+    { message: "Per richiedere il calcolo compila casella, destinatario, oggetto e testo della mail." }
+  );
 
 export function formatNumeroPreventivo(
   data: string,

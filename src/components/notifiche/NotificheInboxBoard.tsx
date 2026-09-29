@@ -210,6 +210,11 @@ export function NotificheInboxBoard({
                     <p className="text-[11px] uppercase tracking-wide text-slate-500">
                       {tipoLabel(n.tipo)}
                       {n.readAt ? " · Letta" : " · Non letta"}
+                      {n.payload.priorita === "urgente" ? (
+                        <span className="ml-2 rounded bg-red-600 px-1.5 py-0.5 text-[10px] font-semibold text-white">
+                          Urgente
+                        </span>
+                      ) : null}
                     </p>
                     <p className="mt-0.5 font-medium text-slate-900">{n.title}</p>
                     {n.body ? (

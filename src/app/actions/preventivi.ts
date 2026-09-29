@@ -5,6 +5,9 @@ import {
   PREVENTIVI_SESSIONE_PROVA,
   PREVENTIVI_SESSIONE_PROVA_MSG,
 } from "@/lib/amministrazione/preventivo-sessione";
+import { dispatchNotifiche } from "@/lib/notifiche/dispatch";
+import { createClient, createServiceClient } from "@/lib/supabase/server";
+import { sendMailViaAccount } from "@/lib/webmail/sync";
 import {
   CONFEZIONE_STANDARD,
   createPreventivoSchema,
@@ -46,8 +49,7 @@ import {
   type CoordinateBancarieAgrinsicilia,
 } from "@/lib/amministrazione/preventivo-letterhead";
 import { getAuthContext, userCanAccessArea } from "@/lib/auth/session";
-import { isSuperadminProfile } from "@/lib/auth/roles";
-import { createClient } from "@/lib/supabase/server";
+import { isAdminLikeProfile, isSuperadminProfile } from "@/lib/auth/roles";
 import { queryListinoVoceVigente } from "@/lib/ecosystem/listino-vigente-query";
 import {
   LISTINO_CONTRATTO_MSG,
@@ -361,7 +363,10 @@ export async function createPreventivoAction(
 ): Promise<
   { success: true; item: Preventivo } | { success: false; error: string }
 > {
-  if (PREVENTIVI_SESSIONE_PROVA) {
+  const rawRecord =
+    raw && typeof raw === "object" ? (raw as Record<string, unknown>) : {};
+  const isRichiesta = rawRecord.modalitaSpedizionePrezzo === "richiesto";
+  if (PREVENTIVI_SESSIONE_PROVA && !isRichiesta) {
     return { success: false, error: PREVENTIVI_SESSIONE_PROVA_MSG };
   }
   const gate = await requirePreventiviAccess();
@@ -401,10 +406,27 @@ export async function createPreventivoAction(
     };
   }
   const intenzione = input.intenzione ?? "bozza";
-  const stato =
-    intenzione === "inviato" ? ("inviato" as const) : ("creato" as const);
-  const documentoStato =
-    intenzione === "bozza" ? ("bozza" as const) : ("approvato" as const);
+  const isRichiestaPrezzo = input.modalitaSpedizionePrezzo === "richiesto";
+  if (isRichiestaPrezzo) {
+    const incaricati = await profiliCalcoloSpedizioni();
+    if (!incaricati.length) {
+      return {
+        success: false,
+        error:
+          "Nessuna persona è assegnata a Calcolo spedizioni. Impostala in Impostazioni, Compiti e adempimenti.",
+      };
+    }
+  }
+  const stato = isRichiestaPrezzo
+    ? ("in_attesa_spedizione" as const)
+    : intenzione === "inviato"
+      ? ("inviato" as const)
+      : ("creato" as const);
+  const documentoStato = isRichiestaPrezzo
+    ? ("approvato" as const)
+    : intenzione === "bozza"
+      ? ("bozza" as const)
+      : ("approvato" as const);
   const now = new Date().toISOString();
   const seq = await nextSeqAnno(input.dataPreventivo);
   const numero = formatNumeroPreventivo(
@@ -430,7 +452,7 @@ export async function createPreventivoAction(
       sent_by: intenzione === "inviato" ? gate.auth.userId : null,
       consegna_metodo: input.consegnaMetodo,
       spedizione_a_carico: input.spedizioneACarico,
-      spedizione_importo: input.spedizioneImporto ?? 0,
+      spedizione_importo: isRichiestaPrezzo ? 0 : (input.spedizioneImporto ?? 0),
       spedizione_importo_base: input.spedizioneImportoBase ?? 0,
       spedizione_markup_pct: input.spedizioneMarkupPct ?? 30,
       spedizione_fonte:
@@ -455,6 +477,11 @@ export async function createPreventivoAction(
       commerciale_riferimento_telefono: riferimento.telefono,
       commerciale_riferimento_email: riferimento.email,
       note: input.note ?? "",
+      modalita_spedizione_prezzo: input.modalitaSpedizionePrezzo,
+      mail_bozza_account_id: isRichiestaPrezzo ? input.mailAccountId ?? null : null,
+      mail_bozza_to: isRichiestaPrezzo ? input.mailTo : "",
+      mail_bozza_oggetto: isRichiestaPrezzo ? input.mailOggetto : "",
+      mail_bozza_testo: isRichiestaPrezzo ? input.mailTesto : "",
       created_by: gate.auth.userId,
       updated_by: gate.auth.userId,
     })
@@ -515,7 +542,9 @@ export async function createPreventivoAction(
     entity_id: header.id,
     action: "create",
     actor_id: gate.auth.userId,
-    summary: `Preventivo ${numero} creato per ${input.cliente}`,
+    summary: isRichiestaPrezzo
+      ? `Preventivo ${numero} in attesa del calcolo spedizione`
+      : `Preventivo ${numero} creato per ${input.cliente}`,
     payload: {
       cliente_id: input.clienteId ?? null,
       cliente_possibile_id: input.clientePossibileId ?? null,
@@ -525,6 +554,21 @@ export async function createPreventivoAction(
       commerciale_riferimento_nome: riferimento.nome,
     },
   });
+  if (isRichiestaPrezzo) {
+    const incaricati = await profiliCalcoloSpedizioni();
+    await dispatchNotifiche({
+      actorId: gate.auth.userId,
+      includeActor: true,
+      recipientIds: incaricati,
+      tipo: "attivita",
+      title: "Calcolo spedizione urgente",
+      body: `Preventivo ${numero} per ${input.cliente}: inserisci il prezzo di spedizione e completa l'invio. La mail è già compilata.`,
+      href: "/app/amministrazione/ordini/preventivi",
+      entityType: "preventivi",
+      entityId: header.id,
+      payload: { priorita: "urgente", compito: "calcolo_spedizioni" },
+    });
+  }
   return {
     success: true,
     item: mapPreventivo(header, (righe ?? []) as PreventivoRigaRow[]),
@@ -991,4 +1035,181 @@ export async function listPreventivoCommercialiRiferimentoAction(): Promise<
       error: e instanceof Error ? e.message : "Elenco non disponibile",
     };
   }
+}
+
+export async function listCasellePreventivoMailAction(): Promise<
+  | { success: true; accounts: Array<{ id: string; label: string; email: string }> }
+  | { success: false; error: string }
+> {
+  const gate = await requirePreventiviAccess();
+  if (!gate.ok) return { success: false, error: gate.error };
+  const service = createServiceClient();
+  const { data, error } = await service
+    .from("webmail_accounts")
+    .select("id, label, email_address")
+    .is("deleted_at", null)
+    .order("created_at", { ascending: true });
+  if (error) return { success: false, error: error.message };
+  return {
+    success: true,
+    accounts: ((data ?? []) as Array<{
+      id: string;
+      label: string;
+      email_address: string;
+    }>).map((a) => ({
+      id: a.id,
+      label: a.label || a.email_address,
+      email: a.email_address,
+    })),
+  };
+}
+
+async function profiliCalcoloSpedizioni(): Promise<string[]> {
+  const supabase = await createClient();
+  const { data: compito } = await supabase
+    .from("compiti_adempimenti")
+    .select("id")
+    .eq("codice", "calcolo_spedizioni")
+    .eq("attivo", true)
+    .is("deleted_at", null)
+    .maybeSingle();
+  const compitoId = (compito as { id?: string } | null)?.id;
+  if (!compitoId) return [];
+  const { data: persone } = await supabase
+    .from("compiti_adempimenti_persone")
+    .select("profile_id")
+    .eq("compito_id", compitoId)
+    .is("deleted_at", null);
+  return [
+    ...new Set(
+      ((persone ?? []) as Array<{ profile_id: string }>).map((p) => p.profile_id)
+    ),
+  ];
+}
+
+export async function completaCalcoloSpedizionePreventivoAction(input: {
+  preventivoId: string;
+  importo: number;
+}): Promise<{ success: true } | { success: false; error: string }> {
+  const auth = await getAuthContext();
+  if (!auth?.isSecondFactorVerified) {
+    return { success: false, error: "Non autenticato" };
+  }
+  const importo = Number(input.importo);
+  if (!Number.isFinite(importo) || importo < 0) {
+    return { success: false, error: "Inserisci l'importo della spedizione." };
+  }
+  const incaricati = await profiliCalcoloSpedizioni();
+  const autorizzato =
+    isAdminLikeProfile(auth.profile) || incaricati.includes(auth.userId);
+  if (!autorizzato) {
+    return {
+      success: false,
+      error: "Solo chi è assegnato a Calcolo spedizioni può completare.",
+    };
+  }
+  const service = createServiceClient();
+  const { data: row, error } = await service
+    .from("preventivi")
+    .select(
+      "id, numero_interno, stato, sent_at, mail_bozza_account_id, mail_bozza_to, mail_bozza_oggetto, mail_bozza_testo, cliente_ragione_sociale"
+    )
+    .eq("id", input.preventivoId)
+    .is("deleted_at", null)
+    .maybeSingle();
+  if (error || !row) {
+    return { success: false, error: error?.message ?? "Preventivo non trovato." };
+  }
+  const prev = row as {
+    id: string;
+    numero_interno: string;
+    stato: string;
+    sent_at: string | null;
+    mail_bozza_account_id: string | null;
+    mail_bozza_to: string;
+    mail_bozza_oggetto: string;
+    mail_bozza_testo: string;
+    cliente_ragione_sociale: string;
+  };
+  if (prev.stato !== "in_attesa_spedizione") {
+    return { success: false, error: "Questo preventivo non è in attesa di spedizione." };
+  }
+  if (prev.sent_at) {
+    return { success: false, error: "La mail di questo preventivo è già stata inviata." };
+  }
+  if (!prev.mail_bozza_account_id || !prev.mail_bozza_to.includes("@")) {
+    return { success: false, error: "Manca la mail preparata dal commerciale." };
+  }
+  const now = new Date().toISOString();
+  const { error: upErr } = await service
+    .from("preventivi")
+    .update({
+      spedizione_importo: importo,
+      spedizione_importo_base: importo,
+      spedizione_markup_pct: 0,
+      spedizione_fonte: "manuale",
+      modalita_spedizione_prezzo: "inserito",
+      updated_by: auth.userId,
+    })
+    .eq("id", prev.id);
+  if (upErr) return { success: false, error: upErr.message };
+
+  const { data: account, error: accErr } = await service
+    .from("webmail_accounts")
+    .select(
+      "id, email_address, imap_host, imap_port, imap_secure, smtp_host, smtp_port, smtp_secure, username, password_encrypted"
+    )
+    .eq("id", prev.mail_bozza_account_id)
+    .is("deleted_at", null)
+    .maybeSingle();
+  if (accErr || !account) {
+    return { success: false, error: accErr?.message ?? "Casella mail non trovata." };
+  }
+  try {
+    await sendMailViaAccount({
+      account: account as {
+        id: string;
+        email_address: string;
+        imap_host: string;
+        imap_port: number;
+        imap_secure: boolean;
+        smtp_host: string;
+        smtp_port: number;
+        smtp_secure: boolean;
+        username: string;
+        password_encrypted: string;
+      },
+      to: prev.mail_bozza_to,
+      subject: prev.mail_bozza_oggetto,
+      text: `${prev.mail_bozza_testo}\n\nSpedizione a carico dell'acquirente: ${importo.toLocaleString("it-IT", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €.`,
+    });
+  } catch (e) {
+    return {
+      success: false,
+      error:
+        e instanceof Error
+          ? `Importo salvato, invio mail non riuscito: ${e.message}`
+          : "Importo salvato, invio mail non riuscito.",
+    };
+  }
+  const { error: sentErr } = await service
+    .from("preventivi")
+    .update({
+      stato: "inviato",
+      documento_stato: "approvato",
+      sent_at: now,
+      sent_by: auth.userId,
+      updated_by: auth.userId,
+    })
+    .eq("id", prev.id);
+  if (sentErr) return { success: false, error: sentErr.message };
+  await writeAuditLog({
+    entity_type: "preventivi",
+    entity_id: prev.id,
+    action: "status_change",
+    actor_id: auth.userId,
+    summary: `Preventivo ${prev.numero_interno} completato con spedizione ${importo} € e inviato`,
+    payload: { importo, mailTo: prev.mail_bozza_to },
+  });
+  return { success: true };
 }

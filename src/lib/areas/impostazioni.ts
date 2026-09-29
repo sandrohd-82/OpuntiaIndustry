@@ -19,6 +19,13 @@ export const IMPOSTAZIONI_SECTIONS: readonly NavItem[] = [
     path: "/app/impostazioni/sedi",
     adminOnly: true,
   },
+  {
+    slug: "compiti",
+    label: "Compiti e adempimenti",
+    description: "Compiti assegnati alle persone, a partire dal calcolo spedizioni",
+    path: "/app/impostazioni/compiti",
+    adminOnly: true,
+  },
 ];
 
 export function firstImpostazioniPath(): string {
