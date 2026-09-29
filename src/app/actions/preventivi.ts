@@ -16,6 +16,8 @@ import {
   AGRINSICILIA_LETTERHEAD,
   AGRINSICILIA_MAIL_FIRMA,
 } from "@/lib/amministrazione/preventivo-letterhead";
+import type { OrdineTipoPagamento } from "@/lib/amministrazione/ordini";
+import { buildPreventivoPdfBuffer } from "@/lib/amministrazione/preventivo-pdf";
 import { sendMailViaAccount } from "@/lib/webmail/sync";
 import {
   CONFEZIONE_STANDARD,
@@ -1238,7 +1240,7 @@ export async function completaCalcoloSpedizionePreventivoAction(input: {
   const { data: row, error } = await service
     .from("preventivi")
     .select(
-      "id, numero_interno, stato, sent_at, mail_bozza_account_id, mail_bozza_to, mail_bozza_oggetto, mail_bozza_testo, cliente_ragione_sociale"
+      "id, numero_interno, stato, sent_at, data_preventivo, cliente_id, cliente_ragione_sociale, tipo_pagamento, giorni_consegna, validita_giorni, note, mail_bozza_account_id, mail_bozza_to, mail_bozza_oggetto, mail_bozza_testo"
     )
     .eq("id", input.preventivoId)
     .is("deleted_at", null)
@@ -1256,6 +1258,12 @@ export async function completaCalcoloSpedizionePreventivoAction(input: {
     mail_bozza_oggetto: string;
     mail_bozza_testo: string;
     cliente_ragione_sociale: string;
+    cliente_id: string | null;
+    data_preventivo: string;
+    tipo_pagamento: OrdineTipoPagamento;
+    giorni_consegna: string;
+    validita_giorni: number;
+    note: string;
   };
   if (prev.stato !== "in_attesa_spedizione") {
     return { success: false, error: "Questo preventivo non è in attesa di spedizione." };
@@ -1291,6 +1299,56 @@ export async function completaCalcoloSpedizionePreventivoAction(input: {
   if (accErr || !account) {
     return { success: false, error: accErr?.message ?? "Casella mail non trovata." };
   }
+  const { data: righeMail, error: righeErr } = await service
+    .from("preventivi_righe")
+    .select(
+      "prodotto_codice, prodotto_nome, quantita, unita_misura, prezzo_unitario, iva_percentuale, sconto_extra_pct, confezionamento, sort_order"
+    )
+    .eq("preventivo_id", prev.id)
+    .order("sort_order", { ascending: true });
+  if (righeErr) return { success: false, error: righeErr.message };
+  const luogo = await contestoSpedizionePreventivoAction(prev.id);
+  let pdf: { buffer: Buffer; fileName: string };
+  try {
+    pdf = buildPreventivoPdfBuffer({
+      numero: prev.numero_interno,
+      dataPreventivo: prev.data_preventivo,
+      azienda: luogo.success ? luogo.azienda : prev.cliente_ragione_sociale,
+      indirizzo: luogo.success ? luogo.indirizzo : "",
+      righe: ((righeMail ?? []) as Array<{
+        prodotto_codice: string;
+        prodotto_nome: string;
+        quantita: number;
+        unita_misura: string;
+        prezzo_unitario: number;
+        iva_percentuale: number;
+        sconto_extra_pct: number;
+        confezionamento: string;
+      }>).map((riga) => ({
+        prodottoCodice: riga.prodotto_codice,
+        prodottoNome: riga.prodotto_nome,
+        quantita: Number(riga.quantita),
+        unitaMisura: riga.unita_misura || "kg",
+        prezzoUnitario: Number(riga.prezzo_unitario),
+        ivaPercentuale: Number(riga.iva_percentuale),
+        scontoExtraPct: Number(riga.sconto_extra_pct),
+        confezionamento: riga.confezionamento ?? "",
+      })),
+      spedizioneImporto: importo,
+      validitaGiorni: Number(prev.validita_giorni ?? 15),
+      tipoPagamento: prev.tipo_pagamento,
+      giorniConsegna: prev.giorni_consegna || "da concordare",
+      note: prev.note ?? "",
+    });
+  } catch (e) {
+    return {
+      success: false,
+      error:
+        e instanceof Error
+          ? `PDF del preventivo non generato: ${e.message}`
+          : "PDF del preventivo non generato.",
+    };
+  }
   try {
     await sendMailViaAccount({
       account: account as {
@@ -1309,6 +1367,13 @@ export async function completaCalcoloSpedizionePreventivoAction(input: {
       subject: prev.mail_bozza_oggetto,
       text: testoMailPreventivoConFirma(prev.mail_bozza_testo, importo),
       html: htmlMailPreventivoConFirma(prev.mail_bozza_testo, importo),
+      attachments: [
+        {
+          filename: pdf.fileName,
+          content: pdf.buffer,
+          contentType: "application/pdf",
+        },
+      ],
     });
   } catch (e) {
     return {

@@ -72,6 +72,11 @@ export function roundEuro(n: number): number {
   return Math.round(n * 100) / 100;
 }
 
+export function nomeFilePreventivoPdf(numero: string): string {
+  const safe = numero.trim().replace(/\//g, "-").replace(/[^\w.\-]+/g, "_") || "preventivo";
+  return `${safe}.pdf`;
+}
+
 export type PreventivoScontisticaRiga = {
   id: string;
   qtyDa: number;

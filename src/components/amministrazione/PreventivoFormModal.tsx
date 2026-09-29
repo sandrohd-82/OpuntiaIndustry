@@ -43,6 +43,7 @@ import {
   GIORNI_CONSEGNA_DEFAULT,
   PREVENTIVO_CONSEGNA,
   PREVENTIVO_CONSEGNA_LABEL,
+  nomeFilePreventivoPdf,
   PREVENTIVO_IVA_DEFAULT,
   PREVENTIVO_NOTE_DEFAULT,
   PREVENTIVO_VALIDITA_GIORNI,
@@ -1507,7 +1508,7 @@ export function PreventivoFormModal({ onClose, onSaved }: Props) {
             </span>
             <span className="min-w-0">
               <span className="block truncate text-sm font-medium text-slate-900">
-                {numeroPreview}.pdf
+                {nomeFilePreventivoPdf(numeroPreview)}
               </span>
               <span className="block text-xs text-slate-500">
                 Promemoria allegato. Il file non è ancora generato.
