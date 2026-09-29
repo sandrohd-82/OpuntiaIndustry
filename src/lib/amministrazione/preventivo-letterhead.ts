@@ -14,6 +14,13 @@ export const AGRINSICILIA_LETTERHEAD = {
   cell: "+393208485846",
 } as const;
 
+/** Firma fissa in calce alla mail del preventivo. */
+export const AGRINSICILIA_MAIL_FIRMA = `AGRINSICILIA Cooperativa agricola e sociale a.r.l.
+S. leg.: G. Pacini 6, Licata 92027 ( AG )
+Tel: Angelo 3208485846
+P.IVA  IT03031180841
+www.agrinsicilia.com`;
+
 export const OPUNTIA_ITALIA_LOGO = {
   src: "/OpuntiaItalia.png",
   alt: "Opuntia Italia",

@@ -61,6 +61,8 @@ import {
 import type { PreventivoCommercialeRiferimento } from "@/lib/amministrazione/preventivo-commerciale-riferimento";
 import {
   AGRINSICILIA_COORDINATE,
+  AGRINSICILIA_LETTERHEAD,
+  AGRINSICILIA_MAIL_FIRMA,
   type DestinatarioPreventivo,
 } from "@/lib/amministrazione/preventivo-letterhead";
 import { LISTINO_CONTRATTO_MSG } from "@/lib/ecosystem/listino-vigente";
@@ -1494,6 +1496,16 @@ export function PreventivoFormModal({ onClose, onSaved }: Props) {
               className="w-full rounded border border-slate-300 px-3 py-2 text-sm"
             />
           </label>
+          <div className="border-t border-slate-200 pt-3">
+            <img
+              src={AGRINSICILIA_LETTERHEAD.logoSrc}
+              alt={AGRINSICILIA_LETTERHEAD.logoAlt}
+              className="h-14 w-auto"
+            />
+            <p className="mt-2 whitespace-pre-line text-xs leading-relaxed text-slate-800">
+              {AGRINSICILIA_MAIL_FIRMA}
+            </p>
+          </div>
           <div className="flex items-center gap-2 rounded border border-slate-200 bg-slate-50 px-3 py-2">
             <span className="rounded bg-red-700 px-1.5 py-0.5 text-[10px] font-semibold text-white">
               PDF

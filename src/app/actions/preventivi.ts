@@ -11,6 +11,11 @@ import {
   assertWebmailAccountAccess,
   resolveWebmailAccountVisibility,
 } from "@/lib/webmail/account-access";
+import { getPublicAppUrl } from "@/lib/auth/app-url";
+import {
+  AGRINSICILIA_LETTERHEAD,
+  AGRINSICILIA_MAIL_FIRMA,
+} from "@/lib/amministrazione/preventivo-letterhead";
 import { sendMailViaAccount } from "@/lib/webmail/sync";
 import {
   CONFEZIONE_STANDARD,
@@ -1101,6 +1106,27 @@ async function profiliCalcoloSpedizioni(): Promise<string[]> {
   ];
 }
 
+function testoMailPreventivoConFirma(testo: string, importo: number): string {
+  const nolo = `Spedizione a carico dell'acquirente: ${importo.toLocaleString("it-IT", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €.`;
+  return `${testo.trim()}\n\n${nolo}\n\n${AGRINSICILIA_MAIL_FIRMA}`;
+}
+
+function escapeHtmlMail(value: string): string {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/\n/g, "<br>");
+}
+
+function htmlMailPreventivoConFirma(testo: string, importo: number): string {
+  const nolo = `Spedizione a carico dell'acquirente: ${importo.toLocaleString("it-IT", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €.`;
+  const corpo = escapeHtmlMail(`${testo.trim()}\n\n${nolo}`);
+  const firma = escapeHtmlMail(AGRINSICILIA_MAIL_FIRMA);
+  const logo = `${getPublicAppUrl()}${AGRINSICILIA_LETTERHEAD.logoSrc}`;
+  return `<div style="font-family:sans-serif;font-size:14px;color:#111827">${corpo}<br><br><img src="${logo}" alt="${AGRINSICILIA_LETTERHEAD.logoAlt}" width="160" style="display:block;margin:0 0 8px" /><div style="font-size:12px;line-height:1.45">${firma}</div></div>`;
+}
+
 export async function completaCalcoloSpedizionePreventivoAction(input: {
   preventivoId: string;
   importo: number;
@@ -1195,7 +1221,8 @@ export async function completaCalcoloSpedizionePreventivoAction(input: {
       },
       to: prev.mail_bozza_to,
       subject: prev.mail_bozza_oggetto,
-      text: `${prev.mail_bozza_testo}\n\nSpedizione a carico dell'acquirente: ${importo.toLocaleString("it-IT", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €.`,
+      text: testoMailPreventivoConFirma(prev.mail_bozza_testo, importo),
+      html: htmlMailPreventivoConFirma(prev.mail_bozza_testo, importo),
     });
   } catch (e) {
     return {
