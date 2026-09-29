@@ -3,7 +3,7 @@
 import { z } from "zod";
 import { writeAuditLog } from "@/lib/audit";
 import { getAuthContext } from "@/lib/auth/session";
-import { isAdminLikeProfile } from "@/lib/auth/roles";
+import { isSuperadminProfile } from "@/lib/auth/roles";
 import { createServiceClient } from "@/lib/supabase/server";
 
 export type CompitoAdempimento = {
@@ -33,7 +33,7 @@ function nomeProfilo(row: {
 
 async function requireAdmin() {
   const auth = await getAuthContext();
-  if (!auth?.isSecondFactorVerified || !isAdminLikeProfile(auth.profile)) {
+  if (!auth?.isSecondFactorVerified || !isSuperadminProfile(auth.profile)) {
     return null;
   }
   return auth;
@@ -44,7 +44,7 @@ export async function listCompitiAdempimentiAction(): Promise<
   | { success: false; error: string }
 > {
   const auth = await requireAdmin();
-  if (!auth) return { success: false, error: "Solo un amministratore può gestire i compiti." };
+  if (!auth) return { success: false, error: "Solo un Super Admin può associare i compiti." };
   const supabase = createServiceClient();
   const { data: compiti, error } = await supabase
     .from("compiti_adempimenti")
@@ -108,7 +108,7 @@ export async function saveCompitoAdempimentoAction(
   raw: unknown
 ): Promise<{ success: true } | { success: false; error: string }> {
   const auth = await requireAdmin();
-  if (!auth) return { success: false, error: "Solo un amministratore può gestire i compiti." };
+  if (!auth) return { success: false, error: "Solo un Super Admin può associare i compiti." };
   const parsed = saveSchema.safeParse(raw);
   if (!parsed.success) {
     return { success: false, error: parsed.error.issues[0]?.message ?? "Dati non validi" };

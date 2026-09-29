@@ -49,7 +49,7 @@ import {
   type CoordinateBancarieAgrinsicilia,
 } from "@/lib/amministrazione/preventivo-letterhead";
 import { getAuthContext, userCanAccessArea } from "@/lib/auth/session";
-import { isAdminLikeProfile, isSuperadminProfile } from "@/lib/auth/roles";
+import { isSuperadminProfile } from "@/lib/auth/roles";
 import { queryListinoVoceVigente } from "@/lib/ecosystem/listino-vigente-query";
 import {
   LISTINO_CONTRATTO_MSG,
@@ -1101,7 +1101,7 @@ export async function completaCalcoloSpedizionePreventivoAction(input: {
   }
   const incaricati = await profiliCalcoloSpedizioni();
   const autorizzato =
-    isAdminLikeProfile(auth.profile) || incaricati.includes(auth.userId);
+    isSuperadminProfile(auth.profile) || incaricati.includes(auth.userId);
   if (!autorizzato) {
     return {
       success: false,
