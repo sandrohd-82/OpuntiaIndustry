@@ -7,6 +7,10 @@ import {
 } from "@/lib/amministrazione/preventivo-sessione";
 import { dispatchNotifiche } from "@/lib/notifiche/dispatch";
 import { createClient, createServiceClient } from "@/lib/supabase/server";
+import {
+  assertWebmailAccountAccess,
+  resolveWebmailAccountVisibility,
+} from "@/lib/webmail/account-access";
 import { sendMailViaAccount } from "@/lib/webmail/sync";
 import {
   CONFEZIONE_STANDARD,
@@ -407,6 +411,10 @@ export async function createPreventivoAction(
   }
   const intenzione = input.intenzione ?? "bozza";
   const isRichiestaPrezzo = input.modalitaSpedizionePrezzo === "richiesto";
+  if (isRichiestaPrezzo && input.mailAccountId) {
+    const casella = await assertWebmailAccountAccess(gate.auth, input.mailAccountId);
+    if (!casella.ok) return { success: false, error: casella.error };
+  }
   if (isRichiestaPrezzo) {
     const incaricati = await profiliCalcoloSpedizioni();
     if (!incaricati.length) {
@@ -1043,12 +1051,18 @@ export async function listCasellePreventivoMailAction(): Promise<
 > {
   const gate = await requirePreventiviAccess();
   if (!gate.ok) return { success: false, error: gate.error };
+  const vis = await resolveWebmailAccountVisibility(gate.auth);
+  if (vis.mode === "granted" && vis.ids.length === 0) {
+    return { success: true, accounts: [] };
+  }
   const service = createServiceClient();
-  const { data, error } = await service
+  let query = service
     .from("webmail_accounts")
     .select("id, label, email_address")
     .is("deleted_at", null)
     .order("created_at", { ascending: true });
+  if (vis.mode === "granted") query = query.in("id", vis.ids);
+  const { data, error } = await query;
   if (error) return { success: false, error: error.message };
   return {
     success: true,

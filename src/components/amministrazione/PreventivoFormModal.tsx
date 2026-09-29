@@ -607,19 +607,31 @@ export function PreventivoFormModal({ onClose, onSaved }: Props) {
     }
   }
 
-  async function onSalva() {
-    const item = await persist("salvato");
-    if (item) {
-      setSessioneMsg(
-        "Preventivo tenuto in sessione di prova. Il foglio resta aperto e l’archivio non è stato toccato."
-      );
+  function onFase2Mail() {
+    if (!destinatario) {
+      setFormError("Seleziona un destinatario.");
+      return;
     }
-  }
-
-  function onPassaAllaMail() {
-    if (!savedId) return;
+    if (!commerciale) {
+      setFormError("Seleziona il commerciale di riferimento.");
+      return;
+    }
+    if (!righe.length) {
+      setFormError("Aggiungi almeno un prodotto.");
+      return;
+    }
+    const bloccata = righe.find((r) => r.blocco);
+    if (bloccata?.blocco === "fuori_produzione") {
+      setFormError(LISTINO_CONTRATTO_MSG.fuori_produzione);
+      return;
+    }
+    if (bloccata?.blocco === "senza_prezzo") {
+      setFormError(LISTINO_CONTRATTO_MSG.senza_prezzo);
+      return;
+    }
+    setFormError(null);
     if (!mailTo.trim()) {
-      setMailTo(invioEmail.trim() || destinatario?.email || "");
+      setMailTo(invioEmail.trim() || destinatario.email || "");
     }
     if (!mailOggetto.trim()) {
       setMailOggetto(
@@ -633,7 +645,14 @@ export function PreventivoFormModal({ onClose, onSaved }: Props) {
     }
     setMailError(null);
     void listCasellePreventivoMailAction().then((res) => {
-      if (res.success) setCaselle(res.accounts);
+      if (!res.success) {
+        setMailError(res.error);
+        return;
+      }
+      setCaselle(res.accounts);
+      setMailAccountId((current) =>
+        res.accounts.some((a) => a.id === current) ? current : ""
+      );
     });
     setInviaOpen(true);
   }
@@ -823,22 +842,12 @@ export function PreventivoFormModal({ onClose, onSaved }: Props) {
           </button>
           <button
             type="button"
-            onClick={() => void onSalva()}
-            disabled={saving}
-            className="rounded-lg border border-white/40 bg-white px-3 py-1.5 text-sm font-medium text-slate-900 hover:bg-slate-100 disabled:opacity-50"
+            onClick={onFase2Mail}
+            disabled={saving || richiestaSalvata}
+            className="rounded-lg bg-[var(--primary)] px-3 py-1.5 text-sm font-medium text-white disabled:opacity-50"
           >
-            Salva
+            Fase 2 Mail
           </button>
-          {savedId ? (
-            <button
-              type="button"
-              onClick={onPassaAllaMail}
-              disabled={saving || richiestaSalvata}
-              className="rounded-lg bg-[var(--primary)] px-3 py-1.5 text-sm font-medium text-white disabled:opacity-50"
-            >
-              Passa alla mail
-            </button>
-          ) : null}
         </div>
       </div>
 
@@ -1281,8 +1290,8 @@ export function PreventivoFormModal({ onClose, onSaved }: Props) {
               </label>
               {draftPrezzoModo === "richiesto" ? (
                 <p className="text-xs text-slate-600">
-                  Il prezzo non si inserisce ora. Dopo aver salvato il preventivo,
-                  passa alla mail e prenota l&apos;invio.
+                  Il prezzo non si inserisce ora. Con Fase 2 Mail prepari la mail
+                  e prenoti l&apos;invio.
                 </p>
               ) : null}
             </fieldset>
@@ -1452,6 +1461,11 @@ export function PreventivoFormModal({ onClose, onSaved }: Props) {
                 </option>
               ))}
             </select>
+            {caselle.length === 0 ? (
+              <span className="mt-1 block text-xs text-slate-500">
+                Nessuna casella assegnata a questo operatore.
+              </span>
+            ) : null}
           </label>
           <label className="block text-sm">
             <span className="mb-1 block font-medium">Destinatario</span>
