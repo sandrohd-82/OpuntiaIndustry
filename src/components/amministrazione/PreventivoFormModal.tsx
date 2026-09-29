@@ -744,7 +744,7 @@ export function PreventivoFormModal({ onClose, onSaved }: Props) {
     setSavedId(result.item.id);
     setNumeroPreview(result.item.numeroInterno);
     setSessioneMsg(
-      `Preventivo ${result.item.numeroInterno} salvato in attesa del calcolo spedizione. Le persone incaricate hanno ricevuto la notifica urgente. La mail partirà solo quando completeranno l'importo.`
+      `Preventivo ${result.item.numeroInterno} in attesa del calcolo. La mail partirà all'indirizzo inserito, ${mailTo.trim()}. Dopo l'invio la prova esce dall'archivio.`
     );
     onSaved(result.item);
   }

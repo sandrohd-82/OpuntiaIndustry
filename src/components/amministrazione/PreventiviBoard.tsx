@@ -40,6 +40,7 @@ export function PreventiviBoard() {
   const [items, setItems] = useState<Preventivo[]>([]);
   const [ready, setReady] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
   const [completaId, setCompletaId] = useState<string | null>(null);
   const [completaImporto, setCompletaImporto] = useState("");
@@ -94,6 +95,11 @@ export function PreventiviBoard() {
       {error ? (
         <p className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
           {error}
+        </p>
+      ) : null}
+      {notice ? (
+        <p className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-800">
+          {notice}
         </p>
       ) : null}
 
@@ -266,6 +272,11 @@ export function PreventiviBoard() {
                   return;
                 }
                 setCompletaId(null);
+                if (res.provaChiusa) {
+                  setNotice(
+                    "Mail inviata all'indirizzo indicato. Il preventivo di prova è uscito dall'archivio."
+                  );
+                }
                 await reload();
               });
             }}

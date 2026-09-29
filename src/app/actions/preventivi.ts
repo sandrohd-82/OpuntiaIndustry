@@ -1130,7 +1130,9 @@ function htmlMailPreventivoConFirma(testo: string, importo: number): string {
 export async function completaCalcoloSpedizionePreventivoAction(input: {
   preventivoId: string;
   importo: number;
-}): Promise<{ success: true } | { success: false; error: string }> {
+}): Promise<
+  { success: true; provaChiusa?: boolean } | { success: false; error: string }
+> {
   const auth = await getAuthContext();
   if (!auth?.isSecondFactorVerified) {
     return { success: false, error: "Non autenticato" };
@@ -1249,8 +1251,39 @@ export async function completaCalcoloSpedizionePreventivoAction(input: {
     entity_id: prev.id,
     action: "status_change",
     actor_id: auth.userId,
-    summary: `Preventivo ${prev.numero_interno} completato con spedizione ${importo} € e inviato`,
+    summary: `Preventivo ${prev.numero_interno} completato con spedizione ${importo} € e inviato a ${prev.mail_bozza_to}`,
     payload: { importo, mailTo: prev.mail_bozza_to },
   });
+  if (PREVENTIVI_SESSIONE_PROVA) {
+    const closedAt = new Date().toISOString();
+    const { error: delErr } = await service
+      .from("preventivi")
+      .update({
+        deleted_at: closedAt,
+        deleted_by: auth.userId,
+        updated_by: auth.userId,
+      })
+      .eq("id", prev.id);
+    if (delErr) return { success: false, error: delErr.message };
+    await service
+      .from("app_notifiche")
+      .update({
+        deleted_at: closedAt,
+        deleted_by: auth.userId,
+        updated_by: auth.userId,
+      })
+      .eq("entity_type", "preventivi")
+      .eq("entity_id", prev.id)
+      .is("deleted_at", null);
+    await writeAuditLog({
+      entity_type: "preventivi",
+      entity_id: prev.id,
+      action: "update",
+      actor_id: auth.userId,
+      summary: `Prova ${prev.numero_interno} inviata a ${prev.mail_bozza_to} e tolta dall'archivio`,
+      payload: { importo, mailTo: prev.mail_bozza_to },
+    });
+    return { success: true, provaChiusa: true };
+  }
   return { success: true };
 }
