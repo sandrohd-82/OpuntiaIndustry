@@ -989,30 +989,29 @@ export function PreventivoFormModal({ onClose, onSaved }: Props) {
                         );
                       })
                     )}
-                    {consegnaMetodo === "corriere_cliente" &&
-                    prezzoAcquirenteModo === "inserito" &&
-                    spedizioneImporto > 0 ? (
+                    {consegnaMetodo === "corriere_cliente" ? (
                       <tr className="border-t border-slate-300">
-                        <td className="py-1.5 pr-2 font-medium">SPD</td>
-                        <td className="py-1.5 pr-2">Spedizione</td>
-                        <td className="py-1.5 pr-2 tabular-nums">
-                          {euro(spedizioneImporto)} €
+                        <td className="py-1.5 pr-2 font-medium">—</td>
+                        <td className="py-1.5 pr-2">
+                          Contributo spese di spedizione
                         </td>
-                        <td className="py-1.5 pr-2 tabular-nums">1</td>
+                        <td className="py-1.5 pr-2 tabular-nums">
+                          {prezzoAcquirenteModo === "inserito" && spedizioneImporto > 0
+                            ? `${euro(spedizioneImporto)} €`
+                            : "—"}
+                        </td>
+                        <td className="py-1.5 pr-2 tabular-nums">
+                          {prezzoAcquirenteModo === "inserito" && spedizioneImporto > 0
+                            ? "1"
+                            : "—"}
+                        </td>
                         <td className="py-1.5 pr-2">—</td>
-                        <td className="py-1.5 pr-2 tabular-nums font-medium">
-                          {euro(spedizioneImporto)} €
+                        <td className="py-1.5 pr-2 font-medium">
+                          {prezzoAcquirenteModo === "inserito" && spedizioneImporto > 0
+                            ? `${euro(spedizioneImporto)} €`
+                            : "Totale da calcolare"}
                         </td>
                         <td className="print:hidden" />
-                      </tr>
-                    ) : null}
-                    {consegnaMetodo === "corriere_cliente" &&
-                    prezzoAcquirenteModo === "richiesto" ? (
-                      <tr className="border-t border-slate-300">
-                        <td colSpan={7} className="py-1.5 text-[11px] text-slate-600">
-                          Spedizione a carico dell&apos;acquirente: prezzo da calcolare.
-                          Dopo il salvataggio, passa alla mail e prenota l&apos;invio.
-                        </td>
                       </tr>
                     ) : null}
                   </tbody>
