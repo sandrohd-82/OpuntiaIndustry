@@ -1240,7 +1240,7 @@ export async function completaCalcoloSpedizionePreventivoAction(input: {
   const { data: row, error } = await service
     .from("preventivi")
     .select(
-      "id, numero_interno, stato, sent_at, data_preventivo, cliente_id, cliente_ragione_sociale, tipo_pagamento, giorni_consegna, validita_giorni, note, mail_bozza_account_id, mail_bozza_to, mail_bozza_oggetto, mail_bozza_testo"
+      "id, numero_interno, stato, sent_at, data_preventivo, cliente_id, cliente_ragione_sociale, tipo_pagamento, giorni_consegna, validita_giorni, note, consegna_metodo, commerciale_riferimento_nome, commerciale_riferimento_telefono, commerciale_riferimento_email, mail_bozza_account_id, mail_bozza_to, mail_bozza_oggetto, mail_bozza_testo"
     )
     .eq("id", input.preventivoId)
     .is("deleted_at", null)
@@ -1264,6 +1264,10 @@ export async function completaCalcoloSpedizionePreventivoAction(input: {
     giorni_consegna: string;
     validita_giorni: number;
     note: string;
+    consegna_metodo: "da_concordare" | "ritiro" | "corriere_nostro" | "corriere_cliente";
+    commerciale_riferimento_nome: string;
+    commerciale_riferimento_telefono: string;
+    commerciale_riferimento_email: string;
   };
   if (prev.stato !== "in_attesa_spedizione") {
     return { success: false, error: "Questo preventivo non è in attesa di spedizione." };
@@ -1308,13 +1312,42 @@ export async function completaCalcoloSpedizionePreventivoAction(input: {
     .order("sort_order", { ascending: true });
   if (righeErr) return { success: false, error: righeErr.message };
   const luogo = await contestoSpedizionePreventivoAction(prev.id);
+  let via = "";
+  let capCitta = "";
+  let partitaIva = "";
+  let codiceFiscale = "";
+  if (prev.cliente_id) {
+    const { data: cliente } = await service
+      .from("clienti")
+      .select(
+        "partita_iva, codice_fiscale, sede_amm_indirizzo, sede_amm_cap, sede_amm_citta, sede_amm_provincia"
+      )
+      .eq("id", prev.cliente_id)
+      .maybeSingle();
+    if (cliente) {
+      partitaIva = String(cliente.partita_iva ?? "");
+      codiceFiscale = String(cliente.codice_fiscale ?? "");
+      via = String(cliente.sede_amm_indirizzo ?? "").trim();
+      const citta = String(cliente.sede_amm_citta ?? "").trim().toUpperCase();
+      const prov = String(cliente.sede_amm_provincia ?? "").trim().toUpperCase();
+      const loc = citta && prov ? `${citta} (${prov})` : citta || prov;
+      capCitta = [String(cliente.sede_amm_cap ?? "").trim(), loc].filter(Boolean).join(" ");
+    }
+  }
   let pdf: { buffer: Buffer; fileName: string };
   try {
     pdf = buildPreventivoPdfBuffer({
       numero: prev.numero_interno,
       dataPreventivo: prev.data_preventivo,
-      azienda: luogo.success ? luogo.azienda : prev.cliente_ragione_sociale,
-      indirizzo: luogo.success ? luogo.indirizzo : "",
+      azienda: prev.cliente_ragione_sociale,
+      partitaIva,
+      codiceFiscale,
+      via,
+      capCitta: capCitta || (luogo.success ? luogo.indirizzo : ""),
+      commercialeNome: prev.commerciale_riferimento_nome ?? "",
+      commercialeTelefono: prev.commerciale_riferimento_telefono ?? "",
+      commercialeEmail: prev.commerciale_riferimento_email ?? "",
+      consegnaMetodo: prev.consegna_metodo,
       righe: ((righeMail ?? []) as Array<{
         prodotto_codice: string;
         prodotto_nome: string;
