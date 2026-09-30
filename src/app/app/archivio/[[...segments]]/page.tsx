@@ -223,26 +223,26 @@ export default async function ArchivioCatchAllPage({ params }: Props) {
   if (navItem && isNavBranch(navItem) && navItem.children.length > 0) {
     redirect(firstLeafPath(navItem));
   }
+  if (
+    segments[0] === "commerciale" &&
+    segments[1] === "preventivi" &&
+    (segments[2] === "da-completare" ||
+      segments[2] === "inviati" ||
+      segments[2] === "accettati") &&
+    !segments[3]
+  ) {
+    redirect("/app/archivio/commerciale/preventivi");
+  }
   if (!page) notFound();
 
   const key = segments.join("/");
 
-  if (
-    key === "commerciale/preventivi/da-completare" ||
-    key === "commerciale/preventivi/inviati" ||
-    key === "commerciale/preventivi/accettati"
-  ) {
-    const raccolta =
-      key.endsWith("inviati")
-        ? "inviati"
-        : key.endsWith("accettati")
-          ? "accettati"
-          : "da_completare";
+  if (key === "commerciale/preventivi") {
     return (
       <>
         <AppHeader title={page.label} subtitle={page.description} />
         <div className="p-6">
-          <PreventiviBoard raccoltaFissa={raccolta} archivio />
+          <PreventiviBoard archivio />
         </div>
       </>
     );

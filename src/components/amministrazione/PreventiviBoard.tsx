@@ -141,7 +141,7 @@ export function PreventiviBoard({
       <div className="flex flex-wrap items-center justify-between gap-3">
         <p className="text-sm text-[var(--muted)]">
           {archivio
-            ? "Preventivi creati da più di 30 giorni, nella stessa raccolta."
+            ? "Preventivi creati da più di 30 giorni. Da completare, Inviati e Accettati sono raccolte di questa pagina."
             : raccolta === "da_completare"
               ? "Bozze e preventivi in attesa del costo spedizione. Restano qui 30 giorni dalla creazione, poi passano in Archivio."
               : raccolta === "inviati"

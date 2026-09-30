@@ -47,28 +47,9 @@ export const ARCHIVIO_SECTIONS: readonly NavItem[] = [
       {
         slug: "preventivi",
         label: "Preventivi",
-        description: "Stesse raccolte dei preventivi operativi, dopo 30 giorni dalla creazione",
+        description:
+          "Da completare, Inviati e Accettati nella stessa pagina, dopo 30 giorni dalla creazione",
         path: "/app/archivio/commerciale/preventivi",
-        children: [
-          {
-            slug: "da-completare",
-            label: "Da completare",
-            description: "Bozze e preventivi in attesa spedizione, creati da più di 30 giorni",
-            path: "/app/archivio/commerciale/preventivi/da-completare",
-          },
-          {
-            slug: "inviati",
-            label: "Inviati",
-            description: "Preventivi inviati o respinti, creati da più di 30 giorni",
-            path: "/app/archivio/commerciale/preventivi/inviati",
-          },
-          {
-            slug: "accettati",
-            label: "Accettati",
-            description: "Preventivi accettati, creati da più di 30 giorni",
-            path: "/app/archivio/commerciale/preventivi/accettati",
-          },
-        ],
       },
     ],
   },
