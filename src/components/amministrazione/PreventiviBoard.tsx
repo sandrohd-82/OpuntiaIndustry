@@ -63,6 +63,7 @@ export function PreventiviBoard({
   const [creating, setCreating] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [completaItem, setCompletaItem] = useState<Preventivo | null>(null);
+  const [dettaglioItem, setDettaglioItem] = useState<Preventivo | null>(null);
 
   async function reload(next = raccolta) {
     const res = await listPreventiviAction({ raccolta: next, archivio });
@@ -251,6 +252,16 @@ export function PreventiviBoard({
                   </td>
                   <td className="px-4 py-3 text-right">
                     <div className="flex flex-wrap justify-end gap-1">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setDettaglioItem(item);
+                          setError(null);
+                        }}
+                        className="rounded-lg border border-[var(--border)] px-2 py-1 text-xs font-medium"
+                      >
+                        Dettagli
+                      </button>
                       <ActionGate actionKey={AZ.creaPreventivo}>
                         <button
                           type="button"
@@ -338,6 +349,14 @@ export function PreventiviBoard({
           </table>
         </div>
       )}
+
+      {dettaglioItem ? (
+        <PreventivoCalcoloSpedizioneSheet
+          item={dettaglioItem}
+          modo="dettagli"
+          onClose={() => setDettaglioItem(null)}
+        />
+      ) : null}
 
       {completaItem ? (
         <PreventivoCalcoloSpedizioneSheet

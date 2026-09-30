@@ -244,6 +244,7 @@ export type PreventivoModificaFoglio = {
   destinatario: DestinatarioPreventivo | null;
   commerciale: PreventivoCommercialeRiferimento | null;
   mailAccountId: string;
+  mailMittente: string;
   mailTo: string;
   mailOggetto: string;
   mailTesto: string;

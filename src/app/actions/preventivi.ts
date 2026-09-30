@@ -500,6 +500,19 @@ export async function getPreventivoPerModificaAction(
     row.cliente_ragione_sociale,
     row.cliente_codice_targa
   );
+  let mailMittente = "";
+  if (row.mail_bozza_account_id) {
+    const service = createServiceClient();
+    const { data: casella } = await service
+      .from("webmail_accounts")
+      .select("email_address")
+      .eq("id", row.mail_bozza_account_id)
+      .is("deleted_at", null)
+      .maybeSingle();
+    mailMittente = String(
+      (casella as { email_address?: string } | null)?.email_address ?? ""
+    );
+  }
   return {
     success: true,
     foglio: {
@@ -527,6 +540,7 @@ export async function getPreventivoPerModificaAction(
           }
         : null,
       mailAccountId: row.mail_bozza_account_id ?? "",
+      mailMittente,
       mailTo: row.mail_bozza_to ?? "",
       mailOggetto: row.mail_bozza_oggetto ?? "",
       mailTesto: row.mail_bozza_testo ?? "",
