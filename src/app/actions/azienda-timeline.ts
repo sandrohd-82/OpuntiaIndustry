@@ -10,6 +10,7 @@ import {
 } from "@/lib/auth/anagrafica-privileges-server";
 import { isUnrestrictedSuperadmin } from "@/lib/auth/roles";
 import { createClient, createServiceClient } from "@/lib/supabase/server";
+import { idsPnVisibiliAlUtente } from "@/lib/promemorie-e-note/visibilita";
 import type { AziendaTimelineItem } from "@/lib/amministrazione/azienda-timeline";
 import {
   formatMailCaselleNote,
@@ -612,6 +613,12 @@ export async function listAziendaTimelineAction(raw: unknown): Promise<
 
     const coveredOrdine = new Set<string>();
     const coveredCamp = new Set<string>();
+    const noteVisibili = await idsPnVisibiliAlUtente(
+      service,
+      auth.userId,
+      "nota",
+      noteRows.map((r) => String(r.id))
+    );
 
     for (const r of noteRows) {
       const createdAt = r.created_at as string | null;
@@ -641,6 +648,7 @@ export async function listAziendaTimelineAction(raw: unknown): Promise<
       const titolo = String(r.titolo || "Nota").trim() || "Nota";
       const isSchedaNota =
         isSchedaOrdineNotaTitolo(titolo) || Boolean(linkedScheda);
+      if (!isSchedaNota && !noteVisibili.has(String(r.id))) continue;
 
       if (isSchedaNota && (linkedOrdine || linkedCamp || linkedScheda)) {
         const ord = (ordineRows ?? []).find((o) => String(o.id) === linkedOrdine);
@@ -856,11 +864,38 @@ export async function listAziendaTimelineAction(raw: unknown): Promise<
             .eq("azienda_id", aziendaKeys[0].id)
         : copieQ.or(filterOrTipoId(aziendaKeys, "azienda_tipo", "azienda_id"));
     const { data: copie } = await copieQ;
+    const copieRows = copie ?? [];
+    const idsPerTipo = (tipo: TimelinePnOrigine) =>
+      copieRows
+        .filter((r) => String(r.origine_tipo) === tipo)
+        .map((r) => String(r.origine_id));
+    const [copieNote, copieAttivita, copiePromemoria] = await Promise.all([
+      idsPnVisibiliAlUtente(service, auth.userId, "nota", idsPerTipo("nota")),
+      idsPnVisibiliAlUtente(
+        service,
+        auth.userId,
+        "attivita",
+        idsPerTipo("attivita")
+      ),
+      idsPnVisibiliAlUtente(
+        service,
+        auth.userId,
+        "promemoria",
+        idsPerTipo("promemoria")
+      ),
+    ]);
+    const copiaVisibile = (tipo: string, id: string) =>
+      tipo === "attivita"
+        ? copieAttivita.has(id)
+        : tipo === "promemoria"
+          ? copiePromemoria.has(id)
+          : copieNote.has(id);
     const copiaKeys = new Set<string>();
-    for (const r of copie ?? []) {
+    for (const r of copieRows) {
       const when = r.occurred_at as string | null;
       if (!when) continue;
       const origine = String(r.origine_tipo) as TimelinePnOrigine;
+      if (!copiaVisibile(origine, String(r.origine_id))) continue;
       copiaKeys.add(`${origine}:${r.origine_id}`);
       const kind =
         origine === "attivita"
@@ -916,7 +951,15 @@ export async function listAziendaTimelineAction(raw: unknown): Promise<
         .select("id, titolo, descrizione, due_at, created_at")
         .in("id", attivitaIds)
         .is("deleted_at", null);
-      for (const r of att ?? []) {
+      const attVisibili = await idsPnVisibiliAlUtente(
+        service,
+        auth.userId,
+        "attivita",
+        (att ?? []).map((r) => String(r.id))
+      );
+      for (const r of (att ?? []).filter((row) =>
+        attVisibili.has(String(row.id))
+      )) {
         const when = (r.due_at as string | null) || (r.created_at as string | null);
         if (!when) continue;
         const testo = String(r.descrizione ?? "");
@@ -1325,7 +1368,7 @@ export async function listPnPerTimelineAction(): Promise<
   | { success: true; items: TimelinePnPickItem[] }
   | { success: false; error: string }
 > {
-  await requireAreaAccess("amministrazione");
+  const { auth } = await requireAreaAccess("amministrazione");
   const service = createServiceClient();
   const items: TimelinePnPickItem[] = [];
 
@@ -1336,7 +1379,13 @@ export async function listPnPerTimelineAction(): Promise<
     .eq("stato", "attiva")
     .order("created_at", { ascending: false })
     .limit(200);
-  for (const r of note ?? []) {
+  const noteVisibili = await idsPnVisibiliAlUtente(
+    service,
+    auth.userId,
+    "nota",
+    (note ?? []).map((r) => String(r.id))
+  );
+  for (const r of (note ?? []).filter((row) => noteVisibili.has(String(row.id)))) {
     items.push({
       id: String(r.id),
       origineTipo: "nota",
@@ -1353,7 +1402,13 @@ export async function listPnPerTimelineAction(): Promise<
     .neq("stato", "archiviata")
     .order("due_at", { ascending: false })
     .limit(200);
-  for (const r of att ?? []) {
+  const attVisibili = await idsPnVisibiliAlUtente(
+    service,
+    auth.userId,
+    "attivita",
+    (att ?? []).map((r) => String(r.id))
+  );
+  for (const r of (att ?? []).filter((row) => attVisibili.has(String(row.id)))) {
     items.push({
       id: String(r.id),
       origineTipo: "attivita",
@@ -1370,7 +1425,13 @@ export async function listPnPerTimelineAction(): Promise<
     .neq("stato", "archiviato")
     .order("due_at", { ascending: false })
     .limit(200);
-  for (const r of pro ?? []) {
+  const proVisibili = await idsPnVisibiliAlUtente(
+    service,
+    auth.userId,
+    "promemoria",
+    (pro ?? []).map((r) => String(r.id))
+  );
+  for (const r of (pro ?? []).filter((row) => proVisibili.has(String(row.id)))) {
     items.push({
       id: String(r.id),
       origineTipo: "promemoria",
@@ -1403,6 +1464,12 @@ export async function collegaPnATimelineAction(
   if (!parsed.success) return { success: false, error: "Dati non validi." };
   const service = createServiceClient();
   const { aziendaTipo, aziendaId, origineTipo, origineId } = parsed.data;
+  const visibile = await idsPnVisibiliAlUtente(service, auth.userId, origineTipo, [
+    origineId,
+  ]);
+  if (!visibile.has(origineId)) {
+    return { success: false, error: "Elemento non visibile." };
+  }
 
   let titolo = etichettaPnOrigine(origineTipo);
   let testo = "";
@@ -1586,7 +1653,8 @@ type PnSyncCandidate = {
 async function collectPnSyncCandidates(
   aziendaTipo: "cliente" | "fornitore" | "cliente_possibile",
   aziendaId: string,
-  ragioneSociale: string
+  ragioneSociale: string,
+  userId: string
 ): Promise<PnSyncCandidate[]> {
   const service = createServiceClient();
   const { data: copie } = await service
@@ -1645,7 +1713,13 @@ async function collectPnSyncCandidates(
       .select("id, titolo, descrizione, due_at, created_at")
       .in("id", attivitaIds)
       .is("deleted_at", null);
-    for (const r of att ?? []) {
+    const attVisibili = await idsPnVisibiliAlUtente(
+      service,
+      userId,
+      "attivita",
+      (att ?? []).map((r) => String(r.id))
+    );
+    for (const r of (att ?? []).filter((row) => attVisibili.has(String(row.id)))) {
       push(
         "attivita",
         String(r.id),
@@ -1679,7 +1753,28 @@ async function collectPnSyncCandidates(
         .or(`titolo.ilike.${like},descrizione.ilike.${like}`)
         .limit(80),
     ]);
+    const [noteVis, attVis, proVis] = await Promise.all([
+      idsPnVisibiliAlUtente(
+        service,
+        userId,
+        "nota",
+        (noteRes.data ?? []).map((r) => String(r.id))
+      ),
+      idsPnVisibiliAlUtente(
+        service,
+        userId,
+        "attivita",
+        (attRes.data ?? []).map((r) => String(r.id))
+      ),
+      idsPnVisibiliAlUtente(
+        service,
+        userId,
+        "promemoria",
+        (proRes.data ?? []).map((r) => String(r.id))
+      ),
+    ]);
     for (const r of noteRes.data ?? []) {
+      if (!noteVis.has(String(r.id))) continue;
       if (
         String(r.entity_type ?? "") === aziendaTipo &&
         String(r.entity_id ?? "") === aziendaId
@@ -1695,6 +1790,7 @@ async function collectPnSyncCandidates(
       );
     }
     for (const r of attRes.data ?? []) {
+      if (!attVis.has(String(r.id))) continue;
       push(
         "attivita",
         String(r.id),
@@ -1704,6 +1800,7 @@ async function collectPnSyncCandidates(
       );
     }
     for (const r of proRes.data ?? []) {
+      if (!proVis.has(String(r.id))) continue;
       push(
         "promemoria",
         String(r.id),
@@ -1787,7 +1884,8 @@ export async function previewAziendaTimelineSyncAction(
     const pn = await collectPnSyncCandidates(
       aziendaTipo,
       aziendaId,
-      hintsEmpty.ragioneSociale
+      hintsEmpty.ragioneSociale,
+      auth.userId
     );
     return {
       success: true,
@@ -1813,7 +1911,12 @@ export async function previewAziendaTimelineSyncAction(
       aziendaId,
       accountIds: grantedIds,
     }),
-    collectPnSyncCandidates(aziendaTipo, aziendaId, hints.ragioneSociale),
+    collectPnSyncCandidates(
+      aziendaTipo,
+      aziendaId,
+      hints.ragioneSociale,
+      auth.userId
+    ),
     countDocumentiAzienda(aziendaTipo, aziendaId),
   ]);
 
@@ -1927,7 +2030,8 @@ export async function runAziendaTimelineSyncAction(
     const candidates = await collectPnSyncCandidates(
       aziendaTipo,
       aziendaId,
-      hints.ragioneSociale
+      hints.ragioneSociale,
+      auth.userId
     );
     for (const c of candidates.filter((x) => !x.already).slice(0, 200)) {
       const id = await upsertTimelinePnCopia(service, auth.userId, {

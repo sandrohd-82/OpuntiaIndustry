@@ -130,10 +130,68 @@ export async function persistAttivitaMentions(input: {
     );
     if (error) {
       console.error("[pn_attivita_mentions insert]", error.message);
+      await syncPnCoinvolti({
+        supabase: input.supabase,
+        tipo: "attivita",
+        origineId: input.attivitaId,
+        actorId: input.userId,
+        userIds: [...have],
+      });
       return { all: ids.filter((id) => have.has(id)), added: [] };
     }
   }
+  await syncPnCoinvolti({
+    supabase: input.supabase,
+    tipo: "attivita",
+    origineId: input.attivitaId,
+    actorId: input.userId,
+    userIds: ids,
+  });
   return { all: ids, added: toInsert };
+}
+
+export async function syncPnCoinvolti(input: {
+  supabase: Supabase;
+  tipo: "nota" | "attivita" | "promemoria";
+  origineId: string;
+  actorId: string;
+  userIds: string[];
+}): Promise<void> {
+  const ids = [...new Set(input.userIds.filter(Boolean))];
+  const { data: existing } = await input.supabase
+    .from("pn_coinvolti")
+    .select("id, user_id")
+    .eq("origine_tipo", input.tipo)
+    .eq("origine_id", input.origineId)
+    .is("deleted_at", null);
+  const open = (existing ?? []) as Array<{ id: string; user_id: string }>;
+  const wanted = new Set(ids);
+  const now = new Date().toISOString();
+  const toClose = open.filter((r) => !wanted.has(r.user_id));
+  if (toClose.length) {
+    await input.supabase
+      .from("pn_coinvolti")
+      .update({
+        deleted_at: now,
+        deleted_by: input.actorId,
+      })
+      .in(
+        "id",
+        toClose.map((r) => r.id)
+      );
+  }
+  const have = new Set(open.map((r) => r.user_id));
+  const toInsert = ids.filter((id) => !have.has(id));
+  if (!toInsert.length) return;
+  const { error } = await input.supabase.from("pn_coinvolti").insert(
+    toInsert.map((user_id) => ({
+      origine_tipo: input.tipo,
+      origine_id: input.origineId,
+      user_id,
+      created_by: input.actorId,
+    }))
+  );
+  if (error) console.error("[pn_coinvolti insert]", error.message);
 }
 
 export async function auditCollegamentiChange(input: {

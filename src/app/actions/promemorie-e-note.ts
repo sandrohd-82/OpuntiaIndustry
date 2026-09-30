@@ -61,7 +61,9 @@ import {
   loadCollegamentiByAttivitaIds,
   persistAttivitaCollegamenti,
   persistAttivitaMentions,
+  syncPnCoinvolti,
 } from "@/lib/promemorie-e-note/attivita-collegamenti-db";
+import { idsPnVisibiliAlUtente } from "@/lib/promemorie-e-note/visibilita";
 import { operatorIdsFromCollegamenti } from "@/lib/promemorie-e-note/mention-tokens";
 import {
   notifyAttivitaCoinvolti,
@@ -238,7 +240,14 @@ export async function listPromemoriaAction(): Promise<
     .neq("stato", "archiviato")
     .order("due_at", { ascending: true });
   if (error) return { success: false, error: error.message };
-  const ids = (data ?? []).map((r) => String(r.id));
+  const visibili = await idsPnVisibiliAlUtente(
+    supabase,
+    auth.userId,
+    "promemoria",
+    (data ?? []).map((r) => String(r.id))
+  );
+  const rows = (data ?? []).filter((r) => visibili.has(String(r.id)));
+  const ids = rows.map((r) => String(r.id));
   const avvisiMap = await loadAvvisiByOrigineIds(
     supabase,
     "promemoria",
@@ -247,7 +256,7 @@ export async function listPromemoriaAction(): Promise<
   );
   return {
     success: true,
-    items: (data ?? []).map((r) => ({
+    items: rows.map((r) => ({
       id: String(r.id),
       titolo: String(r.titolo),
       descrizione: String(r.descrizione ?? ""),
@@ -313,10 +322,18 @@ export async function createPromemoriaAction(input: unknown): Promise<
     payload: {},
   });
   const collegamenti = parsed.data.collegamenti ?? [];
+  const tagPromemoria = operatorIdsFromCollegamenti(collegamenti);
+  await syncPnCoinvolti({
+    supabase,
+    tipo: "promemoria",
+    origineId: item.id,
+    actorId: auth.userId,
+    userIds: tagPromemoria,
+  });
   await notifyPnCoinvolti({
     actorId: auth.userId,
     actorName: formatOperatorShortName(auth.profile),
-    recipientIds: operatorIdsFromCollegamenti(collegamenti),
+    recipientIds: tagPromemoria,
     kind: "promemoria",
     entityId: item.id,
     titolo: item.titolo,
@@ -416,10 +433,18 @@ export async function updatePromemoriaAction(input: unknown): Promise<
     payload: { avvisi: avvisi.length },
   });
   const collegamenti = parsed.data.collegamenti ?? [];
+  const tagPromemoria = operatorIdsFromCollegamenti(collegamenti);
+  await syncPnCoinvolti({
+    supabase,
+    tipo: "promemoria",
+    origineId: item.id,
+    actorId: auth.userId,
+    userIds: tagPromemoria,
+  });
   await notifyPnCoinvolti({
     actorId: auth.userId,
     actorName: formatOperatorShortName(auth.profile),
-    recipientIds: operatorIdsFromCollegamenti(collegamenti),
+    recipientIds: tagPromemoria,
     kind: "promemoria",
     entityId: item.id,
     titolo: item.titolo,
@@ -450,7 +475,14 @@ export async function listAttivitaPnAction(): Promise<
     .neq("stato", "archiviata")
     .order("due_at", { ascending: true });
   if (error) return { success: false, error: error.message };
-  const ids = (data ?? []).map((r) => String(r.id));
+  const visibili = await idsPnVisibiliAlUtente(
+    supabase,
+    auth.userId,
+    "attivita",
+    (data ?? []).map((r) => String(r.id))
+  );
+  const rows = (data ?? []).filter((r) => visibili.has(String(r.id)));
+  const ids = rows.map((r) => String(r.id));
   const mentions = new Map<string, string[]>();
   if (ids.length > 0) {
     const { data: m } = await supabase
@@ -474,7 +506,7 @@ export async function listAttivitaPnAction(): Promise<
   );
   return {
     success: true,
-    items: (data ?? []).map((r) => ({
+    items: rows.map((r) => ({
       id: String(r.id),
       titolo: String(r.titolo),
       descrizione: String(r.descrizione ?? ""),
@@ -763,7 +795,7 @@ export async function listNotePnAction(input?: {
 }): Promise<
   { success: true; items: PnNota[] } | { success: false; error: string }
 > {
-  await guardPnOrAdmin();
+  const { auth } = await guardPnOrAdmin();
   const supabase = await createClient();
   let q = supabase
     .from("pn_note")
@@ -778,11 +810,17 @@ export async function listNotePnAction(input?: {
   }
   const { data, error } = await q;
   if (error) return { success: false, error: error.message };
+  const visibili = await idsPnVisibiliAlUtente(
+    supabase,
+    auth.userId,
+    "nota",
+    (data ?? []).map((r) => String(r.id))
+  );
   return {
     success: true,
-    items: (data ?? []).map((r) =>
-      mapPnNotaRow(r as Record<string, unknown>)
-    ),
+    items: (data ?? [])
+      .filter((r) => visibili.has(String(r.id)))
+      .map((r) => mapPnNotaRow(r as Record<string, unknown>)),
   };
 }
 
@@ -836,10 +874,18 @@ export async function createNotaPnAction(input: unknown): Promise<
       summary: `Promemoria da nota: ${titoloBase}`,
       payload: { from_nota: true },
     });
+    const tagPromemoria = operatorIdsFromCollegamenti(d.collegamenti ?? []);
+    await syncPnCoinvolti({
+      supabase,
+      tipo: "promemoria",
+      origineId: linkedPromemoriaId,
+      actorId: auth.userId,
+      userIds: tagPromemoria,
+    });
     await notifyPnCoinvolti({
       actorId: auth.userId,
       actorName: formatOperatorShortName(auth.profile),
-      recipientIds: operatorIdsFromCollegamenti(d.collegamenti ?? []),
+      recipientIds: tagPromemoria,
       kind: "promemoria",
       entityId: linkedPromemoriaId,
       titolo: titoloBase,
@@ -966,6 +1012,13 @@ export async function createNotaPnAction(input: unknown): Promise<
     testo: item.body,
     collegamenti: d.collegamenti ?? [],
   });
+  await syncPnCoinvolti({
+    supabase,
+    tipo: "nota",
+    origineId: item.id,
+    actorId: auth.userId,
+    userIds: operatorIdsFromCollegamenti(d.collegamenti ?? []),
+  });
   return { success: true, item };
 }
 
@@ -1040,10 +1093,18 @@ export async function updateNotaPnAction(input: unknown): Promise<
       summary: `Promemoria da modifica nota: ${titoloBase}`,
       payload: { from_nota: d.id },
     });
+    const tagPromemoria = operatorIdsFromCollegamenti(d.collegamenti ?? []);
+    await syncPnCoinvolti({
+      supabase,
+      tipo: "promemoria",
+      origineId: linkedPromemoriaId,
+      actorId: auth.userId,
+      userIds: tagPromemoria,
+    });
     await notifyPnCoinvolti({
       actorId: auth.userId,
       actorName: formatOperatorShortName(auth.profile),
-      recipientIds: operatorIdsFromCollegamenti(d.collegamenti ?? []),
+      recipientIds: tagPromemoria,
       kind: "promemoria",
       entityId: linkedPromemoriaId,
       titolo: titoloBase,
@@ -1174,6 +1235,13 @@ export async function updateNotaPnAction(input: unknown): Promise<
     titolo: item.titolo || "Nota",
     testo: item.body,
     collegamenti: d.collegamenti ?? [],
+  });
+  await syncPnCoinvolti({
+    supabase,
+    tipo: "nota",
+    origineId: item.id,
+    actorId: auth.userId,
+    userIds: operatorIdsFromCollegamenti(d.collegamenti ?? []),
   });
   return { success: true, item };
 }
