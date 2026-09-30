@@ -16,13 +16,12 @@ import {
   AGRINSICILIA_LETTERHEAD,
   AGRINSICILIA_MAIL_FIRMA,
 } from "@/lib/amministrazione/preventivo-letterhead";
-import type { OrdineTipoPagamento } from "@/lib/amministrazione/ordini";
-import { buildPreventivoPdfBuffer } from "@/lib/amministrazione/preventivo-pdf";
 import { sendMailViaAccount } from "@/lib/webmail/sync";
 import {
   CONFEZIONE_STANDARD,
   createPreventivoSchema,
   formatNumeroPreventivo,
+  nomeFilePreventivoPdf,
   stimaSpedizioneSchema,
   type Preventivo,
   type PreventivoConfezioneOption,
@@ -1055,7 +1054,18 @@ export async function listPreventivoCommercialiRiferimentoAction(): Promise<
 export async function contestoSpedizionePreventivoAction(
   preventivoId: string
 ): Promise<
-  | { success: true; azienda: string; indirizzo: string }
+  | {
+      success: true;
+      azienda: string;
+      indirizzo: string;
+      destinatario: {
+        ragioneSociale: string;
+        partitaIva: string;
+        codiceFiscale: string;
+        via: string;
+        capCitta: string;
+      };
+    }
   | { success: false; error: string }
 > {
   const auth = await getAuthContext();
@@ -1078,17 +1088,19 @@ export async function contestoSpedizionePreventivoAction(
   }
   const aziendaPreventivo = String(prev.cliente_ragione_sociale ?? "").trim();
   const clienteId = prev.cliente_id ? String(prev.cliente_id) : "";
+  const vuoto = destinatarioScheda(aziendaPreventivo);
   if (!clienteId) {
     return {
       success: true,
       azienda: aziendaPreventivo,
       indirizzo: "Indirizzo non indicato in anagrafica.",
+      destinatario: vuoto,
     };
   }
   const { data: cliente, error: cErr } = await service
     .from("clienti")
     .select(
-      "ragione_sociale, sede_amm_indirizzo, sede_amm_cap, sede_amm_citta, sede_amm_provincia, sede_amm_nazione, sede_mag_indirizzo, sede_mag_cap, sede_mag_citta, sede_mag_provincia, sede_mag_nazione, consegne_altra_azienda"
+      "ragione_sociale, partita_iva, codice_fiscale, sede_amm_indirizzo, sede_amm_cap, sede_amm_citta, sede_amm_provincia, sede_amm_nazione, sede_mag_indirizzo, sede_mag_cap, sede_mag_citta, sede_mag_provincia, sede_mag_nazione, consegne_altra_azienda"
     )
     .eq("id", clienteId)
     .is("deleted_at", null)
@@ -1098,15 +1110,27 @@ export async function contestoSpedizionePreventivoAction(
       success: true,
       azienda: aziendaPreventivo,
       indirizzo: "Indirizzo non indicato in anagrafica.",
+      destinatario: vuoto,
     };
   }
+  const destinatario = destinatarioScheda(
+    aziendaPreventivo || String(cliente.ragione_sociale ?? ""),
+    String(cliente.partita_iva ?? ""),
+    String(cliente.codice_fiscale ?? ""),
+    {
+      indirizzo: cliente.sede_amm_indirizzo,
+      cap: cliente.sede_amm_cap,
+      citta: cliente.sede_amm_citta,
+      provincia: cliente.sede_amm_provincia,
+    }
+  );
   const altra = Array.isArray(cliente.consegne_altra_azienda)
     ? (cliente.consegne_altra_azienda as Array<Record<string, unknown>>)[0]
     : null;
   const altraNome = String(altra?.ragione_sociale ?? "").trim();
   const altraIndirizzo = altra ? rigaIndirizzoSpedizione(altra) : "";
   if (altraNome && altraIndirizzo) {
-    return { success: true, azienda: altraNome, indirizzo: altraIndirizzo };
+    return { success: true, azienda: altraNome, indirizzo: altraIndirizzo, destinatario };
   }
   const mag = rigaIndirizzoSpedizione({
     indirizzo: cliente.sede_mag_indirizzo,
@@ -1126,6 +1150,32 @@ export async function contestoSpedizionePreventivoAction(
     success: true,
     azienda: aziendaPreventivo || String(cliente.ragione_sociale ?? ""),
     indirizzo: mag || amm || "Indirizzo non indicato in anagrafica.",
+    destinatario,
+  };
+}
+
+function destinatarioScheda(
+  nome: string,
+  partitaIva = "",
+  codiceFiscale = "",
+  sede?: {
+    indirizzo?: unknown;
+    cap?: unknown;
+    citta?: unknown;
+    provincia?: unknown;
+  }
+) {
+  const via = String(sede?.indirizzo ?? "").trim();
+  const citta = String(sede?.citta ?? "").trim().toUpperCase();
+  const prov = String(sede?.provincia ?? "").trim().toUpperCase();
+  const loc = citta && prov ? `${citta} (${prov})` : citta || prov;
+  const capCitta = [String(sede?.cap ?? "").trim(), loc].filter(Boolean).join(" ");
+  return {
+    ragioneSociale: nome,
+    partitaIva: partitaIva.trim(),
+    codiceFiscale: codiceFiscale.trim(),
+    via,
+    capCitta,
   };
 }
 
@@ -1192,9 +1242,8 @@ async function profiliCalcoloSpedizioni(): Promise<string[]> {
   ];
 }
 
-function testoMailPreventivoConFirma(testo: string, importo: number): string {
-  const nolo = `Spedizione a carico dell'acquirente: ${importo.toLocaleString("it-IT", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €.`;
-  return `${testo.trim()}\n\n${nolo}\n\n${AGRINSICILIA_MAIL_FIRMA}`;
+function testoMailPreventivoConFirma(testo: string): string {
+  return `${testo.trim()}\n\n${AGRINSICILIA_MAIL_FIRMA}`;
 }
 
 function escapeHtmlMail(value: string): string {
@@ -1205,17 +1254,27 @@ function escapeHtmlMail(value: string): string {
     .replace(/\n/g, "<br>");
 }
 
-function htmlMailPreventivoConFirma(testo: string, importo: number): string {
-  const nolo = `Spedizione a carico dell'acquirente: ${importo.toLocaleString("it-IT", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €.`;
-  const corpo = escapeHtmlMail(`${testo.trim()}\n\n${nolo}`);
+function htmlMailPreventivoConFirma(testo: string): string {
+  const corpo = escapeHtmlMail(testo.trim());
   const firma = escapeHtmlMail(AGRINSICILIA_MAIL_FIRMA);
   const logo = `${getPublicAppUrl()}${AGRINSICILIA_LETTERHEAD.logoSrc}`;
   return `<div style="font-family:sans-serif;font-size:14px;color:#111827">${corpo}<br><br><img src="${logo}" alt="${AGRINSICILIA_LETTERHEAD.logoAlt}" width="160" style="display:block;margin:0 0 8px" /><div style="font-size:12px;line-height:1.45">${firma}</div></div>`;
 }
 
+function bufferPdfPreventivo(raw: string): Buffer | null {
+  const cleaned = raw.replace(/^data:application\/pdf;base64,/, "").replace(/\s/g, "");
+  if (!cleaned || cleaned.length > 8_000_000) return null;
+  if (!/^[A-Za-z0-9+/=]+$/.test(cleaned)) return null;
+  const buf = Buffer.from(cleaned, "base64");
+  if (buf.length < 200 || buf.length > 6_000_000) return null;
+  if (buf.subarray(0, 5).toString("utf8") !== "%PDF-") return null;
+  return buf;
+}
+
 export async function completaCalcoloSpedizionePreventivoAction(input: {
   preventivoId: string;
   importo: number;
+  pdfBase64: string;
 }): Promise<
   { success: true; provaChiusa?: boolean } | { success: false; error: string }
 > {
@@ -1226,6 +1285,13 @@ export async function completaCalcoloSpedizionePreventivoAction(input: {
   const importo = Number(input.importo);
   if (!Number.isFinite(importo) || importo < 0) {
     return { success: false, error: "Inserisci l'importo della spedizione." };
+  }
+  const pdfBuffer = bufferPdfPreventivo(input.pdfBase64 ?? "");
+  if (!pdfBuffer) {
+    return {
+      success: false,
+      error: "La scheda del preventivo non è allegabile. Riprova.",
+    };
   }
   const incaricati = await profiliCalcoloSpedizioni();
   const autorizzato =
@@ -1257,17 +1323,6 @@ export async function completaCalcoloSpedizionePreventivoAction(input: {
     mail_bozza_to: string;
     mail_bozza_oggetto: string;
     mail_bozza_testo: string;
-    cliente_ragione_sociale: string;
-    cliente_id: string | null;
-    data_preventivo: string;
-    tipo_pagamento: OrdineTipoPagamento;
-    giorni_consegna: string;
-    validita_giorni: number;
-    note: string;
-    consegna_metodo: "da_concordare" | "ritiro" | "corriere_nostro" | "corriere_cliente";
-    commerciale_riferimento_nome: string;
-    commerciale_riferimento_telefono: string;
-    commerciale_riferimento_email: string;
   };
   if (prev.stato !== "in_attesa_spedizione") {
     return { success: false, error: "Questo preventivo non è in attesa di spedizione." };
@@ -1303,85 +1358,10 @@ export async function completaCalcoloSpedizionePreventivoAction(input: {
   if (accErr || !account) {
     return { success: false, error: accErr?.message ?? "Casella mail non trovata." };
   }
-  const { data: righeMail, error: righeErr } = await service
-    .from("preventivi_righe")
-    .select(
-      "prodotto_codice, prodotto_nome, quantita, unita_misura, prezzo_unitario, iva_percentuale, sconto_extra_pct, confezionamento, sort_order"
-    )
-    .eq("preventivo_id", prev.id)
-    .order("sort_order", { ascending: true });
-  if (righeErr) return { success: false, error: righeErr.message };
-  const luogo = await contestoSpedizionePreventivoAction(prev.id);
-  let via = "";
-  let capCitta = "";
-  let partitaIva = "";
-  let codiceFiscale = "";
-  if (prev.cliente_id) {
-    const { data: cliente } = await service
-      .from("clienti")
-      .select(
-        "partita_iva, codice_fiscale, sede_amm_indirizzo, sede_amm_cap, sede_amm_citta, sede_amm_provincia"
-      )
-      .eq("id", prev.cliente_id)
-      .maybeSingle();
-    if (cliente) {
-      partitaIva = String(cliente.partita_iva ?? "");
-      codiceFiscale = String(cliente.codice_fiscale ?? "");
-      via = String(cliente.sede_amm_indirizzo ?? "").trim();
-      const citta = String(cliente.sede_amm_citta ?? "").trim().toUpperCase();
-      const prov = String(cliente.sede_amm_provincia ?? "").trim().toUpperCase();
-      const loc = citta && prov ? `${citta} (${prov})` : citta || prov;
-      capCitta = [String(cliente.sede_amm_cap ?? "").trim(), loc].filter(Boolean).join(" ");
-    }
-  }
-  let pdf: { buffer: Buffer; fileName: string };
-  try {
-    pdf = buildPreventivoPdfBuffer({
-      numero: prev.numero_interno,
-      dataPreventivo: prev.data_preventivo,
-      azienda: prev.cliente_ragione_sociale,
-      partitaIva,
-      codiceFiscale,
-      via,
-      capCitta: capCitta || (luogo.success ? luogo.indirizzo : ""),
-      commercialeNome: prev.commerciale_riferimento_nome ?? "",
-      commercialeTelefono: prev.commerciale_riferimento_telefono ?? "",
-      commercialeEmail: prev.commerciale_riferimento_email ?? "",
-      consegnaMetodo: prev.consegna_metodo,
-      righe: ((righeMail ?? []) as Array<{
-        prodotto_codice: string;
-        prodotto_nome: string;
-        quantita: number;
-        unita_misura: string;
-        prezzo_unitario: number;
-        iva_percentuale: number;
-        sconto_extra_pct: number;
-        confezionamento: string;
-      }>).map((riga) => ({
-        prodottoCodice: riga.prodotto_codice,
-        prodottoNome: riga.prodotto_nome,
-        quantita: Number(riga.quantita),
-        unitaMisura: riga.unita_misura || "kg",
-        prezzoUnitario: Number(riga.prezzo_unitario),
-        ivaPercentuale: Number(riga.iva_percentuale),
-        scontoExtraPct: Number(riga.sconto_extra_pct),
-        confezionamento: riga.confezionamento ?? "",
-      })),
-      spedizioneImporto: importo,
-      validitaGiorni: Number(prev.validita_giorni ?? 15),
-      tipoPagamento: prev.tipo_pagamento,
-      giorniConsegna: prev.giorni_consegna || "da concordare",
-      note: prev.note ?? "",
-    });
-  } catch (e) {
-    return {
-      success: false,
-      error:
-        e instanceof Error
-          ? `PDF del preventivo non generato: ${e.message}`
-          : "PDF del preventivo non generato.",
-    };
-  }
+  const pdf = {
+    buffer: pdfBuffer,
+    fileName: nomeFilePreventivoPdf(prev.numero_interno),
+  };
   try {
     await sendMailViaAccount({
       account: account as {
@@ -1398,8 +1378,8 @@ export async function completaCalcoloSpedizionePreventivoAction(input: {
       },
       to: prev.mail_bozza_to,
       subject: prev.mail_bozza_oggetto,
-      text: testoMailPreventivoConFirma(prev.mail_bozza_testo, importo),
-      html: htmlMailPreventivoConFirma(prev.mail_bozza_testo, importo),
+      text: testoMailPreventivoConFirma(prev.mail_bozza_testo),
+      html: htmlMailPreventivoConFirma(prev.mail_bozza_testo),
       attachments: [
         {
           filename: pdf.fileName,

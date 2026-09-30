@@ -26,6 +26,7 @@ type Props = {
   ivaPercentuale?: number;
   validitaGiorni?: number;
   onEditTotali?: () => void;
+  stampa?: boolean;
   imponibile: number;
   totaleIva: number;
   totalePreventivo: number;
@@ -67,6 +68,7 @@ export function PreventivoA4PiePagina({
   ivaPercentuale = PREVENTIVO_IVA_DEFAULT,
   validitaGiorni = PREVENTIVO_VALIDITA_GIORNI,
   onEditTotali,
+  stampa = false,
   imponibile,
   totaleIva,
   totalePreventivo,
@@ -79,6 +81,7 @@ export function PreventivoA4PiePagina({
           <PreventivoDocField
             label="Modifica modalità di pagamento"
             onEdit={onEditPagamento}
+            stampa={stampa}
           >
             <p className="text-[12px] font-bold">Modalità di Pagamento</p>
             <p className="mt-0.5">{labelModalitaPagamentoPreventivo(tipoPagamento)}</p>
@@ -112,10 +115,11 @@ export function PreventivoA4PiePagina({
             label="Modifica aliquota IVA e validità"
             onEdit={onEditTotali ?? (() => {})}
             pencilRight
+            stampa={stampa}
           >
             <p className="text-[12px] font-bold">Totali</p>
             <div className="my-4 flex justify-center">
-              <div className="-rotate-6 border-[2.5px] border-double border-slate-800 px-3 py-1.5 text-center text-[10px] font-bold uppercase tracking-[0.14em] text-slate-800">
+              <div className="-rotate-6 border-[2.5px] border-double border-red-700 px-3 py-1.5 text-center text-[10px] font-bold uppercase tracking-[0.14em] text-red-700">
                 Validità preventivo {validitaGiorni} gg.
               </div>
             </div>

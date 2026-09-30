@@ -18,6 +18,7 @@ type Props = {
   onEditCommerciale?: () => void;
   /** Etichetta documento (default PREVENTIVO). */
   documentoLabel?: string;
+  stampa?: boolean;
 };
 
 export function PreventivoA4Letterhead({
@@ -27,6 +28,7 @@ export function PreventivoA4Letterhead({
   commerciale,
   onEditCommerciale,
   documentoLabel = "PREVENTIVO",
+  stampa = false,
 }: Props) {
   const ph = !commerciale;
   return (
@@ -54,6 +56,7 @@ export function PreventivoA4Letterhead({
             onEdit={onEditData ?? (() => {})}
             className="mt-1.5"
             pencilRight
+            stampa={stampa}
           >
             <p className="text-[12px] font-bold tracking-wide">
               {documentoLabel} nr. {numero} del {formatPreventivoDataIt(dataPreventivo)}
@@ -64,6 +67,7 @@ export function PreventivoA4Letterhead({
             onEdit={onEditCommerciale ?? (() => {})}
             className="mt-2"
             pencilRight
+            stampa={stampa}
           >
             <p className="font-semibold">Commerciale di riferimento</p>
             <p className={ph ? "text-slate-400" : undefined}>

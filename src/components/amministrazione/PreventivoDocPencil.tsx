@@ -30,6 +30,8 @@ type WrapProps = {
   className?: string;
   /** Lato destro: sposta la matita fuori dal testo. */
   pencilRight?: boolean;
+  /** Documento da inviare: niente matita. */
+  stampa?: boolean;
 };
 
 export function PreventivoDocField({
@@ -38,15 +40,18 @@ export function PreventivoDocField({
   children,
   className = "",
   pencilRight = false,
+  stampa = false,
 }: WrapProps) {
   return (
     <div className={`relative ${className}`}>
       {children}
-      <PreventivoDocPencil
-        label={label}
-        onClick={onEdit}
-        className={pencilRight ? "-right-[30px]" : "right-0"}
-      />
+      {stampa ? null : (
+        <PreventivoDocPencil
+          label={label}
+          onClick={onEdit}
+          className={pencilRight ? "-right-[30px]" : "right-0"}
+        />
+      )}
     </div>
   );
 }

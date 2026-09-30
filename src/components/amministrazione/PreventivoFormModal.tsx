@@ -1,14 +1,12 @@
 "use client";
 
 import {
-  Fragment,
   useEffect,
   useId,
   useMemo,
   useState,
   type FormEvent,
 } from "react";
-import { FaPlus, FaTrash } from "react-icons/fa6";
 import {
   createPreventivoAction,
   listCasellePreventivoMailAction,
@@ -17,21 +15,13 @@ import {
   savePreventivoAction,
   stimaSpedizionePreventivoAction,
 } from "@/app/actions/preventivi";
-import { PreventivoA4Letterhead } from "@/components/amministrazione/PreventivoA4Letterhead";
-import { PreventivoA4PiePagina } from "@/components/amministrazione/PreventivoA4PiePagina";
 import {
   PreventivoAggiungiProdottoModal,
   type PreventivoProdottoDraft,
 } from "@/components/amministrazione/PreventivoAggiungiProdottoModal";
-import {
-  PreventivoDestinatarioModal,
-  PreventivoDestinatarioPicker,
-} from "@/components/amministrazione/PreventivoDestinatarioPicker";
-import {
-  PreventivoDocField,
-  PreventivoDocQa,
-} from "@/components/amministrazione/PreventivoDocPencil";
+import { PreventivoDestinatarioModal } from "@/components/amministrazione/PreventivoDestinatarioPicker";
 import { PreventivoEditModal } from "@/components/amministrazione/PreventivoEditModal";
+import { PreventivoFoglioA4 } from "@/components/amministrazione/PreventivoFoglioA4";
 import { ClearableNumberInput } from "@/components/ui/ClearableNumberInput";
 import { useProdottiPropri } from "@/hooks/useProdottiPropri";
 import {
@@ -47,8 +37,6 @@ import {
   PREVENTIVO_IVA_DEFAULT,
   PREVENTIVO_NOTE_DEFAULT,
   PREVENTIVO_VALIDITA_GIORNI,
-  prezzoNettoRigaPreventivo,
-  roundEuro,
   type Preventivo,
   type PreventivoConsegna,
 } from "@/lib/amministrazione/preventivi";
@@ -64,6 +52,7 @@ import {
   AGRINSICILIA_COORDINATE,
   AGRINSICILIA_LETTERHEAD,
   AGRINSICILIA_MAIL_FIRMA,
+  formatDestinatarioIndirizzo,
   type DestinatarioPreventivo,
 } from "@/lib/amministrazione/preventivo-letterhead";
 import { LISTINO_CONTRATTO_MSG } from "@/lib/ecosystem/listino-vigente";
@@ -766,42 +755,6 @@ export function PreventivoFormModal({ onClose, onSaved }: Props) {
       ? applicaMargineSpedizione(draftNolo)
       : 0;
 
-  const totali = useMemo(() => {
-    let imponibile = 0;
-    let iva = 0;
-    for (const r of righe) {
-      const netto = prezzoNettoRigaPreventivo(
-        r.prezzoUnitario,
-        r.scontoExtraPct,
-        r.scontoListinoPct ?? 0
-      );
-      const imp = netto * r.quantita;
-      const aliq = r.ivaPercentuale > 0 ? r.ivaPercentuale : ivaDocumento;
-      imponibile += imp;
-      iva += imp * (aliq / 100);
-    }
-    if (spedizioneImporto > 0) {
-      imponibile += spedizioneImporto;
-      iva += spedizioneImporto * (ivaDocumento / 100);
-    }
-    const impR = roundEuro(imponibile);
-    const ivaR = roundEuro(iva);
-    return {
-      imponibile: impR,
-      iva: ivaR,
-      totale: roundEuro(impR + ivaR),
-    };
-  }, [righe, spedizioneImporto, ivaDocumento]);
-
-  const spedizioneTesto =
-    consegnaMetodo === "corriere_cliente" && prezzoAcquirenteModo === "richiesto"
-      ? "A carico dell'acquirente · prezzo da calcolare"
-      : consegnaMetodo === "corriere_cliente" && spedizioneImporto > 0
-        ? `A carico dell'acquirente · ${euro(spedizioneImporto)} €`
-        : consegnaMetodo === "corriere_nostro" && spedizioneImporto > 0
-          ? `${PREVENTIVO_CONSEGNA_LABEL[consegnaMetodo]} · ${euro(spedizioneImporto)} €`
-          : PREVENTIVO_CONSEGNA_LABEL[consegnaMetodo];
-
   return (
     <div
       className="fixed inset-0 z-[60] overflow-y-auto bg-slate-950/65 px-3 py-6 sm:px-6"
@@ -871,217 +824,48 @@ export function PreventivoFormModal({ onClose, onSaved }: Props) {
         onSubmit={onSubmit}
         aria-labelledby={titleId}
       >
-        <article
-          role="dialog"
-          aria-modal="true"
-          aria-labelledby={titleId}
-          className="paper-invoice-sheet mx-auto w-full max-w-[210mm] bg-white text-slate-900 shadow-[0_8px_30px_rgba(15,23,42,0.18)] ring-1 ring-slate-200"
-        >
-          <div className="box-border flex min-h-[297mm] flex-col px-[14mm] py-[12mm]">
-            <PreventivoA4Letterhead
-              numero={numeroPreview}
-              dataPreventivo={dataPreventivo}
-              onEditData={() => openEdit("data")}
-              commerciale={commerciale}
-              onEditCommerciale={() => openEdit("commerciale")}
-            />
-
-            <PreventivoDestinatarioPicker
-              value={destinatario}
-              onChange={setDestinatario}
-              onEdit={() => openEdit("destinatario")}
-            />
-
-            <div className="mt-8 border-t border-slate-200 pt-5">
-              <PreventivoDocField
-                label="Aggiungi o modifica prodotti"
-                onEdit={() => openEdit("prodotto")}
-              >
-                <table className="w-full text-left text-[11px]">
-                  <thead className="border-b border-slate-300 text-slate-600">
-                    <tr>
-                      <th className="py-1.5 pr-2 font-medium">Codice</th>
-                      <th className="py-1.5 pr-2 font-medium">Nome prodotto</th>
-                      <th className="py-1.5 pr-2 font-medium">Prezzo U</th>
-                      <th className="py-1.5 pr-2 font-medium">Qty</th>
-                      <th className="py-1.5 pr-2 font-medium">Sconto</th>
-                      <th className="py-1.5 pr-2 font-medium">Totale</th>
-                      <th className="py-1.5 font-medium print:hidden" />
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {righe.length === 0 ? (
-                      <tr>
-                        <td
-                          colSpan={7}
-                          className="py-2 text-slate-400 italic"
-                        >
-                          Codice, nome, prezzo, quantità, sconto e totale…
-                        </td>
-                      </tr>
-                    ) : (
-                      righe.map((riga) => {
-                        const netto = prezzoNettoRigaPreventivo(
-                          riga.prezzoUnitario,
-                          riga.scontoExtraPct,
-                          riga.scontoListinoPct ?? 0
-                        );
-                        const totaleRiga = roundEuro(netto * riga.quantita);
-                        const scontoParti: string[] = [];
-                        if ((riga.scontoListinoPct ?? 0) > 0) {
-                          scontoParti.push(
-                            `${(riga.scontoListinoPct ?? 0).toLocaleString("it-IT")}%`
-                          );
-                        }
-                        if (riga.scontoExtraPct > 0) {
-                          scontoParti.push(
-                            `extra ${riga.scontoExtraPct.toLocaleString("it-IT")}%`
-                          );
-                        }
-                        const dettaglio =
-                          (riga.confezionamento ?? "").trim() ||
-                          "Nessun dettaglio di confezionamento";
-                        return (
-                          <Fragment key={riga.key}>
-                            <tr className="border-t border-slate-300">
-                              <td className="py-1.5 pr-2 font-medium">
-                                {riga.prodottoCodice}
-                              </td>
-                              <td className="py-1.5 pr-2">
-                                {riga.prodottoNome}
-                              </td>
-                              <td className="py-1.5 pr-2 tabular-nums">
-                                {euro(riga.prezzoUnitario)} €
-                              </td>
-                              <td className="py-1.5 pr-2 tabular-nums">
-                                {riga.quantita} {riga.unitaMisura}
-                              </td>
-                              <td className="py-1.5 pr-2 tabular-nums">
-                                {scontoParti.length ? scontoParti.join(" + ") : "—"}
-                              </td>
-                              <td className="py-1.5 pr-2 tabular-nums font-medium">
-                                {euro(totaleRiga)} €
-                              </td>
-                              <td className="py-1.5 text-right print:hidden">
-                                <button
-                                  type="button"
-                                  onClick={() => openEdit("prodotto", riga.key)}
-                                  className="mr-1 text-[10px] text-slate-500 underline"
-                                >
-                                  modifica
-                                </button>
-                                <button
-                                  type="button"
-                                  onClick={() =>
-                                    setRighe((prev) =>
-                                      prev.filter((r) => r.key !== riga.key)
-                                    )
-                                  }
-                                  className="text-red-600"
-                                  aria-label="Rimuovi riga"
-                                >
-                                  <FaTrash size={11} />
-                                </button>
-                              </td>
-                            </tr>
-                            <tr className="border-b border-slate-200">
-                              <td colSpan={7} className="px-0 pb-2 pt-0">
-                                <p className="ml-6 max-w-[78%] text-[9px] leading-tight text-slate-500">
-                                  Sconto applicato a proposta di confezionamento.{" "}
-                                  {dettaglio}
-                                </p>
-                              </td>
-                            </tr>
-                          </Fragment>
-                        );
-                      })
-                    )}
-                    {consegnaMetodo === "corriere_cliente" ? (
-                      <tr className="border-t border-slate-300">
-                        <td className="py-1.5 pr-2 font-medium">—</td>
-                        <td className="py-1.5 pr-2">
-                          Contributo spese di spedizione
-                        </td>
-                        <td className="py-1.5 pr-2 tabular-nums">
-                          {prezzoAcquirenteModo === "inserito" && spedizioneImporto > 0
-                            ? `${euro(spedizioneImporto)} €`
-                            : "—"}
-                        </td>
-                        <td className="py-1.5 pr-2 tabular-nums">
-                          {prezzoAcquirenteModo === "inserito" && spedizioneImporto > 0
-                            ? "1"
-                            : "—"}
-                        </td>
-                        <td className="py-1.5 pr-2">—</td>
-                        <td className="py-1.5 pr-2 font-medium">
-                          {prezzoAcquirenteModo === "inserito" && spedizioneImporto > 0
-                            ? `${euro(spedizioneImporto)} €`
-                            : "Totale da calcolare"}
-                        </td>
-                        <td className="print:hidden" />
-                      </tr>
-                    ) : null}
-                  </tbody>
-                </table>
-              </PreventivoDocField>
-              {righe.length > 0 ? (
-                <button
-                  type="button"
-                  onClick={() => openEdit("prodotto")}
-                  className="mt-1 inline-flex items-center gap-1 text-[10px] text-slate-400 print:hidden"
-                >
-                  <FaPlus size={8} />
-                  Aggiungi riga
-                </button>
-              ) : null}
-
-              <PreventivoDocField
-                label="Modifica note"
-                onEdit={() => openEdit("note")}
-                className="mt-4"
-              >
-                <p className="whitespace-pre-line text-[11px] leading-[1.45] text-slate-800">
-                  {note}
-                </p>
-              </PreventivoDocField>
-
-              <div className="mt-4 space-y-1 text-[11px] leading-[1.45]">
-                <PreventivoDocField
-                  label="Modifica spedizione e consegna"
-                  onEdit={() => openEdit("spedizione")}
-                >
-                  <PreventivoDocQa
-                    domanda="Spedizione e consegna"
-                    risposta={spedizioneTesto}
-                  />
-                </PreventivoDocField>
-                <PreventivoDocField
-                  label="Modifica giorni di consegna"
-                  onEdit={() => openEdit("giorni")}
-                >
-                  <PreventivoDocQa
-                    domanda="Giorni di consegna"
-                    risposta={giorniConsegna}
-                  />
-                </PreventivoDocField>
-              </div>
-              <div className="mt-3 h-px w-full bg-slate-900" />
-            </div>
-
-            <PreventivoA4PiePagina
-              tipoPagamento={tipoPagamento}
-              onEditPagamento={() => openEdit("pagamento")}
-              numero={numeroPreview}
-              dataPreventivo={dataPreventivo}
-              ivaPercentuale={ivaDocumento}
-              validitaGiorni={validitaGiorni}
-              onEditTotali={() => openEdit("totali")}
-              imponibile={totali.imponibile}
-              totaleIva={totali.iva}
-              totalePreventivo={totali.totale}
-            />
-          </div>
-        </article>
+        <PreventivoFoglioA4
+          titleId={titleId}
+          numero={numeroPreview}
+          dataPreventivo={dataPreventivo}
+          commerciale={commerciale}
+          destinatario={
+            destinatario
+              ? {
+                  ragioneSociale: destinatario.ragioneSociale,
+                  partitaIva: destinatario.partitaIva,
+                  codiceFiscale: destinatario.codiceFiscale,
+                  via: formatDestinatarioIndirizzo(destinatario.sede).via,
+                  capCitta: formatDestinatarioIndirizzo(destinatario.sede).capCitta,
+                }
+              : null
+          }
+          righe={righe}
+          consegnaMetodo={consegnaMetodo}
+          spedizioneImporto={spedizioneImporto}
+          spedizioneDaCalcolare={
+            consegnaMetodo === "corriere_cliente" &&
+            prezzoAcquirenteModo === "richiesto"
+          }
+          note={note}
+          giorniConsegna={giorniConsegna}
+          tipoPagamento={tipoPagamento}
+          ivaPercentuale={ivaDocumento}
+          validitaGiorni={validitaGiorni}
+          onEditData={() => openEdit("data")}
+          onEditCommerciale={() => openEdit("commerciale")}
+          onEditDestinatario={() => openEdit("destinatario")}
+          onEditProdotto={(key) => openEdit("prodotto", key ?? null)}
+          onRemoveRiga={(key) =>
+            setRighe((prev) => prev.filter((r) => r.key !== key))
+          }
+          onAddRiga={() => openEdit("prodotto")}
+          onEditNote={() => openEdit("note")}
+          onEditSpedizione={() => openEdit("spedizione")}
+          onEditGiorni={() => openEdit("giorni")}
+          onEditPagamento={() => openEdit("pagamento")}
+          onEditTotali={() => openEdit("totali")}
+        />
       </form>
 
       {editKind === "commerciale" ? (
