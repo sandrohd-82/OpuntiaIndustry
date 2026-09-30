@@ -50,11 +50,11 @@ function TotaleRiga({
 }) {
   return (
     <div
-      className={`flex justify-between gap-3 ${strong ? "font-semibold" : ""}`}
+      className={`flex items-baseline justify-between gap-2 whitespace-nowrap ${strong ? "font-semibold" : ""}`}
     >
-      <span>{label}</span>
-      <span className="tabular-nums">
-        {euro(value)} €
+      <span className="whitespace-nowrap">{label}</span>
+      <span className="whitespace-nowrap tabular-nums">
+        {euro(value)}&nbsp;€
       </span>
     </div>
   );
@@ -118,7 +118,7 @@ export function PreventivoA4PiePagina({
             stampa={stampa}
           >
             <p className="text-[12px] font-bold">Totali</p>
-            <div className="my-4 flex justify-center">
+            <div className="my-1 flex justify-center">
               <div className="-rotate-6 border-[2.5px] border-double border-red-700 px-3 py-1.5 text-center text-[10px] font-bold uppercase tracking-[0.14em] text-red-700">
                 Validità preventivo {validitaGiorni} gg.
               </div>
