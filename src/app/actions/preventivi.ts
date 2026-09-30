@@ -178,6 +178,14 @@ function mapRiga(row: PreventivoRigaRow): PreventivoRiga {
         : "non_richiesta",
     confezionamento: row.confezionamento,
     imballaggioVoceId: row.imballaggio_voce_id ?? null,
+    accordoId: row.accordo_id ?? null,
+    accordoModalita: row.accordo_modalita ?? null,
+    accordoValoreOrigine:
+      row.accordo_valore_origine == null
+        ? null
+        : Number(row.accordo_valore_origine),
+    accordoGiustificazione: row.accordo_giustificazione ?? "",
+    accordoForzato: Boolean(row.accordo_forzato),
   };
 }
 
@@ -566,6 +574,14 @@ export async function getPreventivoPerModificaAction(
         confezioneValue: r.imballaggio_voce_id ?? CONFEZIONE_SISTEMA,
         confezionamento: r.confezionamento,
         imballaggioVoceId: r.imballaggio_voce_id ?? null,
+        accordoId: r.accordo_id ?? null,
+        accordoModalita: r.accordo_modalita ?? null,
+        accordoValoreOrigine:
+          r.accordo_valore_origine == null
+            ? null
+            : Number(r.accordo_valore_origine),
+        accordoGiustificazione: r.accordo_giustificazione ?? "",
+        accordoForzato: Boolean(r.accordo_forzato),
       })),
     },
   };
@@ -867,6 +883,11 @@ export async function createPreventivoAction(
         ...colonne,
         confezionamento: r.confezionamento ?? "",
         imballaggio_voce_id: r.imballaggioVoceId ?? null,
+        accordo_id: r.accordoId ?? null,
+        accordo_modalita: r.accordoModalita ?? null,
+        accordo_valore_origine: r.accordoValoreOrigine ?? null,
+        accordo_giustificazione: r.accordoGiustificazione ?? "",
+        accordo_forzato: Boolean(r.accordoForzato),
         sort_order: i,
         created_by: gate.auth.userId,
         updated_by: gate.auth.userId,
@@ -1110,6 +1131,11 @@ export async function savePreventivoAction(
         ...colonne,
         confezionamento: r.confezionamento ?? "",
         imballaggio_voce_id: r.imballaggioVoceId ?? null,
+        accordo_id: r.accordoId ?? null,
+        accordo_modalita: r.accordoModalita ?? null,
+        accordo_valore_origine: r.accordoValoreOrigine ?? null,
+        accordo_giustificazione: r.accordoGiustificazione ?? "",
+        accordo_forzato: Boolean(r.accordoForzato),
         sort_order: i,
         created_by: gate.auth.userId,
         updated_by: gate.auth.userId,

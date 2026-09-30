@@ -49,6 +49,7 @@ import {
   loadScontoOperatoreCtx,
   valutaScontoWizard,
 } from "@/lib/amministrazione/sconto-fuori-listino-server";
+import { accordoForzato } from "@/lib/amministrazione/accordi-prezzo";
 import { prezzoNettoDaSconto } from "@/lib/amministrazione/sconto-fuori-listino";
 import {
   colonneSuddivisione,
@@ -194,7 +195,16 @@ async function uploadAllegato(
 
 async function replaceRighe(
   ordineId: string,
-  righe: OrdineInput["righe"]
+  righe: Array<
+    Omit<OrdineInput["righe"][number], "id"> & {
+      id?: string;
+      accordoId?: string | null;
+      accordoModalita?: "sconto_percentuale" | "prezzo_fisso" | null;
+      accordoValoreOrigine?: number | null;
+      accordoGiustificazione?: string;
+      accordoForzato?: boolean;
+    }
+  >
 ): Promise<string | null> {
   const supabase = await createClient();
   const { error: delErr } = await supabase
@@ -213,6 +223,11 @@ async function replaceRighe(
     lotto_codice: r.lottoCodice?.trim() ?? "",
     prezzo_unitario: r.prezzoUnitario,
     iva_percentuale: r.ivaPercentuale,
+    accordo_id: r.accordoId ?? null,
+    accordo_modalita: r.accordoModalita ?? null,
+    accordo_valore_origine: r.accordoValoreOrigine ?? null,
+    accordo_giustificazione: r.accordoGiustificazione ?? "",
+    accordo_forzato: Boolean(r.accordoForzato),
     sort_order: i,
   }));
 
@@ -1062,10 +1077,29 @@ async function createOrdineWizardActionInner(
         quotaCommercialePct: input.scontoQuotaCommercialePct ?? 0,
       });
   if (!suddivisione.ok) return { success: false, error: suddivisione.error };
-  const prezzoListino = campionaturaGratis ? 0 : input.prezzoUnitario;
+  const prezzoCatalogo = Number(voceRes.voce?.prezzo ?? input.prezzoUnitario);
+  const accordoPct =
+    input.accordoModalita === "sconto_percentuale"
+      ? Number(input.accordoValoreApplicato ?? input.accordoValoreOrigine ?? 0)
+      : 0;
+  const prezzoBase = campionaturaGratis
+    ? 0
+    : input.accordoModalita === "sconto_percentuale"
+      ? prezzoNettoDaSconto(
+          prezzoCatalogo > 0 ? prezzoCatalogo : input.prezzoUnitario,
+          accordoPct
+        )
+      : input.prezzoUnitario;
+  const prezzoListino = campionaturaGratis ? 0 : prezzoCatalogo;
   const prezzoUnitario = campionaturaGratis
     ? 0
-    : prezzoNettoDaSconto(prezzoListino, scontoVal.pct);
+    : prezzoNettoDaSconto(prezzoBase, scontoVal.pct);
+  const accordoApplicato =
+    input.accordoModalita === "prezzo_fisso"
+      ? input.prezzoUnitario
+      : input.accordoModalita === "sconto_percentuale"
+        ? accordoPct
+        : null;
   const scontoApprovazioneStato =
     scontoVal.fascia === "nessuno" || scontoVal.fascia === "fino_10"
       ? "non_richiesta"
@@ -1275,6 +1309,14 @@ async function createOrdineWizardActionInner(
         lottoCodice: input.lottoCodice ?? "",
         prezzoUnitario,
         ivaPercentuale,
+        accordoId: input.accordoId,
+        accordoModalita: input.accordoModalita,
+        accordoValoreOrigine: input.accordoValoreOrigine,
+        accordoGiustificazione: input.accordoGiustificazione,
+        accordoForzato:
+          accordoApplicato == null
+            ? false
+            : accordoForzato(input.accordoValoreOrigine, accordoApplicato),
       },
     ]);
     if (righeErr) return { success: false, error: righeErr };

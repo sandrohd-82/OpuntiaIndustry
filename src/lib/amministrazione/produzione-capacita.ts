@@ -250,6 +250,15 @@ export const ordineWizardInputSchema = z
     scontoSuddivisioneAttiva: z.boolean().optional().default(false),
     scontoQuotaAziendaPct: z.number().min(0).max(100).optional().default(0),
     scontoQuotaCommercialePct: z.number().min(0).max(100).optional().default(0),
+    accordoId: z.string().uuid().nullable().optional().default(null),
+    accordoModalita: z
+      .enum(["sconto_percentuale", "prezzo_fisso"])
+      .nullable()
+      .optional()
+      .default(null),
+    accordoValoreOrigine: z.number().nullable().optional().default(null),
+    accordoValoreApplicato: z.number().nullable().optional().default(null),
+    accordoGiustificazione: z.string().trim().max(500).optional().default(""),
   })
   .superRefine((val, ctx) => {
     if (!val.clienteId && !val.possibileClienteId) {

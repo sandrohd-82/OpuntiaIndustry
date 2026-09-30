@@ -17,7 +17,13 @@ import {
 } from "@/lib/amministrazione/sconto-fuori-listino";
 import { ScontoSuddivisioneFields } from "@/components/amministrazione/ScontoSuddivisioneFields";
 import { validaQuoteSuddivisione } from "@/lib/amministrazione/sconto-suddivisione";
+import { getAccordoPrezzoProdottoAction } from "@/app/actions/accordi-prezzo";
 import { getListinoVoceVigenteAction } from "@/app/actions/listini";
+import {
+  accordoForzato,
+  voceAccordoPrezzo,
+  type AccordoPrezzoProdotto,
+} from "@/lib/amministrazione/accordi-prezzo";
 import {
   LISTINO_CONTRATTO_MSG,
   valutaListinoPerContratto,
@@ -320,6 +326,8 @@ export function OrdineNuovoWizardModal({
   );
   const [prezzoUnitario, setPrezzoUnitario] = useState<number | "">("");
   const [scontoExtraPct, setScontoExtraPct] = useState<number | "">("");
+  const [accordo, setAccordo] = useState<AccordoPrezzoProdotto | null>(null);
+  const [scontoAccordo, setScontoAccordo] = useState<number | "">("");
   const [scontoSuddivisioneAttiva, setScontoSuddivisioneAttiva] = useState(false);
   const [scontoQuotaAzienda, setScontoQuotaAzienda] = useState<number | "">("");
   const [scontoQuotaCommerciale, setScontoQuotaCommerciale] = useState<
@@ -526,6 +534,8 @@ export function OrdineNuovoWizardModal({
   useEffect(() => {
     if (!prodotto?.id) {
       setVoceListino(null);
+      setAccordo(null);
+      setScontoAccordo("");
       setDataDisponibilitaPresunta("");
       return;
     }
@@ -541,16 +551,50 @@ export function OrdineNuovoWizardModal({
         return;
       }
       setVoceListino(res.voce);
+      const aziendaId =
+        anagraficaFonte === "possibile" ? possibileClienteId : clienteId;
+      let nextAccordo: AccordoPrezzoProdotto | null = null;
+      if (tipoOrdine !== "campionatura" && aziendaId && prodotto) {
+        const acc = await getAccordoPrezzoProdottoAction({
+          aziendaTipo:
+            anagraficaFonte === "possibile" ? "cliente_possibile" : "cliente",
+          aziendaId,
+          prodottoCodice: prodotto.codice,
+        });
+        if (!cancelled && acc.success) nextAccordo = acc.item;
+      }
+      if (cancelled) return;
+      setAccordo(nextAccordo);
       if (tipoOrdine === "campionatura") {
         setPrezzoUnitario(0);
+        setScontoAccordo("");
+      } else if (
+        nextAccordo?.modalita === "prezzo_fisso" &&
+        nextAccordo.prezzoKg != null
+      ) {
+        setPrezzoUnitario(nextAccordo.prezzoKg);
+        setScontoAccordo("");
       } else if (res.voce && res.voce.prezzo > 0) {
         setPrezzoUnitario(res.voce.prezzo);
+        setScontoAccordo(
+          nextAccordo?.modalita === "sconto_percentuale"
+            ? (nextAccordo.scontoPct ?? 0)
+            : ""
+        );
+      } else {
+        setScontoAccordo("");
       }
     })();
     return () => {
       cancelled = true;
     };
-  }, [prodotto?.id, tipoOrdine]);
+  }, [
+    prodotto,
+    tipoOrdine,
+    anagraficaFonte,
+    clienteId,
+    possibileClienteId,
+  ]);
 
   const sortedProdotti = useMemo(
     () =>
@@ -577,9 +621,14 @@ export function OrdineNuovoWizardModal({
     tipoOrdine === "campionatura" ? unitaMisura : unitaBase;
   const quantitaKg = quantitaInUnitaBase(quantitaInserita, umEffettiva);
   const prezzoKg = numberOrZero(prezzoUnitario);
+  const scontoAccordoNum = scontoAccordo === "" ? 0 : numberOrZero(scontoAccordo);
+  const prezzoDopoAccordo =
+    accordo?.modalita === "sconto_percentuale"
+      ? prezzoNettoDaSconto(prezzoKg, scontoAccordoNum)
+      : prezzoKg;
   const scontoPct = parseScontoExtraPct(scontoExtraPct);
   const fasciaSconto = fasciaScontoExtra(scontoPct);
-  const prezzoNetto = prezzoNettoDaSconto(prezzoKg, scontoPct);
+  const prezzoNetto = prezzoNettoDaSconto(prezzoDopoAccordo, scontoPct);
   const IVA_PCT = 22;
   const rigaImporti = useMemo(() => {
     const riga = {
@@ -1020,6 +1069,18 @@ export function OrdineNuovoWizardModal({
         unitaMisura: umEffettiva,
         prezzoUnitario: tipoOrdine === "campionatura" ? 0 : numberOrZero(prezzoUnitario),
         scontoExtraPct: tipoOrdine === "campionatura" ? 0 : scontoPct,
+        accordoId: accordo?.id ?? null,
+        accordoModalita: accordo?.modalita ?? null,
+        accordoValoreOrigine: accordo
+          ? Number(accordo.scontoPct ?? accordo.prezzoKg ?? 0)
+          : null,
+        accordoValoreApplicato:
+          accordo?.modalita === "sconto_percentuale"
+            ? scontoAccordoNum
+            : accordo?.modalita === "prezzo_fisso"
+              ? numberOrZero(prezzoUnitario)
+              : null,
+        accordoGiustificazione: accordo?.giustificazione ?? "",
         scontoSuddivisioneAttiva:
           tipoOrdine === "campionatura" ? false : scontoSuddivisioneAttiva,
         scontoQuotaAziendaPct:
@@ -1579,8 +1640,16 @@ export function OrdineNuovoWizardModal({
                     onChange={() => {
                       setTipoOrdine("vendita");
                       setUnitaMisura(unitaBase);
-                      if (voceListino && voceListino.prezzo > 0) {
+                      if (
+                        accordo?.modalita === "prezzo_fisso" &&
+                        accordo.prezzoKg != null
+                      ) {
+                        setPrezzoUnitario(accordo.prezzoKg);
+                      } else if (voceListino && voceListino.prezzo > 0) {
                         setPrezzoUnitario(voceListino.prezzo);
+                      }
+                      if (accordo?.modalita === "sconto_percentuale") {
+                        setScontoAccordo(accordo.scontoPct ?? 0);
                       }
                     }}
                   />
@@ -1735,10 +1804,23 @@ export function OrdineNuovoWizardModal({
                     min={0}
                     value={prezzoUnitario}
                     onValueChange={setPrezzoUnitario}
-                    disabled={Boolean(voceListino && voceListino.prezzo > 0)}
+                    disabled={
+                      Boolean(voceListino && voceListino.prezzo > 0) &&
+                      accordo?.modalita !== "prezzo_fisso"
+                    }
                     className="w-full rounded-lg border border-[var(--border)] px-3 py-2 outline-none focus:border-[var(--primary)] disabled:bg-slate-50"
                   />
-                  {voceListino && voceListino.prezzo > 0 ? (
+                  {accordo?.modalita === "prezzo_fisso" ? (
+                    <p className="mt-1 text-xs text-amber-900">
+                      {voceAccordoPrezzo({
+                        modalita: "prezzo_fisso",
+                        valoreOrigine: Number(accordo.prezzoKg ?? 0),
+                        valoreApplicato: numberOrZero(prezzoUnitario),
+                        giustificazione: accordo.giustificazione,
+                        unita: unitaBase,
+                      })}
+                    </p>
+                  ) : voceListino && voceListino.prezzo > 0 ? (
                     <p className="mt-1 text-xs text-[var(--muted)]">
                       Prezzo da listino In Uso (€/{voceListino.unitaMisura})
                     </p>
@@ -1746,6 +1828,29 @@ export function OrdineNuovoWizardModal({
                 </label>
                 )}
               </div>
+              {tipoOrdine === "campionatura" ? null : accordo?.modalita === "sconto_percentuale" ? (
+                <label className="block text-sm">
+                  <span className="mb-1 block font-medium">
+                    Sconto concordato (%)
+                  </span>
+                  <ClearableNumberInput
+                    min={0}
+                    max={100}
+                    value={scontoAccordo}
+                    onValueChange={setScontoAccordo}
+                    className="w-full max-w-xs rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 outline-none focus:border-[var(--primary)]"
+                  />
+                  <p className="mt-1 text-xs text-amber-900">
+                    {voceAccordoPrezzo({
+                      modalita: "sconto_percentuale",
+                      valoreOrigine: Number(accordo.scontoPct ?? 0),
+                      valoreApplicato: scontoAccordoNum,
+                      giustificazione: accordo.giustificazione,
+                    })}{" "}
+                    Quantità e confezione non ricalcolano questo sconto.
+                  </p>
+                </label>
+              ) : null}
               {tipoOrdine === "campionatura" ? null : (
                 <label className="block text-sm">
                   <span className="mb-1 inline-flex items-center gap-1.5 font-medium">

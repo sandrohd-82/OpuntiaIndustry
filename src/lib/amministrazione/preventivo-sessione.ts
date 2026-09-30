@@ -39,6 +39,11 @@ export type PreventivoSessioneRiga = {
   confezioneValue: string;
   confezionamento: string;
   imballaggioVoceId: string | null;
+  accordoId?: string | null;
+  accordoModalita?: "sconto_percentuale" | "prezzo_fisso" | null;
+  accordoValoreOrigine?: number | null;
+  accordoGiustificazione?: string;
+  accordoForzato?: boolean;
   disponibilita: string | null;
   blocco: string | null;
 };

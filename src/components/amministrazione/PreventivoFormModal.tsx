@@ -56,6 +56,7 @@ import {
   formatDestinatarioIndirizzo,
   type DestinatarioPreventivo,
 } from "@/lib/amministrazione/preventivo-letterhead";
+import { campiAccordoRiga } from "@/lib/amministrazione/accordi-prezzo";
 import { LISTINO_CONTRATTO_MSG } from "@/lib/ecosystem/listino-vigente";
 import {
   labelIntenzionePreventivo,
@@ -386,6 +387,12 @@ export function PreventivoFormModal({ onClose, onSaved, preventivoId }: Props) {
   }
 
   function openEdit(kind: Exclude<EditKind, null>, rowKey: string | null = null) {
+    if (kind === "prodotto" && !destinatario) {
+      setFormError(
+        "Seleziona prima il destinatario: lo sconto o il prezzo concordato si precompila da quella scheda."
+      );
+      return;
+    }
     setEditKey(rowKey);
     if (kind === "data") setDraftData(dataPreventivo);
     if (kind === "commerciale") {
@@ -472,6 +479,7 @@ export function PreventivoFormModal({ onClose, onSaved, preventivoId }: Props) {
         confezioneValue: r.confezioneValue,
         confezionamento: r.confezionamento,
         imballaggioVoceId: r.imballaggioVoceId,
+        ...campiAccordoRiga(r),
         disponibilita: r.disponibilita,
         blocco: r.blocco,
       })),
@@ -547,6 +555,7 @@ export function PreventivoFormModal({ onClose, onSaved, preventivoId }: Props) {
       scontoQuotaCommercialePct: r.scontoQuotaCommercialePct ?? 0,
       confezionamento: r.confezionamento,
       imballaggioVoceId: r.imballaggioVoceId,
+      ...campiAccordoRiga(r),
     }));
     const base =
       spedizioneBase !== "" &&
@@ -764,6 +773,7 @@ export function PreventivoFormModal({ onClose, onSaved, preventivoId }: Props) {
       scontoQuotaCommercialePct: r.scontoQuotaCommercialePct ?? 0,
       confezionamento: r.confezionamento,
       imballaggioVoceId: r.imballaggioVoceId,
+      ...campiAccordoRiga(r),
     }));
     setSaving(true);
     setFormError(null);
@@ -1042,6 +1052,17 @@ export function PreventivoFormModal({ onClose, onSaved, preventivoId }: Props) {
         <PreventivoAggiungiProdottoModal
           prodotti={prodotti}
           ready={ready}
+          azienda={
+            destinatario
+              ? {
+                  tipo:
+                    destinatario.kind === "cliente"
+                      ? "cliente"
+                      : "cliente_possibile",
+                  id: destinatario.id,
+                }
+              : null
+          }
           initial={
             editing
               ? {
@@ -1068,6 +1089,7 @@ export function PreventivoFormModal({ onClose, onSaved, preventivoId }: Props) {
                   unitaMisura: editing.unitaMisura,
                   disponibilita: editing.disponibilita,
                   blocco: editing.blocco,
+                  ...campiAccordoRiga(editing),
                 }
               : null
           }

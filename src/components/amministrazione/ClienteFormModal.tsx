@@ -39,6 +39,12 @@ import {
 } from "@/lib/amministrazione/anagrafica-extra";
 import { ApriFatturaFicActions } from "@/components/amministrazione/ApriFatturaFicButton";
 import { CodiceTargaBadge } from "@/components/amministrazione/CodiceTargaBadge";
+import {
+  listAccordiPrezzoAziendaAction,
+  saveAccordiPrezzoAziendaAction,
+} from "@/app/actions/accordi-prezzo";
+import { AccordiPrezzoProdottoFields } from "@/components/amministrazione/AccordiPrezzoProdottoFields";
+import type { AccordoPrezzoVoceForm } from "@/lib/amministrazione/accordi-prezzo";
 import { ProdottiAcquistatiTags } from "@/components/amministrazione/ProdottiAcquistatiTags";
 import { ReferentiPickerField } from "@/components/amministrazione/ReferentiPickerField";
 import { CommercialeAssignField } from "@/components/amministrazione/CommercialeAssignField";
@@ -256,6 +262,7 @@ export function ClienteFormModal({
   const [prodotti, setProdotti] = useState<string[]>(
     initial?.prodottiAcquistati ?? seme?.prodottiAcquistati ?? []
   );
+  const [accordi, setAccordi] = useState<AccordoPrezzoVoceForm[]>([]);
   const [referenti, setReferenti] = useState<RubricaContatto[]>([]);
   const [fonteReferenti, setFonteReferenti] = useState<RubricaContatto[]>([]);
   const [commercialeId, setCommercialeId] = useState<string | null>(
@@ -573,6 +580,29 @@ export function ClienteFormModal({
   }
 
   useEffect(() => {
+    if (!initial?.id) return;
+    let cancelled = false;
+    void listAccordiPrezzoAziendaAction({
+      aziendaTipo: isPossibile ? "cliente_possibile" : "cliente",
+      aziendaId: initial.id,
+    }).then((res) => {
+      if (cancelled || !res.success) return;
+      setAccordi(
+        res.items.map((item) => ({
+          prodottoCodice: item.prodottoCodice,
+          modalita: item.modalita,
+          scontoPct: item.scontoPct ?? "",
+          prezzoKg: item.prezzoKg ?? "",
+          giustificazione: item.giustificazione,
+        }))
+      );
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [initial?.id, isPossibile]);
+
+  useEffect(() => {
     // Escape non chiude la scheda (evita perdita dati): solo Annulla / Salva.
     const prev = document.body.style.overflow;
     document.body.style.overflow = "hidden";
@@ -649,6 +679,25 @@ export function ClienteFormModal({
   }
 
   async function persist(values: ClienteInput): Promise<string | false> {
+    for (const voce of accordi) {
+      if (!prodotti.includes(voce.prodottoCodice) || voce.modalita === "nessuno") {
+        continue;
+      }
+      if (voce.giustificazione.trim().length < 3) {
+        setFormError(
+          `Scrivi perché per ${voce.prodottoCodice} è stato concordato questo sconto o questo prezzo.`
+        );
+        return false;
+      }
+      if (voce.modalita === "sconto_percentuale" && voce.scontoPct === "") {
+        setFormError(`Indica lo sconto % per ${voce.prodottoCodice}.`);
+        return false;
+      }
+      if (voce.modalita === "prezzo_fisso" && voce.prezzoKg === "") {
+        setFormError(`Indica il prezzo al kg per ${voce.prodottoCodice}.`);
+        return false;
+      }
+    }
     setSaving(true);
     try {
       if (isPossibile && !isEdit) {
@@ -705,6 +754,23 @@ export function ClienteFormModal({
         });
         if (logoErr) {
           setFormError(logoErr);
+          return false;
+        }
+        const accordiSalvati = await saveAccordiPrezzoAziendaAction({
+          aziendaTipo: isPossibile ? "cliente_possibile" : "cliente",
+          aziendaId: entityId,
+          voci: accordi
+            .filter((voce) => prodotti.includes(voce.prodottoCodice))
+            .map((voce) => ({
+              prodottoCodice: voce.prodottoCodice,
+              modalita: voce.modalita,
+              scontoPct: voce.scontoPct === "" ? null : voce.scontoPct,
+              prezzoKg: voce.prezzoKg === "" ? null : voce.prezzoKg,
+              giustificazione: voce.giustificazione,
+            })),
+        });
+        if (!accordiSalvati.success) {
+          setFormError(accordiSalvati.error);
           return false;
         }
       }
@@ -1234,6 +1300,12 @@ export function ClienteFormModal({
                 ? "Prodotti di interesse per questo lead (non ancora acquistati)."
                 : "Seleziona i prodotti dall'elenco di Prodotti propri."
             }
+          />
+
+          <AccordiPrezzoProdottoFields
+            codici={prodotti}
+            value={accordi}
+            onChange={setAccordi}
           />
 
           <ReferentiPickerField

@@ -17,6 +17,7 @@ import {
   persistAnagraficaExtra,
 } from "@/app/actions/anagrafica-extra";
 import { markAnagraficaArchivioRipescatoAction } from "@/app/actions/anagrafiche-archivio";
+import { copiaAccordiPrezzoAzienda } from "@/app/actions/accordi-prezzo";
 import { writeAuditLog } from "@/lib/audit";
 import { validaQuotaIntermediario } from "@/lib/amministrazione/provvigione-riparto";
 import { parseProvvigionePctInput } from "@/lib/auth/commerciale";
@@ -1116,6 +1117,13 @@ export async function convertClientePossibileAdClienteAction(
           linkedExisting: true,
         });
       }
+      await copiaAccordiPrezzoAzienda({
+        fromTipo: "cliente_possibile",
+        fromId: String(leadRow.id),
+        toTipo: "cliente",
+        toId: linked.id,
+        actorId: auth.userId,
+      });
       return { success: true, cliente: linked };
     }
   }
@@ -1224,6 +1232,13 @@ export async function convertClientePossibileAdClienteAction(
       actorId: auth.userId,
       linkedExisting: true,
     });
+    await copiaAccordiPrezzoAzienda({
+      fromTipo: "cliente_possibile",
+      fromId: String(leadRow.id),
+      toTipo: "cliente",
+      toId: cliente.id,
+      actorId: auth.userId,
+    });
     return { success: true, cliente };
   }
 
@@ -1265,6 +1280,14 @@ export async function convertClientePossibileAdClienteAction(
       })
       .eq("id", created.cliente.id);
   }
+
+  await copiaAccordiPrezzoAzienda({
+    fromTipo: "cliente_possibile",
+    fromId: String(leadRow.id),
+    toTipo: "cliente",
+    toId: created.cliente.id,
+    actorId: auth.userId,
+  });
 
   await markLeadConvertito({
     supabase,

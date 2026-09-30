@@ -167,6 +167,11 @@ export type PreventivoRiga = {
   scontoSuddivisioneStato: "non_richiesta" | "in_attesa" | "approvata" | "rifiutata";
   confezionamento: string;
   imballaggioVoceId: string | null;
+  accordoId?: string | null;
+  accordoModalita?: "sconto_percentuale" | "prezzo_fisso" | null;
+  accordoValoreOrigine?: number | null;
+  accordoGiustificazione?: string;
+  accordoForzato?: boolean;
 };
 
 export function prezzoNettoRigaPreventivo(
@@ -268,6 +273,11 @@ export type PreventivoModificaFoglio = {
     confezioneValue: string;
     confezionamento: string;
     imballaggioVoceId: string | null;
+    accordoId?: string | null;
+    accordoModalita?: "sconto_percentuale" | "prezzo_fisso" | null;
+    accordoValoreOrigine?: number | null;
+    accordoGiustificazione?: string;
+    accordoForzato?: boolean;
   }>;
 };
 
@@ -289,7 +299,17 @@ export const preventivoRigaSchema = z.object({
   scontoQuotaCommercialePct: z.number().min(0).max(100).optional().default(0),
   confezionamento: z.string().trim().max(400).optional().default(""),
   imballaggioVoceId: z.string().uuid().nullable().optional().default(null),
+  accordoId: z.string().uuid().nullable().optional().default(null),
+  accordoModalita: z
+    .enum(["sconto_percentuale", "prezzo_fisso"])
+    .nullable()
+    .optional()
+    .default(null),
+  accordoValoreOrigine: z.number().nullable().optional().default(null),
+  accordoGiustificazione: z.string().trim().max(500).optional().default(""),
+  accordoForzato: z.boolean().optional().default(false),
 }).superRefine((riga, ctx) => {
+  if (riga.accordoModalita) return;
   const applicato = riga.scontoListinoPct ?? 0;
   const standard = riga.scontoListinoStandardPct ?? 0;
   if (applicato > standard) {

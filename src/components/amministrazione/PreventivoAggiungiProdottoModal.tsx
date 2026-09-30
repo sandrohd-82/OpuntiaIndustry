@@ -1,7 +1,14 @@
 "use client";
 
 import { useEffect, useId, useMemo, useState } from "react";
+import { getAccordoPrezzoProdottoAction } from "@/app/actions/accordi-prezzo";
 import { getPreventivoProdottoContestoAction } from "@/app/actions/preventivi";
+import {
+  accordoForzato,
+  voceAccordoPrezzo,
+  type AccordoPrezzoAziendaTipo,
+  type AccordoPrezzoProdotto,
+} from "@/lib/amministrazione/accordi-prezzo";
 import { ClearableNumberInput } from "@/components/ui/ClearableNumberInput";
 import {
   CONFEZIONE_STANDARD,
@@ -41,11 +48,17 @@ export type PreventivoProdottoDraft = {
   unitaMisura: string;
   disponibilita: ListinoDisponibilita | null;
   blocco: "fuori_produzione" | "senza_prezzo" | null;
+  accordoId?: string | null;
+  accordoModalita?: "sconto_percentuale" | "prezzo_fisso" | null;
+  accordoValoreOrigine?: number | null;
+  accordoGiustificazione?: string;
+  accordoForzato?: boolean;
 };
 
 type Props = {
   prodotti: ProdottoProprio[];
   ready: boolean;
+  azienda?: { tipo: AccordoPrezzoAziendaTipo; id: string } | null;
   initial?: PreventivoProdottoDraft | null;
   onClose: () => void;
   onConfirm: (draft: PreventivoProdottoDraft) => void;
@@ -78,6 +91,7 @@ function bloccoDaContesto(
 export function PreventivoAggiungiProdottoModal({
   prodotti,
   ready,
+  azienda = null,
   initial,
   onClose,
   onConfirm,
@@ -137,6 +151,12 @@ export function PreventivoAggiungiProdottoModal({
   const [mostraScontistica, setMostraScontistica] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [accordo, setAccordo] = useState<AccordoPrezzoProdotto | null>(null);
+  const [scontoAccordo, setScontoAccordo] = useState<number | "">(
+    initial?.accordoModalita === "sconto_percentuale"
+      ? initial.scontoListinoPct
+      : ""
+  );
 
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
@@ -162,31 +182,106 @@ export function PreventivoAggiungiProdottoModal({
     let cancelled = false;
     setLoading(true);
     setError(null);
-    void getPreventivoProdottoContestoAction(prodottoId).then((res) => {
+    const code = prodotti.find((p) => p.id === prodottoId)?.codice ?? "";
+    void (async () => {
+      const res = await getPreventivoProdottoContestoAction(prodottoId);
       if (cancelled) return;
-      setLoading(false);
       if (!res.success) {
+        setLoading(false);
         setError(res.error);
         return;
       }
-      const nextBlocco = bloccoDaContesto(res.disponibilita, res.prezzo);
-      setPrezzo(res.prezzo);
+      const keep =
+        initial?.prodottoId === prodottoId && Boolean(initial.accordoModalita);
+      let nextAccordo: AccordoPrezzoProdotto | null = null;
+      if (keep && initial?.accordoModalita) {
+        nextAccordo = {
+          id: initial.accordoId ?? "",
+          prodottoCodice: code,
+          modalita: initial.accordoModalita,
+          scontoPct:
+            initial.accordoModalita === "sconto_percentuale"
+              ? initial.accordoValoreOrigine ?? null
+              : null,
+          prezzoKg:
+            initial.accordoModalita === "prezzo_fisso"
+              ? initial.accordoValoreOrigine ?? null
+              : null,
+          giustificazione: initial.accordoGiustificazione ?? "",
+          versione: 1,
+        };
+      } else if (azienda && code) {
+        const acc = await getAccordoPrezzoProdottoAction({
+          aziendaTipo: azienda.tipo,
+          aziendaId: azienda.id,
+          prodottoCodice: code,
+        });
+        if (cancelled) return;
+        nextAccordo = acc.success ? acc.item : null;
+      }
+      if (cancelled) return;
+      setLoading(false);
       setIva(res.iva);
       setListinoId(res.listinoId);
       setUm(res.unitaMisura);
       setDisponibilita(res.disponibilita);
-      setBlocco(nextBlocco);
       setCondizioni(res.condizioni);
       setConfezioni(res.confezioni);
+      setAccordo(nextAccordo);
       setConfezioneValue((prev) => {
         if (initial?.prodottoId === prodottoId && prev) return prev;
         return CONFEZIONE_SISTEMA;
       });
-    });
+      if (keep && initial?.accordoModalita === "prezzo_fisso") {
+        setPrezzo(initial.prezzoUnitario);
+        setScontoAccordo("");
+      } else if (keep && initial?.accordoModalita === "sconto_percentuale") {
+        setPrezzo(res.prezzo);
+        setScontoAccordo(initial.scontoListinoPct);
+      } else if (
+        nextAccordo?.modalita === "prezzo_fisso" &&
+        nextAccordo.prezzoKg != null
+      ) {
+        setPrezzo(nextAccordo.prezzoKg);
+        setScontoAccordo("");
+      } else if (nextAccordo?.modalita === "sconto_percentuale") {
+        setPrezzo(res.prezzo);
+        setScontoAccordo(nextAccordo.scontoPct ?? 0);
+      } else {
+        setPrezzo(res.prezzo);
+        setScontoAccordo("");
+      }
+      const prezzoEffettivo =
+        nextAccordo?.modalita === "prezzo_fisso" && nextAccordo.prezzoKg != null
+          ? keep
+            ? initial?.prezzoUnitario ?? nextAccordo.prezzoKg
+            : nextAccordo.prezzoKg
+          : res.prezzo;
+      setBlocco(
+        res.disponibilita === "fuori_produzione"
+          ? "fuori_produzione"
+          : nextAccordo?.modalita === "prezzo_fisso" &&
+              (prezzoEffettivo ?? 0) > 0
+            ? null
+            : bloccoDaContesto(res.disponibilita, res.prezzo)
+      );
+    })();
     return () => {
       cancelled = true;
     };
-  }, [prodottoId, initial?.prodottoId]);
+  }, [
+    prodottoId,
+    prodotti,
+    azienda?.id,
+    azienda?.tipo,
+    initial?.prodottoId,
+    initial?.accordoModalita,
+    initial?.accordoId,
+    initial?.accordoValoreOrigine,
+    initial?.accordoGiustificazione,
+    initial?.prezzoUnitario,
+    initial?.scontoListinoPct,
+  ]);
 
   function confirm() {
     if (!prodottoId) {
@@ -242,12 +337,25 @@ export function PreventivoAggiungiProdottoModal({
         ? piano.modo
         : (piano.pezzi[0]?.imballaggioVoceId ?? null)
       : (opt?.imballaggioVoceId ?? null);
+    const accordoSconto = accordo?.modalita === "sconto_percentuale";
+    const accordoPrezzo = accordo?.modalita === "prezzo_fisso";
+    const scontoRiga = accordoSconto ? scontoAccordoNum : scontoStandardApplicato;
+    const origine = accordo ? Number(accordo.scontoPct ?? accordo.prezzoKg ?? 0) : null;
+    const applicato = accordoPrezzo ? (prezzo ?? 0) : scontoRiga;
+    if (accordoSconto && (scontoAccordo === "" || scontoAccordoNum > 100)) {
+      setError("Indica lo sconto concordato, da 0 a 100.");
+      return;
+    }
+    if (accordoPrezzo && !(prezzo != null && prezzo > 0)) {
+      setError("Indica il prezzo al kg concordato.");
+      return;
+    }
     onConfirm({
       prodottoId,
       quantita: qty,
       scontoExtraPct: extra,
-      scontoListinoPct: scontoStandardApplicato,
-      scontoListinoStandardPct: scontoStandardOrigine,
+      scontoListinoPct: scontoRiga,
+      scontoListinoStandardPct: accordoSconto ? scontoRiga : scontoStandardOrigine,
       scontoListinoTarga: piano?.targa ?? "",
       scontoSuddivisioneAttiva,
       scontoQuotaAziendaPct: scontoQuotaAzienda === "" ? 0 : scontoQuotaAzienda,
@@ -259,10 +367,15 @@ export function PreventivoAggiungiProdottoModal({
       prezzoUnitario: prezzo ?? 0,
       ivaPercentuale: iva,
       listinoId,
-      prezzoDaListino: Boolean(prezzo && prezzo > 0),
+      prezzoDaListino: accordoPrezzo ? false : Boolean(prezzo && prezzo > 0),
       unitaMisura: um,
       disponibilita,
       blocco,
+      accordoId: accordo?.id || null,
+      accordoModalita: accordo?.modalita ?? null,
+      accordoValoreOrigine: origine,
+      accordoGiustificazione: accordo?.giustificazione ?? "",
+      accordoForzato: accordo ? accordoForzato(origine, applicato) : false,
     });
   }
 
@@ -292,9 +405,13 @@ export function PreventivoAggiungiProdottoModal({
       modo: CONFEZIONE_SISTEMA,
     });
   }, [packListino.length, qtyNum, condizioni]);
-  const scontoStandardOrigine = piano?.scontoPct ?? 0;
-  const scontoStandardApplicato =
-    scontoStandardManuale == null
+  const accordoSconto = accordo?.modalita === "sconto_percentuale";
+  const accordoPrezzo = accordo?.modalita === "prezzo_fisso";
+  const scontoAccordoNum = scontoAccordo === "" ? 0 : scontoAccordo;
+  const scontoStandardOrigine = accordoSconto ? 0 : (piano?.scontoPct ?? 0);
+  const scontoStandardApplicato = accordoSconto
+    ? Math.min(100, Math.max(0, scontoAccordoNum))
+    : scontoStandardManuale == null
       ? scontoStandardOrigine
       : Math.min(Math.max(0, scontoStandardManuale), scontoStandardOrigine);
   const netto =
@@ -345,6 +462,7 @@ export function PreventivoAggiungiProdottoModal({
                 setScontoStandardManuale(null);
                 setModificaStandard(false);
                 setScontoStandardInput("");
+                setScontoAccordo("");
               }}
               className="w-full rounded border border-slate-300 bg-white px-3 py-2 text-sm"
             >
@@ -380,6 +498,55 @@ export function PreventivoAggiungiProdottoModal({
                     : null}
                 </p>
               )}
+            </div>
+          ) : null}
+
+          {accordo ? (
+            <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-950">
+              <p>
+                {voceAccordoPrezzo({
+                  modalita: accordo.modalita,
+                  valoreOrigine: Number(accordo.scontoPct ?? accordo.prezzoKg ?? 0),
+                  valoreApplicato:
+                    accordo.modalita === "prezzo_fisso"
+                      ? (prezzo ?? 0)
+                      : scontoAccordoNum,
+                  giustificazione: accordo.giustificazione,
+                  unita: um,
+                })}
+              </p>
+              {accordo.modalita === "sconto_percentuale" ? (
+                <label className="mt-2 block">
+                  <span className="mb-1 block text-xs font-medium">
+                    Sconto concordato (%)
+                  </span>
+                  <ClearableNumberInput
+                    min={0}
+                    max={100}
+                    value={scontoAccordo}
+                    onValueChange={setScontoAccordo}
+                    className="w-full rounded border border-amber-300 bg-white px-3 py-2 text-sm"
+                  />
+                </label>
+              ) : (
+                <label className="mt-2 block">
+                  <span className="mb-1 block text-xs font-medium">
+                    Prezzo concordato (€/{um})
+                  </span>
+                  <ClearableNumberInput
+                    min={0}
+                    value={prezzo ?? ""}
+                    onValueChange={(value) =>
+                      setPrezzo(value === "" ? null : value)
+                    }
+                    className="w-full rounded border border-amber-300 bg-white px-3 py-2 text-sm"
+                  />
+                </label>
+              )}
+              <p className="mt-2 text-xs">
+                Il valore è modificabile. Quantità e confezione non lo
+                ricalcolano.
+              </p>
             </div>
           ) : null}
 
@@ -551,7 +718,7 @@ export function PreventivoAggiungiProdottoModal({
             )}
           </label>
 
-          {scontoStandardOrigine > 0 ? (
+          {scontoStandardOrigine > 0 && !accordo ? (
             <div className="rounded-lg border border-slate-200 px-3 py-2 text-sm">
               <p className="text-slate-700">
                 Sconto standard{" "}

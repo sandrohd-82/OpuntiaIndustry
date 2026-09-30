@@ -1390,6 +1390,11 @@ export interface OrdineRigaRow {
   lotto_codice?: string;
   prezzo_unitario: number;
   iva_percentuale: number;
+  accordo_id?: string | null;
+  accordo_modalita?: "sconto_percentuale" | "prezzo_fisso" | null;
+  accordo_valore_origine?: number | null;
+  accordo_giustificazione?: string;
+  accordo_forzato?: boolean;
   sort_order: number;
   created_at: string;
   updated_at: string;
@@ -1406,6 +1411,11 @@ export interface OrdineRigaInsert {
   lotto_codice?: string;
   prezzo_unitario?: number;
   iva_percentuale?: number;
+  accordo_id?: string | null;
+  accordo_modalita?: "sconto_percentuale" | "prezzo_fisso" | null;
+  accordo_valore_origine?: number | null;
+  accordo_giustificazione?: string;
+  accordo_forzato?: boolean;
   sort_order?: number;
 }
 
@@ -1564,6 +1574,11 @@ export interface PreventivoRigaRow {
   sconto_suddivisione_approvatore?: string;
   confezionamento: string;
   imballaggio_voce_id: string | null;
+  accordo_id?: string | null;
+  accordo_modalita?: "sconto_percentuale" | "prezzo_fisso" | null;
+  accordo_valore_origine?: number | null;
+  accordo_giustificazione?: string;
+  accordo_forzato?: boolean;
   sort_order: number;
   created_at: string;
   updated_at: string;
