@@ -21,7 +21,11 @@ import {
   CONFEZIONE_STANDARD,
   createPreventivoSchema,
   formatNumeroPreventivo,
+  PREVENTIVI_RACCOLTA_GIORNI,
+  spedizioneLockAttivo,
+  statiPreventivoRaccolta,
   type PreventivoModificaFoglio,
+  type PreventivoRaccolta,
   nomeFilePreventivoPdf,
   stimaSpedizioneSchema,
   type Preventivo,
@@ -180,8 +184,12 @@ function mapRiga(row: PreventivoRigaRow): PreventivoRiga {
 function mapPreventivo(
   row: PreventivoRow,
   righe: PreventivoRigaRow[],
-  referenteLabel = ""
+  referenteLabel = "",
+  viewerId = ""
 ): Preventivo {
+  const lockAttivo =
+    Boolean(row.spedizione_lock_by) &&
+    spedizioneLockAttivo(row.spedizione_lock_at);
   return {
     id: row.id,
     numeroInterno: row.numero_interno,
@@ -215,6 +223,8 @@ function mapPreventivo(
     webmailAccettazioneId: row.webmail_accettazione_id,
     referenteAccettazioneId: row.referente_accettazione_id,
     referenteAccettazioneLabel: referenteLabel,
+    archiviatoAt: row.archiviato_at,
+    spedizioneInCorso: lockAttivo && row.spedizione_lock_by !== viewerId,
     righe: righe
       .slice()
       .sort((a, b) => a.sort_order - b.sort_order)
@@ -286,25 +296,170 @@ async function attachRighe(
   return map;
 }
 
-export async function listPreventiviAction(): Promise<
-  { success: true; items: Preventivo[] } | { success: false; error: string }
+async function trasferisciPreventiviScaduti(userId: string): Promise<void> {
+  const limite = new Date(
+    Date.now() - PREVENTIVI_RACCOLTA_GIORNI * 86_400_000
+  ).toISOString();
+  const supabase = await createClient();
+  const { data } = await supabase
+    .from("preventivi")
+    .select("id, numero_interno, versione")
+    .is("deleted_at", null)
+    .is("archiviato_at", null)
+    .lt("created_at", limite)
+    .limit(100);
+  if (!data?.length) return;
+  const now = new Date().toISOString();
+  for (const row of data) {
+    const versione = Number(row.versione ?? 1) + 1;
+    const { error } = await supabase
+      .from("preventivi")
+      .update({
+        archiviato_at: now,
+        archiviato_by: userId,
+        updated_by: userId,
+        versione,
+      })
+      .eq("id", row.id)
+      .is("deleted_at", null)
+      .is("archiviato_at", null);
+    if (error) continue;
+    await writeAuditLog({
+      entity_type: "preventivi",
+      entity_id: String(row.id),
+      action: "update",
+      actor_id: userId,
+      summary: `Preventivo ${String(row.numero_interno ?? "")} spostato in archivio dopo ${PREVENTIVI_RACCOLTA_GIORNI} giorni`,
+      payload: { versione, archiviato_at: now },
+    });
+  }
+}
+
+export async function listPreventiviAction(input?: {
+  raccolta?: PreventivoRaccolta;
+  archivio?: boolean;
+}): Promise<
+  | {
+      success: true;
+      items: Preventivo[];
+      conteggi: Record<PreventivoRaccolta, number>;
+    }
+  | { success: false; error: string }
 > {
   const gate = await requirePreventiviAccess();
   if (!gate.ok) return { success: false, error: gate.error };
+  const raccolta = input?.raccolta ?? "da_completare";
+  const archivio = Boolean(input?.archivio);
+  await trasferisciPreventiviScaduti(gate.auth.userId);
   const supabase = await createClient();
-  const { data, error } = await supabase
+  let query = supabase
     .from("preventivi")
     .select("*")
     .is("deleted_at", null)
+    .in("stato", statiPreventivoRaccolta(raccolta))
     .order("data_preventivo", { ascending: false })
     .limit(300);
+  query = archivio
+    ? query.not("archiviato_at", "is", null)
+    : query.is("archiviato_at", null);
+  const { data, error } = await query;
   if (error) return { success: false, error: error.message };
   const rows = (data ?? []) as PreventivoRow[];
   const righe = await attachRighe(rows.map((r) => r.id));
+  const conteggi = {
+    da_completare: 0,
+    inviati: 0,
+    accettati: 0,
+  };
+  for (const nome of ["da_completare", "inviati", "accettati"] as const) {
+    let countQuery = supabase
+      .from("preventivi")
+      .select("id", { count: "exact", head: true })
+      .is("deleted_at", null)
+      .in("stato", statiPreventivoRaccolta(nome));
+    countQuery = archivio
+      ? countQuery.not("archiviato_at", "is", null)
+      : countQuery.is("archiviato_at", null);
+    const counted = await countQuery;
+    conteggi[nome] = counted.count ?? 0;
+  }
   return {
     success: true,
-    items: rows.map((r) => mapPreventivo(r, righe.get(r.id) ?? [])),
+    items: rows.map((r) =>
+      mapPreventivo(r, righe.get(r.id) ?? [], "", gate.auth.userId)
+    ),
+    conteggi,
   };
+}
+
+export async function acquisisciLockSpedizionePreventivoAction(
+  preventivoId: string
+): Promise<{ success: true } | { success: false; error: string }> {
+  const gate = await requirePreventiviAccess();
+  if (!gate.ok) return { success: false, error: gate.error };
+  const supabase = await createClient();
+  const { data: row, error } = await supabase
+    .from("preventivi")
+    .select("id, stato, spedizione_lock_by, spedizione_lock_at")
+    .eq("id", preventivoId)
+    .is("deleted_at", null)
+    .maybeSingle();
+  if (error || !row) {
+    return { success: false, error: error?.message ?? "Preventivo non trovato" };
+  }
+  if (row.stato !== "in_attesa_spedizione") {
+    return { success: false, error: "Questo preventivo non è più da completare." };
+  }
+  const { data: preso, error: lockErr } = await supabase.rpc(
+    "acquisisci_lock_spedizione_preventivo",
+    { p_id: preventivoId }
+  );
+  if (lockErr) return { success: false, error: lockErr.message };
+  if (!preso) {
+    return {
+      success: false,
+      error: "Un altro operatore sta già inserendo il costo di spedizione.",
+    };
+  }
+  return { success: true };
+}
+
+export async function rinnovaLockSpedizionePreventivoAction(
+  preventivoId: string
+): Promise<{ success: true } | { success: false; error: string }> {
+  const gate = await requirePreventiviAccess();
+  if (!gate.ok) return { success: false, error: gate.error };
+  const supabase = await createClient();
+  const { error } = await supabase
+    .from("preventivi")
+    .update({
+      spedizione_lock_at: new Date().toISOString(),
+      updated_by: gate.auth.userId,
+    })
+    .eq("id", preventivoId)
+    .eq("spedizione_lock_by", gate.auth.userId)
+    .is("deleted_at", null);
+  if (error) return { success: false, error: error.message };
+  return { success: true };
+}
+
+export async function rilasciaLockSpedizionePreventivoAction(
+  preventivoId: string
+): Promise<{ success: true } | { success: false; error: string }> {
+  const gate = await requirePreventiviAccess();
+  if (!gate.ok) return { success: false, error: gate.error };
+  const supabase = await createClient();
+  const { error } = await supabase
+    .from("preventivi")
+    .update({
+      spedizione_lock_by: null,
+      spedizione_lock_at: null,
+      updated_by: gate.auth.userId,
+    })
+    .eq("id", preventivoId)
+    .eq("spedizione_lock_by", gate.auth.userId);
+  if (error) return { success: false, error: error.message };
+  return { success: true };
 }
 
 export async function getPreventivoPerModificaAction(
@@ -458,11 +613,13 @@ export async function countPreventiviAttesaSpedizioneNavAction(): Promise<
 > {
   const gate = await requirePreventiviAccess();
   if (!gate.ok) return { success: true, totale: 0 };
+  await trasferisciPreventiviScaduti(gate.auth.userId);
   const supabase = await createClient();
   const { count, error } = await supabase
     .from("preventivi")
     .select("id", { count: "exact", head: true })
     .eq("stato", "in_attesa_spedizione")
+    .is("archiviato_at", null)
     .is("deleted_at", null);
   if (error) return { success: false, error: error.message };
   return { success: true, totale: count ?? 0 };
@@ -1541,7 +1698,7 @@ export async function completaCalcoloSpedizionePreventivoAction(input: {
   const { data: row, error } = await service
     .from("preventivi")
     .select(
-      "id, numero_interno, stato, sent_at, data_preventivo, cliente_id, cliente_ragione_sociale, tipo_pagamento, giorni_consegna, validita_giorni, note, consegna_metodo, commerciale_riferimento_nome, commerciale_riferimento_telefono, commerciale_riferimento_email, mail_bozza_account_id, mail_bozza_to, mail_bozza_oggetto, mail_bozza_testo"
+      "id, numero_interno, stato, sent_at, spedizione_lock_by, spedizione_lock_at, data_preventivo, cliente_id, cliente_ragione_sociale, tipo_pagamento, giorni_consegna, validita_giorni, note, consegna_metodo, commerciale_riferimento_nome, commerciale_riferimento_telefono, commerciale_riferimento_email, mail_bozza_account_id, mail_bozza_to, mail_bozza_oggetto, mail_bozza_testo"
     )
     .eq("id", input.preventivoId)
     .is("deleted_at", null)
@@ -1561,6 +1718,20 @@ export async function completaCalcoloSpedizionePreventivoAction(input: {
   };
   if (prev.stato !== "in_attesa_spedizione") {
     return { success: false, error: "Questo preventivo non è in attesa di spedizione." };
+  }
+  const lockRow = row as {
+    spedizione_lock_by?: string | null;
+    spedizione_lock_at?: string | null;
+  };
+  if (
+    lockRow.spedizione_lock_by &&
+    lockRow.spedizione_lock_by !== auth.userId &&
+    spedizioneLockAttivo(lockRow.spedizione_lock_at)
+  ) {
+    return {
+      success: false,
+      error: "Un altro operatore sta già inserendo il costo di spedizione.",
+    };
   }
   if (prev.sent_at) {
     return { success: false, error: "La mail di questo preventivo è già stata inviata." };
@@ -1639,6 +1810,8 @@ export async function completaCalcoloSpedizionePreventivoAction(input: {
       documento_stato: "approvato",
       sent_at: now,
       sent_by: auth.userId,
+      spedizione_lock_by: null,
+      spedizione_lock_at: null,
       updated_by: auth.userId,
     })
     .eq("id", prev.id);

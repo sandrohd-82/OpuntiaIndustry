@@ -2,8 +2,11 @@
 
 import { useEffect, useRef, useState } from "react";
 import {
+  acquisisciLockSpedizionePreventivoAction,
   completaCalcoloSpedizionePreventivoAction,
   contestoSpedizionePreventivoAction,
+  rilasciaLockSpedizionePreventivoAction,
+  rinnovaLockSpedizionePreventivoAction,
 } from "@/app/actions/preventivi";
 import {
   PreventivoFoglioA4,
@@ -33,6 +36,32 @@ export function PreventivoCalcoloSpedizioneSheet({
   const [importo, setImporto] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [lockOk, setLockOk] = useState(false);
+  const chiuso = useRef(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    chiuso.current = false;
+    void acquisisciLockSpedizionePreventivoAction(item.id).then((res) => {
+      if (cancelled) return;
+      if (!res.success) {
+        setLockOk(false);
+        setError(res.error);
+        return;
+      }
+      setLockOk(true);
+    });
+    const beat = window.setInterval(() => {
+      void rinnovaLockSpedizionePreventivoAction(item.id);
+    }, 45_000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(beat);
+      if (!chiuso.current) {
+        void rilasciaLockSpedizionePreventivoAction(item.id);
+      }
+    };
+  }, [item.id]);
 
   useEffect(() => {
     let cancelled = false;
@@ -76,9 +105,9 @@ export function PreventivoCalcoloSpedizioneSheet({
           >
             Annulla
           </button>
-          <button
+            <button
             type="button"
-            disabled={busy}
+            disabled={busy || !lockOk}
             onClick={() => {
               if (!importoPronto) {
                 setError("Inserisci il costo della spedizione.");
@@ -105,6 +134,7 @@ export function PreventivoCalcoloSpedizioneSheet({
                     setError(res.error);
                     return;
                   }
+                  chiuso.current = true;
                   onCompleted(
                     res.provaChiusa
                       ? "Mail inviata all'indirizzo indicato. Il preventivo di prova è uscito dall'archivio."

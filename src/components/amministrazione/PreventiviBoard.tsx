@@ -10,13 +10,17 @@ import {
   listPreventiviAction,
   setPreventivoStatoAction,
 } from "@/app/actions/preventivi";
+import { createClient } from "@/lib/supabase/client";
 import { PreventivoCalcoloSpedizioneSheet } from "@/components/amministrazione/PreventivoCalcoloSpedizioneSheet";
 import { PreventivoFormModal } from "@/components/amministrazione/PreventivoFormModal";
 import {
   PREVENTIVO_CONSEGNA_LABEL,
+  PREVENTIVO_RACCOLTA_LABEL,
+  PREVENTIVO_RACCOLTE,
   PREVENTIVO_STATO_LABEL,
   notifyPreventiviSpedizioneNav,
   type Preventivo,
+  type PreventivoRaccolta,
   type PreventivoStato,
 } from "@/lib/amministrazione/preventivi";
 import { labelTipoPagamento } from "@/lib/amministrazione/ordini";
@@ -37,8 +41,22 @@ function statoClass(stato: PreventivoStato) {
   return "bg-slate-100 text-slate-700";
 }
 
-export function PreventiviBoard() {
+export function PreventiviBoard({
+  raccoltaFissa,
+  archivio = false,
+}: {
+  raccoltaFissa?: PreventivoRaccolta;
+  archivio?: boolean;
+} = {}) {
   const [items, setItems] = useState<Preventivo[]>([]);
+  const [conteggi, setConteggi] = useState<Record<PreventivoRaccolta, number>>({
+    da_completare: 0,
+    inviati: 0,
+    accettati: 0,
+  });
+  const [raccolta, setRaccolta] = useState<PreventivoRaccolta>(
+    raccoltaFissa ?? "da_completare"
+  );
   const [ready, setReady] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
@@ -46,10 +64,11 @@ export function PreventiviBoard() {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [completaItem, setCompletaItem] = useState<Preventivo | null>(null);
 
-  async function reload() {
-    const res = await listPreventiviAction();
+  async function reload(next = raccolta) {
+    const res = await listPreventiviAction({ raccolta: next, archivio });
     if (res.success) {
       setItems(res.items);
+      setConteggi(res.conteggi);
       setError(null);
       notifyPreventiviSpedizioneNav();
     } else {
@@ -58,8 +77,28 @@ export function PreventiviBoard() {
   }
 
   useEffect(() => {
-    void reload().finally(() => setReady(true));
-  }, []);
+    let cancelled = false;
+    void reload(raccolta).finally(() => {
+      if (!cancelled) setReady(true);
+    });
+    const supabase = createClient();
+    const channel = supabase
+      .channel(`preventivi-board-${archivio ? "archivio" : "operativi"}-${raccolta}`)
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "preventivi" },
+        () => {
+          if (!cancelled) void reload(raccolta);
+        }
+      )
+      .subscribe();
+    return () => {
+      cancelled = true;
+      void supabase.removeChannel(channel);
+    };
+    // reload legge la raccolta corrente
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [raccolta, archivio]);
 
   async function changeStato(id: string, stato: PreventivoStato) {
     const res = await setPreventivoStatoAction({ id, stato });
@@ -67,7 +106,7 @@ export function PreventiviBoard() {
       setError(res.error);
       return;
     }
-    setItems((prev) => prev.map((p) => (p.id === id ? res.item : p)));
+    await reload();
   }
 
   if (!ready) {
@@ -76,11 +115,40 @@ export function PreventiviBoard() {
 
   return (
     <div className="space-y-4">
+      {raccoltaFissa ? null : (
+        <div className="flex flex-wrap gap-2">
+          {PREVENTIVO_RACCOLTE.map((nome) => (
+            <button
+              key={nome}
+              type="button"
+              onClick={() => {
+                setReady(false);
+                setRaccolta(nome);
+              }}
+              className={`rounded-full px-3 py-1.5 text-sm font-medium ${
+                raccolta === nome
+                  ? "bg-[var(--primary)] text-white"
+                  : "border border-[var(--border)] bg-[var(--card)] text-[var(--muted)]"
+              }`}
+            >
+              {PREVENTIVO_RACCOLTA_LABEL[nome]}
+              <span className="ml-2 tabular-nums">{conteggi[nome]}</span>
+            </button>
+          ))}
+        </div>
+      )}
+
       <div className="flex flex-wrap items-center justify-between gap-3">
         <p className="text-sm text-[var(--muted)]">
-          Preventivi inviati e in bozza. Solo quelli accettati si collegano a un
-          ordine.
+          {archivio
+            ? "Preventivi creati da più di 30 giorni, nella stessa raccolta."
+            : raccolta === "da_completare"
+              ? "Bozze e preventivi in attesa del costo spedizione. Restano qui 30 giorni dalla creazione, poi passano in Archivio."
+              : raccolta === "inviati"
+                ? "Preventivi inviati o respinti. Restano qui 30 giorni dalla creazione, poi passano in Archivio."
+                : "Preventivi accettati. Restano qui 30 giorni dalla creazione, poi passano in Archivio."}
         </p>
+        {archivio ? null : (
         <ActionGate actionKey={AZ.creaPreventivo}>
         <button
           type="button"
@@ -91,6 +159,7 @@ export function PreventiviBoard() {
           Nuovo preventivo
         </button>
         </ActionGate>
+        )}
       </div>
 
       {error ? (
@@ -107,6 +176,7 @@ export function PreventiviBoard() {
       {items.length === 0 ? (
         <div className="rounded-xl border border-dashed border-[var(--border)] bg-[var(--card)] p-10 text-center">
           <p className="text-sm font-medium">Nessun preventivo</p>
+          {archivio ? null : (
           <ActionGate actionKey={AZ.creaPreventivo}>
           <button
             type="button"
@@ -117,6 +187,7 @@ export function PreventiviBoard() {
             Nuovo preventivo
           </button>
           </ActionGate>
+          )}
         </div>
       ) : (
         <div className="overflow-x-auto rounded-xl border border-[var(--border)] bg-[var(--card)]">
@@ -215,16 +286,22 @@ export function PreventiviBoard() {
                           </button>
                         ))}
                       {item.stato === "in_attesa_spedizione" ? (
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setCompletaItem(item);
-                            setError(null);
-                          }}
-                          className="rounded-lg bg-amber-700 px-2 py-1 text-xs text-white"
-                        >
-                          Inserisci spedizione e completa
-                        </button>
+                        item.spedizioneInCorso ? (
+                          <span className="rounded-lg bg-slate-100 px-2 py-1 text-xs font-medium text-slate-500">
+                            Inserimento in corso
+                          </span>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setCompletaItem(item);
+                              setError(null);
+                            }}
+                            className="rounded-lg bg-amber-700 px-2 py-1 text-xs text-white"
+                          >
+                            Inserisci spedizione e completa
+                          </button>
+                        )
                       ) : null}
                       {item.stato === "creato" ? (
                         <button
@@ -279,10 +356,10 @@ export function PreventiviBoard() {
           preventivoId={editingId}
           onClose={() => setEditingId(null)}
           onSaved={(item) => {
-            setItems((prev) => prev.map((p) => (p.id === item.id ? item : p)));
             if (item.stato === "in_attesa_spedizione") {
               notifyPreventiviSpedizioneNav();
             }
+            void reload();
           }}
         />
       ) : null}
@@ -291,19 +368,16 @@ export function PreventiviBoard() {
         <PreventivoFormModal
           onClose={() => setCreating(false)}
           onSaved={(item) => {
-            setItems((prev) => {
-              const i = prev.findIndex((p) => p.id === item.id);
-              if (i < 0) return [item, ...prev];
-              const next = [...prev];
-              next[i] = item;
-              return next;
-            });
             if (item.stato === "in_attesa_spedizione") {
+              setRaccolta("da_completare");
               setNotice(
                 `${item.numeroInterno} in elenco, in attesa di inserimento costo spedizione.`
               );
               notifyPreventiviSpedizioneNav();
             }
+            void reload(
+              item.stato === "in_attesa_spedizione" ? "da_completare" : raccolta
+            );
           }}
         />
       ) : null}

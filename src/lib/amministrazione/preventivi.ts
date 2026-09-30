@@ -15,6 +15,42 @@ import {
 export { SPEDIZIONE_MARKUP_SICUREZZA_PCT };
 export type { PreventivoSpedizioneFonte };
 
+/** Giorni in raccolta operativa, poi la stessa raccolta in Archivio. */
+export const PREVENTIVI_RACCOLTA_GIORNI = 30;
+
+/** Il lock di inserimento spedizione si libera da solo dopo questo tempo. */
+export const PREVENTIVI_LOCK_MS = 15 * 60 * 1000;
+
+export const PREVENTIVO_RACCOLTE = [
+  "da_completare",
+  "inviati",
+  "accettati",
+] as const;
+export type PreventivoRaccolta = (typeof PREVENTIVO_RACCOLTE)[number];
+
+export const PREVENTIVO_RACCOLTA_LABEL: Record<PreventivoRaccolta, string> = {
+  da_completare: "Da completare",
+  inviati: "Inviati",
+  accettati: "Accettati",
+};
+
+export function statiPreventivoRaccolta(
+  raccolta: PreventivoRaccolta
+): PreventivoStato[] {
+  if (raccolta === "da_completare") return ["creato", "in_attesa_spedizione"];
+  if (raccolta === "inviati") return ["inviato", "respinto"];
+  return ["accettato"];
+}
+
+export function spedizioneLockAttivo(
+  lockAt: string | null | undefined,
+  now = Date.now()
+): boolean {
+  if (!lockAt) return false;
+  const t = new Date(lockAt).getTime();
+  return Number.isFinite(t) && now - t < PREVENTIVI_LOCK_MS;
+}
+
 export const PREVENTIVO_STATI = [
   "creato",
   "in_attesa_spedizione",
@@ -182,6 +218,9 @@ export type Preventivo = {
   webmailAccettazioneId: string | null;
   referenteAccettazioneId: string | null;
   referenteAccettazioneLabel: string;
+  archiviatoAt: string | null;
+  /** Lock attivo tenuto da un altro operatore. */
+  spedizioneInCorso: boolean;
   righe: PreventivoRiga[];
   createdAt: string;
 };

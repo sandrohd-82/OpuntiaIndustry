@@ -124,6 +124,15 @@ export async function requireArchivioSource(
     return { auth };
   }
 
+  if (source === "commerciale") {
+    const ok =
+      isAdminLikeProfile(auth.profile) ||
+      userCanAccessArea(auth.areas, "commerciale") ||
+      userCanAccessArea(auth.areas, "amministrazione");
+    if (!ok) notFound();
+    return { auth };
+  }
+
   if (source === "strumenti") {
     const ok =
       userCanAccessArea(auth.areas, "strumenti") ||

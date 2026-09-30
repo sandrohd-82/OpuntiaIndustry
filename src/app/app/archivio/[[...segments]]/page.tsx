@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
+import { PreventiviBoard } from "@/components/amministrazione/PreventiviBoard";
 import { OrdiniStoricoBoard } from "@/components/amministrazione/OrdiniStoricoBoard";
 import { RegistroAccessiBoard } from "@/components/amministrazione/RegistroAccessiBoard";
 import { DocumentazioniBoard } from "@/components/amministrazione/DocumentazioniBoard";
@@ -51,6 +52,7 @@ type Props = {
 
 function sourceOf(segment: string | undefined) {
   if (
+    segment === "commerciale" ||
     segment === "amministrazione" ||
     segment === "ricerca-sviluppo" ||
     segment === "produzione" ||
@@ -224,6 +226,27 @@ export default async function ArchivioCatchAllPage({ params }: Props) {
   if (!page) notFound();
 
   const key = segments.join("/");
+
+  if (
+    key === "commerciale/preventivi/da-completare" ||
+    key === "commerciale/preventivi/inviati" ||
+    key === "commerciale/preventivi/accettati"
+  ) {
+    const raccolta =
+      key.endsWith("inviati")
+        ? "inviati"
+        : key.endsWith("accettati")
+          ? "accettati"
+          : "da_completare";
+    return (
+      <>
+        <AppHeader title={page.label} subtitle={page.description} />
+        <div className="p-6">
+          <PreventiviBoard raccoltaFissa={raccolta} archivio />
+        </div>
+      </>
+    );
+  }
 
   if (key === "amministrazione/ordini/storico") {
     return (

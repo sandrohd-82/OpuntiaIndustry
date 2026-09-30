@@ -603,6 +603,8 @@ export function PreventivoFormModal({ onClose, onSaved, preventivoId }: Props) {
         webmailAccettazioneId: null,
         referenteAccettazioneId: null,
         referenteAccettazioneLabel: "",
+        archiviatoAt: null,
+        spedizioneInCorso: false,
         righe: [],
         createdAt: new Date().toISOString(),
       };

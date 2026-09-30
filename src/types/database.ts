@@ -1524,6 +1524,10 @@ export interface PreventivoRow {
   mail_bozza_to: string;
   mail_bozza_oggetto: string;
   mail_bozza_testo: string;
+  archiviato_at: string | null;
+  archiviato_by: string | null;
+  spedizione_lock_by: string | null;
+  spedizione_lock_at: string | null;
   webmail_accettazione_id: string | null;
   referente_accettazione_id: string | null;
   sent_at: string | null;
@@ -3574,6 +3578,10 @@ export interface Database {
           p_actor?: string;
         };
         Returns: Record<string, unknown>;
+      };
+      acquisisci_lock_spedizione_preventivo: {
+        Args: { p_id: string };
+        Returns: boolean;
       };
       archive_unused_fornitore: {
         Args: {

@@ -39,6 +39,40 @@ export const ARCHIVIO_SECTIONS: readonly NavItem[] = [
     ],
   },
   {
+    slug: "commerciale",
+    label: "Commerciale",
+    description: "Preventivi usciti dalle raccolte dopo 30 giorni",
+    path: "/app/archivio/commerciale",
+    children: [
+      {
+        slug: "preventivi",
+        label: "Preventivi",
+        description: "Stesse raccolte dei preventivi operativi, dopo 30 giorni dalla creazione",
+        path: "/app/archivio/commerciale/preventivi",
+        children: [
+          {
+            slug: "da-completare",
+            label: "Da completare",
+            description: "Bozze e preventivi in attesa spedizione, creati da più di 30 giorni",
+            path: "/app/archivio/commerciale/preventivi/da-completare",
+          },
+          {
+            slug: "inviati",
+            label: "Inviati",
+            description: "Preventivi inviati o respinti, creati da più di 30 giorni",
+            path: "/app/archivio/commerciale/preventivi/inviati",
+          },
+          {
+            slug: "accettati",
+            label: "Accettati",
+            description: "Preventivi accettati, creati da più di 30 giorni",
+            path: "/app/archivio/commerciale/preventivi/accettati",
+          },
+        ],
+      },
+    ],
+  },
+  {
     slug: "amministrazione",
     label: "Amministrazione",
     description: "Storico ordini, registro accessi e documentazioni archiviate",
@@ -309,6 +343,7 @@ export const ARCHIVIO_SECTIONS: readonly NavItem[] = [
 ];
 
 const ARCHIVIO_SOURCE_SLUGS: AreaSlug[] = [
+  "commerciale",
   "amministrazione",
   "ricerca-sviluppo",
   "produzione",
@@ -333,6 +368,9 @@ export function filterArchivioNavByAccess(
       return have.has("archivio");
     }
     if (item.slug === "webmail") return webmailOk;
+    if (item.slug === "commerciale") {
+      return have.has("commerciale") || have.has("amministrazione");
+    }
     if (item.slug === "strumenti") {
       return have.has("strumenti") || have.has("amministrazione");
     }
