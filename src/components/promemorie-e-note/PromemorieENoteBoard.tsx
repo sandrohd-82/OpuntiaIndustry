@@ -43,6 +43,11 @@ import {
   type PnPromemoria,
 } from "@/lib/promemorie-e-note/types";
 import { createClient } from "@/lib/supabase/client";
+import {
+  PnCalendarioMese,
+  PnVistaToggle,
+  type PnCalendarioEvento,
+} from "@/components/promemorie-e-note/PnCalendarioMese";
 
 type Kind = "promemoria" | "attivita" | "note";
 type Mode = "nuova" | "elenco" | "calendario";
@@ -250,6 +255,31 @@ export function PromemorieENoteBoard({ kind, mode, userId }: Props) {
       }));
   }, [kind, promemoria, attivita, note, month]);
 
+  const eventiCalendario = useMemo((): PnCalendarioEvento[] => {
+    if (kind === "promemoria") {
+      return promemoria.map((item) => ({
+        id: item.id,
+        title: item.titolo,
+        when: item.dueAt,
+        stato: item.stato,
+        body: item.descrizione,
+        avvisi: etichettaAvvisi(item.avvisi),
+      }));
+    }
+    if (kind === "attivita") {
+      return attivita.map((item) => ({
+        id: item.id,
+        title: item.titolo,
+        when: item.dueAt,
+        luogo: item.luogo,
+        stato: item.stato,
+        body: item.descrizione,
+        avvisi: etichettaAvvisi(item.avvisi),
+      }));
+    }
+    return [];
+  }, [kind, promemoria, attivita]);
+
   const byDay = useMemo(() => {
     const map = new Map<string, typeof calendarItems>();
     for (const it of calendarItems) {
@@ -368,6 +398,25 @@ export function PromemorieENoteBoard({ kind, mode, userId }: Props) {
     );
   }
 
+  if (mode === "calendario" && kind !== "note") {
+    return (
+      <div className="space-y-3">
+        {error ? (
+          <p className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">
+            {error}
+          </p>
+        ) : null}
+        <PnVistaToggle kind={kind} mode="calendario" />
+        <PnCalendarioMese
+          kind={kind}
+          month={month}
+          onMonthChange={setMonth}
+          events={eventiCalendario}
+        />
+      </div>
+    );
+  }
+
   if (mode === "calendario") {
     return (
       <div className="space-y-3">
@@ -424,6 +473,7 @@ export function PromemorieENoteBoard({ kind, mode, userId }: Props) {
   // elenco
   return (
     <div className="space-y-3">
+      {kind !== "note" ? <PnVistaToggle kind={kind} mode="elenco" /> : null}
       {error ? (
         <p className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">
           {error}
