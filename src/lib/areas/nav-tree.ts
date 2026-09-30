@@ -1,6 +1,6 @@
 export type NavBadge =
   | { kind: "status"; active: boolean }
-  | { kind: "count"; count: number; title?: string }
+  | { kind: "count"; count: number; title?: string; tone?: "alert" }
   | {
       kind: "ticket-nav";
       tickets: number;
@@ -174,6 +174,29 @@ export function filterNavBySuperAdminOnly(
     out.push(item);
   }
   return out;
+}
+
+/** Preventivi in attesa del costo spedizione: voce Preventivi. */
+export function applyPreventiviSpedizioneBadge(
+  items: readonly NavItem[],
+  count: number
+): NavItem[] {
+  const badge: NavBadge | undefined =
+    count > 0
+      ? {
+          kind: "count",
+          count,
+          tone: "alert",
+          title:
+            count === 1
+              ? "1 preventivo in attesa del costo spedizione"
+              : `${count} preventivi in attesa del costo spedizione`,
+        }
+      : undefined;
+  return items.map((item) => {
+    if (item.slug !== "preventivi") return item;
+    return { ...item, badge };
+  });
 }
 
 /** Badge non lette su Promemorie e note → Attività → Elenco. */

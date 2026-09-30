@@ -1,6 +1,7 @@
 "use server";
 
 import { countOrdiniDaProcessareAction } from "@/app/actions/ordini";
+import { countPreventiviAttesaSpedizioneNavAction } from "@/app/actions/preventivi";
 import { countUnreadNotificheAction } from "@/app/actions/notifiche";
 import { getTicketNavBadgeAction } from "@/app/actions/strumenti-ticket-impostazioni";
 import { listMappaMenuNavAction } from "@/app/actions/magazzino-mappa";
@@ -18,6 +19,7 @@ export async function bootstrapAppNavAction(flags: {
   produzione: boolean;
   webmailAccounts: boolean;
   webmailGrant: boolean;
+  spedizione: boolean;
 }) {
   const [
     ordini,
@@ -27,6 +29,7 @@ export async function bootstrapAppNavAction(flags: {
     produzione,
     webmailAccounts,
     webmailGrant,
+    spedizione,
   ] = await Promise.all([
     flags.ordini
       ? countOrdiniDaProcessareAction()
@@ -43,6 +46,9 @@ export async function bootstrapAppNavAction(flags: {
     flags.webmailGrant
       ? listWebmailMenuAccountsAction()
       : Promise.resolve(null),
+    flags.spedizione
+      ? countPreventiviAttesaSpedizioneNavAction()
+      : Promise.resolve(null),
   ]);
 
   return {
@@ -53,5 +59,6 @@ export async function bootstrapAppNavAction(flags: {
     produzione,
     webmailAccounts,
     webmailGrant,
+    spedizione,
   };
 }

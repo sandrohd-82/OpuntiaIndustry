@@ -15,6 +15,7 @@ import { PreventivoFormModal } from "@/components/amministrazione/PreventivoForm
 import {
   PREVENTIVO_CONSEGNA_LABEL,
   PREVENTIVO_STATO_LABEL,
+  notifyPreventiviSpedizioneNav,
   type Preventivo,
   type PreventivoStato,
 } from "@/lib/amministrazione/preventivi";
@@ -49,6 +50,7 @@ export function PreventiviBoard() {
     if (res.success) {
       setItems(res.items);
       setError(null);
+      notifyPreventiviSpedizioneNav();
     } else {
       setError(res.error);
     }
@@ -274,6 +276,7 @@ export function PreventiviBoard() {
               setNotice(
                 `${item.numeroInterno} in elenco, in attesa di inserimento costo spedizione.`
               );
+              notifyPreventiviSpedizioneNav();
             }
           }}
         />

@@ -305,6 +305,21 @@ export async function listPreventiviAction(): Promise<
   };
 }
 
+export async function countPreventiviAttesaSpedizioneNavAction(): Promise<
+  { success: true; totale: number } | { success: false; error: string }
+> {
+  const gate = await requirePreventiviAccess();
+  if (!gate.ok) return { success: true, totale: 0 };
+  const supabase = await createClient();
+  const { count, error } = await supabase
+    .from("preventivi")
+    .select("id", { count: "exact", head: true })
+    .eq("stato", "in_attesa_spedizione")
+    .is("deleted_at", null);
+  if (error) return { success: false, error: error.message };
+  return { success: true, totale: count ?? 0 };
+}
+
 export async function listPreventiviAccettatiAction(input: {
   clienteId: string;
   prodottoId?: string;

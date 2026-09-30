@@ -72,6 +72,13 @@ export function roundEuro(n: number): number {
   return Math.round(n * 100) / 100;
 }
 
+export const PREVENTIVI_SPEDIZIONE_NAV_EVENT = "opuntia-preventivi-spedizione-nav";
+
+export function notifyPreventiviSpedizioneNav() {
+  if (typeof window === "undefined") return;
+  window.dispatchEvent(new Event(PREVENTIVI_SPEDIZIONE_NAV_EVENT));
+}
+
 export function nomeFilePreventivoPdf(numero: string): string {
   const safe = numero.trim().replace(/\//g, "-").replace(/[^\w.\-]+/g, "_") || "preventivo";
   return `${safe}.pdf`;

@@ -41,6 +41,7 @@ import {
 import {
   applyDaProcessareBadge,
   applyPnAttivitaUnreadBadge,
+  applyPreventiviSpedizioneBadge,
   applyTicketNavBadge,
   filterNavByAdminOnly,
   accordionFromPathname,
@@ -57,6 +58,10 @@ import {
   type NavContrast,
 } from "@/lib/areas/nav-layer";
 import { countOrdiniDaProcessareAction } from "@/app/actions/ordini";
+import { countPreventiviAttesaSpedizioneNavAction } from "@/app/actions/preventivi";
+import {
+  PREVENTIVI_SPEDIZIONE_NAV_EVENT,
+} from "@/lib/amministrazione/preventivi";
 import { bootstrapAppNavAction } from "@/app/actions/nav-bootstrap";
 import { ORDINI_DA_PROCESSARE_NAV_EVENT } from "@/lib/amministrazione/ordini-nav";
 import { countUnreadNotificheAction } from "@/app/actions/notifiche";
@@ -291,7 +296,9 @@ function NavBadgeDot({ badge }: { badge: NavBadge }) {
   }
   return (
     <span
-      className="ml-auto inline-flex h-5 min-w-5 shrink-0 items-center justify-center rounded-full bg-emerald-500 px-1 text-[10px] font-semibold text-white"
+      className={`ml-auto inline-flex h-5 min-w-5 shrink-0 items-center justify-center rounded-full px-1 text-[10px] font-semibold text-white ${
+        badge.tone === "alert" ? "bg-amber-500" : "bg-emerald-500"
+      }`}
       title={
         badge.title ?? `${n} da processare (passare in produzione)`
       }
@@ -616,6 +623,7 @@ export function AppSidebar({
     tickets: 0,
     messaggi: 0,
   });
+  const [spedizioneAttesaCount, setSpedizioneAttesaCount] = useState(0);
   const sortedAreas = useMemo(() => sortAreasForSidebar(areas), [areas]);
   const showWeb = useMemo(
     () =>
@@ -655,6 +663,7 @@ export function AppSidebar({
   }
 
   const hasAmministrazione = areas.some((a) => a.slug === "amministrazione");
+  const hasCommerciale = areas.some((a) => a.slug === "commerciale");
   const hasPn = areas.some((a) => a.slug === "promemorie-e-note");
   const hasTicketMenu = areas.some(
     (a) => a.slug === "strumenti" || a.slug === "amministrazione"
@@ -675,11 +684,15 @@ export function AppSidebar({
       produzione: hasProduzione,
       webmailAccounts: wantWebmailAccounts,
       webmailGrant: testMenuMode && canCreateProfiles,
+      spedizione: hasCommerciale,
     })
       .then((res) => {
         if (cancelled) return;
         if (res.ordini && res.ordini.success) {
           setDaProcessareCount(res.ordini.totale);
+        }
+        if (res.spedizione && res.spedizione.success) {
+          setSpedizioneAttesaCount(res.spedizione.totale);
         }
         if (res.notifiche && res.notifiche.success) {
           setPnAttivitaUnread(res.notifiche.totale);
@@ -724,6 +737,7 @@ export function AppSidebar({
     areaSlugsKey,
     canCreateProfiles,
     hasAmministrazione,
+    hasCommerciale,
     hasArchivio,
     hasPn,
     hasProduzione,
@@ -755,6 +769,46 @@ export function AppSidebar({
       window.removeEventListener("focus", loadCount);
     };
   }, [hasAmministrazione, isAdminLike]);
+
+  useEffect(() => {
+    if (!hasCommerciale) {
+      setSpedizioneAttesaCount(0);
+      return;
+    }
+    let cancelled = false;
+    function loadCount() {
+      void countPreventiviAttesaSpedizioneNavAction()
+        .then((res) => {
+          if (cancelled || !res.success) return;
+          setSpedizioneAttesaCount(res.totale);
+        })
+        .catch(() => {
+          /* badge opzionale */
+        });
+    }
+    const supabase = createClient();
+    const channel = supabase
+      .channel(`preventivi-spedizione-nav-${userId}`)
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "preventivi" },
+        loadCount
+      )
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "app_notifiche" },
+        loadCount
+      )
+      .subscribe();
+    window.addEventListener(PREVENTIVI_SPEDIZIONE_NAV_EVENT, loadCount);
+    window.addEventListener("focus", loadCount);
+    return () => {
+      cancelled = true;
+      void supabase.removeChannel(channel);
+      window.removeEventListener(PREVENTIVI_SPEDIZIONE_NAV_EVENT, loadCount);
+      window.removeEventListener("focus", loadCount);
+    };
+  }, [hasCommerciale, userId]);
 
   useEffect(() => {
     if (!hasPn) {
@@ -1198,7 +1252,12 @@ export function AppSidebar({
                     )
                   : area.slug === "strumenti" && treeSectionsFiltered
                     ? applyTicketNavBadge(treeSectionsFiltered, ticketNav)
-                    : treeSectionsFiltered;
+                    : area.slug === "commerciale" && treeSectionsFiltered
+                      ? applyPreventiviSpedizioneBadge(
+                          treeSectionsFiltered,
+                          spedizioneAttesaCount
+                        )
+                      : treeSectionsFiltered;
             const toneChildren = toneChildrenForArea(area.slug);
             const areaTone = testMenuMode
               ? area.slug === "webmail" && webmailGrantTone
@@ -1263,7 +1322,18 @@ export function AppSidebar({
                               tickets: ticketNav.tickets,
                               messaggi: ticketNav.messaggi,
                             }
-                          : undefined
+                          : area.slug === "commerciale" &&
+                              spedizioneAttesaCount > 0
+                            ? {
+                                kind: "count",
+                                count: spedizioneAttesaCount,
+                                tone: "alert",
+                                title:
+                                  spedizioneAttesaCount === 1
+                                    ? "1 preventivo in attesa del costo spedizione"
+                                    : `${spedizioneAttesaCount} preventivi in attesa del costo spedizione`,
+                              }
+                            : undefined
                     }
                     extra={extra}
                     tone={areaTone}
