@@ -1,8 +1,10 @@
 import { z } from "zod";
 import { ORDINE_TIPI_PAGAMENTO, type OrdineTipoPagamento } from "@/lib/amministrazione/ordini";
+import type { PreventivoCommercialeRiferimento } from "@/lib/amministrazione/preventivo-commerciale-riferimento";
 import {
   formatNumeroPreventivoDocumento,
   yearFromPreventivoData,
+  type DestinatarioPreventivo,
 } from "@/lib/amministrazione/preventivo-letterhead";
 import {
   PREVENTIVO_SPEDIZIONE_FONTI,
@@ -182,6 +184,51 @@ export type Preventivo = {
   referenteAccettazioneLabel: string;
   righe: PreventivoRiga[];
   createdAt: string;
+};
+
+/** Dati per riaprire la modale di creazione su un preventivo già in archivio. */
+export type PreventivoModificaFoglio = {
+  id: string;
+  numeroInterno: string;
+  stato: PreventivoStato;
+  dataPreventivo: string;
+  note: string;
+  giorniConsegna: string;
+  validitaGiorni: number;
+  tipoPagamento: OrdineTipoPagamento;
+  consegnaMetodo: PreventivoConsegna;
+  spedizioneACarico: "cliente" | "agrinsicilia" | "diviso";
+  spedizioneFonte: PreventivoSpedizioneFonte;
+  prezzoAcquirenteModo: "inserito" | "richiesto";
+  spedizioneBase: number | null;
+  ivaDocumento: number;
+  destinatario: DestinatarioPreventivo | null;
+  commerciale: PreventivoCommercialeRiferimento | null;
+  mailAccountId: string;
+  mailTo: string;
+  mailOggetto: string;
+  mailTesto: string;
+  righe: Array<{
+    key: string;
+    prodottoId: string;
+    prodottoCodice: string;
+    prodottoNome: string;
+    quantita: number;
+    unitaMisura: string;
+    prezzoUnitario: number;
+    ivaPercentuale: number;
+    listinoId: string | null;
+    prezzoDaListino: boolean;
+    scontoExtraPct: number;
+    scontoListinoPct: number;
+    scontoListinoStandardPct: number;
+    scontoSuddivisioneAttiva: boolean;
+    scontoQuotaAziendaPct: number;
+    scontoQuotaCommercialePct: number;
+    confezioneValue: string;
+    confezionamento: string;
+    imballaggioVoceId: string | null;
+  }>;
 };
 
 export const preventivoRigaSchema = z.object({

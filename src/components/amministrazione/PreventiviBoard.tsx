@@ -43,6 +43,7 @@ export function PreventiviBoard() {
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
   const [completaItem, setCompletaItem] = useState<Preventivo | null>(null);
 
   async function reload() {
@@ -179,6 +180,18 @@ export function PreventiviBoard() {
                   </td>
                   <td className="px-4 py-3 text-right">
                     <div className="flex flex-wrap justify-end gap-1">
+                      <ActionGate actionKey={AZ.creaPreventivo}>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setEditingId(item.id);
+                            setError(null);
+                          }}
+                          className="rounded-lg border border-[var(--border)] px-2 py-1 text-xs font-medium"
+                        >
+                          Modifica
+                        </button>
+                      </ActionGate>
                       {item.righe
                         .filter((r) => r.scontoSuddivisioneStato === "in_attesa")
                         .map((r) => (
@@ -257,6 +270,19 @@ export function PreventiviBoard() {
             setCompletaItem(null);
             setNotice(message);
             void reload();
+          }}
+        />
+      ) : null}
+
+      {editingId ? (
+        <PreventivoFormModal
+          preventivoId={editingId}
+          onClose={() => setEditingId(null)}
+          onSaved={(item) => {
+            setItems((prev) => prev.map((p) => (p.id === item.id ? item : p)));
+            if (item.stato === "in_attesa_spedizione") {
+              notifyPreventiviSpedizioneNav();
+            }
           }}
         />
       ) : null}

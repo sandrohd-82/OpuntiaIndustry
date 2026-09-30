@@ -21,6 +21,7 @@ import {
   CONFEZIONE_STANDARD,
   createPreventivoSchema,
   formatNumeroPreventivo,
+  type PreventivoModificaFoglio,
   nomeFilePreventivoPdf,
   stimaSpedizioneSchema,
   type Preventivo,
@@ -29,6 +30,7 @@ import {
   type PreventivoScontisticaRiga,
   type PreventivoStato,
 } from "@/lib/amministrazione/preventivi";
+import { CONFEZIONE_SISTEMA } from "@/lib/amministrazione/preventivo-confezionamento";
 import {
   fonteDefaultDaConsegna,
   stimaSpedizionePreventivo,
@@ -302,6 +304,152 @@ export async function listPreventiviAction(): Promise<
   return {
     success: true,
     items: rows.map((r) => mapPreventivo(r, righe.get(r.id) ?? [])),
+  };
+}
+
+export async function getPreventivoPerModificaAction(
+  id: string
+): Promise<
+  | { success: true; foglio: PreventivoModificaFoglio }
+  | { success: false; error: string }
+> {
+  const gate = await requirePreventiviAccess();
+  if (!gate.ok) return { success: false, error: gate.error };
+  if (!/^[0-9a-f-]{36}$/i.test(id)) {
+    return { success: false, error: "Preventivo non valido" };
+  }
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from("preventivi")
+    .select("*")
+    .eq("id", id)
+    .is("deleted_at", null)
+    .maybeSingle();
+  if (error || !data) {
+    return { success: false, error: error?.message ?? "Preventivo non trovato" };
+  }
+  const row = data as PreventivoRow;
+  const righeMap = await attachRighe([row.id]);
+  const righe = (righeMap.get(row.id) ?? [])
+    .slice()
+    .sort((a, b) => a.sort_order - b.sort_order);
+  const richiesto = row.modalita_spedizione_prezzo === "richiesto";
+  const base =
+    row.consegna_metodo === "corriere_nostro"
+      ? Number(row.spedizione_importo_base ?? 0)
+      : row.consegna_metodo === "corriere_cliente" && !richiesto
+        ? Number(row.spedizione_importo ?? 0)
+        : 0;
+  const destinatario = await destinatarioPerModifica(
+    row.cliente_id,
+    row.cliente_ragione_sociale,
+    row.cliente_codice_targa
+  );
+  return {
+    success: true,
+    foglio: {
+      id: row.id,
+      numeroInterno: row.numero_interno,
+      stato: row.stato,
+      dataPreventivo: row.data_preventivo,
+      note: row.note,
+      giorniConsegna: row.giorni_consegna || "da concordare",
+      validitaGiorni: Number(row.validita_giorni ?? 15),
+      tipoPagamento: row.tipo_pagamento,
+      consegnaMetodo: row.consegna_metodo,
+      spedizioneACarico: row.spedizione_a_carico,
+      spedizioneFonte: row.spedizione_fonte ?? "da_concordare",
+      prezzoAcquirenteModo: richiesto ? "richiesto" : "inserito",
+      spedizioneBase: richiesto || base <= 0 ? null : base,
+      ivaDocumento: Number(righe[0]?.iva_percentuale ?? 22),
+      destinatario,
+      commerciale: row.commerciale_riferimento_id
+        ? {
+            id: row.commerciale_riferimento_id,
+            nome: row.commerciale_riferimento_nome ?? "",
+            telefono: row.commerciale_riferimento_telefono ?? "",
+            email: row.commerciale_riferimento_email ?? "",
+          }
+        : null,
+      mailAccountId: row.mail_bozza_account_id ?? "",
+      mailTo: row.mail_bozza_to ?? "",
+      mailOggetto: row.mail_bozza_oggetto ?? "",
+      mailTesto: row.mail_bozza_testo ?? "",
+      righe: righe.map((r) => ({
+        key: r.id,
+        prodottoId: r.prodotto_id ?? "",
+        prodottoCodice: r.prodotto_codice,
+        prodottoNome: r.prodotto_nome,
+        quantita: Number(r.quantita),
+        unitaMisura: r.unita_misura,
+        prezzoUnitario: Number(r.prezzo_unitario),
+        ivaPercentuale: Number(r.iva_percentuale),
+        listinoId: r.listino_id,
+        prezzoDaListino: Boolean(r.prezzo_da_listino),
+        scontoExtraPct: Number(r.sconto_extra_pct ?? 0),
+        scontoListinoPct: Number(r.sconto_listino_pct ?? 0),
+        scontoListinoStandardPct: Number(
+          r.sconto_listino_standard_pct ?? r.sconto_listino_pct ?? 0
+        ),
+        scontoSuddivisioneAttiva: Boolean(r.sconto_suddivisione_attiva),
+        scontoQuotaAziendaPct: Number(r.sconto_quota_azienda_pct ?? 0),
+        scontoQuotaCommercialePct: Number(r.sconto_quota_commerciale_pct ?? 0),
+        confezioneValue: r.imballaggio_voce_id ?? CONFEZIONE_SISTEMA,
+        confezionamento: r.confezionamento,
+        imballaggioVoceId: r.imballaggio_voce_id ?? null,
+      })),
+    },
+  };
+}
+
+async function destinatarioPerModifica(
+  clienteId: string | null,
+  ragioneSociale: string,
+  codiceTarga: string
+): Promise<PreventivoModificaFoglio["destinatario"]> {
+  const supabase = await createClient();
+  if (!clienteId) return null;
+  const { data } = await supabase
+    .from("clienti")
+    .select(
+      "id, codice_targa, ragione_sociale, partita_iva, codice_fiscale, email, sede_amm_nazione, sede_amm_provincia, sede_amm_citta, sede_amm_cap, sede_amm_indirizzo"
+    )
+    .eq("id", clienteId)
+    .is("deleted_at", null)
+    .maybeSingle();
+  if (!data) {
+    return {
+      kind: "cliente",
+      id: clienteId,
+      ragioneSociale,
+      partitaIva: "",
+      codiceFiscale: "",
+      codiceTarga: codiceTarga || "PC",
+      email: "",
+      sede: {
+        nazione: "",
+        provincia: "",
+        citta: "",
+        cap: "",
+        indirizzo: "",
+      },
+    };
+  }
+  return {
+    kind: "cliente",
+    id: String(data.id),
+    ragioneSociale: String(data.ragione_sociale || ragioneSociale),
+    partitaIva: String(data.partita_iva ?? ""),
+    codiceFiscale: String(data.codice_fiscale ?? ""),
+    codiceTarga: String(data.codice_targa || codiceTarga || "PC"),
+    email: String(data.email ?? ""),
+    sede: {
+      nazione: String(data.sede_amm_nazione ?? ""),
+      provincia: String(data.sede_amm_provincia ?? ""),
+      citta: String(data.sede_amm_citta ?? ""),
+      cap: String(data.sede_amm_cap ?? ""),
+      indirizzo: String(data.sede_amm_indirizzo ?? ""),
+    },
   };
 }
 
@@ -624,9 +772,6 @@ export async function savePreventivoAction(
 ): Promise<
   { success: true; item: Preventivo } | { success: false; error: string }
 > {
-  if (PREVENTIVI_SESSIONE_PROVA) {
-    return { success: false, error: PREVENTIVI_SESSIONE_PROVA_MSG };
-  }
   const parsed = createPreventivoSchema.safeParse(raw);
   if (!parsed.success) {
     return {
@@ -635,6 +780,9 @@ export async function savePreventivoAction(
     };
   }
   if (!parsed.data.id) {
+    if (PREVENTIVI_SESSIONE_PROVA) {
+      return { success: false, error: PREVENTIVI_SESSIONE_PROVA_MSG };
+    }
     return createPreventivoAction(raw);
   }
   const gate = await requirePreventiviAccess();
@@ -667,10 +815,11 @@ export async function savePreventivoAction(
     };
   }
   const intenzione = input.intenzione ?? "bozza";
-  const stato =
-    intenzione === "inviato" ? ("inviato" as const) : ("creato" as const);
-  const documentoStato =
-    intenzione === "bozza" ? ("bozza" as const) : ("approvato" as const);
+  const isRichiestaPrezzo = input.modalitaSpedizionePrezzo === "richiesto";
+  if (isRichiestaPrezzo && input.mailAccountId) {
+    const casella = await assertWebmailAccountAccess(gate.auth, input.mailAccountId);
+    if (!casella.ok) return { success: false, error: casella.error };
+  }
   const now = new Date().toISOString();
   const supabase = await createClient();
   const { data: prev, error: prevErr } = await supabase
@@ -683,10 +832,29 @@ export async function savePreventivoAction(
     return { success: false, error: prevErr?.message ?? "Preventivo non trovato" };
   }
   const current = prev as PreventivoRow;
-  const nextVersione =
-    intenzione !== "bozza" && current.documento_stato === "bozza"
-      ? Math.max(1, current.versione)
-      : current.versione;
+  const entraInAttesa =
+    isRichiestaPrezzo && current.stato !== "in_attesa_spedizione";
+  if (entraInAttesa) {
+    const incaricati = await profiliCalcoloSpedizioni();
+    if (!incaricati.length) {
+      return {
+        success: false,
+        error:
+          "Nessuna persona è assegnata a Calcolo spedizioni. Impostala in Impostazioni, Compiti e adempimenti.",
+      };
+    }
+  }
+  const stato = isRichiestaPrezzo
+    ? ("in_attesa_spedizione" as const)
+    : !PREVENTIVI_SESSIONE_PROVA && intenzione === "inviato"
+      ? ("inviato" as const)
+      : current.stato;
+  const documentoStato = isRichiestaPrezzo
+    ? ("approvato" as const)
+    : !PREVENTIVI_SESSIONE_PROVA && intenzione === "inviato"
+      ? ("approvato" as const)
+      : current.documento_stato;
+  const nextVersione = current.versione + 1;
   const patch: Record<string, unknown> = {
     cliente_id: input.clienteId ?? null,
     cliente_ragione_sociale: input.cliente,
@@ -697,9 +865,14 @@ export async function savePreventivoAction(
     stato,
     documento_stato: documentoStato,
     versione: nextVersione,
+    modalita_spedizione_prezzo: input.modalitaSpedizionePrezzo ?? "non_applicabile",
+    mail_bozza_account_id: input.mailAccountId ?? null,
+    mail_bozza_to: input.mailTo ?? "",
+    mail_bozza_oggetto: input.mailOggetto ?? "",
+    mail_bozza_testo: input.mailTesto ?? "",
     consegna_metodo: input.consegnaMetodo,
     spedizione_a_carico: input.spedizioneACarico,
-    spedizione_importo: input.spedizioneImporto ?? 0,
+    spedizione_importo: isRichiestaPrezzo ? 0 : (input.spedizioneImporto ?? 0),
     spedizione_importo_base: input.spedizioneImportoBase ?? 0,
     spedizione_markup_pct: input.spedizioneMarkupPct ?? 30,
     spedizione_fonte:
@@ -724,7 +897,7 @@ export async function savePreventivoAction(
     note: input.note ?? "",
     updated_by: gate.auth.userId,
   };
-  if (intenzione === "inviato") {
+  if (!PREVENTIVI_SESSIONE_PROVA && intenzione === "inviato" && !isRichiestaPrezzo) {
     patch.sent_at = current.sent_at ?? now;
     patch.sent_by = current.sent_by ?? gate.auth.userId;
   }
@@ -786,10 +959,11 @@ export async function savePreventivoAction(
     entity_id: header.id,
     action: "update",
     actor_id: gate.auth.userId,
-    summary: `Preventivo ${header.numero_interno} aggiornato (${intenzione})`,
+    summary: `Preventivo ${header.numero_interno} modificato, versione ${nextVersione}`,
     payload: {
       intenzione,
       versione: nextVersione,
+      stato,
       sconti_standard: input.righe
         .filter(
           (riga) =>
@@ -803,6 +977,21 @@ export async function savePreventivoAction(
         })),
     },
   });
+  if (entraInAttesa) {
+    const incaricati = await profiliCalcoloSpedizioni();
+    await dispatchNotifiche({
+      actorId: gate.auth.userId,
+      includeActor: true,
+      recipientIds: incaricati,
+      tipo: "attivita",
+      title: "Calcolo spedizione urgente",
+      body: `Preventivo ${header.numero_interno} per ${input.cliente}: inserisci il prezzo di spedizione e completa l'invio. La mail è già compilata.`,
+      href: "/app/amministrazione/ordini/preventivi",
+      entityType: "preventivi",
+      entityId: header.id,
+      payload: { priorita: "urgente", compito: "calcolo_spedizioni" },
+    });
+  }
   return {
     success: true,
     item: mapPreventivo(header, (righe ?? []) as PreventivoRigaRow[]),
