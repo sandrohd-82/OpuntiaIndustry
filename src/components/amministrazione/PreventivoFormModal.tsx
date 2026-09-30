@@ -234,6 +234,8 @@ export function PreventivoFormModal({ onClose, onSaved }: Props) {
         sessione.righe.map((r) => ({
           ...r,
           scontoListinoPct: r.scontoListinoPct ?? 0,
+          scontoListinoStandardPct:
+            r.scontoListinoStandardPct ?? r.scontoListinoPct ?? 0,
           scontoListinoTarga: r.scontoListinoTarga ?? "",
           scontoSuddivisioneAttiva: Boolean(r.scontoSuddivisioneAttiva),
           scontoQuotaAziendaPct: r.scontoQuotaAziendaPct ?? 0,
@@ -409,6 +411,8 @@ export function PreventivoFormModal({ onClose, onSaved }: Props) {
         prezzoDaListino: r.prezzoDaListino,
         scontoExtraPct: r.scontoExtraPct,
         scontoListinoPct: r.scontoListinoPct ?? 0,
+        scontoListinoStandardPct:
+          r.scontoListinoStandardPct ?? r.scontoListinoPct ?? 0,
         scontoListinoTarga: r.scontoListinoTarga ?? "",
         scontoSuddivisioneAttiva: r.scontoSuddivisioneAttiva,
         scontoQuotaAziendaPct: r.scontoQuotaAziendaPct,
@@ -482,6 +486,9 @@ export function PreventivoFormModal({ onClose, onSaved }: Props) {
       listinoId: r.listinoId,
       prezzoDaListino: r.prezzoDaListino,
       scontoExtraPct: r.scontoExtraPct,
+      scontoListinoPct: r.scontoListinoPct ?? 0,
+      scontoListinoStandardPct:
+        r.scontoListinoStandardPct ?? r.scontoListinoPct ?? 0,
       scontoSuddivisioneAttiva: Boolean(r.scontoSuddivisioneAttiva),
       scontoQuotaAziendaPct: r.scontoQuotaAziendaPct ?? 0,
       scontoQuotaCommercialePct: r.scontoQuotaCommercialePct ?? 0,
@@ -683,6 +690,9 @@ export function PreventivoFormModal({ onClose, onSaved }: Props) {
       listinoId: r.listinoId,
       prezzoDaListino: r.prezzoDaListino,
       scontoExtraPct: r.scontoExtraPct,
+      scontoListinoPct: r.scontoListinoPct ?? 0,
+      scontoListinoStandardPct:
+        r.scontoListinoStandardPct ?? r.scontoListinoPct ?? 0,
       scontoSuddivisioneAttiva: Boolean(r.scontoSuddivisioneAttiva),
       scontoQuotaAziendaPct: r.scontoQuotaAziendaPct ?? 0,
       scontoQuotaCommercialePct: r.scontoQuotaCommercialePct ?? 0,
@@ -960,6 +970,10 @@ export function PreventivoFormModal({ onClose, onSaved }: Props) {
                   quantita: editing.quantita,
                   scontoExtraPct: editing.scontoExtraPct,
                   scontoListinoPct: editing.scontoListinoPct ?? 0,
+                  scontoListinoStandardPct:
+                    editing.scontoListinoStandardPct ??
+                    editing.scontoListinoPct ??
+                    0,
                   scontoListinoTarga: editing.scontoListinoTarga ?? "",
                   scontoSuddivisioneAttiva: Boolean(editing.scontoSuddivisioneAttiva),
                   scontoQuotaAziendaPct: editing.scontoQuotaAziendaPct ?? 0,

@@ -36,6 +36,7 @@ export type PreventivoFoglioRiga = {
   ivaPercentuale: number;
   scontoExtraPct: number;
   scontoListinoPct?: number;
+  scontoListinoStandardPct?: number;
   confezionamento: string;
 };
 
@@ -238,10 +239,13 @@ export const PreventivoFoglioA4 = forwardRef<HTMLDivElement, Props>(
                         riga.scontoListinoPct ?? 0
                       );
                       const totaleRiga = roundEuro(netto * riga.quantita);
+                      const applicatoListino = riga.scontoListinoPct ?? 0;
+                      const standard =
+                        riga.scontoListinoStandardPct ?? applicatoListino;
                       const scontoParti: string[] = [];
-                      if ((riga.scontoListinoPct ?? 0) > 0) {
+                      if (applicatoListino > 0) {
                         scontoParti.push(
-                          `${(riga.scontoListinoPct ?? 0).toLocaleString("it-IT")}%`
+                          `${applicatoListino.toLocaleString("it-IT")}%`
                         );
                       }
                       if (riga.scontoExtraPct > 0) {
@@ -252,6 +256,12 @@ export const PreventivoFoglioA4 = forwardRef<HTMLDivElement, Props>(
                       const dettaglio =
                         riga.confezionamento.trim() ||
                         "Nessun dettaglio di confezionamento";
+                      const notaSconto =
+                        applicatoListino + 0.0001 < standard
+                          ? applicatoListino > 0
+                            ? `Sconto standard ridotto al ${applicatoListino.toLocaleString("it-IT")}% (listino ${standard.toLocaleString("it-IT")}%). `
+                            : "Sconto standard annullato. "
+                          : "Sconto applicato a proposta di confezionamento. ";
                       return (
                         <Fragment key={riga.key}>
                           <tr className="border-t border-slate-300">
@@ -296,7 +306,7 @@ export const PreventivoFoglioA4 = forwardRef<HTMLDivElement, Props>(
                           <tr className="border-b border-slate-200">
                             <td colSpan={stampa ? 6 : 7} className="px-0 pb-2 pt-0">
                               <p className="ml-6 max-w-[78%] text-[9px] leading-tight text-slate-500">
-                                Sconto applicato a proposta di confezionamento.{" "}
+                                {notaSconto}
                                 {dettaglio}
                               </p>
                             </td>

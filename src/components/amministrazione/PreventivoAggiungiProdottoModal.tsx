@@ -26,6 +26,7 @@ export type PreventivoProdottoDraft = {
   quantita: number;
   scontoExtraPct: number;
   scontoListinoPct: number;
+  scontoListinoStandardPct: number;
   scontoListinoTarga: string;
   scontoSuddivisioneAttiva: boolean;
   scontoQuotaAziendaPct: number;
@@ -85,6 +86,21 @@ export function PreventivoAggiungiProdottoModal({
   const [prodottoId, setProdottoId] = useState(initial?.prodottoId ?? "");
   const [quantita, setQuantita] = useState<number | "">(
     initial?.quantita ?? ""
+  );
+  const riduzioneIniziale =
+    initial != null &&
+    initial.scontoListinoPct + 0.0001 <
+      (initial.scontoListinoStandardPct ?? initial.scontoListinoPct)
+      ? initial.scontoListinoPct
+      : null;
+  const [scontoStandardManuale, setScontoStandardManuale] = useState<
+    number | null
+  >(riduzioneIniziale);
+  const [modificaStandard, setModificaStandard] = useState(
+    riduzioneIniziale != null
+  );
+  const [scontoStandardInput, setScontoStandardInput] = useState<number | "">(
+    riduzioneIniziale ?? ""
   );
   const [scontoExtra, setScontoExtra] = useState<number | "">(
     initial?.scontoExtraPct ?? ""
@@ -230,7 +246,8 @@ export function PreventivoAggiungiProdottoModal({
       prodottoId,
       quantita: qty,
       scontoExtraPct: extra,
-      scontoListinoPct: piano?.scontoPct ?? 0,
+      scontoListinoPct: scontoStandardApplicato,
+      scontoListinoStandardPct: scontoStandardOrigine,
       scontoListinoTarga: piano?.targa ?? "",
       scontoSuddivisioneAttiva,
       scontoQuotaAziendaPct: scontoQuotaAzienda === "" ? 0 : scontoQuotaAzienda,
@@ -275,10 +292,23 @@ export function PreventivoAggiungiProdottoModal({
       modo: CONFEZIONE_SISTEMA,
     });
   }, [packListino.length, qtyNum, condizioni]);
+  const scontoStandardOrigine = piano?.scontoPct ?? 0;
+  const scontoStandardApplicato =
+    scontoStandardManuale == null
+      ? scontoStandardOrigine
+      : Math.min(Math.max(0, scontoStandardManuale), scontoStandardOrigine);
   const netto =
     prezzo != null
-      ? prezzoNettoRigaPreventivo(prezzo, extraNum, piano?.scontoPct ?? 0)
+      ? prezzoNettoRigaPreventivo(prezzo, extraNum, scontoStandardApplicato)
       : null;
+
+  function scegliConfezione(value: string) {
+    setConfezioneValue(value);
+    setScontoStandardManuale(null);
+    setModificaStandard(false);
+    setScontoStandardInput("");
+    setError(null);
+  }
 
   return (
     <div
@@ -310,7 +340,12 @@ export function PreventivoAggiungiProdottoModal({
               required
               disabled={!ready || loading}
               value={prodottoId}
-              onChange={(e) => setProdottoId(e.target.value)}
+              onChange={(e) => {
+                setProdottoId(e.target.value);
+                setScontoStandardManuale(null);
+                setModificaStandard(false);
+                setScontoStandardInput("");
+              }}
               className="w-full rounded border border-slate-300 bg-white px-3 py-2 text-sm"
             >
               <option value="">Seleziona…</option>
@@ -442,10 +477,13 @@ export function PreventivoAggiungiProdottoModal({
             {netto != null && prezzo != null ? (
               <p className="mt-1 text-xs text-slate-500">
                 Prezzo netto riga: {euro(netto)} € / {um}
-                {piano && piano.scontoPct > 0
-                  ? ` · sconto listino ${piano.scontoPct.toLocaleString("it-IT")}%${
-                      piano.targa ? ` ${piano.targa}` : ""
-                    }`
+                {scontoStandardApplicato > 0
+                  ? ` · sconto standard ${scontoStandardApplicato.toLocaleString("it-IT")}%`
+                  : scontoStandardOrigine > 0
+                    ? " · sconto standard annullato"
+                    : ""}
+                {extraNum > 0
+                  ? ` · sconto extra ${extraNum.toLocaleString("it-IT")}%`
                   : ""}
               </p>
             ) : null}
@@ -457,7 +495,7 @@ export function PreventivoAggiungiProdottoModal({
               <>
                 <select
                   value={modo}
-                  onChange={(e) => setConfezioneValue(e.target.value)}
+                  onChange={(e) => scegliConfezione(e.target.value)}
                   className="w-full rounded border border-slate-300 bg-white px-3 py-2 text-sm"
                 >
                   <option value={CONFEZIONE_SISTEMA}>
@@ -481,22 +519,17 @@ export function PreventivoAggiungiProdottoModal({
                 ) : null}
                 {piano && modo !== CONFEZIONE_SISTEMA ? (
                   <p className="mt-2 text-xs text-slate-600">
-                    Scelta operatore: {piano.testo}. Sconto applicato{" "}
-                    {piano.scontoPct > 0
-                      ? `${piano.scontoPct.toLocaleString("it-IT")}%${
-                          piano.targa ? ` ${piano.targa}` : ""
-                        }`
-                      : "nessuno"}
-                    {proposta && piano.scontoPct === proposta.scontoPct
-                      ? ". Il prezzo non cambia rispetto alla proposta."
-                      : ". Il prezzo segue lo sconto di questa confezione."}
+                    Scelta operatore: {piano.testo}. La confezione resta questa.
+                    {scontoStandardOrigine > 0
+                      ? ` Sconto standard di listino ${scontoStandardOrigine.toLocaleString("it-IT")}%.`
+                      : " Nessuno sconto di listino su questa confezione."}
                   </p>
                 ) : null}
               </>
             ) : (
               <select
                 value={confezioneValue}
-                onChange={(e) => setConfezioneValue(e.target.value)}
+                onChange={(e) => scegliConfezione(e.target.value)}
                 className="w-full rounded border border-slate-300 bg-white px-3 py-2 text-sm"
               >
                 {(confezioni.length
@@ -517,6 +550,63 @@ export function PreventivoAggiungiProdottoModal({
               </select>
             )}
           </label>
+
+          {scontoStandardOrigine > 0 ? (
+            <div className="rounded-lg border border-slate-200 px-3 py-2 text-sm">
+              <p className="text-slate-700">
+                Sconto standard{" "}
+                <span className="font-semibold">
+                  {scontoStandardApplicato.toLocaleString("it-IT")}%
+                </span>
+                {scontoStandardApplicato + 0.0001 < scontoStandardOrigine
+                  ? ` su ${scontoStandardOrigine.toLocaleString("it-IT")}% di listino`
+                  : " di listino"}
+                . La confezione non cambia.
+              </p>
+              <button
+                type="button"
+                onClick={() => {
+                  setModificaStandard(true);
+                  setScontoStandardInput(scontoStandardApplicato);
+                }}
+                className="mt-2 rounded border border-slate-300 bg-white px-3 py-1.5 text-sm font-medium text-slate-800 hover:bg-slate-50"
+              >
+                Modifica Sconto standard
+              </button>
+              {modificaStandard ? (
+                <label className="mt-2 block">
+                  <span className="mb-1 block text-xs text-slate-600">
+                    Da 0 a {scontoStandardOrigine.toLocaleString("it-IT")}%. 0
+                    annulla lo sconto. Un aumento si scrive in Sconto extra
+                    listino.
+                  </span>
+                  <ClearableNumberInput
+                    min={0}
+                    max={scontoStandardOrigine}
+                    value={scontoStandardInput}
+                    onValueChange={(value) => {
+                      if (value === "") {
+                        setScontoStandardInput("");
+                        setScontoStandardManuale(null);
+                        setError(null);
+                        return;
+                      }
+                      if (value > scontoStandardOrigine + 0.0001) {
+                        setError(
+                          "Lo sconto standard si può solo ridurre. Un aumento va in Sconto extra listino (%)."
+                        );
+                        return;
+                      }
+                      setError(null);
+                      setScontoStandardInput(value);
+                      setScontoStandardManuale(value);
+                    }}
+                    className="w-full rounded border border-slate-300 px-3 py-2 text-sm"
+                  />
+                </label>
+              ) : null}
+            </div>
+          ) : null}
 
           {error ? (
             <p className="rounded border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">

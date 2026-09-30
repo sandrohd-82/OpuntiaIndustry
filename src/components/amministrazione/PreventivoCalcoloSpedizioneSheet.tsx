@@ -174,6 +174,8 @@ export function PreventivoCalcoloSpedizioneSheet({
           prezzoUnitario: riga.prezzoUnitario,
           ivaPercentuale: riga.ivaPercentuale,
           scontoExtraPct: riga.scontoExtraPct,
+          scontoListinoPct: riga.scontoListinoPct,
+          scontoListinoStandardPct: riga.scontoListinoStandardPct,
           confezionamento: riga.confezionamento,
         }))}
         consegnaMetodo={item.consegnaMetodo}

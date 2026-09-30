@@ -1551,6 +1551,8 @@ export interface PreventivoRigaRow {
   listino_id: string | null;
   prezzo_da_listino: boolean;
   sconto_extra_pct: number;
+  sconto_listino_standard_pct?: number;
+  sconto_listino_pct?: number;
   sconto_quota_azienda_pct?: number;
   sconto_quota_commerciale_pct?: number;
   sconto_suddivisione_attiva?: boolean;

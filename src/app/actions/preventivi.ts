@@ -159,6 +159,8 @@ function mapRiga(row: PreventivoRigaRow): PreventivoRiga {
     listinoId: row.listino_id,
     prezzoDaListino: Boolean(row.prezzo_da_listino),
     scontoExtraPct: Number(row.sconto_extra_pct ?? 0),
+    scontoListinoStandardPct: Number(row.sconto_listino_standard_pct ?? 0),
+    scontoListinoPct: Number(row.sconto_listino_pct ?? 0),
     scontoQuotaAziendaPct: Number(row.sconto_quota_azienda_pct ?? 0),
     scontoQuotaCommercialePct: Number(row.sconto_quota_commerciale_pct ?? 0),
     scontoSuddivisioneAttiva: Boolean(row.sconto_suddivisione_attiva),
@@ -526,6 +528,8 @@ export async function createPreventivoAction(
         listino_id: r.listinoId ?? null,
         prezzo_da_listino: Boolean(r.prezzoDaListino),
         sconto_extra_pct: r.scontoExtraPct ?? 0,
+        sconto_listino_standard_pct: r.scontoListinoStandardPct ?? 0,
+        sconto_listino_pct: r.scontoListinoPct ?? 0,
         ...colonne,
         confezionamento: r.confezionamento ?? "",
         imballaggio_voce_id: r.imballaggioVoceId ?? null,
@@ -566,6 +570,17 @@ export async function createPreventivoAction(
       intenzione,
       commerciale_riferimento_id: riferimento.id,
       commerciale_riferimento_nome: riferimento.nome,
+      sconti_standard: input.righe
+        .filter(
+          (riga) =>
+            (riga.scontoListinoPct ?? 0) + 0.0001 <
+            (riga.scontoListinoStandardPct ?? 0)
+        )
+        .map((riga) => ({
+          prodotto: riga.prodottoCodice,
+          standard: riga.scontoListinoStandardPct ?? 0,
+          applicato: riga.scontoListinoPct ?? 0,
+        })),
     },
   });
   if (isRichiestaPrezzo) {
@@ -731,6 +746,8 @@ export async function savePreventivoAction(
         listino_id: r.listinoId ?? null,
         prezzo_da_listino: Boolean(r.prezzoDaListino),
         sconto_extra_pct: r.scontoExtraPct ?? 0,
+        sconto_listino_standard_pct: r.scontoListinoStandardPct ?? 0,
+        sconto_listino_pct: r.scontoListinoPct ?? 0,
         ...colonne,
         confezionamento: r.confezionamento ?? "",
         imballaggio_voce_id: r.imballaggioVoceId ?? null,
@@ -755,7 +772,21 @@ export async function savePreventivoAction(
     action: "update",
     actor_id: gate.auth.userId,
     summary: `Preventivo ${header.numero_interno} aggiornato (${intenzione})`,
-    payload: { intenzione, versione: nextVersione },
+    payload: {
+      intenzione,
+      versione: nextVersione,
+      sconti_standard: input.righe
+        .filter(
+          (riga) =>
+            (riga.scontoListinoPct ?? 0) + 0.0001 <
+            (riga.scontoListinoStandardPct ?? 0)
+        )
+        .map((riga) => ({
+          prodotto: riga.prodottoCodice,
+          standard: riga.scontoListinoStandardPct ?? 0,
+          applicato: riga.scontoListinoPct ?? 0,
+        })),
+    },
   });
   return {
     success: true,
