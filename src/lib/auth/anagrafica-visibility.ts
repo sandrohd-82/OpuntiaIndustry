@@ -194,7 +194,11 @@ export async function anagraficaListOrClause(): Promise<string | null> {
       ])
     : [[], []];
   const self = auth
-    ? { userId: auth.userId, personaIds: selfPersonaIds }
+    ? {
+        userId: auth.userId,
+        personaIds: selfPersonaIds,
+        includeSubtreeAffiancati: true,
+      }
     : undefined;
   if (!vis.includeAzienda) {
     return anagraficaLineageOrFilter(vis.ownerIds, personaIds, self);

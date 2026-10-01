@@ -341,7 +341,12 @@ export async function loadCommercialeLabels(
 export function anagraficaLineageOrFilter(
   lineageIds: string[],
   personaIds: string[] = [],
-  self?: { userId?: string | null; personaIds?: string[] }
+  self?: {
+    userId?: string | null;
+    personaIds?: string[];
+    /** Elenco: carica anche le schede affiancate ai sottoposti, così il filtro area le trova. */
+    includeSubtreeAffiancati?: boolean;
+  }
 ): string {
   const ids = [...new Set(lineageIds.filter(Boolean))];
   const persone = [...new Set(personaIds.filter(Boolean))];
@@ -356,6 +361,9 @@ export function anagraficaLineageOrFilter(
       parts.push(
         `${libera},or(created_by.in.(${inList}),commerciale_id.in.(${inList})))`
       );
+      if (self.includeSubtreeAffiancati) {
+        parts.push(`affiancato_id.in.(${inList})`);
+      }
     } else {
       parts.push(
         `created_by.in.(${inList})`,
@@ -368,6 +376,9 @@ export function anagraficaLineageOrFilter(
     const inList = persone.join(",");
     if (self) {
       parts.push(`${libera},commerciale_persona_id.in.(${inList}))`);
+      if (self.includeSubtreeAffiancati) {
+        parts.push(`affiancato_persona_id.in.(${inList})`);
+      }
     } else {
       parts.push(
         `commerciale_persona_id.in.(${inList})`,
@@ -375,7 +386,7 @@ export function anagraficaLineageOrFilter(
       );
     }
   }
-  if (self) {
+  if (self && !self.includeSubtreeAffiancati) {
     if (selfUser) parts.push(`affiancato_id.eq.${selfUser}`);
     if (selfPersone.length > 0) {
       parts.push(`affiancato_persona_id.in.(${selfPersone.join(",")})`);
