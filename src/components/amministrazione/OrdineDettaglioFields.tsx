@@ -213,6 +213,7 @@ export function OrdineDettaglioFields({
   const ordineClienteInputId = useId();
   const [prodotti, setProdotti] = useState<ProdottoProprio[]>([]);
   const [prodottiReady, setProdottiReady] = useState(false);
+  const [noteAperte, setNoteAperte] = useState<Record<string, boolean>>({});
 
   useEffect(() => {
     let cancelled = false;
@@ -367,7 +368,19 @@ export function OrdineDettaglioFields({
                           {p.codice} — {p.nome}
                         </option>
                       ))}
-                    </select>
+                      </select>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setNoteAperte((prev) => ({
+                          ...prev,
+                          [riga.id]: !(prev[riga.id] ?? Boolean(riga.note.trim())),
+                        }))
+                      }
+                      className="mt-2 rounded-lg border border-[var(--border)] bg-white px-3 py-1.5 text-sm font-medium hover:bg-slate-50"
+                    >
+                      Nota
+                    </button>
                   </label>
 
                   <label className="block text-sm">
@@ -502,6 +515,23 @@ export function OrdineDettaglioFields({
                     </p>
                   </div>
                 </div>
+                {(noteAperte[riga.id] ?? Boolean(riga.note.trim())) ? (
+                  <label className="mt-2 block text-sm">
+                    <span className="mb-1 block text-xs font-medium">
+                      Nota del prodotto
+                    </span>
+                    <input
+                      type="text"
+                      maxLength={500}
+                      value={riga.note}
+                      onChange={(e) =>
+                        patchRiga(riga.id, { note: e.target.value })
+                      }
+                      placeholder="Es. Nopal dry C da 50 micron"
+                      className="w-full rounded-lg border border-[var(--border)] bg-white px-2.5 py-2 text-sm outline-none focus:border-[var(--primary)]"
+                    />
+                  </label>
+                ) : null}
               </div>
             ))}
           </div>

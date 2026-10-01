@@ -35,6 +35,8 @@ export type OrdineRigaProdotto = {
   lottoCodice: string;
   prezzoUnitario: number;
   ivaPercentuale: number;
+  /** Nota legata a questo prodotto nell'ordine. */
+  note: string;
 };
 
 export function isOrdineUnitaMisura(value: unknown): value is OrdineUnitaMisura {
@@ -227,6 +229,7 @@ export function newRigaProdotto(): OrdineRigaProdotto {
     lottoCodice: "",
     prezzoUnitario: 0,
     ivaPercentuale: 22,
+    note: "",
   };
 }
 
@@ -291,6 +294,7 @@ const rigaSchema = z.object({
   quantita: z.number().positive("Quantità deve essere > 0"),
   unitaMisura: z.enum(ORDINE_UNITA_MISURA).optional().default("kg"),
   lottoCodice: z.string().trim().max(80).optional().default(""),
+  note: z.string().trim().max(500).optional().default(""),
   prezzoUnitario: z.number().min(0),
   ivaPercentuale: z.number().min(0),
 });
@@ -383,6 +387,7 @@ export function mapOrdineRigaRow(row: OrdineRigaRow): OrdineRigaProdotto {
     quantita: Number(row.quantita),
     unitaMisura: parseOrdineUnitaMisura(row.unita_misura),
     lottoCodice: String(row.lotto_codice ?? "").trim(),
+    note: String(row.note ?? "").trim(),
     prezzoUnitario: Number(row.prezzo_unitario),
     ivaPercentuale: Number(row.iva_percentuale),
   };

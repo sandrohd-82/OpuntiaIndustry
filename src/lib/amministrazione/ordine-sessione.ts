@@ -126,6 +126,7 @@ export function buildOrdineSessioneLocale(input: {
   prodottoId: string;
   prodottoCodice: string;
   prodottoNome: string;
+  notaProdotto?: string;
   quantita: number;
   unitaMisura: Ordine["righe"][number]["unitaMisura"];
   prezzoNetto: number;
@@ -203,6 +204,7 @@ export function buildOrdineSessioneLocale(input: {
         quantita: input.quantita,
         unitaMisura: input.unitaMisura,
         lottoCodice: "",
+        note: input.notaProdotto?.trim() ?? "",
         prezzoUnitario: input.prezzoNetto,
         ivaPercentuale: input.tipo === "campionatura" ? 0 : 22,
       },

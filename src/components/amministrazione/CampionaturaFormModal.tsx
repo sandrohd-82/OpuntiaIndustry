@@ -54,6 +54,7 @@ type DraftRiga = {
   unitaMisura: CampionaturaUm;
   lottoCodice: string;
   note: string;
+  noteAperta: boolean;
 };
 
 type Props = {
@@ -73,6 +74,7 @@ function righeFromCampionatura(item: Campionatura | null | undefined): DraftRiga
     unitaMisura: r.unitaMisura,
     lottoCodice: r.lottoCodice,
     note: r.note,
+    noteAperta: Boolean(r.note.trim()),
   }));
 }
 
@@ -103,6 +105,7 @@ function emptyRiga(): DraftRiga {
     unitaMisura: "g",
     lottoCodice: "",
     note: "",
+    noteAperta: false,
   };
 }
 
@@ -855,6 +858,15 @@ export function CampionaturaFormModal({
                         </option>
                       ))}
                     </select>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        updateRiga(index, { noteAperta: !riga.noteAperta })
+                      }
+                      className="mt-2 rounded-lg border border-[var(--border)] bg-white px-3 py-1.5 text-sm font-medium hover:bg-slate-50"
+                    >
+                      Nota
+                    </button>
                   </label>
                   <label className="block text-xs">
                     <span className="mb-1 block font-medium text-slate-600">
@@ -919,6 +931,23 @@ export function CampionaturaFormModal({
                       <FaTrash size={13} />
                     </button>
                   </div>
+                  {riga.noteAperta ? (
+                    <label className="block text-xs sm:col-span-full">
+                      <span className="mb-1 block font-medium text-slate-600">
+                        Nota del prodotto
+                      </span>
+                      <input
+                        type="text"
+                        maxLength={500}
+                        value={riga.note}
+                        onChange={(e) =>
+                          updateRiga(index, { note: e.target.value })
+                        }
+                        placeholder="Es. Nopal dry C da 50 micron"
+                        className="w-full rounded-lg border border-[var(--border)] bg-white px-2 py-1.5 text-sm outline-none focus:border-[var(--primary)]"
+                      />
+                    </label>
+                  ) : null}
                 </div>
               ))}
             </div>

@@ -23,6 +23,7 @@ export type OrdineWizardModifica = {
   prodottoId: string;
   prodottoCodice: string;
   prodottoNome: string;
+  notaProdotto: string;
   quantita: number;
   unitaMisura: OrdineUnitaMisura;
   prezzoUnitario: number;
@@ -307,6 +308,7 @@ export async function loadOrdinePerModificaWizardAction(
       prodottoId: String(riga.prodotto_id),
       prodottoCodice: String(riga.prodotto_codice ?? ""),
       prodottoNome: String(riga.prodotto_nome ?? ""),
+      notaProdotto: String(riga.note ?? "").trim(),
       quantita: Number(riga.quantita ?? 0),
       unitaMisura,
       prezzoUnitario: prezzoRipresa ?? prezzoListino ?? Number(riga.prezzo_unitario ?? 0),

@@ -140,6 +140,7 @@ export const ordineWizardInputSchema = z
     quantita: z.number().positive(),
     unitaMisura: z.enum(ORDINE_UNITA_MISURA).optional().default("kg"),
     lottoCodice: z.string().trim().max(80).optional().default(""),
+    notaProdotto: z.string().trim().max(500).optional().default(""),
     prezzoUnitario: z.number().min(0),
     ivaPercentuale: z.number().min(0).default(22),
     consegnaTipo: z.enum(["asap", "data"]),

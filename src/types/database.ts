@@ -1405,6 +1405,7 @@ export interface OrdineRigaRow {
   accordo_valore_origine?: number | null;
   accordo_giustificazione?: string;
   accordo_forzato?: boolean;
+  note?: string;
   sort_order: number;
   created_at: string;
   updated_at: string;
@@ -1426,6 +1427,7 @@ export interface OrdineRigaInsert {
   accordo_valore_origine?: number | null;
   accordo_giustificazione?: string;
   accordo_forzato?: boolean;
+  note?: string;
   sort_order?: number;
 }
 

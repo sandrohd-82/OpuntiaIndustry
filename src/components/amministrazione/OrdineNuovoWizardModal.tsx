@@ -337,6 +337,8 @@ export function OrdineNuovoWizardModal({
   const [numeroInterno, setNumeroInterno] = useState("");
 
   const [prodotto, setProdotto] = useState<ProdottoProprio | null>(null);
+  const [notaProdotto, setNotaProdotto] = useState("");
+  const [notaProdottoAperta, setNotaProdottoAperta] = useState(false);
   const [voceListino, setVoceListino] = useState<ListinoVoceVigente | null>(
     null
   );
@@ -564,6 +566,8 @@ export function OrdineNuovoWizardModal({
       setNumeroInterno(d.numeroInterno);
       setTipoOrdine(d.tipo);
       setProdotto(trovato);
+      setNotaProdotto(d.notaProdotto);
+      setNotaProdottoAperta(Boolean(d.notaProdotto.trim()));
       setQuantita(d.quantita);
       setUnitaMisura(d.unitaMisura);
       setScontoExtraPct(d.scontoExtraPct || "");
@@ -819,6 +823,7 @@ export function OrdineNuovoWizardModal({
       quantita: quantitaInserita,
       unitaMisura: umEffettiva,
       lottoCodice: "",
+      note: "",
       prezzoUnitario: prezzoNetto,
       ivaPercentuale: IVA_PCT,
     };
@@ -1204,10 +1209,11 @@ export function OrdineNuovoWizardModal({
           tipo: tipoOrdine,
           prodottoId: prodotto.id,
           prodottoCodice: prodotto.codice,
-          prodottoNome: prodotto.nome,
-          quantita: quantitaInserita,
-          unitaMisura: umEffettiva,
-          prezzoNetto: tipoOrdine === "campionatura" ? 0 : prezzoNetto,
+        prodottoNome: prodotto.nome,
+        notaProdotto: notaProdotto.trim(),
+        quantita: quantitaInserita,
+        unitaMisura: umEffettiva,
+        prezzoNetto: tipoOrdine === "campionatura" ? 0 : prezzoNetto,
           prezzoListino:
             tipoOrdine === "campionatura" ? null : numberOrZero(prezzoUnitario),
           scontoExtraPct: tipoOrdine === "campionatura" ? 0 : scontoPct,
@@ -1266,6 +1272,7 @@ export function OrdineNuovoWizardModal({
         prodottoId: prodotto.id,
         prodottoCodice: prodotto.codice,
         prodottoNome: prodotto.nome,
+        notaProdotto: notaProdotto.trim(),
         quantita: quantitaInserita,
         unitaMisura: umEffettiva,
         prezzoUnitario: tipoOrdine === "campionatura" ? 0 : numberOrZero(prezzoUnitario),
@@ -1918,6 +1925,10 @@ export function OrdineNuovoWizardModal({
                       sortedProdotti.find((x) => x.id === e.target.value) ??
                       null;
                     setProdotto(p);
+                    if (prodotto?.id && p?.id !== prodotto.id) {
+                      setNotaProdotto("");
+                      setNotaProdottoAperta(false);
+                    }
                     setOverridesSeeded(false);
                   }}
                   className="min-w-0 flex-1 rounded-lg border border-[var(--border)] bg-white px-3 py-2 text-sm outline-none focus:border-[var(--primary)]"
@@ -1940,6 +1951,30 @@ export function OrdineNuovoWizardModal({
                 >
                   Nuovo
                 </button>
+              </div>
+              <div className="mt-2">
+                <button
+                  type="button"
+                  onClick={() => setNotaProdottoAperta((open) => !open)}
+                  className="rounded-lg border border-[var(--border)] bg-white px-3 py-1.5 text-sm font-medium hover:bg-slate-50"
+                >
+                  Nota
+                </button>
+                {notaProdottoAperta ? (
+                  <label className="mt-2 block text-sm">
+                    <span className="mb-1 block font-medium">
+                      Nota del prodotto
+                    </span>
+                    <input
+                      type="text"
+                      maxLength={500}
+                      value={notaProdotto}
+                      onChange={(e) => setNotaProdotto(e.target.value)}
+                      placeholder="Es. Nopal dry C da 50 micron"
+                      className="w-full rounded-lg border border-[var(--border)] bg-white px-3 py-2 outline-none focus:border-[var(--primary)]"
+                    />
+                  </label>
+                ) : null}
               </div>
               {voceListinoLoading ? (
                 <p className="mt-3 text-sm text-[var(--muted)]">

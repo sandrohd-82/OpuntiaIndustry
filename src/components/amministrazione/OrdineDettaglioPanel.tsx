@@ -307,6 +307,11 @@ export function OrdineDettaglioPanel({ ordine, onEdit }: Props) {
                 <tr key={r.id} className="border-t border-[var(--border)]">
                   <td className="px-3 py-2">
                     {r.prodottoCodice} — {r.prodottoNome}
+                    {r.note?.trim() ? (
+                      <div className="mt-0.5 text-xs text-[var(--muted)]">
+                        Nota: {r.note.trim()}
+                      </div>
+                    ) : null}
                   </td>
                   <td className="px-3 py-2 tabular-nums">
                     {r.quantita} {r.unitaMisura}
