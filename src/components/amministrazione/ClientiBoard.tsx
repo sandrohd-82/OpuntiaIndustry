@@ -42,6 +42,7 @@ import {
 import {
   elencoCollegato,
   elencoPerCollegamentoEsistente,
+  sortElencoCollegato,
   type CollegamentoScelte,
 } from "@/lib/amministrazione/azienda-collegata";
 import { ClientiFiltersPanel } from "@/components/amministrazione/ClientiFiltersPanel";
@@ -51,6 +52,8 @@ import { PdfExportDetailModal } from "@/components/amministrazione/PdfExportDeta
 import { ProdottoProprioProductTag } from "@/components/amministrazione/ProdottoProprioProductTag";
 import { SoftDeleteConfirmModal } from "@/components/amministrazione/SoftDeleteConfirmModal";
 import { PageLoading } from "@/components/ui/BusyIndicator";
+import { SortableTh } from "@/components/ui/SortableTh";
+import { nextSortState, type SortState } from "@/lib/ui/list-sort";
 import { useClienti } from "@/hooks/useClienti";
 import {
   formatCommercialeAssegnazione,
@@ -324,6 +327,33 @@ function ClienteRow({
   );
 }
 
+type ClienteSortKey =
+  | "targa"
+  | "ragione"
+  | "fiscale"
+  | "sedeLegale"
+  | "sedeMag"
+  | "commerciale"
+  | "prodotti";
+
+function testoColonna(value: string): string | null {
+  const text = value.trim();
+  return text && text !== "—" ? text : null;
+}
+
+function testoProdotti(
+  codes: string[],
+  prodottiByCode: Map<string, ProdottoProprio>
+): string | null {
+  const labels = codes
+    .map((code) => prodottiByCode.get(code)?.nome?.trim() || code)
+    .filter(Boolean);
+  if (!labels.length) return null;
+  return [...labels]
+    .sort((a, b) => a.localeCompare(b, "it", { sensitivity: "base" }))
+    .join(", ");
+}
+
 export function ClientiBoard() {
   const {
     clienti,
@@ -370,6 +400,7 @@ export function ClientiBoard() {
   >([]);
   const [includeAziendaArea, setIncludeAziendaArea] = useState(false);
   const [defaultCommercialeArea, setDefaultCommercialeArea] = useState("");
+  const [sort, setSort] = useState<SortState<ClienteSortKey> | null>(null);
 
   const filtersActive = hasActiveClientiFilters(filters, {
     commercialeArea: defaultCommercialeArea,
@@ -447,10 +478,30 @@ export function ClientiBoard() {
     () => filterClienti(clienti, filters),
     [clienti, filters]
   );
-  const elenco = useMemo(
-    () => elencoCollegato(clienti, filtered),
-    [clienti, filtered]
-  );
+  const elenco = useMemo(() => {
+    const base = elencoCollegato(clienti, filtered);
+    if (!sort) return base;
+    return sortElencoCollegato(base, sort.dir, (cliente) => {
+      switch (sort.key) {
+        case "targa":
+          return testoColonna(cliente.codiceTarga);
+        case "ragione":
+          return testoColonna(cliente.ragioneSociale);
+        case "fiscale":
+          return testoColonna(
+            cliente.isPrivato ? cliente.codiceFiscale : cliente.partitaIva
+          );
+        case "sedeLegale":
+          return testoColonna(formatSedeBreve(cliente.sedeAmministrativa));
+        case "sedeMag":
+          return testoColonna(formatSedeBreve(cliente.sedeMagazzino));
+        case "commerciale":
+          return testoColonna(formatCommercialeAssegnazione(cliente));
+        case "prodotti":
+          return testoProdotti(cliente.prodottiAcquistati, prodottiByCode);
+      }
+    });
+  }, [clienti, filtered, sort, prodottiByCode]);
 
   const cittaOptions = useMemo(() => uniqueClientiCitta(clienti), [clienti]);
 
@@ -738,13 +789,48 @@ export function ClientiBoard() {
                     />
                   </th>
                 ) : null}
-                <th className="px-4 py-3 font-medium">Targa</th>
-                <th className="px-4 py-3 font-medium">R. Sociale</th>
-                <th className="px-4 py-3 font-medium">P. IVA / CF</th>
-                <th className="px-4 py-3 font-medium">Sede Legale</th>
-                <th className="px-4 py-3 font-medium">Sede Mag.</th>
-                <th className="px-4 py-3 font-medium">Commerciale</th>
-                <th className="px-4 py-3 font-medium">Prodotti</th>
+                <SortableTh
+                  label="Targa"
+                  sortKey="targa"
+                  sort={sort}
+                  onSort={(key) => setSort((current) => nextSortState(current, key))}
+                />
+                <SortableTh
+                  label="R. Sociale"
+                  sortKey="ragione"
+                  sort={sort}
+                  onSort={(key) => setSort((current) => nextSortState(current, key))}
+                />
+                <SortableTh
+                  label="P. IVA / CF"
+                  sortKey="fiscale"
+                  sort={sort}
+                  onSort={(key) => setSort((current) => nextSortState(current, key))}
+                />
+                <SortableTh
+                  label="Sede Legale"
+                  sortKey="sedeLegale"
+                  sort={sort}
+                  onSort={(key) => setSort((current) => nextSortState(current, key))}
+                />
+                <SortableTh
+                  label="Sede Mag."
+                  sortKey="sedeMag"
+                  sort={sort}
+                  onSort={(key) => setSort((current) => nextSortState(current, key))}
+                />
+                <SortableTh
+                  label="Commerciale"
+                  sortKey="commerciale"
+                  sort={sort}
+                  onSort={(key) => setSort((current) => nextSortState(current, key))}
+                />
+                <SortableTh
+                  label="Prodotti"
+                  sortKey="prodotti"
+                  sort={sort}
+                  onSort={(key) => setSort((current) => nextSortState(current, key))}
+                />
                 <th className="px-4 py-3 text-right font-medium" />
               </tr>
             </thead>

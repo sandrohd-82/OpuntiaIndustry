@@ -1,4 +1,5 @@
 import { formatSedeBreve, type Cliente } from "@/lib/amministrazione/clienti";
+import { compareSortValues, type SortDir } from "@/lib/ui/list-sort";
 
 function normalizeVatKey(vat: string): string {
   let key = vat.replace(/[\s.\-/]/g, "").toUpperCase();
@@ -140,6 +141,31 @@ export function elencoCollegato<T extends { id: string; aziendaMadreId: string |
     }
   }
   return out;
+}
+
+/** Ordina i gruppi madre/figlie. Le figlie restano sotto la madre. */
+export function sortElencoCollegato<T>(
+  rows: ElencoCollegatoRiga<T>[],
+  dir: SortDir,
+  valueOf: (item: T) => string | number | null | undefined
+): ElencoCollegatoRiga<T>[] {
+  const groups: {
+    root: ElencoCollegatoRiga<T>;
+    children: ElencoCollegatoRiga<T>[];
+  }[] = [];
+  for (const row of rows) {
+    if (!row.nested || groups.length === 0) {
+      groups.push({ root: row, children: [] });
+    } else {
+      groups[groups.length - 1].children.push(row);
+    }
+  }
+  const by = (a: T, b: T) => compareSortValues(valueOf(a), valueOf(b), dir);
+  groups.sort((a, b) => by(a.root.item, b.root.item));
+  for (const group of groups) {
+    group.children.sort((a, b) => by(a.item, b.item));
+  }
+  return groups.flatMap((group) => [group.root, ...group.children]);
 }
 
 type FiscalRow = {

@@ -40,6 +40,7 @@ import {
 import {
   elencoCollegato,
   elencoPerCollegamentoEsistente,
+  sortElencoCollegato,
   type CollegamentoScelte,
 } from "@/lib/amministrazione/azienda-collegata";
 import { ClientiFiltersPanel } from "@/components/amministrazione/ClientiFiltersPanel";
@@ -61,12 +62,43 @@ import {
   type ClientePossibile,
 } from "@/lib/promemorie-e-note/types";
 import { TrattativaBadge } from "@/components/amministrazione/TrattativaSelectField";
+import { SortableTh } from "@/components/ui/SortableTh";
+import { nextSortState, type SortState } from "@/lib/ui/list-sort";
+import { TRATTATIVA_META } from "@/lib/promemorie-e-note/trattativa";
 
 function statoLabel(stato: ClientePossibile["stato"]) {
   if (stato === "convertito") return "già cliente";
   if (stato === "in_contatto") return "in contatto";
   if (stato === "scartato") return "scartato";
   return "da valutare";
+}
+
+type PossibileSortKey =
+  | "stato"
+  | "trattativa"
+  | "ragione"
+  | "fiscale"
+  | "sedeLegale"
+  | "sedeMag"
+  | "commerciale"
+  | "prodotti";
+
+function testoColonna(value: string): string | null {
+  const text = value.trim();
+  return text && text !== "—" ? text : null;
+}
+
+function testoProdotti(
+  codes: string[],
+  prodottiByCode: Map<string, ProdottoProprio>
+): string | null {
+  const labels = codes
+    .map((code) => prodottiByCode.get(code)?.nome?.trim() || code)
+    .filter(Boolean);
+  if (!labels.length) return null;
+  return [...labels]
+    .sort((a, b) => a.localeCompare(b, "it", { sensitivity: "base" }))
+    .join(", ");
 }
 
 function PossibileClienteRow({
@@ -286,6 +318,7 @@ export function PossibiliClientiBoard() {
   >([]);
   const [includeAziendaArea, setIncludeAziendaArea] = useState(false);
   const [defaultCommercialeArea, setDefaultCommercialeArea] = useState("");
+  const [sort, setSort] = useState<SortState<PossibileSortKey> | null>(null);
   const [prodottiByCode, setProdottiByCode] = useState<
     Map<string, ProdottoProprio>
   >(() => new Map());
@@ -294,10 +327,30 @@ export function PossibiliClientiBoard() {
     commercialeArea: defaultCommercialeArea,
   });
   const filtered = useMemo(() => filterClienti(items, filters), [items, filters]);
-  const elenco = useMemo(
-    () => elencoCollegato(items, filtered),
-    [items, filtered]
-  );
+  const elenco = useMemo(() => {
+    const base = elencoCollegato(items, filtered);
+    if (!sort) return base;
+    return sortElencoCollegato(base, sort.dir, (lead) => {
+      switch (sort.key) {
+        case "stato":
+          return testoColonna(statoLabel(lead.stato));
+        case "trattativa":
+          return testoColonna(TRATTATIVA_META[lead.trattativa].label);
+        case "ragione":
+          return testoColonna(lead.ragioneSociale);
+        case "fiscale":
+          return testoColonna(lead.partitaIva || lead.codiceFiscale);
+        case "sedeLegale":
+          return testoColonna(formatSedeBreve(lead.sedeAmministrativa));
+        case "sedeMag":
+          return testoColonna(formatSedeBreve(lead.sedeMagazzino));
+        case "commerciale":
+          return testoColonna(formatCommercialeAssegnazione(lead));
+        case "prodotti":
+          return testoProdotti(lead.prodottiInteressati, prodottiByCode);
+      }
+    });
+  }, [items, filtered, sort, prodottiByCode]);
   const cittaOptions = useMemo(() => uniqueClientiCitta(items), [items]);
 
   function reload() {
@@ -439,14 +492,54 @@ export function PossibiliClientiBoard() {
           <table className="w-full min-w-[780px] text-left text-sm">
             <thead className="bg-slate-50 text-xs uppercase tracking-wide text-[var(--muted)]">
               <tr>
-                <th className="px-4 py-3 font-medium">Stato</th>
-                <th className="px-4 py-3 font-medium">Trattativa</th>
-                <th className="px-4 py-3 font-medium">R. Sociale</th>
-                <th className="px-4 py-3 font-medium">P. IVA / CF</th>
-                <th className="px-4 py-3 font-medium">Sede Legale</th>
-                <th className="px-4 py-3 font-medium">Sede Mag.</th>
-                <th className="px-4 py-3 font-medium">Commerciale</th>
-                <th className="px-4 py-3 font-medium">Prodotti</th>
+                <SortableTh
+                  label="Stato"
+                  sortKey="stato"
+                  sort={sort}
+                  onSort={(key) => setSort((current) => nextSortState(current, key))}
+                />
+                <SortableTh
+                  label="Trattativa"
+                  sortKey="trattativa"
+                  sort={sort}
+                  onSort={(key) => setSort((current) => nextSortState(current, key))}
+                />
+                <SortableTh
+                  label="R. Sociale"
+                  sortKey="ragione"
+                  sort={sort}
+                  onSort={(key) => setSort((current) => nextSortState(current, key))}
+                />
+                <SortableTh
+                  label="P. IVA / CF"
+                  sortKey="fiscale"
+                  sort={sort}
+                  onSort={(key) => setSort((current) => nextSortState(current, key))}
+                />
+                <SortableTh
+                  label="Sede Legale"
+                  sortKey="sedeLegale"
+                  sort={sort}
+                  onSort={(key) => setSort((current) => nextSortState(current, key))}
+                />
+                <SortableTh
+                  label="Sede Mag."
+                  sortKey="sedeMag"
+                  sort={sort}
+                  onSort={(key) => setSort((current) => nextSortState(current, key))}
+                />
+                <SortableTh
+                  label="Commerciale"
+                  sortKey="commerciale"
+                  sort={sort}
+                  onSort={(key) => setSort((current) => nextSortState(current, key))}
+                />
+                <SortableTh
+                  label="Prodotti"
+                  sortKey="prodotti"
+                  sort={sort}
+                  onSort={(key) => setSort((current) => nextSortState(current, key))}
+                />
                 <th className="px-4 py-3 text-right font-medium" />
               </tr>
             </thead>
