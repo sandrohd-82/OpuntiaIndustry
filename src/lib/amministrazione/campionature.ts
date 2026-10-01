@@ -275,60 +275,70 @@ export type SpedizioneOption = {
   ricezioneAcquisti?: boolean;
 };
 
+function firmaIndirizzo(indirizzo: string): string {
+  return indirizzo.trim().toLowerCase().replace(/\s+/g, " ");
+}
+
 export function clienteSpedizioneOptions(
   cliente: Cliente,
   sediExtra: AnagraficaSede[] = [],
   purpose: "campionature" | "acquisti" = "acquisti"
 ): SpedizioneOption[] {
   const out: SpedizioneOption[] = [];
-  const extraFilled = sediExtra.filter((s) => !isSedeAddressEmpty(s));
-  if (extraFilled.length) {
-    for (const s of extraFilled) {
-      const addr = formatIndirizzoSede(s);
-      if (!addr) continue;
-      const tags: string[] = [];
-      if (s.ricezioneCampionature) tags.push("campionature");
-      if (s.ricezioneAcquisti) tags.push("acquisti");
-      const preferred =
-        purpose === "campionature"
-          ? Boolean(s.ricezioneCampionature)
-          : Boolean(s.ricezioneAcquisti);
-      out.push({
-        key: `sede-${s.id}`,
-        label: tags.length
-          ? `${ANAGRAFICA_SEDE_LABEL[s.tipo]} · ricezione ${tags.join(" + ")}`
-          : ANAGRAFICA_SEDE_LABEL[s.tipo],
-        destinatario: cliente.ragioneSociale,
-        indirizzo: addr,
-        ricezione: preferred,
-        ricezioneCampionature: Boolean(s.ricezioneCampionature),
-        ricezioneAcquisti: Boolean(s.ricezioneAcquisti),
-      });
-    }
-  } else {
-    const amm = formatIndirizzoSede(cliente.sedeAmministrativa);
-    if (amm) {
-      out.push({
-        key: "amm",
-        label: "Sede legale",
-        destinatario: cliente.ragioneSociale,
-        indirizzo: amm,
-      });
-    }
-    const mag = formatIndirizzoSede(cliente.sedeMagazzino);
-    if (mag && mag !== amm) {
-      out.push({
-        key: "mag",
-        label: "Sede magazzino",
-        destinatario: cliente.ragioneSociale,
-        indirizzo: mag,
-      });
-    }
+  const visti = new Set<string>();
+  const push = (opt: SpedizioneOption) => {
+    const firma = firmaIndirizzo(opt.indirizzo);
+    if (!firma || visti.has(firma)) return;
+    visti.add(firma);
+    out.push(opt);
+  };
+
+  for (const s of sediExtra) {
+    if (isSedeAddressEmpty(s)) continue;
+    const addr = formatIndirizzoSede(s);
+    if (!addr) continue;
+    const tags: string[] = [];
+    if (s.ricezioneCampionature) tags.push("campionature");
+    if (s.ricezioneAcquisti) tags.push("acquisti");
+    const preferred =
+      purpose === "campionature"
+        ? Boolean(s.ricezioneCampionature)
+        : Boolean(s.ricezioneAcquisti);
+    push({
+      key: `sede-${s.id}`,
+      label: tags.length
+        ? `${ANAGRAFICA_SEDE_LABEL[s.tipo]} · ricezione ${tags.join(" + ")}`
+        : ANAGRAFICA_SEDE_LABEL[s.tipo],
+      destinatario: cliente.ragioneSociale,
+      indirizzo: addr,
+      ricezione: preferred,
+      ricezioneCampionature: Boolean(s.ricezioneCampionature),
+      ricezioneAcquisti: Boolean(s.ricezioneAcquisti),
+    });
+  }
+
+  const amm = formatIndirizzoSede(cliente.sedeAmministrativa);
+  if (amm) {
+    push({
+      key: "amm",
+      label: "Sede legale",
+      destinatario: cliente.ragioneSociale,
+      indirizzo: amm,
+    });
+  }
+  const mag = formatIndirizzoSede(cliente.sedeMagazzino);
+  if (mag) {
+    push({
+      key: "mag",
+      label: "Sede magazzino",
+      destinatario: cliente.ragioneSociale,
+      indirizzo: mag,
+    });
   }
   cliente.consegneAltraAzienda.forEach((c, i) => {
     const addr = formatIndirizzoSede(c);
     if (!addr) return;
-    out.push({
+    push({
       key: `consegna-${i}`,
       label: c.ragioneSociale.trim()
         ? `Consegna: ${c.ragioneSociale}`
@@ -338,6 +348,18 @@ export function clienteSpedizioneOptions(
     });
   });
   return out;
+}
+
+/** Sede segnata in scheda, poi l’altra ricezione, poi la prima dell’elenco. */
+export function pickSpedizioneDefault(
+  options: SpedizioneOption[],
+  purpose: "campionature" | "acquisti"
+): SpedizioneOption | null {
+  if (!options.length) return null;
+  const camp = options.find((o) => o.ricezioneCampionature);
+  const acq = options.find((o) => o.ricezioneAcquisti);
+  if (purpose === "campionature") return camp ?? acq ?? options[0];
+  return acq ?? camp ?? options[0];
 }
 
 export const REFERENTE_RICEZIONE_MERCE = "Ricezione merce";

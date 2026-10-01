@@ -141,31 +141,38 @@ export async function loadIndirizzoRicezioneMerce(input: {
   if (!input.ownerId || !z.string().uuid().safeParse(input.ownerId).success) {
     return null;
   }
-  const col =
+  const purposes: Array<"campionature" | "acquisti"> =
     input.purpose === "campionature"
-      ? "ricezione_campionature"
-      : "ricezione_acquisti";
+      ? ["campionature", "acquisti"]
+      : ["acquisti", "campionature"];
   const supabase = await createClient();
-  const { data, error } = await supabase
-    .from("anagrafica_sedi")
-    .select(
-      "id, tipo, nazione, provincia, citta, cap, indirizzo, sort_order, ricezione_campionature, ricezione_acquisti"
-    )
-    .eq("owner_kind", input.ownerKind)
-    .eq("owner_id", input.ownerId)
-    .is("deleted_at", null)
-    .eq(col, true)
-    .maybeSingle();
-  if (error || !data) return null;
-  const sede = mapSede(data as ExtraRowSede);
-  if (isSedeAddressEmpty(sede)) return null;
-  const indirizzo = formatSedeIndirizzo(sede);
-  if (!indirizzo) return null;
-  return {
-    destinatario: (input.ragioneSociale ?? "").trim(),
-    indirizzo,
-    sedeId: sede.id,
-  };
+  for (const purpose of purposes) {
+    const col =
+      purpose === "campionature"
+        ? "ricezione_campionature"
+        : "ricezione_acquisti";
+    const { data, error } = await supabase
+      .from("anagrafica_sedi")
+      .select(
+        "id, tipo, nazione, provincia, citta, cap, indirizzo, sort_order, ricezione_campionature, ricezione_acquisti"
+      )
+      .eq("owner_kind", input.ownerKind)
+      .eq("owner_id", input.ownerId)
+      .is("deleted_at", null)
+      .eq(col, true)
+      .maybeSingle();
+    if (error || !data) continue;
+    const sede = mapSede(data as ExtraRowSede);
+    if (isSedeAddressEmpty(sede)) continue;
+    const indirizzo = formatSedeIndirizzo(sede);
+    if (!indirizzo) continue;
+    return {
+      destinatario: (input.ragioneSociale ?? "").trim(),
+      indirizzo,
+      sedeId: sede.id,
+    };
+  }
+  return null;
 }
 
 export async function persistAnagraficaExtra(input: {

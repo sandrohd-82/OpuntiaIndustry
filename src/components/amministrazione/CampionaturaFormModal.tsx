@@ -37,6 +37,7 @@ import {
   CAMPIONATURA_MEZZI_OPERATIVI,
   CAMPIONATURA_MEZZO_LABEL,
   clienteSpedizioneOptions,
+  pickSpedizioneDefault,
   defaultUmCampionaturaPerProdotto,
   opzioniUmCampionaturaPerProdotto,
   type Campionatura,
@@ -295,8 +296,7 @@ export function CampionaturaFormModal({
 
   function applySpedizioneOptions(next: Cliente, sedi: AnagraficaSede[]) {
     const options = clienteSpedizioneOptions(next, sedi, "campionature");
-    const preferred =
-      options.find((o) => o.ricezione) ?? options[0] ?? null;
+    const preferred = pickSpedizioneDefault(options, "campionature");
     if (preferred) {
       setAddressKey(preferred.key);
       setDestinatario(preferred.destinatario);

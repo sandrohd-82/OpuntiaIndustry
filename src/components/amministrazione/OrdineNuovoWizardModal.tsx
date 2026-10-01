@@ -97,7 +97,10 @@ import {
   type OrdineUnitaMisura,
 } from "@/lib/amministrazione/ordini";
 import type { AnagraficaSede } from "@/lib/amministrazione/anagrafica-extra";
-import { clienteSpedizioneOptions } from "@/lib/amministrazione/campionature";
+import {
+  clienteSpedizioneOptions,
+  pickSpedizioneDefault,
+} from "@/lib/amministrazione/campionature";
 import type { Cliente } from "@/lib/amministrazione/clienti";
 import type { AnagraficaOrdineFonte } from "@/lib/amministrazione/ordine-anagrafica";
 import { clienteFromPossibile } from "@/lib/promemorie-e-note/types";
@@ -1753,13 +1756,16 @@ export function OrdineNuovoWizardModal({
                       : "cliente_possibile";
                     const ownerId = sel.cliente?.id ?? sel.possibile?.id ?? "";
                     const applyOpts = (sedi: AnagraficaSede[]) => {
+                      const purpose =
+                        tipoOrdine === "campionatura"
+                          ? "campionature"
+                          : "acquisti";
                       const options = clienteSpedizioneOptions(
                         nextCliente,
                         sedi,
-                        "acquisti"
+                        purpose
                       );
-                      const preferred =
-                        options.find((o) => o.ricezione) ?? options[0] ?? null;
+                      const preferred = pickSpedizioneDefault(options, purpose);
                       if (preferred) {
                         setAddressKey(preferred.key);
                         setDestinatario(preferred.destinatario);
@@ -2507,11 +2513,19 @@ export function OrdineNuovoWizardModal({
                   Indirizzo di ricezione
                 </legend>
                 <p className="text-xs text-[var(--muted)]">
-                  Se l’azienda ha un indirizzo standard di ricezione Acquisti,
-                  viene proposto qui. Puoi scegliere un altro indirizzo.
+                  {tipoOrdine === "campionatura"
+                    ? "Di default l’indirizzo segnato in scheda per le campionature."
+                    : "Di default l’indirizzo segnato in scheda per gli acquisti, oppure quello delle campionature se gli acquisti non sono indicati."}{" "}
+                  Puoi scegliere qualunque sede inserita in scheda.
                 </p>
                 {(clienteSped
-                  ? clienteSpedizioneOptions(clienteSped, sediExtra, "acquisti")
+                  ? clienteSpedizioneOptions(
+                      clienteSped,
+                      sediExtra,
+                      tipoOrdine === "campionatura"
+                        ? "campionature"
+                        : "acquisti"
+                    )
                   : []
                 ).map((opt) => (
                   <label
