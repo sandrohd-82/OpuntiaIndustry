@@ -614,6 +614,9 @@ export function PreventivoFormModal({ onClose, onSaved, preventivoId }: Props) {
         referenteAccettazioneLabel: "",
         archiviatoAt: null,
         spedizioneInCorso: false,
+        accettazioneSeniorStato: "non_richiesta",
+        accettazioneSeniorNota: "",
+        accettazioneSeniorPuoRispondere: false,
         righe: [],
         createdAt: new Date().toISOString(),
       };

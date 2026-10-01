@@ -1046,6 +1046,11 @@ export interface OrdineRow {
   sconto_suddivisione_stato?: string;
   sconto_suddivisione_approvatore?: string;
   prezzo_listino_unitario?: number | null;
+  accettazione_senior_stato?: string | null;
+  accettazione_senior_user_id?: string | null;
+  accettazione_senior_by?: string | null;
+  accettazione_senior_at?: string | null;
+  accettazione_senior_nota?: string | null;
   created_by: string | null;
   updated_by: string | null;
   created_at: string;
@@ -1116,6 +1121,11 @@ export interface OrdineInsert {
   sconto_suddivisione_stato?: string;
   sconto_suddivisione_approvatore?: string;
   prezzo_listino_unitario?: number | null;
+  accettazione_senior_stato?: string | null;
+  accettazione_senior_user_id?: string | null;
+  accettazione_senior_by?: string | null;
+  accettazione_senior_at?: string | null;
+  accettazione_senior_nota?: string | null;
   created_by?: string | null;
   updated_by?: string | null;
 }
@@ -1542,6 +1552,12 @@ export interface PreventivoRow {
   referente_accettazione_id: string | null;
   sent_at: string | null;
   sent_by: string | null;
+  cliente_possibile_id?: string | null;
+  accettazione_senior_stato?: string | null;
+  accettazione_senior_user_id?: string | null;
+  accettazione_senior_by?: string | null;
+  accettazione_senior_at?: string | null;
+  accettazione_senior_nota?: string | null;
   accepted_at: string | null;
   accepted_by: string | null;
   created_at: string;

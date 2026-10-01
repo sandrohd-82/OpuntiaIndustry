@@ -36,7 +36,10 @@ import {
   loadOrganigrammaNomi,
   resolveDefaultCommercialeId,
 } from "@/lib/auth/commerciale-lineage";
-import { resolveCommercialeAppartenenza } from "@/lib/auth/commerciale";
+import {
+  etichettaAffiancato,
+  resolveCommercialeAppartenenza,
+} from "@/lib/auth/commerciale";
 import { isSuperadminProfile } from "@/lib/auth/roles";
 import { anagraficaListOrClause } from "@/lib/auth/anagrafica-visibility";
 import { syncCommercialeOnSchedaUpdate } from "@/app/actions/commerciale-anagrafica";
@@ -174,13 +177,22 @@ export async function listClientiAction(): Promise<
   const commercialIds = await loadCommercialeUserIds();
   const labels = await loadCommercialeLabels(
     rows
-      .flatMap((r) => [r.commerciale_id ?? "", r.created_by ?? ""])
+      .flatMap((r) => [
+        r.commerciale_id ?? "",
+        r.created_by ?? "",
+        r.affiancato_id ?? "",
+      ])
       .filter(Boolean)
   );
   const nomiPersona = await loadOrganigrammaNomi(
-    rows
-      .filter((r) => !r.commerciale_id && r.commerciale_persona_id)
-      .map((r) => String(r.commerciale_persona_id))
+    rows.flatMap((r) =>
+      [
+        !r.commerciale_id && r.commerciale_persona_id
+          ? String(r.commerciale_persona_id)
+          : "",
+        r.affiancato_persona_id ? String(r.affiancato_persona_id) : "",
+      ].filter(Boolean)
+    )
   );
   const prenotate = new Map<string, string>();
   if (rows.length > 0) {
@@ -218,6 +230,16 @@ export async function listClientiAction(): Promise<
         cliente.commercialePersonaId = personaId;
         cliente.commercialeNome = etichetta?.nome ?? "Commerciale";
         cliente.commercialeGrado = etichetta?.grado ?? null;
+      }
+      const affiancato = etichettaAffiancato({
+        affiancatoId: cliente.affiancatoId,
+        affiancatoPersonaId: cliente.affiancatoPersonaId,
+        labels,
+        persone: nomiPersona,
+      });
+      if (affiancato) {
+        cliente.affiancatoNome = affiancato.nome;
+        cliente.affiancatoGrado = affiancato.grado;
       }
       cliente.cancellazioneId = prenotate.get(row.id) ?? null;
       cliente.cancellazionePrenotata = prenotate.has(row.id);

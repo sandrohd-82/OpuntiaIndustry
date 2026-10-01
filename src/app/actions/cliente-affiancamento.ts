@@ -207,7 +207,7 @@ export async function contestoCessioneAffiancamentoAction(input: {
 const azioneSchema = z.object({
   kind: z.enum(["cliente", "possibile"]),
   id: z.string().uuid(),
-  mode: z.enum(["cedi", "affianca", "togli"]),
+  mode: z.enum(["cedi", "affianca", "restituisci", "cedi_affiancato"]),
   targetPersonaId: z.string().uuid().nullable().optional(),
 });
 
@@ -293,7 +293,7 @@ export async function cediOAffiancaAnagraficaAction(
   const now = new Date().toISOString();
   const ragione = String(row.ragione_sociale ?? "");
 
-  if (mode === "togli") {
+  if (mode === "restituisci") {
     if (!affiancatoId && !affiancatoPersonaId) {
       return { success: false, error: "Non c'è un affiancato da togliere." };
     }
@@ -331,11 +331,19 @@ export async function cediOAffiancaAnagraficaAction(
     };
   }
 
-  const target = targetPersonaId ? ammessi.get(targetPersonaId) : undefined;
+  const target =
+    mode === "cedi_affiancato"
+      ? persone.find((p) => stessaPersona(p, affiancatoId, affiancatoPersonaId))
+      : targetPersonaId
+        ? ammessi.get(targetPersonaId)
+        : undefined;
   if (!target) {
     return {
       success: false,
-      error: "Scegli un sottoposto della tua linea.",
+      error:
+        mode === "cedi_affiancato"
+          ? "Non c'è un sottoposto affiancato da cedere."
+          : "Scegli un sottoposto della tua linea.",
     };
   }
   if (stessaPersona(target, commercialeId, commercialePersonaId)) {
@@ -432,9 +440,12 @@ export async function cediOAffiancaAnagraficaAction(
     entity_id: id,
     action: "commerciale_assegna",
     actor_id: auth.userId,
-    summary: `Cliente ceduto: ${ragione} passa da ${nomeDi(persone, commercialePersonaId || commercialeId) || "nessun commerciale"} a ${target.nome}.`,
+    summary:
+      mode === "cedi_affiancato"
+        ? `Affiancamento chiuso: ${ragione} è ceduta a ${target.nome}. Non serve più l'accettazione del senior.`
+        : `Cliente ceduto: ${ragione} passa da ${nomeDi(persone, commercialePersonaId || commercialeId) || "nessun commerciale"} a ${target.nome}.`,
     payload: {
-      modalita: "cessione",
+      modalita: mode === "cedi_affiancato" ? "affiancamento_ceduto" : "cessione",
       da_user_id: commercialeId,
       da_persona_id: commercialePersonaId,
       a_user_id: target.userId,

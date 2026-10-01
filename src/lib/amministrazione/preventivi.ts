@@ -226,6 +226,9 @@ export type Preventivo = {
   archiviatoAt: string | null;
   /** Lock attivo tenuto da un altro operatore. */
   spedizioneInCorso: boolean;
+  accettazioneSeniorStato: "non_richiesta" | "in_attesa" | "accettata" | "rifiutata";
+  accettazioneSeniorNota: string;
+  accettazioneSeniorPuoRispondere: boolean;
   righe: PreventivoRiga[];
   createdAt: string;
 };

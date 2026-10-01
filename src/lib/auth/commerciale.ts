@@ -83,17 +83,54 @@ export function calcolaProvvigione(
   return Math.round(((incasso * pct) / 100 + Number.EPSILON) * 100) / 100;
 }
 
-/** Testo in elenco: senza assegnazione l’azienda resta dell’azienda. */
+/** Testo in elenco: senza assegnazione l’azienda resta dell’azienda.
+ *  Se c'è un affiancato, in elenco compare lui, con il segno Affiancato. */
 export function formatCommercialeAssegnazione(opts: {
   commercialeId: string | null | undefined;
   commercialeNome?: string | null;
   commercialeGrado?: CommercialeGrado | null;
+  commercialePersonaId?: string | null;
+  affiancatoId?: string | null;
+  affiancatoPersonaId?: string | null;
+  affiancatoNome?: string | null;
+  affiancatoGrado?: CommercialeGrado | null;
 }): string {
-  if (!opts.commercialeId) return "Azienda";
+  const affiancato = Boolean(opts.affiancatoId || opts.affiancatoPersonaId);
+  if (affiancato) {
+    const nome = String(opts.affiancatoNome ?? "").trim() || "Commerciale";
+    const grado = opts.affiancatoGrado
+      ? ` · ${COMMERCIALE_GRADO_LABELS[opts.affiancatoGrado]}`
+      : "";
+    return `${nome}${grado} · Affiancato`;
+  }
+  if (!opts.commercialeId && !opts.commercialePersonaId) return "Azienda";
   const nome = String(opts.commercialeNome ?? "").trim() || "Commerciale";
   return opts.commercialeGrado
     ? `${nome} · ${COMMERCIALE_GRADO_LABELS[opts.commercialeGrado]}`
     : nome;
+}
+
+export function etichettaAffiancato(opts: {
+  affiancatoId?: string | null;
+  affiancatoPersonaId?: string | null;
+  labels: Map<string, { nome: string; grado: CommercialeGrado | null }>;
+  persone: Map<string, { nome: string; grado: CommercialeGrado | null }>;
+}): { nome: string; grado: CommercialeGrado | null } | null {
+  if (opts.affiancatoId) {
+    const lab = opts.labels.get(opts.affiancatoId);
+    return {
+      nome: lab?.nome?.trim() || "Commerciale",
+      grado: lab?.grado ?? null,
+    };
+  }
+  if (opts.affiancatoPersonaId) {
+    const lab = opts.persone.get(opts.affiancatoPersonaId);
+    return {
+      nome: lab?.nome?.trim() || "Commerciale",
+      grado: lab?.grado ?? null,
+    };
+  }
+  return null;
 }
 
 /** Valore filtro: anagrafiche senza commerciale collegato. */
@@ -121,13 +158,24 @@ export function uniqueCommercialeAreaOptions(
   records: Array<{
     commercialeId: string | null | undefined;
     commercialeNome?: string | null;
+    commercialePersonaId?: string | null;
+    affiancatoId?: string | null;
+    affiancatoPersonaId?: string | null;
+    affiancatoNome?: string | null;
   }>
 ): CommercialeAreaOption[] {
   const byId = new Map<string, string>();
   for (const record of records) {
-    const id = record.commercialeId?.trim();
+    const affiancato = Boolean(record.affiancatoId || record.affiancatoPersonaId);
+    const id = (
+      affiancato
+        ? record.affiancatoId || record.affiancatoPersonaId
+        : record.commercialeId
+    )?.trim();
     if (!id || byId.has(id)) continue;
-    const nome = String(record.commercialeNome ?? "").trim() || "Commerciale";
+    const nome = affiancato
+      ? String(record.affiancatoNome ?? "").trim() || "Commerciale"
+      : String(record.commercialeNome ?? "").trim() || "Commerciale";
     byId.set(id, formatCommercialeAreaBreve(nome));
   }
   return [...byId.entries()]
@@ -180,14 +228,18 @@ export function matchesCommercialeArea(
 ): boolean {
   const value = filter.trim();
   if (!value) return true;
+  const affiancato = Boolean(record.affiancatoId || record.affiancatoPersonaId);
   if (value === COMMERCIALE_AREA_AZIENDA) {
+    if (affiancato) return false;
     return !record.commercialeId && !record.commercialePersonaId;
   }
+  if (affiancato) {
+    return (
+      record.affiancatoId === value || record.affiancatoPersonaId === value
+    );
+  }
   return (
-    record.commercialeId === value ||
-    record.commercialePersonaId === value ||
-    record.affiancatoId === value ||
-    record.affiancatoPersonaId === value
+    record.commercialeId === value || record.commercialePersonaId === value
   );
 }
 
@@ -210,6 +262,11 @@ export function commercialeAssegnazioneSearchText(opts: {
   commercialeId: string | null | undefined;
   commercialeNome?: string | null;
   commercialeGrado?: CommercialeGrado | null;
+  commercialePersonaId?: string | null;
+  affiancatoId?: string | null;
+  affiancatoPersonaId?: string | null;
+  affiancatoNome?: string | null;
+  affiancatoGrado?: CommercialeGrado | null;
 }): string {
   const label = formatCommercialeAssegnazione(opts);
   const nome = String(opts.commercialeNome ?? "").trim();

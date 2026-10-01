@@ -10,6 +10,7 @@ import {
   formatOperatoreShort,
   fraseConfermaEliminazione,
   isOrdineDaProcessare,
+  isOrdineAccettazioneSeniorBloccata,
   isCampionaturaGratuita,
   labelAuditAction,
   mapOrdineRow,
@@ -65,7 +66,13 @@ import {
   requireOrdineProcessAccess,
   requireOrdineReadAccess,
 } from "@/lib/auth/ordini-access";
-import { isAdminLikeProfile } from "@/lib/auth/roles";
+import { isAdminLikeProfile, isSuperadminProfile } from "@/lib/auth/roles";
+import { getAuthContext } from "@/lib/auth/session";
+import {
+  colonneAccettazioneSenior,
+  decisioneAccettazioneSenior,
+  notificaAccettazioneSenior,
+} from "@/lib/amministrazione/accettazione-senior-server";
 import { resolveVisibleClienteIds } from "@/lib/auth/anagrafica-visibility";
 import { resolveScopeMode } from "@/lib/auth/data-scope-enforce";
 import type {
@@ -144,7 +151,10 @@ export async function loadOrdineWithRighe(id: string): Promise<Ordine | null> {
     typed.updated_by,
     typed.processed_by,
   ]);
-  return mapOrdineRow(typed, (righe ?? []) as OrdineRigaRow[], labels);
+  const auth = await getAuthContext();
+  return mapOrdineRow(typed, (righe ?? []) as OrdineRigaRow[], labels, auth
+    ? { userId: auth.userId, isSuperadmin: isSuperadminProfile(auth.profile) }
+    : undefined);
 }
 
 async function nextSeqForCliente(
@@ -239,7 +249,7 @@ export async function listOrdiniAction(
   stato: OrdineStato | OrdineStato[],
   opts?: { tipo?: OrdineTipoDocumento; escludiScontoInAttesa?: boolean }
 ): Promise<{ success: true; ordini: Ordine[] } | { success: false; error: string }> {
-  await requireOrdineReadAccess();
+  const { auth } = await requireOrdineReadAccess();
   const supabase = await createClient();
   const stati = Array.isArray(stato) ? stato : [stato];
   const visibleClienti = await resolveVisibleClienteIds();
@@ -266,7 +276,9 @@ export async function listOrdiniAction(
   if (opts?.escludiScontoInAttesa) {
     q = q
       .neq("sconto_approvazione_stato", "in_attesa")
-      .neq("sconto_suddivisione_stato", "in_attesa");
+      .neq("sconto_suddivisione_stato", "in_attesa")
+      .neq("accettazione_senior_stato", "in_attesa")
+      .neq("accettazione_senior_stato", "rifiutata");
   }
   const { data, error } = await q.order(
     stati.includes("storico") ? "data_consegna" : "data_ordine",
@@ -297,7 +309,10 @@ export async function listOrdiniAction(
   return {
     success: true,
     ordini: rows.map((row) =>
-      mapOrdineRow(row, righeByOrdine.get(row.id) ?? [], labels)
+      mapOrdineRow(row, righeByOrdine.get(row.id) ?? [], labels, {
+        userId: auth.userId,
+        isSuperadmin: isSuperadminProfile(auth.profile),
+      })
     ),
   };
 }
@@ -320,7 +335,9 @@ export async function countOrdiniDaProcessareAction(): Promise<
   const [{ data, error }, { data: camps, error: campErr }] = await Promise.all([
     supabase
       .from("ordini")
-      .select("id, tipo, sconto_approvazione_stato, sconto_suddivisione_stato")
+      .select(
+        "id, tipo, sconto_approvazione_stato, sconto_suddivisione_stato, accettazione_senior_stato"
+      )
       .is("deleted_at", null)
       .in("stato", ["in_attesa", "ricevuto", "sospeso"]),
     supabase
@@ -337,10 +354,13 @@ export async function countOrdiniDaProcessareAction(): Promise<
       tipo?: string;
       sconto_approvazione_stato?: string;
       sconto_suddivisione_stato?: string;
+      accettazione_senior_stato?: string;
     };
     if (
       r.sconto_approvazione_stato === "in_attesa" ||
-      r.sconto_suddivisione_stato === "in_attesa"
+      r.sconto_suddivisione_stato === "in_attesa" ||
+      r.accettazione_senior_stato === "in_attesa" ||
+      r.accettazione_senior_stato === "rifiutata"
     ) {
       continue;
     }
@@ -1183,6 +1203,13 @@ async function createOrdineWizardActionInner(
       }
     }
 
+    const accettazioneOrdine = await decisioneAccettazioneSenior({
+      clienteId: resolved.clienteId,
+      possibileClienteId: resolved.possibileClienteId,
+      actorId: auth.userId,
+      actorProfile: auth.profile,
+    });
+
     const insert: OrdineInsert = {
       numero_interno: numeroInterno,
       numero_cliente: "",
@@ -1271,6 +1298,7 @@ async function createOrdineWizardActionInner(
       sconto_approvazione_stato: scontoApprovazioneStato,
       ...colonneSuddivisione(suddivisione.value),
       prezzo_listino_unitario: campionaturaGratis ? null : prezzoListino,
+      ...colonneAccettazioneSenior(accettazioneOrdine),
       created_by: auth.userId,
       updated_by: auth.userId,
     };
@@ -1320,6 +1348,18 @@ async function createOrdineWizardActionInner(
       },
     ]);
     if (righeErr) return { success: false, error: righeErr };
+
+    if (accettazioneOrdine.stato === "in_attesa") {
+      await notificaAccettazioneSenior({
+        actorId: auth.userId,
+        seniorUserId: accettazioneOrdine.seniorUserId,
+        title: `Accetta l'ordine ${numeroInterno}`,
+        body: `${input.cliente}: il sottoposto ha inserito l'ordine. Non entra in produzione finché non lo accetti.`,
+        href: "/app/amministrazione/ordini/elenco",
+        entityType: "ordini",
+        entityId: row.id,
+      });
+    }
 
     if (input.pagamentoPiano?.rate?.length) {
       const { error: rateErr } = await supabase
@@ -1581,6 +1621,13 @@ export async function processOrdineInScalettaAction(
       success: false,
       error:
         "Sconto extra in attesa di approvazione: l’ordine non può entrare in produzione.",
+    };
+  }
+  if (isOrdineAccettazioneSeniorBloccata(existing)) {
+    return {
+      success: false,
+      error:
+        "Ordine in attesa del senior: non può entrare in produzione finché non viene accettato.",
     };
   }
 

@@ -138,6 +138,8 @@ export type ClientePossibile = {
   commercialePersonaId?: string | null;
   affiancatoId?: string | null;
   affiancatoPersonaId?: string | null;
+  affiancatoNome?: string;
+  affiancatoGrado?: "senior" | "professional" | "executive" | null;
   commercialeNome: string;
   commercialeGrado: "senior" | "professional" | "executive" | null;
   aziendaMadreId: string | null;

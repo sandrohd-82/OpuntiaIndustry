@@ -64,6 +64,8 @@ export type Cliente = {
   intermediarioProvvigionePct?: number | null;
   affiancatoId?: string | null;
   affiancatoPersonaId?: string | null;
+  affiancatoNome?: string;
+  affiancatoGrado?: "senior" | "professional" | "executive" | null;
   /** Solo possibile cliente: stato trattativa commerciale. */
   trattativa?: ClientePossibileTrattativa;
   /** Prenotazione cancellazione in attesa di Super Admin. */
@@ -409,6 +411,11 @@ export type AnagraficaFiltroInput = {
   commercialeId: string | null;
   commercialeNome?: string | null;
   commercialeGrado?: "senior" | "professional" | "executive" | null;
+  commercialePersonaId?: string | null;
+  affiancatoId?: string | null;
+  affiancatoPersonaId?: string | null;
+  affiancatoNome?: string | null;
+  affiancatoGrado?: "senior" | "professional" | "executive" | null;
 };
 
 function prodottiOf(item: AnagraficaFiltroInput): string[] {

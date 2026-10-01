@@ -189,6 +189,10 @@ export function buildOrdineSessioneLocale(input: {
     scontoSuddivisioneAttiva: false,
     scontoSuddivisioneStato: "non_richiesta",
     scontoSuddivisioneApprovatore: "",
+    accettazioneSeniorStato: "non_richiesta",
+    accettazioneSeniorUserId: null,
+    accettazioneSeniorNota: "",
+    accettazioneSeniorPuoRispondere: false,
     prezzoListinoUnitario: input.prezzoListino,
     righe: [
       {

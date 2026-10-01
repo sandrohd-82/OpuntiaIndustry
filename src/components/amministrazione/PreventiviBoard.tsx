@@ -13,6 +13,8 @@ import {
 import { createClient } from "@/lib/supabase/client";
 import { PreventivoCalcoloSpedizioneSheet } from "@/components/amministrazione/PreventivoCalcoloSpedizioneSheet";
 import { PreventivoFormModal } from "@/components/amministrazione/PreventivoFormModal";
+import { AccettazioneSeniorBar } from "@/components/amministrazione/AccettazioneSeniorBar";
+import { accettazioneSeniorBloccaInvio } from "@/lib/amministrazione/accettazione-senior";
 import {
   PREVENTIVO_CONSEGNA_LABEL,
   PREVENTIVO_RACCOLTA_LABEL,
@@ -247,8 +249,20 @@ export function PreventiviBoard({
                     <span
                       className={`inline-flex rounded-full px-2 py-0.5 text-xs font-medium ${statoClass(item.stato)}`}
                     >
-                      {PREVENTIVO_STATO_LABEL[item.stato]}
+                      {accettazioneSeniorBloccaInvio(item.accettazioneSeniorStato)
+                        ? item.accettazioneSeniorStato === "rifiutata"
+                          ? "Rifiutato dal senior"
+                          : "In attesa del senior"
+                        : PREVENTIVO_STATO_LABEL[item.stato]}
                     </span>
+                    <AccettazioneSeniorBar
+                      entity="preventivo"
+                      id={item.id}
+                      stato={item.accettazioneSeniorStato}
+                      nota={item.accettazioneSeniorNota}
+                      puoRispondere={item.accettazioneSeniorPuoRispondere}
+                      onDone={() => void reload()}
+                    />
                   </td>
                   <td className="px-4 py-3 text-right">
                     <div className="flex flex-wrap justify-end gap-1">
@@ -296,7 +310,8 @@ export function PreventiviBoard({
                             Approva suddivisione {r.prodottoCodice}
                           </button>
                         ))}
-                      {item.stato === "in_attesa_spedizione" ? (
+                      {item.stato === "in_attesa_spedizione" &&
+                      !accettazioneSeniorBloccaInvio(item.accettazioneSeniorStato) ? (
                         item.spedizioneInCorso ? (
                           <span className="rounded-lg bg-slate-100 px-2 py-1 text-xs font-medium text-slate-500">
                             Inserimento in corso
@@ -314,7 +329,8 @@ export function PreventiviBoard({
                           </button>
                         )
                       ) : null}
-                      {item.stato === "creato" ? (
+                      {item.stato === "creato" &&
+                      !accettazioneSeniorBloccaInvio(item.accettazioneSeniorStato) ? (
                         <button
                           type="button"
                           onClick={() => void changeStato(item.id, "inviato")}

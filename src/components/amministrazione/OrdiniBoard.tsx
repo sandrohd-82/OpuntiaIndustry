@@ -26,9 +26,11 @@ import { OrdineNuovoWizardModal } from "@/components/amministrazione/OrdineNuovo
 import { SortableTh } from "@/components/ui/SortableTh";
 import { useOrdini } from "@/hooks/useOrdini";
 import { ProcessaOrdineScalettaModal } from "@/components/amministrazione/ProcessaOrdineScalettaModal";
+import { AccettazioneSeniorBar } from "@/components/amministrazione/AccettazioneSeniorBar";
 import {
   fraseConfermaEliminazione,
   isOrdineDaProcessare,
+  isOrdineAccettazioneSeniorBloccata,
   isOrdineScontoInAttesa,
   isOrdineSuddivisioneInAttesa,
   hintStatoOrdine,
@@ -116,6 +118,7 @@ function OrdineTableRow({
   onProcess,
   onApproveSconto,
   onApproveSuddivisione,
+  onChanged,
 }: {
   ordine: Ordine;
   open: boolean;
@@ -127,6 +130,7 @@ function OrdineTableRow({
   onProcess: () => void;
   onApproveSconto: () => void;
   onApproveSuddivisione: () => void;
+  onChanged: () => void;
 }) {
   return (
     <>
@@ -166,6 +170,14 @@ function OrdineTableRow({
                 : ""}
             </span>
           ) : null}
+          <AccettazioneSeniorBar
+            entity="ordine"
+            id={ordine.id}
+            stato={ordine.accettazioneSeniorStato}
+            nota={ordine.accettazioneSeniorNota}
+            puoRispondere={ordine.accettazioneSeniorPuoRispondere}
+            onDone={onChanged}
+          />
           {ordine.stato === "sospeso" && ordine.dataDisponibilitaPresunta ? (
             <span className="mt-1 block text-[10px] text-amber-800">
               presunta {formatDate(ordine.dataDisponibilitaPresunta)}
@@ -241,7 +253,8 @@ function OrdineTableRow({
             {processMode &&
             isOrdineDaProcessare(ordine.stato) &&
             !isOrdineScontoInAttesa(ordine) &&
-            !isOrdineSuddivisioneInAttesa(ordine) ? (
+            !isOrdineSuddivisioneInAttesa(ordine) &&
+            !isOrdineAccettazioneSeniorBloccata(ordine) ? (
               <ActionGate actionKey={AZ.processaOrdine}>
                 <button
                   type="button"
@@ -666,6 +679,7 @@ export function OrdiniBoard({
                       void refresh();
                     });
                   }}
+                  onChanged={() => void refresh()}
                   onApproveSuddivisione={() => {
                     setActionError(null);
                     setApprovingId(ordine.id);

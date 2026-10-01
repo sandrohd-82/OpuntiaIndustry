@@ -13,7 +13,10 @@ import {
   loadSuperadminUserIds,
   resolveDefaultCommercialeId,
 } from "@/lib/auth/commerciale-lineage";
-import { resolveCommercialeAppartenenza } from "@/lib/auth/commerciale";
+import {
+  etichettaAffiancato,
+  resolveCommercialeAppartenenza,
+} from "@/lib/auth/commerciale";
 import { isSuperadminProfile } from "@/lib/auth/roles";
 import { anagraficaListOrClause } from "@/lib/auth/anagrafica-visibility";
 import { syncCommercialeOnSchedaUpdate } from "@/app/actions/commerciale-anagrafica";
@@ -1272,12 +1275,19 @@ export async function listClientiPossibiliAction(): Promise<
     loadSuperadminUserIds(),
   ]);
   const labels = await loadCommercialeLabels(
-    items.flatMap((i) => [i.commercialeId ?? "", i.createdBy ?? ""]).filter(Boolean)
+    items
+      .flatMap((i) => [i.commercialeId ?? "", i.createdBy ?? "", i.affiancatoId ?? ""])
+      .filter(Boolean)
   );
   const nomiPersona = await loadOrganigrammaNomi(
-    items
-      .filter((i) => !i.commercialeId && i.commercialePersonaId)
-      .map((i) => String(i.commercialePersonaId))
+    items.flatMap((i) =>
+      [
+        !i.commercialeId && i.commercialePersonaId
+          ? String(i.commercialePersonaId)
+          : "",
+        i.affiancatoPersonaId ? String(i.affiancatoPersonaId) : "",
+      ].filter(Boolean)
+    )
   );
   for (const item of items) {
     const personaId = item.commercialePersonaId ?? null;
@@ -1298,6 +1308,16 @@ export async function listClientiPossibiliAction(): Promise<
       item.commercialePersonaId = personaId;
       item.commercialeNome = etichetta?.nome ?? "Commerciale";
       item.commercialeGrado = etichetta?.grado ?? null;
+    }
+    const affiancato = etichettaAffiancato({
+      affiancatoId: item.affiancatoId,
+      affiancatoPersonaId: item.affiancatoPersonaId,
+      labels,
+      persone: nomiPersona,
+    });
+    if (affiancato) {
+      item.affiancatoNome = affiancato.nome;
+      item.affiancatoGrado = affiancato.grado;
     }
   }
   const noteCounts: Record<string, number> = {};
@@ -1473,7 +1493,12 @@ export async function createClientePossibileAction(
       loadSuperadminUserIds(),
     ]);
     const labels = await loadCommercialeLabels(
-      [item.commercialeId ?? "", item.createdBy ?? ""].filter(Boolean)
+      [item.commercialeId ?? "", item.createdBy ?? "", item.affiancatoId ?? ""].filter(
+        Boolean
+      )
+    );
+    const nomiPersona = await loadOrganigrammaNomi(
+      item.affiancatoPersonaId ? [String(item.affiancatoPersonaId)] : []
     );
     const resolved = resolveCommercialeAppartenenza({
       commercialeId: item.commercialeId,
@@ -1485,6 +1510,16 @@ export async function createClientePossibileAction(
     item.commercialeId = resolved.commercialeId;
     item.commercialeNome = resolved.commercialeNome;
     item.commercialeGrado = resolved.commercialeGrado;
+    const affiancato = etichettaAffiancato({
+      affiancatoId: item.affiancatoId,
+      affiancatoPersonaId: item.affiancatoPersonaId,
+      labels,
+      persone: nomiPersona,
+    });
+    if (affiancato) {
+      item.affiancatoNome = affiancato.nome;
+      item.affiancatoGrado = affiancato.grado;
+    }
   }
 
   if (referenteIds.length > 0) {
@@ -1706,7 +1741,12 @@ export async function updateClientePossibileAction(
       loadSuperadminUserIds(),
     ]);
     const labels = await loadCommercialeLabels(
-      [item.commercialeId ?? "", item.createdBy ?? ""].filter(Boolean)
+      [item.commercialeId ?? "", item.createdBy ?? "", item.affiancatoId ?? ""].filter(
+        Boolean
+      )
+    );
+    const nomiPersona = await loadOrganigrammaNomi(
+      item.affiancatoPersonaId ? [String(item.affiancatoPersonaId)] : []
     );
     const resolved = resolveCommercialeAppartenenza({
       commercialeId: item.commercialeId,
@@ -1718,6 +1758,16 @@ export async function updateClientePossibileAction(
     item.commercialeId = resolved.commercialeId;
     item.commercialeNome = resolved.commercialeNome;
     item.commercialeGrado = resolved.commercialeGrado;
+    const affiancato = etichettaAffiancato({
+      affiancatoId: item.affiancatoId,
+      affiancatoPersonaId: item.affiancatoPersonaId,
+      labels,
+      persone: nomiPersona,
+    });
+    if (affiancato) {
+      item.affiancatoNome = affiancato.nome;
+      item.affiancatoGrado = affiancato.grado;
+    }
   }
 
   if (normalized.sedi !== undefined || normalized.brand !== undefined) {

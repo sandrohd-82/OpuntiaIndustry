@@ -6,6 +6,15 @@ import {
   PREVENTIVI_SESSIONE_PROVA_MSG,
 } from "@/lib/amministrazione/preventivo-sessione";
 import { dispatchNotifiche } from "@/lib/notifiche/dispatch";
+import {
+  accettazioneSeniorBloccaInvio,
+  parseAccettazioneSeniorStato,
+} from "@/lib/amministrazione/accettazione-senior";
+import {
+  colonneAccettazioneSenior,
+  decisioneAccettazioneSenior,
+  notificaAccettazioneSenior,
+} from "@/lib/amministrazione/accettazione-senior-server";
 import { createClient, createServiceClient } from "@/lib/supabase/server";
 import {
   assertWebmailAccountAccess,
@@ -193,11 +202,15 @@ function mapPreventivo(
   row: PreventivoRow,
   righe: PreventivoRigaRow[],
   referenteLabel = "",
-  viewerId = ""
+  viewerId = "",
+  viewerIsSuperadmin = false
 ): Preventivo {
   const lockAttivo =
     Boolean(row.spedizione_lock_by) &&
     spedizioneLockAttivo(row.spedizione_lock_at);
+  const accettazioneSeniorStato = parseAccettazioneSeniorStato(
+    row.accettazione_senior_stato
+  );
   return {
     id: row.id,
     numeroInterno: row.numero_interno,
@@ -233,6 +246,15 @@ function mapPreventivo(
     referenteAccettazioneLabel: referenteLabel,
     archiviatoAt: row.archiviato_at,
     spedizioneInCorso: lockAttivo && row.spedizione_lock_by !== viewerId,
+    accettazioneSeniorStato,
+    accettazioneSeniorNota: row.accettazione_senior_nota ?? "",
+    accettazioneSeniorPuoRispondere:
+      accettazioneSeniorStato === "in_attesa" &&
+      (viewerIsSuperadmin ||
+        Boolean(
+          row.accettazione_senior_user_id &&
+            row.accettazione_senior_user_id === viewerId
+        )),
     righe: righe
       .slice()
       .sort((a, b) => a.sort_order - b.sort_order)
@@ -394,7 +416,13 @@ export async function listPreventiviAction(input?: {
   return {
     success: true,
     items: rows.map((r) =>
-      mapPreventivo(r, righe.get(r.id) ?? [], "", gate.auth.userId)
+      mapPreventivo(
+        r,
+        righe.get(r.id) ?? [],
+        "",
+        gate.auth.userId,
+        isSuperadminProfile(gate.auth.profile)
+      )
     ),
     conteggi,
   };
@@ -783,6 +811,23 @@ export async function createPreventivoAction(
       };
     }
   }
+  const accettazione = await decisioneAccettazioneSenior({
+    clienteId: input.clienteId,
+    possibileClienteId: input.clientePossibileId,
+    actorId: gate.auth.userId,
+    actorProfile: gate.auth.profile,
+  });
+  if (
+    accettazione.stato === "in_attesa" &&
+    intenzione === "inviato" &&
+    !isRichiestaPrezzo
+  ) {
+    return {
+      success: false,
+      error:
+        "Questa azienda è affiancata: salva il preventivo come bozza. L'invio si sblocca quando il senior accetta.",
+    };
+  }
   const stato = isRichiestaPrezzo
     ? ("in_attesa_spedizione" as const)
     : intenzione === "inviato"
@@ -806,7 +851,9 @@ export async function createPreventivoAction(
     .insert({
       numero_interno: numero,
       cliente_id: input.clienteId ?? null,
+      cliente_possibile_id: input.clientePossibileId ?? null,
       cliente_ragione_sociale: input.cliente,
+      ...colonneAccettazioneSenior(accettazione),
       cliente_codice_targa: (input.codiceTargaCliente || "PC")
         .trim()
         .toUpperCase(),
@@ -953,6 +1000,17 @@ export async function createPreventivoAction(
       payload: { priorita: "urgente", compito: "calcolo_spedizioni" },
     });
   }
+  if (accettazione.stato === "in_attesa") {
+    await notificaAccettazioneSenior({
+      actorId: gate.auth.userId,
+      seniorUserId: accettazione.seniorUserId,
+      title: `Accetta il preventivo ${numero}`,
+      body: `${input.cliente}: il sottoposto ha preparato il preventivo. Resta fermo finché non lo accetti.`,
+      href: "/app/amministrazione/ordini/preventivi",
+      entityType: "preventivi",
+      entityId: header.id,
+    });
+  }
   return {
     success: true,
     item: mapPreventivo(header, (righe ?? []) as PreventivoRigaRow[]),
@@ -1024,6 +1082,24 @@ export async function savePreventivoAction(
     return { success: false, error: prevErr?.message ?? "Preventivo non trovato" };
   }
   const current = prev as PreventivoRow;
+  const accettazione = await decisioneAccettazioneSenior({
+    clienteId: input.clienteId,
+    possibileClienteId: input.clientePossibileId,
+    actorId: gate.auth.userId,
+    actorProfile: gate.auth.profile,
+  });
+  if (
+    accettazione.stato === "in_attesa" &&
+    !PREVENTIVI_SESSIONE_PROVA &&
+    intenzione === "inviato" &&
+    !isRichiestaPrezzo
+  ) {
+    return {
+      success: false,
+      error:
+        "Questa azienda è affiancata: il senior deve accettare il preventivo prima dell'invio.",
+    };
+  }
   const entraInAttesa =
     isRichiestaPrezzo && current.stato !== "in_attesa_spedizione";
   if (entraInAttesa) {
@@ -1087,7 +1163,11 @@ export async function savePreventivoAction(
     commerciale_riferimento_telefono: riferimento.telefono,
     commerciale_riferimento_email: riferimento.email,
     note: input.note ?? "",
+    cliente_possibile_id: input.clientePossibileId ?? null,
     updated_by: gate.auth.userId,
+    ...(accettazione.stato === "in_attesa"
+      ? colonneAccettazioneSenior(accettazione)
+      : {}),
   };
   if (!PREVENTIVI_SESSIONE_PROVA && intenzione === "inviato" && !isRichiestaPrezzo) {
     patch.sent_at = current.sent_at ?? now;
@@ -1189,6 +1269,20 @@ export async function savePreventivoAction(
       payload: { priorita: "urgente", compito: "calcolo_spedizioni" },
     });
   }
+  if (
+    accettazione.stato === "in_attesa" &&
+    parseAccettazioneSeniorStato(current.accettazione_senior_stato) !== "in_attesa"
+  ) {
+    await notificaAccettazioneSenior({
+      actorId: gate.auth.userId,
+      seniorUserId: accettazione.seniorUserId,
+      title: `Accetta il preventivo ${header.numero_interno}`,
+      body: `${input.cliente}: il sottoposto ha aggiornato il preventivo. Resta fermo finché non lo accetti.`,
+      href: "/app/amministrazione/ordini/preventivi",
+      entityType: "preventivi",
+      entityId: header.id,
+    });
+  }
   return {
     success: true,
     item: mapPreventivo(header, (righe ?? []) as PreventivoRigaRow[]),
@@ -1204,13 +1298,35 @@ export async function setPreventivoStatoAction(input: {
   const gate = await requirePreventiviAccess();
   if (!gate.ok) return { success: false, error: gate.error };
   const now = new Date().toISOString();
+  const supabase = await createClient();
+  if (input.stato === "inviato" || input.stato === "accettato") {
+    const { data: attuale } = await supabase
+      .from("preventivi")
+      .select("accettazione_senior_stato")
+      .eq("id", input.id)
+      .is("deleted_at", null)
+      .maybeSingle();
+    if (
+      accettazioneSeniorBloccaInvio(
+        parseAccettazioneSeniorStato(
+          (attuale as { accettazione_senior_stato?: string | null } | null)
+            ?.accettazione_senior_stato
+        )
+      )
+    ) {
+      return {
+        success: false,
+        error:
+          "Il senior deve accettare questo preventivo prima che si possa inviare o segnare accettato.",
+      };
+    }
+  }
   const documentoStato =
     input.stato === "creato"
       ? "bozza"
       : input.stato === "inviato"
         ? "approvato"
         : "chiuso";
-  const supabase = await createClient();
   const patch: Record<string, unknown> = {
     stato: input.stato,
     documento_stato: documentoStato,
@@ -1738,7 +1854,7 @@ export async function completaCalcoloSpedizionePreventivoAction(input: {
   const { data: row, error } = await service
     .from("preventivi")
     .select(
-      "id, numero_interno, stato, sent_at, spedizione_lock_by, spedizione_lock_at, data_preventivo, cliente_id, cliente_ragione_sociale, tipo_pagamento, giorni_consegna, validita_giorni, note, consegna_metodo, commerciale_riferimento_nome, commerciale_riferimento_telefono, commerciale_riferimento_email, mail_bozza_account_id, mail_bozza_to, mail_bozza_oggetto, mail_bozza_testo"
+      "id, numero_interno, stato, sent_at, accettazione_senior_stato, spedizione_lock_by, spedizione_lock_at, data_preventivo, cliente_id, cliente_ragione_sociale, tipo_pagamento, giorni_consegna, validita_giorni, note, consegna_metodo, commerciale_riferimento_nome, commerciale_riferimento_telefono, commerciale_riferimento_email, mail_bozza_account_id, mail_bozza_to, mail_bozza_oggetto, mail_bozza_testo"
     )
     .eq("id", input.preventivoId)
     .is("deleted_at", null)
@@ -1755,7 +1871,19 @@ export async function completaCalcoloSpedizionePreventivoAction(input: {
     mail_bozza_to: string;
     mail_bozza_oggetto: string;
     mail_bozza_testo: string;
+    accettazione_senior_stato?: string | null;
   };
+  if (
+    accettazioneSeniorBloccaInvio(
+      parseAccettazioneSeniorStato(prev.accettazione_senior_stato)
+    )
+  ) {
+    return {
+      success: false,
+      error:
+        "Il senior deve accettare questo preventivo prima dell'invio della mail.",
+    };
+  }
   if (prev.stato !== "in_attesa_spedizione") {
     return { success: false, error: "Questo preventivo non è in attesa di spedizione." };
   }

@@ -11,6 +11,10 @@ import {
   type ScontoApprovazioneStato,
   type ScontoFascia,
 } from "@/lib/amministrazione/sconto-fuori-listino";
+import {
+  accettazioneSeniorBloccaInvio,
+  parseAccettazioneSeniorStato,
+} from "@/lib/amministrazione/accettazione-senior";
 
 export type OrdineAllegatoMeta = {
   storagePath: string;
@@ -190,6 +194,10 @@ export type Ordine = {
   scontoSuddivisioneAttiva: boolean;
   scontoSuddivisioneStato: "non_richiesta" | "in_attesa" | "approvata" | "rifiutata";
   scontoSuddivisioneApprovatore: string;
+  accettazioneSeniorStato: "non_richiesta" | "in_attesa" | "accettata" | "rifiutata";
+  accettazioneSeniorUserId: string | null;
+  accettazioneSeniorNota: string;
+  accettazioneSeniorPuoRispondere: boolean;
   prezzoListinoUnitario: number | null;
   righe: OrdineRigaProdotto[];
   createdAt: string;
@@ -383,7 +391,8 @@ export function mapOrdineRigaRow(row: OrdineRigaRow): OrdineRigaProdotto {
 export function mapOrdineRow(
   row: OrdineRow,
   righe: OrdineRigaRow[] = [],
-  operatorLabels: Map<string, string> = new Map()
+  operatorLabels: Map<string, string> = new Map(),
+  viewer?: { userId: string; isSuperadmin: boolean }
 ): Ordine {
   const tipo = (row.tipo_pagamento ?? "alla_consegna") as OrdineTipoPagamento;
   return {
@@ -462,6 +471,22 @@ export function mapOrdineRow(
     scontoSuddivisioneApprovatore: String(
       row.sconto_suddivisione_approvatore ?? ""
     ),
+    accettazioneSeniorStato: parseAccettazioneSeniorStato(
+      row.accettazione_senior_stato
+    ),
+    accettazioneSeniorUserId: row.accettazione_senior_user_id
+      ? String(row.accettazione_senior_user_id)
+      : null,
+    accettazioneSeniorNota: String(row.accettazione_senior_nota ?? ""),
+    accettazioneSeniorPuoRispondere:
+      parseAccettazioneSeniorStato(row.accettazione_senior_stato) ===
+        "in_attesa" &&
+      Boolean(
+        viewer &&
+          (viewer.isSuperadmin ||
+            (row.accettazione_senior_user_id &&
+              row.accettazione_senior_user_id === viewer.userId))
+      ),
     prezzoListinoUnitario:
       row.prezzo_listino_unitario != null
         ? Number(row.prezzo_listino_unitario)
@@ -526,10 +551,21 @@ export function hintStatoOrdine(stato: OrdineStato): string {
 }
 
 export function labelStatoOrdineConSconto(
-  ordine: Pick<Ordine, "stato" | "scontoApprovazioneStato">
+  ordine: Pick<
+    Ordine,
+    "stato" | "scontoApprovazioneStato" | "accettazioneSeniorStato"
+  >
 ): string {
+  if (ordine.accettazioneSeniorStato === "in_attesa") return "In attesa del senior";
+  if (ordine.accettazioneSeniorStato === "rifiutata") return "Rifiutato dal senior";
   if (ordine.scontoApprovazioneStato === "in_attesa") return "In attesa sconto";
   return labelStatoOrdine(ordine.stato);
+}
+
+export function isOrdineAccettazioneSeniorBloccata(
+  ordine: Pick<Ordine, "accettazioneSeniorStato">
+): boolean {
+  return accettazioneSeniorBloccaInvio(ordine.accettazioneSeniorStato);
 }
 
 export function isOrdineScontoInAttesa(

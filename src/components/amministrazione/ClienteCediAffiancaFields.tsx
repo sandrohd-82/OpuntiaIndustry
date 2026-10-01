@@ -86,7 +86,9 @@ export function ClienteCediAffiancaFields({
     void carica(false);
   }
 
-  async function esegui(mode: "cedi" | "affianca" | "togli") {
+  async function esegui(
+    mode: "cedi" | "affianca" | "restituisci" | "cedi_affiancato"
+  ) {
     setBusy(true);
     setError(null);
     setNota(null);
@@ -94,20 +96,29 @@ export function ClienteCediAffiancaFields({
       kind,
       id: recordId,
       mode,
-      targetPersonaId: mode === "togli" ? null : targetId || null,
+      targetPersonaId:
+        mode === "restituisci" || mode === "cedi_affiancato"
+          ? null
+          : targetId || null,
     });
     setBusy(false);
     if (!res.success) {
       setError(res.error);
       return;
     }
-    if (mode === "cedi") {
+    if (mode === "cedi" || mode === "cedi_affiancato") {
       onCommercialeCeduto?.(res.commercialeId, res.intermediarioAzzerato);
-      setNota("Scheda ceduta. Il sottoposto è il commerciale.");
+      setNota(
+        mode === "cedi_affiancato"
+          ? "Ceduta al sottoposto. Da ora la gestisce lui, senza accettazione del senior."
+          : "Scheda ceduta. Il sottoposto è il commerciale."
+      );
     } else if (mode === "affianca") {
-      setNota("Affiancato. Il commerciale della scheda non cambia.");
+      setNota(
+        "Affiancato. In elenco compare il sottoposto. Preventivi e ordini restano in attesa della tua accettazione."
+      );
     } else {
-      setNota("Affiancamento tolto.");
+      setNota("Scheda restituita al senior. L'affiancamento è chiuso.");
     }
     onChanged?.();
     await carica(true);
@@ -200,24 +211,45 @@ export function ClienteCediAffiancaFields({
                           Affianca
                         </button>
                         <InfoHint title="Affianca" overlayClassName="z-[220]">
-                          Affianca lascia te come commerciale e aggiunge il
-                          sottoposto. Entrambi vedete e lavorate la scheda. La
-                          provvigione non cambia. Si può affiancare una sola
-                          persona.
+                          Affianca lascia te responsabile, ma in elenco il
+                          commerciale è il sottoposto. Lavora lui la scheda. I
+                          suoi preventivi e ordini partono solo dopo la tua
+                          accettazione. La provvigione non cambia. Si può
+                          affiancare una sola persona.
                         </InfoHint>
                       </span>
                     </div>
                   </>
                 ) : null}
                 {affiancatoNome ? (
-                  <button
-                    type="button"
-                    disabled={busy}
-                    onClick={() => void esegui("togli")}
-                    className="rounded-lg border border-[var(--border)] bg-white px-3 py-1.5 text-sm font-medium disabled:opacity-50"
-                  >
-                    Togli affiancamento
-                  </button>
+                  <div className="space-y-2 rounded-lg border border-slate-200 bg-slate-50 p-3">
+                    <p className="text-sm font-medium text-slate-800">
+                      Togli affiancamento
+                    </p>
+                    <div className="flex flex-wrap gap-2">
+                      <button
+                        type="button"
+                        disabled={busy}
+                        onClick={() => void esegui("restituisci")}
+                        className="rounded-lg border border-[var(--border)] bg-white px-3 py-1.5 text-sm font-medium disabled:opacity-50"
+                      >
+                        Restituisci al senior
+                      </button>
+                      <button
+                        type="button"
+                        disabled={busy}
+                        onClick={() => void esegui("cedi_affiancato")}
+                        className="rounded-lg bg-emerald-700 px-3 py-1.5 text-sm font-medium text-white disabled:opacity-50"
+                      >
+                        Cedi al sottoposto
+                      </button>
+                    </div>
+                    <p className="text-xs text-slate-600">
+                      Restituisci riporta la scheda al senior. Cedi la lascia
+                      al sottoposto, che da quel momento la gestisce senza la
+                      tua accettazione.
+                    </p>
+                  </div>
                 ) : null}
                 {error ? <p className="text-sm text-red-700">{error}</p> : null}
                 {nota ? (
