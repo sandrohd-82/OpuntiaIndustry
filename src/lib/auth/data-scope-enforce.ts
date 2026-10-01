@@ -1,6 +1,7 @@
 import { cache } from "react";
 import {
   anagraficaLineageOrFilter,
+  loadCommercialSelfPersonaIds,
   loadCommercialLineagePersonaIds,
   loadCommercialLineageUserIds,
   loadCommercialeOperatorContext,
@@ -191,14 +192,20 @@ export async function loadOwnedAziendaIds(
   const tables: Array<"clienti" | "fornitori"> =
     kind === "entrambi" ? ["clienti", "fornitori"] : [kind];
   const ids: string[] = [];
-  const [lineage, personaIds] = await Promise.all([
+  const [lineage, personaIds, selfPersonaIds] = await Promise.all([
     loadCommercialLineageUserIds(userId),
     loadCommercialLineagePersonaIds(userId),
+    loadCommercialSelfPersonaIds(userId),
   ]);
   for (const table of tables) {
     let q = supabase.from(table).select("id").is("deleted_at", null);
     if (table === "clienti") {
-      q = q.or(anagraficaLineageOrFilter(lineage, personaIds));
+      q = q.or(
+        anagraficaLineageOrFilter(lineage, personaIds, {
+          userId,
+          personaIds: selfPersonaIds,
+        })
+      );
     } else {
       q = q.eq("created_by", userId);
     }

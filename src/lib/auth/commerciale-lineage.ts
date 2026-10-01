@@ -83,6 +83,21 @@ export const loadCommercialLineagePersonaIds = cache(
   }
 );
 
+/** Schede organigramma dell'operatore, senza i sottoposti. */
+export const loadCommercialSelfPersonaIds = cache(
+  async (userId: string): Promise<string[]> => {
+    const mine = String(userId ?? "").trim();
+    if (!mine) return [];
+    const service = createServiceClient();
+    const { data } = await service
+      .from("organigramma_persone")
+      .select("id")
+      .eq("user_id", mine)
+      .is("deleted_at", null);
+    return (data ?? []).map((row) => String((row as { id: string }).id));
+  }
+);
+
 export type CommercialeOperatorContext = {
   isCommerciale: boolean;
   grado: CommercialeGrado | null;
@@ -325,25 +340,46 @@ export async function loadCommercialeLabels(
 
 export function anagraficaLineageOrFilter(
   lineageIds: string[],
-  personaIds: string[] = []
+  personaIds: string[] = [],
+  self?: { userId?: string | null; personaIds?: string[] }
 ): string {
   const ids = [...new Set(lineageIds.filter(Boolean))];
   const persone = [...new Set(personaIds.filter(Boolean))];
+  const selfUser = String(self?.userId ?? "").trim();
+  const selfPersone = [...new Set((self?.personaIds ?? []).filter(Boolean))];
   const parts: string[] = [];
+  const libera =
+    "and(affiancato_id.is.null,affiancato_persona_id.is.null";
   if (ids.length > 0) {
     const inList = ids.join(",");
-    parts.push(
-      `created_by.in.(${inList})`,
-      `commerciale_id.in.(${inList})`,
-      `affiancato_id.in.(${inList})`
-    );
+    if (self) {
+      parts.push(
+        `${libera},or(created_by.in.(${inList}),commerciale_id.in.(${inList})))`
+      );
+    } else {
+      parts.push(
+        `created_by.in.(${inList})`,
+        `commerciale_id.in.(${inList})`,
+        `affiancato_id.in.(${inList})`
+      );
+    }
   }
   if (persone.length > 0) {
     const inList = persone.join(",");
-    parts.push(
-      `commerciale_persona_id.in.(${inList})`,
-      `affiancato_persona_id.in.(${inList})`
-    );
+    if (self) {
+      parts.push(`${libera},commerciale_persona_id.in.(${inList}))`);
+    } else {
+      parts.push(
+        `commerciale_persona_id.in.(${inList})`,
+        `affiancato_persona_id.in.(${inList})`
+      );
+    }
+  }
+  if (self) {
+    if (selfUser) parts.push(`affiancato_id.eq.${selfUser}`);
+    if (selfPersone.length > 0) {
+      parts.push(`affiancato_persona_id.in.(${selfPersone.join(",")})`);
+    }
   }
   if (parts.length === 0) {
     return "id.eq.00000000-0000-0000-0000-000000000000";
@@ -358,9 +394,10 @@ export function anagraficaLineageOrFilter(
 export function anagraficaLineageOrAziendaFilter(
   lineageIds: string[],
   commercialIds: Iterable<string>,
-  personaIds: string[] = []
+  personaIds: string[] = [],
+  self?: { userId?: string | null; personaIds?: string[] }
 ): string {
-  const lineage = anagraficaLineageOrFilter(lineageIds, personaIds);
+  const lineage = anagraficaLineageOrFilter(lineageIds, personaIds, self);
   const commercials = [...new Set([...commercialIds].filter(Boolean))];
   const libera = "commerciale_id.is.null,commerciale_persona_id.is.null";
   const azienda =

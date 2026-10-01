@@ -3,6 +3,7 @@ import {
   anagraficaLineageOrAziendaFilter,
   anagraficaLineageOrFilter,
   loadCommercialLineagePersonaIds,
+  loadCommercialSelfPersonaIds,
   loadCommercialeOperatorContext,
   loadCommercialeUserIds,
 } from "@/lib/auth/commerciale-lineage";
@@ -85,16 +86,23 @@ export async function anagraficaListOrClause(): Promise<string | null> {
   const vis = await resolveAnagraficaListVisibility();
   if (!vis.ownerIds) return null;
   const auth = await getAuthContext();
-  const personaIds = auth
-    ? await loadCommercialLineagePersonaIds(auth.userId)
-    : [];
+  const [personaIds, selfPersonaIds] = auth
+    ? await Promise.all([
+        loadCommercialLineagePersonaIds(auth.userId),
+        loadCommercialSelfPersonaIds(auth.userId),
+      ])
+    : [[], []];
+  const self = auth
+    ? { userId: auth.userId, personaIds: selfPersonaIds }
+    : undefined;
   if (!vis.includeAzienda) {
-    return anagraficaLineageOrFilter(vis.ownerIds, personaIds);
+    return anagraficaLineageOrFilter(vis.ownerIds, personaIds, self);
   }
   const commercialIds = await loadCommercialeUserIds();
   return anagraficaLineageOrAziendaFilter(
     vis.ownerIds,
     commercialIds,
-    personaIds
+    personaIds,
+    self
   );
 }

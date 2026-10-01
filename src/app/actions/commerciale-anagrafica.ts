@@ -571,8 +571,48 @@ export async function listAziendeCommercialePersonaAction(
   if (clientiError) return { success: false, error: clientiError.message };
   if (possibiliError) return { success: false, error: possibiliError.message };
 
+  const sua = (row: {
+    commerciale_id?: string | null;
+    commerciale_persona_id?: string | null;
+    affiancato_id?: string | null;
+    affiancato_persona_id?: string | null;
+    created_by?: string | null;
+  }) => {
+    const affiancatoUser = row.affiancato_id ? String(row.affiancato_id) : "";
+    const affiancatoPersona = row.affiancato_persona_id
+      ? String(row.affiancato_persona_id)
+      : "";
+    if (affiancatoUser || affiancatoPersona) {
+      return (
+        (Boolean(userId) && affiancatoUser === userId) ||
+        affiancatoPersona === personaId
+      );
+    }
+    const commercialeUser = row.commerciale_id ? String(row.commerciale_id) : "";
+    const commercialePersona = row.commerciale_persona_id
+      ? String(row.commerciale_persona_id)
+      : "";
+    if (commercialeUser || commercialePersona) {
+      return (
+        (Boolean(userId) && commercialeUser === userId) ||
+        commercialePersona === personaId
+      );
+    }
+    return Boolean(userId) && String(row.created_by ?? "") === userId;
+  };
+  const clientiSuoi = (clienti ?? []).filter((row) => sua(row));
+  const possibiliSuoi = (possibili ?? []).filter((row) =>
+    sua(row as {
+      commerciale_id?: string | null;
+      commerciale_persona_id?: string | null;
+      affiancato_id?: string | null;
+      affiancato_persona_id?: string | null;
+      created_by?: string | null;
+    })
+  );
+
   const labels = await loadCommercialeLabels(
-    (clienti ?? [])
+    clientiSuoi
       .map((r) => String((r as { commerciale_id?: string | null }).commerciale_id ?? ""))
       .filter(Boolean)
   );
@@ -598,7 +638,7 @@ export async function listAziendeCommercialePersonaAction(
     });
   };
 
-  const aziende: AziendaCommercialePortfolio[] = (clienti ?? []).map((row) => {
+  const aziende: AziendaCommercialePortfolio[] = clientiSuoi.map((row) => {
     const mapped = mapClienteRow(
       row as ClienteRow,
       row.commerciale_id
@@ -611,7 +651,7 @@ export async function listAziendeCommercialePersonaAction(
       origine: origineDi(mapped),
     };
   });
-  for (const raw of possibili ?? []) {
+  for (const raw of possibiliSuoi) {
     const row = raw as Record<string, unknown>;
     const mapped = possibileComeCliente(row);
     aziende.push({
