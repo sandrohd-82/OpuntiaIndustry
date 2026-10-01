@@ -70,7 +70,7 @@ export function RubricaMansioneCreateModal({
   return (
     <div
       className={`fixed inset-0 flex items-start justify-center overflow-y-auto bg-slate-950/60 px-4 py-10 ${
-        elevated ? "z-[100]" : "z-[90]"
+        elevated ? "z-[170]" : "z-[90]"
       }`}
       role="presentation"
     >

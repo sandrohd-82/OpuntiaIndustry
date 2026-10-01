@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState, useTransition } from "react";
-import { FaPlus, FaTrash, FaBook } from "react-icons/fa6";
+import { FaBook, FaPen, FaPlus, FaTrash } from "react-icons/fa6";
 import { listRubricaContattiAction } from "@/app/actions/rubrica";
 import { CanaleReadonlyActions } from "@/components/amministrazione/CanaleAttenzioneControls";
 import { RubricaContattoFormModal } from "@/components/amministrazione/RubricaContattoFormModal";
@@ -31,6 +31,7 @@ export function ReferentiPickerField({
   copiaDa = null,
 }: Props) {
   const [showCreate, setShowCreate] = useState(false);
+  const [editing, setEditing] = useState<RubricaContatto | null>(null);
   const [showPick, setShowPick] = useState(false);
   const [catalog, setCatalog] = useState<RubricaContatto[]>([]);
   const [query, setQuery] = useState("");
@@ -109,6 +110,16 @@ export function ReferentiPickerField({
                 />
               </span>
             </span>
+            <span className="inline-flex shrink-0 items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setEditing(r)}
+              className="text-[var(--primary)] hover:text-slate-900"
+              aria-label={`Modifica ${displayContattoName(r)}`}
+              title="Modifica referente"
+            >
+              <FaPen size={12} />
+            </button>
             <button
               type="button"
               onClick={() => onChange(value.filter((x) => x.id !== r.id))}
@@ -117,6 +128,7 @@ export function ReferentiPickerField({
             >
               <FaTrash size={12} />
             </button>
+            </span>
           </li>
         ))}
         {value.length === 0 ? (
@@ -179,6 +191,18 @@ export function ReferentiPickerField({
             </div>
           </div>
         </div>
+      ) : null}
+
+      {editing ? (
+        <RubricaContattoFormModal
+          elevated
+          contatto={editing}
+          onClose={() => setEditing(null)}
+          onCreated={(item) => {
+            onChange(value.map((row) => (row.id === item.id ? item : row)));
+            setEditing(null);
+          }}
+        />
       ) : null}
 
       {showCreate ? (

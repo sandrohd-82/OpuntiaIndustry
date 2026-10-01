@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState, useTransition } from "react";
-import { FaBook, FaPlus, FaTrash, FaUser, FaUserPlus } from "react-icons/fa6";
+import { FaBook, FaPen, FaPlus, FaTrash, FaUser, FaUserPlus } from "react-icons/fa6";
 import {
   linkEntityReferenteAction,
   listEntityReferentiAction,
@@ -35,6 +35,7 @@ export function AnagraficaReferentiSection({
   const [menuOpen, setMenuOpen] = useState(false);
   const [showPick, setShowPick] = useState(false);
   const [showCreate, setShowCreate] = useState(false);
+  const [editing, setEditing] = useState<RubricaContatto | null>(null);
   const [catalog, setCatalog] = useState<RubricaContatto[]>([]);
   const [query, setQuery] = useState("");
   const [pending, startTransition] = useTransition();
@@ -194,6 +195,15 @@ export function AnagraficaReferentiSection({
               </span>
               <span className="inline-flex items-center gap-2">
                 <CanaleReadonlyActions email={r.email} telefono={r.telefono} />
+                <button
+                  type="button"
+                  onClick={() => setEditing(r)}
+                  className="text-[var(--primary)] hover:text-slate-900"
+                  aria-label={`Modifica ${displayContattoName(r)}`}
+                  title="Modifica referente"
+                >
+                  <FaPen size={12} />
+                </button>
                 {canEdit ? (
                   <button
                     type="button"
@@ -286,6 +296,20 @@ export function AnagraficaReferentiSection({
             </div>
           </div>
         </div>
+      ) : null}
+
+      {editing ? (
+        <RubricaContattoFormModal
+          elevated
+          contatto={editing}
+          onClose={() => setEditing(null)}
+          onCreated={(item) => {
+            setItems((cur) =>
+              cur.map((row) => (row.id === item.id ? item : row))
+            );
+            setEditing(null);
+          }}
+        />
       ) : null}
 
       {showCreate ? (

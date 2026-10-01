@@ -274,7 +274,7 @@ export function RubricaContattoFormModal({
     <>
     <div
       className={`fixed inset-0 flex items-start justify-center overflow-y-auto bg-slate-950/60 px-4 py-10 ${
-        elevated ? "z-[95]" : "z-[80]"
+        elevated ? "z-[160]" : "z-[80]"
       }`}
       role="presentation"
     >
