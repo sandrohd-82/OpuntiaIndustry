@@ -14,7 +14,6 @@ export function OrdiniElencoBoard() {
     vendita: number;
     campionatura: number;
   }>();
-  const [campCount, setCampCount] = useState<number | null>(null);
   const isCamp = tipo === "campionatura";
 
   useEffect(() => {
@@ -37,14 +36,14 @@ export function OrdiniElencoBoard() {
               Campionature e ordini campionatura: Inserito, Processato, Pronto
               per spedizione, Inviato.
             </p>
-            <CampionatureBoard embedded onFilteredCount={setCampCount} />
+            <CampionatureBoard embedded />
             <OrdiniBoard
               key="campionatura"
               stato={ORDINI_STATI_ELENCO}
               tipo="campionatura"
               showCreate={false}
               hideHeader
-              hideWhenEmpty={campCount !== 0}
+              hideWhenEmpty={false}
               createLabel="Crea ordine"
               description=""
               emptyTitle="Nessun ordine campionatura"
