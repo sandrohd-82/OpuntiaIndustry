@@ -438,6 +438,7 @@ export function RubricaBoard() {
         <RubricaContattoFormModal
           key={editing.id}
           contatto={editing}
+          mansioniCatalog={mansioni}
           onClose={() => setEditing(null)}
           onCreated={(item) => {
             setEditing(null);
@@ -450,6 +451,7 @@ export function RubricaBoard() {
 
       {showCreate ? (
         <RubricaContattoFormModal
+          mansioniCatalog={mansioni}
           defaultMansioneId={
             mansioneFiltro && mansioneFiltro !== "senza" ? mansioneFiltro : ""
           }

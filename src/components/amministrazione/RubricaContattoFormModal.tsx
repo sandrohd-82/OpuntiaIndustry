@@ -32,6 +32,8 @@ type Props = {
   /** Da scheda cliente/fornitore: collega a questa azienda, senza elenco. */
   lockToThisAzienda?: boolean;
   defaultMansioneId?: string;
+  /** Catalogo già letto dalla rubrica: la scheda non resta in attesa di un secondo giro. */
+  mansioniCatalog?: RubricaMansione[];
   testMode?: boolean;
   elevated?: boolean;
 };
@@ -45,6 +47,7 @@ export function RubricaContattoFormModal({
   defaultAziendaId = "",
   lockToThisAzienda = false,
   defaultMansioneId = "",
+  mansioniCatalog = [],
   testMode = false,
   elevated = false,
 }: Props) {
@@ -74,12 +77,37 @@ export function RubricaContattoFormModal({
   const [mansioneId, setMansioneId] = useState(
     contatto?.mansioneId ?? defaultMansioneId
   );
-  const [mansioni, setMansioni] = useState<RubricaMansione[]>([]);
-  const [mansioniLoading, setMansioniLoading] = useState(true);
+  const [mansioni, setMansioni] = useState<RubricaMansione[]>(() => {
+    if (mansioniCatalog.length > 0) return mansioniCatalog;
+    if (contatto?.mansioneId && contatto.mansione) {
+      return [
+        {
+          id: contatto.mansioneId,
+          codice: "",
+          nome: contatto.mansione,
+          documentoStato: "approvato",
+          versione: 1,
+        },
+      ];
+    }
+    return [];
+  });
+  const [mansioniLoading, setMansioniLoading] = useState(
+    mansioniCatalog.length === 0
+  );
   const [aziendeLoading, setAziendeLoading] = useState(false);
   const [showCreaMansione, setShowCreaMansione] = useState(false);
   const [note, setNote] = useState(contatto?.note ?? "");
-  const [aziende, setAziende] = useState<{ id: string; label: string }[]>([]);
+  const [aziende, setAziende] = useState<{ id: string; label: string }[]>(() =>
+    contatto?.aziendaId
+      ? [
+          {
+            id: contatto.aziendaId,
+            label: contatto.aziendaLabel || "Azienda collegata",
+          },
+        ]
+      : []
+  );
   const [collegaQuestaAzienda, setCollegaQuestaAzienda] = useState(
     lockToThisAzienda
   );
@@ -89,39 +117,85 @@ export function RubricaContattoFormModal({
     : aziendaTipo !== "nessuna";
 
   useEffect(() => {
-    setMansioniLoading(true);
-    void listRubricaMansioniAction().then((res) => {
+    let attivo = true;
+    setMansioniLoading(mansioniCatalog.length === 0);
+    const timer = window.setTimeout(() => {
+      if (!attivo) return;
       setMansioniLoading(false);
-      if (!res.success) return;
-      setMansioni(res.items);
-      if (defaultMansioneId) setMansioneId(defaultMansioneId);
-    });
-  }, [defaultMansioneId]);
+      setError((cur) => cur ?? "Le mansioni non sono arrivate. Ricarica la pagina.");
+    }, 12000);
+    void listRubricaMansioniAction()
+      .then((res) => {
+        if (!attivo) return;
+        if (!res.success) {
+          setError(res.error);
+          return;
+        }
+        setError((cur) =>
+          cur === "Le mansioni non sono arrivate. Ricarica la pagina."
+            ? null
+            : cur
+        );
+        setMansioni(res.items);
+        if (defaultMansioneId) setMansioneId(defaultMansioneId);
+      })
+      .catch(() => {
+        if (!attivo) return;
+        setError("Impossibile leggere le mansioni.");
+      })
+      .finally(() => {
+        window.clearTimeout(timer);
+        if (attivo) setMansioniLoading(false);
+      });
+    return () => {
+      attivo = false;
+      window.clearTimeout(timer);
+    };
+  }, [defaultMansioneId, mansioniCatalog.length]);
 
   useEffect(() => {
-    if (lockToThisAzienda) {
-      setAziende([]);
+    if (lockToThisAzienda || aziendaTipo === "nessuna" || aziendaTipo === "agrinsicilia") {
       setAziendeLoading(false);
       return;
     }
-    if (aziendaTipo === "nessuna") {
-      setAziende([]);
-      setAziendeLoading(false);
-      return;
-    }
+    let attivo = true;
     setAziendeLoading(true);
-    void listAziendeRubricaPickerAction(aziendaTipo).then((res) => {
+    const timer = window.setTimeout(() => {
+      if (!attivo) return;
       setAziendeLoading(false);
-      if (!res.success) {
-        setAziende([]);
-        return;
-      }
-      const corrente =
-        aziendaId && !res.items.some((a) => a.id === aziendaId)
-          ? [{ id: aziendaId, label: aziendaLabel || "Azienda collegata" }]
-          : [];
-      setAziende([...corrente, ...res.items]);
-    });
+      setError((cur) => cur ?? "L'elenco aziende non è arrivato. Ricarica la pagina.");
+    }, 12000);
+    void listAziendeRubricaPickerAction(aziendaTipo)
+      .then((res) => {
+        if (!attivo) return;
+        if (!res.success) {
+          setError(res.error);
+          return;
+        }
+        setError((cur) =>
+          cur === "L'elenco aziende non è arrivato. Ricarica la pagina."
+            ? null
+            : cur
+        );
+        setAziende((prev) => {
+          const corrente = prev.filter(
+            (a) => !res.items.some((item) => item.id === a.id)
+          );
+          return [...corrente, ...res.items];
+        });
+      })
+      .catch(() => {
+        if (!attivo) return;
+        setError("Impossibile leggere l'elenco aziende.");
+      })
+      .finally(() => {
+        window.clearTimeout(timer);
+        if (attivo) setAziendeLoading(false);
+      });
+    return () => {
+      attivo = false;
+      window.clearTimeout(timer);
+    };
   }, [aziendaTipo, lockToThisAzienda]);
 
   function save() {
@@ -344,7 +418,7 @@ export function RubricaContattoFormModal({
                     Seleziona azienda (facoltativo)
                   </span>
                   <SelectMenu
-                    loading={aziendeLoading}
+                    loading={aziendeLoading && aziende.length === 0}
                     placeholder="Seleziona azienda"
                     value={aziendaId}
                     onChange={(e) => {
@@ -367,7 +441,7 @@ export function RubricaContattoFormModal({
           <div className="sm:col-span-2">
             <span className="mb-1 block text-sm font-medium">Mansione</span>
             <SelectMenu
-              loading={mansioniLoading}
+              loading={mansioniLoading && mansioni.length === 0}
               placeholder="Seleziona mansione"
               value={mansioneId}
               onChange={(e) => setMansioneId(e.target.value)}

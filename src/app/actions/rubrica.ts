@@ -120,21 +120,35 @@ function mapTimeline(r: Record<string, unknown>): RubricaTimelineItem {
   };
 }
 
+function erroreAzione(e: unknown, fallback: string): string {
+  if (e instanceof Error && e.message && !e.message.startsWith("NEXT_")) {
+    return e.message;
+  }
+  return fallback;
+}
+
 export async function listRubricaMansioniAction(): Promise<
   { success: true; items: RubricaMansione[] } | { success: false; error: string }
 > {
-  await guardRubricaAnagrafica();
-  const supabase = await createClient();
-  const { data, error } = await supabase
-    .from("rubrica_mansioni")
-    .select("id, codice, nome, documento_stato, versione")
-    .is("deleted_at", null)
-    .order("nome", { ascending: true });
-  if (error) return { success: false, error: error.message };
-  return {
-    success: true,
-    items: (data ?? []).map((r) => mapMansione(r as Record<string, unknown>)),
-  };
+  try {
+    await guardRubricaAnagrafica();
+    const supabase = await createClient();
+    const { data, error } = await supabase
+      .from("rubrica_mansioni")
+      .select("id, codice, nome, documento_stato, versione")
+      .is("deleted_at", null)
+      .order("nome", { ascending: true });
+    if (error) return { success: false, error: error.message };
+    return {
+      success: true,
+      items: (data ?? []).map((r) => mapMansione(r as Record<string, unknown>)),
+    };
+  } catch (e) {
+    return {
+      success: false,
+      error: erroreAzione(e, "Impossibile leggere le mansioni."),
+    };
+  }
 }
 
 export async function createRubricaMansioneAction(input: unknown): Promise<
@@ -571,6 +585,22 @@ export async function listAziendeRubricaPickerAction(
   | { success: true; items: { id: string; label: string }[] }
   | { success: false; error: string }
 > {
+  try {
+    return await listAziendeRubricaPicker(tipo);
+  } catch (e) {
+    return {
+      success: false,
+      error: erroreAzione(e, "Impossibile leggere le aziende."),
+    };
+  }
+}
+
+async function listAziendeRubricaPicker(
+  tipo: RubricaAziendaTipo
+): Promise<
+  | { success: true; items: { id: string; label: string }[] }
+  | { success: false; error: string }
+> {
   await guardRubricaAnagrafica();
   if (tipo === "nessuna") {
     return { success: true, items: [] };
@@ -615,7 +645,7 @@ export async function listAziendeRubricaPickerAction(
     .from("clienti_possibili")
     .select("id, ragione_sociale")
     .is("deleted_at", null)
-    .neq("stato", "scartato")
+    .or("stato.is.null,stato.neq.scartato")
     .order("ragione_sociale")
     .limit(400);
   if (error) return { success: false, error: error.message };
