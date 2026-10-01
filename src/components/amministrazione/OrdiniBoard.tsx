@@ -5,7 +5,6 @@ import {
   FaChevronDown,
   FaChevronUp,
   FaFilePdf,
-  FaPen,
   FaPlus,
   FaTrash,
 } from "react-icons/fa6";
@@ -136,10 +135,19 @@ function OrdineTableRow({
     <>
       <tr className="border-t border-[var(--border)]">
         <td className="px-4 py-3 font-semibold tabular-nums">
-          {ordine.numeroInterno}
-          <span className="ml-2 rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-slate-700">
-            {labelTipoOrdine(ordine.tipo)}
-          </span>
+          <div className="flex flex-wrap items-center gap-2">
+            <span>{ordine.numeroInterno}</span>
+            <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-slate-700">
+              {labelTipoOrdine(ordine.tipo)}
+            </span>
+            <button
+              type="button"
+              onClick={onEdit}
+              className="rounded-lg bg-[var(--primary)] px-2.5 py-1 text-xs font-medium text-white hover:bg-[var(--primary-hover)]"
+            >
+              Modifica
+            </button>
+          </div>
         </td>
         <td className="px-4 py-3 tabular-nums text-[var(--muted)]">
           {ordine.numeroCliente || "—"}
@@ -226,7 +234,7 @@ function OrdineTableRow({
         <td className="px-4 py-3 tabular-nums text-[var(--muted)]">
           {ordine.versione}
         </td>
-        <td className="px-4 py-3">
+        <td className="sticky right-0 z-10 bg-[var(--card)] px-4 py-3 shadow-[-8px_0_8px_-8px_rgba(15,23,42,0.25)]">
           <div className="flex justify-end gap-1">
             {isOrdineScontoInAttesa(ordine) && !processMode ? (
               <button
@@ -278,11 +286,10 @@ function OrdineTableRow({
             </button>
             <button
               type="button"
-              title="Modifica"
               onClick={onEdit}
-              className="rounded-lg p-2 text-slate-600 hover:bg-slate-100"
+              className="rounded-lg border border-[var(--border)] bg-white px-2.5 py-1.5 text-xs font-medium text-slate-800 hover:bg-slate-50"
             >
-              <FaPen size={14} />
+              Modifica
             </button>
             <button
               type="button"
@@ -635,7 +642,7 @@ export function OrdiniBoard({
                   sort={sort}
                   onSort={(k) => setSort((s) => nextSortState(s, k))}
                 />
-                <th className="px-4 py-3 text-right font-medium text-[var(--muted)]">
+                <th className="sticky right-0 z-10 bg-slate-50 px-4 py-3 text-right font-medium text-[var(--muted)] shadow-[-8px_0_8px_-8px_rgba(15,23,42,0.25)]">
                   Azioni
                 </th>
               </tr>

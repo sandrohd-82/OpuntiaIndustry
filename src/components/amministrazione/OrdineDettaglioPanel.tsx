@@ -92,7 +92,7 @@ export function OrdineDettaglioPanel({ ordine, onEdit }: Props) {
               onClick={onEdit}
               className="rounded-lg bg-[var(--primary)] px-3 py-1.5 text-xs font-medium text-white hover:bg-[var(--primary-hover)]"
             >
-              Modifica scheda
+              Modifica ordine
             </button>
           ) : null}
         </div>
