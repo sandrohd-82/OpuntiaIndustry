@@ -135,19 +135,10 @@ function OrdineTableRow({
     <>
       <tr className="border-t border-[var(--border)]">
         <td className="px-4 py-3 font-semibold tabular-nums">
-          <div className="flex flex-wrap items-center gap-2">
-            <span>{ordine.numeroInterno}</span>
-            <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-slate-700">
-              {labelTipoOrdine(ordine.tipo)}
-            </span>
-            <button
-              type="button"
-              onClick={onEdit}
-              className="rounded-lg bg-[var(--primary)] px-2.5 py-1 text-xs font-medium text-white hover:bg-[var(--primary-hover)]"
-            >
-              Modifica
-            </button>
-          </div>
+          {ordine.numeroInterno}
+          <span className="ml-2 rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-slate-700">
+            {labelTipoOrdine(ordine.tipo)}
+          </span>
         </td>
         <td className="px-4 py-3 tabular-nums text-[var(--muted)]">
           {ordine.numeroCliente || "—"}

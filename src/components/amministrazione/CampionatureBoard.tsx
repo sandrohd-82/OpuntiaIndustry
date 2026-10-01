@@ -262,13 +262,6 @@ function CampionaturaTableRow({
         <td className="px-4 py-3 font-mono font-semibold tabular-nums">
           <span className="inline-flex flex-wrap items-center gap-1.5">
             {item.numeroInterno}
-            <button
-              type="button"
-              onClick={onEdit}
-              className="rounded-lg bg-[var(--primary)] px-2.5 py-1 text-xs font-medium text-white hover:bg-[var(--primary-hover)]"
-            >
-              Modifica
-            </button>
             {item.origine === "storico" ? (
               <span className="rounded-full bg-slate-200 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-slate-700">
                 {CAMPIONATURA_ORIGINE_LABEL.storico}
