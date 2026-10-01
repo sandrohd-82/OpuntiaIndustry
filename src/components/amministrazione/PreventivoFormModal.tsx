@@ -1063,6 +1063,7 @@ export function PreventivoFormModal({ onClose, onSaved, preventivoId }: Props) {
                 }
               : null
           }
+          escludiPreventivoId={preventivoId ?? null}
           initial={
             editing
               ? {

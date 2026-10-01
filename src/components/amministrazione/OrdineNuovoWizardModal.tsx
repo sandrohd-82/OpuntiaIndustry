@@ -16,6 +16,7 @@ import {
   SCONTO_FUORI_LISTINO_TITOLO,
 } from "@/lib/amministrazione/sconto-fuori-listino";
 import { ScontoSuddivisioneFields } from "@/components/amministrazione/ScontoSuddivisioneFields";
+import { StoricoScontiProdotto } from "@/components/amministrazione/StoricoScontiProdotto";
 import { validaQuoteSuddivisione } from "@/lib/amministrazione/sconto-suddivisione";
 import { getAccordoPrezzoProdottoAction } from "@/app/actions/accordi-prezzo";
 import { getListinoVoceVigenteAction } from "@/app/actions/listini";
@@ -1742,11 +1743,55 @@ export function OrdineNuovoWizardModal({
                   {LISTINO_CONTRATTO_MSG.sospeso}
                 </p>
               ) : null}
+              {prodotto && tipoOrdine !== "campionatura" ? (
+                <div className="mt-3 space-y-2">
+                  {accordo ? (
+                    <p className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-950">
+                      {voceAccordoPrezzo({
+                        modalita: accordo.modalita,
+                        valoreOrigine: Number(
+                          accordo.scontoPct ?? accordo.prezzoKg ?? 0
+                        ),
+                        valoreApplicato: Number(
+                          accordo.scontoPct ?? accordo.prezzoKg ?? 0
+                        ),
+                        giustificazione: accordo.giustificazione,
+                        unita: unitaBase,
+                      })}
+                    </p>
+                  ) : null}
+                  <StoricoScontiProdotto
+                    azienda={
+                      anagraficaFonte === "possibile" && possibileClienteId
+                        ? {
+                            tipo: "cliente_possibile",
+                            id: possibileClienteId,
+                          }
+                        : clienteId
+                          ? { tipo: "cliente", id: clienteId }
+                          : null
+                    }
+                    prodottoCodice={prodotto.codice}
+                  />
+                </div>
+              ) : null}
             </>
           )}
 
           {step === 3 && (
             <div className="space-y-4">
+              {prodotto && tipoOrdine !== "campionatura" ? (
+                <StoricoScontiProdotto
+                  azienda={
+                    anagraficaFonte === "possibile" && possibileClienteId
+                      ? { tipo: "cliente_possibile", id: possibileClienteId }
+                      : clienteId
+                        ? { tipo: "cliente", id: clienteId }
+                        : null
+                  }
+                  prodottoCodice={prodotto.codice}
+                />
+              ) : null}
               <div className="grid gap-3 sm:grid-cols-2">
                 <label className="block text-sm">
                   <span className="mb-1 block font-medium">Quantità</span>

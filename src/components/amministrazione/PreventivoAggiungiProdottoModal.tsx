@@ -23,6 +23,7 @@ import {
   pianoConfezionamento,
 } from "@/lib/amministrazione/preventivo-confezionamento";
 import { ScontoSuddivisioneFields } from "@/components/amministrazione/ScontoSuddivisioneFields";
+import { StoricoScontiProdotto } from "@/components/amministrazione/StoricoScontiProdotto";
 import { validaQuoteSuddivisione } from "@/lib/amministrazione/sconto-suddivisione";
 import { LISTINO_CONTRATTO_MSG } from "@/lib/ecosystem/listino-vigente";
 import type { ListinoDisponibilita } from "@/lib/ecosystem/listini";
@@ -59,6 +60,7 @@ type Props = {
   prodotti: ProdottoProprio[];
   ready: boolean;
   azienda?: { tipo: AccordoPrezzoAziendaTipo; id: string } | null;
+  escludiPreventivoId?: string | null;
   initial?: PreventivoProdottoDraft | null;
   onClose: () => void;
   onConfirm: (draft: PreventivoProdottoDraft) => void;
@@ -92,6 +94,7 @@ export function PreventivoAggiungiProdottoModal({
   prodotti,
   ready,
   azienda = null,
+  escludiPreventivoId = null,
   initial,
   onClose,
   onConfirm,
@@ -549,6 +552,14 @@ export function PreventivoAggiungiProdottoModal({
               </p>
             </div>
           ) : null}
+
+          <StoricoScontiProdotto
+            azienda={azienda}
+            prodottoCodice={
+              prodotti.find((p) => p.id === prodottoId)?.codice ?? ""
+            }
+            escludiPreventivoId={escludiPreventivoId}
+          />
 
           <div>
             <button
