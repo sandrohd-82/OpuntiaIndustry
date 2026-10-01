@@ -15,6 +15,11 @@ import {
   decisioneAccettazioneSenior,
   notificaAccettazioneSenior,
 } from "@/lib/amministrazione/accettazione-senior-server";
+import {
+  perimetroPreventiviOr,
+  resolvePerimetroDocumenti,
+  rigaNelPerimetro,
+} from "@/lib/auth/anagrafica-visibility";
 import { createClient, createServiceClient } from "@/lib/supabase/server";
 import {
   assertWebmailAccountAccess,
@@ -382,6 +387,15 @@ export async function listPreventiviAction(input?: {
   const archivio = Boolean(input?.archivio);
   await trasferisciPreventiviScaduti(gate.auth.userId);
   const supabase = await createClient();
+  const perimetro = await resolvePerimetroDocumenti();
+  const filtro = perimetroPreventiviOr(perimetro);
+  if (!perimetro.unrestricted && !filtro) {
+    return {
+      success: true,
+      items: [],
+      conteggi: { da_completare: 0, inviati: 0, accettati: 0 },
+    };
+  }
   let query = supabase
     .from("preventivi")
     .select("*")
@@ -392,6 +406,7 @@ export async function listPreventiviAction(input?: {
   query = archivio
     ? query.not("archiviato_at", "is", null)
     : query.is("archiviato_at", null);
+  if (filtro) query = query.or(filtro);
   const { data, error } = await query;
   if (error) return { success: false, error: error.message };
   const rows = (data ?? []) as PreventivoRow[];
@@ -410,6 +425,7 @@ export async function listPreventiviAction(input?: {
     countQuery = archivio
       ? countQuery.not("archiviato_at", "is", null)
       : countQuery.is("archiviato_at", null);
+    if (filtro) countQuery = countQuery.or(filtro);
     const counted = await countQuery;
     conteggi[nome] = counted.count ?? 0;
   }
@@ -520,6 +536,10 @@ export async function getPreventivoPerModificaAction(
     return { success: false, error: error?.message ?? "Preventivo non trovato" };
   }
   const row = data as PreventivoRow;
+  const perimetro = await resolvePerimetroDocumenti();
+  if (!rigaNelPerimetro(row, perimetro, { riferimento: true })) {
+    return { success: false, error: "Preventivo non trovato" };
+  }
   const righeMap = await attachRighe([row.id]);
   const righe = (righeMap.get(row.id) ?? [])
     .slice()
@@ -673,12 +693,17 @@ export async function countPreventiviAttesaSpedizioneNavAction(): Promise<
   if (!gate.ok) return { success: true, totale: 0 };
   await trasferisciPreventiviScaduti(gate.auth.userId);
   const supabase = await createClient();
-  const { count, error } = await supabase
+  const perimetro = await resolvePerimetroDocumenti();
+  const filtro = perimetroPreventiviOr(perimetro);
+  if (!perimetro.unrestricted && !filtro) return { success: true, totale: 0 };
+  let countQuery = supabase
     .from("preventivi")
     .select("id", { count: "exact", head: true })
     .eq("stato", "in_attesa_spedizione")
     .is("archiviato_at", null)
     .is("deleted_at", null);
+  if (filtro) countQuery = countQuery.or(filtro);
+  const { count, error } = await countQuery;
   if (error) return { success: false, error: error.message };
   return { success: true, totale: count ?? 0 };
 }
@@ -691,6 +716,13 @@ export async function listPreventiviAccettatiAction(input: {
 > {
   const gate = await requirePreventiviAccess();
   if (!gate.ok) return { success: false, error: gate.error };
+  const perimetro = await resolvePerimetroDocumenti();
+  if (
+    !perimetro.unrestricted &&
+    !perimetro.clienti.includes(input.clienteId)
+  ) {
+    return { success: true, items: [] };
+  }
   const supabase = await createClient();
   const { data, error } = await supabase
     .from("preventivi")

@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { writeAuditLog } from "@/lib/audit";
 import { requireAnyAreaAccess } from "@/lib/areas/guard";
 import { formatOperatorShortName } from "@/lib/auth/operator-short-name";
+import { resolveAnagraficaListVisibility } from "@/lib/auth/anagrafica-visibility";
 import { isSuperadminProfile } from "@/lib/auth/roles";
 import { userCanAccessArea } from "@/lib/auth/session";
 import {
@@ -254,10 +255,40 @@ function mapRiga(
   };
 }
 
+async function idsTicketCollegati(
+  db: ReturnType<typeof createServiceClient>,
+  ownerIds: string[]
+): Promise<string[]> {
+  if (!ownerIds.length) return [];
+  const ids = new Set<string>();
+  const [{ data: aperti }, { data: messaggi }] = await Promise.all([
+    db
+      .from("strumenti_ticket")
+      .select("id")
+      .in("created_by", ownerIds)
+      .is("deleted_at", null),
+    db
+      .from("strumenti_ticket_messaggi")
+      .select("ticket_id")
+      .in("created_by", ownerIds)
+      .is("deleted_at", null),
+  ]);
+  for (const row of aperti ?? []) {
+    const id = String((row as { id?: string }).id ?? "");
+    if (id) ids.add(id);
+  }
+  for (const row of messaggi ?? []) {
+    const id = String((row as { ticket_id?: string }).ticket_id ?? "");
+    if (id) ids.add(id);
+  }
+  return [...ids];
+}
+
 async function assertVede(
   db: ReturnType<typeof createServiceClient>,
   auth: AuthBag,
   admin: boolean,
+  isAddetto: boolean,
   ticketId: string
 ) {
   const { data, error } = await db
@@ -267,6 +298,17 @@ async function assertVede(
     .is("deleted_at", null)
     .maybeSingle();
   if (error || !data) return { ok: false as const, error: "Ticket non trovato." };
+  if (isSuperadminProfile(auth.profile) || isAddetto) {
+    return { ok: true as const, row: data as Record<string, unknown> };
+  }
+  const vis = await resolveAnagraficaListVisibility();
+  if (vis.ownerIds) {
+    const ids = await idsTicketCollegati(db, vis.ownerIds);
+    if (!ids.includes(ticketId)) {
+      return { ok: false as const, error: "Non puoi vedere questo ticket." };
+    }
+    return { ok: true as const, row: data as Record<string, unknown> };
+  }
   const createdBy = (data as { created_by?: string | null }).created_by;
   if (!admin && createdBy !== auth.userId) {
     return { ok: false as const, error: "Non puoi vedere questo ticket." };
@@ -336,13 +378,29 @@ export async function listTicketAction(input: {
   | { success: false; error: string }
 > {
   const { auth, admin, isAddetto, db } = await gateTicket();
+  const vis = await resolveAnagraficaListVisibility();
+  const perimetroCommerciale =
+    !isSuperadminProfile(auth.profile) && !isAddetto && Boolean(vis.ownerIds);
+  const collegati = perimetroCommerciale
+    ? await idsTicketCollegati(db, vis.ownerIds ?? [])
+    : null;
+  if (collegati && collegati.length === 0) {
+    return {
+      success: true,
+      items: [],
+      canGestire: admin,
+      isAddetto,
+      meId: auth.userId,
+    };
+  }
   let q = db
     .from("strumenti_ticket")
     .select(TICKET_COLS)
     .is("deleted_at", null);
   if (input.archivio) q = q.not("archiviato_at", "is", null);
   else q = q.is("archiviato_at", null);
-  if (!admin) q = q.eq("created_by", auth.userId);
+  if (collegati) q = q.in("id", collegati);
+  else if (!admin) q = q.eq("created_by", auth.userId);
   if (input.categoria) q = q.eq("categoria", input.categoria);
   if (input.urgenza) q = q.eq("urgenza", input.urgenza);
   const term = (input.q ?? "").trim();
@@ -444,7 +502,7 @@ export async function getTicketAction(
   | { success: false; error: string }
 > {
   const { auth, admin, isAddetto, db } = await gateTicket();
-  const seen = await assertVede(db, auth, admin, ticketId);
+  const seen = await assertVede(db, auth, admin, isAddetto, ticketId);
   if (!seen.ok) return { success: false, error: seen.error };
   await markTicketNotificheLette(db, auth.userId, ticketId);
   const { data: msgs, error: mErr } = await db
@@ -623,7 +681,7 @@ export async function sendTicketMessaggioAction(
   if (!parsed.success) {
     return { success: false, error: "Messaggio non valido." };
   }
-  const seen = await assertVede(db, auth, admin, parsed.data.ticketId);
+  const seen = await assertVede(db, auth, admin, isAddetto, parsed.data.ticketId);
   if (!seen.ok) return { success: false, error: seen.error };
   if (seen.row.archiviato_at) {
     return { success: false, error: "Il ticket è archiviato: chat chiusa." };
@@ -701,7 +759,7 @@ export async function prendiInCaricoTicketAction(
       error: "Solo l'addetto alla risoluzione può prendere in carico il ticket.",
     };
   }
-  const seen = await assertVede(db, auth, admin, ticketId);
+  const seen = await assertVede(db, auth, admin, isAddetto, ticketId);
   if (!seen.ok) return { success: false, error: seen.error };
   if (seen.row.archiviato_at) {
     return { success: false, error: "Ticket già archiviato." };
@@ -739,7 +797,7 @@ export async function risolviArchiviaTicketAction(
       error: "Solo l'addetto alla risoluzione può archiviare il ticket.",
     };
   }
-  const seen = await assertVede(db, auth, admin, ticketId);
+  const seen = await assertVede(db, auth, admin, isAddetto, ticketId);
   if (!seen.ok) return { success: false, error: seen.error };
   if (seen.row.archiviato_at) {
     return { success: false, error: "Ticket già archiviato." };

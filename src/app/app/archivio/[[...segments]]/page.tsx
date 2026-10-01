@@ -40,7 +40,16 @@ import {
   resolveArchivioPage,
 } from "@/lib/areas/archivio";
 import { firstLeafPath, findNavItem, isNavBranch } from "@/lib/areas/nav-tree";
+import { loadAccessMaps } from "@/app/actions/page-access";
 import { listWebmailAccountsAction } from "@/app/actions/webmail";
+import { loadProfileAuthBundle } from "@/lib/auth/data-scope-enforce";
+import {
+  applySensitiveLocks,
+  unrestrictedAuthSettings,
+} from "@/lib/auth/data-scope";
+import { filterNavByPageAccess } from "@/lib/auth/page-access";
+import { isUnrestrictedSuperadmin } from "@/lib/auth/roles";
+import { withRoleAreaPageDefaults } from "@/lib/areas/config";
 import { createClient } from "@/lib/supabase/server";
 
 const UUID_RE =
@@ -74,7 +83,22 @@ export default async function ArchivioCatchAllPage({ params }: Props) {
   if (segments.length === 0) {
     const { auth } = await requireAreaAccess("archivio");
     const nav = filterArchivioNavByAccess(auth.areas);
-    redirect(getFirstArchivioPath(nav));
+    const [{ pageAccess: rawPageAccess }, bundle] = await Promise.all([
+      loadAccessMaps(auth.userId),
+      loadProfileAuthBundle(auth.userId),
+    ]);
+    const unrestricted = isUnrestrictedSuperadmin(auth);
+    const pageAccess = applySensitiveLocks(
+      withRoleAreaPageDefaults(rawPageAccess, auth.areas),
+      unrestricted
+        ? unrestrictedAuthSettings(bundle.settings)
+        : bundle.settings
+    );
+    const visible = unrestricted
+      ? nav
+      : filterNavByPageAccess(nav, pageAccess);
+    if (!visible.length) notFound();
+    redirect(getFirstArchivioPath(visible));
   }
 
   if (segments[0] === "tutorial") {

@@ -289,7 +289,19 @@ export function toneForNavPath(
   return toneForGroup(path, map, childItems);
 }
 
-/** Operativo: area/ramo Off nasconde tutto; On mostra salvo pagina Off. */
+/** Una pagina figlia accesa esplicitamente, anche se il ramo padre è spento. */
+function explicitDescendantOn(path: string, map: PageAccessMap): boolean {
+  const root = normalizeAppPath(path);
+  return Object.entries(map).some(([k, v]) => {
+    if (v !== true || isActionAccessKey(k)) return false;
+    return k.startsWith(`${root}/`);
+  });
+}
+
+/**
+ * Operativo: area/ramo Off nasconde le pagine non impostate.
+ * Una pagina accesa in modo esplicito resta visibile (eccezione sul ramo).
+ */
 export function isNavPathVisible(
   path: string,
   map: PageAccessMap,
@@ -297,11 +309,12 @@ export function isNavPathVisible(
 ): boolean {
   const key = resolvePageKey(path);
   const areaKey = resolveAreaAccessKey(path);
-  if (isAccessOffAlongPath(path, map)) return false;
+  if (map[key] === true || map[path] === true) return true;
+  if (isAccessOffAlongPath(path, map)) {
+    return explicitDescendantOn(key, map) || explicitDescendantOn(path, map);
+  }
   if (
     map[areaKey] === true ||
-    map[key] === true ||
-    map[path] === true ||
     ancestorOn ||
     isAccessOnAlongPath(path, map)
   ) {
@@ -334,24 +347,23 @@ export function filterNavByPageAccess(
 ): NavItem[] {
   const out: NavItem[] = [];
   for (const item of items) {
-    if (isAccessOffAlongPath(item.path, map)) continue;
     const own = map[item.path] ?? map[resolvePageKey(item.path)];
-    if (own === false) continue;
+    const descendantOn = explicitDescendantOn(item.path, map);
+    if (own !== true && !descendantOn && isAccessOffAlongPath(item.path, map)) {
+      continue;
+    }
+    if (own === false && !descendantOn) continue;
     const on =
       own === true || ancestorOn || isAccessOnAlongPath(item.path, map);
     if (isNavBranch(item)) {
-      const children = filterNavByPageAccess(item.children, map, on);
+      const passAncestor = own === true || (ancestorOn && own !== false);
+      const children = filterNavByPageAccess(item.children, map, passAncestor);
       if (on || children.length > 0) {
-        out.push({
-          ...item,
-          children: on
-            ? filterNavByPageAccess(item.children, map, true)
-            : children,
-        });
+        out.push({ ...item, children });
       }
       continue;
     }
-    if (on) out.push(item);
+    if (own === true || (on && own !== false)) out.push(item);
   }
   return out;
 }

@@ -73,7 +73,11 @@ import {
   decisioneAccettazioneSenior,
   notificaAccettazioneSenior,
 } from "@/lib/amministrazione/accettazione-senior-server";
-import { resolveVisibleClienteIds } from "@/lib/auth/anagrafica-visibility";
+import {
+  perimetroOrdiniOr,
+  resolvePerimetroDocumenti,
+  rigaNelPerimetro,
+} from "@/lib/auth/anagrafica-visibility";
 import { resolveScopeMode } from "@/lib/auth/data-scope-enforce";
 import type {
   AuditLogInsert,
@@ -252,8 +256,9 @@ export async function listOrdiniAction(
   const { auth } = await requireOrdineReadAccess();
   const supabase = await createClient();
   const stati = Array.isArray(stato) ? stato : [stato];
-  const visibleClienti = await resolveVisibleClienteIds();
-  if (visibleClienti && visibleClienti.length === 0) {
+  const perimetro = await resolvePerimetroDocumenti();
+  const filtro = perimetroOrdiniOr(perimetro);
+  if (!perimetro.unrestricted && !filtro) {
     return { success: true, ordini: [] };
   }
   const scope = await resolveScopeMode("ordini");
@@ -262,8 +267,8 @@ export async function listOrdiniAction(
     .from("ordini")
     .select("*")
     .is("deleted_at", null);
-  if (visibleClienti) {
-    q = q.in("cliente_id", visibleClienti);
+  if (filtro) {
+    q = q.or(filtro);
   } else if (scope && !scope.skip && scope.mode === "proprie") {
     q = q.eq("created_by", scope.userId);
   }
@@ -380,8 +385,9 @@ export async function countOrdiniElencoAction(): Promise<
 > {
   await requireOrdineReadAccess();
   const supabase = await createClient();
-  const visibleClienti = await resolveVisibleClienteIds();
-  if (visibleClienti && visibleClienti.length === 0) {
+  const perimetro = await resolvePerimetroDocumenti();
+  const filtro = perimetroOrdiniOr(perimetro);
+  if (!perimetro.unrestricted && !filtro) {
     return { success: true, merce: 0, campionature: 0 };
   }
   const scope = await resolveScopeMode("ordini");
@@ -401,10 +407,10 @@ export async function countOrdiniElencoAction(): Promise<
     .from("campionature")
     .select("id", { count: "exact", head: true })
     .is("deleted_at", null);
-  if (visibleClienti) {
-    qVendita = qVendita.in("cliente_id", visibleClienti);
-    qCampOrd = qCampOrd.in("cliente_id", visibleClienti);
-    qCamps = qCamps.in("cliente_id", visibleClienti);
+  if (filtro) {
+    qVendita = qVendita.or(filtro);
+    qCampOrd = qCampOrd.or(filtro);
+    qCamps = qCamps.or(filtro);
   } else if (scope && !scope.skip && scope.mode === "proprie") {
     qVendita = qVendita.eq("created_by", scope.userId);
     qCampOrd = qCampOrd.eq("created_by", scope.userId);
@@ -433,12 +439,17 @@ export async function getOrdineAction(
   if (!ordine || ordine.deletedAt) {
     return { success: false, error: "Ordine non trovato." };
   }
-  const visibleClienti = await resolveVisibleClienteIds();
-  if (
-    visibleClienti &&
-    (!ordine.clienteId || !visibleClienti.includes(ordine.clienteId))
-  ) {
-    return { success: false, error: "Ordine non trovato." };
+  const perimetro = await resolvePerimetroDocumenti();
+  if (!perimetro.unrestricted) {
+    const supabase = await createClient();
+    const { data: legame } = await supabase
+      .from("ordini")
+      .select("cliente_id, cliente_possibile_id, created_by")
+      .eq("id", id)
+      .maybeSingle();
+    if (!legame || !rigaNelPerimetro(legame, perimetro)) {
+      return { success: false, error: "Ordine non trovato." };
+    }
   }
   return { success: true, ordine };
 }

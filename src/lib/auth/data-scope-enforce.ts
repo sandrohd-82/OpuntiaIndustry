@@ -217,3 +217,31 @@ export async function loadOwnedAziendaIds(
   }
   return ids;
 }
+
+/** Possibili clienti del sottoalbero, con la stessa regola di affiancamento dei clienti. */
+export async function loadOwnedPossibileIds(
+  supabase: UserClient,
+  userId: string
+): Promise<string[]> {
+  const [lineage, personaIds, selfPersonaIds] = await Promise.all([
+    loadCommercialLineageUserIds(userId),
+    loadCommercialLineagePersonaIds(userId),
+    loadCommercialSelfPersonaIds(userId),
+  ]);
+  const { data } = await supabase
+    .from("clienti_possibili")
+    .select("id")
+    .is("deleted_at", null)
+    .or(
+      anagraficaLineageOrFilter(lineage, personaIds, {
+        userId,
+        personaIds: selfPersonaIds,
+      })
+    );
+  const ids: string[] = [];
+  for (const row of data ?? []) {
+    const id = String((row as { id?: string }).id ?? "");
+    if (id) ids.push(id);
+  }
+  return ids;
+}
