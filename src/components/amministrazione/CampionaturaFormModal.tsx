@@ -7,6 +7,7 @@ import { WebmailHtmlBody } from "@/components/webmail/WebmailHtmlBody";
 import {
   createCampionaturaAction,
   previewNumeroCampionaturaAction,
+  updateCampionaturaAction,
 } from "@/app/actions/campionature";
 import {
   generaCorpoMailSpedizioneAction,
@@ -24,6 +25,8 @@ import {
   ClearableNumberInput,
   numberOrZero,
 } from "@/components/ui/ClearableNumberInput";
+import { useClienti } from "@/hooks/useClienti";
+import { useClientiPossibili } from "@/hooks/useClientiPossibili";
 import { useProdottiPropri } from "@/hooks/useProdottiPropri";
 import type { AnagraficaSede } from "@/lib/amministrazione/anagrafica-extra";
 import type { Cliente } from "@/lib/amministrazione/clienti";
@@ -44,6 +47,8 @@ import {
 
 type DraftRiga = {
   prodottoId: string;
+  prodottoCodice?: string;
+  prodottoNome?: string;
   quantita: number | "";
   unitaMisura: CampionaturaUm;
   lottoCodice: string;
@@ -53,7 +58,36 @@ type DraftRiga = {
 type Props = {
   onClose: () => void;
   onSaved: (item: Campionatura) => void;
+  /** Stessa procedura di inserimento, già compilata: il salvataggio aggiorna questo record. */
+  editing?: Campionatura | null;
 };
+
+function righeFromCampionatura(item: Campionatura | null | undefined): DraftRiga[] {
+  if (!item || item.righe.length === 0) return [emptyRiga()];
+  return item.righe.map((r) => ({
+    prodottoId: r.prodottoId,
+    prodottoCodice: r.prodottoCodice,
+    prodottoNome: r.prodottoNome,
+    quantita: r.quantita,
+    unitaMisura: r.unitaMisura,
+    lottoCodice: r.lottoCodice,
+    note: r.note,
+  }));
+}
+
+function addressKeyFromSaved(
+  cliente: Cliente,
+  sedi: AnagraficaSede[],
+  item: Campionatura
+): string {
+  if (item.spedizioneTipo === "altro_posto") return "altro";
+  const saved = item.indirizzoSpedizione.trim();
+  const hit = clienteSpedizioneOptions(cliente, sedi, "campionature").find(
+    (opt) => opt.indirizzo.trim() === saved
+  );
+  if (hit) return hit.key;
+  return saved ? "altro" : "";
+}
 
 function todayInputValue() {
   const d = new Date();
@@ -71,37 +105,80 @@ function emptyRiga(): DraftRiga {
   };
 }
 
-export function CampionaturaFormModal({ onClose, onSaved }: Props) {
+export function CampionaturaFormModal({
+  onClose,
+  onSaved,
+  editing = null,
+}: Props) {
   const titleId = useId();
   const { prodotti, ready: prodottiReady } = useProdottiPropri();
+  const { clienti } = useClienti();
+  const { items: possibili } = useClientiPossibili();
+  const hydratedAddress = useRef(false);
   const [anagraficaFonte, setAnagraficaFonte] =
-    useState<AnagraficaOrdineFonte>("cliente");
-  const [possibileClienteId, setPossibileClienteId] = useState("");
+    useState<AnagraficaOrdineFonte>(
+      editing?.clienteId
+        ? "cliente"
+        : editing?.possibileClienteId
+          ? "possibile"
+          : "cliente"
+    );
+  const [possibileClienteId, setPossibileClienteId] = useState(
+    editing?.possibileClienteId ?? ""
+  );
   const [cliente, setCliente] = useState<Cliente | null>(null);
-  const [origine, setOrigine] = useState<CampionaturaOrigine>("da_inviare");
-  const [dataInvio, setDataInvio] = useState(todayInputValue);
-  const [trackingUrl, setTrackingUrl] = useState("");
-  const [mezzo, setMezzo] = useState<CampionaturaMezzo | null>(null);
-  const [nota, setNota] = useState<{ id: string; titolo: string } | null>(null);
+  const [origine, setOrigine] = useState<CampionaturaOrigine>(
+    editing?.origine ?? "da_inviare"
+  );
+  const [dataInvio, setDataInvio] = useState(
+    editing?.dataInvio ?? todayInputValue()
+  );
+  const [trackingUrl, setTrackingUrl] = useState(editing?.trackingUrl ?? "");
+  const [mezzo, setMezzo] = useState<CampionaturaMezzo | null>(
+    editing?.mezzo ?? null
+  );
+  const [nota, setNota] = useState<{ id: string; titolo: string } | null>(
+    editing?.pnNotaId
+      ? { id: editing.pnNotaId, titolo: editing.pnNotaTitolo || "Nota" }
+      : null
+  );
   const [mail, setMail] = useState<{ id: string; subject: string } | null>(
-    null
+    editing?.webmailMessaggioId
+      ? {
+          id: editing.webmailMessaggioId,
+          subject: editing.webmailOggetto || "Mail collegata",
+        }
+      : null
   );
   const [mailPreviewOpen, setMailPreviewOpen] = useState(false);
   const [origineOpen, setOrigineOpen] = useState(false);
   const [timelinePick, setTimelinePick] = useState<
     null | "nota" | "nota-create" | "mail"
   >(null);
-  const [destinatario, setDestinatario] = useState("");
-  const [indirizzo, setIndirizzo] = useState("");
-  const [addressKey, setAddressKey] = useState<string | "altro">("");
+  const [destinatario, setDestinatario] = useState(editing?.destinatario ?? "");
+  const [indirizzo, setIndirizzo] = useState(
+    editing?.indirizzoSpedizione ?? ""
+  );
+  const [addressKey, setAddressKey] = useState<string | "altro">(
+    editing?.spedizioneTipo === "altro_posto" ? "altro" : ""
+  );
   const [sediExtra, setSediExtra] = useState<AnagraficaSede[]>([]);
-  const [spedizionePrivato, setSpedizionePrivato] = useState(false);
+  const [spedizionePrivato, setSpedizionePrivato] = useState(
+    editing?.spedizionePrivato ?? false
+  );
   const [referenteRicezione, setReferenteRicezione] = useState<{
     id: string;
     label: string;
-  } | null>(null);
+  } | null>(
+    editing?.referenteRicezioneId
+      ? {
+          id: editing.referenteRicezioneId,
+          label: editing.referenteRicezioneLabel || "Referente",
+        }
+      : null
+  );
   const [altroPostoOpen, setAltroPostoOpen] = useState(false);
-  const [note, setNote] = useState("");
+  const [note, setNote] = useState(editing?.note ?? "");
   const spedDraft = useRef({
     trackingUrl: "",
     letteraViaPath: "",
@@ -111,7 +188,7 @@ export function CampionaturaFormModal({ onClose, onSaved }: Props) {
     allegaLettera: false,
     allegaFile: false,
     destinatarioEmail: "",
-    sedePartenzaId: "",
+    sedePartenzaId: editing?.sedePartenzaId ?? "",
   });
   const [composeAfter, setComposeAfter] = useState<{
     prenotazione: SpedizioneMailPrenotazione;
@@ -120,8 +197,12 @@ export function CampionaturaFormModal({ onClose, onSaved }: Props) {
     to: string;
     item: Campionatura;
   } | null>(null);
-  const [righe, setRighe] = useState<DraftRiga[]>([emptyRiga()]);
-  const [numeroPreview, setNumeroPreview] = useState<string | null>(null);
+  const [righe, setRighe] = useState<DraftRiga[]>(() =>
+    righeFromCampionatura(editing)
+  );
+  const [numeroPreview, setNumeroPreview] = useState<string | null>(
+    editing?.numeroInterno ?? null
+  );
   const [saving, setSaving] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
 
@@ -155,6 +236,10 @@ export function CampionaturaFormModal({ onClose, onSaved }: Props) {
     anagraficaFonte === "possibile" ? "Pc" : (cliente?.codiceTarga ?? "");
 
   useEffect(() => {
+    if (editing) {
+      setNumeroPreview(editing.numeroInterno);
+      return;
+    }
     if (!targaDocumento || !dataInvio) {
       setNumeroPreview(null);
       return;
@@ -170,7 +255,43 @@ export function CampionaturaFormModal({ onClose, onSaved }: Props) {
     return () => {
       cancelled = true;
     };
-  }, [targaDocumento, dataInvio]);
+  }, [targaDocumento, dataInvio, editing]);
+
+  useEffect(() => {
+    if (!editing || hydratedAddress.current) return;
+    if (editing.clienteId) {
+      const found = clienti.find((c) => c.id === editing.clienteId);
+      if (!found) return;
+      hydratedAddress.current = true;
+      setCliente(found);
+      setAnagraficaFonte("cliente");
+      void loadAnagraficaExtraAction({
+        ownerKind: "cliente",
+        ownerId: found.id,
+      }).then((res) => {
+        const sedi = res.success ? res.sedi : [];
+        setSediExtra(sedi);
+        setAddressKey(addressKeyFromSaved(found, sedi, editing));
+      });
+      return;
+    }
+    if (!editing.possibileClienteId) return;
+    const lead = possibili.find((p) => p.id === editing.possibileClienteId);
+    if (!lead) return;
+    hydratedAddress.current = true;
+    const asCliente = clienteFromPossibile(lead);
+    setCliente(asCliente);
+    setAnagraficaFonte("possibile");
+    setPossibileClienteId(lead.id);
+    void loadAnagraficaExtraAction({
+      ownerKind: "cliente_possibile",
+      ownerId: lead.id,
+    }).then((res) => {
+      const sedi = res.success ? res.sedi : [];
+      setSediExtra(sedi);
+      setAddressKey(addressKeyFromSaved(asCliente, sedi, editing));
+    });
+  }, [editing, clienti, possibili]);
 
   function applySpedizioneOptions(next: Cliente, sedi: AnagraficaSede[]) {
     const options = clienteSpedizioneOptions(next, sedi, "campionature");
@@ -279,8 +400,8 @@ export function CampionaturaFormModal({ onClose, onSaved }: Props) {
       const prodotto = prodotti.find((p) => p.id === r.prodottoId);
       return {
         prodottoId: r.prodottoId,
-        prodottoCodice: prodotto?.codice ?? "",
-        prodottoNome: prodotto?.nome ?? "",
+        prodottoCodice: prodotto?.codice || r.prodottoCodice || "",
+        prodottoNome: prodotto?.nome || r.prodottoNome || "",
         quantita: numberOrZero(r.quantita),
         unitaMisura: r.unitaMisura,
         lottoCodice: r.lottoCodice,
@@ -290,7 +411,7 @@ export function CampionaturaFormModal({ onClose, onSaved }: Props) {
     setSaving(true);
     setFormError(null);
     try {
-      const result = await createCampionaturaAction({
+      const payload = {
         anagraficaFonte,
         possibileClienteId: possibileClienteId || null,
         clienteId: cliente.id || undefined,
@@ -309,19 +430,31 @@ export function CampionaturaFormModal({ onClose, onSaved }: Props) {
         indirizzoSpedizione: indirizzo,
         note,
         righe: mapped,
-      });
+      };
+      const result = editing
+        ? await updateCampionaturaAction({ ...payload, id: editing.id })
+        : await createCampionaturaAction(payload);
       if (!result.success) {
         setFormError(result.error);
         return;
       }
-      if (spedDraft.current.sedePartenzaId) {
+      const saved: Campionatura = {
+        ...result.item,
+        pnNotaTitolo: nota?.titolo || result.item.pnNotaTitolo,
+        webmailOggetto: mail?.subject || result.item.webmailOggetto,
+        referenteRicezioneLabel:
+          referenteRicezione?.label || result.item.referenteRicezioneLabel,
+      };
+      const bozzaPronta =
+        (spedDraft.current as { bozzaPronta?: boolean }).bozzaPronta !== false;
+      if (spedDraft.current.sedePartenzaId && (!editing || bozzaPronta)) {
         await updateSedePartenzaAction({
           entityType: "campionatura",
           entityId: result.item.id,
           sedeId: spedDraft.current.sedePartenzaId,
         });
       }
-      if (modoMail) {
+      if (modoMail && (!editing || bozzaPronta)) {
         const d = spedDraft.current;
         let oggetto = "";
         let corpo = "";
@@ -337,7 +470,7 @@ export function CampionaturaFormModal({ onClose, onSaved }: Props) {
           });
           if (!testo.success) {
             setFormError(testo.error);
-            onSaved(result.item);
+            onSaved(saved);
             return;
           }
           oggetto = testo.subject;
@@ -360,7 +493,7 @@ export function CampionaturaFormModal({ onClose, onSaved }: Props) {
         });
         if (!up.success) {
           setFormError(up.error);
-          onSaved(result.item);
+          onSaved(saved);
           return;
         }
         if (up.apriBozza && oggetto) {
@@ -369,12 +502,12 @@ export function CampionaturaFormModal({ onClose, onSaved }: Props) {
             subject: oggetto,
             bodyText: corpo,
             to: d.destinatarioEmail || cliente.email,
-            item: result.item,
+            item: saved,
           });
           return;
         }
       }
-      onSaved(result.item);
+      onSaved(saved);
     } catch (err) {
       setFormError(
         err instanceof Error ? err.message : "Salvataggio non riuscito. Riprova."
@@ -404,14 +537,18 @@ export function CampionaturaFormModal({ onClose, onSaved }: Props) {
         className="w-full max-w-3xl rounded-xl border border-[var(--border)] bg-[var(--card)] p-5 shadow-xl"
       >
         <h2 id={titleId} className="text-lg font-semibold">
-          {origine === "storico"
-            ? "Registra campionatura in storico"
-            : "Invio campionatura"}
+          {editing
+            ? "Modifica campionatura"
+            : origine === "storico"
+              ? "Registra campionatura in storico"
+              : "Invio campionatura"}
         </h2>
         <p className="mt-1 text-sm text-[var(--muted)]">
           Documento distinto dall’ordine. Numero interno{" "}
-          <span className="font-mono">Cp-AA-TARGA/N</span>
-          {numeroPreview ? (
+          <span className="font-mono">
+            {editing ? editing.numeroInterno : "Cp-AA-TARGA/N"}
+          </span>
+          {numeroPreview && !editing ? (
             <>
               {" "}
               — anteprima{" "}
@@ -420,9 +557,11 @@ export function CampionaturaFormModal({ onClose, onSaved }: Props) {
               </span>
             </>
           ) : null}
-          {origine === "storico"
-            ? ". Non crea un ordine da processare: risulta già inviata nella timeline alla data indicata."
-            : ". Salvataggio = Inserito (da processare) e documento approvato (ISO 9001)."}
+          {editing
+            ? ". Il salvataggio aggiorna questa campionatura, con lo stesso numero interno."
+            : origine === "storico"
+              ? ". Non crea un ordine da processare: risulta già inviata nella timeline alla data indicata."
+              : ". Salvataggio = Inserito (da processare) e documento approvato (ISO 9001)."}
         </p>
 
         <form onSubmit={onSubmit} className="mt-5 space-y-4">
@@ -466,7 +605,9 @@ export function CampionaturaFormModal({ onClose, onSaved }: Props) {
                 preferenza="campionature"
                 fonte={anagraficaFonte}
                 clienteId={
-                  anagraficaFonte === "cliente" ? (cliente?.id ?? "") : ""
+                  anagraficaFonte === "cliente"
+                    ? (cliente?.id || editing?.clienteId || "")
+                    : ""
                 }
                 possibileClienteId={possibileClienteId}
                 autoFocus
@@ -785,9 +926,10 @@ export function CampionaturaFormModal({ onClose, onSaved }: Props) {
 
           <SpedizioneMailPanel
             entityType="campionatura"
-            entityId=""
-            clienteNome={cliente?.ragioneSociale ?? ""}
-            numero={numeroPreview ?? "campionatura"}
+            entityId={editing?.id ?? ""}
+            sedePartenzaIdDefault={editing?.sedePartenzaId ?? ""}
+            clienteNome={cliente?.ragioneSociale || editing?.cliente || ""}
+            numero={editing?.numeroInterno ?? numeroPreview ?? "campionatura"}
             prodotti={righe
               .map((r) => {
                 const p = prodotti.find((x) => x.id === r.prodottoId);
@@ -834,9 +976,11 @@ export function CampionaturaFormModal({ onClose, onSaved }: Props) {
             >
               {saving
                 ? "Salvataggio…"
-                : origine === "storico"
-                  ? "Salva in storico e timeline"
-                  : "Registra ordine"}
+                : editing
+                  ? "Salva modifiche"
+                  : origine === "storico"
+                    ? "Salva in storico e timeline"
+                    : "Registra ordine"}
             </button>
           </div>
         </form>

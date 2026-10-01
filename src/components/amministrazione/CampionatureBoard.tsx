@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { FaChevronDown, FaChevronUp, FaTrash } from "react-icons/fa6";
 import { ActionGate } from "@/components/layout/ActionAccessProvider";
 import { AZ } from "@/lib/auth/action-access";
+import { CampionaturaFormModal } from "@/components/amministrazione/CampionaturaFormModal";
 import { ProcessaCampionaturaProduzioneModal } from "@/components/amministrazione/ProcessaCampionaturaProduzioneModal";
 import { useCampionature } from "@/hooks/useCampionature";
 import { notifyOrdiniDaProcessareNav } from "@/lib/amministrazione/ordini-nav";
@@ -60,6 +61,7 @@ export function CampionatureBoard({
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [processing, setProcessing] = useState<Campionatura | null>(null);
+  const [editing, setEditing] = useState<Campionatura | null>(null);
   const [sort, setSort] = useState<SortState<SortKey> | null>({
     key: "dataInvio",
     dir: "desc",
@@ -177,6 +179,10 @@ export function CampionatureBoard({
                         prev === item.id ? null : item.id
                       )
                     }
+                    onEdit={() => {
+                      setActionError(null);
+                      setEditing(item);
+                    }}
                     onProcess={
                       processMode
                         ? () => {
@@ -207,6 +213,18 @@ export function CampionatureBoard({
         </div>
       )}
 
+      {editing ? (
+        <CampionaturaFormModal
+          editing={editing}
+          onClose={() => setEditing(null)}
+          onSaved={(item) => {
+            upsertLocal(item);
+            setEditing(null);
+            notifyOrdiniDaProcessareNav();
+          }}
+        />
+      ) : null}
+
       {processing ? (
         <ProcessaCampionaturaProduzioneModal
           item={processing}
@@ -226,12 +244,14 @@ function CampionaturaTableRow({
   item,
   open,
   onToggle,
+  onEdit,
   onProcess,
   onDelete,
 }: {
   item: Campionatura;
   open: boolean;
   onToggle: () => void;
+  onEdit: () => void;
   onProcess?: () => void;
   onDelete: () => void;
 }) {
@@ -242,6 +262,13 @@ function CampionaturaTableRow({
         <td className="px-4 py-3 font-mono font-semibold tabular-nums">
           <span className="inline-flex flex-wrap items-center gap-1.5">
             {item.numeroInterno}
+            <button
+              type="button"
+              onClick={onEdit}
+              className="rounded-lg bg-[var(--primary)] px-2.5 py-1 text-xs font-medium text-white hover:bg-[var(--primary-hover)]"
+            >
+              Modifica
+            </button>
             {item.origine === "storico" ? (
               <span className="rounded-full bg-slate-200 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-slate-700">
                 {CAMPIONATURA_ORIGINE_LABEL.storico}
@@ -287,6 +314,13 @@ function CampionaturaTableRow({
             ) : null}
             <button
               type="button"
+              onClick={onEdit}
+              className="rounded-lg border border-[var(--border)] bg-white px-2.5 py-1.5 text-xs font-medium text-slate-800 hover:bg-slate-50"
+            >
+              Modifica
+            </button>
+            <button
+              type="button"
               title={open ? "Chiudi dettaglio" : "Espandi dettaglio"}
               aria-expanded={open}
               onClick={onToggle}
@@ -309,6 +343,15 @@ function CampionaturaTableRow({
       {open ? (
         <tr className="border-t border-[var(--border)] bg-slate-50/80">
           <td colSpan={8} className="px-4 py-4">
+            <div className="mb-3 flex justify-end">
+              <button
+                type="button"
+                onClick={onEdit}
+                className="rounded-lg bg-[var(--primary)] px-3 py-1.5 text-xs font-medium text-white hover:bg-[var(--primary-hover)]"
+              >
+                Modifica
+              </button>
+            </div>
             <dl className="grid gap-2 text-sm sm:grid-cols-2">
               <div>
                 <dt className="text-xs uppercase text-[var(--muted)]">

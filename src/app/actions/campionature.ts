@@ -7,6 +7,7 @@ import {
   createCampionaturaSchema,
   createReferenteRicezioneSchema,
   formatNumeroCampionatura,
+  type CreateCampionaturaInput,
   REFERENTE_RICEZIONE_MERCE,
   type Campionatura,
   type CampionaturaMezzo,
@@ -335,14 +336,61 @@ async function createCampionaturaActionInner(
   const sentAtStorico = isStorico
     ? `${input.dataInvio}T12:00:00`
     : null;
-  const seqRes = await nextSeq(input.codiceTargaCliente);
-  if (!seqRes.ok) return { success: false, error: seqRes.error };
-  const seq = seqRes.seq;
-  const numero = formatNumeroCampionatura(
-    input.dataInvio,
-    input.codiceTargaCliente,
-    seq
-  );
+  let editing: {
+    id: string;
+    numero: string;
+    versione: number;
+    stato: CampionaturaRow["stato"];
+    documentoStato: CampionaturaRow["documento_stato"];
+    approvedAt: string | null;
+    approvedBy: string | null;
+    sentAt: string | null;
+    sentBy: string | null;
+  } | null = null;
+  if (input.campionaturaId) {
+    const { data: prev, error: prevErr } = await supabase
+      .from("campionature")
+      .select(
+        "id, numero_interno, versione, stato, documento_stato, approved_at, approved_by, sent_at, sent_by, deleted_at"
+      )
+      .eq("id", input.campionaturaId)
+      .maybeSingle();
+    if (prevErr || !prev || prev.deleted_at) {
+      return {
+        success: false,
+        error: prevErr?.message ?? "Campionatura da modificare non trovata.",
+      };
+    }
+    if (prev.stato === "annullata") {
+      return {
+        success: false,
+        error: "Questa campionatura è annullata e non si riscrive.",
+      };
+    }
+    editing = {
+      id: String(prev.id),
+      numero: String(prev.numero_interno ?? ""),
+      versione: Number(prev.versione ?? 1),
+      stato: prev.stato,
+      documentoStato: prev.documento_stato,
+      approvedAt: prev.approved_at,
+      approvedBy: prev.approved_by,
+      sentAt: prev.sent_at,
+      sentBy: prev.sent_by,
+    };
+  }
+  let numero = "";
+  if (editing) {
+    numero = editing.numero;
+  } else {
+    const seqRes = await nextSeq(input.codiceTargaCliente);
+    if (!seqRes.ok) return { success: false, error: seqRes.error };
+    numero = formatNumeroCampionatura(
+      input.dataInvio,
+      input.codiceTargaCliente,
+      seqRes.seq
+    );
+  }
 
   let notaTitolo = "";
   if (input.pnNotaId && !isStorico) {
@@ -407,45 +455,70 @@ async function createCampionaturaActionInner(
     }
   }
 
-  const { data, error } = await supabase
-    .from("campionature")
-    .insert({
-      numero_interno: numero,
-      cliente_id: resolved.clienteId,
-      cliente_possibile_id: resolved.possibileClienteId,
-      cliente_ragione_sociale: input.cliente,
-      cliente_codice_targa: input.codiceTargaCliente.trim().toUpperCase(),
-      data_invio: input.dataInvio,
-      origine: input.origine,
-      tracking_url: isStorico ? input.trackingUrl || "" : "",
-      mezzo: input.mezzo,
-      pn_nota_id: isStorico ? null : input.pnNotaId,
-      webmail_messaggio_id: isStorico
-        ? null
-        : input.webmailMessaggioId || null,
-      spedizione_tipo: input.spedizioneTipo,
-      spedizione_privato: input.spedizionePrivato,
-      referente_ricezione_id: input.referenteRicezioneId || null,
-      destinatario,
-      indirizzo_spedizione: indirizzoSpedizione,
-      note: input.note,
-      stato: isStorico ? "inviata" : "inserita",
-      documento_stato: isStorico ? "chiuso" : "approvato",
-      versione: 1,
-      approved_at: now,
-      approved_by: gate.auth.userId,
-      sent_at: sentAtStorico,
-      sent_by: isStorico ? gate.auth.userId : null,
-      created_by: gate.auth.userId,
-      updated_by: gate.auth.userId,
-    })
-    .select("*")
-    .single();
-
-  if (error || !data) {
-    return { success: false, error: error?.message ?? "Inserimento fallito" };
+  const headerPayload = {
+    numero_interno: numero,
+    cliente_id: resolved.clienteId,
+    cliente_possibile_id: resolved.possibileClienteId,
+    cliente_ragione_sociale: input.cliente,
+    cliente_codice_targa: input.codiceTargaCliente.trim().toUpperCase(),
+    data_invio: input.dataInvio,
+    origine: input.origine,
+    tracking_url: isStorico ? input.trackingUrl || "" : "",
+    mezzo: input.mezzo,
+    pn_nota_id: isStorico ? null : input.pnNotaId,
+    webmail_messaggio_id: isStorico ? null : input.webmailMessaggioId || null,
+    spedizione_tipo: input.spedizioneTipo,
+    spedizione_privato: input.spedizionePrivato,
+    referente_ricezione_id: input.referenteRicezioneId || null,
+    destinatario,
+    indirizzo_spedizione: indirizzoSpedizione,
+    note: input.note,
+    stato: editing?.stato ?? (isStorico ? "inviata" : "inserita"),
+    documento_stato:
+      editing?.documentoStato ?? (isStorico ? "chiuso" : "approvato"),
+    versione: editing ? editing.versione + 1 : 1,
+    approved_at: editing?.approvedAt ?? now,
+    approved_by: editing?.approvedBy ?? gate.auth.userId,
+    sent_at: editing ? editing.sentAt : sentAtStorico,
+    sent_by: editing ? editing.sentBy : isStorico ? gate.auth.userId : null,
+    updated_by: gate.auth.userId,
+  };
+  let header: CampionaturaRow;
+  if (editing) {
+    const updated = await supabase
+      .from("campionature")
+      .update(headerPayload)
+      .eq("id", editing.id)
+      .select("*")
+      .single();
+    if (updated.error || !updated.data) {
+      return {
+        success: false,
+        error: updated.error?.message ?? "Aggiornamento fallito.",
+      };
+    }
+    header = updated.data as CampionaturaRow;
+    await supabase
+      .from("campionature_righe")
+      .delete()
+      .eq("campionatura_id", header.id);
+  } else {
+    const inserted = await supabase
+      .from("campionature")
+      .insert({
+        ...headerPayload,
+        created_by: gate.auth.userId,
+      })
+      .select("*")
+      .single();
+    if (inserted.error || !inserted.data) {
+      return {
+        success: false,
+        error: inserted.error?.message ?? "Inserimento fallito",
+      };
+    }
+    header = inserted.data as CampionaturaRow;
   }
-  const header = data as CampionaturaRow;
 
   const { data: righe, error: rErr } = await supabase
     .from("campionature_righe")
@@ -467,13 +540,15 @@ async function createCampionaturaActionInner(
     .select("*");
 
   if (rErr) {
-    await supabase
-      .from("campionature")
-      .update({
-        deleted_at: now,
-        deleted_by: gate.auth.userId,
-      })
-      .eq("id", header.id);
+    if (!editing) {
+      await supabase
+        .from("campionature")
+        .update({
+          deleted_at: now,
+          deleted_by: gate.auth.userId,
+        })
+        .eq("id", header.id);
+    }
     return { success: false, error: rErr.message };
   }
 
@@ -489,7 +564,7 @@ async function createCampionaturaActionInner(
       .is("deleted_at", null);
   }
 
-  if (isStorico && input.trackingUrl) {
+  if (!editing && isStorico && input.trackingUrl) {
     const service = createServiceClient();
     const carrier = inferCarrierFromUrl(input.trackingUrl);
     const { data: tracking, error: trackErr } = await service
@@ -551,7 +626,7 @@ async function createCampionaturaActionInner(
     numero,
     clienteLabel: input.cliente,
     prodotto: input.righe[0]?.prodottoCodice,
-    stato: isStorico ? "inviata" : "inserita",
+    stato: editing?.stato ?? (isStorico ? "inviata" : "inserita"),
     fromCampionaturaTable: true,
     clienteId: resolved.clienteId,
     possibileClienteId: resolved.possibileClienteId,
@@ -560,11 +635,13 @@ async function createCampionaturaActionInner(
   await writeAuditLog({
     entity_type: "campionature",
     entity_id: header.id,
-    action: "create",
+    action: editing ? "update" : "create",
     actor_id: gate.auth.userId,
-    summary: isStorico
-      ? `Campionatura ${numero} registrata in storico per ${input.cliente}`
-      : `Campionatura ${numero} inserita per ${input.cliente}`,
+    summary: editing
+      ? `Aggiornata campionatura ${numero} dalla procedura di inserimento`
+      : isStorico
+        ? `Campionatura ${numero} registrata in storico per ${input.cliente}`
+        : `Campionatura ${numero} inserita per ${input.cliente}`,
     payload: {
       numero_interno: numero,
       cliente_id: input.clienteId,
@@ -576,7 +653,7 @@ async function createCampionaturaActionInner(
       lotti: input.righe.map((r) => r.lottoCodice),
     },
   });
-  if (input.pnNotaId && !isStorico) {
+  if (!editing && input.pnNotaId && !isStorico) {
     await writeAuditLog({
       entity_type: "pn_note",
       entity_id: input.pnNotaId,
@@ -593,6 +670,309 @@ async function createCampionaturaActionInner(
       notaTitolo,
     }),
   };
+}
+
+async function replaceCampionaturaRighe(
+  campionaturaId: string,
+  righe: CreateCampionaturaInput["righe"],
+  userId: string
+): Promise<
+  | { ok: true; righe: CampionaturaRigaRow[] }
+  | { ok: false; error: string }
+> {
+  const supabase = await createClient();
+  const { error: delErr } = await supabase
+    .from("campionature_righe")
+    .delete()
+    .eq("campionatura_id", campionaturaId);
+  if (delErr) return { ok: false, error: delErr.message };
+  const { data, error } = await supabase
+    .from("campionature_righe")
+    .insert(
+      righe.map((r, i) => ({
+        campionatura_id: campionaturaId,
+        prodotto_id: r.prodottoId,
+        prodotto_codice: r.prodottoCodice,
+        prodotto_nome: r.prodottoNome,
+        quantita: r.quantita,
+        unita_misura: r.unitaMisura,
+        lotto_codice: r.lottoCodice,
+        note: r.note ?? "",
+        sort_order: i,
+        created_by: userId,
+        updated_by: userId,
+      }))
+    )
+    .select("*");
+  if (error) return { ok: false, error: error.message };
+  return { ok: true, righe: (data ?? []) as CampionaturaRigaRow[] };
+}
+
+export async function updateCampionaturaAction(
+  raw: unknown
+): Promise<
+  { success: true; item: Campionatura } | { success: false; error: string }
+> {
+  try {
+    const gate = await requireCampionaturaAccess("write");
+    if (!gate.ok) return { success: false, error: gate.error };
+    const idParsed = z
+      .string()
+      .uuid()
+      .safeParse(
+        raw && typeof raw === "object" && raw !== null && "id" in raw
+          ? (raw as { id: unknown }).id
+          : undefined
+      );
+    if (!idParsed.success) {
+      return { success: false, error: "Campionatura da aggiornare non valida." };
+    }
+    const resolved = await resolveClientePerOrdineFromRawAction(raw);
+    if (!resolved.success) return resolved;
+    const supabase = await createClient();
+    const { data: existingRaw, error: readErr } = await supabase
+      .from("campionature")
+      .select("*")
+      .eq("id", idParsed.data)
+      .is("deleted_at", null)
+      .maybeSingle();
+    if (readErr || !existingRaw) {
+      return {
+        success: false,
+        error: readErr?.message ?? "Campionatura non trovata.",
+      };
+    }
+    const existing = existingRaw as CampionaturaRow;
+    const ownerIds = await resolveAnagraficaOwnerUserIds();
+    if (ownerIds) {
+      if (resolved.mode === "cliente" && resolved.clienteId) {
+        const owned = await loadOwnedAziendaIds(
+          supabase,
+          gate.auth.userId,
+          "clienti"
+        );
+        if (!owned.includes(resolved.clienteId)) {
+          return {
+            success: false,
+            error:
+              "Puoi modificare campionature solo delle aziende del tuo perimetro.",
+          };
+        }
+      } else {
+        const lineage = await loadCommercialLineageUserIds(gate.auth.userId);
+        const own = isCommercialOwnRecord({
+          userId: gate.auth.userId,
+          createdBy: resolved.createdBy,
+          commercialeId: resolved.commercialeId,
+          affiancatoId: resolved.affiancatoId,
+          lineageIds: lineage,
+        });
+        if (!own && !isSuperadminProfile(gate.auth.profile)) {
+          return {
+            success: false,
+            error:
+              "Puoi modificare campionature solo delle aziende del tuo perimetro.",
+          };
+        }
+      }
+    }
+    const parsed = createCampionaturaSchema.safeParse({
+      ...(raw && typeof raw === "object" ? raw : {}),
+      clienteId: resolved.clienteId || undefined,
+      possibileClienteId: resolved.possibileClienteId,
+      cliente: resolved.ragioneSociale,
+      codiceTargaCliente: resolved.codiceTarga,
+    });
+    if (!parsed.success) {
+      return {
+        success: false,
+        error: parsed.error.issues[0]?.message ?? "Dati non validi",
+      };
+    }
+    const input = parsed.data;
+    const isStorico = input.origine === "storico";
+    let notaTitolo = "";
+    if (input.pnNotaId && !isStorico) {
+      const { data: notaCheck, error: notaErr } = await supabase
+        .from("pn_note")
+        .select("id, titolo, entity_type, entity_id")
+        .eq("id", input.pnNotaId)
+        .is("deleted_at", null)
+        .maybeSingle();
+      if (notaErr || !notaCheck) {
+        return { success: false, error: "Nota timeline non trovata" };
+      }
+      const notaSuCliente =
+        notaCheck.entity_type === "cliente" &&
+        notaCheck.entity_id === input.clienteId;
+      const notaSuLead =
+        notaCheck.entity_type === "cliente_possibile" &&
+        Boolean(resolved.possibileClienteId) &&
+        notaCheck.entity_id === resolved.possibileClienteId;
+      if (!notaSuCliente && !notaSuLead) {
+        return {
+          success: false,
+          error: "La nota deve appartenere all’azienda selezionata",
+        };
+      }
+      notaTitolo = String(notaCheck.titolo || "Nota");
+    }
+
+    let destinatario = input.destinatario || input.cliente;
+    let indirizzoSpedizione = input.indirizzoSpedizione;
+    if (input.spedizioneTipo === "sede_azienda" && !indirizzoSpedizione.trim()) {
+      const ricezione = await loadIndirizzoRicezioneMerce({
+        ownerKind:
+          resolved.mode === "cliente" && resolved.clienteId
+            ? "cliente"
+            : "cliente_possibile",
+        ownerId:
+          resolved.mode === "cliente" && resolved.clienteId
+            ? resolved.clienteId
+            : resolved.possibileClienteId,
+        ragioneSociale: input.cliente,
+        purpose: "campionature",
+      });
+      if (ricezione) {
+        destinatario = ricezione.destinatario || destinatario;
+        indirizzoSpedizione = ricezione.indirizzo;
+      }
+    }
+
+    const switchingToStorico = isStorico && existing.origine !== "storico";
+    const versione = (existing.versione ?? 1) + 1;
+    const { data: updated, error: updErr } = await supabase
+      .from("campionature")
+      .update({
+        cliente_id: resolved.clienteId,
+        cliente_possibile_id: resolved.possibileClienteId,
+        cliente_ragione_sociale: input.cliente,
+        cliente_codice_targa: input.codiceTargaCliente.trim().toUpperCase(),
+        data_invio: input.dataInvio,
+        origine: input.origine,
+        tracking_url: isStorico
+          ? input.trackingUrl || ""
+          : (existing.tracking_url ?? ""),
+        mezzo: input.mezzo,
+        pn_nota_id: isStorico ? null : input.pnNotaId,
+        webmail_messaggio_id: isStorico
+          ? null
+          : input.webmailMessaggioId || null,
+        spedizione_tipo: input.spedizioneTipo,
+        spedizione_privato: input.spedizionePrivato,
+        referente_ricezione_id: input.referenteRicezioneId || null,
+        destinatario,
+        indirizzo_spedizione: indirizzoSpedizione,
+        note: input.note,
+        stato: switchingToStorico ? "inviata" : existing.stato,
+        documento_stato: switchingToStorico ? "chiuso" : existing.documento_stato,
+        versione,
+        sent_at: switchingToStorico
+          ? (existing.sent_at ?? `${input.dataInvio}T12:00:00`)
+          : existing.sent_at,
+        sent_by: switchingToStorico
+          ? (existing.sent_by ?? gate.auth.userId)
+          : existing.sent_by,
+        updated_by: gate.auth.userId,
+      })
+      .eq("id", existing.id)
+      .is("deleted_at", null)
+      .select("*")
+      .single();
+    if (updErr || !updated) {
+      return {
+        success: false,
+        error: updErr?.message ?? "Aggiornamento fallito",
+      };
+    }
+
+    const replaced = await replaceCampionaturaRighe(
+      existing.id,
+      input.righe,
+      gate.auth.userId
+    );
+    if (!replaced.ok) return { success: false, error: replaced.error };
+
+    if (input.pnNotaId && !isStorico) {
+      const service = createServiceClient();
+      await service
+        .from("pn_note")
+        .update({
+          linked_campionatura_id: existing.id,
+          updated_by: gate.auth.userId,
+        })
+        .eq("id", input.pnNotaId)
+        .is("deleted_at", null);
+    }
+
+    if (isStorico && input.trackingUrl) {
+      const service = createServiceClient();
+      const { data: already } = await service
+        .from("shipping_trackings")
+        .select("id")
+        .eq("entity_type", "campionatura")
+        .eq("entity_id", existing.id)
+        .eq("tracking_url", input.trackingUrl)
+        .maybeSingle();
+      if (!already) {
+        const carrier = inferCarrierFromUrl(input.trackingUrl);
+        const { error: trackErr } = await service
+          .from("shipping_trackings")
+          .insert({
+            entity_type: "campionatura",
+            entity_id: existing.id,
+            tracking_url: input.trackingUrl,
+            carrier,
+            tracking_code: "",
+            current_status: "registrato",
+            last_check_note: "Aggiornato da modifica campionatura",
+            created_by: gate.auth.userId,
+            updated_by: gate.auth.userId,
+          });
+        if (trackErr) {
+          return { success: false, error: trackErr.message };
+        }
+      }
+    }
+
+    await syncSchedaOrdineAziendaNota({
+      userId: gate.auth.userId,
+      campionaturaId: existing.id,
+      numero: existing.numero_interno,
+      clienteLabel: input.cliente,
+      prodotto: input.righe[0]?.prodottoCodice,
+      stato: switchingToStorico ? "inviata" : existing.stato,
+      fromCampionaturaTable: true,
+      clienteId: resolved.clienteId,
+      possibileClienteId: resolved.possibileClienteId,
+    });
+
+    await writeAuditLog({
+      entity_type: "campionature",
+      entity_id: existing.id,
+      action: "update",
+      actor_id: gate.auth.userId,
+      summary: `Campionatura ${existing.numero_interno} aggiornata (v${versione})`,
+      payload: {
+        numero_interno: existing.numero_interno,
+        versione,
+        cliente_id: resolved.clienteId,
+        origine: input.origine,
+        mezzo: input.mezzo,
+        lotti: input.righe.map((r) => r.lottoCodice),
+      },
+    });
+
+    return {
+      success: true,
+      item: mapCampionatura(updated as CampionaturaRow, replaced.righe, {
+        notaTitolo,
+      }),
+    };
+  } catch (e) {
+    console.error("[updateCampionaturaAction]", e);
+    return { success: false, error: saveErrorMessage(e) };
+  }
 }
 
 export async function previewNumeroCampionaturaAction(input: {

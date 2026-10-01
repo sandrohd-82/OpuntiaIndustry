@@ -133,6 +133,7 @@ export const campionaturaRigaSchema = z.object({
 });
 
 export const createCampionaturaSchema = z.object({
+  campionaturaId: z.string().uuid().optional(),
   origine: z.enum(CAMPIONATURA_ORIGINI).optional().default("da_inviare"),
   clienteId: z.string().uuid().optional().or(z.literal("")),
   possibileClienteId: z.string().uuid().optional().nullable(),
