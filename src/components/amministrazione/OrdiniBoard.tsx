@@ -763,7 +763,21 @@ export function OrdiniBoard({
         />
       ) : null}
 
-      {editing && (
+      {editing && editing.consegnaTipo ? (
+        <OrdineNuovoWizardModal
+          modificaOrdineId={editing.id}
+          variant={editing.tipo === "campionatura" ? "campionatura" : "ordine"}
+          onClose={() => setEditing(null)}
+          onSaved={(ordine) => {
+            upsertLocal(ordine);
+            setEditing(null);
+            setExpandedId(ordine.id);
+            notifyOrdiniDaProcessareNav();
+          }}
+        />
+      ) : null}
+
+      {editing && !editing.consegnaTipo ? (
         <OrdineFormModal
           mode="edit"
           stato={editing.stato}
@@ -775,7 +789,7 @@ export function OrdiniBoard({
             setExpandedId(ordine.id);
           }}
         />
-      )}
+      ) : null}
 
       {deleting && (
         <OrdineEliminaConfirmModal

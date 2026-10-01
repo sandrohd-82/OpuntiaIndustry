@@ -123,6 +123,7 @@ export type CalcoloConsegnaInput = z.infer<typeof calcoloConsegnaInputSchema>;
 
 export const ordineWizardInputSchema = z
   .object({
+    ordineId: z.string().uuid().optional(),
     clienteId: z.string().uuid().optional().or(z.literal("")),
     possibileClienteId: z.string().uuid().optional().nullable(),
     cliente: z.string().trim().min(1),

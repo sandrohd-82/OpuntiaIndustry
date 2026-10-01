@@ -125,9 +125,12 @@ import {
 import type { CapacitaCalcoloResult } from "@/lib/amministrazione/produzione-capacita";
 import type { ProdottoProprio } from "@/lib/amministrazione/prodotti-propri";
 import type { OrdineConfezionamentoNodoStadio } from "@/types/database";
+import { loadOrdinePerModificaWizardAction } from "@/app/actions/ordine-wizard-modifica";
 
 type Props = {
   variant?: "ordine" | "campionatura";
+  /** Riapre la procedura già compilata su questo ordine. */
+  modificaOrdineId?: string;
   onClose: () => void;
   onSaved: (ordine: Ordine) => void;
 };
@@ -273,6 +276,7 @@ function addChildToNode(
 
 export function OrdineNuovoWizardModal({
   variant = "ordine",
+  modificaOrdineId,
   onClose,
   onSaved,
 }: Props) {
@@ -280,6 +284,19 @@ export function OrdineNuovoWizardModal({
   const { prodotti, ready: prodottiReady, addProdotto, refresh } =
     useProdottiPropri();
   const [step, setStep] = useState<Step>(1);
+  const [modificaPronta, setModificaPronta] = useState(!modificaOrdineId);
+  const [sedePartenzaId, setSedePartenzaId] = useState("");
+  const savedPriceRef = useRef<{
+    prezzo: number | "";
+    scontoAccordo: number | "";
+    dataDisp: string;
+  } | null>(null);
+  const skipUnitaOnce = useRef(false);
+  const pianoLock = useRef(Boolean(modificaOrdineId));
+  const unlockPianoNext = useRef(false);
+  const hydratedId = useRef("");
+  const hydratedCliente = useRef<string | null>(null);
+  const hydratedProdotto = useRef<string | null>(null);
   const [formError, setFormError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const spedDraft = useRef({
@@ -292,6 +309,7 @@ export function OrdineNuovoWizardModal({
     allegaFile: false,
     destinatarioEmail: "",
     sedePartenzaId: "",
+    bozzaPronta: false,
   });
   const [composeAfter, setComposeAfter] = useState<{
     prenotazione: SpedizioneMailPrenotazione;
@@ -451,6 +469,7 @@ export function OrdineNuovoWizardModal({
   }, []);
 
   useEffect(() => {
+    if (modificaOrdineId) return;
     if (!dataOrdine) {
       setNumeroInterno("");
       return;
@@ -493,7 +512,99 @@ export function OrdineNuovoWizardModal({
     clienteTarga,
     dataOrdine,
     possibileClienteId,
+    modificaOrdineId,
   ]);
+
+  useEffect(() => {
+    if (!modificaOrdineId || !prodottiReady) return;
+    if (hydratedId.current === modificaOrdineId) return;
+    let cancelled = false;
+    void (async () => {
+      const res = await loadOrdinePerModificaWizardAction(modificaOrdineId);
+      if (cancelled) return;
+      if (!res.success) {
+        setFormError(res.error);
+        setModificaPronta(true);
+        return;
+      }
+      const d = res.draft;
+      hydratedId.current = modificaOrdineId;
+      const trovato =
+        prodotti.find((p) => p.id === d.prodottoId) ??
+        ({
+          id: d.prodottoId,
+          codice: d.prodottoCodice,
+          nome: d.prodottoNome,
+          note: "",
+          isBio: false,
+          createdAt: "",
+          settori: [],
+        } satisfies ProdottoProprio);
+      savedPriceRef.current = {
+        prezzo: d.prezzoUnitario,
+        scontoAccordo: d.scontoAccordo ?? "",
+        dataDisp: d.dataDisponibilitaPresunta,
+      };
+      skipUnitaOnce.current = true;
+      hydratedCliente.current = d.clienteId;
+      hydratedProdotto.current = d.prodottoId;
+      setAnagraficaFonte(d.anagraficaFonte);
+      setClienteId(d.clienteId);
+      setPossibileClienteId(d.possibileClienteId);
+      setClienteNome(d.cliente);
+      setClienteTarga(d.codiceTarga);
+      setDataOrdine(d.dataOrdine);
+      setNumeroInterno(d.numeroInterno);
+      setTipoOrdine(d.tipo);
+      setProdotto(trovato);
+      setQuantita(d.quantita);
+      setUnitaMisura(d.unitaMisura);
+      setScontoExtraPct(d.scontoExtraPct || "");
+      setScontoSuddivisioneAttiva(d.scontoSuddivisioneAttiva);
+      setScontoQuotaAzienda(d.scontoQuotaAziendaPct || "");
+      setScontoQuotaCommerciale(d.scontoQuotaCommercialePct || "");
+      setConsegnaTipo(d.consegnaTipo);
+      setDataRichiesta(d.dataRichiesta);
+      setUrgente(d.urgente);
+      setUsaMagazzino(d.usaMagazzino);
+      setUsaSabato(d.usaSabato);
+      setDataDisponibilitaPresunta(d.dataDisponibilitaPresunta);
+      setCorriereId(d.corriereId);
+      setCorriereDopo(d.corriereDaCompilare);
+      setACarico(d.spedizioneACarico);
+      setPctAgrin(d.spedizionePctAgrinsicilia ?? 50);
+      setDestinatario(d.destinatario);
+      setIndirizzoSpedizione(d.indirizzoSpedizione);
+      setPreventivoId(d.preventivoId ?? "");
+      setMailAccettazione(
+        d.webmailAccettazioneId
+          ? { id: d.webmailAccettazioneId, subject: d.webmailAccettazioneSubject }
+          : null
+      );
+      setMailRichiesta(
+        d.webmailRichiestaId
+          ? { id: d.webmailRichiestaId, subject: d.webmailRichiestaSubject }
+          : null
+      );
+      setReferenteAccettazione(d.referente);
+      setPagamentoPiano(d.pagamentoPiano);
+      setConf(d.confezionamento);
+      setGiorniProduzione(d.giorniProduzione);
+      setGiorniAttivita(d.giorniAttivita);
+      setAttivitaSnapshot(d.attivitaSnapshot);
+      setDataConsegnaCalendario(d.dataConsegnaCalendario);
+      if (d.resaOverride != null) setResaOverride(d.resaOverride);
+      if (d.kgEssiccatore != null) setKgEssiccatore(d.kgEssiccatore);
+      if (d.resaOverride != null || d.kgEssiccatore != null) {
+        setOverridesSeeded(true);
+      }
+      setSedePartenzaId(d.sedePartenzaId);
+      setModificaPronta(true);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [modificaOrdineId, prodottiReady, prodotti]);
 
   useEffect(() => {
     void (async () => {
@@ -529,6 +640,10 @@ export function OrdineNuovoWizardModal({
       });
       return;
     }
+    if (skipUnitaOnce.current) {
+      skipUnitaOnce.current = false;
+      return;
+    }
     setUnitaMisura(base);
   }, [tipoOrdine, prodotto?.codice, voceListino?.unitaMisura]);
 
@@ -549,6 +664,14 @@ export function OrdineNuovoWizardModal({
       if (!res.success) {
         setFormError(res.error);
         setVoceListino(null);
+        if (savedPriceRef.current) {
+          const saved = savedPriceRef.current;
+          savedPriceRef.current = null;
+          unlockPianoNext.current = true;
+          setPrezzoUnitario(saved.prezzo);
+          setScontoAccordo(saved.scontoAccordo);
+          setDataDisponibilitaPresunta(saved.dataDisp);
+        }
         return;
       }
       setVoceListino(res.voce);
@@ -566,6 +689,15 @@ export function OrdineNuovoWizardModal({
       }
       if (cancelled) return;
       setAccordo(nextAccordo);
+      if (savedPriceRef.current) {
+        const saved = savedPriceRef.current;
+        savedPriceRef.current = null;
+        unlockPianoNext.current = true;
+        setPrezzoUnitario(saved.prezzo);
+        setScontoAccordo(saved.scontoAccordo);
+        setDataDisponibilitaPresunta(saved.dataDisp);
+        return;
+      }
       if (tipoOrdine === "campionatura") {
         setPrezzoUnitario(0);
         setScontoAccordo("");
@@ -658,6 +790,13 @@ export function OrdineNuovoWizardModal({
   ]);
 
   useEffect(() => {
+    if (pianoLock.current) {
+      if (unlockPianoNext.current) {
+        unlockPianoNext.current = false;
+        pianoLock.current = false;
+      }
+      return;
+    }
     setPagamentoPiano((prev) => applyTotaleToPiano(prev, rigaImporti.totale));
   }, [rigaImporti.totale]);
 
@@ -738,6 +877,13 @@ export function OrdineNuovoWizardModal({
   }, [step]);
 
   useEffect(() => {
+    if (
+      hydratedCliente.current !== null &&
+      hydratedCliente.current === clienteId
+    ) {
+      hydratedCliente.current = null;
+      return;
+    }
     setPreventivoId("");
     setMailAccettazione(null);
     setReferenteAccettazione(null);
@@ -762,6 +908,13 @@ export function OrdineNuovoWizardModal({
   }, [tipoOrdine, clienteId, prodotto?.id, step]);
 
   useEffect(() => {
+    if (
+      hydratedProdotto.current !== null &&
+      hydratedProdotto.current === prodotto?.id
+    ) {
+      hydratedProdotto.current = null;
+      return;
+    }
     setAttivitaDrafts([]);
     setGiorniProduzione([]);
     setGiorniAttivita([]);
@@ -1122,6 +1275,7 @@ export function OrdineNuovoWizardModal({
         preventivoId: preventivoId || null,
         webmailAccettazioneId: mailAccettazione?.id ?? null,
         webmailRichiestaId: mailRichiesta?.id ?? null,
+        ordineId: modificaOrdineId,
         referenteAccettazioneId: referenteAccettazione?.id ?? null,
         dataDisponibilitaPresunta: ordineSospeso
           ? dataDisponibilitaPresunta || null
@@ -1143,7 +1297,7 @@ export function OrdineNuovoWizardModal({
         setFatturaA4Open(true);
         return;
       }
-      if (modoMail) {
+      if (modoMail && !(modificaOrdineId && !spedDraft.current.bozzaPronta)) {
         const d = spedDraft.current;
         let oggetto = "";
         let corpo = "";
@@ -1513,9 +1667,11 @@ export function OrdineNuovoWizardModal({
         className="w-full max-w-3xl rounded-xl border border-[var(--border)] bg-[var(--card)] p-5 shadow-xl"
       >
         <h2 id={titleId} className="text-lg font-semibold">
-          {tipoOrdine === "campionatura"
-            ? "Crea campionatura da produrre"
-            : "Crea ordine di vendita"}
+          {modificaOrdineId
+            ? `Modifica ordine ${numeroInterno || ""}`.trim()
+            : tipoOrdine === "campionatura"
+              ? "Crea campionatura da produrre"
+              : "Crea ordine di vendita"}
         </h2>
         <p className="mt-1 text-xs text-[var(--muted)]">
           Seleziona l’azienda digitando il nome: l’elenco sotto si filtra mentre
@@ -1526,6 +1682,11 @@ export function OrdineNuovoWizardModal({
           in scaletta. «Invio campionatura» resta il documento del campione già
           spedito.
         </p>
+        {modificaOrdineId && !modificaPronta ? (
+          <p className="mt-2 text-sm text-[var(--muted)]">
+            Carico i dati dell’ordine…
+          </p>
+        ) : null}
         {!ORDINI_PERSISTENZA_DEFINITIVA ? (
           <p className="mt-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-950">
             Salvataggio provvisorio: ordine e fattura restano solo in questa
@@ -2779,7 +2940,8 @@ export function OrdineNuovoWizardModal({
             <div className="mt-4">
               <SpedizioneMailPanel
                 entityType="ordine"
-                entityId=""
+                entityId={modificaOrdineId ?? ""}
+                sedePartenzaIdDefault={sedePartenzaId}
                 persistDisabled={!ORDINI_PERSISTENZA_DEFINITIVA}
                 clienteNome={clienteNome}
                 numero={numeroInterno || "ordine"}
@@ -2830,7 +2992,7 @@ export function OrdineNuovoWizardModal({
             {step < lastStep ? (
               <button
                 type="button"
-                disabled={!canNext()}
+                disabled={!modificaPronta || !canNext()}
                 onClick={() => setStep((s) => (s + 1) as Step)}
                 className="rounded-lg bg-[var(--primary)] px-4 py-2 text-sm font-medium text-white hover:bg-[var(--primary-hover)] disabled:opacity-50"
               >
@@ -2841,8 +3003,10 @@ export function OrdineNuovoWizardModal({
                 type="button"
                 disabled={
                   saving ||
+                  !modificaPronta ||
                   calcoloLoading ||
                   (tipoOrdine !== "campionatura" &&
+                    !modificaOrdineId &&
                     !calcolo?.dataConsegnaStimata)
                 }
                 onClick={() => void submit("salva")}
@@ -2850,9 +3014,11 @@ export function OrdineNuovoWizardModal({
               >
                 {saving
                   ? "Salvataggio…"
-                  : ORDINI_PERSISTENZA_DEFINITIVA
-                    ? "Salva ordine"
-                    : "Salva in sessione"}
+                  : modificaOrdineId
+                    ? "Salva modifiche"
+                    : ORDINI_PERSISTENZA_DEFINITIVA
+                      ? "Salva ordine"
+                      : "Salva in sessione"}
               </button>
             )}
           </div>

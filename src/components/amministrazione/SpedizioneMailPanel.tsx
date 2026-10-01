@@ -38,6 +38,7 @@ type Props = {
     allegaFile: boolean;
     destinatarioEmail: string;
     sedePartenzaId: string;
+    bozzaPronta: boolean;
   }) => void;
   sedePartenzaIdDefault?: string;
   persistDisabled?: boolean;
@@ -77,6 +78,7 @@ export function SpedizioneMailPanel({
   const [info, setInfo] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [uploading, setUploading] = useState(false);
+  const [bozzaPronta, setBozzaPronta] = useState(!entityId);
 
   useEffect(() => {
     void listSediAttiveAction().then((res) => {
@@ -89,11 +91,15 @@ export function SpedizioneMailPanel({
   }, [sedePartenzaIdDefault]);
 
   useEffect(() => {
-    if (!entityId) return;
+    if (!entityId) {
+      setBozzaPronta(true);
+      return;
+    }
+    setBozzaPronta(false);
     void getPrenotazioneSpedizioneMailAction({ entityType, entityId }).then(
       (res) => {
-        if (!res.success || !res.item) return;
-        applyItem(res.item);
+        if (res.success && res.item) applyItem(res.item);
+        setBozzaPronta(true);
       }
     );
   }, [entityType, entityId]);
@@ -113,6 +119,7 @@ export function SpedizioneMailPanel({
       allegaFile,
       destinatarioEmail: destEmail,
       sedePartenzaId,
+      bozzaPronta,
     });
   }, [
     trackingUrl,
@@ -124,6 +131,7 @@ export function SpedizioneMailPanel({
     allegaFile,
     destEmail,
     sedePartenzaId,
+    bozzaPronta,
   ]);
 
   function applyItem(next: SpedizioneMailPrenotazione) {

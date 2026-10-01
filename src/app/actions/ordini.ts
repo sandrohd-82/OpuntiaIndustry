@@ -37,6 +37,7 @@ import { messaggioGiacenzaInsufficiente } from "@/lib/amministrazione/approvvigi
 import {
   ordineProcessaScalettaSchema,
   ordineWizardInputSchema,
+  type OrdineWizardInput,
 } from "@/lib/amministrazione/produzione-capacita";
 import { queryListinoVoceVigente } from "@/lib/ecosystem/listino-vigente-query";
 import {
@@ -1032,6 +1033,29 @@ export async function createOrdineWizardAction(
   }
 }
 
+function capacitaConRipresa(
+  base: Record<string, unknown>,
+  input: OrdineWizardInput
+): Record<string, unknown> {
+  return {
+    ...base,
+    ripresa: {
+      prezzoUnitario: input.prezzoUnitario,
+      scontoAccordo:
+        input.accordoModalita === "sconto_percentuale"
+          ? (input.accordoValoreApplicato ?? input.accordoValoreOrigine ?? 0)
+          : null,
+      giorniProduzione: input.giorniProduzione ?? [],
+      giorniAttivita: input.giorniAttivita ?? input.giorniPreparazione ?? [],
+      attivitaSnapshot: input.attivitaSnapshot ?? [],
+      dataConsegnaCalendario: input.dataConsegnaCalendario ?? null,
+      resaPercentualeOverride: input.resaPercentualeOverride ?? null,
+      kgEssiccatore: input.capacitaIngressoKgPerEssiccatoreOverride ?? null,
+      pagamentoPiano: input.pagamentoPiano ?? null,
+    },
+  };
+}
+
 async function createOrdineWizardActionInner(
   raw: unknown
 ): Promise<OrdiniActionResult> {
@@ -1160,6 +1184,45 @@ async function createOrdineWizardActionInner(
 
   try {
     const supabase = await createClient();
+    let editing: {
+      id: string;
+      numero: string;
+      versione: number;
+      stato: string;
+      giorni: string[];
+      scontoPct: number;
+    } | null = null;
+    if (input.ordineId) {
+      const { data: prev, error: prevErr } = await supabase
+        .from("ordini")
+        .select(
+          "id, numero_interno, versione, stato, giorni_produzione, sconto_extra_pct, deleted_at"
+        )
+        .eq("id", input.ordineId)
+        .maybeSingle();
+      if (prevErr || !prev || prev.deleted_at) {
+        return {
+          success: false,
+          error: prevErr?.message ?? "Ordine da modificare non trovato.",
+        };
+      }
+      if (prev.stato === "storico" || prev.stato === "evaso") {
+        return {
+          success: false,
+          error: "Questo ordine è chiuso e non si riscrive dalla procedura.",
+        };
+      }
+      editing = {
+        id: String(prev.id),
+        numero: String(prev.numero_interno ?? ""),
+        versione: Number(prev.versione ?? 1),
+        stato: String(prev.stato ?? "in_attesa"),
+        giorni: Array.isArray(prev.giorni_produzione)
+          ? prev.giorni_produzione.map((d: unknown) => String(d))
+          : [],
+        scontoPct: Number(prev.sconto_extra_pct ?? 0),
+      };
+    }
     if (input.preventivoId && !campionaturaGratis) {
       const { data: pv, error: pvErr } = await supabase
         .from("preventivi")
@@ -1185,15 +1248,33 @@ async function createOrdineWizardActionInner(
         };
       }
     }
-    const seq = await nextSeqForCliente(
-      resolved.clienteId,
-      input.codiceTargaCliente
-    );
-    const numeroInterno = buildNumeroInternoOrdine({
-      dataOrdine: input.dataOrdine,
-      codiceTargaCliente: input.codiceTargaCliente,
-      seq,
-    });
+    let numeroInterno = "";
+    if (editing) {
+      numeroInterno = editing.numero;
+    } else {
+      const seq = await nextSeqForCliente(
+        resolved.clienteId,
+        input.codiceTargaCliente
+      );
+      numeroInterno = buildNumeroInternoOrdine({
+        dataOrdine: input.dataOrdine,
+        codiceTargaCliente: input.codiceTargaCliente,
+        seq,
+      });
+    }
+    const statoAperto =
+      !editing ||
+      editing.stato === "in_attesa" ||
+      editing.stato === "ricevuto" ||
+      editing.stato === "sospeso";
+    const statoScritto = !statoAperto
+      ? (editing?.stato ?? "in_attesa")
+      : ordineSospeso
+        ? "sospeso"
+        : editing?.stato === "ricevuto"
+          ? "ricevuto"
+          : "in_attesa";
+    const giorniScritti = statoAperto ? [] : (editing?.giorni ?? []);
 
     let destSped = {
       destinatario: (input.destinatario ?? "").trim() || input.cliente.trim(),
@@ -1230,7 +1311,7 @@ async function createOrdineWizardActionInner(
       cliente_codice_targa: input.codiceTargaCliente.trim().toUpperCase(),
       data_ordine: input.dataOrdine,
       data_consegna: dataConsegna,
-      stato: ordineSospeso ? "sospeso" : "in_attesa",
+      stato: statoScritto as OrdineInsert["stato"],
       tipo: input.tipo ?? "vendita",
       data_disponibilita_presunta: ordineSospeso
         ? (input.dataDisponibilitaPresunta ?? null)
@@ -1266,24 +1347,27 @@ async function createOrdineWizardActionInner(
       usa_magazzino: input.usaMagazzino,
       usa_sabato: input.usaSabato,
       data_consegna_stimata: dataConsegna,
-      capacita_snapshot: ordineSospeso
-        ? {
-            sospeso: true,
-            motivo: "non_disponibile",
-            data_disponibilita_presunta: input.dataDisponibilitaPresunta,
-            webmail_richiesta_id: input.webmailRichiestaId ?? null,
-            sconto_extra_pct: scontoVal.pct,
-            sconto_fascia: scontoVal.fascia,
-          }
-        : {
-            in_attesa: true,
-            consegna_tipo: input.consegnaTipo,
-            data_consegna_richiesta: dataConsegna,
-            webmail_richiesta_id: input.webmailRichiestaId ?? null,
-            sconto_extra_pct: scontoVal.pct,
-            sconto_fascia: scontoVal.fascia,
-          },
-      giorni_produzione: [],
+      capacita_snapshot: capacitaConRipresa(
+        ordineSospeso
+          ? {
+              sospeso: true,
+              motivo: "non_disponibile",
+              data_disponibilita_presunta: input.dataDisponibilitaPresunta,
+              webmail_richiesta_id: input.webmailRichiestaId ?? null,
+              sconto_extra_pct: scontoVal.pct,
+              sconto_fascia: scontoVal.fascia,
+            }
+          : {
+              in_attesa: true,
+              consegna_tipo: input.consegnaTipo,
+              data_consegna_richiesta: dataConsegna,
+              webmail_richiesta_id: input.webmailRichiestaId ?? null,
+              sconto_extra_pct: scontoVal.pct,
+              sconto_fascia: scontoVal.fascia,
+            },
+        input
+      ),
+      giorni_produzione: giorniScritti,
       is_test: false,
       spedizione_mezzo: "corriere",
       corriere_id: input.corriereDaCompilare
@@ -1314,13 +1398,57 @@ async function createOrdineWizardActionInner(
       updated_by: auth.userId,
     };
 
-    const { data: row, error } = await supabase
-      .from("ordini")
-      .insert(insert)
-      .select("*")
-      .single();
-    if (error || !row) {
-      return { success: false, error: error?.message ?? "Creazione fallita." };
+    let row: { id: string } | null = null;
+    if (editing) {
+      const header = { ...insert } as Record<string, unknown>;
+      delete header.created_by;
+      delete header.accettazione_senior_stato;
+      delete header.accettazione_senior_user_id;
+      delete header.accettazione_senior_by;
+      delete header.accettazione_senior_at;
+      delete header.accettazione_senior_nota;
+      header.numero_interno = editing.numero;
+      header.versione = editing.versione + 1;
+      header.updated_by = auth.userId;
+      const updated = await supabase
+        .from("ordini")
+        .update(header)
+        .eq("id", editing.id)
+        .select("id")
+        .single();
+      if (updated.error || !updated.data) {
+        return {
+          success: false,
+          error: updated.error?.message ?? "Aggiornamento fallito.",
+        };
+      }
+      row = { id: String(updated.data.id) };
+      await supabase.from("ordini_pagamento_rate").delete().eq("ordine_id", row.id);
+      const { data: confPrev } = await supabase
+        .from("ordini_confezionamento")
+        .select("id")
+        .eq("ordine_id", row.id);
+      const confIds = (confPrev ?? []).map((c) => String(c.id));
+      if (confIds.length) {
+        await supabase
+          .from("ordini_confezionamento_nodi")
+          .delete()
+          .in("confezionamento_id", confIds);
+        await supabase.from("ordini_confezionamento").delete().in("id", confIds);
+      }
+    } else {
+      const inserted = await supabase
+        .from("ordini")
+        .insert(insert)
+        .select("id")
+        .single();
+      if (inserted.error || !inserted.data) {
+        return {
+          success: false,
+          error: inserted.error?.message ?? "Creazione fallita.",
+        };
+      }
+      row = { id: String(inserted.data.id) };
     }
 
     if (suddivisione.value.stato === "approvata" && suddivisione.value.attiva) {
@@ -1360,7 +1488,7 @@ async function createOrdineWizardActionInner(
     ]);
     if (righeErr) return { success: false, error: righeErr };
 
-    if (accettazioneOrdine.stato === "in_attesa") {
+    if (!editing && accettazioneOrdine.stato === "in_attesa") {
       await notificaAccettazioneSenior({
         actorId: auth.userId,
         seniorUserId: accettazioneOrdine.seniorUserId,
@@ -1471,12 +1599,14 @@ async function createOrdineWizardActionInner(
       numero: numeroInterno,
       clienteLabel: input.cliente.trim(),
       prodotto: input.prodottoCodice,
-      stato: ordineSospeso ? "sospeso" : "in_attesa",
+      stato: statoScritto,
       clienteId: resolved.clienteId,
       possibileClienteId: resolved.possibileClienteId,
     });
 
-    const scontoErr = await finalizeScontoOnCreate({
+    const scontoCambiato = !editing || editing.scontoPct !== scontoVal.pct;
+    const scontoErr = scontoCambiato
+      ? await finalizeScontoOnCreate({
       ordineId: row.id,
       fascia: scontoVal.fascia,
       pct: scontoVal.pct,
@@ -1485,22 +1615,27 @@ async function createOrdineWizardActionInner(
       cliente: input.cliente.trim(),
       actorId: auth.userId,
       isSuperadmin: scontoCtx.isSuperadmin,
-    });
+    })
+      : null;
     if (scontoErr) {
       return {
         success: false,
-        error: `Ordine creato, ma la firma dello sconto non è stata registrata: ${scontoErr}`,
+        error: editing
+          ? `Ordine aggiornato, ma la firma dello sconto non è stata registrata: ${scontoErr}`
+          : `Ordine creato, ma la firma dello sconto non è stata registrata: ${scontoErr}`,
       };
     }
 
     await writeAudit({
       entity_type: "ordini",
       entity_id: row.id,
-      action: "create",
+      action: editing ? "update" : "create",
       actor_id: auth.userId,
-      summary: input.preventivoId
-        ? `Creato ordine ${input.tipo ?? "vendita"} ${numeroInterno} da preventivo (in attesa)`
-        : `Creato ordine ${input.tipo ?? "vendita"} ${numeroInterno} in attesa di processazione`,
+      summary: editing
+        ? `Aggiornato ordine ${numeroInterno} dalla procedura di inserimento`
+        : input.preventivoId
+          ? `Creato ordine ${input.tipo ?? "vendita"} ${numeroInterno} da preventivo (in attesa)`
+          : `Creato ordine ${input.tipo ?? "vendita"} ${numeroInterno} in attesa di processazione`,
       payload: {
         wizard: true,
         is_test: false,
