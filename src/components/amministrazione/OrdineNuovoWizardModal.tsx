@@ -298,6 +298,9 @@ export function OrdineNuovoWizardModal({
   const pianoLock = useRef(Boolean(modificaOrdineId));
   const unlockPianoNext = useRef(false);
   const hydratedId = useRef("");
+  const addressManual = useRef(false);
+  const preserveSavedAddress = useRef(Boolean(modificaOrdineId));
+  const indirizzoSpedizioneRef = useRef("");
   const hydratedCliente = useRef<string | null>(null);
   const hydratedProdotto = useRef<string | null>(null);
   const [formError, setFormError] = useState<string | null>(null);
@@ -440,6 +443,7 @@ export function OrdineNuovoWizardModal({
   >("piu_iva");
   const [clienteSped, setClienteSped] = useState<Cliente | null>(null);
   const [sediExtra, setSediExtra] = useState<AnagraficaSede[]>([]);
+  const [sediError, setSediError] = useState<string | null>(null);
   const [addressKey, setAddressKey] = useState("");
   const [destinatario, setDestinatario] = useState("");
   const [indirizzoSpedizione, setIndirizzoSpedizione] = useState("");
@@ -619,6 +623,46 @@ export function OrdineNuovoWizardModal({
       if (iRes.success) setCatalogo(iRes.items);
     })();
   }, []);
+
+  indirizzoSpedizioneRef.current = indirizzoSpedizione;
+
+  useEffect(() => {
+    if (!clienteSped) return;
+    const ownerId = clienteId || possibileClienteId;
+    if (!ownerId) return;
+    const ownerKind = clienteId ? "cliente" : "cliente_possibile";
+    const purpose =
+      tipoOrdine === "campionatura" ? "campionature" : "acquisti";
+    let cancelled = false;
+    void loadAnagraficaExtraAction({ ownerKind, ownerId }).then((res) => {
+      if (cancelled) return;
+      if (!res.success) {
+        setSediError(
+          res.error || "Impossibile leggere le sedi della scheda."
+        );
+        return;
+      }
+      setSediError(null);
+      setSediExtra(res.sedi);
+      const options = clienteSpedizioneOptions(clienteSped, res.sedi, purpose);
+      if (addressManual.current || preserveSavedAddress.current) {
+        const current = indirizzoSpedizioneRef.current.trim().toLowerCase();
+        const hit = options.find(
+          (o) => o.indirizzo.trim().toLowerCase() === current
+        );
+        if (hit) setAddressKey(hit.key);
+        return;
+      }
+      const preferred = pickSpedizioneDefault(options, purpose);
+      if (!preferred) return;
+      setAddressKey(preferred.key);
+      setDestinatario(preferred.destinatario);
+      setIndirizzoSpedizione(preferred.indirizzo);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [clienteSped, clienteId, possibileClienteId, tipoOrdine]);
 
   const regolaListino = useMemo(
     () => valutaListinoPerContratto(voceListino),
@@ -1745,6 +1789,9 @@ export function OrdineNuovoWizardModal({
                         : null;
                     setClienteSped(nextCliente);
                     setSediExtra([]);
+                    setSediError(null);
+                    addressManual.current = false;
+                    preserveSavedAddress.current = false;
                     if (!nextCliente) {
                       setAddressKey("");
                       setDestinatario("");
@@ -1782,7 +1829,14 @@ export function OrdineNuovoWizardModal({
                       ownerKind,
                       ownerId,
                     }).then((res) => {
-                      if (!res.success) return;
+                      if (!res.success) {
+                        setSediError(
+                          res.error ||
+                            "Impossibile leggere le sedi della scheda."
+                        );
+                        return;
+                      }
+                      setSediError(null);
                       setSediExtra(res.sedi);
                       applyOpts(res.sedi);
                     });
@@ -2518,6 +2572,9 @@ export function OrdineNuovoWizardModal({
                     : "Di default l’indirizzo segnato in scheda per gli acquisti, oppure quello delle campionature se gli acquisti non sono indicati."}{" "}
                   Puoi scegliere qualunque sede inserita in scheda.
                 </p>
+                {sediError ? (
+                  <p className="text-xs text-red-700">{sediError}</p>
+                ) : null}
                 {(clienteSped
                   ? clienteSpedizioneOptions(
                       clienteSped,
@@ -2541,6 +2598,8 @@ export function OrdineNuovoWizardModal({
                       name="ordine-indirizzo-spedizione"
                       checked={addressKey === opt.key}
                       onChange={() => {
+                        addressManual.current = true;
+                        preserveSavedAddress.current = false;
                         setAddressKey(opt.key);
                         setDestinatario(opt.destinatario);
                         setIndirizzoSpedizione(opt.indirizzo);

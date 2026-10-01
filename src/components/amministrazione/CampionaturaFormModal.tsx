@@ -308,9 +308,11 @@ export function CampionaturaFormModal({
     }
   }
 
+  const sediLoadSeq = useRef(0);
+
   function applyCliente(
     next: Cliente | null,
-    ownerKind: "cliente" | "cliente_possibile" = "cliente"
+    owner?: { kind: "cliente" | "cliente_possibile"; id: string }
   ) {
     setCliente(next);
     setNota(null);
@@ -318,6 +320,7 @@ export function CampionaturaFormModal({
     setReferenteRicezione(null);
     setSpedizionePrivato(false);
     if (!next) {
+      sediLoadSeq.current += 1;
       setSediExtra([]);
       setDestinatario("");
       setIndirizzo("");
@@ -326,12 +329,20 @@ export function CampionaturaFormModal({
     }
     setSediExtra([]);
     applySpedizioneOptions(next, []);
-    if (!next.id) return;
+    const ownerId = owner?.id.trim() || next.id;
+    if (!ownerId) return;
+    const token = ++sediLoadSeq.current;
     void loadAnagraficaExtraAction({
-      ownerKind,
-      ownerId: next.id,
+      ownerKind: owner?.kind ?? "cliente",
+      ownerId,
     }).then((res) => {
-      if (!res.success) return;
+      if (sediLoadSeq.current !== token) return;
+      if (!res.success) {
+        setFormError(
+          res.error || "Impossibile leggere le sedi della scheda."
+        );
+        return;
+      }
       setSediExtra(res.sedi);
       applySpedizioneOptions(next, res.sedi);
     });
@@ -616,14 +627,17 @@ export function CampionaturaFormModal({
                   setAnagraficaFonte(sel.fonte);
                   setPossibileClienteId(sel.possibile?.id ?? "");
                   if (sel.cliente) {
-                    applyCliente(sel.cliente, "cliente");
+                    applyCliente(sel.cliente, {
+                      kind: "cliente",
+                      id: sel.cliente.id,
+                    });
                     return;
                   }
                   if (sel.possibile) {
-                    applyCliente(
-                      clienteFromPossibile(sel.possibile),
-                      "cliente_possibile"
-                    );
+                    applyCliente(clienteFromPossibile(sel.possibile), {
+                      kind: "cliente_possibile",
+                      id: sel.possibile.id,
+                    });
                     return;
                   }
                   applyCliente(null);
@@ -717,7 +731,9 @@ export function CampionaturaFormModal({
                 Indirizzo di spedizione
               </span>
               <p className="mb-2 text-xs text-[var(--muted)]">
-                Di default le sedi dell’azienda. Destinatario: {destinatario || "—"}.
+                Di default l&apos;indirizzo segnato in scheda per le
+                campionature. Si possono scegliere tutte le sedi inserite.
+                Destinatario: {destinatario || "—"}.
               </p>
               <div className="space-y-2">
                 {(cliente
