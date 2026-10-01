@@ -9,6 +9,7 @@ import {
 } from "@/lib/rubrica/mansioni-affinita";
 import {
   createRubricaContattoSchema,
+  updateRubricaContattoSchema,
   createRubricaMansioneSchema,
   createRubricaTimelineSchema,
   type RubricaAziendaTipo,
@@ -410,6 +411,154 @@ export async function createRubricaContattoAction(input: unknown): Promise<
     summary: `Rubrica: ${item.nome} ${item.cognome}`,
     payload: {
       azienda_tipo: item.aziendaTipo,
+      mansione_id: item.mansioneId,
+    },
+  });
+  return { success: true, item };
+}
+
+async function riallineaCollegamentoAzienda(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  userId: string,
+  contattoId: string,
+  prev: { tipo: string; id: string | null },
+  next: { tipo: RubricaAziendaTipo; id: string | null }
+): Promise<string | null> {
+  const stesso =
+    prev.tipo === next.tipo && (prev.id ?? "") === (next.id ?? "");
+  if (stesso) return null;
+
+  const tabelle = [
+    { table: "clienti_referenti" as const, fk: "cliente_id", tipo: "cliente" },
+    {
+      table: "fornitori_referenti" as const,
+      fk: "fornitore_id",
+      tipo: "fornitore",
+    },
+    {
+      table: "clienti_possibili_referenti" as const,
+      fk: "cliente_possibile_id",
+      tipo: "cliente_possibile",
+    },
+  ];
+
+  if (prev.id && tabelle.some((t) => t.tipo === prev.tipo)) {
+    const vecchia = tabelle.find((t) => t.tipo === prev.tipo);
+    if (vecchia) {
+      const { error } = await supabase
+        .from(vecchia.table)
+        .delete()
+        .eq("contatto_id", contattoId)
+        .eq(vecchia.fk, prev.id);
+      if (error) return error.message;
+    }
+  }
+
+  const nuova = tabelle.find((t) => t.tipo === next.tipo);
+  if (!nuova || !next.id) return null;
+  const { data: gia } = await supabase
+    .from(nuova.table)
+    .select("id")
+    .eq("contatto_id", contattoId)
+    .eq(nuova.fk, next.id)
+    .maybeSingle();
+  if (gia) return null;
+  const { error } = await supabase.from(nuova.table).insert({
+    [nuova.fk]: next.id,
+    contatto_id: contattoId,
+    created_by: userId,
+  });
+  return error?.message ?? null;
+}
+
+export async function updateRubricaContattoAction(input: unknown): Promise<
+  | { success: true; item: RubricaContatto }
+  | { success: false; error: string }
+> {
+  const { auth } = await guardRubricaAnagrafica();
+  const parsed = updateRubricaContattoSchema.safeParse(input);
+  if (!parsed.success) {
+    return {
+      success: false,
+      error: parsed.error.issues[0]?.message ?? "Dati non validi",
+    };
+  }
+  const d = parsed.data;
+  const aziendaTipo = d.aziendaTipo ?? "nessuna";
+  let aziendaId = d.aziendaId ?? null;
+  let aziendaLabel = d.aziendaLabel ?? "";
+  if (aziendaTipo === "nessuna") {
+    aziendaId = null;
+    aziendaLabel = "";
+  } else if (aziendaTipo === "agrinsicilia") {
+    aziendaId = null;
+    if (!aziendaLabel.trim()) aziendaLabel = "Agrinsicilia";
+  } else if (!aziendaId) {
+    aziendaId = null;
+  }
+
+  const supabase = await createClient();
+  const { data: prev, error: prevErr } = await supabase
+    .from("rubrica_contatti")
+    .select("id, azienda_tipo, azienda_id")
+    .eq("id", d.id)
+    .is("deleted_at", null)
+    .maybeSingle();
+  if (prevErr || !prev) {
+    return { success: false, error: prevErr?.message ?? "Contatto non trovato" };
+  }
+
+  const mansione = await resolveMansione(
+    supabase,
+    d.mansioneId,
+    d.mansione ?? ""
+  );
+  const { data, error } = await supabase
+    .from("rubrica_contatti")
+    .update({
+      nome: d.nome,
+      cognome: d.cognome,
+      telefono: d.telefono,
+      email: d.email ?? "",
+      rapporto: d.rapporto,
+      azienda_tipo: aziendaTipo,
+      azienda_id: aziendaId,
+      azienda_label: aziendaLabel,
+      mansione_id: mansione.id,
+      mansione: mansione.nome,
+      note: d.note ?? "",
+      updated_by: auth.userId,
+    })
+    .eq("id", d.id)
+    .is("deleted_at", null)
+    .select(CONTATTO_SELECT)
+    .single();
+  if (error || !data) {
+    return { success: false, error: error?.message ?? "Aggiornamento fallito" };
+  }
+
+  const linkErr = await riallineaCollegamentoAzienda(
+    supabase,
+    auth.userId,
+    d.id,
+    {
+      tipo: String(prev.azienda_tipo ?? "nessuna"),
+      id: prev.azienda_id ? String(prev.azienda_id) : null,
+    },
+    { tipo: aziendaTipo, id: aziendaId }
+  );
+  if (linkErr) return { success: false, error: linkErr };
+
+  const item = mapContatto(data as Record<string, unknown>);
+  await writeAuditLog({
+    entity_type: "rubrica_contatti",
+    entity_id: item.id,
+    action: "update",
+    actor_id: auth.userId,
+    summary: `Rubrica aggiornata: ${item.nome} ${item.cognome}`,
+    payload: {
+      azienda_tipo: item.aziendaTipo,
+      azienda_id: item.aziendaId,
       mansione_id: item.mansioneId,
     },
   });

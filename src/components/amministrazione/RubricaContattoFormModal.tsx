@@ -6,6 +6,7 @@ import {
   createRubricaContattoAction,
   listAziendeRubricaPickerAction,
   listRubricaMansioniAction,
+  updateRubricaContattoAction,
 } from "@/app/actions/rubrica";
 import { CanaleInputRow } from "@/components/amministrazione/CanaleAttenzioneControls";
 import { RubricaMansioneCreateModal } from "@/components/amministrazione/RubricaMansioneCreateModal";
@@ -22,6 +23,8 @@ import {
 type Props = {
   onClose: () => void;
   onCreated: (item: RubricaContatto) => void;
+  /** Scheda di un contatto già in rubrica: i campi si modificano e si salvano. */
+  contatto?: RubricaContatto | null;
   /** Prefill azienda (es. da form possibile cliente) */
   defaultAziendaTipo?: RubricaAziendaTipo;
   defaultAziendaLabel?: string;
@@ -36,6 +39,7 @@ type Props = {
 export function RubricaContattoFormModal({
   onClose,
   onCreated,
+  contatto = null,
   defaultAziendaTipo = "nessuna",
   defaultAziendaLabel = "",
   defaultAziendaId = "",
@@ -44,27 +48,37 @@ export function RubricaContattoFormModal({
   testMode = false,
   elevated = false,
 }: Props) {
+  const editing = Boolean(contatto);
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
-  const [nome, setNome] = useState("");
-  const [cognome, setCognome] = useState("");
-  const [telefono, setTelefono] = useState("");
-  const [email, setEmail] = useState("");
-  const [rapporto, setRapporto] = useState<RubricaRapporto>("referente");
-  const [aziendaTipo, setAziendaTipo] =
-    useState<RubricaAziendaTipo>(defaultAziendaTipo);
-  const [aziendaId, setAziendaId] = useState<string>(defaultAziendaId);
-  const [aziendaLabel, setAziendaLabel] = useState(
-    defaultAziendaTipo === "agrinsicilia"
-      ? "Agrinsicilia"
-      : defaultAziendaLabel
+  const [nome, setNome] = useState(contatto?.nome ?? "");
+  const [cognome, setCognome] = useState(contatto?.cognome ?? "");
+  const [telefono, setTelefono] = useState(contatto?.telefono ?? "");
+  const [email, setEmail] = useState(contatto?.email ?? "");
+  const [rapporto, setRapporto] = useState<RubricaRapporto>(
+    contatto?.rapporto ?? "referente"
   );
-  const [mansioneId, setMansioneId] = useState(defaultMansioneId);
+  const [aziendaTipo, setAziendaTipo] = useState<RubricaAziendaTipo>(
+    contatto?.aziendaTipo ?? defaultAziendaTipo
+  );
+  const [aziendaId, setAziendaId] = useState<string>(
+    contatto?.aziendaId ?? defaultAziendaId
+  );
+  const [aziendaLabel, setAziendaLabel] = useState(
+    contatto
+      ? contatto.aziendaLabel
+      : defaultAziendaTipo === "agrinsicilia"
+        ? "Agrinsicilia"
+        : defaultAziendaLabel
+  );
+  const [mansioneId, setMansioneId] = useState(
+    contatto?.mansioneId ?? defaultMansioneId
+  );
   const [mansioni, setMansioni] = useState<RubricaMansione[]>([]);
   const [mansioniLoading, setMansioniLoading] = useState(true);
   const [aziendeLoading, setAziendeLoading] = useState(false);
   const [showCreaMansione, setShowCreaMansione] = useState(false);
-  const [note, setNote] = useState("");
+  const [note, setNote] = useState(contatto?.note ?? "");
   const [aziende, setAziende] = useState<{ id: string; label: string }[]>([]);
   const [collegaQuestaAzienda, setCollegaQuestaAzienda] = useState(
     lockToThisAzienda
@@ -98,8 +112,15 @@ export function RubricaContattoFormModal({
     setAziendeLoading(true);
     void listAziendeRubricaPickerAction(aziendaTipo).then((res) => {
       setAziendeLoading(false);
-      if (res.success) setAziende(res.items);
-      else setAziende([]);
+      if (!res.success) {
+        setAziende([]);
+        return;
+      }
+      const corrente =
+        aziendaId && !res.items.some((a) => a.id === aziendaId)
+          ? [{ id: aziendaId, label: aziendaLabel || "Azienda collegata" }]
+          : [];
+      setAziende([...corrente, ...res.items]);
     });
   }, [aziendaTipo, lockToThisAzienda]);
 
@@ -144,7 +165,7 @@ export function RubricaContattoFormModal({
         mansione: mansioneNome,
         note,
       };
-      if (testMode) {
+      if (testMode && !contatto) {
         const now = new Date().toISOString();
         onCreated({
           id: crypto.randomUUID(),
@@ -164,7 +185,9 @@ export function RubricaContattoFormModal({
         });
         return;
       }
-      const res = await createRubricaContattoAction(payload);
+      const res = contatto
+        ? await updateRubricaContattoAction({ ...payload, id: contatto.id })
+        : await createRubricaContattoAction(payload);
       if (!res.success) {
         setError(res.error);
         return;
@@ -188,10 +211,13 @@ export function RubricaContattoFormModal({
       >
         <div className="flex items-start justify-between gap-2">
           <div>
-            <h2 className="text-lg font-semibold">Nuovo contatto rubrica</h2>
+            <h2 className="text-lg font-semibold">
+              {editing ? "Scheda contatto" : "Nuovo contatto rubrica"}
+            </h2>
             <p className="mt-1 text-xs text-[var(--muted)]">
-              Obbligatori: Nome, Cognome, Referente. Telefono e mail sono
-              facoltativi.
+              {editing
+                ? "Modifica i dati e salva. Nome, cognome e tipo di rapporto restano obbligatori."
+                : "Obbligatori: Nome, Cognome, Referente. Telefono e mail sono facoltativi."}
             </p>
           </div>
           <button type="button" onClick={onClose} aria-label="Chiudi">
@@ -382,7 +408,11 @@ export function RubricaContattoFormModal({
             onClick={save}
             className="flex-1 rounded-lg bg-[var(--primary)] py-2.5 text-sm font-medium text-white disabled:opacity-50"
           >
-            {pending ? "Salvataggio…" : "Salva contatto"}
+            {pending
+              ? "Salvataggio…"
+              : editing
+                ? "Salva modifiche"
+                : "Salva contatto"}
           </button>
         </div>
       </div>

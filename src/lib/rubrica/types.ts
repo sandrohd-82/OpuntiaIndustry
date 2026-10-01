@@ -81,6 +81,10 @@ export const createRubricaContattoSchema = z.object({
   note: z.string().trim().max(2000).optional().default(""),
 });
 
+export const updateRubricaContattoSchema = createRubricaContattoSchema.extend({
+  id: z.string().uuid(),
+});
+
 export const createRubricaMansioneSchema = z.object({
   nome: z.string().trim().min(2).max(80),
   confermaAffinita: z.boolean().optional().default(false),

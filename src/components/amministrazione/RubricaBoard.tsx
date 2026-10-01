@@ -36,6 +36,7 @@ export function RubricaBoard() {
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
   const [showCreate, setShowCreate] = useState(false);
+  const [editing, setEditing] = useState<RubricaContatto | null>(null);
   const [showCreaMansione, setShowCreaMansione] = useState(false);
   const [mansioni, setMansioni] = useState<RubricaMansione[]>([]);
   const [mansioneFiltro, setMansioneFiltro] = useState<string>("");
@@ -220,7 +221,13 @@ export function RubricaBoard() {
             className="flex flex-wrap items-start gap-3 px-4 py-3"
           >
             <div className="min-w-0 flex-1">
-              <p className="font-semibold">{displayContattoName(c)}</p>
+              <button
+                type="button"
+                onClick={() => setEditing(c)}
+                className="text-left font-semibold text-[var(--primary)] underline-offset-2 hover:underline"
+              >
+                {displayContattoName(c)}
+              </button>
               <p className="text-xs text-[var(--muted)]">
                 {RAPPORTO_LABELS[c.rapporto]}
                 {c.aziendaTipo !== "nessuna"
@@ -242,13 +249,22 @@ export function RubricaBoard() {
                 />
               </div>
             </div>
-            <button
-              type="button"
-              onClick={() => void openTimeline(c)}
-              className="rounded-lg border border-[var(--border)] px-2.5 py-1 text-xs font-medium hover:bg-slate-50"
-            >
-              Timeline
-            </button>
+            <div className="flex gap-2">
+              <button
+                type="button"
+                onClick={() => setEditing(c)}
+                className="rounded-lg border border-[var(--border)] px-2.5 py-1 text-xs font-medium hover:bg-slate-50"
+              >
+                Scheda
+              </button>
+              <button
+                type="button"
+                onClick={() => void openTimeline(c)}
+                className="rounded-lg border border-[var(--border)] px-2.5 py-1 text-xs font-medium hover:bg-slate-50"
+              >
+                Timeline
+              </button>
+            </div>
           </li>
         ))}
         {items.length === 0 && !pending ? (
@@ -416,6 +432,20 @@ export function RubricaBoard() {
             </div>
           </div>
         </div>
+      ) : null}
+
+      {editing ? (
+        <RubricaContattoFormModal
+          key={editing.id}
+          contatto={editing}
+          onClose={() => setEditing(null)}
+          onCreated={(item) => {
+            setEditing(null);
+            setSelected((cur) => (cur?.id === item.id ? item : cur));
+            setItems((cur) => cur.map((row) => (row.id === item.id ? item : row)));
+            reload();
+          }}
+        />
       ) : null}
 
       {showCreate ? (
