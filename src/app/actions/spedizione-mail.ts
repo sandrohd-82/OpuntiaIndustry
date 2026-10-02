@@ -355,17 +355,6 @@ export async function inviaMailSpedizioneAction(
     content: Buffer;
     contentType?: string;
   }> = [];
-  if (item.allegaLettera && item.letteraViaPath) {
-    const { data: file } = await service.storage
-      .from(BUCKET)
-      .download(item.letteraViaPath);
-    if (file) {
-      attachments.push({
-        filename: item.letteraViaName || "lettera-di-via.pdf",
-        content: Buffer.from(await file.arrayBuffer()),
-      });
-    }
-  }
   if (item.allegaFile) {
     for (const a of item.allegati) {
       const { data: file } = await service.storage.from(BUCKET).download(a.path);

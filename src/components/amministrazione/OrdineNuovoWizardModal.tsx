@@ -1361,7 +1361,7 @@ export function OrdineNuovoWizardModal({
             numero: result.ordine.numeroInterno,
             prodotti: `${prodotto.codice} ${quantitaInserita} ${umEffettiva}`,
             trackingUrl: d.trackingUrl,
-            haLettera: d.allegaLettera && Boolean(d.letteraViaPath),
+            haLettera: false,
           });
           if (!testo.success) {
             setFormError(testo.error);
@@ -1379,8 +1379,8 @@ export function OrdineNuovoWizardModal({
           letteraViaName: d.letteraViaName,
           allegati: d.allegati,
           allegaTracking: modoMail === "salva" ? false : d.allegaTracking,
-          allegaLettera: modoMail === "salva" ? false : d.allegaLettera,
-          allegaFile: modoMail === "salva" ? false : d.allegaFile,
+          allegaLettera: false,
+          allegaFile: false,
           destinatarioEmail: d.destinatarioEmail,
           oggetto,
           corpo,

@@ -186,6 +186,12 @@ export type Ordine = {
   dataConsegnaStimata: string | null;
   destinatario: string;
   indirizzoSpedizione: string;
+  sedePartenzaId: string | null;
+  corriereId: string | null;
+  corriereDaCompilare: boolean;
+  spedizioneACarico: "cliente" | "agrinsicilia" | "diviso" | null;
+  spedizionePctAgrinsicilia: number | null;
+  giorniProduzione: string[];
   capacitaSnapshot: Record<string, unknown>;
   isTest: boolean;
   scontoExtraPct: number;
@@ -451,6 +457,22 @@ export function mapOrdineRow(
     dataConsegnaStimata: row.data_consegna_stimata ?? null,
     destinatario: String(row.destinatario ?? ""),
     indirizzoSpedizione: String(row.indirizzo_spedizione ?? ""),
+    sedePartenzaId: row.sede_partenza_id ? String(row.sede_partenza_id) : null,
+    corriereId: row.corriere_id ? String(row.corriere_id) : null,
+    corriereDaCompilare: Boolean(row.corriere_da_compilare),
+    spedizioneACarico:
+      row.spedizione_a_carico === "cliente" ||
+      row.spedizione_a_carico === "agrinsicilia" ||
+      row.spedizione_a_carico === "diviso"
+        ? row.spedizione_a_carico
+        : null,
+    spedizionePctAgrinsicilia:
+      row.spedizione_pct_agrinsicilia == null
+        ? null
+        : Number(row.spedizione_pct_agrinsicilia),
+    giorniProduzione: Array.isArray(row.giorni_produzione)
+      ? row.giorni_produzione.map((g) => String(g))
+      : [],
     capacitaSnapshot:
       (row.capacita_snapshot as Record<string, unknown> | null) ?? {},
     isTest: row.is_test !== false,

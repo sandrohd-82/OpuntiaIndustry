@@ -1,8 +1,13 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { FaFilePdf } from "react-icons/fa6";
+import { listCorrieriAction } from "@/app/actions/imballaggi-spedizioni";
+import { listSediAttiveAction } from "@/app/actions/impostazioni-sedi";
 import { getOrdineAllegatoSignedUrlAction } from "@/app/actions/ordini";
+import { getPrenotazioneSpedizioneMailAction } from "@/app/actions/spedizione-mail";
+import { labelSede } from "@/lib/impostazioni/sedi";
+import type { SpedizioneMailPrenotazione } from "@/lib/amministrazione/spedizione-mail";
 import { OrdineAuditLogModal } from "@/components/amministrazione/OrdineAuditLogModal";
 import {
   formatOperatoreQuando,
@@ -62,6 +67,34 @@ function AllegatoLink({
   );
 }
 
+function testoTracking(
+  mail: SpedizioneMailPrenotazione | null | undefined
+): string {
+  if (mail === undefined) return "Caricamento…";
+  if (!mail || (!mail.allegaTracking && mail.stato !== "inviata" && !mail.oggetto)) {
+    return mail ? "No. Il tracking non viene inviato al cliente." : "Non impostata";
+  }
+  const email = mail.destinatarioEmail.trim()
+    ? ` a ${mail.destinatarioEmail.trim()}`
+    : "";
+  if (mail.stato === "inviata") return `Sì. Mail già inviata${email}.`;
+  if (!mail.trackingUrl.trim()) {
+    return `Sì. Bozza in attesa del tracking${email}.`;
+  }
+  return `Sì. Bozza pronta con il tracking${email}.`;
+}
+
+function labelCarico(ordine: Ordine): string {
+  if (ordine.spedizioneACarico === "cliente") return "Cliente";
+  if (ordine.spedizioneACarico === "agrinsicilia") return "Agrinsicilia";
+  if (ordine.spedizioneACarico === "diviso") {
+    return ordine.spedizionePctAgrinsicilia == null
+      ? "Diviso"
+      : `Diviso · Agrinsicilia ${ordine.spedizionePctAgrinsicilia}%`;
+  }
+  return "Non indicato";
+}
+
 type Props = {
   ordine: Ordine;
   onEdit?: () => void;
@@ -69,6 +102,41 @@ type Props = {
 
 export function OrdineDettaglioPanel({ ordine, onEdit }: Props) {
   const [auditOpen, setAuditOpen] = useState(false);
+  const [sedeLabel, setSedeLabel] = useState("");
+  const [corriereNome, setCorriereNome] = useState("");
+  const [mail, setMail] = useState<SpedizioneMailPrenotazione | null | undefined>(
+    undefined
+  );
+
+  useEffect(() => {
+    let cancel = false;
+    setMail(undefined);
+    setSedeLabel("");
+    setCorriereNome("");
+    void getPrenotazioneSpedizioneMailAction({
+      entityType: "ordine",
+      entityId: ordine.id,
+    }).then((res) => {
+      if (!cancel) setMail(res.success ? res.item : null);
+    });
+    void listSediAttiveAction().then((res) => {
+      if (cancel || !res.success) return;
+      const sede = res.sedi.find((s) => s.id === ordine.sedePartenzaId);
+      setSedeLabel(
+        sede ? labelSede(sede) : ordine.sedePartenzaId ? "Sede non trovata" : ""
+      );
+    });
+    if (ordine.corriereId) {
+      void listCorrieriAction().then((res) => {
+        if (cancel || !res.success) return;
+        const trovato = res.items.find((c) => c.id === ordine.corriereId);
+        setCorriereNome(trovato?.nome ?? "Corriere scelto");
+      });
+    }
+    return () => {
+      cancel = true;
+    };
+  }, [ordine.id, ordine.sedePartenzaId, ordine.corriereId]);
   const creatoLine = formatOperatoreQuando(
     ordine.createdByLabel,
     ordine.createdAt
@@ -233,6 +301,102 @@ export function OrdineDettaglioPanel({ ordine, onEdit }: Props) {
             {ordine.dataPagamento
               ? ` · ${formatDate(ordine.dataPagamento)}`
               : null}
+          </dd>
+        </div>
+        <div className="sm:col-span-2 lg:col-span-3">
+          <dt className="text-xs font-medium uppercase text-[var(--muted)]">
+            Destinatario
+          </dt>
+          <dd className="mt-0.5">{ordine.destinatario.trim() || "Non indicato"}</dd>
+        </div>
+        <div className="sm:col-span-2 lg:col-span-3">
+          <dt className="text-xs font-medium uppercase text-[var(--muted)]">
+            Indirizzo di spedizione
+          </dt>
+          <dd className="mt-0.5 whitespace-pre-wrap">
+            {ordine.indirizzoSpedizione.trim() || "Non indicato"}
+          </dd>
+        </div>
+        <div className="sm:col-span-2 lg:col-span-3">
+          <dt className="text-xs font-medium uppercase text-[var(--muted)]">
+            Luogo di partenza
+          </dt>
+          <dd className="mt-0.5">
+            {ordine.sedePartenzaId
+              ? sedeLabel || "Caricamento…"
+              : "Non indicato"}
+          </dd>
+        </div>
+        <div className="sm:col-span-2 lg:col-span-3">
+          <dt className="text-xs font-medium uppercase text-[var(--muted)]">
+            Tracking al cliente
+          </dt>
+          <dd className="mt-0.5">{testoTracking(mail)}</dd>
+        </div>
+        <div>
+          <dt className="text-xs font-medium uppercase text-[var(--muted)]">
+            Foglio di via
+          </dt>
+          <dd className="mt-0.5">
+            {mail?.letteraViaName
+              ? `${mail.letteraViaName}. Resta in Agrinsicilia.`
+              : "Non caricato. Resta solo per Agrinsicilia."}
+          </dd>
+        </div>
+        <div>
+          <dt className="text-xs font-medium uppercase text-[var(--muted)]">
+            Spedizione a carico
+          </dt>
+          <dd className="mt-0.5">{labelCarico(ordine)}</dd>
+        </div>
+        <div>
+          <dt className="text-xs font-medium uppercase text-[var(--muted)]">
+            Corriere
+          </dt>
+          <dd className="mt-0.5">
+            {ordine.corriereDaCompilare
+              ? "Si sceglie dopo"
+              : corriereNome ||
+                (ordine.corriereId ? "Corriere scelto" : "Non indicato")}
+          </dd>
+        </div>
+        <div>
+          <dt className="text-xs font-medium uppercase text-[var(--muted)]">
+            Consegna
+          </dt>
+          <dd className="mt-0.5">
+            {ordine.consegnaTipo === "asap"
+              ? "Prima possibile"
+              : ordine.consegnaTipo === "data"
+                ? `In data ${formatDate(ordine.dataConsegna)}`
+                : "Non indicata"}
+            {ordine.urgente ? " · Urgente" : ""}
+            {ordine.usaMagazzino ? " · Da magazzino" : ""}
+            {ordine.usaSabato ? " · Anche il sabato" : ""}
+          </dd>
+        </div>
+        <div>
+          <dt className="text-xs font-medium uppercase text-[var(--muted)]">
+            Data stimata
+          </dt>
+          <dd className="mt-0.5">{formatDate(ordine.dataConsegnaStimata)}</dd>
+        </div>
+        <div>
+          <dt className="text-xs font-medium uppercase text-[var(--muted)]">
+            Disponibilità presunta
+          </dt>
+          <dd className="mt-0.5">
+            {formatDate(ordine.dataDisponibilitaPresunta)}
+          </dd>
+        </div>
+        <div className="sm:col-span-2 lg:col-span-3">
+          <dt className="text-xs font-medium uppercase text-[var(--muted)]">
+            Giorni di produzione
+          </dt>
+          <dd className="mt-0.5">
+            {ordine.giorniProduzione.length
+              ? ordine.giorniProduzione.map((g) => formatDate(g)).join(", ")
+              : "Non indicati"}
           </dd>
         </div>
         {ordine.tipoPagamento === "dilazionato" && ordine.noteRateizzazione ? (
