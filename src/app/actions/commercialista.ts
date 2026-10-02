@@ -18,6 +18,14 @@ import {
 } from "@/lib/amministrazione/commercialista";
 import { assignNumeriVignetta } from "@/lib/amministrazione/elaborazione-contabile";
 import { buildElaborazioneFattureXlsx } from "@/lib/amministrazione/elaborazione-fatture-xlsx";
+import { buildElencoMistoXlsx } from "@/lib/amministrazione/elenco-documenti-xlsx";
+import {
+  chiaveControparte,
+  incastraDocumenti,
+  nomeChiaveControparte,
+  type DocElencoGrezzo,
+  type LatoElenco,
+} from "@/lib/amministrazione/elenco-documenti";
 import type { FatturaClassicaStampaModel } from "@/lib/amministrazione/fattura-classica-stampa";
 import { comeNotaCredito } from "@/lib/amministrazione/fattura-classica-stampa";
 import { fatturaClassicaDaXml } from "@/lib/amministrazione/fattura-pa-xml";
@@ -1579,5 +1587,291 @@ export async function scaricaElaborazioneFattureExcelAction(input: {
   });
   if (!audit.success) return audit;
   return { success: true, filename: file.filename, base64: file.base64 };
+}
+
+/**
+ * Un elenco Excel per gli emessi e uno per i ricevuti:
+ * fatture, DDT e note di credito nello stesso ordine di tempo, con i collegamenti vicini.
+ */
+export async function scaricaElencoMistoAction(input: {
+  lato: LatoElenco;
+  anno: number;
+  trimestre: TrimestreNumero;
+}): Promise<
+  | { success: true; filename: string; base64: string }
+  | { success: false; error: string }
+> {
+  const { auth } = await requireAreaAccess("area-fiscale");
+  const parsed = commercialistaSummarySchema.safeParse({
+    anno: input.anno,
+    trimestre: input.trimestre,
+  });
+  if (!parsed.success) {
+    return {
+      success: false,
+      error: parsed.error.issues[0]?.message ?? "Parametri non validi.",
+    };
+  }
+  if (input.lato !== "emesso" && input.lato !== "ricevuto") {
+    return { success: false, error: "Elenco non valido." };
+  }
+  const periodoRes = await resolvePeriodoTrimestre(
+    parsed.data.anno,
+    parsed.data.trimestre
+  );
+  if (!periodoRes.ok) return { success: false, error: periodoRes.error };
+  const { dal, al } = periodoRes.periodo;
+  const supabase = await createClient();
+
+  const caricati = await caricaDocumentiElenco(
+    supabase,
+    input.lato,
+    dal,
+    al
+  );
+  if (!caricati.ok) return { success: false, error: caricati.error };
+
+  const righe = incastraDocumenti(caricati.docs);
+  const file = await buildElencoMistoXlsx({
+    lato: input.lato,
+    anno: parsed.data.anno,
+    trimestre: parsed.data.trimestre,
+    righe,
+  });
+  await writeAuditLog({
+    entity_type: "commercialista_stampa",
+    entity_id: `elenco-${input.lato}-${parsed.data.anno}-T${parsed.data.trimestre}`,
+    action: "export",
+    actor_id: auth.userId,
+    summary: `Elenco ${input.lato} ${parsed.data.anno}-T${parsed.data.trimestre}: ${caricati.docs.length} documenti`,
+    payload: {
+      lato: input.lato,
+      anno: parsed.data.anno,
+      trimestre: parsed.data.trimestre,
+      dal,
+      al,
+      documenti: caricati.docs.length,
+    },
+  });
+  return { success: true, filename: file.filename, base64: file.base64 };
+}
+
+async function caricaDocumentiElenco(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  lato: LatoElenco,
+  dal: string,
+  al: string
+): Promise<{ ok: true; docs: DocElencoGrezzo[] } | { ok: false; error: string }> {
+  if (lato === "emesso") return caricaElencoEmessi(supabase, dal, al);
+  return caricaElencoRicevuti(supabase, dal, al);
+}
+
+async function caricaElencoEmessi(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  dal: string,
+  al: string
+): Promise<{ ok: true; docs: DocElencoGrezzo[] } | { ok: false; error: string }> {
+  const { data, error } = await supabase
+    .from("fatture_emesse")
+    .select(
+      "id, numero_interno, data_emissione, cliente_id, cliente_ragione_sociale, imponibile, imposta, totale, tipo_documento, fattura_collegata_id, annullata_da_nc_id"
+    )
+    .is("deleted_at", null)
+    .gte("data_emissione", dal)
+    .lte("data_emissione", al);
+  if (error) return { ok: false, error: error.message };
+
+  const righe = (data ?? []).filter((r) => r.tipo_documento !== "proforma");
+  const note = righe.filter((r) =>
+    isNotaCreditoEmessa(r.tipo_documento, r.numero_interno)
+  );
+  const noteIds = new Set(note.map((r) => String(r.id)));
+  const fatture = righe.filter((r) => !noteIds.has(String(r.id)));
+  const fattureIds = new Set(fatture.map((r) => String(r.id)));
+
+  const padriFuori = [
+    ...new Set(
+      note
+        .map((r) => String(r.fattura_collegata_id ?? ""))
+        .filter((id) => id && !fattureIds.has(id))
+    ),
+  ];
+  const numeriFuori = new Map<string, string>();
+  if (padriFuori.length > 0) {
+    const { data: esterni, error: extErr } = await supabase
+      .from("fatture_emesse")
+      .select("id, numero_interno")
+      .in("id", padriFuori);
+    if (extErr) return { ok: false, error: extErr.message };
+    for (const row of esterni ?? []) {
+      numeriFuori.set(String(row.id), String(row.numero_interno ?? ""));
+    }
+  }
+
+  const ncPerId = new Map(note.map((r) => [String(r.id), r]));
+  const padreNota = new Map<string, string>();
+  for (const f of fatture) {
+    const ncId = String(f.annullata_da_nc_id ?? "");
+    if (ncId && ncPerId.has(ncId)) padreNota.set(ncId, String(f.id));
+  }
+
+  const docs: DocElencoGrezzo[] = [
+    ...fatture.map((r) => docDaFattura(r, "fattura", null, "")),
+    ...note.map((r) => {
+      const collegata = String(r.fattura_collegata_id ?? "");
+      const daAnnullamento = padreNota.get(String(r.id)) ?? "";
+      const padreId = fattureIds.has(collegata)
+        ? collegata
+        : (fattureIds.has(daAnnullamento) ? daAnnullamento : null);
+      const padreNumero = padreId
+        ? ""
+        : collegata
+          ? `Fattura ${numeriFuori.get(collegata) || "fuori periodo"}`
+          : "";
+      return docDaFattura(r, "nota", padreId, padreNumero);
+    }),
+  ];
+
+  const ddt = await caricaDdt(supabase, "emesso", dal, al);
+  if (!ddt.ok) return ddt;
+  return { ok: true, docs: [...docs, ...ddt.docs] };
+}
+
+async function caricaElencoRicevuti(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  dal: string,
+  al: string
+): Promise<{ ok: true; docs: DocElencoGrezzo[] } | { ok: false; error: string }> {
+  const { data, error } = await supabase
+    .from("fatture_ricevute")
+    .select(
+      "id, numero_interno, data_emissione, fornitore_id, fornitore_ragione_sociale, imponibile, imposta, totale"
+    )
+    .is("deleted_at", null)
+    .gte("data_emissione", dal)
+    .lte("data_emissione", al);
+  if (error) return { ok: false, error: error.message };
+  const righe = data ?? [];
+  const note = righe.filter((r) =>
+    isNotaCreditoRicevuta(r.numero_interno, r.totale)
+  );
+  const noteIds = new Set(note.map((r) => String(r.id)));
+  const fatture = righe.filter((r) => !noteIds.has(String(r.id)));
+  const docs: DocElencoGrezzo[] = [
+    ...fatture.map((r) =>
+      docDaRicevuta(r, "fattura")
+    ),
+    ...note.map((r) => docDaRicevuta(r, "nota")),
+  ];
+  const ddt = await caricaDdt(supabase, "ricevuto", dal, al);
+  if (!ddt.ok) return ddt;
+  return { ok: true, docs: [...docs, ...ddt.docs] };
+}
+
+function docDaFattura(
+  r: {
+    id: unknown;
+    numero_interno: unknown;
+    data_emissione: unknown;
+    cliente_id: unknown;
+    cliente_ragione_sociale: unknown;
+    imponibile: unknown;
+    imposta: unknown;
+    totale: unknown;
+  },
+  tipo: "fattura" | "nota",
+  padreId: string | null,
+  padreNumero: string
+): DocElencoGrezzo {
+  const nome = String(r.cliente_ragione_sociale ?? "");
+  return {
+    id: String(r.id),
+    tipo,
+    numero: String(r.numero_interno ?? ""),
+    data: String(r.data_emissione ?? "").slice(0, 10),
+    intestazione: nome,
+    chiave: chiaveControparte(r.cliente_id ? String(r.cliente_id) : null, nome),
+    nomeChiave: nomeChiaveControparte(nome),
+    imponibile: Number(r.imponibile) || 0,
+    iva: Number(r.imposta) || 0,
+    totale: Number(r.totale) || 0,
+    padreId,
+    padreNumero,
+  };
+}
+
+function docDaRicevuta(
+  r: {
+    id: unknown;
+    numero_interno: unknown;
+    data_emissione: unknown;
+    fornitore_id: unknown;
+    fornitore_ragione_sociale: unknown;
+    imponibile: unknown;
+    imposta: unknown;
+    totale: unknown;
+  },
+  tipo: "fattura" | "nota"
+): DocElencoGrezzo {
+  const nome = String(r.fornitore_ragione_sociale ?? "");
+  return {
+    id: String(r.id),
+    tipo,
+    numero: String(r.numero_interno ?? ""),
+    data: String(r.data_emissione ?? "").slice(0, 10),
+    intestazione: nome,
+    chiave: chiaveControparte(
+      r.fornitore_id ? String(r.fornitore_id) : null,
+      nome
+    ),
+    nomeChiave: nomeChiaveControparte(nome),
+    imponibile: Number(r.imponibile) || 0,
+    iva: Number(r.imposta) || 0,
+    totale: Number(r.totale) || 0,
+    padreId: null,
+    padreNumero: "",
+  };
+}
+
+async function caricaDdt(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  direzione: "emesso" | "ricevuto",
+  dal: string,
+  al: string
+): Promise<{ ok: true; docs: DocElencoGrezzo[] } | { ok: false; error: string }> {
+  const { data, error } = await supabase
+    .from("ddt_documenti")
+    .select(
+      "id, numero_interno, data_documento, cliente_id, fornitore_id, ragione_sociale, imponibile, imposta, totale"
+    )
+    .eq("direzione", direzione)
+    .is("deleted_at", null)
+    .neq("stato", "annullato")
+    .gte("data_documento", dal)
+    .lte("data_documento", al);
+  if (error) return { ok: false, error: error.message };
+  const docs = (data ?? []).map((r) => {
+    const nome = String(r.ragione_sociale ?? "");
+    const anagrafica =
+      direzione === "emesso" ? r.cliente_id : r.fornitore_id;
+    return {
+      id: String(r.id),
+      tipo: "ddt" as const,
+      numero: String(r.numero_interno ?? ""),
+      data: String(r.data_documento ?? "").slice(0, 10),
+      intestazione: nome,
+      chiave: chiaveControparte(
+        anagrafica ? String(anagrafica) : null,
+        nome
+      ),
+      nomeChiave: nomeChiaveControparte(nome),
+      imponibile: Number(r.imponibile) || 0,
+      iva: Number(r.imposta) || 0,
+      totale: Number(r.totale) || 0,
+      padreId: null,
+      padreNumero: "",
+    };
+  });
+  return { ok: true, docs };
 }
 

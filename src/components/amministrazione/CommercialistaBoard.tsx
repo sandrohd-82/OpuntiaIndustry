@@ -12,6 +12,7 @@ import { FaChevronDown, FaChevronRight } from "react-icons/fa6";
 import {
   applySequenzaCommercialistaAction,
   getCommercialistaSummaryAction,
+  scaricaElencoMistoAction,
   resetTrimestreCommercialistaAction,
   upsertTrimestreCommercialistaAction,
   type CommercialistaSummaryResult,
@@ -380,7 +381,9 @@ export function CommercialistaBoard() {
   const [dalEdit, setDalEdit] = useState("");
   const [alEdit, setAlEdit] = useState("");
   const [periodoMsg, setPeriodoMsg] = useState<string | null>(null);
+  const [exportMsg, setExportMsg] = useState<string | null>(null);
   const [savingPeriodo, startSavePeriodo] = useTransition();
+  const [exporting, startExport] = useTransition();
 
   const calendarDefault = useMemo(
     () => dateRangeForTrimestre(anno, trimestre),
@@ -424,6 +427,36 @@ export function CommercialistaBoard() {
       }
       setPeriodoMsg("Periodo aggiornato.");
       await load();
+    });
+  }
+
+  function esportaElenco(lato: "emesso" | "ricevuto") {
+    setExportMsg(null);
+    startExport(async () => {
+      const res = await scaricaElencoMistoAction({ anno, trimestre, lato });
+      if (!res.success) {
+        setExportMsg(res.error);
+        return;
+      }
+      const bin = atob(res.base64);
+      const bytes = new Uint8Array(bin.length);
+      for (let i = 0; i < bin.length; i += 1) bytes[i] = bin.charCodeAt(i);
+      const blob = new Blob([bytes], {
+        type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+      });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = res.filename;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+      setExportMsg(
+        lato === "emesso"
+          ? "Elenco emessi scaricato."
+          : "Elenco ricevuti scaricato."
+      );
     });
   }
 
@@ -528,6 +561,22 @@ export function CommercialistaBoard() {
           >
             Ripristina calendario
           </button>
+          <button
+            type="button"
+            disabled={exporting || !ready}
+            onClick={() => esportaElenco("emesso")}
+            className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-800 disabled:opacity-50"
+          >
+            Esporta elenco emessi
+          </button>
+          <button
+            type="button"
+            disabled={exporting || !ready}
+            onClick={() => esportaElenco("ricevuto")}
+            className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-800 disabled:opacity-50"
+          >
+            Esporta elenco ricevuti
+          </button>
         </div>
         <p className="mt-1 text-[11px] text-[var(--muted)]">
           Default calendario: {formatDateIt(calendarDefault.dal)} –{" "}
@@ -535,6 +584,14 @@ export function CommercialistaBoard() {
         </p>
         {periodoMsg ? (
           <p className="mt-1 text-xs text-slate-700">{periodoMsg}</p>
+        ) : null}
+        <p className="mt-2 text-[11px] text-[var(--muted)]">
+          Gli elenchi mettono insieme fatture, DDT e note di credito del
+          periodo: in ordine di tempo, con i documenti collegati nello stesso
+          gruppo.
+        </p>
+        {exportMsg ? (
+          <p className="mt-1 text-xs text-slate-700">{exportMsg}</p>
         ) : null}
       </section>
 
