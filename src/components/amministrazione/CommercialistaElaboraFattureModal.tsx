@@ -1,22 +1,18 @@
 "use client";
 
-import { useEffect, useId, useState, useTransition } from "react";
+import { useEffect, useId, useMemo, useState, useTransition } from "react";
 import { createPortal } from "react-dom";
+import { FaDownload, FaXmark } from "react-icons/fa6";
 import {
-  FaChevronLeft,
-  FaChevronRight,
-  FaEye,
-  FaEyeSlash,
-  FaPrint,
-  FaXmark,
-} from "react-icons/fa6";
-import {
-  auditCommercialistaPaperAction,
   getCommercialistaPaperBatchAction,
+  scaricaElaborazioneFattureExcelAction,
   type CommercialistaPaperDoc,
 } from "@/app/actions/commercialista";
-import { CommercialistaPaperPage } from "@/components/amministrazione/CommercialistaPaperPage";
-import { formatDateIt } from "@/lib/amministrazione/fatture";
+import { formatEuro } from "@/lib/amministrazione/fatture";
+import {
+  ELABORAZIONE_EXCEL_TITOLI,
+  righeElaborazioneFatture,
+} from "@/lib/amministrazione/elaborazione-fatture-excel";
 import type { TrimestreNumero } from "@/lib/amministrazione/trimestre-commerciale";
 import type { ElaborazioneContabileKind } from "@/types/database";
 
@@ -35,20 +31,16 @@ export function CommercialistaElaboraFattureModal({
 }: Props) {
   const titleId = useId();
   const [docs, setDocs] = useState<CommercialistaPaperDoc[]>([]);
-  const [index, setIndex] = useState(0);
-  const [showSequenza, setShowSequenza] = useState(true);
-  const [senzaSequenza, setSenzaSequenza] = useState(0);
   const [labelPeriodo, setLabelPeriodo] = useState("");
   const [error, setError] = useState<string | null>(null);
+  const [scaricaMsg, setScaricaMsg] = useState<string | null>(null);
   const [pending, startLoad] = useTransition();
-
-  useEffect(() => {
-    const style = document.createElement("style");
-    style.setAttribute("data-commercialista-a4", "1");
-    style.textContent = "@page { size: A4 portrait; margin: 0; }";
-    document.head.appendChild(style);
-    return () => style.remove();
-  }, []);
+  const [scaricando, setScaricando] = useState(false);
+  const kindLabel = kind === "emessa" ? "emesse" : "ricevute";
+  const righe = useMemo(
+    () => righeElaborazioneFatture(docs, kind),
+    [docs, kind]
+  );
 
   useEffect(() => {
     startLoad(async () => {
@@ -64,99 +56,80 @@ export function CommercialistaElaboraFattureModal({
       }
       setError(null);
       setDocs(res.docs);
-      setSenzaSequenza(res.senzaSequenza);
       setLabelPeriodo(res.labelPeriodo);
-      setIndex(0);
-      void auditCommercialistaPaperAction({
-        kind,
-        anno,
-        trimestre,
-        mode: "elabora_apri",
-        documenti: res.docs.length,
-        mostraSequenza: true,
-      });
     });
   }, [kind, anno, trimestre]);
 
-  const current = docs[index] ?? null;
-  const kindLabel = kind === "emessa" ? "emesse" : "ricevute";
-
-  function printCurrent() {
-    if (!current) return;
-    void auditCommercialistaPaperAction({
-      kind,
-      anno,
-      trimestre,
-      mode: "stampa_singola",
-      documenti: 1,
-      mostraSequenza: showSequenza,
-      fatturaId: current.id,
-    });
-    window.print();
+  async function scarica() {
+    if (righe.length === 0 || scaricando) return;
+    setScaricaMsg(null);
+    setScaricando(true);
+    try {
+      const res = await scaricaElaborazioneFattureExcelAction({
+        kind,
+        anno,
+        trimestre,
+      });
+      if (!res.success) {
+        setScaricaMsg(res.error);
+        return;
+      }
+      const bin = atob(res.base64);
+      const bytes = new Uint8Array(bin.length);
+      for (let i = 0; i < bin.length; i += 1) bytes[i] = bin.charCodeAt(i);
+      const blob = new Blob([bytes], {
+        type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+      });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = res.filename;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+      setScaricaMsg("Excel scaricato.");
+    } catch (err) {
+      setScaricaMsg(
+        err instanceof Error ? err.message : "Non sono riuscito a scaricare l'Excel."
+      );
+    } finally {
+      setScaricando(false);
+    }
   }
 
   return createPortal(
     <div
-      className="commercialista-print-portal fixed inset-0 z-[80] flex flex-col bg-slate-950/70 print:static print:bg-white"
+      className="fixed inset-0 z-[80] flex flex-col bg-slate-950/70"
       role="presentation"
     >
       <div
         role="dialog"
         aria-modal="true"
         aria-labelledby={titleId}
-        className="flex h-full min-h-0 flex-col bg-slate-100 print:h-auto print:bg-white"
+        className="flex h-full min-h-0 flex-col bg-slate-100"
         onClick={(e) => e.stopPropagation()}
       >
-        <header className="print:hidden shrink-0 border-b border-slate-300 bg-white px-4 py-3 shadow-sm">
-          <div className="mx-auto flex max-w-[220mm] flex-wrap items-center justify-between gap-3">
+        <header className="shrink-0 border-b border-slate-300 bg-white px-4 py-3 shadow-sm">
+          <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-3">
             <div>
               <h2 id={titleId} className="text-sm font-semibold text-slate-900">
                 Elabora fatture {kindLabel}
               </h2>
               <p className="text-xs text-slate-500">
                 {labelPeriodo || `Anno ${anno} · T${trimestre}`}
-                {docs.length > 0
-                  ? ` · ${index + 1} / ${docs.length}`
-                  : null}
+                {docs.length > 0 ? ` · ${docs.length} fatture` : null}
               </p>
             </div>
             <div className="flex flex-wrap items-center gap-2">
               <button
                 type="button"
-                disabled={!current || index <= 0}
-                onClick={() => setIndex((i) => Math.max(0, i - 1))}
-                className="inline-flex items-center gap-1 rounded-lg border border-slate-300 bg-white px-2.5 py-1.5 text-xs font-medium disabled:opacity-40"
-              >
-                <FaChevronLeft size={11} />
-                Precedente
-              </button>
-              <button
-                type="button"
-                disabled={!current || index >= docs.length - 1}
-                onClick={() =>
-                  setIndex((i) => Math.min(docs.length - 1, i + 1))
-                }
-                className="inline-flex items-center gap-1 rounded-lg border border-slate-300 bg-white px-2.5 py-1.5 text-xs font-medium disabled:opacity-40"
-              >
-                Prossimo
-                <FaChevronRight size={11} />
-              </button>
-              <button
-                type="button"
-                onClick={() => setShowSequenza((v) => !v)}
-                className="inline-flex items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-2.5 py-1.5 text-xs font-medium"
-              >
-                {showSequenza ? <FaEyeSlash size={12} /> : <FaEye size={12} />}
-                {showSequenza ? "Nascondi sequenza" : "Mostra sequenza"}
-              </button>
-              <button
-                type="button"
-                disabled={!current}
-                onClick={printCurrent}
+                disabled={righe.length === 0 || scaricando || pending}
+                onClick={() => void scarica()}
                 className="inline-flex items-center gap-1.5 rounded-lg bg-[var(--primary)] px-3 py-1.5 text-xs font-medium text-white disabled:opacity-40"
               >
-                <FaPrint size={12} />
-                Stampa
+                <FaDownload size={12} />
+                {scaricando ? "Preparazione…" : "Scarica Excel"}
               </button>
               <button
                 type="button"
@@ -168,49 +141,88 @@ export function CommercialistaElaboraFattureModal({
               </button>
             </div>
           </div>
-          {senzaSequenza > 0 ? (
-            <p className="mx-auto mt-2 max-w-[220mm] text-xs text-amber-800">
-              {senzaSequenza} documento/i senza numero sequenziale: puoi
-              elaborare comunque; usa «Aggiungi sequenza numerica» sulla
-              colonna per assegnarli.
+          {scaricaMsg ? (
+            <p className="mx-auto mt-2 max-w-6xl text-xs text-slate-700">
+              {scaricaMsg}
             </p>
           ) : null}
         </header>
 
-        <div className="commercialista-print-scroll min-h-0 flex-1 overflow-y-auto px-4 py-6 print:overflow-visible print:p-0">
+        <div className="min-h-0 flex-1 overflow-auto px-4 py-6">
           {pending ? (
-            <p className="print:hidden text-center text-sm text-slate-600">
-              Caricamento documenti…
+            <p className="text-center text-sm text-slate-600">
+              Preparazione elenco…
             </p>
           ) : error ? (
-            <p className="print:hidden mx-auto max-w-[220mm] rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">
+            <p className="mx-auto max-w-6xl rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">
               {error}
             </p>
-          ) : !current ? (
-            <p className="print:hidden text-center text-sm text-slate-600">
+          ) : righe.length === 0 ? (
+            <p className="text-center text-sm text-slate-600">
               Nessuna fattura nel periodo.
             </p>
           ) : (
-            <div className="commercialista-print-root space-y-3">
-              <p className="print:hidden mx-auto max-w-[210mm] text-xs text-slate-600">
-                <span className="font-mono font-semibold">
-                  {current.numeroInterno}
-                </span>
-                {" · "}
-                {formatDateIt(current.dataEmissione)}
-                {" · "}
-                {current.anagraficaRagioneSociale}
-                {current.numeroSequenza != null
-                  ? ` · seq. ${current.numeroSequenza}`
-                  : " · senza sequenza"}
-              </p>
-              <CommercialistaPaperPage
-                model={current.model}
-                classica={current.classica}
-                sdiAssente={current.sdiAssente}
-                numeroSequenza={current.numeroSequenza}
-                showSequenza={showSequenza}
-              />
+            <div className="mx-auto max-w-6xl overflow-hidden rounded-lg border border-slate-300 bg-white shadow-sm">
+              <table className="w-full border-collapse text-left text-sm">
+                <thead className="bg-slate-800 text-xs text-white">
+                  <tr>
+                    {ELABORAZIONE_EXCEL_TITOLI.map((titolo) => (
+                      <th
+                        key={titolo}
+                        className="px-3 py-2 font-semibold whitespace-nowrap"
+                      >
+                        {titolo}
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {righe.map((riga, i) =>
+                    riga.tipo === "fattura" ? (
+                      <tr key={`f-${i}`} className="border-t border-slate-200">
+                        <td className="px-3 py-1.5 tabular-nums">
+                          {riga.numeroProvvisorio ?? "—"}
+                        </td>
+                        <td className="px-3 py-1.5 whitespace-nowrap">
+                          {riga.data}
+                        </td>
+                        <td className="px-3 py-1.5">{riga.emittente}</td>
+                        <td className="px-3 py-1.5 text-right tabular-nums">
+                          {formatEuro(riga.imponibile)}
+                        </td>
+                        <td className="px-3 py-1.5 text-right tabular-nums">
+                          {formatEuro(riga.iva)}
+                        </td>
+                        <td className="px-3 py-1.5 text-right tabular-nums">
+                          {formatEuro(riga.totale)}
+                        </td>
+                      </tr>
+                    ) : (
+                      <tr
+                        key={`t-${i}`}
+                        className={
+                          riga.tipo === "generale"
+                            ? "border-t border-slate-800 bg-slate-900 font-semibold text-white"
+                            : "border-t border-amber-200 bg-amber-50 font-semibold text-slate-900"
+                        }
+                      >
+                        <td className="px-3 py-2" />
+                        <td className="px-3 py-2" />
+                        <td className="px-3 py-2">{riga.etichetta}</td>
+                        <td className="px-3 py-2 text-right tabular-nums">
+                          {formatEuro(riga.imponibile)}
+                        </td>
+                        <td className="px-3 py-2 text-right tabular-nums">
+                          {formatEuro(riga.iva)}
+                        </td>
+                        <td className="px-3 py-2 text-right tabular-nums">
+                          {formatEuro(riga.totale)}
+                        </td>
+                      </tr>
+                    )
+                  )}
+                </tbody>
+              </table>
             </div>
           )}
         </div>

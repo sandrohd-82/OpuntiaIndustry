@@ -1,0 +1,186 @@
+import { AGRINSICILIA_LETTERHEAD } from "@/lib/amministrazione/preventivo-letterhead";
+import { roundMoney } from "@/lib/amministrazione/fatture";
+import type { ElaborazioneContabileKind } from "@/types/database";
+
+const MESI = [
+  "gennaio",
+  "febbraio",
+  "marzo",
+  "aprile",
+  "maggio",
+  "giugno",
+  "luglio",
+  "agosto",
+  "settembre",
+  "ottobre",
+  "novembre",
+  "dicembre",
+] as const;
+
+export const ELABORAZIONE_EXCEL_TITOLI = [
+  "Numero Provvisorio",
+  "Data",
+  "Intestazione Emittente",
+  "Tot. Imponibile",
+  "Tot. IVA",
+  "Tot. Fattura",
+] as const;
+
+export type FatturaElaborazioneSorgente = {
+  numeroSequenza: number | null;
+  dataEmissione: string;
+  anagraficaRagioneSociale: string;
+  classica: {
+    dataDocumento: string;
+    emittente: { ragioneSociale: string };
+    imponibile: number;
+    imposta: number;
+    totale: number;
+  } | null;
+  model: {
+    data: string | null;
+    mittente: { ragioneSociale: string };
+    imponibile: number;
+    iva: number;
+    totale: number;
+  };
+};
+
+export type RigaElaborazioneExcel =
+  | {
+      tipo: "fattura";
+      numeroProvvisorio: number | null;
+      data: string;
+      emittente: string;
+      imponibile: number;
+      iva: number;
+      totale: number;
+    }
+  | {
+      tipo: "mese" | "generale";
+      etichetta: string;
+      imponibile: number;
+      iva: number;
+      totale: number;
+    };
+
+function isoGiorno(raw: string | null | undefined): string {
+  const t = (raw ?? "").trim();
+  const m = /^(\d{4}-\d{2}-\d{2})/.exec(t);
+  return m?.[1] ?? "";
+}
+
+function dataIt(iso: string): string {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso);
+  if (!m) return "—";
+  return `${m[3]}/${m[2]}/${m[1]}`;
+}
+
+function etichettaMese(yyyyMm: string): string {
+  const [anno, mese] = yyyyMm.split("-");
+  const nome = MESI[Number(mese) - 1] ?? mese;
+  return `Totale ${nome} ${anno}`;
+}
+
+function emittenteDi(
+  doc: FatturaElaborazioneSorgente,
+  kind: ElaborazioneContabileKind
+): string {
+  const daSdi = doc.classica?.emittente.ragioneSociale.trim() ?? "";
+  if (daSdi) return daSdi;
+  if (kind === "emessa") return AGRINSICILIA_LETTERHEAD.ragioneSociale;
+  const daModello = doc.model.mittente.ragioneSociale.trim();
+  if (daModello) return daModello;
+  return doc.anagraficaRagioneSociale.trim() || "—";
+}
+
+function importiDi(doc: FatturaElaborazioneSorgente) {
+  if (doc.classica) {
+    return {
+      imponibile: roundMoney(doc.classica.imponibile),
+      iva: roundMoney(doc.classica.imposta),
+      totale: roundMoney(doc.classica.totale),
+    };
+  }
+  return {
+    imponibile: roundMoney(doc.model.imponibile),
+    iva: roundMoney(doc.model.iva),
+    totale: roundMoney(doc.model.totale),
+  };
+}
+
+/** Elenco ordinato per data, con il totale di ogni mese e il totale generale. */
+export function righeElaborazioneFatture(
+  docs: FatturaElaborazioneSorgente[],
+  kind: ElaborazioneContabileKind
+): RigaElaborazioneExcel[] {
+  const ordinate = [...docs].sort((a, b) => {
+    const da =
+      isoGiorno(a.classica?.dataDocumento || a.dataEmissione || a.model.data) ||
+      "9999-99-99";
+    const db =
+      isoGiorno(b.classica?.dataDocumento || b.dataEmissione || b.model.data) ||
+      "9999-99-99";
+    if (da !== db) return da < db ? -1 : 1;
+    return (a.numeroSequenza ?? 999999) - (b.numeroSequenza ?? 999999);
+  });
+
+  const out: RigaElaborazioneExcel[] = [];
+  let mese = "";
+  let impMese = 0;
+  let ivaMese = 0;
+  let totMese = 0;
+  let impTutte = 0;
+  let ivaTutte = 0;
+  let totTutte = 0;
+
+  function chiudiMese() {
+    if (!mese) return;
+    out.push({
+      tipo: "mese",
+      etichetta: etichettaMese(mese),
+      imponibile: roundMoney(impMese),
+      iva: roundMoney(ivaMese),
+      totale: roundMoney(totMese),
+    });
+    impMese = 0;
+    ivaMese = 0;
+    totMese = 0;
+  }
+
+  for (const doc of ordinate) {
+    const giorno =
+      isoGiorno(doc.classica?.dataDocumento || doc.dataEmissione || doc.model.data) ||
+      "";
+    const chiaveMese = giorno.slice(0, 7) || "senza-data";
+    if (mese && chiaveMese !== mese) chiudiMese();
+    mese = chiaveMese;
+    const importi = importiDi(doc);
+    out.push({
+      tipo: "fattura",
+      numeroProvvisorio: doc.numeroSequenza,
+      data: giorno ? dataIt(giorno) : "—",
+      emittente: emittenteDi(doc, kind),
+      imponibile: importi.imponibile,
+      iva: importi.iva,
+      totale: importi.totale,
+    });
+    impMese += importi.imponibile;
+    ivaMese += importi.iva;
+    totMese += importi.totale;
+    impTutte += importi.imponibile;
+    ivaTutte += importi.iva;
+    totTutte += importi.totale;
+  }
+
+  if (out.length === 0) return out;
+  chiudiMese();
+  out.push({
+    tipo: "generale",
+    etichetta: "Totale generale",
+    imponibile: roundMoney(impTutte),
+    iva: roundMoney(ivaTutte),
+    totale: roundMoney(totTutte),
+  });
+  return out;
+}

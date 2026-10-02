@@ -15,6 +15,7 @@ import {
   type ImportoConIva,
 } from "@/lib/amministrazione/commercialista";
 import { assignNumeriVignetta } from "@/lib/amministrazione/elaborazione-contabile";
+import { buildElaborazioneFattureXlsx } from "@/lib/amministrazione/elaborazione-fatture-xlsx";
 import type { FatturaClassicaStampaModel } from "@/lib/amministrazione/fattura-classica-stampa";
 import { fatturaClassicaDaXml } from "@/lib/amministrazione/fattura-pa-xml";
 import { nazioneEstera } from "@/lib/amministrazione/nazione-fattura";
@@ -1092,7 +1093,12 @@ export async function auditCommercialistaPaperAction(input: {
   kind: ElaborazioneContabileKind;
   anno: number;
   trimestre: TrimestreNumero;
-  mode: "elabora_apri" | "stampa_batch" | "stampa_singola" | "scarica_pdf";
+  mode:
+    | "elabora_apri"
+    | "stampa_batch"
+    | "stampa_singola"
+    | "scarica_pdf"
+    | "scarica_excel";
   documenti: number;
   mostraSequenza: boolean;
   fatturaId?: string | null;
@@ -1115,5 +1121,34 @@ export async function auditCommercialistaPaperAction(input: {
     },
   });
   return { success: true };
+}
+
+/** Excel dell'elaborazione: anteprima a parte, qui il file da scaricare. */
+export async function scaricaElaborazioneFattureExcelAction(input: {
+  kind: ElaborazioneContabileKind;
+  anno: number;
+  trimestre: TrimestreNumero;
+}): Promise<
+  | { success: true; filename: string; base64: string }
+  | { success: false; error: string }
+> {
+  const batch = await getCommercialistaPaperBatchAction(input);
+  if (!batch.success) return batch;
+  const file = await buildElaborazioneFattureXlsx({
+    kind: input.kind,
+    anno: input.anno,
+    trimestre: input.trimestre,
+    docs: batch.docs,
+  });
+  const audit = await auditCommercialistaPaperAction({
+    kind: input.kind,
+    anno: input.anno,
+    trimestre: input.trimestre,
+    mode: "scarica_excel",
+    documenti: batch.docs.length,
+    mostraSequenza: true,
+  });
+  if (!audit.success) return audit;
+  return { success: true, filename: file.filename, base64: file.base64 };
 }
 
