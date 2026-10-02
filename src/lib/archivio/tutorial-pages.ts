@@ -377,7 +377,7 @@ export const PAGE_EXTRAS: Record<string, TutorialBlock[]> = {
   "/app/strumenti/caricamento-spese": [
     {
       type: "p",
-      text: "Carica foto, PDF o XML. PDF con testo e XML si leggono in automatico; la foto si compila a mano. Conferma i dati prima della registrazione. Serve l'Area fiscale sbloccata.",
+      text: "Scatta con la fotocamera oppure carica un file (foto, PDF o XML). PDF con testo e XML si leggono in automatico; la foto si compila a mano. Conferma i dati prima della registrazione. Serve l'Area fiscale sbloccata.",
     },
   ],
   "/app/area-fiscale/commercialista": [

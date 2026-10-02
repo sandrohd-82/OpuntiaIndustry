@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState, useTransition } from "react";
+import { useEffect, useRef, useState, useTransition } from "react";
 import {
   anteprimaSpesaAction,
   listProgettiSpesaAction,
@@ -47,8 +47,15 @@ const vuoto = {
 
 export function SpeseCaricamentoBoard() {
   const fileRef = useRef<HTMLInputElement>(null);
+  const cameraFallbackRef = useRef<HTMLInputElement>(null);
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const streamRef = useRef<MediaStream | null>(null);
+  const urlRef = useRef<string | null>(null);
   const fileTenuto = useRef<File | null>(null);
   const [tipo, setTipo] = useState<TipoCaricamentoSpesa>("scontrino");
+  const [fileScelto, setFileScelto] = useState<File | null>(null);
+  const [anteprimaUrl, setAnteprimaUrl] = useState<string | null>(null);
+  const [cameraAperta, setCameraAperta] = useState(false);
   const [anteprima, setAnteprima] = useState<AnteprimaSpesa | null>(null);
   const [form, setForm] = useState(vuoto);
   const [progetti, setProgetti] = useState<SpesaProgettoView[]>([]);
@@ -60,10 +67,85 @@ export function SpeseCaricamentoBoard() {
     setForm((prev) => ({ ...prev, ...partial }));
   }
 
+  function chiudiCamera() {
+    streamRef.current?.getTracks().forEach((track) => track.stop());
+    streamRef.current = null;
+    setCameraAperta(false);
+  }
+
+  function impostaFile(file: File) {
+    if (urlRef.current) URL.revokeObjectURL(urlRef.current);
+    urlRef.current = file.type.startsWith("image/") ? URL.createObjectURL(file) : null;
+    setAnteprimaUrl(urlRef.current);
+    fileTenuto.current = file;
+    setFileScelto(file);
+    setAnteprima(null);
+    setMsg(null);
+    setErrore(null);
+  }
+
+  useEffect(() => {
+    if (!cameraAperta || !videoRef.current || !streamRef.current) return;
+    videoRef.current.srcObject = streamRef.current;
+    void videoRef.current.play().catch(() => undefined);
+  }, [cameraAperta]);
+
+  useEffect(() => {
+    return () => {
+      streamRef.current?.getTracks().forEach((track) => track.stop());
+      if (urlRef.current) URL.revokeObjectURL(urlRef.current);
+    };
+  }, []);
+
+  async function apriCamera() {
+    setErrore(null);
+    if (!navigator.mediaDevices?.getUserMedia) {
+      cameraFallbackRef.current?.click();
+      return;
+    }
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: { ideal: "environment" } },
+        audio: false,
+      });
+      streamRef.current = stream;
+      setCameraAperta(true);
+    } catch {
+      cameraFallbackRef.current?.click();
+    }
+  }
+
+  function scatta() {
+    const video = videoRef.current;
+    if (!video || !video.videoWidth) {
+      setErrore("La fotocamera non è ancora pronta.");
+      return;
+    }
+    const canvas = document.createElement("canvas");
+    canvas.width = video.videoWidth;
+    canvas.height = video.videoHeight;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+    ctx.drawImage(video, 0, 0);
+    canvas.toBlob(
+      (blob) => {
+        if (!blob) {
+          setErrore("Non sono riuscito a salvare la foto.");
+          return;
+        }
+        const nome = `spesa-${new Date().toISOString().slice(0, 19).replace(/[:T]/g, "-")}.jpg`;
+        impostaFile(new File([blob], nome, { type: "image/jpeg" }));
+        chiudiCamera();
+      },
+      "image/jpeg",
+      0.92
+    );
+  }
+
   function analizza() {
-    const file = fileRef.current?.files?.[0];
+    const file = fileTenuto.current;
     if (!file) {
-      setErrore("Seleziona un file.");
+      setErrore("Scatta una foto oppure carica un file.");
       return;
     }
     setErrore(null);
@@ -141,7 +223,13 @@ export function SpeseCaricamentoBoard() {
       setAnteprima(null);
       setForm(vuoto);
       fileTenuto.current = null;
+      setFileScelto(null);
+      if (urlRef.current) URL.revokeObjectURL(urlRef.current);
+      urlRef.current = null;
+      setAnteprimaUrl(null);
+      chiudiCamera();
       if (fileRef.current) fileRef.current.value = "";
+      if (cameraFallbackRef.current) cameraFallbackRef.current.value = "";
     });
   }
 
@@ -151,39 +239,104 @@ export function SpeseCaricamentoBoard() {
     <div className="mx-auto max-w-3xl space-y-4">
       <section className="rounded-xl border border-[var(--border)] bg-[var(--card)] p-4">
         <p className="text-sm text-slate-700">
-          Carica lo scontrino, la fattura estera o il file XML. I PDF con testo
-          e gli XML vengono letti qui; le foto si compilano a mano. Nulla viene
-          salvato finché non confermi.
+          Scatta una foto con la fotocamera oppure carica un file (foto, PDF o
+          XML). I PDF con testo e gli XML vengono letti qui; le foto si
+          compilano a mano. Nulla viene salvato finché non confermi.
         </p>
-        <div className="mt-4 grid gap-3 sm:grid-cols-2">
-          <label className="block text-sm">
-            <span className="mb-1 block text-xs font-medium text-[var(--muted)]">
-              Tipo documento
-            </span>
-            <select
-              className={field}
-              value={tipo}
-              onChange={(e) => setTipo(e.target.value as TipoCaricamentoSpesa)}
-            >
-              {TIPI_CARICAMENTO_SPESA.map((k) => (
-                <option key={k} value={k}>
-                  {LABEL_TIPO_CARICAMENTO[k]}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label className="block text-sm">
-            <span className="mb-1 block text-xs font-medium text-[var(--muted)]">
-              File
-            </span>
-            <input
-              ref={fileRef}
-              type="file"
-              accept="image/jpeg,image/png,image/webp,application/pdf,.xml,.p7m,application/pkcs7-mime"
-              className={field}
-            />
-          </label>
+        <label className="mt-4 block max-w-sm text-sm">
+          <span className="mb-1 block text-xs font-medium text-[var(--muted)]">
+            Tipo documento
+          </span>
+          <select
+            className={field}
+            value={tipo}
+            onChange={(e) => setTipo(e.target.value as TipoCaricamentoSpesa)}
+          >
+            {TIPI_CARICAMENTO_SPESA.map((k) => (
+              <option key={k} value={k}>
+                {LABEL_TIPO_CARICAMENTO[k]}
+              </option>
+            ))}
+          </select>
+        </label>
+        <div className="mt-4 flex flex-wrap gap-2">
+          <button
+            type="button"
+            onClick={() => void apriCamera()}
+            className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-800 hover:bg-slate-50"
+          >
+            Fotocamera
+          </button>
+          <button
+            type="button"
+            onClick={() => fileRef.current?.click()}
+            className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-800 hover:bg-slate-50"
+          >
+            Carica file
+          </button>
+          <input
+            ref={fileRef}
+            type="file"
+            accept="image/jpeg,image/png,image/webp,application/pdf,.xml,.p7m,application/pkcs7-mime"
+            className="hidden"
+            onChange={(e) => {
+              const file = e.target.files?.[0];
+              if (file) impostaFile(file);
+            }}
+          />
+          <input
+            ref={cameraFallbackRef}
+            type="file"
+            accept="image/*"
+            capture="environment"
+            className="hidden"
+            onChange={(e) => {
+              const file = e.target.files?.[0];
+              if (file) impostaFile(file);
+            }}
+          />
         </div>
+        {cameraAperta ? (
+          <div className="mt-4 space-y-2">
+            <video
+              ref={videoRef}
+              playsInline
+              muted
+              className="max-h-80 w-full rounded-lg bg-black object-contain"
+            />
+            <div className="flex flex-wrap gap-2">
+              <button
+                type="button"
+                onClick={scatta}
+                className="rounded-lg bg-[var(--primary)] px-3 py-2 text-sm font-medium text-white"
+              >
+                Scatta
+              </button>
+              <button
+                type="button"
+                onClick={chiudiCamera}
+                className="rounded-lg border border-slate-300 px-3 py-2 text-sm"
+              >
+                Chiudi fotocamera
+              </button>
+            </div>
+          </div>
+        ) : null}
+        {fileScelto ? (
+          <div className="mt-4 flex items-center gap-3">
+            {anteprimaUrl ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img
+                src={anteprimaUrl}
+                alt="Documento scelto"
+                className="h-20 w-20 rounded-lg border border-slate-200 object-cover"
+              />
+            ) : null}
+            <p className="text-sm text-slate-700">
+              Pronto: <span className="font-medium">{fileScelto.name}</span>
+            </p>
+          </div>
+        ) : null}
         <button
           type="button"
           disabled={pending}
