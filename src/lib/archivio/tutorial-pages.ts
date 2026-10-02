@@ -362,6 +362,24 @@ export const PAGE_EXTRAS: Record<string, TutorialBlock[]> = {
       text: "Emissione fattura interna, allineata a Fatture in Cloud. Fino al 31/12/2026 il numero è NN/ANNO (es. 23/2026). Dal 01/01/2027, in base alla data di emissione, diventa YY/CCCC (es. 27/0001). Le fatture già emesse restano col numero salvato. Stati documento: bozza / registrato / approvato / chiuso. Gli scostamenti di totale restano in audit.",
     },
   ],
+  "/app/area-fiscale/piccole-spese/registro": [
+    {
+      type: "p",
+      text: "Registro di scontrini, piccole spese e fatture caricate a mano. Ogni documento esiste anche senza progetto. Le spese libere si contabilizzano da qui; quelle di un progetto partono dal pacchetto approvato. Il file si carica da Strumenti → Caricamento manuale spese.",
+    },
+  ],
+  "/app/area-fiscale/piccole-spese/progetti": [
+    {
+      type: "p",
+      text: "Progetti e viaggi di lavoro. Stato bozza, poi approvato, poi chiuso quando il pacchetto va in contabilità. Le spese si agganciano e si sganciano finché il progetto non è chiuso.",
+    },
+  ],
+  "/app/strumenti/caricamento-spese": [
+    {
+      type: "p",
+      text: "Carica foto, PDF o XML. PDF con testo e XML si leggono in automatico; la foto si compila a mano. Conferma i dati prima della registrazione. Serve l'Area fiscale sbloccata.",
+    },
+  ],
   "/app/area-fiscale/commercialista": [
     {
       type: "p",

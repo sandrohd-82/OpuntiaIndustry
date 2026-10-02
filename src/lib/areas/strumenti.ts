@@ -46,6 +46,13 @@ export const STRUMENTI_SECTIONS: readonly NavItem[] = [
     path: "/app/strumenti/editor-aree",
   },
   {
+    slug: "caricamento-spese",
+    label: "Caricamento manuale spese",
+    description:
+      "Foto, PDF o XML di scontrini e fatture. Richiede l'Area fiscale sbloccata",
+    path: "/app/strumenti/caricamento-spese",
+  },
+  {
     slug: "ticket",
     label: "Ticket",
     description:

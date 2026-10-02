@@ -158,6 +158,26 @@ export const AREA_FISCALE_SECTIONS: readonly NavItem[] = [
     ],
   },
   {
+    slug: "piccole-spese",
+    label: "Gestione Piccole Spese",
+    description: "Scontrini, fatture caricate a mano e progetti di spesa",
+    path: "/app/area-fiscale/piccole-spese",
+    children: [
+      {
+        slug: "registro",
+        label: "Registro spese e fatture",
+        description: "Tutti i documenti di spesa, anche senza progetto",
+        path: "/app/area-fiscale/piccole-spese/registro",
+      },
+      {
+        slug: "progetti",
+        label: "Progetti e viaggi",
+        description: "Raggruppa le spese e invia il pacchetto in contabilità",
+        path: "/app/area-fiscale/piccole-spese/progetti",
+      },
+    ],
+  },
+  {
     slug: "commercialista",
     label: "Commercialista",
     description: "Area riservata al commercialista",

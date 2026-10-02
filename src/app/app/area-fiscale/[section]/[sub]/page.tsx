@@ -1,5 +1,7 @@
 import { notFound, redirect } from "next/navigation";
 import { ContrattiFiscaliBoard } from "@/components/amministrazione/ContrattiFiscaliBoard";
+import { SpeseProgettiBoard } from "@/components/fiscale/SpeseProgettiBoard";
+import { SpeseRegistroBoard } from "@/components/fiscale/SpeseRegistroBoard";
 import { DashboardFiscaleBoard } from "@/components/amministrazione/DashboardFiscaleBoard";
 import { FatturaEmissioneBoard } from "@/components/amministrazione/FatturaEmissioneBoard";
 import { FattureInterneBoard } from "@/components/amministrazione/FattureInterneBoard";
@@ -97,6 +99,28 @@ export default async function AreaFiscaleSubPage({ params }: Props) {
         <AppHeader title={page.label} subtitle={page.description} />
         <div className="p-6">
           <RapportiBancaBoard />
+        </div>
+      </>
+    );
+  }
+
+  if (section === "piccole-spese" && sub === "registro") {
+    return (
+      <>
+        <AppHeader title={page.label} subtitle={page.description} />
+        <div className="p-6">
+          <SpeseRegistroBoard />
+        </div>
+      </>
+    );
+  }
+
+  if (section === "piccole-spese" && sub === "progetti") {
+    return (
+      <>
+        <AppHeader title={page.label} subtitle={page.description} />
+        <div className="p-6">
+          <SpeseProgettiBoard />
         </div>
       </>
     );
