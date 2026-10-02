@@ -72,9 +72,10 @@ export function FatturaClassicaStampa({
   const data = model.dataDocumento
     ? formatPreventivoDataIt(model.dataDocumento)
     : "—";
+  const codiceSdi = model.destinatario.sdi.trim();
   return (
-    <article className="commercialista-fattura-foglio paper-invoice-sheet mx-auto w-full max-w-[210mm] bg-white text-slate-900 shadow-[0_8px_30px_rgba(15,23,42,0.12)] ring-1 ring-slate-200 print:shadow-none print:ring-0">
-      <div className="box-border px-[12mm] py-[8mm] text-slate-900">
+    <article className="commercialista-fattura-foglio paper-invoice-sheet mx-auto w-full bg-white text-slate-900 shadow-[0_8px_30px_rgba(15,23,42,0.12)] ring-1 ring-slate-200 print:shadow-none print:ring-0">
+      <div className="commercialista-fattura-corpo box-border px-[12mm] py-[10mm] text-slate-900">
         <header>
           <div className="flex items-start justify-end">
             <div className="w-[58%] text-slate-900">
@@ -82,12 +83,17 @@ export function FatturaClassicaStampa({
               <p className="mt-1.5 text-right text-[12px] font-bold tracking-wide">
                 FATTURA nr. {testo(model.numero)} del {data}
               </p>
+              {codiceSdi ? (
+                <p className="mt-0.5 text-right text-[11px] font-semibold">
+                  SDI {codiceSdi}
+                </p>
+              ) : null}
             </div>
           </div>
           <div className="mt-3 h-px w-full bg-slate-900" />
         </header>
 
-        <section className="mt-5">
+        <section className="mt-4">
           <div className="grid grid-cols-2 gap-6 text-slate-900">
             <Soggetto
               titolo="Destinatario"
@@ -101,16 +107,26 @@ export function FatturaClassicaStampa({
           </div>
         </section>
 
-        <div className="mt-6 border-t border-slate-200 pt-4">
-          <table className="w-full text-left text-[11px]">
+        <div className="commercialista-fattura-respiro" aria-hidden />
+
+        <div className="border-t border-slate-200 pt-4">
+          <table className="w-full table-fixed text-left text-[11px]">
+            <colgroup>
+              <col className="w-[32%]" />
+              <col className="w-[17%]" />
+              <col className="w-[15%]" />
+              <col className="w-[11%]" />
+              <col className="w-[16%]" />
+              <col className="w-[9%]" />
+            </colgroup>
             <thead className="border-b border-slate-300 text-slate-600">
               <tr>
                 <th className="py-1.5 pr-2 font-medium">Prodotto</th>
-                <th className="py-1.5 pr-2 font-medium">Qty</th>
-                <th className="py-1.5 pr-2 font-medium">Listino</th>
-                <th className="py-1.5 pr-2 font-medium">Sconto</th>
-                <th className="py-1.5 pr-2 font-medium">Netto</th>
-                <th className="py-1.5 font-medium">IVA</th>
+                <th className="py-1.5 pr-2 text-right font-medium whitespace-nowrap">Qty</th>
+                <th className="py-1.5 pr-2 text-right font-medium whitespace-nowrap">Listino</th>
+                <th className="py-1.5 pr-2 text-right font-medium whitespace-nowrap">Sconto</th>
+                <th className="py-1.5 pr-2 text-right font-medium whitespace-nowrap">Netto</th>
+                <th className="py-1.5 text-right font-medium whitespace-nowrap">IVA</th>
               </tr>
             </thead>
             <tbody>
@@ -129,20 +145,20 @@ export function FatturaClassicaStampa({
                   const nome = [r.codice, r.descrizione].filter(Boolean).join(" — ");
                   return (
                     <tr key={`${r.codice}-${i}`} className="border-b border-slate-100">
-                      <td className="py-1.5 pr-2">{nome}</td>
-                      <td className="py-1.5 pr-2 tabular-nums">
+                      <td className="py-1.5 pr-2 break-words">{nome}</td>
+                      <td className="py-1.5 pr-2 text-right tabular-nums whitespace-nowrap">
                         {r.quantita} {r.unitaMisura}
                       </td>
-                      <td className="py-1.5 pr-2 tabular-nums">
+                      <td className="py-1.5 pr-2 text-right tabular-nums whitespace-nowrap">
                         {euro(r.prezzoUnitario)} €
                       </td>
-                      <td className="py-1.5 pr-2 tabular-nums">
+                      <td className="py-1.5 pr-2 text-right tabular-nums whitespace-nowrap">
                         {r.scontoPercentuale > 0 ? `${r.scontoPercentuale} %` : "—"}
                       </td>
-                      <td className="py-1.5 pr-2 font-medium tabular-nums">
+                      <td className="py-1.5 pr-2 text-right font-medium tabular-nums whitespace-nowrap">
                         {euro(netto)} €
                       </td>
-                      <td className="py-1.5 tabular-nums">{r.ivaPercentuale}%</td>
+                      <td className="py-1.5 text-right tabular-nums whitespace-nowrap">{r.ivaPercentuale}%</td>
                     </tr>
                   );
                 })
@@ -157,7 +173,9 @@ export function FatturaClassicaStampa({
           <div className="mt-3 h-px w-full bg-slate-900" />
         </div>
 
-        <div className="commercialista-fattura-piede mt-4 grid grid-cols-2 border border-slate-800 text-[11px] leading-normal">
+        <div className="commercialista-fattura-respiro" aria-hidden />
+
+        <div className="commercialista-fattura-piede grid grid-cols-2 border border-slate-800 text-[11px] leading-normal">
           <div className="border-r border-slate-800 p-3">
             <p className="text-[12px] font-bold">Pagamento</p>
             <p className="mt-0.5">{testo(model.pagamento)}</p>
@@ -225,7 +243,7 @@ export function FatturaClassicaStampa({
           </div>
         </div>
 
-        <footer className="mt-4 text-center">
+        <footer className="mt-[8mm] text-center">
           <p className="text-[10px] font-semibold leading-[1.4]">
             {testo(model.emittente.ragioneSociale)}
           </p>

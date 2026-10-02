@@ -817,9 +817,8 @@ async function classicaDaSdiEmessa(
     .eq("type", "issued")
     .is("deleted_at", null)
     .maybeSingle();
-  let xml = extractXmlFromRawSafe(
-    (data?.raw_data ?? null) as Record<string, unknown> | null
-  );
+  const raw = (data?.raw_data ?? null) as Record<string, unknown> | null;
+  let xml = extractXmlFromRawSafe(raw);
   if (!xml) {
     try {
       const scaricato = await resolveFicDocumentXml({
@@ -833,7 +832,16 @@ async function classicaDaSdiEmessa(
     }
   }
   try {
-    return fatturaClassicaDaXml(xml);
+    const model = fatturaClassicaDaXml(xml);
+    if (!model.destinatario.sdi.trim()) {
+      const entity = raw?.entity;
+      const eiCode =
+        entity && typeof entity === "object"
+          ? String((entity as { ei_code?: unknown }).ei_code ?? "").trim()
+          : "";
+      if (eiCode) model.destinatario.sdi = eiCode;
+    }
+    return model;
   } catch (err) {
     console.error("[commercialista sdi xml]", ficId, err);
     return null;

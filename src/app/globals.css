@@ -163,12 +163,35 @@ body {
   animation: mex-string-on 0.35s ease-out;
 }
 
-/* Anteprima stampa commercialista: un foglio A4 vero, contenuto in alto. */
+/* Anteprima stampa commercialista: un A4 pieno, testo in alto e intestazione in fondo. */
 .commercialista-print-page {
   box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
   width: 210mm;
+  height: 297mm;
   min-height: 297mm;
   background: white;
+}
+
+.commercialista-fattura-foglio {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-height: 0;
+  width: 100%;
+}
+
+.commercialista-fattura-corpo {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.commercialista-fattura-respiro {
+  flex: 1 1 10mm;
+  min-height: 8mm;
 }
 
 /* Paper Invoice / commercialista / etichette barcode — stampa solo il root dedicato */
@@ -225,15 +248,16 @@ body {
   }
 
   .commercialista-print-page {
-    display: block !important;
+    display: flex !important;
+    flex-direction: column !important;
     position: relative !important;
     width: 210mm !important;
+    height: 296mm !important;
     min-height: 296mm !important;
-    height: auto !important;
-    max-height: none !important;
+    max-height: 296mm !important;
     margin: 0 !important;
     padding: 0 !important;
-    overflow: visible !important;
+    overflow: hidden !important;
     background: white !important;
     box-shadow: none !important;
     break-after: page;
@@ -247,8 +271,11 @@ body {
 
   .commercialista-print-page .paper-invoice-sheet,
   .commercialista-print-page .commercialista-fattura-foglio {
-    width: 210mm !important;
-    max-width: 210mm !important;
+    display: flex !important;
+    flex: 1 1 auto !important;
+    flex-direction: column !important;
+    width: 100% !important;
+    max-width: none !important;
     min-height: 0 !important;
     height: auto !important;
     margin: 0 !important;
