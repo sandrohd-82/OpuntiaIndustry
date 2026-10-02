@@ -81,7 +81,8 @@ export function FatturaClassicaStampa({
             <div className="w-[58%] text-slate-900">
               <Soggetto titolo="Emittente" soggetto={model.emittente} align="right" />
               <p className="mt-1.5 text-right text-[12px] font-bold tracking-wide">
-                FATTURA nr. {testo(model.numero)} del {data}
+                {model.notaCredito ? "NOTA DI CREDITO" : "FATTURA"} nr.{" "}
+                {testo(model.numero)} del {data}
               </p>
               {codiceSdi ? (
                 <p className="mt-0.5 text-right text-[11px] font-semibold">
@@ -92,6 +93,12 @@ export function FatturaClassicaStampa({
           </div>
           <div className="mt-3 h-px w-full bg-slate-900" />
         </div>
+
+        {model.notaCredito ? (
+          <p className="mt-4 border border-red-300 bg-red-50 px-3 py-1.5 text-center text-[12px] font-bold tracking-wide text-red-900">
+            Nota di credito — importi in negativo
+          </p>
+        ) : null}
 
         {model.nazioneEstera ? (
           <p className="mt-4 border border-amber-700 bg-amber-50 px-3 py-1.5 text-center text-[12px] font-bold tracking-wide text-amber-950">
@@ -210,7 +217,8 @@ export function FatturaClassicaStampa({
                 <span className="font-semibold">Importo:</span> {euro(model.totale)} €
               </p>
               <p>
-                <span className="font-semibold">Causale:</span> Pagamento Fattura n.{" "}
+                <span className="font-semibold">Causale:</span>{" "}
+                {model.notaCredito ? "Nota di credito n." : "Pagamento Fattura n."}{" "}
                 {testo(model.numero)} del {data}.
               </p>
             </div>
@@ -242,7 +250,7 @@ export function FatturaClassicaStampa({
                 </div>
               )}
               <div className="flex justify-between gap-3 border-t border-slate-800 pt-1 font-semibold">
-                <span>Totale Fattura</span>
+                <span>{model.notaCredito ? "Totale nota di credito" : "Totale Fattura"}</span>
                 <span className="tabular-nums">{euro(model.totale)} €</span>
               </div>
             </div>

@@ -228,6 +228,11 @@ function ColonnaCommercialista({
                 className="relative rounded-lg border border-[var(--border)] bg-white px-3 pb-2 pt-7"
               >
                 <NumeroMatita n={d.numeroSequenza} />
+                {d.notaCredito ? (
+                  <p className="pr-10 text-xs font-bold uppercase tracking-wide text-red-700">
+                    Nota di credito
+                  </p>
+                ) : null}
                 <p className="pr-10 font-mono text-xs font-semibold">
                   {d.numeroInterno}
                 </p>

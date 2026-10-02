@@ -37,6 +37,7 @@ export type CommercialistaDocumentoRiga = {
   totale: number;
   /** Numero sequenza matita (provvisorio) se assegnato. */
   numeroSequenza: number | null;
+  notaCredito: boolean;
 };
 
 export type CommercialistaBeneRiga = {

@@ -140,7 +140,12 @@ export function buildFatturaClassicaPdf(input: {
   y += 1.5;
   doc.setFont("helvetica", "bold");
   doc.setFontSize(11);
-  y = testoDestra(doc, `FATTURA nr. ${testo(m.numero)} del ${data}`, right, y);
+  y = testoDestra(
+    doc,
+    `${m.notaCredito ? "NOTA DI CREDITO" : "FATTURA"} nr. ${testo(m.numero)} del ${data}`,
+    right,
+    y
+  );
   if (m.destinatario.sdi.trim()) {
     doc.setFontSize(10);
     y = testoDestra(doc, `SDI ${m.destinatario.sdi.trim()}`, right, y);
@@ -150,6 +155,17 @@ export function buildFatturaClassicaPdf(input: {
   doc.setLineWidth(0.3);
   doc.line(12, y, right, y);
   y += 4;
+  if (m.notaCredito) {
+    doc.setFillColor(254, 236, 236);
+    doc.setDrawColor(252, 165, 165);
+    doc.rect(12, y, 186, 7, "FD");
+    doc.setTextColor(127, 29, 29);
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(10);
+    doc.text("Nota di credito — importi in negativo", 105, y + 4.8, { align: "center" });
+    doc.setTextColor(15, 23, 42);
+    y += 11;
+  }
   y = drawAvvisoEstero(doc, m.nazioneEstera, y);
   y += 4;
 
@@ -249,7 +265,7 @@ export function buildFatturaClassicaPdf(input: {
     `IBAN: ${m.iban.trim() ? formatIbanDisplay(m.iban) : "—"}`,
     `BIC: ${testo(m.bic)}`,
     `Importo: ${euro(m.totale)} €`,
-    `Causale: Pagamento Fattura n. ${testo(m.numero)} del ${data}.`,
+    `Causale: ${m.notaCredito ? "Nota di credito" : "Pagamento Fattura"} n. ${testo(m.numero)} del ${data}.`,
   ];
   let py = boxY + 11;
   for (const line of pay) {
@@ -275,7 +291,7 @@ export function buildFatturaClassicaPdf(input: {
   doc.text(`${euro(m.imposta)} €`, 194, boxY + 22, { align: "right" });
   doc.setFont("helvetica", "bold");
   doc.line(108, boxY + 28, 194, boxY + 28);
-  doc.text("Totale Fattura", 108, boxY + 34);
+  doc.text(m.notaCredito ? "Totale nota di credito" : "Totale Fattura", 108, boxY + 34);
   doc.text(`${euro(m.totale)} €`, 194, boxY + 34, { align: "right" });
 
   if (!m.nascondiPiePagina) {

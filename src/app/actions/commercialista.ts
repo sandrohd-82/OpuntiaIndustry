@@ -17,6 +17,7 @@ import {
 import { assignNumeriVignetta } from "@/lib/amministrazione/elaborazione-contabile";
 import { buildElaborazioneFattureXlsx } from "@/lib/amministrazione/elaborazione-fatture-xlsx";
 import type { FatturaClassicaStampaModel } from "@/lib/amministrazione/fattura-classica-stampa";
+import { comeNotaCredito } from "@/lib/amministrazione/fattura-classica-stampa";
 import { fatturaClassicaDaXml } from "@/lib/amministrazione/fattura-pa-xml";
 import { nazioneEstera } from "@/lib/amministrazione/nazione-fattura";
 import { resolveFicDocumentXml } from "@/lib/amministrazione/fic-document-xml";
@@ -468,6 +469,9 @@ export async function getCommercialistaSummaryAction(
       totale: Number(r.totale) || 0,
       imponibile: Number(r.imponibile) || 0,
       imposta: Number(r.imposta) || 0,
+      notaCredito:
+        r.tipo_documento === "nota_credito" ||
+        String(r.numero_interno ?? "").toUpperCase().startsWith("NC-"),
     })),
     righe: emesseRigheDb,
     numeroById: emesseNumeroById,
@@ -533,6 +537,7 @@ function buildColonna(input: {
     totale: number;
     imponibile: number;
     imposta: number;
+    notaCredito?: boolean;
   }>;
   righe: Array<{
     id: string;
@@ -582,6 +587,7 @@ function buildColonna(input: {
       anagraficaRagioneSociale: t.anagraficaRagioneSociale,
       totale: t.totale,
       numeroSequenza: input.sequenzaById.get(t.id) ?? null,
+      notaCredito: Boolean(t.notaCredito),
     })
   );
   col.documentiLista = documentiLista;
@@ -1057,6 +1063,10 @@ export async function getCommercialistaPaperBatchAction(input: {
       continue;
     }
     const model = await buildPaperModelForFattura(supabase, loaded.fattura);
+    const classica =
+      loaded.fattura.kind === "nota_credito" && loaded.classica
+        ? comeNotaCredito(loaded.classica)
+        : loaded.classica;
     docs.push({
       id: t.id,
       numeroInterno: t.numero_interno,
@@ -1071,8 +1081,8 @@ export async function getCommercialistaPaperBatchAction(input: {
             : "SI"
           : null,
       model,
-      classica: loaded.classica,
-      sdiAssente: !loaded.classica,
+      classica,
+      sdiAssente: !classica,
     });
   }
 

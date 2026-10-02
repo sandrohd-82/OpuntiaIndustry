@@ -115,8 +115,8 @@ function intestazioneDi(
 ): string {
   if (kind === "emessa") {
     const ricevente = doc.classica?.destinatario.ragioneSociale.trim() ?? "";
-    if (ricevente) return ricevente;
-    return doc.anagraficaRagioneSociale.trim() || "—";
+    const nome = ricevente || doc.anagraficaRagioneSociale.trim() || "—";
+    return doc.notaCredito ? `Nota di credito — ${nome}` : nome;
   }
   const daSdi = doc.classica?.emittente.ragioneSociale.trim() ?? "";
   if (daSdi) return daSdi;

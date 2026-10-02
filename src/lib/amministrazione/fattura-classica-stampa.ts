@@ -41,4 +41,36 @@ export type FatturaClassicaStampaModel = {
   nazioneEstera: string | null;
   /** Fatture ricevute: niente intestazione in calce. */
   nascondiPiePagina: boolean;
+  /** Nota di credito: titolo dedicato e importi in negativo. */
+  notaCredito: boolean;
 };
+
+function negativo(n: number): number {
+  return n > 0 ? -n : n;
+}
+
+/** Segna il foglio come nota di credito e porta in negativo gli importi letti positivi dallo SDI. */
+export function comeNotaCredito(
+  model: FatturaClassicaStampaModel
+): FatturaClassicaStampaModel {
+  return {
+    ...model,
+    notaCredito: true,
+    imponibile: negativo(model.imponibile),
+    imposta: negativo(model.imposta),
+    totale: negativo(model.totale),
+    righe: model.righe.map((r) => ({
+      ...r,
+      quantita: negativo(r.quantita),
+    })),
+    aliquote: model.aliquote.map((a) => ({
+      ...a,
+      imponibile: negativo(a.imponibile),
+      imposta: negativo(a.imposta),
+    })),
+    scadenze: model.scadenze.map((s) => ({
+      ...s,
+      importo: negativo(s.importo),
+    })),
+  };
+}
