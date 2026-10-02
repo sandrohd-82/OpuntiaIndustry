@@ -1,10 +1,8 @@
 import { signOut } from "@/app/actions/auth";
 import type { ReactNode } from "react";
 import { NotificheBell } from "@/components/layout/NotificheBell";
-import {
-  InfoSezione,
-  spiegazionePagina,
-} from "@/components/ui/InfoSezione";
+import { InfoSezione } from "@/components/ui/InfoSezione";
+import { spiegazionePagina } from "@/lib/ui/spiegazione-pagina";
 
 type Props = {
   title: string;
