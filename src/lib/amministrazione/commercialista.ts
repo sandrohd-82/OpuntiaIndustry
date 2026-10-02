@@ -61,6 +61,60 @@ export type CommercialistaColonnaTotali = {
   beniLista: CommercialistaBeneRiga[];
 };
 
+/** Registri del commercialista: fatture, DDT e note di credito, emessi e ricevuti. */
+export type CommercialistaRegistroKind =
+  | "emessa"
+  | "ricevuta"
+  | "ddt_emesso"
+  | "ddt_ricevuto"
+  | "nota_emessa"
+  | "nota_ricevuta";
+
+export function registroLatoEmesso(kind: CommercialistaRegistroKind): boolean {
+  return kind === "emessa" || kind === "ddt_emesso" || kind === "nota_emessa";
+}
+
+/** Colonna «Bene di Consumo»: solo i registri in entrata. */
+export function registroMostraBeneConsumo(
+  kind: CommercialistaRegistroKind
+): boolean {
+  return !registroLatoEmesso(kind);
+}
+
+export function etichettaRegistro(kind: CommercialistaRegistroKind): string {
+  switch (kind) {
+    case "emessa":
+      return "fatture emesse";
+    case "ricevuta":
+      return "fatture ricevute";
+    case "ddt_emesso":
+      return "DDT emessi";
+    case "ddt_ricevuto":
+      return "DDT ricevuti";
+    case "nota_emessa":
+      return "note di credito emesse";
+    case "nota_ricevuta":
+      return "note di credito ricevute";
+  }
+}
+
+export function nomeFoglioRegistro(kind: CommercialistaRegistroKind): string {
+  switch (kind) {
+    case "emessa":
+      return "Fatture emesse";
+    case "ricevuta":
+      return "Fatture ricevute";
+    case "ddt_emesso":
+      return "DDT emessi";
+    case "ddt_ricevuto":
+      return "DDT ricevuti";
+    case "nota_emessa":
+      return "Note emesse";
+    case "nota_ricevuta":
+      return "Note ricevute";
+  }
+}
+
 export type CommercialistaSummary = {
   anno: number;
   trimestre: TrimestreNumero;
@@ -76,6 +130,10 @@ export type CommercialistaSummary = {
   totaleRicevute: number;
   emesse: CommercialistaColonnaTotali;
   ricevute: CommercialistaColonnaTotali;
+  ddtEmessi: CommercialistaColonnaTotali;
+  ddtRicevuti: CommercialistaColonnaTotali;
+  noteEmesse: CommercialistaColonnaTotali;
+  noteRicevute: CommercialistaColonnaTotali;
 };
 
 export function emptyImportoConIva(): ImportoConIva {

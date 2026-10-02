@@ -21,11 +21,11 @@ import {
   nomiPdfUnivoci,
   salvaPdfSeparati,
 } from "@/lib/amministrazione/fattura-classica-pdf";
+import { etichettaRegistro, type CommercialistaRegistroKind } from "@/lib/amministrazione/commercialista";
 import type { TrimestreNumero } from "@/lib/amministrazione/trimestre-commerciale";
-import type { ElaborazioneContabileKind } from "@/types/database";
 
 type Props = {
-  kind: ElaborazioneContabileKind;
+  kind: CommercialistaRegistroKind;
   anno: number;
   trimestre: TrimestreNumero;
   onClose: () => void;
@@ -74,7 +74,7 @@ export function CommercialistaStampaFattureModal({
     });
   }, [kind, anno, trimestre]);
 
-  const kindLabel = kind === "emessa" ? "emesse" : "ricevute";
+  const kindLabel = etichettaRegistro(kind);
 
   function runPrint() {
     void auditCommercialistaPaperAction({
@@ -129,7 +129,7 @@ export function CommercialistaStampaFattureModal({
       setScaricaMsg(
         n === 1
           ? "Salvato 1 PDF."
-          : `Salvati ${n} PDF, uno per fattura.`
+          : `Salvati ${n} PDF, uno per documento.`
       );
     } catch (err) {
       if (err instanceof DOMException && err.name === "AbortError") return;
@@ -159,7 +159,7 @@ export function CommercialistaStampaFattureModal({
           <div className="mx-auto flex max-w-[220mm] flex-wrap items-center justify-between gap-3">
             <div>
               <h2 id={titleId} className="text-sm font-semibold text-slate-900">
-                Stampa fatture {kindLabel}
+                Stampa {kindLabel}
               </h2>
               <p className="text-xs text-slate-500">
                 {labelPeriodo || `Anno ${anno} · T${trimestre}`}
@@ -230,7 +230,7 @@ export function CommercialistaStampaFattureModal({
             </p>
           ) : docs.length === 0 ? (
             <p className="print:hidden text-center text-sm text-slate-600">
-              Nessuna fattura nel periodo.
+              Nessun documento nel periodo.
             </p>
           ) : (
             <div className="commercialista-print-root space-y-8 print:space-y-0">

@@ -11,6 +11,8 @@ import {
   type CommercialistaBeneRiga,
   type CommercialistaColonnaTotali,
   type CommercialistaDocumentoRiga,
+  registroMostraBeneConsumo,
+  type CommercialistaRegistroKind,
   type CommercialistaSummary,
   type ImportoConIva,
 } from "@/lib/amministrazione/commercialista";
@@ -34,6 +36,7 @@ import {
   mapFicRawToPaperInvoice,
   mapOpuntiaFatturaToPaperInvoice,
   type PaperInvoiceModel,
+  type PaperParty,
 } from "@/lib/amministrazione/paper-invoice";
 import {
   dateRangeForTrimestre,
@@ -495,6 +498,82 @@ export async function getCommercialistaSummaryAction(
     agg: ricevuteAgg,
   });
 
+  const noteEmesseTestate = emesseOk.filter((r) =>
+    isNotaCreditoEmessa(r.tipo_documento, r.numero_interno)
+  );
+  const noteEmesseIds = new Set(noteEmesseTestate.map((r) => String(r.id)));
+  const noteRicevuteTestate = ricevuteOk.filter((r) =>
+    isNotaCreditoRicevuta(r.numero_interno, r.totale)
+  );
+  const noteRicevuteIds = new Set(noteRicevuteTestate.map((r) => String(r.id)));
+
+  const noteEmesse = buildColonna({
+    testate: noteEmesseTestate.map((r) => ({
+      id: String(r.id),
+      numeroInterno: String(r.numero_interno ?? ""),
+      dataEmissione: String(r.data_emissione ?? ""),
+      anagraficaRagioneSociale: String(r.cliente_ragione_sociale ?? ""),
+      totale: Number(r.totale) || 0,
+      imponibile: Number(r.imponibile) || 0,
+      imposta: Number(r.imposta) || 0,
+      notaCredito: true,
+    })),
+    righe: emesseRigheDb.filter((r) => noteEmesseIds.has(String(r.fattura_id))),
+    numeroById: emesseNumeroById,
+    sequenzaById: sequenzaCrescentePerData(
+      noteEmesseTestate.map((r) => ({
+        id: String(r.id),
+        data: String(r.data_emissione ?? ""),
+        numero: String(r.numero_interno ?? ""),
+      }))
+    ),
+    agg: aggregateRigheConIva(
+      emesseRigheDb
+        .filter((r) => noteEmesseIds.has(String(r.fattura_id)))
+        .map((r) => ({
+          importo: Number(r.importo) || 0,
+          isBeneAmmortizzabile: Boolean(r.is_bene_ammortizzabile),
+          ivaPercentuale: ivaRiga(r, emesseIvaById),
+        }))
+    ),
+  });
+
+  const noteRicevute = buildColonna({
+    testate: noteRicevuteTestate.map((r) => ({
+      id: String(r.id),
+      numeroInterno: String(r.numero_interno ?? ""),
+      dataEmissione: String(r.data_emissione ?? ""),
+      anagraficaRagioneSociale: String(r.fornitore_ragione_sociale ?? ""),
+      totale: Number(r.totale) || 0,
+      imponibile: Number(r.imponibile) || 0,
+      imposta: Number(r.imposta) || 0,
+      notaCredito: true,
+    })),
+    righe: ricevuteRigheDb.filter((r) =>
+      noteRicevuteIds.has(String(r.fattura_id))
+    ),
+    numeroById: ricevuteNumeroById,
+    sequenzaById: sequenzaCrescentePerData(
+      noteRicevuteTestate.map((r) => ({
+        id: String(r.id),
+        data: String(r.data_emissione ?? ""),
+        numero: String(r.numero_interno ?? ""),
+      }))
+    ),
+    agg: aggregateRigheConIva(
+      ricevuteRigheDb
+        .filter((r) => noteRicevuteIds.has(String(r.fattura_id)))
+        .map((r) => ({
+          importo: Number(r.importo) || 0,
+          isBeneAmmortizzabile: Boolean(r.is_bene_ammortizzabile),
+          ivaPercentuale: ivaRiga(r, ricevuteIvaById),
+        }))
+    ),
+  });
+
+  const ddt = await loadColonneDdt(supabase, dal, al);
+  if (!ddt.ok) return { success: false, error: ddt.error };
+
   return {
     success: true,
     data: {
@@ -509,8 +588,127 @@ export async function getCommercialistaSummaryAction(
       totaleRicevute: ricevute.documenti.totale,
       emesse,
       ricevute,
+      ddtEmessi: ddt.emessi,
+      ddtRicevuti: ddt.ricevuti,
+      noteEmesse,
+      noteRicevute,
     },
   };
+}
+
+function isNotaCreditoEmessa(
+  tipo: string | null | undefined,
+  numero: string | null | undefined
+): boolean {
+  return (
+    tipo === "nota_credito" ||
+    String(numero ?? "").toUpperCase().startsWith("NC-")
+  );
+}
+
+function isNotaCreditoRicevuta(
+  numero: string | null | undefined,
+  totale: number | string | null | undefined
+): boolean {
+  return (
+    String(numero ?? "").toUpperCase().startsWith("NC-") ||
+    (Number(totale) || 0) < 0
+  );
+}
+
+function ivaRiga(
+  riga: { fattura_id: string; iva_percentuale?: number | null },
+  byFattura: Map<string, number>
+): number {
+  const fromRiga = Number(riga.iva_percentuale);
+  if (Number.isFinite(fromRiga) && fromRiga > 0) return fromRiga;
+  return byFattura.get(String(riga.fattura_id)) ?? IVA_AZIENDALE_PCT;
+}
+
+async function loadColonneDdt(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  dal: string,
+  al: string
+): Promise<
+  | { ok: true; emessi: CommercialistaColonnaTotali; ricevuti: CommercialistaColonnaTotali }
+  | { ok: false; error: string }
+> {
+  const { data, error } = await supabase
+    .from("ddt_documenti")
+    .select(
+      "id, direzione, numero_interno, data_documento, ragione_sociale, imponibile, imposta, totale"
+    )
+    .is("deleted_at", null)
+    .neq("stato", "annullato")
+    .gte("data_documento", dal)
+    .lte("data_documento", al)
+    .order("data_documento", { ascending: true })
+    .order("numero_interno", { ascending: true });
+  if (error) return { ok: false, error: error.message };
+
+  const docs = data ?? [];
+  const ids = docs.map((d) => String(d.id));
+  type RigaDdt = {
+    id: string;
+    ddt_id: string;
+    descrizione: string;
+    importo: number | string;
+    iva_percentuale: number | string | null;
+  };
+  let righe: RigaDdt[] = [];
+  if (ids.length > 0) {
+    const { data: righeData, error: righeErr } = await supabase
+      .from("ddt_righe")
+      .select("id, ddt_id, descrizione, importo, iva_percentuale")
+      .in("ddt_id", ids)
+      .is("deleted_at", null);
+    if (righeErr) return { ok: false, error: righeErr.message };
+    righe = (righeData ?? []) as RigaDdt[];
+  }
+
+  function colonna(direzione: "emesso" | "ricevuto"): CommercialistaColonnaTotali {
+    const testate = docs.filter((d) => d.direzione === direzione);
+    const idSet = new Set(testate.map((d) => String(d.id)));
+    const righeDir = righe.filter((r) => idSet.has(String(r.ddt_id)));
+    const numeroById = new Map(
+      testate.map((d) => [String(d.id), String(d.numero_interno ?? "")])
+    );
+    return buildColonna({
+      testate: testate.map((d) => ({
+        id: String(d.id),
+        numeroInterno: String(d.numero_interno ?? ""),
+        dataEmissione: String(d.data_documento ?? ""),
+        anagraficaRagioneSociale: String(d.ragione_sociale ?? ""),
+        totale: Number(d.totale) || 0,
+        imponibile: Number(d.imponibile) || 0,
+        imposta: Number(d.imposta) || 0,
+      })),
+      righe: righeDir.map((r) => ({
+        id: String(r.id),
+        fattura_id: String(r.ddt_id),
+        descrizione: String(r.descrizione ?? ""),
+        importo: Number(r.importo) || 0,
+        is_bene_ammortizzabile: false,
+      })),
+      numeroById,
+      sequenzaById: sequenzaCrescentePerData(
+        testate.map((d) => ({
+          id: String(d.id),
+          data: String(d.data_documento ?? ""),
+          numero: String(d.numero_interno ?? ""),
+        }))
+      ),
+      agg: aggregateRigheConIva(
+        righeDir.map((r) => ({
+          importo: Number(r.importo) || 0,
+          isBeneAmmortizzabile: false,
+          ivaPercentuale: Number(r.iva_percentuale) || 0,
+        }))
+      ),
+    });
+  }
+
+  return { ok: true, emessi: colonna("emesso"), ricevuti: colonna("ricevuto") };
 }
 
 /** 1 sulla data più vecchia, poi in ordine fino alla più recente. */
@@ -599,7 +797,7 @@ function buildColonna(input: {
  * stile «matita» commercialista — persistita in elaborazioni_contabili.
  */
 export async function applySequenzaCommercialistaAction(input: {
-  kind: ElaborazioneContabileKind;
+  kind: CommercialistaRegistroKind;
   anno: number;
   trimestre: TrimestreNumero;
 }): Promise<
@@ -619,7 +817,15 @@ export async function applySequenzaCommercialistaAction(input: {
       error: parsed.error.issues[0]?.message ?? "Parametri non validi.",
     };
   }
-  if (input.kind !== "emessa" && input.kind !== "ricevuta") {
+  const kindOk: CommercialistaRegistroKind[] = [
+    "emessa",
+    "ricevuta",
+    "ddt_emesso",
+    "ddt_ricevuto",
+    "nota_emessa",
+    "nota_ricevuta",
+  ];
+  if (!kindOk.includes(input.kind)) {
     return { success: false, error: "Tipo documento non valido." };
   }
 
@@ -633,7 +839,21 @@ export async function applySequenzaCommercialistaAction(input: {
   const supabase = await createClient();
 
   let fatturaIds: string[] = [];
-  if (input.kind === "emessa") {
+  if (input.kind === "ddt_emesso" || input.kind === "ddt_ricevuto") {
+    const direzione = input.kind === "ddt_emesso" ? "emesso" : "ricevuto";
+    const { data, error } = await supabase
+      .from("ddt_documenti")
+      .select("id")
+      .eq("direzione", direzione)
+      .is("deleted_at", null)
+      .neq("stato", "annullato")
+      .gte("data_documento", dal)
+      .lte("data_documento", al)
+      .order("data_documento", { ascending: true })
+      .order("numero_interno", { ascending: true });
+    if (error) return { success: false, error: error.message };
+    fatturaIds = (data ?? []).map((r) => String(r.id));
+  } else if (input.kind === "emessa" || input.kind === "nota_emessa") {
     const { data, error } = await supabase
       .from("fatture_emesse")
       .select(
@@ -654,18 +874,29 @@ export async function applySequenzaCommercialistaAction(input: {
           numero_interno: r.numero_interno,
         })
       )
+      .filter((r) =>
+        input.kind === "nota_emessa"
+          ? isNotaCreditoEmessa(r.tipo_documento, r.numero_interno)
+          : true
+      )
       .map((r) => String(r.id));
   } else {
     const { data, error } = await supabase
       .from("fatture_ricevute")
-      .select("id, data_emissione, numero_interno")
+      .select("id, data_emissione, numero_interno, totale")
       .is("deleted_at", null)
       .gte("data_emissione", dal)
       .lte("data_emissione", al)
       .order("data_emissione", { ascending: true })
       .order("numero_interno", { ascending: true });
     if (error) return { success: false, error: error.message };
-    fatturaIds = (data ?? []).map((r) => String(r.id));
+    fatturaIds = (data ?? [])
+      .filter((r) =>
+        input.kind === "nota_ricevuta"
+          ? isNotaCreditoRicevuta(r.numero_interno, r.totale)
+          : true
+      )
+      .map((r) => String(r.id));
   }
 
   const numbered = assignNumeriVignetta(
@@ -719,7 +950,7 @@ export async function applySequenzaCommercialistaAction(input: {
       .is("deleted_at", null);
   } else {
     const insert: ElaborazioneContabileInsert = {
-      kind: input.kind,
+      kind: input.kind as ElaborazioneContabileKind,
       anno,
       trimestre,
       documento_stato: "bozza",
@@ -963,7 +1194,7 @@ async function buildPaperModelForFattura(
  * Carica i fogli stampabili del periodo (ordine data) con eventuale n. sequenza matita.
  */
 export async function getCommercialistaPaperBatchAction(input: {
-  kind: ElaborazioneContabileKind;
+  kind: CommercialistaRegistroKind;
   anno: number;
   trimestre: TrimestreNumero;
 }): Promise<
@@ -1000,7 +1231,23 @@ export async function getCommercialistaPaperBatchAction(input: {
   };
   let testate: Testata[] = [];
 
-  if (input.kind === "emessa") {
+  if (input.kind === "ddt_emesso" || input.kind === "ddt_ricevuto") {
+    const fogli = await loadDdtPaperDocs(
+      supabase,
+      input.kind,
+      dal,
+      al
+    );
+    if (!fogli.ok) return { success: false, error: fogli.error };
+    return {
+      success: true,
+      docs: fogli.docs,
+      senzaSequenza: fogli.docs.filter((d) => d.numeroSequenza == null).length,
+      labelPeriodo: label,
+    };
+  }
+
+  if (input.kind === "emessa" || input.kind === "nota_emessa") {
     const { data, error } = await supabase
       .from("fatture_emesse")
       .select(
@@ -1021,6 +1268,11 @@ export async function getCommercialistaPaperBatchAction(input: {
           numero_interno: r.numero_interno,
         })
       )
+      .filter((r) =>
+        input.kind === "nota_emessa"
+          ? isNotaCreditoEmessa(r.tipo_documento, r.numero_interno)
+          : true
+      )
       .map((r) => ({
         id: String(r.id),
         numero_interno: String(r.numero_interno ?? ""),
@@ -1031,7 +1283,7 @@ export async function getCommercialistaPaperBatchAction(input: {
     const { data, error } = await supabase
       .from("fatture_ricevute")
       .select(
-        "id, numero_interno, data_emissione, fornitore_ragione_sociale"
+        "id, numero_interno, data_emissione, fornitore_ragione_sociale, totale"
       )
       .is("deleted_at", null)
       .gte("data_emissione", dal)
@@ -1039,12 +1291,18 @@ export async function getCommercialistaPaperBatchAction(input: {
       .order("data_emissione", { ascending: true })
       .order("numero_interno", { ascending: true });
     if (error) return { success: false, error: error.message };
-    testate = (data ?? []).map((r) => ({
-      id: String(r.id),
-      numero_interno: String(r.numero_interno ?? ""),
-      data_emissione: String(r.data_emissione ?? ""),
-      ragione: String(r.fornitore_ragione_sociale ?? ""),
-    }));
+    testate = (data ?? [])
+      .filter((r) =>
+        input.kind === "nota_ricevuta"
+          ? isNotaCreditoRicevuta(r.numero_interno, r.totale)
+          : true
+      )
+      .map((r) => ({
+        id: String(r.id),
+        numero_interno: String(r.numero_interno ?? ""),
+        data_emissione: String(r.data_emissione ?? ""),
+        ragione: String(r.fornitore_ragione_sociale ?? ""),
+      }));
   }
 
   const sequenza = sequenzaCrescentePerData(
@@ -1056,30 +1314,33 @@ export async function getCommercialistaPaperBatchAction(input: {
   );
 
   const docs: CommercialistaPaperDoc[] = [];
+  const paperKind: ElaborazioneContabileKind =
+    input.kind === "ricevuta" || input.kind === "nota_ricevuta"
+      ? "ricevuta"
+      : "emessa";
   for (const t of testate) {
-    const loaded = await loadFatturaCompletaForPaper(supabase, input.kind, t.id);
+    const loaded = await loadFatturaCompletaForPaper(supabase, paperKind, t.id);
     if (!loaded.ok) {
       console.error("[commercialista paper]", t.id, loaded.error);
       continue;
     }
     const model = await buildPaperModelForFattura(supabase, loaded.fattura);
+    const comeNc =
+      loaded.fattura.kind === "nota_credito" ||
+      input.kind === "nota_emessa" ||
+      input.kind === "nota_ricevuta";
     const classica =
-      loaded.fattura.kind === "nota_credito" && loaded.classica
-        ? comeNotaCredito(loaded.classica)
-        : loaded.classica;
+      comeNc && loaded.classica ? comeNotaCredito(loaded.classica) : loaded.classica;
     docs.push({
       id: t.id,
       numeroInterno: t.numero_interno,
       dataEmissione: t.data_emissione,
       anagraficaRagioneSociale: t.ragione,
       numeroSequenza: sequenza.get(t.id) ?? null,
-      notaCredito: loaded.fattura.kind === "nota_credito",
-      beneDiConsumo:
-        input.kind === "ricevuta"
-          ? loaded.fattura.righe.some((r) => r.isBeneAmmortizzabile)
-            ? "NO"
-            : "SI"
-          : null,
+      notaCredito: comeNc,
+      beneDiConsumo: registroMostraBeneConsumo(input.kind)
+        ? (loaded.fattura.righe.some((r) => r.isBeneAmmortizzabile) ? "NO" : "SI")
+        : null,
       model,
       classica,
       sdiAssente: !classica,
@@ -1094,8 +1355,171 @@ export async function getCommercialistaPaperBatchAction(input: {
   };
 }
 
+function partyMinimo(nome: string, piva = "", indirizzo = ""): PaperParty {
+  return {
+    ragioneSociale: nome,
+    partitaIva: piva,
+    codiceFiscale: "",
+    indirizzo,
+    citta: "",
+    cap: "",
+    provincia: "",
+    pec: "",
+    email: "",
+    telefono: "",
+    sdi: "",
+  };
+}
+
+async function loadDdtPaperDocs(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  kind: "ddt_emesso" | "ddt_ricevuto",
+  dal: string,
+  al: string
+): Promise<
+  | { ok: true; docs: CommercialistaPaperDoc[] }
+  | { ok: false; error: string }
+> {
+  const direzione = kind === "ddt_emesso" ? "emesso" : "ricevuto";
+  const { data, error } = await supabase
+    .from("ddt_documenti")
+    .select(
+      "id, numero_interno, numero_fic, data_documento, ragione_sociale, partita_iva, causale_trasporto, destinazione, imponibile, imposta, totale, note"
+    )
+    .eq("direzione", direzione)
+    .is("deleted_at", null)
+    .neq("stato", "annullato")
+    .gte("data_documento", dal)
+    .lte("data_documento", al)
+    .order("data_documento", { ascending: true })
+    .order("numero_interno", { ascending: true });
+  if (error) return { ok: false, error: error.message };
+  const docsRaw = data ?? [];
+  const ids = docsRaw.map((d) => String(d.id));
+  const righePerDoc = new Map<
+    string,
+    Array<{
+      descrizione: string;
+      quantita: number;
+      prezzo: number;
+      sconto: number;
+      iva: number;
+      importo: number;
+    }>
+  >();
+  if (ids.length > 0) {
+    const { data: righe, error: righeErr } = await supabase
+      .from("ddt_righe")
+      .select(
+        "ddt_id, descrizione, quantita, prezzo_unitario, sconto_percentuale, iva_percentuale, importo, sort_order"
+      )
+      .in("ddt_id", ids)
+      .is("deleted_at", null)
+      .order("sort_order", { ascending: true });
+    if (righeErr) return { ok: false, error: righeErr.message };
+    for (const r of righe ?? []) {
+      const id = String(r.ddt_id);
+      const list = righePerDoc.get(id) ?? [];
+      list.push({
+        descrizione: String(r.descrizione ?? ""),
+        quantita: Number(r.quantita) || 0,
+        prezzo: Number(r.prezzo_unitario) || 0,
+        sconto: Number(r.sconto_percentuale) || 0,
+        iva: Number(r.iva_percentuale) || 0,
+        importo: Number(r.importo) || 0,
+      });
+      righePerDoc.set(id, list);
+    }
+  }
+
+  const sequenza = sequenzaCrescentePerData(
+    docsRaw.map((d) => ({
+      id: String(d.id),
+      data: String(d.data_documento ?? ""),
+      numero: String(d.numero_interno ?? ""),
+    }))
+  );
+  const azienda = defaultDestinatarioCooperativa();
+  const docs: CommercialistaPaperDoc[] = docsRaw.map((d) => {
+    const id = String(d.id);
+    const imponibile = Number(d.imponibile) || 0;
+    const imposta = Number(d.imposta) || 0;
+    const totale = Number(d.totale) || 0;
+    const aliquota =
+      imponibile !== 0 ? Math.round((imposta / imponibile) * 10000) / 100 : 0;
+    const controparte = partyMinimo(
+      String(d.ragione_sociale ?? ""),
+      String(d.partita_iva ?? ""),
+      String(d.destinazione ?? "")
+    );
+    const righe = righePerDoc.get(id) ?? [];
+    const model: PaperInvoiceModel = {
+      numero: String(d.numero_fic || d.numero_interno || ""),
+      data: String(d.data_documento ?? "").slice(0, 10) || null,
+      dataScadenza: null,
+      mittente: kind === "ddt_emesso" ? azienda : controparte,
+      destinatario: kind === "ddt_emesso" ? controparte : azienda,
+      righe:
+        righe.length > 0
+          ? righe.map((r) => ({
+              descrizione: r.descrizione,
+              quantita: r.quantita,
+              unitaMisura: "",
+              prezzo: r.prezzo,
+              scontoPercentuale: r.sconto,
+              ivaPercentuale: r.iva,
+              importo: r.importo,
+            }))
+          : [
+              {
+                descrizione: "Documento di trasporto",
+                quantita: 1,
+                unitaMisura: "",
+                prezzo: imponibile,
+                scontoPercentuale: 0,
+                ivaPercentuale: aliquota,
+                importo: imponibile,
+              },
+            ],
+      castelletto: [
+        {
+          aliquota,
+          imponibile,
+          imposta,
+          natura: "",
+          esigibilita: "",
+        },
+      ],
+      imponibile,
+      iva: imposta,
+      totale,
+      iban: "",
+      notePagamento: [d.causale_trasporto, d.note]
+        .map((s) => String(s ?? "").trim())
+        .filter(Boolean)
+        .join("\n"),
+      fonte: "opuntia",
+      documentoTitolo: "Documento di trasporto",
+      scissionePagamenti: false,
+    };
+    return {
+      id,
+      numeroInterno: String(d.numero_interno ?? ""),
+      dataEmissione: String(d.data_documento ?? ""),
+      anagraficaRagioneSociale: String(d.ragione_sociale ?? ""),
+      numeroSequenza: sequenza.get(id) ?? null,
+      notaCredito: false,
+      beneDiConsumo: kind === "ddt_ricevuto" ? "SI" : null,
+      model,
+      classica: null,
+      sdiAssente: false,
+    };
+  });
+  return { ok: true, docs };
+}
+
 export async function auditCommercialistaPaperAction(input: {
-  kind: ElaborazioneContabileKind;
+  kind: CommercialistaRegistroKind;
   anno: number;
   trimestre: TrimestreNumero;
   mode:
@@ -1130,7 +1554,7 @@ export async function auditCommercialistaPaperAction(input: {
 
 /** Excel dell'elaborazione: anteprima a parte, qui il file da scaricare. */
 export async function scaricaElaborazioneFattureExcelAction(input: {
-  kind: ElaborazioneContabileKind;
+  kind: CommercialistaRegistroKind;
   anno: number;
   trimestre: TrimestreNumero;
 }): Promise<

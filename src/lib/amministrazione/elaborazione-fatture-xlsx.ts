@@ -5,11 +5,15 @@ import {
   type FatturaElaborazioneSorgente,
   type RigaElaborazioneExcel,
 } from "@/lib/amministrazione/elaborazione-fatture-excel";
-import type { ElaborazioneContabileKind } from "@/types/database";
+import {
+  nomeFoglioRegistro,
+  registroMostraBeneConsumo,
+  type CommercialistaRegistroKind,
+} from "@/lib/amministrazione/commercialista";
 
 function celle(
   riga: RigaElaborazioneExcel,
-  kind: ElaborazioneContabileKind
+  kind: CommercialistaRegistroKind
 ): (string | number | null)[] {
   if (riga.tipo === "fattura") {
     const valori: (string | number | null)[] = [
@@ -22,7 +26,7 @@ function celle(
       riga.totale,
       riga.nazione,
     ];
-    if (kind === "ricevuta") valori.push(riga.beneDiConsumo);
+    if (registroMostraBeneConsumo(kind)) valori.push(riga.beneDiConsumo);
     return valori;
   }
   const valori: (string | number | null)[] = [
@@ -35,12 +39,12 @@ function celle(
     riga.totale,
     null,
   ];
-  if (kind === "ricevuta") valori.push(null);
+  if (registroMostraBeneConsumo(kind)) valori.push(null);
   return valori;
 }
 
 export async function buildElaborazioneFattureXlsx(input: {
-  kind: ElaborazioneContabileKind;
+  kind: CommercialistaRegistroKind;
   anno: number;
   trimestre: number;
   docs: FatturaElaborazioneSorgente[];
@@ -49,7 +53,7 @@ export async function buildElaborazioneFattureXlsx(input: {
   const wb = new ExcelJS.Workbook();
   wb.creator = "OpuntiaIndustry";
   wb.created = new Date();
-  const nomeFoglio = input.kind === "emessa" ? "Fatture emesse" : "Fatture ricevute";
+  const nomeFoglio = nomeFoglioRegistro(input.kind);
   const ws = wb.addWorksheet(nomeFoglio, {
     views: [{ state: "frozen", ySplit: 1 }],
   });
@@ -86,7 +90,7 @@ export async function buildElaborazioneFattureXlsx(input: {
     }
     const nazione = excelRow.getCell(8);
     nazione.alignment = { horizontal: "center" };
-    if (riga.tipo === "fattura" && input.kind === "ricevuta") {
+    if (riga.tipo === "fattura" && registroMostraBeneConsumo(input.kind)) {
       nazione.font = { name: "Segoe UI Emoji", size: 16 };
       const consumo = excelRow.getCell(9);
       consumo.alignment = { horizontal: "center" };
@@ -119,7 +123,7 @@ export async function buildElaborazioneFattureXlsx(input: {
   }
 
   const buffer = await wb.xlsx.writeBuffer();
-  const filename = `Elaborazione_${input.kind === "emessa" ? "emesse" : "ricevute"}_${input.anno}_T${input.trimestre}.xlsx`;
+  const filename = `Elaborazione_${input.kind}_${input.anno}_T${input.trimestre}.xlsx`;
   return {
     filename,
     base64: Buffer.from(buffer).toString("base64"),

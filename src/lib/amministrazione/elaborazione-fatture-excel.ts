@@ -4,7 +4,11 @@ import {
   bandieraNazione,
   nomeNazione,
 } from "@/lib/amministrazione/nazione-fattura";
-import type { ElaborazioneContabileKind } from "@/types/database";
+import {
+  registroLatoEmesso,
+  registroMostraBeneConsumo,
+  type CommercialistaRegistroKind,
+} from "@/lib/amministrazione/commercialista";
 
 const MESI = [
   "gennaio",
@@ -22,19 +26,19 @@ const MESI = [
 ] as const;
 
 export function titoliElaborazioneExcel(
-  kind: ElaborazioneContabileKind
+  kind: CommercialistaRegistroKind
 ): readonly string[] {
   const base = titoliBaseExcel(kind);
-  if (kind === "ricevuta") return [...base, "Bene di Consumo"];
+  if (registroMostraBeneConsumo(kind)) return [...base, "Bene di Consumo"];
   return base;
 }
 
-function titoliBaseExcel(kind: ElaborazioneContabileKind): readonly string[] {
+function titoliBaseExcel(kind: CommercialistaRegistroKind): readonly string[] {
   return [
     "Numero Provvisorio",
     "Nome file",
     "Data",
-    kind === "emessa" ? "Intestazione Ricevente" : "Intestazione Emittente",
+    registroLatoEmesso(kind) ? "Intestazione Ricevente" : "Intestazione Emittente",
     "Tot. Imponibile",
     "Tot. IVA",
     "Tot. Fattura",
@@ -111,9 +115,9 @@ function etichettaMese(yyyyMm: string): string {
 
 function intestazioneDi(
   doc: FatturaElaborazioneSorgente,
-  kind: ElaborazioneContabileKind
+  kind: CommercialistaRegistroKind
 ): string {
-  if (kind === "emessa") {
+  if (registroLatoEmesso(kind)) {
     const ricevente = doc.classica?.destinatario.ragioneSociale.trim() ?? "";
     const nome = ricevente || doc.anagraficaRagioneSociale.trim() || "—";
     return doc.notaCredito ? `Nota di credito — ${nome}` : nome;
@@ -127,9 +131,9 @@ function intestazioneDi(
 
 function nazioneDi(
   doc: FatturaElaborazioneSorgente,
-  kind: ElaborazioneContabileKind
+  kind: CommercialistaRegistroKind
 ): string {
-  if (kind === "emessa") {
+  if (registroLatoEmesso(kind)) {
     return nomeNazione(doc.classica?.destinatario.nazione) || "—";
   }
   return bandieraNazione(doc.classica?.emittente.nazione) || "—";
@@ -152,7 +156,7 @@ function importiDi(doc: FatturaElaborazioneSorgente) {
 /** Elenco ordinato per data, con il totale di ogni mese e il totale generale. */
 export function righeElaborazioneFatture(
   docs: FatturaElaborazioneSorgente[],
-  kind: ElaborazioneContabileKind
+  kind: CommercialistaRegistroKind
 ): RigaElaborazioneExcel[] {
   const nomi = nomiPdfUnivoci(
     docs.map((doc) => ({
@@ -212,7 +216,7 @@ export function righeElaborazioneFatture(
       data: giorno ? dataIt(giorno) : "—",
       intestazione: intestazioneDi(doc, kind),
       nazione: nazioneDi(doc, kind),
-      beneDiConsumo: kind === "ricevuta" ? doc.beneDiConsumo : null,
+      beneDiConsumo: registroMostraBeneConsumo(kind) ? doc.beneDiConsumo : null,
       notaCredito: doc.notaCredito,
       imponibile: importi.imponibile,
       iva: importi.iva,

@@ -20,6 +20,7 @@ import { CommercialistaElaboraFattureModal } from "@/components/amministrazione/
 import { CommercialistaStampaFattureModal } from "@/components/amministrazione/CommercialistaStampaFattureModal";
 import type {
   CommercialistaColonnaTotali,
+  CommercialistaRegistroKind,
   CommercialistaSummary,
   ImportoConIva,
 } from "@/lib/amministrazione/commercialista";
@@ -30,7 +31,6 @@ import {
   type TrimestreNumero,
 } from "@/lib/amministrazione/trimestre-commerciale";
 import { useSensitiveAuth } from "@/components/layout/SensitiveAuthProvider";
-import type { ElaborazioneContabileKind } from "@/types/database";
 
 const TRIMESTRI: TrimestreNumero[] = [1, 2, 3, 4];
 
@@ -88,15 +88,17 @@ function ColonnaCommercialista({
   titoloTotale,
   titoloDettaglio,
   vocePrimariaLabel,
+  etichettaDocumenti,
   colonna,
   anno,
   trimestre,
   onSequenzaDone,
 }: {
-  kind: ElaborazioneContabileKind;
+  kind: CommercialistaRegistroKind;
   titoloTotale: string;
   titoloDettaglio: string;
   vocePrimariaLabel: string;
+  etichettaDocumenti: string;
   colonna: CommercialistaColonnaTotali;
   anno: number;
   trimestre: TrimestreNumero;
@@ -141,7 +143,7 @@ function ColonnaCommercialista({
         </p>
         <dl className="mt-2 grid grid-cols-3 gap-2 text-center text-[11px]">
           <div className="rounded-lg bg-slate-50 px-2 py-1.5">
-            <dt className="text-[var(--muted)]">Fatture</dt>
+            <dt className="text-[var(--muted)]">{etichettaDocumenti}</dt>
             <dd className="text-sm font-semibold tabular-nums text-slate-900">
               {colonna.conteggioDocumenti}
             </dd>
@@ -180,7 +182,7 @@ function ColonnaCommercialista({
             onClick={applySequenza}
             className="w-full rounded-lg border border-slate-300 bg-slate-50 px-3 py-2 text-sm font-medium text-slate-800 hover:bg-slate-100 disabled:opacity-50"
           >
-            Aggiungi sequenza numerica alle fatture
+            Aggiungi sequenza numerica
           </button>
         ) : null}
         {seqMsg ? (
@@ -199,7 +201,7 @@ function ColonnaCommercialista({
             onClick={() => setElaboraOpen(true)}
             className="rounded-lg bg-[var(--primary)] px-3 py-2 text-sm font-medium text-white hover:bg-[var(--primary-hover)] disabled:opacity-50"
           >
-            Elabora fatture
+            Elabora
           </button>
           ) : null}
           <button
@@ -208,7 +210,7 @@ function ColonnaCommercialista({
             onClick={() => setStampaOpen(true)}
             className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-800 hover:bg-slate-50 disabled:opacity-50"
           >
-            Stampa fatture
+            Stampa
           </button>
         </div>
 
@@ -218,7 +220,7 @@ function ColonnaCommercialista({
           className="flex w-full items-center gap-2 text-left text-sm font-medium text-slate-800"
         >
           {openDocs ? <FaChevronDown size={11} /> : <FaChevronRight size={11} />}
-          Fatture del periodo ({colonna.documentiLista.length})
+          {etichettaDocumenti} del periodo ({colonna.documentiLista.length})
         </button>
         {openDocs ? (
           <ul className="max-h-56 space-y-2 overflow-y-auto">
@@ -262,7 +264,7 @@ function ColonnaCommercialista({
                 <tr>
                   <th className="px-2 py-1.5">Seq.</th>
                   <th className="px-2 py-1.5">Bene</th>
-                  <th className="px-2 py-1.5">Fattura</th>
+                  <th className="px-2 py-1.5">Documento</th>
                   <th className="px-2 py-1.5 text-right">Importo</th>
                 </tr>
               </thead>
@@ -446,8 +448,8 @@ export function CommercialistaBoard() {
       <div className="flex flex-wrap items-end justify-between gap-3">
         <p className="max-w-2xl text-sm text-[var(--muted)]">
           Riepilogo trimestrale (IVA ordinario{" "}
-          {data?.ivaAliquotaDefaultPct ?? 22}%). Sinistra emesse, destra
-          ricevute. Sequenza numerica stile matita sulle fatture del periodo.
+          {data?.ivaAliquotaDefaultPct ?? 22}%). Fatture, DDT e note di credito,
+          emessi e ricevuti, sullo stesso periodo. Sequenza numerica stile matita.
         </p>
         <div className="flex flex-wrap gap-2">
           <label className="block text-sm">
@@ -551,6 +553,7 @@ export function CommercialistaBoard() {
             titoloTotale="Totale fatture emesse"
             titoloDettaglio="Dettaglio fatture emesse"
             vocePrimariaLabel="Prodotti venduti"
+            etichettaDocumenti="Fatture"
             colonna={data.emesse}
             anno={anno}
             trimestre={trimestre}
@@ -561,7 +564,62 @@ export function CommercialistaBoard() {
             titoloTotale="Totale fatture ricevute"
             titoloDettaglio="Dettaglio fatture ricevute"
             vocePrimariaLabel="Materiale di consumo"
+            etichettaDocumenti="Fatture"
             colonna={data.ricevute}
+            anno={anno}
+            trimestre={trimestre}
+            onSequenzaDone={() => void load()}
+          />
+        </div>
+      ) : null}
+
+      {ready && data ? (
+        <div className="grid gap-4 lg:grid-cols-2 lg:items-start">
+          <ColonnaCommercialista
+            kind="ddt_emesso"
+            titoloTotale="Totale DDT emessi"
+            titoloDettaglio="Dettaglio DDT emessi"
+            vocePrimariaLabel="Merce trasportata"
+            etichettaDocumenti="DDT"
+            colonna={data.ddtEmessi}
+            anno={anno}
+            trimestre={trimestre}
+            onSequenzaDone={() => void load()}
+          />
+          <ColonnaCommercialista
+            kind="ddt_ricevuto"
+            titoloTotale="Totale DDT ricevuti"
+            titoloDettaglio="Dettaglio DDT ricevuti"
+            vocePrimariaLabel="Merce ricevuta"
+            etichettaDocumenti="DDT"
+            colonna={data.ddtRicevuti}
+            anno={anno}
+            trimestre={trimestre}
+            onSequenzaDone={() => void load()}
+          />
+        </div>
+      ) : null}
+
+      {ready && data ? (
+        <div className="grid gap-4 lg:grid-cols-2 lg:items-start">
+          <ColonnaCommercialista
+            kind="nota_emessa"
+            titoloTotale="Totale note di credito emesse"
+            titoloDettaglio="Dettaglio note di credito emesse"
+            vocePrimariaLabel="Storni"
+            etichettaDocumenti="Note"
+            colonna={data.noteEmesse}
+            anno={anno}
+            trimestre={trimestre}
+            onSequenzaDone={() => void load()}
+          />
+          <ColonnaCommercialista
+            kind="nota_ricevuta"
+            titoloTotale="Totale note di credito ricevute"
+            titoloDettaglio="Dettaglio note di credito ricevute"
+            vocePrimariaLabel="Storni"
+            etichettaDocumenti="Note"
+            colonna={data.noteRicevute}
             anno={anno}
             trimestre={trimestre}
             onSequenzaDone={() => void load()}

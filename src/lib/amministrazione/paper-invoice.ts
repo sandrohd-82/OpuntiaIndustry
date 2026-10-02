@@ -60,6 +60,8 @@ export type PaperInvoiceModel = {
   iban: string;
   notePagamento: string;
   fonte: "fic" | "opuntia";
+  /** Titolo in testata. Le fatture restano «Fattura elettronica». */
+  documentoTitolo?: string;
   scissionePagamenti: boolean;
   /** Nazione della controparte, solo se non è l'Italia. */
   nazioneEstera?: string | null;

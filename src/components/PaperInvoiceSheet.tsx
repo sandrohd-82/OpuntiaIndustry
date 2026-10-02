@@ -60,7 +60,7 @@ export function PaperInvoiceSheet({ model }: { model: PaperInvoiceModel }) {
           </div>
           <div className="text-right">
             <p className="text-[10px] font-semibold uppercase tracking-wider text-slate-500">
-              Fattura elettronica
+              {model.documentoTitolo ?? "Fattura elettronica"}
             </p>
             <p className="mt-1 font-mono text-lg font-semibold">
               {model.numero}

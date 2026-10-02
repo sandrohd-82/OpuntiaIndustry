@@ -13,11 +13,15 @@ import {
   righeElaborazioneFatture,
   titoliElaborazioneExcel,
 } from "@/lib/amministrazione/elaborazione-fatture-excel";
+import {
+  etichettaRegistro,
+  registroMostraBeneConsumo,
+  type CommercialistaRegistroKind,
+} from "@/lib/amministrazione/commercialista";
 import type { TrimestreNumero } from "@/lib/amministrazione/trimestre-commerciale";
-import type { ElaborazioneContabileKind } from "@/types/database";
 
 type Props = {
-  kind: ElaborazioneContabileKind;
+  kind: CommercialistaRegistroKind;
   anno: number;
   trimestre: TrimestreNumero;
   onClose: () => void;
@@ -36,7 +40,8 @@ export function CommercialistaElaboraFattureModal({
   const [scaricaMsg, setScaricaMsg] = useState<string | null>(null);
   const [pending, startLoad] = useTransition();
   const [scaricando, setScaricando] = useState(false);
-  const kindLabel = kind === "emessa" ? "emesse" : "ricevute";
+  const kindLabel = etichettaRegistro(kind);
+  const beneConsumo = registroMostraBeneConsumo(kind);
   const righe = useMemo(
     () => righeElaborazioneFatture(docs, kind),
     [docs, kind]
@@ -115,11 +120,11 @@ export function CommercialistaElaboraFattureModal({
           <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-3">
             <div>
               <h2 id={titleId} className="text-sm font-semibold text-slate-900">
-                Elabora fatture {kindLabel}
+                Elabora {kindLabel}
               </h2>
               <p className="text-xs text-slate-500">
                 {labelPeriodo || `Anno ${anno} · T${trimestre}`}
-                {docs.length > 0 ? ` · ${docs.length} fatture` : null}
+                {docs.length > 0 ? ` · ${docs.length} documenti` : null}
               </p>
             </div>
             <div className="flex flex-wrap items-center gap-2">
@@ -160,7 +165,7 @@ export function CommercialistaElaboraFattureModal({
             </p>
           ) : righe.length === 0 ? (
             <p className="text-center text-sm text-slate-600">
-              Nessuna fattura nel periodo.
+              Nessun documento nel periodo.
             </p>
           ) : (
             <div className="mx-auto max-w-6xl overflow-hidden rounded-lg border border-slate-300 bg-white shadow-sm">
@@ -209,12 +214,12 @@ export function CommercialistaElaboraFattureModal({
                         </td>
                         <td
                           className={`px-3 py-1.5 text-center ${
-                            kind === "ricevuta" ? "text-xl leading-none" : ""
+                            beneConsumo ? "text-xl leading-none" : ""
                           }`}
                         >
                           {riga.nazione}
                         </td>
-                        {kind === "ricevuta" ? (
+                        {beneConsumo ? (
                           <td className="px-3 py-1.5 text-center font-medium">
                             {riga.beneDiConsumo ?? "—"}
                           </td>
@@ -243,7 +248,7 @@ export function CommercialistaElaboraFattureModal({
                           {formatEuro(riga.totale)}
                         </td>
                         <td className="px-3 py-2" />
-                        {kind === "ricevuta" ? <td className="px-3 py-2" /> : null}
+                        {beneConsumo ? <td className="px-3 py-2" /> : null}
                       </tr>
                     )
                   )}
