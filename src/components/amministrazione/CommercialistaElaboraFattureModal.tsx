@@ -207,6 +207,11 @@ export function CommercialistaElaboraFattureModal({
                         >
                           {riga.nazione}
                         </td>
+                        {kind === "ricevuta" ? (
+                          <td className="px-3 py-1.5 text-center font-medium">
+                            {riga.beneDiConsumo ?? "—"}
+                          </td>
+                        ) : null}
                       </tr>
                     ) : (
                       <tr
@@ -231,6 +236,7 @@ export function CommercialistaElaboraFattureModal({
                           {formatEuro(riga.totale)}
                         </td>
                         <td className="px-3 py-2" />
+                        {kind === "ricevuta" ? <td className="px-3 py-2" /> : null}
                       </tr>
                     )
                   )}

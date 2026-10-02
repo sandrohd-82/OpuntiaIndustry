@@ -24,6 +24,12 @@ const MESI = [
 export function titoliElaborazioneExcel(
   kind: ElaborazioneContabileKind
 ): readonly string[] {
+  const base = titoliBaseExcel(kind);
+  if (kind === "ricevuta") return [...base, "Bene di Consumo"];
+  return base;
+}
+
+function titoliBaseExcel(kind: ElaborazioneContabileKind): readonly string[] {
   return [
     "Numero Provvisorio",
     "Nome file",
@@ -58,6 +64,8 @@ export type FatturaElaborazioneSorgente = {
     iva: number;
     totale: number;
   };
+  /** Solo ricevute: SI materiale di consumo, NO se c'è un bene ammortizzabile. */
+  beneDiConsumo: "SI" | "NO" | null;
 };
 
 export type RigaElaborazioneExcel =
@@ -68,6 +76,7 @@ export type RigaElaborazioneExcel =
       data: string;
       intestazione: string;
       nazione: string;
+      beneDiConsumo: "SI" | "NO" | null;
       imponibile: number;
       iva: number;
       totale: number;
@@ -201,6 +210,7 @@ export function righeElaborazioneFatture(
       data: giorno ? dataIt(giorno) : "—",
       intestazione: intestazioneDi(doc, kind),
       nazione: nazioneDi(doc, kind),
+      beneDiConsumo: kind === "ricevuta" ? doc.beneDiConsumo : null,
       imponibile: importi.imponibile,
       iva: importi.iva,
       totale: importi.totale,

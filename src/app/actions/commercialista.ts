@@ -364,11 +364,12 @@ export async function getCommercialistaSummaryAction(
     anno,
     trimestre
   );
-  const sequenzaRicevute = await loadSequenzaMap(
-    supabase,
-    "ricevuta",
-    anno,
-    trimestre
+  const sequenzaRicevute = sequenzaCrescentePerData(
+    ricevuteOk.map((r) => ({
+      id: String(r.id),
+      data: String(r.data_emissione ?? ""),
+      numero: String(r.numero_interno ?? ""),
+    }))
   );
 
   const emesseIvaById = new Map(
@@ -505,6 +506,21 @@ export async function getCommercialistaSummaryAction(
       ricevute,
     },
   };
+}
+
+/** 1 sulla data più vecchia, poi in ordine fino alla più recente. */
+function sequenzaCrescentePerData(
+  rows: { id: string; data: string; numero: string }[]
+): Map<string, number> {
+  const ordinati = [...rows].sort((a, b) => {
+    if (a.data !== b.data) return a.data < b.data ? -1 : 1;
+    return a.numero.localeCompare(b.numero, "it");
+  });
+  const map = new Map<string, number>();
+  ordinati.forEach((row, index) => {
+    map.set(row.id, index + 1);
+  });
+  return map;
 }
 
 async function loadSequenzaMap(
@@ -796,6 +812,8 @@ export type CommercialistaPaperDoc = {
   dataEmissione: string;
   anagraficaRagioneSociale: string;
   numeroSequenza: number | null;
+  /** Ricevute: SI se materiale di consumo, NO se c'è un bene ammortizzabile. */
+  beneDiConsumo: "SI" | "NO" | null;
   model: PaperInvoiceModel;
   /** Stesso foglio della fattura classica, dati SDI. Ricevute senza piè di pagina. */
   classica: FatturaClassicaStampaModel | null;
@@ -998,7 +1016,6 @@ export async function getCommercialistaPaperBatchAction(input: {
   if (!periodoRes.ok) return { success: false, error: periodoRes.error };
   const { dal, al, labelTrimestre: label } = periodoRes.periodo;
   const supabase = await createClient();
-  const sequenza = await loadSequenzaMap(supabase, input.kind, anno, trimestre);
 
   type Testata = {
     id: string;
@@ -1055,6 +1072,17 @@ export async function getCommercialistaPaperBatchAction(input: {
     }));
   }
 
+  const sequenza =
+    input.kind === "ricevuta"
+      ? sequenzaCrescentePerData(
+          testate.map((t) => ({
+            id: t.id,
+            data: t.data_emissione,
+            numero: t.numero_interno,
+          }))
+        )
+      : await loadSequenzaMap(supabase, input.kind, anno, trimestre);
+
   const docs: CommercialistaPaperDoc[] = [];
   for (const t of testate) {
     const loaded = await loadFatturaCompletaForPaper(supabase, input.kind, t.id);
@@ -1069,6 +1097,12 @@ export async function getCommercialistaPaperBatchAction(input: {
       dataEmissione: t.data_emissione,
       anagraficaRagioneSociale: t.ragione,
       numeroSequenza: sequenza.get(t.id) ?? null,
+      beneDiConsumo:
+        input.kind === "ricevuta"
+          ? loaded.fattura.righe.some((r) => r.isBeneAmmortizzabile)
+            ? "NO"
+            : "SI"
+          : null,
       model,
       classica: loaded.classica,
       sdiAssente: !loaded.classica,

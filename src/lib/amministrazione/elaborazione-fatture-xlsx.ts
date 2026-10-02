@@ -7,9 +7,12 @@ import {
 } from "@/lib/amministrazione/elaborazione-fatture-excel";
 import type { ElaborazioneContabileKind } from "@/types/database";
 
-function celle(riga: RigaElaborazioneExcel): (string | number | null)[] {
+function celle(
+  riga: RigaElaborazioneExcel,
+  kind: ElaborazioneContabileKind
+): (string | number | null)[] {
   if (riga.tipo === "fattura") {
-    return [
+    const valori: (string | number | null)[] = [
       riga.numeroProvvisorio,
       riga.nomeFile,
       riga.data,
@@ -19,8 +22,10 @@ function celle(riga: RigaElaborazioneExcel): (string | number | null)[] {
       riga.totale,
       riga.nazione,
     ];
+    if (kind === "ricevuta") valori.push(riga.beneDiConsumo);
+    return valori;
   }
-  return [
+  const valori: (string | number | null)[] = [
     null,
     null,
     null,
@@ -30,6 +35,8 @@ function celle(riga: RigaElaborazioneExcel): (string | number | null)[] {
     riga.totale,
     null,
   ];
+  if (kind === "ricevuta") valori.push(null);
+  return valori;
 }
 
 export async function buildElaborazioneFattureXlsx(input: {
@@ -55,6 +62,7 @@ export async function buildElaborazioneFattureXlsx(input: {
     { width: 16 },
     { width: 18 },
     { width: 16 },
+    { width: 20 },
   ];
 
   const header = ws.addRow([...titoliElaborazioneExcel(input.kind)]);
@@ -70,7 +78,7 @@ export async function buildElaborazioneFattureXlsx(input: {
   header.height = 22;
 
   for (const riga of righe) {
-    const excelRow = ws.addRow(celle(riga));
+    const excelRow = ws.addRow(celle(riga, input.kind));
     excelRow.font = { name: "Calibri", size: 11 };
     for (const col of [5, 6, 7]) {
       excelRow.getCell(col).numFmt = "#,##0.00";
@@ -80,6 +88,8 @@ export async function buildElaborazioneFattureXlsx(input: {
     nazione.alignment = { horizontal: "center" };
     if (riga.tipo === "fattura" && input.kind === "ricevuta") {
       nazione.font = { name: "Segoe UI Emoji", size: 16 };
+      const consumo = excelRow.getCell(9);
+      consumo.alignment = { horizontal: "center" };
     }
     if (riga.tipo === "mese" || riga.tipo === "generale") {
       const scuro = riga.tipo === "generale";
