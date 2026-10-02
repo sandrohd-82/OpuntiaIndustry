@@ -44,7 +44,14 @@ type Step = 1 | 2 | 3;
 type ConfezioneBozza = {
   id: string;
   voceId: string;
+  quantita: string;
 };
+
+function quantitaIntera(raw: string): number | null {
+  const n = Number(raw);
+  if (!Number.isInteger(n) || n < 1 || n > 9999) return null;
+  return n;
+}
 
 type Props = {
   item: Campionatura;
@@ -99,14 +106,18 @@ export function ProcessaCampionaturaProduzioneModal({
   const [dataConfezionamento, setDataConfezionamento] = useState(oggiISO);
   const [serveMov, setServeMov] = useState(false);
   const [movId, setMovId] = useState("");
+  const [movQuantita, setMovQuantita] = useState("");
   const [confezionamentoUnico, setConfezionamentoUnico] = useState(true);
   const [confezioni, setConfezioni] = useState<ConfezioneBozza[]>([
-    { id: "conf-1", voceId: "" },
+    { id: "conf-1", voceId: "", quantita: "" },
   ]);
   const [pacchettoPerRiga, setPacchettoPerRiga] = useState<
     Record<string, string>
   >({});
   const [isolamentoPerRiga, setIsolamentoPerRiga] = useState<
+    Record<string, string>
+  >({});
+  const [isolamentoQuantitaPerRiga, setIsolamentoQuantitaPerRiga] = useState<
     Record<string, string>
   >({});
   const [destEmail, setDestEmail] = useState("");
@@ -273,6 +284,28 @@ export function ProcessaCampionaturaProduzioneModal({
         );
         return;
       }
+      if (quantitaIntera(c.quantita) == null) {
+        const nome =
+          confVoci.find((v) => v.id === c.voceId)?.nome ?? "pezzi";
+        setError(
+          `Scrivi quanti ${nome} ci sono in ${etichettaConfezione(c.id)}.`
+        );
+        return;
+      }
+    }
+    if (serveMov && movId && quantitaIntera(movQuantita) == null) {
+      const nome = movVoci.find((v) => v.id === movId)?.nome ?? "pezzi";
+      setError(`Scrivi quanti ${nome} servono per la movimentazione.`);
+      return;
+    }
+    for (const r of righe) {
+      const isoId = isolamentoPerRiga[r.id] ?? "";
+      if (!isoId) continue;
+      if (quantitaIntera(isolamentoQuantitaPerRiga[r.id] ?? "") == null) {
+        const nome = isoVoci.find((v) => v.id === isoId)?.nome ?? "pezzi";
+        setError(`Scrivi quanti ${nome} per ${r.prodottoCodice}.`);
+        return;
+      }
     }
     if (!confezionamentoUnico) {
       for (const r of righe) {
@@ -316,6 +349,8 @@ export function ProcessaCampionaturaProduzioneModal({
         righe: payload,
         pack: {
           movimentazioneId: serveMov ? movId || null : null,
+          movimentazioneQuantita:
+            serveMov && movId ? quantitaIntera(movQuantita) : null,
           confezioneId: confezioniVisibili[0]?.voceId || null,
           isolamentoId: null,
           confezionamentoUnico,
@@ -323,12 +358,19 @@ export function ProcessaCampionaturaProduzioneModal({
             id: c.id,
             voceId: c.voceId,
             etichetta: etichettaConfezione(c.id),
+            quantita: quantitaIntera(c.quantita) ?? 1,
           })),
-          prodotti: righe.map((r) => ({
-            rigaId: r.id,
-            confezioneId: confezioneScelta(r.id),
-            isolamentoId: isolamentoPerRiga[r.id] || null,
-          })),
+          prodotti: righe.map((r) => {
+            const isoId = isolamentoPerRiga[r.id] || null;
+            return {
+              rigaId: r.id,
+              confezioneId: confezioneScelta(r.id),
+              isolamentoId: isoId,
+              isolamentoQuantita: isoId
+                ? quantitaIntera(isolamentoQuantitaPerRiga[r.id] ?? "")
+                : null,
+            };
+          }),
         },
         sedePartenzaId: sedePartenzaId || null,
       });
@@ -492,7 +534,7 @@ export function ProcessaCampionaturaProduzioneModal({
                 <p className="text-sm font-medium">Le confezioni</p>
                 <InfoSezione
                   titolo="Come si imballa"
-                  testo="Prima crei una scatola e scegli che tipo è. Se spunti «tutto in una sola confezione», tutti i prodotti vanno lì. Se togli la spunta, puoi creare una seconda scatola: sotto ogni prodotto scegli in quale scatola metterlo. L'isolamento è il sacchetto del singolo prodotto."
+                  testo="Prima crei una scatola, scegli che tipo è e scrivi quanti pezzi sono. Se spunti «tutto in una sola confezione», tutti i prodotti vanno lì. Se togli la spunta, puoi creare una seconda scatola: sotto ogni prodotto scegli in quale scatola metterlo. Poi, per ogni prodotto, scegli il barattolo o il sacchetto e scrivi quanti ne servono."
                   disegno="confezioni"
                 />
               </div>
@@ -505,51 +547,90 @@ export function ProcessaCampionaturaProduzioneModal({
                 Tutto in una sola confezione
               </label>
               <div className="mt-3 space-y-3">
-                {confezioniVisibili.map((c) => (
-                  <label key={c.id} className="block text-sm">
-                    <span className="mb-1 flex items-center justify-between gap-2 font-medium">
-                      {etichettaConfezione(c.id)}
-                      {!confezionamentoUnico && confezioni.length > 1 ? (
-                        <button
-                          type="button"
-                          onClick={() => {
+                {confezioniVisibili.map((c) => {
+                  const nomeConf =
+                    confVoci.find((v) => v.id === c.voceId)?.nome ?? "";
+                  return (
+                    <div key={c.id} className="text-sm">
+                      <label className="block">
+                        <span className="mb-1 flex items-center justify-between gap-2 font-medium">
+                          {etichettaConfezione(c.id)}
+                          {!confezionamentoUnico && confezioni.length > 1 ? (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setConfezioni((prev) =>
+                                  prev.filter((x) => x.id !== c.id)
+                                );
+                                setPacchettoPerRiga((prev) => {
+                                  const next = { ...prev };
+                                  for (const key of Object.keys(next)) {
+                                    if (next[key] === c.id) delete next[key];
+                                  }
+                                  return next;
+                                });
+                              }}
+                              className="text-xs font-medium text-red-700 hover:underline"
+                            >
+                              Togli
+                            </button>
+                          ) : null}
+                        </span>
+                        <select
+                          value={c.voceId}
+                          onChange={(e) => {
+                            const voceId = e.target.value;
                             setConfezioni((prev) =>
-                              prev.filter((x) => x.id !== c.id)
+                              prev.map((x) =>
+                                x.id === c.id
+                                  ? {
+                                      ...x,
+                                      voceId,
+                                      quantita: voceId ? x.quantita : "",
+                                    }
+                                  : x
+                              )
                             );
-                            setPacchettoPerRiga((prev) => {
-                              const next = { ...prev };
-                              for (const key of Object.keys(next)) {
-                                if (next[key] === c.id) delete next[key];
-                              }
-                              return next;
-                            });
                           }}
-                          className="text-xs font-medium text-red-700 hover:underline"
+                          className="w-full rounded-lg border border-[var(--border)] px-3 py-2 text-sm"
                         >
-                          Togli
-                        </button>
+                          <option value="">Che scatola è…</option>
+                          {confVoci.map((v) => (
+                            <option key={v.id} value={v.id}>
+                              {labelImballaggioVoce(v)}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                      {c.voceId ? (
+                        <label className="mt-2 block">
+                          <span className="mb-1 block font-medium">
+                            Quanti {nomeConf}
+                          </span>
+                          <input
+                            type="number"
+                            min={1}
+                            max={9999}
+                            step={1}
+                            inputMode="numeric"
+                            value={c.quantita}
+                            placeholder="es. 2"
+                            onChange={(e) =>
+                              setConfezioni((prev) =>
+                                prev.map((x) =>
+                                  x.id === c.id
+                                    ? { ...x, quantita: e.target.value }
+                                    : x
+                                )
+                              )
+                            }
+                            className="w-28 rounded-lg border border-[var(--border)] px-3 py-2 text-sm"
+                          />
+                        </label>
                       ) : null}
-                    </span>
-                    <select
-                      value={c.voceId}
-                      onChange={(e) =>
-                        setConfezioni((prev) =>
-                          prev.map((x) =>
-                            x.id === c.id ? { ...x, voceId: e.target.value } : x
-                          )
-                        )
-                      }
-                      className="w-full rounded-lg border border-[var(--border)] px-3 py-2 text-sm"
-                    >
-                      <option value="">Che scatola è…</option>
-                      {confVoci.map((v) => (
-                        <option key={v.id} value={v.id}>
-                          {labelImballaggioVoce(v)}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                ))}
+                    </div>
+                  );
+                })}
               </div>
               {confezionamentoUnico ? (
                 <p className="mt-2 text-xs text-[var(--muted)]">
@@ -565,6 +646,7 @@ export function ProcessaCampionaturaProduzioneModal({
                       {
                         id: `conf-${prev.length + 1}-${Date.now()}`,
                         voceId: "",
+                        quantita: "",
                       },
                     ])
                   }
@@ -580,24 +662,51 @@ export function ProcessaCampionaturaProduzioneModal({
                     checked={serveMov}
                     onChange={(e) => {
                       setServeMov(e.target.checked);
-                      if (!e.target.checked) setMovId("");
+                      if (!e.target.checked) {
+                        setMovId("");
+                        setMovQuantita("");
+                      }
                     }}
                   />
                   Serve anche una movimentazione
                 </label>
                 {serveMov ? (
-                  <select
-                    value={movId}
-                    onChange={(e) => setMovId(e.target.value)}
-                    className="mt-1 w-full rounded-lg border border-[var(--border)] px-3 py-2 text-sm"
-                  >
-                    <option value="">Come si sposta…</option>
-                    {movVoci.map((v) => (
-                      <option key={v.id} value={v.id}>
-                        {labelImballaggioVoce(v)}
-                      </option>
-                    ))}
-                  </select>
+                  <div className="mt-1 space-y-2">
+                    <select
+                      value={movId}
+                      onChange={(e) => {
+                        setMovId(e.target.value);
+                        if (!e.target.value) setMovQuantita("");
+                      }}
+                      className="w-full rounded-lg border border-[var(--border)] px-3 py-2 text-sm"
+                    >
+                      <option value="">Come si sposta…</option>
+                      {movVoci.map((v) => (
+                        <option key={v.id} value={v.id}>
+                          {labelImballaggioVoce(v)}
+                        </option>
+                      ))}
+                    </select>
+                    {movId ? (
+                      <label className="block text-sm">
+                        <span className="mb-1 block font-medium">
+                          Quanti{" "}
+                          {movVoci.find((v) => v.id === movId)?.nome ?? "pezzi"}
+                        </span>
+                        <input
+                          type="number"
+                          min={1}
+                          max={9999}
+                          step={1}
+                          inputMode="numeric"
+                          value={movQuantita}
+                          placeholder="es. 1"
+                          onChange={(e) => setMovQuantita(e.target.value)}
+                          className="w-28 rounded-lg border border-[var(--border)] px-3 py-2 text-sm"
+                        />
+                      </label>
+                    ) : null}
+                  </div>
                 ) : null}
               </div>
             </div>
@@ -648,31 +757,70 @@ export function ProcessaCampionaturaProduzioneModal({
                       </select>
                     </label>
                   )}
-                  <label className="mt-3 block text-sm">
-                    <span className="mb-1 block font-medium">
-                      Isolamento di {r.prodottoCodice}
-                    </span>
-                    <select
-                      value={isolamentoPerRiga[r.id] ?? ""}
-                      onChange={(e) =>
-                        setIsolamentoPerRiga((prev) => ({
-                          ...prev,
-                          [r.id]: e.target.value,
-                        }))
-                      }
-                      className="w-full rounded-lg border border-[var(--border)] bg-white px-3 py-2 text-sm outline-none focus:border-[var(--primary)]"
-                    >
-                      <option value="">Nessun sacchetto</option>
-                      {isoVoci.map((v) => (
-                        <option key={v.id} value={v.id}>
-                          {labelImballaggioVoce(v)}
-                        </option>
-                      ))}
-                    </select>
-                    <span className="mt-1 block text-xs text-[var(--muted)]">
-                      Quasi sempre ogni prodotto sta nel suo sacchetto.
-                    </span>
-                  </label>
+                  <div className="mt-3 text-sm">
+                    <label className="block">
+                      <span className="mb-1 block font-medium">
+                        Isolamento di {r.prodottoCodice}
+                      </span>
+                      <select
+                        value={isolamentoPerRiga[r.id] ?? ""}
+                        onChange={(e) => {
+                          const voceId = e.target.value;
+                          setIsolamentoPerRiga((prev) => ({
+                            ...prev,
+                            [r.id]: voceId,
+                          }));
+                          if (!voceId) {
+                            setIsolamentoQuantitaPerRiga((prev) => {
+                              const next = { ...prev };
+                              delete next[r.id];
+                              return next;
+                            });
+                          }
+                        }}
+                        className="w-full rounded-lg border border-[var(--border)] bg-white px-3 py-2 text-sm outline-none focus:border-[var(--primary)]"
+                      >
+                        <option value="">Nessun sacchetto</option>
+                        {isoVoci.map((v) => (
+                          <option key={v.id} value={v.id}>
+                            {labelImballaggioVoce(v)}
+                          </option>
+                        ))}
+                      </select>
+                      <span className="mt-1 block text-xs text-[var(--muted)]">
+                        Barattolo, sacchetto o altro pezzo a contatto col
+                        prodotto. Se non serve, lascia «Nessun sacchetto».
+                      </span>
+                    </label>
+                    {isolamentoPerRiga[r.id] ? (
+                      <label className="mt-2 block">
+                        <span className="mb-1 block font-medium">
+                          Quanti{" "}
+                          {isoVoci.find((v) => v.id === isolamentoPerRiga[r.id])
+                            ?.nome ?? "pezzi"}
+                        </span>
+                        <input
+                          type="number"
+                          min={1}
+                          max={9999}
+                          step={1}
+                          inputMode="numeric"
+                          value={isolamentoQuantitaPerRiga[r.id] ?? ""}
+                          placeholder="es. 3"
+                          onChange={(e) =>
+                            setIsolamentoQuantitaPerRiga((prev) => ({
+                              ...prev,
+                              [r.id]: e.target.value,
+                            }))
+                          }
+                          className="w-28 rounded-lg border border-[var(--border)] bg-white px-3 py-2 text-sm outline-none focus:border-[var(--primary)]"
+                        />
+                        <span className="mt-1 block text-xs text-[var(--muted)]">
+                          Scrivi il numero di pezzi. Esempio: 3 barattoli.
+                        </span>
+                      </label>
+                    ) : null}
+                  </div>
                   {confezionamentoUnico ? null : (
                     <label className="mt-3 block text-sm">
                       <span className="mb-1 block font-medium">

@@ -510,22 +510,71 @@ export async function getScalettaImpegnoDettaglioAction(
       });
     }
     const pack = asRecord(snap.pack);
-    const packIds = [
-      pack.movimentazioneId,
-      pack.confezioneId,
-      pack.isolamentoId,
-    ]
-      .map((x) => String(x ?? "").trim())
-      .filter(Boolean);
-    if (packIds.length) {
+    const confezioniSnap = Array.isArray(pack.confezioni)
+      ? pack.confezioni.map((x) => asRecord(x))
+      : [];
+    const prodottiSnap = Array.isArray(pack.prodotti)
+      ? pack.prodotti.map((x) => asRecord(x))
+      : [];
+    const packIds = new Set<string>();
+    const movId = String(pack.movimentazioneId ?? "").trim();
+    if (movId) packIds.add(movId);
+    for (const c of confezioniSnap) {
+      const id = String(c.voceId ?? "").trim();
+      if (id) packIds.add(id);
+    }
+    for (const p of prodottiSnap) {
+      const id = String(p.isolamentoId ?? "").trim();
+      if (id) packIds.add(id);
+    }
+    for (const id of [pack.confezioneId, pack.isolamentoId]) {
+      const value = String(id ?? "").trim();
+      if (value) packIds.add(value);
+    }
+    if (packIds.size) {
       const { data: voci } = await supabase
         .from("imballaggi_voci")
         .select("id, codice, nome, stadio")
-        .in("id", packIds)
+        .in("id", [...packIds])
         .is("deleted_at", null);
-      processazione.pack = (voci ?? []).map((v) =>
-        [v.stadio, v.codice, v.nome].filter(Boolean).join(" · ")
+      const byId = new Map(
+        (voci ?? []).map((v) => [String(v.id), v] as const)
       );
+      const lines: string[] = [];
+      const nomeVoce = (id: string) => {
+        const v = byId.get(id);
+        return v ? String(v.nome || v.codice || "") : "";
+      };
+      if (movId && nomeVoce(movId)) {
+        const q = Number(pack.movimentazioneQuantita ?? 0);
+        const nome = nomeVoce(movId);
+        lines.push(q > 0 ? `${q} × ${nome}` : nome);
+      }
+      for (const c of confezioniSnap) {
+        const nome = nomeVoce(String(c.voceId ?? ""));
+        if (!nome) continue;
+        const q = Number(c.quantita ?? 0);
+        const et = String(c.etichetta ?? "Confezione");
+        lines.push(q > 0 ? `${et}: ${q} × ${nome}` : `${et}: ${nome}`);
+      }
+      for (const p of prodottiSnap) {
+        const nome = nomeVoce(String(p.isolamentoId ?? ""));
+        if (!nome) continue;
+        const q = Number(p.isolamentoQuantita ?? 0);
+        const riga = (crighe ?? []).find(
+          (r) => String(r.id) === String(p.rigaId ?? "")
+        );
+        const codice = String(riga?.prodotto_codice ?? "Prodotto");
+        lines.push(q > 0 ? `${codice}: ${q} × ${nome}` : `${codice}: ${nome}`);
+      }
+      if (!lines.length) {
+        lines.push(
+          ...(voci ?? []).map((v) =>
+            [v.stadio, v.codice, v.nome].filter(Boolean).join(" · ")
+          )
+        );
+      }
+      processazione.pack = lines;
     }
     processazione.dataLavorazione = String(
       camp.data_lavorazione ?? snap.data_lavorazione ?? ""

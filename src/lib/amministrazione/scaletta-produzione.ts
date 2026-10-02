@@ -170,12 +170,14 @@ export const passaCampionaturaScalettaSchema = z.object({
       confezioneId: z.string().uuid().nullable().optional(),
       isolamentoId: z.string().uuid().nullable().optional(),
       confezionamentoUnico: z.boolean().optional(),
+      movimentazioneQuantita: z.number().int().min(1).max(9999).nullable().optional(),
       confezioni: z
         .array(
           z.object({
             id: z.string().trim().min(1).max(80),
             voceId: z.string().uuid(),
             etichetta: z.string().trim().min(1).max(80),
+            quantita: z.number().int().min(1).max(9999).optional(),
           })
         )
         .optional(),
@@ -185,6 +187,13 @@ export const passaCampionaturaScalettaSchema = z.object({
             rigaId: z.string().uuid(),
             confezioneId: z.string().trim().min(1).max(80),
             isolamentoId: z.string().uuid().nullable().optional(),
+            isolamentoQuantita: z
+              .number()
+              .int()
+              .min(1)
+              .max(9999)
+              .nullable()
+              .optional(),
           })
         )
         .optional(),
