@@ -570,7 +570,7 @@ export function ProcessaCampionaturaProduzioneModal({
                   }
                   className="mt-3 rounded-lg border border-[var(--border)] bg-white px-3 py-1.5 text-sm font-medium hover:bg-slate-50"
                 >
-                  Aggiungi un'altra confezione
+                  Aggiungi un&apos;altra confezione
                 </button>
               )}
               <div className="mt-4 border-t border-[var(--border)] pt-3">
