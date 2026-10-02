@@ -162,6 +162,7 @@ export function CommercialistaStampaFattureModal({
                 <CommercialistaPaperPage
                   key={doc.id}
                   model={doc.model}
+                  classica={doc.classica}
                   numeroSequenza={doc.numeroSequenza}
                   showSequenza={showSequenza}
                   pageBreakAfter={i < docs.length - 1}

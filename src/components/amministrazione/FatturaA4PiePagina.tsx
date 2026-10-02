@@ -27,6 +27,8 @@ type Props = {
   imponibile: number;
   totaleIva: number;
   totale: number;
+  /** Stampa commercialista: stessi testi, senza i loghi in calce. */
+  nascondiLoghi?: boolean;
 };
 
 function euro(n: number) {
@@ -46,6 +48,7 @@ export function FatturaA4PiePagina({
   imponibile,
   totaleIva,
   totale,
+  nascondiLoghi = false,
 }: Props) {
   return (
     <div className="flex flex-1 flex-col pt-3">
@@ -55,6 +58,7 @@ export function FatturaA4PiePagina({
           <PreventivoDocField
             label="Modifica modalità di pagamento"
             onEdit={onEditPagamento}
+            stampa={nascondiLoghi}
           >
             <p className="text-[12px] font-bold">Pagamento e dilazione</p>
             <p className="mt-0.5">{labelModalitaPagamentoFattura(piano)}</p>
@@ -102,6 +106,7 @@ export function FatturaA4PiePagina({
             label="Modifica aliquota IVA"
             onEdit={onEditTotali ?? (() => {})}
             pencilRight
+            stampa={nascondiLoghi}
           >
           <p className="text-[12px] font-bold">Totali</p>
           <div className="mt-3 space-y-1">
@@ -123,20 +128,22 @@ export function FatturaA4PiePagina({
       </div>
       <div className="h-[5.5em] shrink-0" aria-hidden />
       <footer className="text-center">
-        <div className="mb-2 flex items-center justify-center gap-4">
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img
-            src={AGRINSICILIA_LETTERHEAD.logoSrc}
-            alt={AGRINSICILIA_LETTERHEAD.logoAlt}
-            className="h-11 w-auto object-contain"
-          />
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img
-            src={OPUNTIA_ITALIA_LOGO.src}
-            alt={OPUNTIA_ITALIA_LOGO.alt}
-            className="h-11 w-auto object-contain"
-          />
-        </div>
+        {nascondiLoghi ? null : (
+          <div className="mb-2 flex items-center justify-center gap-4">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src={AGRINSICILIA_LETTERHEAD.logoSrc}
+              alt={AGRINSICILIA_LETTERHEAD.logoAlt}
+              className="h-11 w-auto object-contain"
+            />
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src={OPUNTIA_ITALIA_LOGO.src}
+              alt={OPUNTIA_ITALIA_LOGO.alt}
+              className="h-11 w-auto object-contain"
+            />
+          </div>
+        )}
         <p className="text-[10px] font-semibold leading-[1.4] text-slate-800">
           {AGRINSICILIA_LETTERHEAD.ragioneSociale}
         </p>

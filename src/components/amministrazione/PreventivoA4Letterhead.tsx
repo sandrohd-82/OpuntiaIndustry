@@ -19,6 +19,8 @@ type Props = {
   /** Etichetta documento (default PREVENTIVO). */
   documentoLabel?: string;
   stampa?: boolean;
+  /** Stampa commercialista: stessa intestazione, senza logo. */
+  nascondiLogo?: boolean;
 };
 
 export function PreventivoA4Letterhead({
@@ -29,19 +31,25 @@ export function PreventivoA4Letterhead({
   onEditCommerciale,
   documentoLabel = "PREVENTIVO",
   stampa = false,
+  nascondiLogo = false,
 }: Props) {
-  const ph = !commerciale;
+  const ph = !commerciale && !stampa;
+  const nomeComm = commerciale?.nome || (stampa ? "—" : "Nome Cognome");
   return (
     <header>
       <div className="flex items-start justify-between">
-        <div className="w-[45%] shrink-0 pr-3">
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img
-            src={AGRINSICILIA_LETTERHEAD.logoSrc}
-            alt={AGRINSICILIA_LETTERHEAD.logoAlt}
-            className="h-auto w-full max-w-full object-contain object-left"
-          />
-        </div>
+        {nascondiLogo ? (
+          <div className="w-[45%] shrink-0" aria-hidden />
+        ) : (
+          <div className="w-[45%] shrink-0 pr-3">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src={AGRINSICILIA_LETTERHEAD.logoSrc}
+              alt={AGRINSICILIA_LETTERHEAD.logoAlt}
+              className="h-auto w-full max-w-full object-contain object-left"
+            />
+          </div>
+        )}
         <div className="w-[50%] shrink-0 text-right text-[11px] leading-[1.45] text-slate-900">
           <p className="font-semibold">
             {AGRINSICILIA_LETTERHEAD.ragioneSociale}
@@ -70,9 +78,7 @@ export function PreventivoA4Letterhead({
             stampa={stampa}
           >
             <p className="font-semibold">Commerciale di riferimento</p>
-            <p className={ph ? "text-slate-400" : undefined}>
-              {commerciale?.nome || "Nome Cognome"}
-            </p>
+            <p className={ph ? "text-slate-400" : undefined}>{nomeComm}</p>
             <PreventivoDocQa
               className={ph ? "text-slate-400" : undefined}
               domanda="Telefono"

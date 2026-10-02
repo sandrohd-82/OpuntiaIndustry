@@ -43,6 +43,8 @@ type Props = {
   value: DestinatarioPreventivo | null;
   onChange: (dest: DestinatarioPreventivo | null) => void;
   onEdit: () => void;
+  /** Documento da stampare: niente matita. */
+  stampa?: boolean;
 };
 
 type ModalProps = {
@@ -93,6 +95,7 @@ function fromPossibile(c: ClientePossibile): DestinatarioPreventivo {
 export function PreventivoDestinatarioPicker({
   value,
   onEdit,
+  stampa = false,
 }: Props) {
   const addr = value ? formatDestinatarioIndirizzo(value.sede) : null;
   const ph = !value;
@@ -103,6 +106,7 @@ export function PreventivoDestinatarioPicker({
         label="Modifica destinatario"
         onEdit={onEdit}
         pencilRight
+        stampa={stampa}
       >
         <div className="grid grid-cols-2 gap-6 text-[12px] leading-[1.45] text-slate-900">
           <div>

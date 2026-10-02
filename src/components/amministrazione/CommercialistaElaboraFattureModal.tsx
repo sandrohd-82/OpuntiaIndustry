@@ -198,6 +198,7 @@ export function CommercialistaElaboraFattureModal({
               </p>
               <CommercialistaPaperPage
                 model={current.model}
+                classica={current.classica}
                 numeroSequenza={current.numeroSequenza}
                 showSequenza={showSequenza}
               />

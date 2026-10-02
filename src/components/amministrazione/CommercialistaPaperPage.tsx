@@ -2,6 +2,8 @@
 
 import type { CSSProperties } from "react";
 import { PaperInvoiceSheet } from "@/components/PaperInvoiceSheet";
+import { FatturaClassicaStampa } from "@/components/amministrazione/FatturaClassicaStampa";
+import type { FatturaClassicaStampaModel } from "@/lib/amministrazione/fattura-classica-stampa";
 import type { PaperInvoiceModel } from "@/lib/amministrazione/paper-invoice";
 
 const MATITA_STYLE: CSSProperties = {
@@ -14,6 +16,7 @@ const MATITA_STYLE: CSSProperties = {
 
 type Props = {
   model: PaperInvoiceModel;
+  classica?: FatturaClassicaStampaModel | null;
   numeroSequenza: number | null;
   showSequenza: boolean;
   /** page-break per stack multi-documento */
@@ -23,6 +26,7 @@ type Props = {
 /** Foglio A4 con eventuale n. sequenza matita in angolo alto-dx. */
 export function CommercialistaPaperPage({
   model,
+  classica = null,
   numeroSequenza,
   showSequenza,
   pageBreakAfter = false,
@@ -43,7 +47,11 @@ export function CommercialistaPaperPage({
           {numeroSequenza}
         </span>
       ) : null}
-      <PaperInvoiceSheet model={model} />
+      {classica ? (
+        <FatturaClassicaStampa model={classica} />
+      ) : (
+        <PaperInvoiceSheet model={model} />
+      )}
     </div>
   );
 }
