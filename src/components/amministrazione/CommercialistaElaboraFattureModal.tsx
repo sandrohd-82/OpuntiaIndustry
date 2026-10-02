@@ -184,6 +184,9 @@ export function CommercialistaElaboraFattureModal({
                         <td className="px-3 py-1.5 tabular-nums">
                           {riga.numeroProvvisorio ?? "—"}
                         </td>
+                        <td className="px-3 py-1.5 font-mono text-xs whitespace-nowrap">
+                          {riga.nomeFile}
+                        </td>
                         <td className="px-3 py-1.5 whitespace-nowrap">
                           {riga.data}
                         </td>
@@ -214,6 +217,7 @@ export function CommercialistaElaboraFattureModal({
                             : "border-t border-amber-200 bg-amber-50 font-semibold text-slate-900"
                         }
                       >
+                        <td className="px-3 py-2" />
                         <td className="px-3 py-2" />
                         <td className="px-3 py-2" />
                         <td className="px-3 py-2">{riga.etichetta}</td>

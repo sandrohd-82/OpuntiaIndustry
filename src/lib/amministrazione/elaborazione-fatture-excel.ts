@@ -1,3 +1,4 @@
+import { nomiPdfUnivoci } from "@/lib/amministrazione/fattura-classica-pdf";
 import { roundMoney } from "@/lib/amministrazione/fatture";
 import {
   bandieraNazione,
@@ -25,6 +26,7 @@ export function titoliElaborazioneExcel(
 ): readonly string[] {
   return [
     "Numero Provvisorio",
+    "Nome file",
     "Data",
     kind === "emessa" ? "Intestazione Ricevente" : "Intestazione Emittente",
     "Tot. Imponibile",
@@ -36,9 +38,11 @@ export function titoliElaborazioneExcel(
 
 export type FatturaElaborazioneSorgente = {
   numeroSequenza: number | null;
+  numeroInterno: string;
   dataEmissione: string;
   anagraficaRagioneSociale: string;
   classica: {
+    numero: string;
     dataDocumento: string;
     emittente: { ragioneSociale: string; nazione: string };
     destinatario: { ragioneSociale: string; nazione: string };
@@ -47,6 +51,7 @@ export type FatturaElaborazioneSorgente = {
     totale: number;
   } | null;
   model: {
+    numero: string;
     data: string | null;
     mittente: { ragioneSociale: string };
     imponibile: number;
@@ -59,6 +64,7 @@ export type RigaElaborazioneExcel =
   | {
       tipo: "fattura";
       numeroProvvisorio: number | null;
+      nomeFile: string;
       data: string;
       intestazione: string;
       nazione: string;
@@ -138,6 +144,15 @@ export function righeElaborazioneFatture(
   docs: FatturaElaborazioneSorgente[],
   kind: ElaborazioneContabileKind
 ): RigaElaborazioneExcel[] {
+  const nomi = nomiPdfUnivoci(
+    docs.map((doc) => ({
+      numeroSequenza: doc.numeroSequenza,
+      numeroFattura:
+        doc.classica?.numero || doc.model.numero || doc.numeroInterno,
+      data: doc.classica?.dataDocumento || doc.dataEmissione || doc.model.data || "",
+    }))
+  );
+  const nomePerDoc = new Map(docs.map((doc, i) => [doc, nomi[i] ?? ""]));
   const ordinate = [...docs].sort((a, b) => {
     const da =
       isoGiorno(a.classica?.dataDocumento || a.dataEmissione || a.model.data) ||
@@ -183,6 +198,7 @@ export function righeElaborazioneFatture(
     out.push({
       tipo: "fattura",
       numeroProvvisorio: doc.numeroSequenza,
+      nomeFile: nomePerDoc.get(doc) ?? "",
       data: giorno ? dataIt(giorno) : "—",
       intestazione: intestazioneDi(doc, kind),
       nazione: nazioneDi(doc, kind),

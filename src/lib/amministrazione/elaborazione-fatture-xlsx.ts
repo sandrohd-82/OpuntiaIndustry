@@ -11,6 +11,7 @@ function celle(riga: RigaElaborazioneExcel): (string | number | null)[] {
   if (riga.tipo === "fattura") {
     return [
       riga.numeroProvvisorio,
+      riga.nomeFile,
       riga.data,
       riga.intestazione,
       riga.imponibile,
@@ -19,7 +20,16 @@ function celle(riga: RigaElaborazioneExcel): (string | number | null)[] {
       riga.nazione,
     ];
   }
-  return [null, null, riga.etichetta, riga.imponibile, riga.iva, riga.totale, null];
+  return [
+    null,
+    null,
+    null,
+    riga.etichetta,
+    riga.imponibile,
+    riga.iva,
+    riga.totale,
+    null,
+  ];
 }
 
 export async function buildElaborazioneFattureXlsx(input: {
@@ -38,6 +48,7 @@ export async function buildElaborazioneFattureXlsx(input: {
   });
   ws.columns = [
     { width: 22 },
+    { width: 32 },
     { width: 14 },
     { width: 46 },
     { width: 18 },
@@ -61,11 +72,11 @@ export async function buildElaborazioneFattureXlsx(input: {
   for (const riga of righe) {
     const excelRow = ws.addRow(celle(riga));
     excelRow.font = { name: "Calibri", size: 11 };
-    for (const col of [4, 5, 6]) {
+    for (const col of [5, 6, 7]) {
       excelRow.getCell(col).numFmt = "#,##0.00";
       excelRow.getCell(col).alignment = { horizontal: "right" };
     }
-    const nazione = excelRow.getCell(7);
+    const nazione = excelRow.getCell(8);
     nazione.alignment = { horizontal: "center" };
     if (riga.tipo === "fattura" && input.kind === "ricevuta") {
       nazione.font = { name: "Segoe UI Emoji", size: 16 };

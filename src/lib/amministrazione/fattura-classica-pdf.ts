@@ -31,6 +31,20 @@ export function nomePdfFatturaCommercialista(input: {
   return `${seq}_${num}_${dataFile(input.data)}.pdf`;
 }
 
+/** Stessi nomi del download PDF, con suffisso se due fatture coincidono. */
+export function nomiPdfUnivoci(
+  inputs: { numeroSequenza: number | null; numeroFattura: string; data: string }[]
+): string[] {
+  const usati = new Map<string, number>();
+  return inputs.map((input) => {
+    let fileName = nomePdfFatturaCommercialista(input);
+    const gia = usati.get(fileName) ?? 0;
+    usati.set(fileName, gia + 1);
+    if (gia > 0) fileName = fileName.replace(/\.pdf$/i, `_${gia + 1}.pdf`);
+    return fileName;
+  });
+}
+
 function dataFile(raw: string): string {
   const t = raw.trim();
   const iso = /^(\d{4})-(\d{2})-(\d{2})/.exec(t);

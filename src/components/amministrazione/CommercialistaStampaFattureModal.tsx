@@ -18,7 +18,7 @@ import { CommercialistaPaperPage } from "@/components/amministrazione/Commercial
 import {
   buildFatturaClassicaPdf,
   buildPaperFatturaPdf,
-  nomePdfFatturaCommercialista,
+  nomiPdfUnivoci,
   salvaPdfSeparati,
 } from "@/lib/amministrazione/fattura-classica-pdf";
 import type { TrimestreNumero } from "@/lib/amministrazione/trimestre-commerciale";
@@ -93,18 +93,16 @@ export function CommercialistaStampaFattureModal({
     setScaricaMsg(null);
     setScaricando(true);
     try {
-      const usati = new Map<string, number>();
-      const files = docs.map((doc) => {
-        const numero = doc.classica?.numero || doc.model.numero || doc.numeroInterno;
-        const data = doc.classica?.dataDocumento || doc.dataEmissione || doc.model.data || "";
-        let fileName = nomePdfFatturaCommercialista({
+      const nomi = nomiPdfUnivoci(
+        docs.map((doc) => ({
           numeroSequenza: doc.numeroSequenza,
-          numeroFattura: numero,
-          data,
-        });
-        const gia = usati.get(fileName) ?? 0;
-        usati.set(fileName, gia + 1);
-        if (gia > 0) fileName = fileName.replace(/\.pdf$/i, `_${gia + 1}.pdf`);
+          numeroFattura:
+            doc.classica?.numero || doc.model.numero || doc.numeroInterno,
+          data: doc.classica?.dataDocumento || doc.dataEmissione || doc.model.data || "",
+        }))
+      );
+      const files = docs.map((doc, i) => {
+        const fileName = nomi[i] ?? "fattura.pdf";
         if (doc.classica) {
           return buildFatturaClassicaPdf({
             model: doc.classica,
