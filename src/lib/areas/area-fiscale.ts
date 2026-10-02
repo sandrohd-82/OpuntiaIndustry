@@ -67,19 +67,19 @@ export const AREA_FISCALE_SECTIONS: readonly NavItem[] = [
       {
         slug: "nuovo",
         label: "+ Nuovo DDT",
-        description: "Crea DDT da inviare (Fatture in Cloud)",
+        description: "Compila il DDT nel gestionale e lo registra su Fatture in Cloud",
         path: "/app/area-fiscale/ddt/nuovo",
       },
       {
         slug: "emessi",
         label: "Elenco DDT Emessi",
-        description: "DDT inviati",
+        description: "DDT emessi, sincronizzati con Fatture in Cloud",
         path: "/app/area-fiscale/ddt/emessi",
       },
       {
         slug: "ricevuti",
         label: "Elenco DDT Ricevuti",
-        description: "DDT ricevuti",
+        description: "DDT ricevuti, sincronizzati con Fatture in Cloud",
         path: "/app/area-fiscale/ddt/ricevuti",
       },
     ],

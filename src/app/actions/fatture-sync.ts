@@ -26,6 +26,7 @@ import { nextSequentialCodiceTarga } from "@/lib/amministrazione/codice-targa";
 import { getUsedFornitoriCodiciTarga } from "@/app/actions/fornitori";
 import { writeAuditLog } from "@/lib/audit";
 import { scanPromozioniDaFattureAction } from "@/app/actions/lead-promozione";
+import { importaDdtDaFattureInCloud } from "@/lib/fiscale/ddt-sync";
 import { requireAreaAccess } from "@/lib/areas/guard";
 import {
   isFiscaleDocAllowed,
@@ -186,6 +187,14 @@ export async function startFattureEmesseSyncAction(): Promise<FattureSyncStartRe
   // Rinumerazione spostata a fine/pausa sync (UI board): non bloccare l'apertura coda.
 
   const supabase = await createClient();
+  try {
+    await importaDdtDaFattureInCloud(supabase, auth.userId);
+  } catch (e) {
+    console.error(
+      "[ddt sync]",
+      e instanceof Error ? e.message : e
+    );
+  }
   const [invoices, creditNotes, clientiRes, registeredPage] =
     await Promise.all([
       fetchIssuedInvoices(null),
@@ -504,6 +513,14 @@ export async function startFattureRicevuteSyncAction(): Promise<FattureSyncStart
   }
 
   const supabase = await createClient();
+  try {
+    await importaDdtDaFattureInCloud(supabase, auth.userId);
+  } catch (e) {
+    console.error(
+      "[ddt sync]",
+      e instanceof Error ? e.message : e
+    );
+  }
   const [docs, fornitoriRes, registeredPage] = await Promise.all([
     fetchReceivedInvoices(null),
     supabase.from("fornitori").select("*").is("deleted_at", null),

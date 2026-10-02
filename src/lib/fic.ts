@@ -717,6 +717,40 @@ export async function fetchReceivedInvoices(
   );
 }
 
+/** DDT emessi (delivery_note). Serie distinta dalle fatture. */
+export async function fetchIssuedDeliveryNotes(
+  since: Date | null
+): Promise<FicDocumentNormalized[]> {
+  const q = buildUpdatedSinceQuery(since);
+  return listAllPages(
+    "/issued_documents",
+    {
+      type: "delivery_note",
+      fieldset: "detailed",
+      sort: "-updated_at",
+      q,
+    },
+    normalizeIssuedDocument
+  );
+}
+
+/** DDT ricevuti (passive_delivery_note). */
+export async function fetchReceivedDeliveryNotes(
+  since: Date | null
+): Promise<FicDocumentNormalized[]> {
+  const q = buildUpdatedSinceQuery(since);
+  return listAllPages(
+    "/received_documents",
+    {
+      type: "passive_delivery_note",
+      fieldset: "detailed",
+      sort: "-updated_at",
+      q,
+    },
+    normalizeReceivedDocument
+  );
+}
+
 export type FicEntityKind = "supplier" | "client";
 
 export type FicEntityNormalized = {

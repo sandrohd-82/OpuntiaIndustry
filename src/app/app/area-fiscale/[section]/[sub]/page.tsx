@@ -1,5 +1,7 @@
 import { notFound, redirect } from "next/navigation";
 import { ContrattiFiscaliBoard } from "@/components/amministrazione/ContrattiFiscaliBoard";
+import { DdtElencoBoard } from "@/components/fiscale/DdtElencoBoard";
+import { DdtEmissioneBoard } from "@/components/fiscale/DdtEmissioneBoard";
 import { SpeseProgettiBoard } from "@/components/fiscale/SpeseProgettiBoard";
 import { SpeseRegistroBoard } from "@/components/fiscale/SpeseRegistroBoard";
 import { DashboardFiscaleBoard } from "@/components/amministrazione/DashboardFiscaleBoard";
@@ -121,6 +123,39 @@ export default async function AreaFiscaleSubPage({ params }: Props) {
         <AppHeader title={page.label} subtitle={page.description} />
         <div className="p-6">
           <SpeseProgettiBoard />
+        </div>
+      </>
+    );
+  }
+
+  if (section === "ddt" && sub === "nuovo") {
+    return (
+      <>
+        <AppHeader title={page.label} subtitle={page.description} />
+        <div className="p-6">
+          <DdtEmissioneBoard />
+        </div>
+      </>
+    );
+  }
+
+  if (section === "ddt" && sub === "emessi") {
+    return (
+      <>
+        <AppHeader title={page.label} subtitle={page.description} />
+        <div className="p-6">
+          <DdtElencoBoard direzione="emesso" />
+        </div>
+      </>
+    );
+  }
+
+  if (section === "ddt" && sub === "ricevuti") {
+    return (
+      <>
+        <AppHeader title={page.label} subtitle={page.description} />
+        <div className="p-6">
+          <DdtElencoBoard direzione="ricevuto" />
         </div>
       </>
     );
