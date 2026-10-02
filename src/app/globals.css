@@ -163,6 +163,14 @@ body {
   animation: mex-string-on 0.35s ease-out;
 }
 
+/* Anteprima stampa commercialista: un foglio A4 vero, contenuto in alto. */
+.commercialista-print-page {
+  box-sizing: border-box;
+  width: 210mm;
+  min-height: 297mm;
+  background: white;
+}
+
 /* Paper Invoice / commercialista / etichette barcode — stampa solo il root dedicato */
 @media print {
   body * {
@@ -188,26 +196,67 @@ body {
     background: white !important;
   }
 
+  body:has(.commercialista-print-portal) > *:not(.commercialista-print-portal) {
+    display: none !important;
+  }
+
+  .commercialista-print-portal,
+  .commercialista-print-portal * {
+    visibility: visible !important;
+  }
+
+  .commercialista-print-portal,
+  .commercialista-print-portal > div,
+  .commercialista-print-scroll,
   .commercialista-print-root {
+    display: block !important;
     position: static !important;
     inset: auto !important;
+    width: auto !important;
     height: auto !important;
-    margin: 0;
-    padding: 0;
-    background: white !important;
+    min-height: 0 !important;
+    max-height: none !important;
+    margin: 0 !important;
+    padding: 0 !important;
     overflow: visible !important;
+    background: white !important;
+    flex: none !important;
+    box-shadow: none !important;
+  }
+
+  .commercialista-print-page {
+    display: block !important;
+    position: relative !important;
+    width: 210mm !important;
+    min-height: 296mm !important;
+    height: auto !important;
+    max-height: none !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    overflow: visible !important;
+    background: white !important;
+    box-shadow: none !important;
+    break-after: page;
+    page-break-after: always;
+  }
+
+  .commercialista-print-page:last-child {
+    break-after: auto !important;
+    page-break-after: auto !important;
+  }
+
+  .commercialista-print-page .paper-invoice-sheet,
+  .commercialista-print-page .commercialista-fattura-foglio {
+    width: 210mm !important;
+    max-width: 210mm !important;
+    min-height: 0 !important;
+    height: auto !important;
+    margin: 0 !important;
   }
 
   .commercialista-fattura-piede {
     break-inside: avoid;
     page-break-inside: avoid;
-  }
-
-  .commercialista-fattura-foglio {
-    min-height: 0 !important;
-    height: auto !important;
-    width: auto !important;
-    max-width: none !important;
   }
 
   .barcode-print-root,

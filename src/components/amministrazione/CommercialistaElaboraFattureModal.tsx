@@ -43,6 +43,14 @@ export function CommercialistaElaboraFattureModal({
   const [pending, startLoad] = useTransition();
 
   useEffect(() => {
+    const style = document.createElement("style");
+    style.setAttribute("data-commercialista-a4", "1");
+    style.textContent = "@page { size: A4 portrait; margin: 0; }";
+    document.head.appendChild(style);
+    return () => style.remove();
+  }, []);
+
+  useEffect(() => {
     startLoad(async () => {
       const res = await getCommercialistaPaperBatchAction({
         kind,
@@ -89,7 +97,7 @@ export function CommercialistaElaboraFattureModal({
 
   return createPortal(
     <div
-      className="fixed inset-0 z-[80] flex flex-col bg-slate-950/70 print:static print:bg-white"
+      className="commercialista-print-portal fixed inset-0 z-[80] flex flex-col bg-slate-950/70 print:static print:bg-white"
       role="presentation"
     >
       <div
@@ -169,7 +177,7 @@ export function CommercialistaElaboraFattureModal({
           ) : null}
         </header>
 
-        <div className="min-h-0 flex-1 overflow-y-auto px-4 py-6 print:overflow-visible print:p-0">
+        <div className="commercialista-print-scroll min-h-0 flex-1 overflow-y-auto px-4 py-6 print:overflow-visible print:p-0">
           {pending ? (
             <p className="print:hidden text-center text-sm text-slate-600">
               Caricamento documenti…

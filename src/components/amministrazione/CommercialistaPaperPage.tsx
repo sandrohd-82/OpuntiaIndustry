@@ -20,8 +20,6 @@ type Props = {
   sdiAssente?: boolean;
   numeroSequenza: number | null;
   showSequenza: boolean;
-  /** page-break per stack multi-documento */
-  pageBreakAfter?: boolean;
 };
 
 /** Foglio A4 con eventuale n. sequenza matita in angolo alto-dx. */
@@ -31,13 +29,10 @@ export function CommercialistaPaperPage({
   sdiAssente = false,
   numeroSequenza,
   showSequenza,
-  pageBreakAfter = false,
 }: Props) {
   return (
     <div
-      className={`commercialista-print-page relative mx-auto w-full max-w-[210mm] ${
-        pageBreakAfter ? "commercialista-print-break" : ""
-      }`}
+      className="commercialista-print-page relative mx-auto"
     >
       {showSequenza && numeroSequenza != null ? (
         <span
