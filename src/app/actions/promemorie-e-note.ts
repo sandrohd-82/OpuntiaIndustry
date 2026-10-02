@@ -79,6 +79,10 @@ import { z } from "zod";
 const CLIENTI_POSSIBILI_SELECT =
   "id, ragione_sociale, partita_iva, codice_fiscale, is_privato, email, pec, sdi_code, telefono, sito_web, telefoni_generici, email_generiche, siti_web_generici, sede_amm_nazione, sede_amm_provincia, sede_amm_citta, sede_amm_cap, sede_amm_indirizzo, sede_mag_nazione, sede_mag_provincia, sede_mag_citta, sede_mag_cap, sede_mag_indirizzo, prodotti_interessati, consegne_altra_azienda, referente, note_interne, stato, trattativa, cliente_id, created_by, created_at, updated_at, commerciale_id, affiancato_id, commerciale_persona_id, affiancato_persona_id, azienda_madre_id, invia_preventivi, fatturare, invia_campionature, invia_prodotti, tipologia_rispetto_madre";
 
+/** Elenco per i menu di scelta: niente note, consegne e testi lunghi. */
+const CLIENTI_POSSIBILI_SCELTA_SELECT =
+  "id, ragione_sociale, partita_iva, codice_fiscale, is_privato, email, pec, sdi_code, telefono, sito_web, telefoni_generici, email_generiche, siti_web_generici, sede_amm_nazione, sede_amm_provincia, sede_amm_citta, sede_amm_cap, sede_amm_indirizzo, sede_mag_nazione, sede_mag_provincia, sede_mag_citta, sede_mag_cap, sede_mag_indirizzo, stato, cliente_id, created_by, commerciale_id, affiancato_id, commerciale_persona_id, affiancato_persona_id, azienda_madre_id, invia_preventivi, fatturare, invia_campionature, invia_prodotti, tipologia_rispetto_madre";
+
 async function syncPnMentionsToTimeline(input: {
   userId: string;
   origineTipo: "nota" | "attivita" | "promemoria";
@@ -1249,27 +1253,7 @@ export async function updateNotaPnAction(input: unknown): Promise<
   return { success: true, item };
 }
 
-// —— Possibili clienti ——
-export async function listClientiPossibiliAction(): Promise<
-  | { success: true; items: ClientePossibile[]; noteCounts: Record<string, number> }
-  | { success: false; error: string }
-> {
-  await requireAnyAreaAccess(["amministrazione", "commerciale"]);
-  const supabase = await createClient();
-  const listOr = await anagraficaListOrClause();
-  let q = supabase
-    .from("clienti_possibili")
-    .select(CLIENTI_POSSIBILI_SELECT)
-    .is("deleted_at", null)
-    .neq("stato", "scartato");
-  if (listOr) {
-    q = q.or(listOr);
-  }
-  const { data, error } = await q.order("updated_at", { ascending: false });
-  if (error) return { success: false, error: error.message };
-  const items = (data ?? []).map((r) =>
-    mapClientePossibileRow(r as Record<string, unknown>)
-  );
+async function applicaCommercialiPossibili(items: ClientePossibile[]) {
   const [commercialIds, excludeCreatorIds] = await Promise.all([
     loadCommercialeUserIds(),
     loadSuperadminUserIds(),
@@ -1320,6 +1304,30 @@ export async function listClientiPossibiliAction(): Promise<
       item.affiancatoGrado = affiancato.grado;
     }
   }
+}
+
+// —— Possibili clienti ——
+export async function listClientiPossibiliAction(): Promise<
+  | { success: true; items: ClientePossibile[]; noteCounts: Record<string, number> }
+  | { success: false; error: string }
+> {
+  await requireAnyAreaAccess(["amministrazione", "commerciale"]);
+  const supabase = await createClient();
+  const listOr = await anagraficaListOrClause();
+  let q = supabase
+    .from("clienti_possibili")
+    .select(CLIENTI_POSSIBILI_SELECT)
+    .is("deleted_at", null)
+    .neq("stato", "scartato");
+  if (listOr) {
+    q = q.or(listOr);
+  }
+  const { data, error } = await q.order("updated_at", { ascending: false });
+  if (error) return { success: false, error: error.message };
+  const items = (data ?? []).map((r) =>
+    mapClientePossibileRow(r as Record<string, unknown>)
+  );
+  await applicaCommercialiPossibili(items);
   const noteCounts: Record<string, number> = {};
   if (items.length > 0) {
     const { data: noteRows } = await supabase
@@ -1339,6 +1347,55 @@ export async function listClientiPossibiliAction(): Promise<
     }
   }
   return { success: true, items, noteCounts };
+}
+
+/** Menu ordine, campionatura e preventivo: stesse aziende visibili, senza il registro note. */
+export async function listClientiPossibiliSceltaAction(): Promise<
+  | { success: true; items: ClientePossibile[] }
+  | { success: false; error: string }
+> {
+  await requireAnyAreaAccess(["amministrazione", "commerciale"]);
+  const supabase = await createClient();
+  const listOr = await anagraficaListOrClause();
+  let q = supabase
+    .from("clienti_possibili")
+    .select(CLIENTI_POSSIBILI_SCELTA_SELECT)
+    .is("deleted_at", null)
+    .neq("stato", "scartato");
+  if (listOr) {
+    q = q.or(listOr);
+  }
+  const { data, error } = await q.order("ragione_sociale", { ascending: true });
+  if (error) return { success: false, error: error.message };
+  const items = (data ?? []).map((r) =>
+    mapClientePossibileRow(r as Record<string, unknown>)
+  );
+  await applicaCommercialiPossibili(items);
+  return { success: true, items };
+}
+
+export async function getClientePossibileAction(
+  id: string
+): Promise<
+  | { success: true; item: ClientePossibile | null }
+  | { success: false; error: string }
+> {
+  await requireAnyAreaAccess(["amministrazione", "commerciale"]);
+  if (!z.string().uuid().safeParse(id).success) {
+    return { success: true, item: null };
+  }
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from("clienti_possibili")
+    .select(CLIENTI_POSSIBILI_SELECT)
+    .eq("id", id)
+    .is("deleted_at", null)
+    .maybeSingle();
+  if (error) return { success: false, error: error.message };
+  if (!data) return { success: true, item: null };
+  const item = mapClientePossibileRow(data as Record<string, unknown>);
+  await applicaCommercialiPossibili([item]);
+  return { success: true, item };
 }
 
 /** Accetta ClienteInput dal form (prodottiAcquistati → prodotti_interessati). */

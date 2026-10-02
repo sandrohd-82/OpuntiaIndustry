@@ -14,6 +14,7 @@ import {
   upsertPrenotazioneSpedizioneMailAction,
 } from "@/app/actions/spedizione-mail";
 import { loadAnagraficaExtraAction } from "@/app/actions/anagrafica-extra";
+import { getClientePossibileAction } from "@/app/actions/promemorie-e-note";
 import { updateSedePartenzaAction } from "@/app/actions/impostazioni-sedi";
 import { SpedizioneMailComposeModal } from "@/components/amministrazione/SpedizioneMailComposeModal";
 import { SpedizioneMailPanel } from "@/components/amministrazione/SpedizioneMailPanel";
@@ -27,7 +28,6 @@ import {
   numberOrZero,
 } from "@/components/ui/ClearableNumberInput";
 import { useClienti } from "@/hooks/useClienti";
-import { useClientiPossibili } from "@/hooks/useClientiPossibili";
 import { useProdottiPropri } from "@/hooks/useProdottiPropri";
 import type { AnagraficaSede } from "@/lib/amministrazione/anagrafica-extra";
 import type { Cliente } from "@/lib/amministrazione/clienti";
@@ -118,7 +118,6 @@ export function CampionaturaFormModal({
   const titleId = useId();
   const { prodotti, ready: prodottiReady } = useProdottiPropri();
   const { clienti } = useClienti();
-  const { items: possibili } = useClientiPossibili();
   const hydratedAddress = useRef(false);
   const [anagraficaFonte, setAnagraficaFonte] =
     useState<AnagraficaOrdineFonte>(
@@ -285,22 +284,28 @@ export function CampionaturaFormModal({
       return;
     }
     if (!editing.possibileClienteId) return;
-    const lead = possibili.find((p) => p.id === editing.possibileClienteId);
-    if (!lead) return;
-    hydratedAddress.current = true;
-    const asCliente = clienteFromPossibile(lead);
-    setCliente(asCliente);
-    setAnagraficaFonte("possibile");
-    setPossibileClienteId(lead.id);
-    void loadAnagraficaExtraAction({
-      ownerKind: "cliente_possibile",
-      ownerId: lead.id,
-    }).then((res) => {
-      const sedi = res.success ? res.sedi : [];
-      setSediExtra(sedi);
-      setAddressKey(addressKeyFromSaved(asCliente, sedi, editing));
+    let cancel = false;
+    void getClientePossibileAction(editing.possibileClienteId).then((res) => {
+      if (cancel || hydratedAddress.current || !res.success || !res.item) return;
+      hydratedAddress.current = true;
+      const asCliente = clienteFromPossibile(res.item);
+      setCliente(asCliente);
+      setAnagraficaFonte("possibile");
+      setPossibileClienteId(res.item.id);
+      void loadAnagraficaExtraAction({
+        ownerKind: "cliente_possibile",
+        ownerId: res.item.id,
+      }).then((sediRes) => {
+        if (cancel) return;
+        const sedi = sediRes.success ? sediRes.sedi : [];
+        setSediExtra(sedi);
+        setAddressKey(addressKeyFromSaved(asCliente, sedi, editing));
+      });
     });
-  }, [editing, clienti, possibili]);
+    return () => {
+      cancel = true;
+    };
+  }, [editing, clienti]);
 
   function applySpedizioneOptions(next: Cliente, sedi: AnagraficaSede[]) {
     const options = clienteSpedizioneOptions(next, sedi, "campionature");
