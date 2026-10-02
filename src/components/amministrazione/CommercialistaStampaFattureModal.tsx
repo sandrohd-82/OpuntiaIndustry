@@ -15,6 +15,12 @@ import {
   type CommercialistaPaperDoc,
 } from "@/app/actions/commercialista";
 import { CommercialistaPaperPage } from "@/components/amministrazione/CommercialistaPaperPage";
+import {
+  buildFatturaClassicaPdf,
+  buildPaperFatturaPdf,
+  nomePdfFatturaCommercialista,
+  salvaPdfSeparati,
+} from "@/lib/amministrazione/fattura-classica-pdf";
 import type { TrimestreNumero } from "@/lib/amministrazione/trimestre-commerciale";
 import type { ElaborazioneContabileKind } from "@/types/database";
 
@@ -37,6 +43,8 @@ export function CommercialistaStampaFattureModal({
   const [senzaSequenza, setSenzaSequenza] = useState(0);
   const [labelPeriodo, setLabelPeriodo] = useState("");
   const [error, setError] = useState<string | null>(null);
+  const [scaricaMsg, setScaricaMsg] = useState<string | null>(null);
+  const [scaricando, setScaricando] = useState(false);
   const [pending, startLoad] = useTransition();
 
   useEffect(() => {
@@ -68,16 +76,73 @@ export function CommercialistaStampaFattureModal({
 
   const kindLabel = kind === "emessa" ? "emesse" : "ricevute";
 
-  function runPrint(mode: "stampa_batch") {
+  function runPrint() {
     void auditCommercialistaPaperAction({
       kind,
       anno,
       trimestre,
-      mode,
+      mode: "stampa_batch",
       documenti: docs.length,
       mostraSequenza: showSequenza,
     });
     window.print();
+  }
+
+  async function scaricaPdf() {
+    if (docs.length === 0 || scaricando) return;
+    setScaricaMsg(null);
+    setScaricando(true);
+    try {
+      const usati = new Map<string, number>();
+      const files = docs.map((doc) => {
+        const numero = doc.classica?.numero || doc.model.numero || doc.numeroInterno;
+        const data = doc.classica?.dataDocumento || doc.dataEmissione || doc.model.data || "";
+        let fileName = nomePdfFatturaCommercialista({
+          numeroSequenza: doc.numeroSequenza,
+          numeroFattura: numero,
+          data,
+        });
+        const gia = usati.get(fileName) ?? 0;
+        usati.set(fileName, gia + 1);
+        if (gia > 0) fileName = fileName.replace(/\.pdf$/i, `_${gia + 1}.pdf`);
+        if (doc.classica) {
+          return buildFatturaClassicaPdf({
+            model: doc.classica,
+            numeroSequenza: doc.numeroSequenza,
+            showSequenza,
+            fileName,
+          });
+        }
+        return buildPaperFatturaPdf({
+          model: doc.model,
+          numeroSequenza: doc.numeroSequenza,
+          fileName,
+        });
+      });
+      const n = await salvaPdfSeparati(files);
+      void auditCommercialistaPaperAction({
+        kind,
+        anno,
+        trimestre,
+        mode: "scarica_pdf",
+        documenti: n,
+        mostraSequenza: showSequenza,
+      });
+      setScaricaMsg(
+        n === 1
+          ? "Salvato 1 PDF."
+          : `Salvati ${n} PDF, uno per fattura.`
+      );
+    } catch (err) {
+      if (err instanceof DOMException && err.name === "AbortError") return;
+      setScaricaMsg(
+        err instanceof Error
+          ? err.message
+          : "Non sono riuscito a salvare i PDF."
+      );
+    } finally {
+      setScaricando(false);
+    }
   }
 
   return createPortal(
@@ -117,7 +182,7 @@ export function CommercialistaStampaFattureModal({
               <button
                 type="button"
                 disabled={docs.length === 0}
-                onClick={() => runPrint("stampa_batch")}
+                onClick={runPrint}
                 className="inline-flex items-center gap-1.5 rounded-lg bg-[var(--primary)] px-3 py-1.5 text-xs font-medium text-white disabled:opacity-40"
               >
                 <FaPrint size={12} />
@@ -125,13 +190,13 @@ export function CommercialistaStampaFattureModal({
               </button>
               <button
                 type="button"
-                disabled={docs.length === 0}
-                onClick={() => runPrint("stampa_batch")}
+                disabled={docs.length === 0 || scaricando}
+                onClick={() => void scaricaPdf()}
                 className="inline-flex items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-medium disabled:opacity-40"
-                title="Apre la stampa del browser: scegli «Salva come PDF»"
+                title="Salva ogni fattura in un PDF: sequenza_numero_data, per esempio 1_20_15-10-2026.pdf"
               >
                 <FaDownload size={12} />
-                Scarica PDF
+                {scaricando ? "Salvataggio…" : "Scarica PDF"}
               </button>
               <button
                 type="button"
@@ -145,8 +210,13 @@ export function CommercialistaStampaFattureModal({
           </div>
           {senzaSequenza > 0 ? (
             <p className="mx-auto mt-2 max-w-[220mm] text-xs text-amber-800">
-              {senzaSequenza} documento/i senza numero sequenziale: il PDF
-              omette il numero su quelle pagine.
+              {senzaSequenza} documento/i senza numero sequenziale: il file
+              inizia con senza_.
+            </p>
+          ) : null}
+          {scaricaMsg ? (
+            <p className="mx-auto mt-2 max-w-[220mm] text-xs text-slate-700">
+              {scaricaMsg}
             </p>
           ) : null}
         </header>

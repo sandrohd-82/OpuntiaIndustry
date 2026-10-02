@@ -228,6 +228,11 @@ body {
     visibility: visible !important;
   }
 
+  .commercialista-print-portal .commercialista-fattura-testata,
+  .commercialista-print-portal header:not(.print\:hidden) {
+    display: block !important;
+  }
+
   .commercialista-print-portal,
   .commercialista-print-portal > div,
   .commercialista-print-scroll,

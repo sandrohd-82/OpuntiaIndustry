@@ -76,7 +76,7 @@ export function FatturaClassicaStampa({
   return (
     <article className="commercialista-fattura-foglio paper-invoice-sheet mx-auto w-full bg-white text-slate-900 shadow-[0_8px_30px_rgba(15,23,42,0.12)] ring-1 ring-slate-200 print:shadow-none print:ring-0">
       <div className="commercialista-fattura-corpo box-border px-[12mm] py-[10mm] text-slate-900">
-        <header>
+        <div className="commercialista-fattura-testata">
           <div className="flex items-start justify-end">
             <div className="w-[58%] text-slate-900">
               <Soggetto titolo="Emittente" soggetto={model.emittente} align="right" />
@@ -91,7 +91,7 @@ export function FatturaClassicaStampa({
             </div>
           </div>
           <div className="mt-3 h-px w-full bg-slate-900" />
-        </header>
+        </div>
 
         <section className="mt-4">
           <div className="grid grid-cols-2 gap-6 text-slate-900">

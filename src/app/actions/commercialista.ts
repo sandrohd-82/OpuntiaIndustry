@@ -1076,7 +1076,7 @@ export async function auditCommercialistaPaperAction(input: {
   kind: ElaborazioneContabileKind;
   anno: number;
   trimestre: TrimestreNumero;
-  mode: "elabora_apri" | "stampa_batch" | "stampa_singola";
+  mode: "elabora_apri" | "stampa_batch" | "stampa_singola" | "scarica_pdf";
   documenti: number;
   mostraSequenza: boolean;
   fatturaId?: string | null;
