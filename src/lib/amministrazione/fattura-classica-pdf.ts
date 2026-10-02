@@ -50,6 +50,20 @@ function dataLunga(raw: string): string {
 
 type FilePdf = { fileName: string; blob: Blob };
 
+/** Testo a destra che va a capo. Restituisce la y sotto l'ultima riga. */
+function testoDestra(
+  doc: jsPDF,
+  value: string,
+  x: number,
+  y: number,
+  maxWidth = 100
+): number {
+  const lines = doc.splitTextToSize(value, maxWidth) as string[];
+  doc.text(lines, x, y, { align: "right" });
+  const mm = (doc.getFontSize() * doc.getLineHeightFactor() * 25.4) / 72;
+  return y + Math.max(lines.length, 1) * mm;
+}
+
 function drawAvvisoEstero(doc: jsPDF, nazione: string | null, y: number): number {
   if (!nazione) return y;
   doc.setDrawColor(180, 83, 9);
@@ -86,50 +100,36 @@ export function buildFatturaClassicaPdf(input: {
   doc.setFont("helvetica", "bold");
   doc.setFontSize(8);
   doc.setTextColor(15, 23, 42);
-  doc.text("EMITTENTE", right, y, { align: "right" });
-  y += 5;
+  y = testoDestra(doc, "EMITTENTE", right, y);
   doc.setFontSize(11);
-  doc.text(testo(m.emittente.ragioneSociale), right, y, {
-    align: "right",
-    maxWidth: 100,
-  });
-  y += 5;
+  y = testoDestra(doc, testo(m.emittente.ragioneSociale), right, y) + 1.2;
   doc.setFont("helvetica", "normal");
   doc.setFontSize(9);
   if (m.emittente.via.trim()) {
-    doc.text(m.emittente.via.trim(), right, y, { align: "right" });
-    y += 4;
+    y = testoDestra(doc, m.emittente.via.trim(), right, y);
   }
   if (m.emittente.capCitta.trim()) {
-    doc.text(m.emittente.capCitta.trim(), right, y, { align: "right" });
-    y += 4;
+    y = testoDestra(doc, m.emittente.capCitta.trim(), right, y);
   }
-  doc.text(
+  y = testoDestra(
+    doc,
     `P.iva ${testo(m.emittente.partitaIva)} - C.F. ${testo(m.emittente.codiceFiscale)}`,
     right,
-    y,
-    { align: "right" }
+    y
   );
-  y += 4;
   if (m.emittente.email.trim()) {
-    doc.text(m.emittente.email.trim(), right, y, { align: "right" });
-    y += 4;
+    y = testoDestra(doc, m.emittente.email.trim(), right, y);
   }
   if (m.emittente.telefono.trim()) {
-    doc.text(`Tel. ${m.emittente.telefono.trim()}`, right, y, { align: "right" });
-    y += 4;
+    y = testoDestra(doc, `Tel. ${m.emittente.telefono.trim()}`, right, y);
   }
-  y += 1;
+  y += 1.5;
   doc.setFont("helvetica", "bold");
   doc.setFontSize(11);
-  doc.text(`FATTURA nr. ${testo(m.numero)} del ${data}`, right, y, {
-    align: "right",
-  });
-  y += 5;
+  y = testoDestra(doc, `FATTURA nr. ${testo(m.numero)} del ${data}`, right, y);
   if (m.destinatario.sdi.trim()) {
     doc.setFontSize(10);
-    doc.text(`SDI ${m.destinatario.sdi.trim()}`, right, y, { align: "right" });
-    y += 4;
+    y = testoDestra(doc, `SDI ${m.destinatario.sdi.trim()}`, right, y);
   }
 
   doc.setDrawColor(15, 23, 42);
@@ -300,22 +300,28 @@ export function buildPaperFatturaPdf(input: {
   }
   doc.setFont("helvetica", "bold");
   doc.setFontSize(11);
-  doc.text(testo(m.mittente.ragioneSociale), 198, 16, {
-    align: "right",
-    maxWidth: 100,
-  });
+  let yTestata = testoDestra(doc, testo(m.mittente.ragioneSociale), 198, 16) + 1.2;
   doc.setFont("helvetica", "normal");
   doc.setFontSize(9);
-  doc.text(
+  yTestata = testoDestra(
+    doc,
     `FATTURA nr. ${testo(m.numero)} del ${data}`,
     198,
-    22,
-    { align: "right" }
+    yTestata
   );
   if (m.destinatario.sdi.trim()) {
-    doc.text(`SDI ${m.destinatario.sdi.trim()}`, 198, 27, { align: "right" });
+    yTestata = testoDestra(
+      doc,
+      `SDI ${m.destinatario.sdi.trim()}`,
+      198,
+      yTestata
+    );
   }
-  const dopoAvviso = drawAvvisoEstero(doc, m.nazioneEstera ?? null, 32);
+  const dopoAvviso = drawAvvisoEstero(
+    doc,
+    m.nazioneEstera ?? null,
+    Math.max(32, yTestata + 2)
+  );
   doc.setFont("helvetica", "bold");
   doc.setTextColor(15, 23, 42);
   doc.text(testo(m.destinatario.ragioneSociale), 12, dopoAvviso + 6);
