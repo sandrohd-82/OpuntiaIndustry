@@ -1,6 +1,10 @@
 import { signOut } from "@/app/actions/auth";
 import type { ReactNode } from "react";
 import { NotificheBell } from "@/components/layout/NotificheBell";
+import {
+  InfoSezione,
+  spiegazionePagina,
+} from "@/components/ui/InfoSezione";
 
 type Props = {
   title: string;
@@ -13,7 +17,13 @@ export function AppHeader({ title, subtitle, actions }: Props) {
   return (
     <header className="flex items-center justify-between border-b border-[var(--border)] bg-[var(--card)] py-4 pr-6 pl-16">
       <div>
-        <h1 className="text-xl font-semibold">{title}</h1>
+        <div className="flex flex-wrap items-center gap-2">
+          <h1 className="text-xl font-semibold">{title}</h1>
+          <InfoSezione
+            titolo={title}
+            testo={spiegazionePagina(title, subtitle)}
+          />
+        </div>
         {subtitle && (
           <p className="text-sm text-[var(--muted)]">{subtitle}</p>
         )}

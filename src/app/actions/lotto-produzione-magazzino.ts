@@ -294,12 +294,13 @@ export async function listLottiMagazzinoInserimentoAction(): Promise<
     lotto_esterno_id: string | null;
     tipo: string;
     quantita_kg: number;
+    unita: string | null;
   }> = [];
   for (let from = 0; ; from += pageSize) {
     const { data, error } = await supabase
       .from("magazzino_movimenti")
       .select(
-        "prodotto_id, prodotto_codice, lotto_codice, lotto_esterno_id, tipo, quantita_kg"
+        "prodotto_id, prodotto_codice, lotto_codice, lotto_esterno_id, tipo, quantita_kg, unita"
       )
       .eq("catalog_kind", CATALOG_PROPRIO)
       .is("deleted_at", null)
@@ -335,9 +336,12 @@ export async function listLottiMagazzinoInserimentoAction(): Promise<
         prodottoCodice: String(r.prodotto_codice ?? "").trim(),
         prodottoNome: "",
         quantitaKg: qty,
+        unita: String(r.unita ?? "").trim() || "kg",
       });
     } else {
       prev.quantitaKg = Math.round((prev.quantitaKg + qty) * 1000) / 1000;
+      const unita = String(r.unita ?? "").trim();
+      if (unita) prev.unita = unita;
       if (!prev.prodottoCodice && r.prodotto_codice) {
         prev.prodottoCodice = String(r.prodotto_codice).trim();
       }

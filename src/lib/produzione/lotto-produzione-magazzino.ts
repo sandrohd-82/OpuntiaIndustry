@@ -8,6 +8,8 @@ export type LottoInserimentoOption = {
   prodottoCodice: string;
   prodottoNome: string;
   quantitaKg: number;
+  /** Unità di giacenza del lotto: kg, lt o pz. */
+  unita: string;
 };
 
 export type ProcessoInserimentoOption = {

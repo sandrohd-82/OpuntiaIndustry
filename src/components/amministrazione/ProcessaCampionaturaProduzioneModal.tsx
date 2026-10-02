@@ -11,7 +11,6 @@ import {
 } from "@/app/actions/lotto-produzione-magazzino";
 import { getGiacenzaProdottoAction } from "@/app/actions/produzione-capacita";
 import {
-  formatKgLt,
   giacenzaCopreRichiesta,
   quantitaRichiestaInBaseKg,
 } from "@/lib/amministrazione/approvvigionamento";
@@ -22,6 +21,7 @@ import {
   type ImballaggioVoce,
 } from "@/lib/amministrazione/imballaggi-spedizioni";
 import { SpedizioneMailPanel } from "@/components/amministrazione/SpedizioneMailPanel";
+import { InfoSezione } from "@/components/ui/InfoSezione";
 import { getClienteEmailSpedizioneAction } from "@/app/actions/spedizione-mail";
 import type {
   LottoInserimentoOption,
@@ -41,13 +41,9 @@ type GiacenzaRiga = {
 
 type Step = 1 | 2 | 3;
 
-type PackDraft = {
-  serveMov: boolean;
-  serveConf: boolean;
-  serveIso: boolean;
-  movId: string;
-  confId: string;
-  isoId: string;
+type ConfezioneBozza = {
+  id: string;
+  voceId: string;
 };
 
 type Props = {
@@ -68,7 +64,14 @@ function labelLotto(l: LottoInserimentoOption): string {
   const ext = l.lottoEsternoCodice
     ? ` · ext ${l.lottoEsternoCodice}`
     : "";
-  return `${l.lottoInternoCodice}${ext} · ${l.prodottoCodice}${nome} · ${l.quantitaKg.toLocaleString("it-IT")} kg`;
+  const unita = l.unita?.trim() || "kg";
+  return `${l.lottoInternoCodice}${ext} · ${l.prodottoCodice}${nome} · ${l.quantitaKg.toLocaleString("it-IT")} ${unita}`;
+}
+
+function unitaGiacenza(unitaMisura: string): string {
+  if (unitaMisura === "lt" || unitaMisura === "ml") return "lt";
+  if (unitaMisura === "pz") return "pz";
+  return "kg";
 }
 
 export function ProcessaCampionaturaProduzioneModal({
@@ -94,14 +97,18 @@ export function ProcessaCampionaturaProduzioneModal({
   >({});
   const [dataLavorazione, setDataLavorazione] = useState(oggiISO);
   const [dataConfezionamento, setDataConfezionamento] = useState(oggiISO);
-  const [pack, setPack] = useState<PackDraft>({
-    serveMov: false,
-    serveConf: false,
-    serveIso: false,
-    movId: "",
-    confId: "",
-    isoId: "",
-  });
+  const [serveMov, setServeMov] = useState(false);
+  const [movId, setMovId] = useState("");
+  const [confezionamentoUnico, setConfezionamentoUnico] = useState(true);
+  const [confezioni, setConfezioni] = useState<ConfezioneBozza[]>([
+    { id: "conf-1", voceId: "" },
+  ]);
+  const [pacchettoPerRiga, setPacchettoPerRiga] = useState<
+    Record<string, string>
+  >({});
+  const [isolamentoPerRiga, setIsolamentoPerRiga] = useState<
+    Record<string, string>
+  >({});
   const [destEmail, setDestEmail] = useState("");
   const [sedePartenzaId, setSedePartenzaId] = useState(
     item.sedePartenzaId ?? ""
@@ -201,6 +208,19 @@ export function ProcessaCampionaturaProduzioneModal({
   const movVoci = filterVociForMagazzinoStadio(imballaggi, "movimentazione");
   const confVoci = filterVociForMagazzinoStadio(imballaggi, "confezione");
   const isoVoci = filterVociForMagazzinoStadio(imballaggi, "isolamento");
+  const confezioniVisibili = confezionamentoUnico
+    ? confezioni.slice(0, 1)
+    : confezioni;
+
+  function etichettaConfezione(id: string): string {
+    const index = confezioni.findIndex((c) => c.id === id);
+    return `Confezione ${index >= 0 ? index + 1 : 1}`;
+  }
+
+  function confezioneScelta(rigaId: string): string {
+    if (confezionamentoUnico) return confezioni[0]?.id ?? "";
+    return pacchettoPerRiga[rigaId] || confezioni[0]?.id || "";
+  }
 
   function lottoDi(rigaId: string): LottoInserimentoOption | null {
     const key = sceltaPerRiga[rigaId];
@@ -242,17 +262,26 @@ export function ProcessaCampionaturaProduzioneModal({
       setError("Imposta data di lavorazione e di confezionamento.");
       return;
     }
-    if (pack.serveMov && !pack.movId) {
+    if (serveMov && !movId) {
       setError("Seleziona la movimentazione oppure togli la spunta.");
       return;
     }
-    if (pack.serveConf && !pack.confId) {
-      setError("Seleziona la confezione oppure togli la spunta.");
-      return;
+    for (const c of confezioniVisibili) {
+      if (!c.voceId) {
+        setError(
+          `Scegli il tipo di ${etichettaConfezione(c.id).toLowerCase()}.`
+        );
+        return;
+      }
     }
-    if (pack.serveIso && !pack.isoId) {
-      setError("Seleziona l’isolamento oppure togli la spunta.");
-      return;
+    if (!confezionamentoUnico) {
+      for (const r of righe) {
+        const scelta = confezioneScelta(r.id);
+        if (!confezioniVisibili.some((c) => c.id === scelta)) {
+          setError(`Scegli in quale confezione va ${r.prodottoCodice}.`);
+          return;
+        }
+      }
     }
     setStep(3);
   }
@@ -286,9 +315,20 @@ export function ProcessaCampionaturaProduzioneModal({
         dataConfezionamento,
         righe: payload,
         pack: {
-          movimentazioneId: pack.serveMov ? pack.movId || null : null,
-          confezioneId: pack.serveConf ? pack.confId || null : null,
-          isolamentoId: pack.serveIso ? pack.isoId || null : null,
+          movimentazioneId: serveMov ? movId || null : null,
+          confezioneId: confezioniVisibili[0]?.voceId || null,
+          isolamentoId: null,
+          confezionamentoUnico,
+          confezioni: confezioniVisibili.map((c) => ({
+            id: c.id,
+            voceId: c.voceId,
+            etichetta: etichettaConfezione(c.id),
+          })),
+          prodotti: righe.map((r) => ({
+            rigaId: r.id,
+            confezioneId: confezioneScelta(r.id),
+            isolamentoId: isolamentoPerRiga[r.id] || null,
+          })),
         },
         sedePartenzaId: sedePartenzaId || null,
       });
@@ -314,9 +354,15 @@ export function ProcessaCampionaturaProduzioneModal({
         aria-labelledby={titleId}
         className="w-full max-w-2xl rounded-xl border border-[var(--border)] bg-[var(--card)] p-5 shadow-xl"
       >
-        <h2 id={titleId} className="text-lg font-semibold">
-          Inserisci in produzione
-        </h2>
+        <div className="flex flex-wrap items-center gap-2">
+          <h2 id={titleId} className="text-lg font-semibold">
+            Inserisci in produzione
+          </h2>
+          <InfoSezione
+            titolo="Cosa stai facendo"
+            testo="Metti questa campionatura in lavorazione. Prima scegli il lotto di ogni prodotto. Poi decidi in quale scatola va e con quale sacchetto. Alla fine controlli la mail."
+          />
+        </div>
         <p className="mt-1 text-sm text-[var(--muted)]">
           {item.numeroInterno} · Campionatura · {item.cliente}
         </p>
@@ -357,7 +403,8 @@ export function ProcessaCampionaturaProduzioneModal({
                           g.ok ? "text-emerald-800" : "text-red-700"
                         }`}
                       >
-                        {formatKgLt(g.giacenzaKg)}
+                        {g.giacenzaKg.toLocaleString("it-IT")}{" "}
+                        {unitaGiacenza(g.unitaMisura)}
                         {g.ok ? " · ok" : " · insufficiente"}
                       </td>
                     </tr>
@@ -366,6 +413,13 @@ export function ProcessaCampionaturaProduzioneModal({
               </table>
             </div>
 
+            <div className="mt-4">
+              <InfoSezione
+                titolo="Scegli il lotto"
+                testo="Il lotto è il numero del mucchio già in magazzino. Se il prodotto è un gel, il numero è in litri. Scegli il lotto che ha lo stesso nome del prodotto. Se non c'è, puoi prenderne un altro e poi dire come lo trasformi."
+                disegno="lotti"
+              />
+            </div>
             {righe.map((r) => {
               const match = haLottoRichiesto(r.prodottoId);
               const consigliati = lotti.filter(
@@ -433,6 +487,120 @@ export function ProcessaCampionaturaProduzioneModal({
 
         {step === 2 ? (
           <div className="mt-4 space-y-4">
+            <div className="rounded-lg border border-[var(--border)] px-3 py-3">
+              <div className="flex flex-wrap items-center gap-2">
+                <p className="text-sm font-medium">Le confezioni</p>
+                <InfoSezione
+                  titolo="Come si imballa"
+                  testo="Prima crei una scatola e scegli che tipo è. Se spunti «tutto in una sola confezione», tutti i prodotti vanno lì. Se togli la spunta, puoi creare una seconda scatola: sotto ogni prodotto scegli in quale scatola metterlo. L'isolamento è il sacchetto del singolo prodotto."
+                  disegno="confezioni"
+                />
+              </div>
+              <label className="mt-3 flex items-center gap-2 text-sm">
+                <input
+                  type="checkbox"
+                  checked={confezionamentoUnico}
+                  onChange={(e) => setConfezionamentoUnico(e.target.checked)}
+                />
+                Tutto in una sola confezione
+              </label>
+              <div className="mt-3 space-y-3">
+                {confezioniVisibili.map((c) => (
+                  <label key={c.id} className="block text-sm">
+                    <span className="mb-1 flex items-center justify-between gap-2 font-medium">
+                      {etichettaConfezione(c.id)}
+                      {!confezionamentoUnico && confezioni.length > 1 ? (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setConfezioni((prev) =>
+                              prev.filter((x) => x.id !== c.id)
+                            );
+                            setPacchettoPerRiga((prev) => {
+                              const next = { ...prev };
+                              for (const key of Object.keys(next)) {
+                                if (next[key] === c.id) delete next[key];
+                              }
+                              return next;
+                            });
+                          }}
+                          className="text-xs font-medium text-red-700 hover:underline"
+                        >
+                          Togli
+                        </button>
+                      ) : null}
+                    </span>
+                    <select
+                      value={c.voceId}
+                      onChange={(e) =>
+                        setConfezioni((prev) =>
+                          prev.map((x) =>
+                            x.id === c.id ? { ...x, voceId: e.target.value } : x
+                          )
+                        )
+                      }
+                      className="w-full rounded-lg border border-[var(--border)] px-3 py-2 text-sm"
+                    >
+                      <option value="">Che scatola è…</option>
+                      {confVoci.map((v) => (
+                        <option key={v.id} value={v.id}>
+                          {labelImballaggioVoce(v)}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                ))}
+              </div>
+              {confezionamentoUnico ? (
+                <p className="mt-2 text-xs text-[var(--muted)]">
+                  Tutti i prodotti vanno in Confezione 1. Sotto ognuno scegli
+                  solo il suo sacchetto.
+                </p>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() =>
+                    setConfezioni((prev) => [
+                      ...prev,
+                      {
+                        id: `conf-${prev.length + 1}-${Date.now()}`,
+                        voceId: "",
+                      },
+                    ])
+                  }
+                  className="mt-3 rounded-lg border border-[var(--border)] bg-white px-3 py-1.5 text-sm font-medium hover:bg-slate-50"
+                >
+                  Aggiungi un'altra confezione
+                </button>
+              )}
+              <div className="mt-4 border-t border-[var(--border)] pt-3">
+                <label className="flex items-center gap-2 text-sm">
+                  <input
+                    type="checkbox"
+                    checked={serveMov}
+                    onChange={(e) => {
+                      setServeMov(e.target.checked);
+                      if (!e.target.checked) setMovId("");
+                    }}
+                  />
+                  Serve anche una movimentazione
+                </label>
+                {serveMov ? (
+                  <select
+                    value={movId}
+                    onChange={(e) => setMovId(e.target.value)}
+                    className="mt-1 w-full rounded-lg border border-[var(--border)] px-3 py-2 text-sm"
+                  >
+                    <option value="">Come si sposta…</option>
+                    {movVoci.map((v) => (
+                      <option key={v.id} value={v.id}>
+                        {labelImballaggioVoce(v)}
+                      </option>
+                    ))}
+                  </select>
+                ) : null}
+              </div>
+            </div>
             {righe.map((r) => {
               const lot = lottoDi(r.id);
               const ok = conforme(r.id, r.prodottoId);
@@ -480,6 +648,54 @@ export function ProcessaCampionaturaProduzioneModal({
                       </select>
                     </label>
                   )}
+                  <label className="mt-3 block text-sm">
+                    <span className="mb-1 block font-medium">
+                      Isolamento di {r.prodottoCodice}
+                    </span>
+                    <select
+                      value={isolamentoPerRiga[r.id] ?? ""}
+                      onChange={(e) =>
+                        setIsolamentoPerRiga((prev) => ({
+                          ...prev,
+                          [r.id]: e.target.value,
+                        }))
+                      }
+                      className="w-full rounded-lg border border-[var(--border)] bg-white px-3 py-2 text-sm outline-none focus:border-[var(--primary)]"
+                    >
+                      <option value="">Nessun sacchetto</option>
+                      {isoVoci.map((v) => (
+                        <option key={v.id} value={v.id}>
+                          {labelImballaggioVoce(v)}
+                        </option>
+                      ))}
+                    </select>
+                    <span className="mt-1 block text-xs text-[var(--muted)]">
+                      Quasi sempre ogni prodotto sta nel suo sacchetto.
+                    </span>
+                  </label>
+                  {confezionamentoUnico ? null : (
+                    <label className="mt-3 block text-sm">
+                      <span className="mb-1 block font-medium">
+                        In quale confezione va {r.prodottoCodice}
+                      </span>
+                      <select
+                        value={confezioneScelta(r.id)}
+                        onChange={(e) =>
+                          setPacchettoPerRiga((prev) => ({
+                            ...prev,
+                            [r.id]: e.target.value,
+                          }))
+                        }
+                        className="w-full rounded-lg border border-[var(--border)] bg-white px-3 py-2 text-sm outline-none focus:border-[var(--primary)]"
+                      >
+                        {confezioniVisibili.map((c) => (
+                          <option key={c.id} value={c.id}>
+                            {etichettaConfezione(c.id)}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                  )}
                 </div>
               );
             })}
@@ -509,121 +725,21 @@ export function ProcessaCampionaturaProduzioneModal({
               </label>
             </div>
 
-            <div className="rounded-lg border border-[var(--border)] px-3 py-3">
-              <p className="text-sm font-medium">
-                Processo di confezionamento
-              </p>
-              <p className="mt-0.5 text-xs text-[var(--muted)]">
-                Compila solo ciò che è necessario.
-              </p>
-              <div className="mt-3 space-y-3">
-                <div>
-                  <label className="flex items-center gap-2 text-sm">
-                    <input
-                      type="checkbox"
-                      checked={pack.serveMov}
-                      onChange={(e) =>
-                        setPack((p) => ({
-                          ...p,
-                          serveMov: e.target.checked,
-                          movId: e.target.checked ? p.movId : "",
-                        }))
-                      }
-                    />
-                    Movimentazione necessaria
-                  </label>
-                  {pack.serveMov ? (
-                    <select
-                      value={pack.movId}
-                      onChange={(e) =>
-                        setPack((p) => ({ ...p, movId: e.target.value }))
-                      }
-                      className="mt-1 w-full rounded-lg border border-[var(--border)] px-3 py-2 text-sm"
-                    >
-                      <option value="">Seleziona movimentazione…</option>
-                      {movVoci.map((v) => (
-                        <option key={v.id} value={v.id}>
-                          {labelImballaggioVoce(v)}
-                        </option>
-                      ))}
-                    </select>
-                  ) : null}
-                </div>
-                <div>
-                  <label className="flex items-center gap-2 text-sm">
-                    <input
-                      type="checkbox"
-                      checked={pack.serveConf}
-                      onChange={(e) =>
-                        setPack((p) => ({
-                          ...p,
-                          serveConf: e.target.checked,
-                          confId: e.target.checked ? p.confId : "",
-                        }))
-                      }
-                    />
-                    Confezione necessaria
-                  </label>
-                  {pack.serveConf ? (
-                    <select
-                      value={pack.confId}
-                      onChange={(e) =>
-                        setPack((p) => ({ ...p, confId: e.target.value }))
-                      }
-                      className="mt-1 w-full rounded-lg border border-[var(--border)] px-3 py-2 text-sm"
-                    >
-                      <option value="">Seleziona confezione…</option>
-                      {confVoci.map((v) => (
-                        <option key={v.id} value={v.id}>
-                          {labelImballaggioVoce(v)}
-                        </option>
-                      ))}
-                    </select>
-                  ) : null}
-                </div>
-                <div>
-                  <label className="flex items-center gap-2 text-sm">
-                    <input
-                      type="checkbox"
-                      checked={pack.serveIso}
-                      onChange={(e) =>
-                        setPack((p) => ({
-                          ...p,
-                          serveIso: e.target.checked,
-                          isoId: e.target.checked ? p.isoId : "",
-                        }))
-                      }
-                    />
-                    Isolamento necessario
-                  </label>
-                  {pack.serveIso ? (
-                    <select
-                      value={pack.isoId}
-                      onChange={(e) =>
-                        setPack((p) => ({ ...p, isoId: e.target.value }))
-                      }
-                      className="mt-1 w-full rounded-lg border border-[var(--border)] px-3 py-2 text-sm"
-                    >
-                      <option value="">Seleziona isolamento…</option>
-                      {isoVoci.map((v) => (
-                        <option key={v.id} value={v.id}>
-                          {labelImballaggioVoce(v)}
-                        </option>
-                      ))}
-                    </select>
-                  ) : null}
-                </div>
-              </div>
-            </div>
           </div>
         ) : null}
 
         {step === 3 ? (
           <div className="mt-4 space-y-3 text-sm">
-            <p className="text-xs text-slate-500">
-              Spedizione: tracking se già disponibile, oppure salva e resta in
-              attesa. La mail al cliente è facoltativa.
-            </p>
+            <div className="flex flex-wrap items-center gap-2">
+              <p className="text-xs text-slate-500">
+                Spedizione: tracking se già disponibile, oppure salva e resta in
+                attesa. La mail al cliente è facoltativa.
+              </p>
+              <InfoSezione
+                titolo="La mail"
+                testo="Qui prepari il messaggio per il cliente. Se non hai ancora il tracking, puoi salvare lo stesso e mandarla dopo."
+              />
+            </div>
             <p className="text-xs text-slate-500">
               Lavorazione {dataLavorazione} · Confezionamento{" "}
               {dataConfezionamento}

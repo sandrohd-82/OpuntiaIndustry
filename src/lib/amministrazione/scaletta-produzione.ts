@@ -169,6 +169,25 @@ export const passaCampionaturaScalettaSchema = z.object({
       movimentazioneId: z.string().uuid().nullable().optional(),
       confezioneId: z.string().uuid().nullable().optional(),
       isolamentoId: z.string().uuid().nullable().optional(),
+      confezionamentoUnico: z.boolean().optional(),
+      confezioni: z
+        .array(
+          z.object({
+            id: z.string().trim().min(1).max(80),
+            voceId: z.string().uuid(),
+            etichetta: z.string().trim().min(1).max(80),
+          })
+        )
+        .optional(),
+      prodotti: z
+        .array(
+          z.object({
+            rigaId: z.string().uuid(),
+            confezioneId: z.string().trim().min(1).max(80),
+            isolamentoId: z.string().uuid().nullable().optional(),
+          })
+        )
+        .optional(),
     })
     .optional(),
   sedePartenzaId: z.string().uuid().nullable().optional(),
