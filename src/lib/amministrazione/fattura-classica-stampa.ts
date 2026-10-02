@@ -39,4 +39,6 @@ export type FatturaClassicaStampaModel = {
   totale: number;
   /** Nazione della controparte, solo se non è l'Italia. */
   nazioneEstera: string | null;
+  /** Fatture ricevute: niente intestazione in calce. */
+  nascondiPiePagina: boolean;
 };

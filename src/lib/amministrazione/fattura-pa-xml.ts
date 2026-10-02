@@ -435,5 +435,6 @@ export function fatturaClassicaDaXml(xml: string): FatturaClassicaStampaModel {
     totale,
     nazioneEstera:
       nazioneEstera(destinatario.nazione) ?? nazioneEstera(emittente.nazione),
+    nascondiPiePagina: false,
   };
 }

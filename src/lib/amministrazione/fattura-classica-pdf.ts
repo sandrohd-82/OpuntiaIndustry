@@ -264,20 +264,23 @@ export function buildFatturaClassicaPdf(input: {
   doc.text("Totale Fattura", 108, boxY + 34);
   doc.text(`${euro(m.totale)} €`, 194, boxY + 34, { align: "right" });
 
-  const foot = 284;
-  doc.setFont("helvetica", "bold");
-  doc.setFontSize(8);
-  doc.text(testo(m.emittente.ragioneSociale), 105, foot, { align: "center" });
-  doc.setFont("helvetica", "normal");
-  const pie = [m.emittente.via, m.emittente.capCitta, m.emittente.email]
-    .map((x) => x.trim())
-    .filter(Boolean)
-    .join(" - ");
-  doc.text(pie || "—", 105, foot + 4, { align: "center" });
-  if (m.emittente.telefono.trim()) {
-    doc.text(`Tel. ${m.emittente.telefono.trim()}`, 105, foot + 8, {
-      align: "center",
-    });
+  if (!m.nascondiPiePagina) {
+    const foot = 284;
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(8);
+    doc.setTextColor(15, 23, 42);
+    doc.text(testo(m.emittente.ragioneSociale), 105, foot, { align: "center" });
+    doc.setFont("helvetica", "normal");
+    const pie = [m.emittente.via, m.emittente.capCitta, m.emittente.email]
+      .map((x) => x.trim())
+      .filter(Boolean)
+      .join(" - ");
+    doc.text(pie || "—", 105, foot + 4, { align: "center" });
+    if (m.emittente.telefono.trim()) {
+      doc.text(`Tel. ${m.emittente.telefono.trim()}`, 105, foot + 8, {
+        align: "center",
+      });
+    }
   }
 
   return { fileName: input.fileName, blob: doc.output("blob") };

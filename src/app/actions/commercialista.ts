@@ -800,22 +800,23 @@ export type CommercialistaPaperDoc = {
   anagraficaRagioneSociale: string;
   numeroSequenza: number | null;
   model: PaperInvoiceModel;
-  /** Fatture emesse: stesso foglio della fattura classica, dati SDI. */
+  /** Stesso foglio della fattura classica, dati SDI. Ricevute senza piè di pagina. */
   classica: FatturaClassicaStampaModel | null;
   sdiAssente: boolean;
 };
 
-async function classicaDaSdiEmessa(
+async function classicaDaSdi(
   supabase: Awaited<ReturnType<typeof createClient>>,
-  row: FatturaEmessaRow
+  ficIdRaw: number | null,
+  type: "issued" | "received"
 ): Promise<FatturaClassicaStampaModel | null> {
-  const ficId = Number(row.fic_id ?? 0);
+  const ficId = Number(ficIdRaw ?? 0);
   if (!Number.isFinite(ficId) || ficId <= 0) return null;
   const { data } = await supabase
     .from("fic_invoices")
     .select("raw_data")
     .eq("fic_id", ficId)
-    .eq("type", "issued")
+    .eq("type", type)
     .is("deleted_at", null)
     .maybeSingle();
   const raw = (data?.raw_data ?? null) as Record<string, unknown> | null;
@@ -823,7 +824,7 @@ async function classicaDaSdiEmessa(
   if (!xml) {
     try {
       const scaricato = await resolveFicDocumentXml({
-        kind: "emessa",
+        kind: type === "issued" ? "emessa" : "ricevuta",
         ficId,
       });
       xml = scaricato.xml;
@@ -853,6 +854,7 @@ async function classicaDaSdiEmessa(
           : "";
       model.nazioneEstera = nazioneEstera(country);
     }
+    model.nascondiPiePagina = type === "received";
     return model;
   } catch (err) {
     console.error("[commercialista sdi xml]", ficId, err);
@@ -897,7 +899,7 @@ async function loadFatturaCompletaForPaper(
       righeEmessa,
       (dilazioni ?? []) as FatturaEmessaDilazioneRow[]
     );
-    const classica = await classicaDaSdiEmessa(supabase, emessa);
+    const classica = await classicaDaSdi(supabase, emessa.fic_id, "issued");
     return { ok: true, fattura, classica };
   }
 
@@ -927,11 +929,13 @@ async function loadFatturaCompletaForPaper(
     .eq("fattura_id", id)
     .is("deleted_at", null)
     .order("sort_order", { ascending: true });
+  const ricevuta = data as FatturaRicevutaRow;
+  const classica = await classicaDaSdi(supabase, ricevuta.fic_id, "received");
   return {
     ok: true,
-    classica: null,
+    classica,
     fattura: mapFatturaRicevutaRow(
-      data as FatturaRicevutaRow,
+      ricevuta,
       (righe ?? []) as FatturaRicevutaRigaRow[],
       (dilazioni ?? []) as FatturaRicevutaDilazioneRow[],
       (contributi ?? []) as FatturaRicevutaContributoCassaRow[]
@@ -1072,7 +1076,7 @@ export async function getCommercialistaPaperBatchAction(input: {
       numeroSequenza: sequenza.get(t.id) ?? null,
       model,
       classica: loaded.classica,
-      sdiAssente: input.kind === "emessa" && !loaded.classica,
+      sdiAssente: !loaded.classica,
     });
   }
 

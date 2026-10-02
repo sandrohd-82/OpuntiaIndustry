@@ -249,22 +249,24 @@ export function FatturaClassicaStampa({
           </div>
         </div>
 
-        <footer className="mt-[8mm] text-center">
-          <p className="text-[10px] font-semibold leading-[1.4]">
-            {testo(model.emittente.ragioneSociale)}
-          </p>
-          <p className="text-[10px] leading-[1.4]">
-            {[model.emittente.via, model.emittente.capCitta, model.emittente.email]
-              .map((x) => x.trim())
-              .filter(Boolean)
-              .join(" - ") || "—"}
-          </p>
-          {model.emittente.telefono.trim() ? (
-            <p className="text-[10px] leading-[1.4]">
-              Tel. {model.emittente.telefono.trim()}
+        {model.nascondiPiePagina ? null : (
+          <footer className="mt-[8mm] text-center">
+            <p className="text-[10px] font-semibold leading-[1.4]">
+              {testo(model.emittente.ragioneSociale)}
             </p>
-          ) : null}
-        </footer>
+            <p className="text-[10px] leading-[1.4]">
+              {[model.emittente.via, model.emittente.capCitta, model.emittente.email]
+                .map((x) => x.trim())
+                .filter(Boolean)
+                .join(" - ") || "—"}
+            </p>
+            {model.emittente.telefono.trim() ? (
+              <p className="text-[10px] leading-[1.4]">
+                Tel. {model.emittente.telefono.trim()}
+              </p>
+            ) : null}
+          </footer>
+        )}
       </div>
     </article>
   );
