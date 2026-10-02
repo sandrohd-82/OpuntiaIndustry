@@ -4,6 +4,7 @@ import { useEffect, useId, useRef, useState } from "react";
 import {
   generaCorpoMailSpedizioneAction,
   getPrenotazioneSpedizioneMailAction,
+  listCaselleSpedizioneMailAction,
   uploadSpedizioneMailFileAction,
   upsertPrenotazioneSpedizioneMailAction,
 } from "@/app/actions/spedizione-mail";
@@ -21,6 +22,10 @@ import {
   type SpedizioneMailAllegato,
   type SpedizioneMailPrenotazione,
 } from "@/lib/amministrazione/spedizione-mail";
+import {
+  AGRINSICILIA_LETTERHEAD,
+  AGRINSICILIA_MAIL_FIRMA,
+} from "@/lib/amministrazione/preventivo-letterhead";
 
 type Props = {
   entityType: "campionatura" | "ordine";
@@ -45,6 +50,9 @@ type Props = {
     destinatarioEmail: string;
     sedePartenzaId: string;
     bozzaPronta: boolean;
+    mailAccountId: string;
+    mailOggetto: string;
+    mailCorpo: string;
   }) => void;
   sedePartenzaIdDefault?: string;
   persistDisabled?: boolean;
@@ -74,6 +82,14 @@ export function SpedizioneMailPanel({
   const [allegati, setAllegati] = useState<SpedizioneMailAllegato[]>([]);
   const [vuoleMail, setVuoleMail] = useState(false);
   const [destEmail, setDestEmail] = useState(destEmailDefault);
+  const [accounts, setAccounts] = useState<
+    Array<{ id: string; label: string; email: string }>
+  >([]);
+  const [mailAccountId, setMailAccountId] = useState("");
+  const [mailOggetto, setMailOggetto] = useState("");
+  const [mailCorpo, setMailCorpo] = useState("");
+  const oggettoToccato = useRef(false);
+  const corpoToccato = useRef(false);
   const [item, setItem] = useState<SpedizioneMailPrenotazione | null>(null);
   const [compose, setCompose] = useState<{
     prenotazione: SpedizioneMailPrenotazione;
@@ -91,6 +107,11 @@ export function SpedizioneMailPanel({
   useEffect(() => {
     void listSediAttiveAction().then((res) => {
       if (res.success) setSedi(res.sedi);
+    });
+    void listCaselleSpedizioneMailAction().then((res) => {
+      if (!res.success) return;
+      setAccounts(res.accounts);
+      setMailAccountId((prev) => prev || res.accounts[0]?.id || "");
     });
   }, []);
 
@@ -117,6 +138,29 @@ export function SpedizioneMailPanel({
   }, [destEmailDefault, destEmail]);
 
   useEffect(() => {
+    if (!vuoleMail) return;
+    if (oggettoToccato.current && corpoToccato.current) return;
+    let cancel = false;
+    const timer = window.setTimeout(() => {
+      void generaCorpoMailSpedizioneAction({
+        cliente: clienteNome,
+        numero,
+        prodotti,
+        trackingUrl,
+        haLettera: false,
+      }).then((res) => {
+        if (cancel || !res.success) return;
+        if (!oggettoToccato.current) setMailOggetto(res.subject);
+        if (!corpoToccato.current) setMailCorpo(res.bodyText);
+      });
+    }, 400);
+    return () => {
+      cancel = true;
+      window.clearTimeout(timer);
+    };
+  }, [vuoleMail, clienteNome, numero, prodotti, trackingUrl]);
+
+  useEffect(() => {
     onDraftChange?.({
       trackingUrl,
       letteraViaPath: letteraPath,
@@ -128,6 +172,9 @@ export function SpedizioneMailPanel({
       destinatarioEmail: destEmail,
       sedePartenzaId,
       bozzaPronta,
+      mailAccountId,
+      mailOggetto,
+      mailCorpo,
     });
   }, [
     trackingUrl,
@@ -138,6 +185,9 @@ export function SpedizioneMailPanel({
     destEmail,
     sedePartenzaId,
     bozzaPronta,
+    mailAccountId,
+    mailOggetto,
+    mailCorpo,
   ]);
 
   function applyItem(next: SpedizioneMailPrenotazione) {
@@ -147,6 +197,15 @@ export function SpedizioneMailPanel({
     setLetteraName(next.letteraViaName);
     setAllegati(next.allegati);
     setDestEmail(next.destinatarioEmail || destEmailDefault);
+    if (next.oggetto) {
+      oggettoToccato.current = true;
+      setMailOggetto(next.oggetto);
+    }
+    if (next.corpo) {
+      corpoToccato.current = true;
+      setMailCorpo(next.corpo);
+    }
+    if (next.accountId) setMailAccountId(next.accountId);
     setVuoleMail(
       next.allegaTracking ||
         next.stato === "inviata" ||
@@ -209,9 +268,9 @@ export function SpedizioneMailPanel({
     setError(null);
     setInfo(null);
     try {
-      let oggetto = "";
-      let corpo = "";
-      if (modo !== "salva") {
+      let oggetto = mailOggetto.trim();
+      let corpo = mailCorpo.trim();
+      if (modo !== "salva" && (!oggetto || !corpo)) {
         const testo = await generaCorpoMailSpedizioneAction({
           cliente: clienteNome,
           numero,
@@ -225,6 +284,8 @@ export function SpedizioneMailPanel({
         }
         oggetto = testo.subject;
         corpo = testo.bodyText;
+        setMailOggetto(oggetto);
+        setMailCorpo(corpo);
       }
       const res = await upsertPrenotazioneSpedizioneMailAction({
         entityType,
@@ -236,9 +297,10 @@ export function SpedizioneMailPanel({
         allegaTracking: vuoleMail,
         allegaLettera: false,
         allegaFile: false,
-        destinatarioEmail: vuoleMail ? destEmail : destEmail,
+        destinatarioEmail: destEmail,
         oggetto,
         corpo,
+        accountId: mailAccountId || null,
         modo,
       });
       if (!res.success) {
@@ -397,14 +459,72 @@ export function SpedizioneMailPanel({
       </fieldset>
 
       {vuoleMail ? (
-        <SpedizioneDestinatarioMailField
-          value={destEmail}
-          onChange={setDestEmail}
-          anagrafica={anagrafica}
-          emailAzienda={destEmailDefault}
-          emailPec={emailPec}
-          emailGeneriche={emailGeneriche}
-        />
+        <div className="space-y-3 rounded-lg border border-[var(--border)] bg-white px-3 py-3">
+          <label className="block text-sm">
+            <span className="mb-1 block font-medium">Casella mittente</span>
+            <select
+              value={mailAccountId}
+              onChange={(e) => setMailAccountId(e.target.value)}
+              className="w-full rounded-lg border border-[var(--border)] px-3 py-2 text-sm"
+            >
+              <option value="">Seleziona casella…</option>
+              {accounts.map((a) => (
+                <option key={a.id} value={a.id}>
+                  {a.label} · {a.email}
+                </option>
+              ))}
+            </select>
+            {accounts.length === 0 ? (
+              <span className="mt-1 block text-xs text-[var(--muted)]">
+                Nessuna casella webmail disponibile.
+              </span>
+            ) : null}
+          </label>
+          <SpedizioneDestinatarioMailField
+            value={destEmail}
+            onChange={setDestEmail}
+            anagrafica={anagrafica}
+            emailAzienda={destEmailDefault}
+            emailPec={emailPec}
+            emailGeneriche={emailGeneriche}
+          />
+          <label className="block text-sm">
+            <span className="mb-1 block font-medium">Oggetto</span>
+            <input
+              value={mailOggetto}
+              onChange={(e) => {
+                oggettoToccato.current = true;
+                setMailOggetto(e.target.value);
+              }}
+              className="w-full rounded-lg border border-[var(--border)] px-3 py-2 text-sm"
+            />
+          </label>
+          <label className="block text-sm">
+            <span className="mb-1 block font-medium">Testo</span>
+            <textarea
+              value={mailCorpo}
+              onChange={(e) => {
+                corpoToccato.current = true;
+                setMailCorpo(e.target.value);
+              }}
+              rows={8}
+              className="w-full rounded-lg border border-[var(--border)] px-3 py-2 text-sm"
+            />
+          </label>
+          <div className="border-t border-[var(--border)] pt-3">
+            <p className="mb-2 text-xs text-[var(--muted)]">
+              In calce alla mail partono il logo e i dati Agrinsicilia.
+            </p>
+            <img
+              src={AGRINSICILIA_LETTERHEAD.logoSrc}
+              alt={AGRINSICILIA_LETTERHEAD.logoAlt}
+              className="h-14 w-auto"
+            />
+            <p className="mt-2 whitespace-pre-line text-xs leading-relaxed text-slate-800">
+              {AGRINSICILIA_MAIL_FIRMA}
+            </p>
+          </div>
+        </div>
       ) : null}
 
       {item?.stato === "prenotata" && !vuoleMail ? (

@@ -317,6 +317,9 @@ export function OrdineNuovoWizardModal({
     destinatarioEmail: "",
     sedePartenzaId: "",
     bozzaPronta: false,
+    mailAccountId: "",
+    mailOggetto: "",
+    mailCorpo: "",
   });
   const [composeAfter, setComposeAfter] = useState<{
     prenotazione: SpedizioneMailPrenotazione;
@@ -1354,9 +1357,9 @@ export function OrdineNuovoWizardModal({
       }
       if (modoMail && !(modificaOrdineId && !spedDraft.current.bozzaPronta)) {
         const d = spedDraft.current;
-        let oggetto = "";
-        let corpo = "";
-        if (modoMail !== "salva") {
+        let oggetto = d.mailOggetto.trim();
+        let corpo = d.mailCorpo.trim();
+        if (modoMail !== "salva" && (!oggetto || !corpo)) {
           const testo = await generaCorpoMailSpedizioneAction({
             cliente: clienteNome,
             numero: result.ordine.numeroInterno,
@@ -1385,6 +1388,7 @@ export function OrdineNuovoWizardModal({
           destinatarioEmail: d.destinatarioEmail,
           oggetto,
           corpo,
+          accountId: d.mailAccountId || null,
           modo: modoMail,
         });
         if (up.success && up.apriBozza && oggetto) {
@@ -3125,7 +3129,15 @@ export function OrdineNuovoWizardModal({
                     !modificaOrdineId &&
                     !calcolo?.dataConsegnaStimata)
                 }
-                onClick={() => void submit("salva")}
+                onClick={() => {
+                  const d = spedDraft.current;
+                  const modo = !d.allegaTracking
+                    ? "salva"
+                    : d.trackingUrl.trim()
+                      ? "compila"
+                      : "prenota";
+                  void submit(modo);
+                }}
                 className="rounded-lg bg-[var(--primary)] px-4 py-2 text-sm font-medium text-white hover:bg-[var(--primary-hover)] disabled:opacity-50"
               >
                 {saving
