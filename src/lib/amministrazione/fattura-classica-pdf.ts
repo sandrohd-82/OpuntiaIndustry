@@ -328,19 +328,27 @@ export function buildPaperFatturaPdf(input: {
     doc.setFont("times", "italic");
     doc.setFontSize(18);
     doc.setTextColor(148, 163, 184);
-    doc.text(String(input.numeroSequenza), 14, 12);
+    doc.text(String(input.numeroSequenza), 198, 14, { align: "right" });
     doc.setTextColor(15, 23, 42);
   }
   doc.setFont("helvetica", "bold");
+  doc.setFontSize(8);
+  doc.setTextColor(100, 116, 139);
+  doc.text("CEDENTE / EMITTENTE", 14, 22);
+  doc.setTextColor(15, 23, 42);
   doc.setFontSize(11);
-  let yTestata = testoDestra(doc, testo(m.mittente.ragioneSociale), 198, 16) + 1.2;
+  doc.text(testo(m.mittente.ragioneSociale), 14, 28);
+  const titolo = (m.documentoTitolo ?? "Fattura elettronica").toUpperCase();
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(11);
+  let yTestata = testoDestra(doc, titolo, 198, input.numeroSequenza != null ? 22 : 16);
   doc.setFont("helvetica", "normal");
   doc.setFontSize(9);
   yTestata = testoDestra(
     doc,
-    `FATTURA nr. ${testo(m.numero)} del ${data}`,
+    `nr. ${testo(m.numero)} del ${data}`,
     198,
-    yTestata
+    yTestata + 1.2
   );
   if (m.destinatario.sdi.trim()) {
     yTestata = testoDestra(

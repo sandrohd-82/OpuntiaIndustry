@@ -1,3 +1,4 @@
+import type { CSSProperties } from "react";
 import {
   formatEuro,
   formatPaperDate,
@@ -5,6 +6,14 @@ import {
   type PaperInvoiceModel,
   type PaperParty,
 } from "@/lib/amministrazione/paper-invoice";
+
+const MATITA_STYLE: CSSProperties = {
+  fontFamily: '"Segoe Print", "Comic Sans MS", "Bradley Hand", cursive',
+  fontWeight: 300,
+  color: "#94a3b8",
+  WebkitTextStroke: "0.35px #cbd5e1",
+  letterSpacing: "0.04em",
+};
 
 function PartyBlock({
   title,
@@ -47,19 +56,34 @@ function PartyBlock({
 }
 
 /** Foglio A4 stampabile (vista stile PDF). */
-export function PaperInvoiceSheet({ model }: { model: PaperInvoiceModel }) {
+export function PaperInvoiceSheet({
+  model,
+  numeroSequenza = null,
+}: {
+  model: PaperInvoiceModel;
+  numeroSequenza?: number | null;
+}) {
   return (
     <article
       id="paper-invoice-sheet"
       className="paper-invoice-sheet mx-auto w-full max-w-[210mm] bg-white text-slate-900 shadow-[0_8px_30px_rgba(15,23,42,0.12)] ring-1 ring-slate-200"
     >
       <div className="box-border min-h-[297mm] px-[14mm] py-[12mm]">
-        <header className="flex flex-wrap items-start justify-between gap-6 border-b border-slate-300 pb-4">
+        <div className="flex flex-wrap items-start justify-between gap-6 border-b border-slate-300 pb-4">
           <div className="min-w-[14rem] flex-1">
             <PartyBlock title="Cedente / Emittente" party={model.mittente} />
           </div>
           <div className="text-right">
-            <p className="text-[10px] font-semibold uppercase tracking-wider text-slate-500">
+            {numeroSequenza != null ? (
+              <p
+                className="text-3xl italic leading-none"
+                style={MATITA_STYLE}
+                title={`Sequenza provvisoria ${numeroSequenza}`}
+              >
+                {numeroSequenza}
+              </p>
+            ) : null}
+            <p className="mt-1 text-[10px] font-semibold uppercase tracking-wider text-slate-500">
               {model.documentoTitolo ?? "Fattura elettronica"}
             </p>
             <p className="mt-1 font-mono text-lg font-semibold">
@@ -78,7 +102,7 @@ export function PaperInvoiceSheet({ model }: { model: PaperInvoiceModel }) {
               </p>
             )}
           </div>
-        </header>
+        </div>
         {model.nazioneEstera ? (
           <p className="mt-4 border border-amber-700 bg-amber-50 px-3 py-1.5 text-center text-[12px] font-bold tracking-wide text-amber-950">
             Fattura estera — {model.nazioneEstera}

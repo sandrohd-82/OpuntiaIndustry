@@ -34,7 +34,7 @@ export function CommercialistaPaperPage({
     <div
       className="commercialista-print-page relative mx-auto"
     >
-      {showSequenza && numeroSequenza != null ? (
+      {showSequenza && numeroSequenza != null && classica ? (
         <span
           className="pointer-events-none absolute left-[14mm] top-[8mm] z-10 text-3xl italic leading-none opacity-80 select-none"
           style={MATITA_STYLE}
@@ -55,7 +55,10 @@ export function CommercialistaPaperPage({
           </p>
         </article>
       ) : (
-        <PaperInvoiceSheet model={model} />
+        <PaperInvoiceSheet
+          model={model}
+          numeroSequenza={showSequenza ? numeroSequenza : null}
+        />
       )}
     </div>
   );
