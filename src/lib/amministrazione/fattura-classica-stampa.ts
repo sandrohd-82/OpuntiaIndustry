@@ -10,6 +10,8 @@ export type FatturaClassicaSoggetto = {
   email: string;
   telefono: string;
   sdi: string;
+  /** Codice o nome letto dallo SDI (Nazione / IdPaese). */
+  nazione: string;
 };
 
 export type FatturaClassicaScadenza = {
@@ -35,4 +37,6 @@ export type FatturaClassicaStampaModel = {
   imponibile: number;
   imposta: number;
   totale: number;
+  /** Nazione della controparte, solo se non è l'Italia. */
+  nazioneEstera: string | null;
 };

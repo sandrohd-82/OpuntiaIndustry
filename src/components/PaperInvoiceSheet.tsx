@@ -79,6 +79,11 @@ export function PaperInvoiceSheet({ model }: { model: PaperInvoiceModel }) {
             )}
           </div>
         </header>
+        {model.nazioneEstera ? (
+          <p className="mt-4 border border-amber-700 bg-amber-50 px-3 py-1.5 text-center text-[12px] font-bold tracking-wide text-amber-950">
+            Fattura estera — {model.nazioneEstera}
+          </p>
+        ) : null}
 
         <section className="mt-4 rounded border border-slate-300 bg-slate-50 px-3 py-3">
           <PartyBlock title="Cessionario / Destinatario" party={model.destinatario} />

@@ -10,6 +10,8 @@ import {
   roundMoney,
   type Fattura,
 } from "@/lib/amministrazione/fatture";
+import { nazioneSoggettoXml } from "@/lib/amministrazione/fattura-pa-xml";
+import { nazioneEstera } from "@/lib/amministrazione/nazione-fattura";
 
 export type PaperParty = {
   ragioneSociale: string;
@@ -59,6 +61,8 @@ export type PaperInvoiceModel = {
   notePagamento: string;
   fonte: "fic" | "opuntia";
   scissionePagamenti: boolean;
+  /** Nazione della controparte, solo se non è l'Italia. */
+  nazioneEstera?: string | null;
 };
 
 export type PaperInvoiceRawSource = {
@@ -369,7 +373,18 @@ export function mapFicRawToPaperInvoice(
     notePagamento: asText(raw.notes ?? raw.payment_notes ?? raw.subject),
     fonte: "fic",
     scissionePagamenti: detectScissione(raw),
+    nazioneEstera: nazioneControparteFic(raw, entity),
   };
+}
+
+function nazioneControparteFic(
+  raw: Record<string, unknown>,
+  entity: Record<string, unknown>
+): string | null {
+  const xml = extractXmlFromRaw(raw);
+  const daXml = xml ? nazioneSoggettoXml(xml, "CedentePrestatore") : "";
+  const daFic = asText(entity.country ?? entity.nazione);
+  return nazioneEstera(daXml) ?? nazioneEstera(daFic);
 }
 
 export function mapOpuntiaFatturaToPaperInvoice(

@@ -1,4 +1,5 @@
 import { roundMoney } from "@/lib/amministrazione/fatture";
+import { nazioneEstera } from "@/lib/amministrazione/nazione-fattura";
 import type { FatturaClassicaStampaModel } from "@/lib/amministrazione/fattura-classica-stampa";
 import type {
   PaperInvoiceLine,
@@ -312,7 +313,27 @@ function soggettoDaBlocco(
     email: pec || email,
     telefono: xmlText(outer, "Telefono"),
     sdi,
+    nazione: xmlText(sede, "Nazione") || xmlText(idFiscale, "IdPaese"),
   };
+}
+
+/** Nazione della sede SDI di cedente o cessionario. */
+export function nazioneSoggettoXml(
+  xml: string,
+  ruolo: "CedentePrestatore" | "CessionarioCommittente"
+): string {
+  const cleaned = xml.replace(/^\uFEFF/, "").trim();
+  const outer =
+    xmlBlocks(cleaned, ruolo)[0] ??
+    (ruolo === "CedentePrestatore"
+      ? xmlBlocks(cleaned, "CedentePrestatoreDTE")[0]
+      : "") ??
+    "";
+  if (!outer) return "";
+  const sede = xmlBlocks(outer, "Sede")[0] ?? "";
+  const anagrafica = xmlBlocks(outer, "DatiAnagrafici")[0] ?? outer;
+  const idFiscale = xmlBlocks(anagrafica, "IdFiscaleIVA")[0] ?? "";
+  return xmlText(sede, "Nazione") || xmlText(idFiscale, "IdPaese");
 }
 
 /** Foglio classico con intestazioni, numero, data e totali letti dall'XML SDI. */
@@ -412,5 +433,7 @@ export function fatturaClassicaDaXml(xml: string): FatturaClassicaStampaModel {
     imponibile,
     imposta,
     totale,
+    nazioneEstera:
+      nazioneEstera(destinatario.nazione) ?? nazioneEstera(emittente.nazione),
   };
 }

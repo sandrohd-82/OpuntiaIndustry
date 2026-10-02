@@ -22,7 +22,7 @@ type Props = {
   showSequenza: boolean;
 };
 
-/** Foglio A4 con eventuale n. sequenza matita in angolo alto-dx. */
+/** Foglio A4 con eventuale n. sequenza matita in angolo alto a sinistra. */
 export function CommercialistaPaperPage({
   model,
   classica = null,
@@ -36,7 +36,7 @@ export function CommercialistaPaperPage({
     >
       {showSequenza && numeroSequenza != null ? (
         <span
-          className="pointer-events-none absolute right-4 top-3 z-10 text-3xl italic leading-none opacity-80 select-none print:right-[12mm] print:top-[8mm]"
+          className="pointer-events-none absolute left-[14mm] top-[8mm] z-10 text-3xl italic leading-none opacity-80 select-none"
           style={MATITA_STYLE}
           title={`Sequenza provvisoria ${numeroSequenza}`}
           aria-hidden

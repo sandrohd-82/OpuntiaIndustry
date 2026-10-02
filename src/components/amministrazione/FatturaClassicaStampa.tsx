@@ -93,6 +93,12 @@ export function FatturaClassicaStampa({
           <div className="mt-3 h-px w-full bg-slate-900" />
         </div>
 
+        {model.nazioneEstera ? (
+          <p className="mt-4 border border-amber-700 bg-amber-50 px-3 py-1.5 text-center text-[12px] font-bold tracking-wide text-amber-950">
+            Fattura estera — {model.nazioneEstera}
+          </p>
+        ) : null}
+
         <section className="mt-4">
           <div className="grid grid-cols-2 gap-6 text-slate-900">
             <Soggetto

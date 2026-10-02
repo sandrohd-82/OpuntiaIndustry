@@ -50,6 +50,19 @@ function dataLunga(raw: string): string {
 
 type FilePdf = { fileName: string; blob: Blob };
 
+function drawAvvisoEstero(doc: jsPDF, nazione: string | null, y: number): number {
+  if (!nazione) return y;
+  doc.setDrawColor(180, 83, 9);
+  doc.setFillColor(255, 251, 235);
+  doc.rect(12, y, 186, 8, "FD");
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(10);
+  doc.setTextColor(120, 53, 15);
+  doc.text(`Fattura estera — ${nazione}`, 105, y + 5.4, { align: "center" });
+  doc.setTextColor(15, 23, 42);
+  return y + 8;
+}
+
 export function buildFatturaClassicaPdf(input: {
   model: FatturaClassicaStampaModel;
   numeroSequenza: number | null;
@@ -66,7 +79,7 @@ export function buildFatturaClassicaPdf(input: {
     doc.setFont("times", "italic");
     doc.setFontSize(18);
     doc.setTextColor(148, 163, 184);
-    doc.text(String(input.numeroSequenza), right, 10, { align: "right" });
+    doc.text(String(input.numeroSequenza), 14, 12);
     doc.setTextColor(15, 23, 42);
   }
 
@@ -76,7 +89,10 @@ export function buildFatturaClassicaPdf(input: {
   doc.text("EMITTENTE", right, y, { align: "right" });
   y += 5;
   doc.setFontSize(11);
-  doc.text(testo(m.emittente.ragioneSociale), right, y, { align: "right" });
+  doc.text(testo(m.emittente.ragioneSociale), right, y, {
+    align: "right",
+    maxWidth: 100,
+  });
   y += 5;
   doc.setFont("helvetica", "normal");
   doc.setFontSize(9);
@@ -119,7 +135,9 @@ export function buildFatturaClassicaPdf(input: {
   doc.setDrawColor(15, 23, 42);
   doc.setLineWidth(0.3);
   doc.line(12, y, right, y);
-  y += 8;
+  y += 4;
+  y = drawAvvisoEstero(doc, m.nazioneEstera, y);
+  y += 4;
 
   doc.setFontSize(8);
   doc.text("DESTINATARIO", 12, y);
@@ -273,9 +291,19 @@ export function buildPaperFatturaPdf(input: {
   const doc = new jsPDF({ unit: "mm", format: "a4" });
   const m = input.model;
   const data = dataLunga(m.data ?? "");
+  if (input.numeroSequenza != null) {
+    doc.setFont("times", "italic");
+    doc.setFontSize(18);
+    doc.setTextColor(148, 163, 184);
+    doc.text(String(input.numeroSequenza), 14, 12);
+    doc.setTextColor(15, 23, 42);
+  }
   doc.setFont("helvetica", "bold");
   doc.setFontSize(11);
-  doc.text(testo(m.mittente.ragioneSociale), 198, 16, { align: "right" });
+  doc.text(testo(m.mittente.ragioneSociale), 198, 16, {
+    align: "right",
+    maxWidth: 100,
+  });
   doc.setFont("helvetica", "normal");
   doc.setFontSize(9);
   doc.text(
@@ -287,11 +315,13 @@ export function buildPaperFatturaPdf(input: {
   if (m.destinatario.sdi.trim()) {
     doc.text(`SDI ${m.destinatario.sdi.trim()}`, 198, 27, { align: "right" });
   }
+  const dopoAvviso = drawAvvisoEstero(doc, m.nazioneEstera ?? null, 32);
   doc.setFont("helvetica", "bold");
-  doc.text(testo(m.destinatario.ragioneSociale), 12, 40);
+  doc.setTextColor(15, 23, 42);
+  doc.text(testo(m.destinatario.ragioneSociale), 12, dopoAvviso + 6);
   doc.setFont("helvetica", "normal");
   autoTable(doc, {
-    startY: 48,
+    startY: dopoAvviso + 10,
     margin: { left: 12, right: 12 },
     theme: "plain",
     head: [["Descrizione", "Qty", "Prezzo", "IVA", "Importo"]],

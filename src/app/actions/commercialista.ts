@@ -17,6 +17,7 @@ import {
 import { assignNumeriVignetta } from "@/lib/amministrazione/elaborazione-contabile";
 import type { FatturaClassicaStampaModel } from "@/lib/amministrazione/fattura-classica-stampa";
 import { fatturaClassicaDaXml } from "@/lib/amministrazione/fattura-pa-xml";
+import { nazioneEstera } from "@/lib/amministrazione/nazione-fattura";
 import { resolveFicDocumentXml } from "@/lib/amministrazione/fic-document-xml";
 import {
   includeInContabilitaFatturaEmessa,
@@ -840,6 +841,17 @@ async function classicaDaSdiEmessa(
           ? String((entity as { ei_code?: unknown }).ei_code ?? "").trim()
           : "";
       if (eiCode) model.destinatario.sdi = eiCode;
+    }
+    const xmlHaNazione = Boolean(
+      model.destinatario.nazione.trim() || model.emittente.nazione.trim()
+    );
+    if (!xmlHaNazione && !model.nazioneEstera) {
+      const entity = raw?.entity;
+      const country =
+        entity && typeof entity === "object"
+          ? String((entity as { country?: unknown }).country ?? "").trim()
+          : "";
+      model.nazioneEstera = nazioneEstera(country);
     }
     return model;
   } catch (err) {
