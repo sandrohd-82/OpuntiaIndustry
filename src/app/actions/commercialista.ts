@@ -21,7 +21,7 @@ import { fatturaClassicaDaXml } from "@/lib/amministrazione/fattura-pa-xml";
 import { nazioneEstera } from "@/lib/amministrazione/nazione-fattura";
 import { resolveFicDocumentXml } from "@/lib/amministrazione/fic-document-xml";
 import {
-  includeInContabilitaFatturaEmessa,
+  includeInRegistroCommercialista,
   mapFatturaEmessaRow,
   mapFatturaRicevutaRow,
   roundMoney,
@@ -335,16 +335,14 @@ export async function getCommercialistaSummaryAction(
     .order("numero_interno", { ascending: true });
   if (emesseErr) return { success: false, error: emesseErr.message };
 
-  const emesseOk = (emesseRows ?? []).filter((r) => {
-    if (String(r.numero_interno ?? "").toUpperCase().startsWith("NC-")) {
-      return false;
-    }
-    return includeInContabilitaFatturaEmessa({
+  const emesseOk = (emesseRows ?? []).filter((r) =>
+    includeInRegistroCommercialista({
       tipo_documento: r.tipo_documento,
       stato_pagamento: r.stato_pagamento,
       fattura_collegata_id: r.fattura_collegata_id,
-    });
-  });
+      numero_interno: r.numero_interno,
+    })
+  );
 
   const { data: ricevuteRows, error: ricevuteErr } = await supabase
     .from("fatture_ricevute")
@@ -658,16 +656,14 @@ export async function applySequenzaCommercialistaAction(input: {
       .order("numero_interno", { ascending: true });
     if (error) return { success: false, error: error.message };
     fatturaIds = (data ?? [])
-      .filter((r) => {
-        if (String(r.numero_interno ?? "").toUpperCase().startsWith("NC-")) {
-          return false;
-        }
-        return includeInContabilitaFatturaEmessa({
+      .filter((r) =>
+        includeInRegistroCommercialista({
           tipo_documento: r.tipo_documento,
           stato_pagamento: r.stato_pagamento,
           fattura_collegata_id: r.fattura_collegata_id,
-        });
-      })
+          numero_interno: r.numero_interno,
+        })
+      )
       .map((r) => String(r.id));
   } else {
     const { data, error } = await supabase
@@ -1025,16 +1021,14 @@ export async function getCommercialistaPaperBatchAction(input: {
       .order("numero_interno", { ascending: true });
     if (error) return { success: false, error: error.message };
     testate = (data ?? [])
-      .filter((r) => {
-        if (String(r.numero_interno ?? "").toUpperCase().startsWith("NC-")) {
-          return false;
-        }
-        return includeInContabilitaFatturaEmessa({
+      .filter((r) =>
+        includeInRegistroCommercialista({
           tipo_documento: r.tipo_documento,
           stato_pagamento: r.stato_pagamento,
           fattura_collegata_id: r.fattura_collegata_id,
-        });
-      })
+          numero_interno: r.numero_interno,
+        })
+      )
       .map((r) => ({
         id: String(r.id),
         numero_interno: String(r.numero_interno ?? ""),

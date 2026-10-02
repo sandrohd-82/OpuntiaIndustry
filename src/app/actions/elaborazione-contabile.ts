@@ -11,6 +11,7 @@ import {
 import type { TrimestreNumero } from "@/lib/amministrazione/trimestre-commerciale";
 import { requireAnyAreaAccess } from "@/lib/areas/guard";
 import { assertElaboraContabilita } from "@/lib/auth/elabora-contabilita";
+import { includeInRegistroCommercialista } from "@/lib/amministrazione/fatture";
 import { createClient } from "@/lib/supabase/server";
 import type {
   ElaborazioneContabileInsert,
@@ -49,10 +50,9 @@ async function loadFattureTrimestre(
     const { data, error } = await supabase
       .from("fatture_emesse")
       .select(
-        "id, numero_interno, data_emissione, cliente_ragione_sociale, cliente_codice_targa, totale, tipo_documento"
+        "id, numero_interno, data_emissione, cliente_ragione_sociale, cliente_codice_targa, totale, tipo_documento, stato_pagamento, fattura_collegata_id"
       )
       .is("deleted_at", null)
-      .neq("tipo_documento", "nota_credito")
       .gte("data_emissione", dal)
       .lte("data_emissione", al)
       .order("data_emissione", { ascending: true })
@@ -61,7 +61,14 @@ async function loadFattureTrimestre(
     return {
       ok: true,
       rows: (data ?? [])
-        .filter((r) => !String(r.numero_interno ?? "").toUpperCase().startsWith("NC-"))
+        .filter((r) =>
+          includeInRegistroCommercialista({
+            tipo_documento: r.tipo_documento,
+            stato_pagamento: r.stato_pagamento,
+            fattura_collegata_id: r.fattura_collegata_id,
+            numero_interno: r.numero_interno,
+          })
+        )
         .map((r) => ({
           id: String(r.id),
           numeroInterno: String(r.numero_interno ?? ""),

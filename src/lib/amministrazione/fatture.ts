@@ -1104,9 +1104,10 @@ export function labelNaturaDocumento(
 }
 
 /**
- * Documenti da escludere da incassi / IVA / utili:
+ * Documenti da escludere da incassi / utili / grafici:
  * - fattura con stato annullata (stornata da NC)
  * - nota di credito di storno collegata a una fattura (evita doppio storno)
+ * Il registro commercialista usa includeInRegistroCommercialista.
  */
 export function includeInContabilitaFatturaEmessa(row: {
   tipo_documento?: string | null;
@@ -1116,6 +1117,20 @@ export function includeInContabilitaFatturaEmessa(row: {
   if (row.stato_pagamento === "annullata") return false;
   const isNc = row.tipo_documento === "nota_credito";
   if (isNc && row.fattura_collegata_id) return false;
+  return true;
+}
+
+/**
+ * Registro commercialista: elenco, sequenza, stampa ed Excel.
+ * La fattura annullata e la nota di credito collegata restano entrambe visibili.
+ * Gli importi della nota sono già negativi, quindi i totali del periodo si compensano.
+ */
+export function includeInRegistroCommercialista(_row: {
+  tipo_documento?: string | null;
+  stato_pagamento?: string | null;
+  fattura_collegata_id?: string | null;
+  numero_interno?: string | null;
+}): boolean {
   return true;
 }
 

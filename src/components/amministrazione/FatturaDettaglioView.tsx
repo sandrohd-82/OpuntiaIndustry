@@ -139,7 +139,7 @@ export function FatturaDettaglioView({
 
       {fattura.statoPagamento === "annullata" && !isPreview ? (
         <section className="rounded-xl border border-slate-300 bg-slate-50 px-4 py-3 text-sm text-slate-800">
-          <p className="font-semibold">Fattura annullata — non contabilizzata</p>
+          <p className="font-semibold">Fattura annullata</p>
           <p className="mt-1 text-[var(--muted)]">
             Stornata con nota di credito{" "}
             {fattura.annullataDaNcId ? (
@@ -154,7 +154,7 @@ export function FatturaDettaglioView({
                 {fattura.annullataDaNcNumeroInterno || "—"}
               </span>
             )}
-            . Esclusa da incassi, IVA e scadenziario.
+            . Resta nel registro commercialista insieme alla nota di credito, con importi di segno opposto. Esclusa da incassi, utili e scadenziario.
           </p>
         </section>
       ) : null}

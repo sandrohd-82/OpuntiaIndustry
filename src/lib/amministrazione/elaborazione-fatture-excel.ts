@@ -125,17 +125,16 @@ function nazioneDi(
 }
 
 function importiDi(doc: FatturaElaborazioneSorgente) {
-  if (doc.classica) {
-    return {
-      imponibile: roundMoney(doc.classica.imponibile),
-      iva: roundMoney(doc.classica.imposta),
-      totale: roundMoney(doc.classica.totale),
-    };
-  }
-  return {
+  const registro = {
     imponibile: roundMoney(doc.model.imponibile),
     iva: roundMoney(doc.model.iva),
     totale: roundMoney(doc.model.totale),
+  };
+  if (registro.totale < 0 || !doc.classica) return registro;
+  return {
+    imponibile: roundMoney(doc.classica.imponibile),
+    iva: roundMoney(doc.classica.imposta),
+    totale: roundMoney(doc.classica.totale),
   };
 }
 
