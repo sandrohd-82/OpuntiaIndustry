@@ -199,6 +199,7 @@ export function CommercialistaElaboraFattureModal({
               <CommercialistaPaperPage
                 model={current.model}
                 classica={current.classica}
+                sdiAssente={current.sdiAssente}
                 numeroSequenza={current.numeroSequenza}
                 showSequenza={showSequenza}
               />

@@ -163,6 +163,7 @@ export function CommercialistaStampaFattureModal({
                   key={doc.id}
                   model={doc.model}
                   classica={doc.classica}
+                  sdiAssente={doc.sdiAssente}
                   numeroSequenza={doc.numeroSequenza}
                   showSequenza={showSequenza}
                   pageBreakAfter={i < docs.length - 1}

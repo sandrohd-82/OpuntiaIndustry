@@ -1,19 +1,36 @@
-import type {
-  FatturaA4Riga,
-  FatturaDestinatarioSnapshot,
-} from "@/lib/amministrazione/fattura-a4-documento";
-import type { OrdinePagamentoPiano } from "@/lib/amministrazione/ordine-pagamento-piano";
-import type { PreventivoCommercialeRiferimento } from "@/lib/amministrazione/preventivo-commerciale-riferimento";
+import type { FatturaA4Riga } from "@/lib/amministrazione/fattura-a4-documento";
 
-/** Fattura emessa da stampare con lo stesso foglio della fattura classica. */
+/** Intestazione letta dall'XML SDI, non dall'anagrafica interna. */
+export type FatturaClassicaSoggetto = {
+  ragioneSociale: string;
+  via: string;
+  capCitta: string;
+  partitaIva: string;
+  codiceFiscale: string;
+  email: string;
+  telefono: string;
+  sdi: string;
+};
+
+export type FatturaClassicaScadenza = {
+  data: string;
+  importo: number;
+};
+
+/** Grafica della fattura di sistema, dati presi dallo SDI. */
 export type FatturaClassicaStampaModel = {
   numero: string;
   dataDocumento: string;
-  commerciale: PreventivoCommercialeRiferimento | null;
-  destinatario: FatturaDestinatarioSnapshot;
+  emittente: FatturaClassicaSoggetto;
+  destinatario: FatturaClassicaSoggetto;
   righe: FatturaA4Riga[];
   note: string;
-  piano: OrdinePagamentoPiano;
+  pagamento: string;
+  scadenze: FatturaClassicaScadenza[];
+  banca: string;
+  iban: string;
+  bic: string;
+  aliquote: { aliquota: number; imponibile: number; imposta: number }[];
   ivaPercentuale: number;
   imponibile: number;
   imposta: number;

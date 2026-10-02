@@ -1,4 +1,5 @@
 import { roundMoney } from "@/lib/amministrazione/fatture";
+import type { FatturaClassicaStampaModel } from "@/lib/amministrazione/fattura-classica-stampa";
 import type {
   PaperInvoiceLine,
   PaperInvoiceModel,
@@ -265,5 +266,151 @@ export function parseFatturaPaXml(xml: string): PaperInvoiceModel {
     notePagamento: [noteParts.join("; "), causale].filter(Boolean).join(" — "),
     fonte: "fic",
     scissionePagamenti,
+  };
+}
+
+const MODALITA_PAGAMENTO_SDI: Record<string, string> = {
+  MP01: "Contanti",
+  MP02: "Assegno",
+  MP03: "Assegno circolare",
+  MP05: "Bonifico",
+  MP08: "Carta di pagamento",
+  MP12: "RIBA",
+  MP19: "SEPA Direct Debit",
+  MP21: "SEPA Direct Debit CORE",
+};
+
+function soggettoDaBlocco(
+  outer: string,
+  sdi: string
+): FatturaClassicaStampaModel["emittente"] {
+  const anagrafica =
+    xmlBlocks(outer, "DatiAnagrafici")[0] ??
+    xmlBlocks(outer, "Anagrafica")[0] ??
+    outer;
+  const sede = xmlBlocks(outer, "Sede")[0] ?? outer;
+  const idFiscale = xmlBlocks(anagrafica, "IdFiscaleIVA")[0] ?? anagrafica;
+  const via = [xmlText(sede, "Indirizzo"), xmlText(sede, "NumeroCivico")]
+    .filter(Boolean)
+    .join(" ");
+  const cap = xmlText(sede, "CAP");
+  const comune = xmlText(sede, "Comune");
+  const prov = xmlText(sede, "Provincia");
+  const loc = comune && prov ? `${comune} (${prov})` : comune || prov;
+  const email = xmlText(outer, "Email");
+  const pec = xmlText(outer, "PEC");
+  return {
+    ragioneSociale:
+      xmlText(anagrafica, "Denominazione") ||
+      [xmlText(anagrafica, "Nome"), xmlText(anagrafica, "Cognome")]
+        .filter(Boolean)
+        .join(" "),
+    via,
+    capCitta: [cap, loc].filter(Boolean).join(" "),
+    partitaIva: xmlText(idFiscale, "IdCodice"),
+    codiceFiscale: xmlText(anagrafica, "CodiceFiscale"),
+    email: pec || email,
+    telefono: xmlText(outer, "Telefono"),
+    sdi,
+  };
+}
+
+/** Foglio classico con intestazioni, numero, data e totali letti dall'XML SDI. */
+export function fatturaClassicaDaXml(xml: string): FatturaClassicaStampaModel {
+  const cleaned = xml.replace(/^\uFEFF/, "").trim();
+  const documento = xmlBlocks(cleaned, "DatiGeneraliDocumento")[0] ?? cleaned;
+  const numero = xmlText(documento, "Numero") || "—";
+  const dataDocumento = parseIsoDateIt(xmlText(documento, "Data")) ?? "";
+  const cedente =
+    xmlBlocks(cleaned, "CedentePrestatore")[0] ??
+    xmlBlocks(cleaned, "CedentePrestatoreDTE")[0] ??
+    "";
+  const cessionario = xmlBlocks(cleaned, "CessionarioCommittente")[0] ?? "";
+  const emittente = soggettoDaBlocco(cedente, "");
+  const destinatario = soggettoDaBlocco(
+    cessionario,
+    xmlText(cleaned, "CodiceDestinatario")
+  );
+
+  const righe = xmlBlocks(cleaned, "DettaglioLinee").map((block) => {
+    const art = xmlBlocks(block, "CodiceArticolo")[0] ?? "";
+    const quantita = num(xmlText(block, "Quantita")) || 1;
+    const prezzo = num(xmlText(block, "PrezzoUnitario"));
+    let sconto = 0;
+    for (const sb of xmlBlocks(block, "ScontoMaggiorazione")) {
+      if (xmlText(sb, "Tipo").toUpperCase() === "SC") {
+        sconto += num(xmlText(sb, "Percentuale"));
+      }
+    }
+    return {
+      prodottoId: null,
+      codice: xmlText(art, "CodiceValore"),
+      descrizione: xmlText(block, "Descrizione") || "Voce",
+      quantita,
+      unitaMisura: xmlText(block, "UnitaMisura") || "nr",
+      prezzoUnitario: prezzo,
+      scontoPercentuale: Math.min(100, Math.max(0, sconto)),
+      ivaPercentuale: num(xmlText(block, "AliquotaIVA")),
+      isSpedizione: false,
+      note: "",
+    };
+  });
+
+  const aliquote = xmlBlocks(cleaned, "DatiRiepilogo").map((block) => ({
+    aliquota: num(xmlText(block, "AliquotaIVA")),
+    imponibile: roundMoney(num(xmlText(block, "ImponibileImporto"))),
+    imposta: roundMoney(num(xmlText(block, "Imposta"))),
+  }));
+  const imponibile = roundMoney(
+    aliquote.reduce((s, a) => s + a.imponibile, 0)
+  );
+  const imposta = roundMoney(aliquote.reduce((s, a) => s + a.imposta, 0));
+  const totale = roundMoney(
+    num(xmlText(documento, "ImportoTotaleDocumento")) || imponibile + imposta
+  );
+
+  const pagamenti = xmlBlocks(cleaned, "DettaglioPagamento");
+  const modi = new Set<string>();
+  const scadenze: FatturaClassicaStampaModel["scadenze"] = [];
+  let banca = "";
+  let iban = "";
+  let bic = "";
+  for (const p of pagamenti) {
+    const code = xmlText(p, "ModalitaPagamento").toUpperCase();
+    if (code) modi.add(MODALITA_PAGAMENTO_SDI[code] ?? code);
+    const data = parseIsoDateIt(xmlText(p, "DataScadenzaPagamento"));
+    const importo = num(xmlText(p, "ImportoPagamento"));
+    if (data || importo) {
+      scadenze.push({ data: data ?? "", importo: roundMoney(importo) });
+    }
+    if (!banca) banca = xmlText(p, "IstitutoFinanziario");
+    if (!iban) iban = xmlText(p, "IBAN").replace(/\s+/g, "").toUpperCase();
+    if (!bic) bic = xmlText(p, "BIC").replace(/\s+/g, "").toUpperCase();
+  }
+  const note = xmlBlocks(cleaned, "Causale")
+    .map((c) => stripTags(c))
+    .filter(Boolean)
+    .join("\n");
+
+  return {
+    numero,
+    dataDocumento,
+    emittente,
+    destinatario,
+    righe,
+    note,
+    pagamento:
+      modi.size > 1
+        ? `${[...modi].join(", ")} in ${scadenze.length} scadenze`
+        : ([...modi][0] ?? ""),
+    scadenze,
+    banca,
+    iban,
+    bic,
+    aliquote,
+    ivaPercentuale: aliquote.length === 1 ? aliquote[0].aliquota : 0,
+    imponibile,
+    imposta,
+    totale,
   };
 }

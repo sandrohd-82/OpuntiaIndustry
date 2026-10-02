@@ -15,15 +15,9 @@ import {
   type ImportoConIva,
 } from "@/lib/amministrazione/commercialista";
 import { assignNumeriVignetta } from "@/lib/amministrazione/elaborazione-contabile";
-import { mapClienteRow } from "@/lib/amministrazione/clienti";
-import {
-  destinatarioFromCliente,
-  parseDestinatarioSnapshot,
-  type FatturaA4Riga,
-  type FatturaDestinatarioSnapshot,
-} from "@/lib/amministrazione/fattura-a4-documento";
 import type { FatturaClassicaStampaModel } from "@/lib/amministrazione/fattura-classica-stampa";
-import { emptySede } from "@/lib/amministrazione/fornitori";
+import { fatturaClassicaDaXml } from "@/lib/amministrazione/fattura-pa-xml";
+import { resolveFicDocumentXml } from "@/lib/amministrazione/fic-document-xml";
 import {
   includeInContabilitaFatturaEmessa,
   mapFatturaEmessaRow,
@@ -32,11 +26,8 @@ import {
   type Fattura,
 } from "@/lib/amministrazione/fatture";
 import {
-  type OrdinePagamentoPiano,
-  type PagamentoTipoScadenza,
-} from "@/lib/amministrazione/ordine-pagamento-piano";
-import {
   defaultDestinatarioCooperativa,
+  extractXmlFromRawSafe,
   mapFicRawToPaperInvoice,
   mapOpuntiaFatturaToPaperInvoice,
   type PaperInvoiceModel,
@@ -53,7 +44,6 @@ import type {
   ElaborazioneContabileInsert,
   ElaborazioneContabileKind,
   ElaborazioneContabileVoceInsert,
-  ClienteRow,
   FatturaEmessaDilazioneRow,
   FatturaEmessaRigaRow,
   FatturaEmessaRow,
@@ -809,122 +799,45 @@ export type CommercialistaPaperDoc = {
   anagraficaRagioneSociale: string;
   numeroSequenza: number | null;
   model: PaperInvoiceModel;
-  /** Fatture emesse: stesso foglio della fattura classica. */
+  /** Fatture emesse: stesso foglio della fattura classica, dati SDI. */
   classica: FatturaClassicaStampaModel | null;
+  sdiAssente: boolean;
 };
 
-function sedeVuota(sede: FatturaDestinatarioSnapshot["sede"]): boolean {
-  return !sede.indirizzo.trim() && !sede.citta.trim() && !sede.cap.trim();
-}
-
-function tipoScadenzaDi(raw: unknown): PagamentoTipoScadenza {
-  const v = String(raw ?? "");
-  if (
-    v === "anticipato" ||
-    v === "alla_consegna" ||
-    v === "pronto_magazzino" ||
-    v === "posticipato"
-  ) {
-    return v;
-  }
-  return "alla_consegna";
-}
-
-function pianoDaFatturaEmessa(
-  row: FatturaEmessaRow,
-  fattura: Fattura
-): OrdinePagamentoPiano {
-  const tipo = tipoScadenzaDi(row.tipo_scadenza_unica);
-  if (row.pagamento_modalita === "dilazione" && fattura.dilazioni.length > 0) {
-    return {
-      modalita: "dilazione",
-      tipoUnica: tipo,
-      rate: fattura.dilazioni.map((d, i) => ({
-        sortOrder: i,
-        importo: d.importo,
-        tipoScadenza: i === 0 ? tipo : null,
-        dataPagamento: d.dataScadenza,
-        note: d.note ?? "",
-      })),
-    };
-  }
-  return {
-    modalita: "unica",
-    tipoUnica: tipo,
-    rate: [
-      {
-        sortOrder: 0,
-        importo: fattura.totale,
-        tipoScadenza: tipo,
-        dataPagamento:
-          fattura.dilazioni[0]?.dataScadenza ?? row.data_scadenza ?? null,
-        note: "",
-      },
-    ],
-  };
-}
-
-async function destinatarioEmessaCompleto(
+async function classicaDaSdiEmessa(
   supabase: Awaited<ReturnType<typeof createClient>>,
   row: FatturaEmessaRow
-): Promise<FatturaDestinatarioSnapshot> {
-  const snap = parseDestinatarioSnapshot(row.destinatario_snapshot);
-  const snapOk =
-    snap &&
-    (snap.partitaIva.trim() || snap.codiceFiscale.trim()) &&
-    !sedeVuota(snap.sede);
-  if (snapOk && snap) return snap;
-  if (row.cliente_id) {
-    const { data } = await supabase
-      .from("clienti")
-      .select("*")
-      .eq("id", row.cliente_id)
-      .is("deleted_at", null)
-      .maybeSingle();
-    if (data) {
-      const daCliente = destinatarioFromCliente(
-        mapClienteRow(data as ClienteRow)
-      );
-      return {
-        ragioneSociale:
-          snap?.ragioneSociale || daCliente.ragioneSociale,
-        partitaIva: snap?.partitaIva || daCliente.partitaIva,
-        codiceFiscale: snap?.codiceFiscale || daCliente.codiceFiscale,
-        sede: snap && !sedeVuota(snap.sede) ? snap.sede : daCliente.sede,
-        email: snap?.email || daCliente.email,
-      };
+): Promise<FatturaClassicaStampaModel | null> {
+  const ficId = Number(row.fic_id ?? 0);
+  if (!Number.isFinite(ficId) || ficId <= 0) return null;
+  const { data } = await supabase
+    .from("fic_invoices")
+    .select("raw_data")
+    .eq("fic_id", ficId)
+    .eq("type", "issued")
+    .is("deleted_at", null)
+    .maybeSingle();
+  let xml = extractXmlFromRawSafe(
+    (data?.raw_data ?? null) as Record<string, unknown> | null
+  );
+  if (!xml) {
+    try {
+      const scaricato = await resolveFicDocumentXml({
+        kind: "emessa",
+        ficId,
+      });
+      xml = scaricato.xml;
+    } catch (err) {
+      console.error("[commercialista sdi]", ficId, err);
+      return null;
     }
   }
-  return (
-    snap ?? {
-      ragioneSociale: row.cliente_ragione_sociale,
-      partitaIva: "",
-      codiceFiscale: "",
-      sede: emptySede(),
-      email: "",
-    }
-  );
-}
-
-function righeClassica(
-  righe: FatturaEmessaRigaRow[],
-  ivaTestata: number
-): FatturaA4Riga[] {
-  return [...righe]
-    .filter((r) => !r.deleted_at)
-    .sort((a, b) => a.sort_order - b.sort_order)
-    .map((r) => ({
-      prodottoId: r.prodotto_id,
-      codice: r.codice,
-      descrizione: r.descrizione,
-      quantita: Number(r.quantita) || 0,
-      unitaMisura: (r.unita_misura ?? "").trim() || "nr",
-      prezzoUnitario: Number(r.prezzo_unitario) || 0,
-      scontoPercentuale: Number(r.sconto_percentuale) || 0,
-      ivaPercentuale: Number(r.iva_percentuale) || ivaTestata || 22,
-      isSpedizione: Boolean(r.is_spedizione),
-      note: r.note ?? "",
-    }));
+  try {
+    return fatturaClassicaDaXml(xml);
+  } catch (err) {
+    console.error("[commercialista sdi xml]", ficId, err);
+    return null;
+  }
 }
 
 async function loadFatturaCompletaForPaper(
@@ -964,20 +877,7 @@ async function loadFatturaCompletaForPaper(
       righeEmessa,
       (dilazioni ?? []) as FatturaEmessaDilazioneRow[]
     );
-    const destinatario = await destinatarioEmessaCompleto(supabase, emessa);
-    const classica: FatturaClassicaStampaModel = {
-      numero: emessa.numero_fattura || emessa.numero_interno,
-      dataDocumento: emessa.data_emissione,
-      commerciale: null,
-      destinatario,
-      righe: righeClassica(righeEmessa, fattura.ivaPercentuale),
-      note: emessa.note ?? "",
-      piano: pianoDaFatturaEmessa(emessa, fattura),
-      ivaPercentuale: fattura.ivaPercentuale,
-      imponibile: fattura.imponibile,
-      imposta: fattura.imposta,
-      totale: fattura.totale,
-    };
+    const classica = await classicaDaSdiEmessa(supabase, emessa);
     return { ok: true, fattura, classica };
   }
 
@@ -1152,6 +1052,7 @@ export async function getCommercialistaPaperBatchAction(input: {
       numeroSequenza: sequenza.get(t.id) ?? null,
       model,
       classica: loaded.classica,
+      sdiAssente: input.kind === "emessa" && !loaded.classica,
     });
   }
 

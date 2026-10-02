@@ -17,6 +17,7 @@ const MATITA_STYLE: CSSProperties = {
 type Props = {
   model: PaperInvoiceModel;
   classica?: FatturaClassicaStampaModel | null;
+  sdiAssente?: boolean;
   numeroSequenza: number | null;
   showSequenza: boolean;
   /** page-break per stack multi-documento */
@@ -27,6 +28,7 @@ type Props = {
 export function CommercialistaPaperPage({
   model,
   classica = null,
+  sdiAssente = false,
   numeroSequenza,
   showSequenza,
   pageBreakAfter = false,
@@ -49,6 +51,14 @@ export function CommercialistaPaperPage({
       ) : null}
       {classica ? (
         <FatturaClassicaStampa model={classica} />
+      ) : sdiAssente ? (
+        <article className="commercialista-fattura-foglio mx-auto w-full max-w-[210mm] bg-white px-[12mm] py-[10mm] text-sm text-slate-800 ring-1 ring-slate-200">
+          <p className="font-semibold">XML SDI non disponibile</p>
+          <p className="mt-2">
+            Per questa fattura non c&apos;è il file SDI. Intestazione, numero e
+            data si stampano solo da lì.
+          </p>
+        </article>
       ) : (
         <PaperInvoiceSheet model={model} />
       )}

@@ -180,13 +180,34 @@ body {
     visibility: visible !important;
   }
 
-  .paper-invoice-viewer,
-  .commercialista-print-root {
+  .paper-invoice-viewer {
     position: absolute;
     inset: 0;
     margin: 0;
     padding: 0;
     background: white !important;
+  }
+
+  .commercialista-print-root {
+    position: static !important;
+    inset: auto !important;
+    height: auto !important;
+    margin: 0;
+    padding: 0;
+    background: white !important;
+    overflow: visible !important;
+  }
+
+  .commercialista-fattura-piede {
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+
+  .commercialista-fattura-foglio {
+    min-height: 0 !important;
+    height: auto !important;
+    width: auto !important;
+    max-width: none !important;
   }
 
   .barcode-print-root,
