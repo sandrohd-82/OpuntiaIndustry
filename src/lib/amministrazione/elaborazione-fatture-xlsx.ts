@@ -1,7 +1,7 @@
 import ExcelJS from "exceljs";
 import {
-  ELABORAZIONE_EXCEL_TITOLI,
   righeElaborazioneFatture,
+  titoliElaborazioneExcel,
   type FatturaElaborazioneSorgente,
   type RigaElaborazioneExcel,
 } from "@/lib/amministrazione/elaborazione-fatture-excel";
@@ -12,13 +12,14 @@ function celle(riga: RigaElaborazioneExcel): (string | number | null)[] {
     return [
       riga.numeroProvvisorio,
       riga.data,
-      riga.emittente,
+      riga.intestazione,
       riga.imponibile,
       riga.iva,
       riga.totale,
+      riga.nazione,
     ];
   }
-  return [null, null, riga.etichetta, riga.imponibile, riga.iva, riga.totale];
+  return [null, null, riga.etichetta, riga.imponibile, riga.iva, riga.totale, null];
 }
 
 export async function buildElaborazioneFattureXlsx(input: {
@@ -42,9 +43,10 @@ export async function buildElaborazioneFattureXlsx(input: {
     { width: 18 },
     { width: 16 },
     { width: 18 },
+    { width: 16 },
   ];
 
-  const header = ws.addRow([...ELABORAZIONE_EXCEL_TITOLI]);
+  const header = ws.addRow([...titoliElaborazioneExcel(input.kind)]);
   header.font = { name: "Calibri", size: 11, bold: true, color: { argb: "FFFFFFFF" } };
   header.eachCell((cell) => {
     cell.fill = {
@@ -62,6 +64,11 @@ export async function buildElaborazioneFattureXlsx(input: {
     for (const col of [4, 5, 6]) {
       excelRow.getCell(col).numFmt = "#,##0.00";
       excelRow.getCell(col).alignment = { horizontal: "right" };
+    }
+    const nazione = excelRow.getCell(7);
+    nazione.alignment = { horizontal: "center" };
+    if (riga.tipo === "fattura" && input.kind === "ricevuta") {
+      nazione.font = { name: "Segoe UI Emoji", size: 16 };
     }
     if (riga.tipo === "mese" || riga.tipo === "generale") {
       const scuro = riga.tipo === "generale";

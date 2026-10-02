@@ -10,8 +10,8 @@ import {
 } from "@/app/actions/commercialista";
 import { formatEuro } from "@/lib/amministrazione/fatture";
 import {
-  ELABORAZIONE_EXCEL_TITOLI,
   righeElaborazioneFatture,
+  titoliElaborazioneExcel,
 } from "@/lib/amministrazione/elaborazione-fatture-excel";
 import type { TrimestreNumero } from "@/lib/amministrazione/trimestre-commerciale";
 import type { ElaborazioneContabileKind } from "@/types/database";
@@ -41,6 +41,7 @@ export function CommercialistaElaboraFattureModal({
     () => righeElaborazioneFatture(docs, kind),
     [docs, kind]
   );
+  const titoli = titoliElaborazioneExcel(kind);
 
   useEffect(() => {
     startLoad(async () => {
@@ -166,7 +167,7 @@ export function CommercialistaElaboraFattureModal({
               <table className="w-full border-collapse text-left text-sm">
                 <thead className="bg-slate-800 text-xs text-white">
                   <tr>
-                    {ELABORAZIONE_EXCEL_TITOLI.map((titolo) => (
+                    {titoli.map((titolo) => (
                       <th
                         key={titolo}
                         className="px-3 py-2 font-semibold whitespace-nowrap"
@@ -186,7 +187,7 @@ export function CommercialistaElaboraFattureModal({
                         <td className="px-3 py-1.5 whitespace-nowrap">
                           {riga.data}
                         </td>
-                        <td className="px-3 py-1.5">{riga.emittente}</td>
+                        <td className="px-3 py-1.5">{riga.intestazione}</td>
                         <td className="px-3 py-1.5 text-right tabular-nums">
                           {formatEuro(riga.imponibile)}
                         </td>
@@ -195,6 +196,13 @@ export function CommercialistaElaboraFattureModal({
                         </td>
                         <td className="px-3 py-1.5 text-right tabular-nums">
                           {formatEuro(riga.totale)}
+                        </td>
+                        <td
+                          className={`px-3 py-1.5 text-center ${
+                            kind === "ricevuta" ? "text-xl leading-none" : ""
+                          }`}
+                        >
+                          {riga.nazione}
                         </td>
                       </tr>
                     ) : (
@@ -218,6 +226,7 @@ export function CommercialistaElaboraFattureModal({
                         <td className="px-3 py-2 text-right tabular-nums">
                           {formatEuro(riga.totale)}
                         </td>
+                        <td className="px-3 py-2" />
                       </tr>
                     )
                   )}

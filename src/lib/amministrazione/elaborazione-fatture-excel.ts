@@ -1,5 +1,8 @@
-import { AGRINSICILIA_LETTERHEAD } from "@/lib/amministrazione/preventivo-letterhead";
 import { roundMoney } from "@/lib/amministrazione/fatture";
+import {
+  bandieraNazione,
+  nomeNazione,
+} from "@/lib/amministrazione/nazione-fattura";
 import type { ElaborazioneContabileKind } from "@/types/database";
 
 const MESI = [
@@ -17,14 +20,19 @@ const MESI = [
   "dicembre",
 ] as const;
 
-export const ELABORAZIONE_EXCEL_TITOLI = [
-  "Numero Provvisorio",
-  "Data",
-  "Intestazione Emittente",
-  "Tot. Imponibile",
-  "Tot. IVA",
-  "Tot. Fattura",
-] as const;
+export function titoliElaborazioneExcel(
+  kind: ElaborazioneContabileKind
+): readonly string[] {
+  return [
+    "Numero Provvisorio",
+    "Data",
+    kind === "emessa" ? "Intestazione Ricevente" : "Intestazione Emittente",
+    "Tot. Imponibile",
+    "Tot. IVA",
+    "Tot. Fattura",
+    "Nazione",
+  ];
+}
 
 export type FatturaElaborazioneSorgente = {
   numeroSequenza: number | null;
@@ -32,7 +40,8 @@ export type FatturaElaborazioneSorgente = {
   anagraficaRagioneSociale: string;
   classica: {
     dataDocumento: string;
-    emittente: { ragioneSociale: string };
+    emittente: { ragioneSociale: string; nazione: string };
+    destinatario: { ragioneSociale: string; nazione: string };
     imponibile: number;
     imposta: number;
     totale: number;
@@ -51,7 +60,8 @@ export type RigaElaborazioneExcel =
       tipo: "fattura";
       numeroProvvisorio: number | null;
       data: string;
-      emittente: string;
+      intestazione: string;
+      nazione: string;
       imponibile: number;
       iva: number;
       totale: number;
@@ -82,16 +92,30 @@ function etichettaMese(yyyyMm: string): string {
   return `Totale ${nome} ${anno}`;
 }
 
-function emittenteDi(
+function intestazioneDi(
   doc: FatturaElaborazioneSorgente,
   kind: ElaborazioneContabileKind
 ): string {
+  if (kind === "emessa") {
+    const ricevente = doc.classica?.destinatario.ragioneSociale.trim() ?? "";
+    if (ricevente) return ricevente;
+    return doc.anagraficaRagioneSociale.trim() || "—";
+  }
   const daSdi = doc.classica?.emittente.ragioneSociale.trim() ?? "";
   if (daSdi) return daSdi;
-  if (kind === "emessa") return AGRINSICILIA_LETTERHEAD.ragioneSociale;
   const daModello = doc.model.mittente.ragioneSociale.trim();
   if (daModello) return daModello;
   return doc.anagraficaRagioneSociale.trim() || "—";
+}
+
+function nazioneDi(
+  doc: FatturaElaborazioneSorgente,
+  kind: ElaborazioneContabileKind
+): string {
+  if (kind === "emessa") {
+    return nomeNazione(doc.classica?.destinatario.nazione) || "—";
+  }
+  return bandieraNazione(doc.classica?.emittente.nazione) || "—";
 }
 
 function importiDi(doc: FatturaElaborazioneSorgente) {
@@ -160,7 +184,8 @@ export function righeElaborazioneFatture(
       tipo: "fattura",
       numeroProvvisorio: doc.numeroSequenza,
       data: giorno ? dataIt(giorno) : "—",
-      emittente: emittenteDi(doc, kind),
+      intestazione: intestazioneDi(doc, kind),
+      nazione: nazioneDi(doc, kind),
       imponibile: importi.imponibile,
       iva: importi.iva,
       totale: importi.totale,
