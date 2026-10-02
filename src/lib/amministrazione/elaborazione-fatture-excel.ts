@@ -66,6 +66,7 @@ export type FatturaElaborazioneSorgente = {
   };
   /** Solo ricevute: SI materiale di consumo, NO se c'è un bene ammortizzabile. */
   beneDiConsumo: "SI" | "NO" | null;
+  notaCredito: boolean;
 };
 
 export type RigaElaborazioneExcel =
@@ -77,6 +78,7 @@ export type RigaElaborazioneExcel =
       intestazione: string;
       nazione: string;
       beneDiConsumo: "SI" | "NO" | null;
+      notaCredito: boolean;
       imponibile: number;
       iva: number;
       totale: number;
@@ -211,6 +213,7 @@ export function righeElaborazioneFatture(
       intestazione: intestazioneDi(doc, kind),
       nazione: nazioneDi(doc, kind),
       beneDiConsumo: kind === "ricevuta" ? doc.beneDiConsumo : null,
+      notaCredito: doc.notaCredito,
       imponibile: importi.imponibile,
       iva: importi.iva,
       totale: importi.totale,

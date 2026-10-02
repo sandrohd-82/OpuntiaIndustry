@@ -91,6 +91,15 @@ export async function buildElaborazioneFattureXlsx(input: {
       const consumo = excelRow.getCell(9);
       consumo.alignment = { horizontal: "center" };
     }
+    if (riga.tipo === "fattura" && riga.notaCredito) {
+      excelRow.eachCell((cell) => {
+        cell.fill = {
+          type: "pattern",
+          pattern: "solid",
+          fgColor: { argb: "FFFEECEC" },
+        };
+      });
+    }
     if (riga.tipo === "mese" || riga.tipo === "generale") {
       const scuro = riga.tipo === "generale";
       excelRow.font = {

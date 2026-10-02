@@ -180,7 +180,14 @@ export function CommercialistaElaboraFattureModal({
                 <tbody>
                   {righe.map((riga, i) =>
                     riga.tipo === "fattura" ? (
-                      <tr key={`f-${i}`} className="border-t border-slate-200">
+                      <tr
+                        key={`f-${i}`}
+                        className={
+                          riga.notaCredito
+                            ? "border-t border-red-100 bg-[#FEECEC]"
+                            : "border-t border-slate-200"
+                        }
+                      >
                         <td className="px-3 py-1.5 tabular-nums">
                           {riga.numeroProvvisorio ?? "—"}
                         </td>

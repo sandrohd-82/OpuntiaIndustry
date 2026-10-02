@@ -358,11 +358,12 @@ export async function getCommercialistaSummaryAction(
 
   const ricevuteOk = ricevuteRows ?? [];
 
-  const sequenzaEmesse = await loadSequenzaMap(
-    supabase,
-    "emessa",
-    anno,
-    trimestre
+  const sequenzaEmesse = sequenzaCrescentePerData(
+    emesseOk.map((r) => ({
+      id: String(r.id),
+      data: String(r.data_emissione ?? ""),
+      numero: String(r.numero_interno ?? ""),
+    }))
   );
   const sequenzaRicevute = sequenzaCrescentePerData(
     ricevuteOk.map((r) => ({
@@ -520,39 +521,6 @@ function sequenzaCrescentePerData(
   ordinati.forEach((row, index) => {
     map.set(row.id, index + 1);
   });
-  return map;
-}
-
-async function loadSequenzaMap(
-  supabase: Awaited<ReturnType<typeof createClient>>,
-  kind: ElaborazioneContabileKind,
-  anno: number,
-  trimestre: TrimestreNumero
-): Promise<Map<string, number>> {
-  const map = new Map<string, number>();
-  const { data: elab } = await supabase
-    .from("elaborazioni_contabili")
-    .select("id")
-    .eq("kind", kind)
-    .eq("anno", anno)
-    .eq("trimestre", trimestre)
-    .is("deleted_at", null)
-    .maybeSingle();
-  if (!elab?.id) return map;
-  const { data: voci } = await supabase
-    .from("elaborazioni_contabili_voci")
-    .select("fattura_id, numero_vignetta, numera_con_vignetta")
-    .eq("elaborazione_id", elab.id)
-    .is("deleted_at", null);
-  for (const v of voci ?? []) {
-    if (
-      v.numera_con_vignetta &&
-      v.numero_vignetta != null &&
-      Number(v.numero_vignetta) >= 1
-    ) {
-      map.set(String(v.fattura_id), Number(v.numero_vignetta));
-    }
-  }
   return map;
 }
 
@@ -812,6 +780,7 @@ export type CommercialistaPaperDoc = {
   dataEmissione: string;
   anagraficaRagioneSociale: string;
   numeroSequenza: number | null;
+  notaCredito: boolean;
   /** Ricevute: SI se materiale di consumo, NO se c'è un bene ammortizzabile. */
   beneDiConsumo: "SI" | "NO" | null;
   model: PaperInvoiceModel;
@@ -1072,16 +1041,13 @@ export async function getCommercialistaPaperBatchAction(input: {
     }));
   }
 
-  const sequenza =
-    input.kind === "ricevuta"
-      ? sequenzaCrescentePerData(
-          testate.map((t) => ({
-            id: t.id,
-            data: t.data_emissione,
-            numero: t.numero_interno,
-          }))
-        )
-      : await loadSequenzaMap(supabase, input.kind, anno, trimestre);
+  const sequenza = sequenzaCrescentePerData(
+    testate.map((t) => ({
+      id: t.id,
+      data: t.data_emissione,
+      numero: t.numero_interno,
+    }))
+  );
 
   const docs: CommercialistaPaperDoc[] = [];
   for (const t of testate) {
@@ -1097,6 +1063,7 @@ export async function getCommercialistaPaperBatchAction(input: {
       dataEmissione: t.data_emissione,
       anagraficaRagioneSociale: t.ragione,
       numeroSequenza: sequenza.get(t.id) ?? null,
+      notaCredito: loaded.fattura.kind === "nota_credito",
       beneDiConsumo:
         input.kind === "ricevuta"
           ? loaded.fattura.righe.some((r) => r.isBeneAmmortizzabile)
