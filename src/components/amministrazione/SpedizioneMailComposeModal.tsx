@@ -5,13 +5,23 @@ import {
   inviaMailSpedizioneAction,
   listCaselleSpedizioneMailAction,
 } from "@/app/actions/spedizione-mail";
+import { SpedizioneDestinatarioMailField } from "@/components/amministrazione/SpedizioneDestinatarioMailField";
+import type { SpedizioneAnagraficaMail } from "@/components/amministrazione/SpedizioneDestinatarioMailField";
 import type { SpedizioneMailPrenotazione } from "@/lib/amministrazione/spedizione-mail";
+import {
+  AGRINSICILIA_LETTERHEAD,
+  AGRINSICILIA_MAIL_FIRMA,
+} from "@/lib/amministrazione/preventivo-letterhead";
 
 type Props = {
   prenotazione: SpedizioneMailPrenotazione;
   subject: string;
   bodyText: string;
   to: string;
+  anagrafica?: SpedizioneAnagraficaMail | null;
+  emailAzienda?: string;
+  emailPec?: string;
+  emailGeneriche?: string[];
   onClose: () => void;
   onInviata: () => void;
 };
@@ -21,6 +31,10 @@ export function SpedizioneMailComposeModal({
   subject,
   bodyText,
   to,
+  anagrafica = null,
+  emailAzienda = "",
+  emailPec = "",
+  emailGeneriche = [],
   onClose,
   onInviata,
 }: Props) {
@@ -108,15 +122,16 @@ export function SpedizioneMailComposeModal({
             ))}
           </select>
         </label>
-        <label className="mt-3 block text-sm">
-          <span className="mb-1 block font-medium">A</span>
-          <input
-            type="email"
+        <div className="mt-3">
+          <SpedizioneDestinatarioMailField
             value={dest}
-            onChange={(e) => setDest(e.target.value)}
-            className="w-full rounded-lg border border-[var(--border)] px-3 py-2 text-sm"
+            onChange={setDest}
+            anagrafica={anagrafica}
+            emailAzienda={emailAzienda || to}
+            emailPec={emailPec}
+            emailGeneriche={emailGeneriche}
           />
-        </label>
+        </div>
         <label className="mt-3 block text-sm">
           <span className="mb-1 block font-medium">Oggetto</span>
           <input
@@ -134,6 +149,19 @@ export function SpedizioneMailComposeModal({
             className="w-full rounded-lg border border-[var(--border)] px-3 py-2 text-sm"
           />
         </label>
+        <div className="mt-3 border-t border-[var(--border)] pt-3">
+          <p className="mb-2 text-xs text-[var(--muted)]">
+            In calce alla mail partono il logo e i dati Agrinsicilia.
+          </p>
+          <img
+            src={AGRINSICILIA_LETTERHEAD.logoSrc}
+            alt={AGRINSICILIA_LETTERHEAD.logoAlt}
+            className="h-14 w-auto"
+          />
+          <p className="mt-2 whitespace-pre-line text-xs leading-relaxed text-slate-800">
+            {AGRINSICILIA_MAIL_FIRMA}
+          </p>
+        </div>
         {allegati.length ? (
           <p className="mt-2 text-xs text-slate-600">
             Allegati: {allegati.join(" · ")}

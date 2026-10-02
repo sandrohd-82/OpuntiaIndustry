@@ -17,6 +17,7 @@ import { loadAnagraficaExtraAction } from "@/app/actions/anagrafica-extra";
 import { updateSedePartenzaAction } from "@/app/actions/impostazioni-sedi";
 import { SpedizioneMailComposeModal } from "@/components/amministrazione/SpedizioneMailComposeModal";
 import { SpedizioneMailPanel } from "@/components/amministrazione/SpedizioneMailPanel";
+import { anagraficaMailDi } from "@/components/amministrazione/SpedizioneDestinatarioMailField";
 import type { SpedizioneMailPrenotazione } from "@/lib/amministrazione/spedizione-mail";
 import { AziendaTimelineModal } from "@/components/amministrazione/AziendaTimelineModal";
 import { AziendaOrdineSelect } from "@/components/amministrazione/AziendaOrdineSelect";
@@ -983,6 +984,13 @@ export function CampionaturaFormModal({
               .filter(Boolean)
               .join(", ")}
             destEmailDefault={cliente?.email ?? ""}
+            anagrafica={anagraficaMailDi({
+              fonte: anagraficaFonte,
+              possibileId: possibileClienteId,
+              clienteId: cliente?.id ?? "",
+            })}
+            emailPec={cliente?.pec ?? ""}
+            emailGeneriche={cliente?.emailGeneriche ?? []}
             onDraftChange={(d) => {
               spedDraft.current = d;
             }}
@@ -1170,6 +1178,14 @@ export function CampionaturaFormModal({
           subject={composeAfter.subject}
           bodyText={composeAfter.bodyText}
           to={composeAfter.to}
+          anagrafica={anagraficaMailDi({
+            fonte: anagraficaFonte,
+            possibileId: possibileClienteId,
+            clienteId: cliente?.id ?? "",
+          })}
+          emailAzienda={cliente?.email ?? ""}
+          emailPec={cliente?.pec ?? ""}
+          emailGeneriche={cliente?.emailGeneriche ?? []}
           onClose={() => {
             const item = composeAfter.item;
             setComposeAfter(null);

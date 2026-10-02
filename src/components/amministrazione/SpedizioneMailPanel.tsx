@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import {
   generaCorpoMailSpedizioneAction,
   getPrenotazioneSpedizioneMailAction,
@@ -14,6 +14,10 @@ import {
 import { labelSede, type ImpostazioniSede } from "@/lib/impostazioni/sedi";
 import { SpedizioneMailComposeModal } from "@/components/amministrazione/SpedizioneMailComposeModal";
 import {
+  SpedizioneDestinatarioMailField,
+  type SpedizioneAnagraficaMail,
+} from "@/components/amministrazione/SpedizioneDestinatarioMailField";
+import {
   type SpedizioneMailAllegato,
   type SpedizioneMailPrenotazione,
 } from "@/lib/amministrazione/spedizione-mail";
@@ -25,6 +29,9 @@ type Props = {
   numero: string;
   prodotti: string;
   destEmailDefault: string;
+  anagrafica?: SpedizioneAnagraficaMail | null;
+  emailPec?: string;
+  emailGeneriche?: string[];
   onSaved?: (item: SpedizioneMailPrenotazione) => void;
   onNeedEntity?: (modo: "prenota" | "compila" | "salva") => void;
   onDraftChange?: (draft: {
@@ -50,6 +57,9 @@ export function SpedizioneMailPanel({
   numero,
   prodotti,
   destEmailDefault,
+  anagrafica = null,
+  emailPec = "",
+  emailGeneriche = [],
   onSaved,
   onNeedEntity,
   onDraftChange,
@@ -75,6 +85,8 @@ export function SpedizioneMailPanel({
   const [busy, setBusy] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [bozzaPronta, setBozzaPronta] = useState(!entityId);
+  const letteraInputRef = useRef<HTMLInputElement>(null);
+  const mailRadioName = useId();
 
   useEffect(() => {
     void listSediAttiveAction().then((res) => {
@@ -324,7 +336,7 @@ export function SpedizioneMailPanel({
         </select>
       </label>
 
-      <label className="block text-sm">
+      <div className="block text-sm">
         <span className="mb-1 block font-medium">
           Foglio di via (solo Agrinsicilia)
         </span>
@@ -332,16 +344,29 @@ export function SpedizioneMailPanel({
           Resta al mittente. Non viene allegato alla mail del cliente.
         </span>
         <input
+          ref={letteraInputRef}
           type="file"
-          onChange={(e) => void upload("lettera", e.target.files?.[0])}
-          className="w-full text-sm"
+          className="hidden"
+          onChange={(e) => {
+            const file = e.target.files?.[0];
+            e.target.value = "";
+            void upload("lettera", file);
+          }}
         />
+        <button
+          type="button"
+          disabled={uploading}
+          onClick={() => letteraInputRef.current?.click()}
+          className="rounded-lg border border-[var(--border)] bg-white px-3 py-2 text-sm font-medium hover:bg-slate-50 disabled:opacity-50"
+        >
+          {uploading ? "Caricamento…" : "Scegli file"}
+        </button>
         {letteraName ? (
           <span className="mt-1 block text-xs text-emerald-800">
             Caricato: {letteraName}
           </span>
         ) : null}
-      </label>
+      </div>
 
       <fieldset className="space-y-2 text-sm">
         <legend className="font-medium">
@@ -354,7 +379,7 @@ export function SpedizioneMailPanel({
         <label className="flex items-center gap-2">
           <input
             type="radio"
-            name="vuole-mail"
+            name={mailRadioName}
             checked={!vuoleMail}
             onChange={() => setVuoleMail(false)}
           />
@@ -363,7 +388,7 @@ export function SpedizioneMailPanel({
         <label className="flex items-center gap-2">
           <input
             type="radio"
-            name="vuole-mail"
+            name={mailRadioName}
             checked={vuoleMail}
             onChange={() => setVuoleMail(true)}
           />
@@ -372,16 +397,14 @@ export function SpedizioneMailPanel({
       </fieldset>
 
       {vuoleMail ? (
-        <label className="block text-sm">
-          <span className="mb-1 block font-medium">Email del cliente</span>
-          <input
-            type="email"
-            value={destEmail}
-            onChange={(e) => setDestEmail(e.target.value)}
-            placeholder="commerciale@cliente.it"
-            className="w-full rounded-lg border border-[var(--border)] px-3 py-2 text-sm"
-          />
-        </label>
+        <SpedizioneDestinatarioMailField
+          value={destEmail}
+          onChange={setDestEmail}
+          anagrafica={anagrafica}
+          emailAzienda={destEmailDefault}
+          emailPec={emailPec}
+          emailGeneriche={emailGeneriche}
+        />
       ) : null}
 
       {item?.stato === "prenotata" && !vuoleMail ? (
@@ -469,6 +492,10 @@ export function SpedizioneMailPanel({
           subject={compose.subject}
           bodyText={compose.bodyText}
           to={destEmail}
+          anagrafica={anagrafica}
+          emailAzienda={destEmailDefault}
+          emailPec={emailPec}
+          emailGeneriche={emailGeneriche}
           onClose={() => setCompose(null)}
           onInviata={() => {
             setCompose(null);

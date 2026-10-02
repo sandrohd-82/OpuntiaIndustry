@@ -49,6 +49,7 @@ import type { FatturaInvioMailDraft } from "@/lib/amministrazione/fattura-invio-
 import { OrdinePagamentoPianoFields } from "@/components/amministrazione/OrdinePagamentoPianoFields";
 import { SpedizioneMailComposeModal } from "@/components/amministrazione/SpedizioneMailComposeModal";
 import { SpedizioneMailPanel } from "@/components/amministrazione/SpedizioneMailPanel";
+import { anagraficaMailDi } from "@/components/amministrazione/SpedizioneDestinatarioMailField";
 import {
   applyContributoSpeseSpedizione,
   listinoEScontoDaOrdine,
@@ -3058,7 +3059,14 @@ export function OrdineNuovoWizardModal({
                     ? `${prodotto.codice} ${quantitaInserita} ${umEffettiva}`
                     : ""
                 }
-                destEmailDefault=""
+                destEmailDefault={clienteSped?.email ?? ""}
+                anagrafica={anagraficaMailDi({
+                  fonte: anagraficaFonte,
+                  possibileId: possibileClienteId,
+                  clienteId,
+                })}
+                emailPec={clienteSped?.pec ?? ""}
+                emailGeneriche={clienteSped?.emailGeneriche ?? []}
                 onDraftChange={(d) => {
                   spedDraft.current = d;
                 }}
@@ -3292,6 +3300,14 @@ export function OrdineNuovoWizardModal({
           subject={composeAfter.subject}
           bodyText={composeAfter.bodyText}
           to={composeAfter.to}
+          anagrafica={anagraficaMailDi({
+            fonte: anagraficaFonte,
+            possibileId: possibileClienteId,
+            clienteId,
+          })}
+          emailAzienda={clienteSped?.email ?? ""}
+          emailPec={clienteSped?.pec ?? ""}
+          emailGeneriche={clienteSped?.emailGeneriche ?? []}
           onClose={() => {
             const o = composeAfter.ordine;
             setComposeAfter(null);

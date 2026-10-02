@@ -21,6 +21,7 @@ import {
   type ImballaggioVoce,
 } from "@/lib/amministrazione/imballaggi-spedizioni";
 import { SpedizioneMailPanel } from "@/components/amministrazione/SpedizioneMailPanel";
+import { anagraficaMailDi } from "@/components/amministrazione/SpedizioneDestinatarioMailField";
 import { InfoSezione } from "@/components/ui/InfoSezione";
 import { getClienteEmailSpedizioneAction } from "@/app/actions/spedizione-mail";
 import type {
@@ -906,6 +907,11 @@ export function ProcessaCampionaturaProduzioneModal({
                 .map((r) => `${r.prodottoCodice} ${r.quantita} ${r.unitaMisura}`)
                 .join(", ")}
               destEmailDefault={destEmail}
+              anagrafica={anagraficaMailDi({
+                fonte: item.clienteId ? "cliente" : "possibile",
+                possibileId: item.possibileClienteId ?? "",
+                clienteId: item.clienteId,
+              })}
               sedePartenzaIdDefault={sedePartenzaId}
               onDraftChange={(d) => setSedePartenzaId(d.sedePartenzaId)}
             />

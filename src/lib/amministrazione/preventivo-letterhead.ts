@@ -14,7 +14,7 @@ export const AGRINSICILIA_LETTERHEAD = {
   cell: "+393208485846",
 } as const;
 
-/** Firma fissa in calce alla mail del preventivo. */
+/** Firma fissa in calce alla mail del preventivo e della spedizione. */
 export const AGRINSICILIA_MAIL_FIRMA = `AGRINSICILIA Cooperativa agricola e sociale a.r.l.
 S. leg.: G. Pacini 6, Licata 92027 ( AG )
 Tel: Angelo 3208485846

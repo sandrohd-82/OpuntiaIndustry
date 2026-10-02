@@ -10,6 +10,11 @@ import {
   trackingMancante,
   type SpedizioneMailPrenotazione,
 } from "@/lib/amministrazione/spedizione-mail";
+import { getPublicAppUrl } from "@/lib/auth/app-url";
+import {
+  AGRINSICILIA_LETTERHEAD,
+  AGRINSICILIA_MAIL_FIRMA,
+} from "@/lib/amministrazione/preventivo-letterhead";
 import { inferCarrierFromUrl } from "@/lib/shipping/tracking";
 import { createClient, createServiceClient } from "@/lib/supabase/server";
 import { sendMailViaAccount } from "@/lib/webmail/sync";
@@ -300,6 +305,27 @@ export async function upsertPrenotazioneSpedizioneMailAction(
   };
 }
 
+function escapeHtmlMail(value: string): string {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/\n/g, "<br>");
+}
+
+function testoMailSpedizioneConFirma(testo: string): string {
+  const base = testo.trim();
+  if (base.includes("AGRINSICILIA Cooperativa agricola")) return base;
+  return `${base}\n\n${AGRINSICILIA_MAIL_FIRMA}`;
+}
+
+function htmlMailSpedizioneConFirma(testo: string): string {
+  const corpo = escapeHtmlMail(testo.trim());
+  const firma = escapeHtmlMail(AGRINSICILIA_MAIL_FIRMA);
+  const logo = `${getPublicAppUrl()}${AGRINSICILIA_LETTERHEAD.logoSrc}`;
+  return `<div style="font-family:sans-serif;font-size:14px;color:#111827">${corpo}<br><br><img src="${logo}" alt="${AGRINSICILIA_LETTERHEAD.logoAlt}" width="160" style="display:block;margin:0 0 8px" /><div style="font-size:12px;line-height:1.45">${firma}</div></div>`;
+}
+
 const inviaSchema = z.object({
   prenotazioneId: z.string().uuid(),
   accountId: z.string().uuid(),
@@ -370,6 +396,7 @@ export async function inviaMailSpedizioneAction(
   if (item.allegaTracking && item.trackingUrl && !body.includes(item.trackingUrl)) {
     body = `${body}\n\nTracking: ${item.trackingUrl}`;
   }
+  const text = testoMailSpedizioneConFirma(body);
 
   try {
     await sendMailViaAccount({
@@ -387,7 +414,8 @@ export async function inviaMailSpedizioneAction(
       },
       to: d.to,
       subject: d.subject,
-      text: body,
+      text,
+      html: htmlMailSpedizioneConFirma(body),
       attachments,
     });
   } catch (e) {
@@ -405,7 +433,7 @@ export async function inviaMailSpedizioneAction(
       documento_stato: "chiuso",
       destinatario_email: d.to,
       oggetto: d.subject,
-      corpo: body,
+      corpo: text,
       account_id: d.accountId,
       inviata_at: now,
       inviata_by: auth.userId,
