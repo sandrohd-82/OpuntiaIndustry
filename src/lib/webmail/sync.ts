@@ -14,6 +14,7 @@ import { normalizeBlacklistEmail } from "@/lib/webmail/blacklist";
 import { applyLearningOnImport } from "@/lib/webmail/category-learn-db";
 import { decryptWebmailSecret } from "@/lib/webmail/crypto";
 import { extractPlainFromHtml } from "@/lib/webmail/html-render";
+import { scanFattureMailDopoSync } from "@/lib/amministrazione/fatture-mail-coda";
 import type { createServiceClient } from "@/lib/supabase/server";
 
 type Service = ReturnType<typeof createServiceClient>;
@@ -2068,6 +2069,16 @@ export async function syncWebmailLive(
     importedIds.push(...res.importedIds);
     waited = res.waited;
     if (res.error) errors.push(`${res.email}: ${res.error}`);
+    if (importedIds.length > 0) {
+      try {
+        await scanFattureMailDopoSync(supabase, {
+          preferMessageIds: importedIds,
+          backlog: false,
+        });
+      } catch (e) {
+        console.error("[fatture-mail]", e);
+      }
+    }
     return { imported, importedIds, errors, waited, emails };
   }
 
@@ -2092,6 +2103,16 @@ export async function syncWebmailLive(
     if (listen.error) errors.push(`${listen.email}: ${listen.error}`);
   }
 
+  if (importedIds.length > 0) {
+    try {
+      await scanFattureMailDopoSync(supabase, {
+        preferMessageIds: importedIds,
+        backlog: false,
+      });
+    } catch (e) {
+      console.error("[fatture-mail]", e);
+    }
+  }
   return { imported, importedIds, errors, waited, emails };
 }
 
@@ -2480,6 +2501,17 @@ export async function syncAllWebmailAccounts(
     pending += res.pending;
     importedIds.push(...res.importedIds);
     if (res.error) errors.push(`${row.email_address}: ${res.error}`);
+  }
+  try {
+    await scanFattureMailDopoSync(supabase, {
+      preferMessageIds: importedIds,
+      backlog: true,
+    });
+  } catch (e) {
+    console.error("[fatture-mail]", e);
+    errors.push(
+      e instanceof Error ? e.message : "Controllo fatture nelle mail non riuscito."
+    );
   }
   return {
     accounts: (data ?? []).length,

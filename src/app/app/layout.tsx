@@ -10,6 +10,7 @@ import { AppSidebar } from "@/components/layout/AppSidebar";
 import { InstantNavOverlay } from "@/components/layout/InstantNavOverlay";
 import { PageAccessToggle } from "@/components/layout/PageAccessToggle";
 import { WelcomeModal } from "@/components/layout/WelcomeModal";
+import { FattureMailCandidatiModal } from "@/components/amministrazione/FattureMailCandidatiModal";
 import { LeadPromozioneGate } from "@/components/amministrazione/LeadPromozioneGate";
 import {
   NotificationConsentBanner,
@@ -252,6 +253,9 @@ export default async function AppLayout({
         </ActionAccessProvider>
       </div>
       {auth.welcomePending ? <WelcomeModal name={welcomeName} /> : null}
+      {isSuperadminProfile(auth.profile) && !auth.impersonating ? (
+        <FattureMailCandidatiModal />
+      ) : null}
       <LeadPromozioneGate />
     </div>
     </PushNotificationsProvider>

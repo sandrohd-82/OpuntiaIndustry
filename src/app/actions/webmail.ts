@@ -2026,6 +2026,17 @@ export async function runWebmailSyncAction(
         account as Parameters<typeof syncWebmailAccount>[1],
         opts
       );
+      try {
+        const { scanFattureMailDopoSync } = await import(
+          "@/lib/amministrazione/fatture-mail-coda"
+        );
+        await scanFattureMailDopoSync(service, {
+          preferMessageIds: res.importedIds,
+          backlog: true,
+        });
+      } catch (scanErr) {
+        console.error("[fatture-mail]", scanErr);
+      }
       return {
         success: true,
         imported: res.imported,

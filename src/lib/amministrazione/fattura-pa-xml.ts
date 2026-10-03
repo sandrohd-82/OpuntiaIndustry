@@ -31,7 +31,7 @@ export function xmlText(xml: string, localName: string): string {
   return m ? stripTags(m[1]) : "";
 }
 
-function xmlBlocks(xml: string, localName: string): string[] {
+export function xmlBlocks(xml: string, localName: string): string[] {
   const re = new RegExp(
     `<(?:[\\w.-]+:)?${localName}(?:\\s[^>]*)?>([\\s\\S]*?)</(?:[\\w.-]+:)?${localName}>`,
     "gi"
