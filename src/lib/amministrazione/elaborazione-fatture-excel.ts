@@ -28,9 +28,28 @@ const MESI = [
 export function titoliElaborazioneExcel(
   kind: CommercialistaRegistroKind
 ): readonly string[] {
-  const base = titoliBaseExcel(kind);
-  if (registroMostraBeneConsumo(kind)) return [...base, "Bene di Consumo"];
+  const base = [...titoliBaseExcel(kind)];
+  if (!registroMostraBeneConsumo(kind)) return base;
+  base.splice(2, 0, "Numero documento");
+  base.push("Origine", "Bene ammortizzabile");
   return base;
+}
+
+/** SDI se il documento arriva dallo SdI. Altrimenti il supporto del caricamento. */
+export function etichettaOrigineDocumento(input: {
+  ficId?: number | null;
+  haXmlSdi?: boolean;
+  fileName?: string | null;
+}): string {
+  const fic = Number(input.ficId ?? 0);
+  if ((Number.isFinite(fic) && fic > 0) || input.haXmlSdi) return "SDI";
+  const name = String(input.fileName ?? "").trim().toLowerCase();
+  if (!name) return "Manuale";
+  if (/\.(jpe?g|png|webp|heic|gif|bmp)$/.test(name)) return "Foto";
+  if (/\.(eml|msg)$/.test(name)) return "mail";
+  if (name.endsWith(".pdf")) return "PDF";
+  if (name.endsWith(".xml") || name.endsWith(".p7m")) return "XML";
+  return "File";
 }
 
 function titoliBaseExcel(kind: CommercialistaRegistroKind): readonly string[] {
@@ -68,8 +87,11 @@ export type FatturaElaborazioneSorgente = {
     iva: number;
     totale: number;
   };
-  /** Solo ricevute: SI materiale di consumo, NO se c'è un bene ammortizzabile. */
-  beneDiConsumo: "SI" | "NO" | null;
+  numeroDocumento: string;
+  /** SDI, mail, Foto, PDF, XML, Manuale. */
+  origineDocumento: string;
+  /** Solo registri in entrata: SI se almeno una riga è ammortizzabile. */
+  beneAmmortizzabile: "SI" | "NO" | null;
   notaCredito: boolean;
 };
 
@@ -81,7 +103,9 @@ export type RigaElaborazioneExcel =
       data: string;
       intestazione: string;
       nazione: string;
-      beneDiConsumo: "SI" | "NO" | null;
+      numeroDocumento: string;
+      origineDocumento: string;
+      beneAmmortizzabile: "SI" | "NO" | null;
       notaCredito: boolean;
       imponibile: number;
       iva: number;
@@ -162,7 +186,10 @@ export function righeElaborazioneFatture(
     docs.map((doc) => ({
       numeroSequenza: doc.numeroSequenza,
       numeroFattura:
-        doc.classica?.numero || doc.model.numero || doc.numeroInterno,
+        doc.numeroDocumento ||
+        doc.classica?.numero ||
+        doc.model.numero ||
+        doc.numeroInterno,
       data: doc.classica?.dataDocumento || doc.dataEmissione || doc.model.data || "",
     }))
   );
@@ -216,7 +243,11 @@ export function righeElaborazioneFatture(
       data: giorno ? dataIt(giorno) : "—",
       intestazione: intestazioneDi(doc, kind),
       nazione: nazioneDi(doc, kind),
-      beneDiConsumo: registroMostraBeneConsumo(kind) ? doc.beneDiConsumo : null,
+      numeroDocumento: doc.numeroDocumento,
+      origineDocumento: doc.origineDocumento,
+      beneAmmortizzabile: registroMostraBeneConsumo(kind)
+        ? doc.beneAmmortizzabile
+        : null,
       notaCredito: doc.notaCredito,
       imponibile: importi.imponibile,
       iva: importi.iva,

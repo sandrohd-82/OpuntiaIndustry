@@ -74,7 +74,7 @@ export function registroLatoEmesso(kind: CommercialistaRegistroKind): boolean {
   return kind === "emessa" || kind === "ddt_emesso" || kind === "nota_emessa";
 }
 
-/** Colonna «Bene di Consumo»: solo i registri in entrata. */
+/** Colonna «Bene ammortizzabile»: solo i registri in entrata. */
 export function registroMostraBeneConsumo(
   kind: CommercialistaRegistroKind
 ): boolean {

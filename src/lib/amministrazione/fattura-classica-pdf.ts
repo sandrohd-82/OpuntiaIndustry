@@ -18,7 +18,7 @@ function testo(value: string, vuoto = "—") {
   return t || vuoto;
 }
 
-/** 20/2026 → 20, data ISO → 15-10-2026. Esempio: 1_20_15-10-2026.pdf */
+/** N. provvisorio, data GG-MM-AA e numero fattura. Esempio: 15_11-08-26(63-Abf).pdf */
 export function nomePdfFatturaCommercialista(input: {
   numeroSequenza: number | null;
   numeroFattura: string;
@@ -26,9 +26,8 @@ export function nomePdfFatturaCommercialista(input: {
 }): string {
   const seq =
     input.numeroSequenza != null ? String(input.numeroSequenza) : "senza";
-  const prima = input.numeroFattura.trim().split("/")[0]?.trim() ?? "";
-  const num = prima.replace(/[^\w-]+/g, "") || "fattura";
-  return `${seq}_${num}_${dataFile(input.data)}.pdf`;
+  const num = numeroFileFattura(input.numeroFattura);
+  return `${seq}_${dataFile(input.data)}(${num}).pdf`;
 }
 
 /** Stessi nomi del download PDF, con suffisso se due fatture coincidono. */
@@ -45,12 +44,22 @@ export function nomiPdfUnivoci(
   });
 }
 
+function numeroFileFattura(raw: string): string {
+  const pulito = raw
+    .trim()
+    .replace(/[\\/]+/g, "-")
+    .replace(/[^\w.\-]+/g, "")
+    .replace(/-+/g, "-")
+    .replace(/^-|-$/g, "");
+  return pulito || "fattura";
+}
+
 function dataFile(raw: string): string {
   const t = raw.trim();
   const iso = /^(\d{4})-(\d{2})-(\d{2})/.exec(t);
-  if (iso) return `${iso[3]}-${iso[2]}-${iso[1]}`;
-  const it = /^(\d{2})[/.-](\d{2})[/.-](\d{4})/.exec(t);
-  if (it) return `${it[1]}-${it[2]}-${it[3]}`;
+  if (iso) return `${iso[3]}-${iso[2]}-${iso[1].slice(2)}`;
+  const it = /^(\d{2})[/.-](\d{2})[/.-](\d{2,4})/.exec(t);
+  if (it) return `${it[1]}-${it[2]}-${it[3].slice(-2)}`;
   return "senza-data";
 }
 

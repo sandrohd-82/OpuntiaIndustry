@@ -97,7 +97,10 @@ export function CommercialistaStampaFattureModal({
         docs.map((doc) => ({
           numeroSequenza: doc.numeroSequenza,
           numeroFattura:
-            doc.classica?.numero || doc.model.numero || doc.numeroInterno,
+            doc.numeroDocumento ||
+            doc.classica?.numero ||
+            doc.model.numero ||
+            doc.numeroInterno,
           data: doc.classica?.dataDocumento || doc.dataEmissione || doc.model.data || "",
         }))
       );
@@ -191,7 +194,7 @@ export function CommercialistaStampaFattureModal({
                 disabled={docs.length === 0 || scaricando}
                 onClick={() => void scaricaPdf()}
                 className="inline-flex items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-medium disabled:opacity-40"
-                title="Salva ogni fattura in un PDF: sequenza_numero_data, per esempio 1_20_15-10-2026.pdf"
+                title="Salva ogni fattura in un PDF: sequenza_data(numero), per esempio 15_11-08-26(63-Abf).pdf"
               >
                 <FaDownload size={12} />
                 {scaricando ? "Salvataggio…" : "Scarica PDF"}

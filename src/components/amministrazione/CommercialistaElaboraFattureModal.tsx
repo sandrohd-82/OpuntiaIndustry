@@ -199,6 +199,11 @@ export function CommercialistaElaboraFattureModal({
                         <td className="px-3 py-1.5 font-mono text-xs whitespace-nowrap">
                           {riga.nomeFile}
                         </td>
+                        {beneConsumo ? (
+                          <td className="px-3 py-1.5 whitespace-nowrap">
+                            {riga.numeroDocumento || "—"}
+                          </td>
+                        ) : null}
                         <td className="px-3 py-1.5 whitespace-nowrap">
                           {riga.data}
                         </td>
@@ -220,9 +225,14 @@ export function CommercialistaElaboraFattureModal({
                           {riga.nazione}
                         </td>
                         {beneConsumo ? (
-                          <td className="px-3 py-1.5 text-center font-medium">
-                            {riga.beneDiConsumo ?? "—"}
-                          </td>
+                          <>
+                            <td className="px-3 py-1.5 text-center">
+                              {riga.origineDocumento || "—"}
+                            </td>
+                            <td className="px-3 py-1.5 text-center font-medium">
+                              {riga.beneAmmortizzabile ?? "—"}
+                            </td>
+                          </>
                         ) : null}
                       </tr>
                     ) : (
@@ -236,6 +246,7 @@ export function CommercialistaElaboraFattureModal({
                       >
                         <td className="px-3 py-2" />
                         <td className="px-3 py-2" />
+                        {beneConsumo ? <td className="px-3 py-2" /> : null}
                         <td className="px-3 py-2" />
                         <td className="px-3 py-2">{riga.etichetta}</td>
                         <td className="px-3 py-2 text-right tabular-nums">
@@ -248,7 +259,12 @@ export function CommercialistaElaboraFattureModal({
                           {formatEuro(riga.totale)}
                         </td>
                         <td className="px-3 py-2" />
-                        {beneConsumo ? <td className="px-3 py-2" /> : null}
+                        {beneConsumo ? (
+                          <>
+                            <td className="px-3 py-2" />
+                            <td className="px-3 py-2" />
+                          </>
+                        ) : null}
                       </tr>
                     )
                   )}

@@ -17,6 +17,7 @@ import {
   type ImportoConIva,
 } from "@/lib/amministrazione/commercialista";
 import { assignNumeriVignetta } from "@/lib/amministrazione/elaborazione-contabile";
+import { etichettaOrigineDocumento } from "@/lib/amministrazione/elaborazione-fatture-excel";
 import { buildElaborazioneFattureXlsx } from "@/lib/amministrazione/elaborazione-fatture-xlsx";
 import { buildElencoMistoXlsx } from "@/lib/amministrazione/elenco-documenti-xlsx";
 import {
@@ -1026,8 +1027,10 @@ export type CommercialistaPaperDoc = {
   anagraficaRagioneSociale: string;
   numeroSequenza: number | null;
   notaCredito: boolean;
-  /** Ricevute: SI se materiale di consumo, NO se c'è un bene ammortizzabile. */
-  beneDiConsumo: "SI" | "NO" | null;
+  numeroDocumento: string;
+  origineDocumento: string;
+  /** Registri in entrata: SI solo se c'è un bene ammortizzabile. */
+  beneAmmortizzabile: "SI" | "NO" | null;
   model: PaperInvoiceModel;
   /** Stesso foglio della fattura classica, dati SDI. Ricevute senza piè di pagina. */
   classica: FatturaClassicaStampaModel | null;
@@ -1346,8 +1349,18 @@ export async function getCommercialistaPaperBatchAction(input: {
       anagraficaRagioneSociale: t.ragione,
       numeroSequenza: sequenza.get(t.id) ?? null,
       notaCredito: comeNc,
-      beneDiConsumo: registroMostraBeneConsumo(input.kind)
-        ? (loaded.fattura.righe.some((r) => r.isBeneAmmortizzabile) ? "NO" : "SI")
+      numeroDocumento:
+        loaded.fattura.numeroDocumentoEsterno.trim() ||
+        classica?.numero.trim() ||
+        model.numero.trim() ||
+        t.numero_interno,
+      origineDocumento: etichettaOrigineDocumento({
+        ficId: loaded.fattura.ficId,
+        haXmlSdi: Boolean(classica),
+        fileName: loaded.fattura.ricevuta?.fileName,
+      }),
+      beneAmmortizzabile: registroMostraBeneConsumo(input.kind)
+        ? (loaded.fattura.righe.some((r) => r.isBeneAmmortizzabile) ? "SI" : "NO")
         : null,
       model,
       classica,
@@ -1517,7 +1530,9 @@ async function loadDdtPaperDocs(
       anagraficaRagioneSociale: String(d.ragione_sociale ?? ""),
       numeroSequenza: sequenza.get(id) ?? null,
       notaCredito: false,
-      beneDiConsumo: kind === "ddt_ricevuto" ? "SI" : null,
+      numeroDocumento: String(d.numero_fic || d.numero_interno || ""),
+      origineDocumento: "Manuale",
+      beneAmmortizzabile: kind === "ddt_ricevuto" ? "NO" : null,
       model,
       classica: null,
       sdiAssente: false,
