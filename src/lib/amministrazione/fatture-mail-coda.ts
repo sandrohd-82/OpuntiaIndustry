@@ -11,10 +11,7 @@ import {
   xmlNelFile,
   type FatturaGiaNota,
 } from "@/lib/amministrazione/fatture-mail-scan";
-import {
-  dateRangeForTrimestre,
-  trimestreFromIsoDate,
-} from "@/lib/amministrazione/trimestre-commerciale";
+import { trimestreFromIsoDate } from "@/lib/amministrazione/trimestre-commerciale";
 import type { createServiceClient } from "@/lib/supabase/server";
 
 type Service = ReturnType<typeof createServiceClient>;
@@ -165,17 +162,37 @@ async function segnaCopie(supabase: Service, chiave: string, principaleId: strin
     .eq("stato", "da_valutare");
 }
 
-/** Dopo la sync: legge le mail del trimestre non ancora controllate. */
+/** Anno solare da leggere. La prima passata copre tutto il 2026, non un solo trimestre. */
+export function intervalloAnnoMailFatture(oggi = isoOggi()): {
+  dal: string;
+  al: string;
+  anno: number;
+} {
+  const anno = Number(oggi.slice(0, 4));
+  return { dal: `${anno}-01-01`, al: `${anno}-12-31`, anno };
+}
+
+/** Dopo la sync, e al primo ingresso: legge le mail dell'anno non ancora controllate. */
 export async function scanFattureMailDopoSync(
   supabase: Service,
-  options?: { preferMessageIds?: string[]; backlog?: boolean }
-): Promise<{ controllati: number; candidati: number }> {
-  const oggi = isoOggi();
-  const trimestre = trimestreFromIsoDate(oggi);
-  if (!trimestre) return { controllati: 0, candidati: 0 };
-  const range = dateRangeForTrimestre(trimestre.anno, trimestre.trim);
+  options?: {
+    preferMessageIds?: string[];
+    backlog?: boolean;
+    dal?: string;
+    al?: string;
+    limite?: number;
+    maxAllegati?: number;
+  }
+): Promise<{ controllati: number; candidati: number; restano: boolean }> {
+  const annoMail = intervalloAnnoMailFatture();
+  const range = {
+    dal: options?.dal ?? annoMail.dal,
+    al: options?.al ?? annoMail.al,
+  };
   const dal = `${range.dal}T00:00:00.000Z`;
   const al = `${range.al}T23:59:59.999Z`;
+  const limite = Math.min(40, Math.max(1, options?.limite ?? BATCH));
+  const maxAllegati = Math.min(12, Math.max(1, options?.maxAllegati ?? 8));
 
   const ids = new Set<string>();
   for (const id of options?.preferMessageIds ?? []) {
@@ -184,7 +201,7 @@ export async function scanFattureMailDopoSync(
   if (options?.backlog !== false) {
     const { data, error } = await supabase.rpc(
       "fatture_mail_messaggi_da_controllare",
-      { p_dal: dal, p_al: al, p_limit: BATCH }
+      { p_dal: dal, p_al: al, p_limit: limite }
     );
     if (error) {
       console.error("[fatture-mail] coda", error.message);
@@ -192,7 +209,7 @@ export async function scanFattureMailDopoSync(
       for (const row of (data ?? []) as { id: string }[]) ids.add(row.id);
     }
   }
-  if (ids.size === 0) return { controllati: 0, candidati: 0 };
+  if (ids.size === 0) return { controllati: 0, candidati: 0, restano: false };
 
   const idList = [...ids].slice(0, 40);
   const { data: gia } = await supabase
@@ -203,7 +220,7 @@ export async function scanFattureMailDopoSync(
     ((gia ?? []) as { messaggio_id: string }[]).map((r) => r.messaggio_id)
   );
   const daFare = idList.filter((id) => !giaSet.has(id));
-  if (daFare.length === 0) return { controllati: 0, candidati: 0 };
+  if (daFare.length === 0) return { controllati: 0, candidati: 0, restano: false };
 
   const { data: messaggi } = await supabase
     .from("webmail_messaggi")
@@ -243,6 +260,8 @@ export async function scanFattureMailDopoSync(
 
   const note = await caricaFattureNote(supabase, range.dal, range.al);
   let candidati = 0;
+  let allegatiLetti = 0;
+  const rinviati = new Set<string>();
 
   for (const msg of rows) {
     const testo = `${msg.subject ?? ""}\n${(msg.body_text ?? "").slice(0, 4000)}`;
@@ -265,19 +284,17 @@ export async function scanFattureMailDopoSync(
       continue;
     }
 
-    const nelTrimestre = msg.received_at
-      ? msg.received_at.slice(0, 10) >= range.dal &&
-        msg.received_at.slice(0, 10) <= range.al
-      : false;
-    if (!nelTrimestre) {
-      await supabase.from("fatture_mail_controlli").upsert({
-        messaggio_id: msg.id,
-        esito: "nessuna_fattura",
-      });
+    const giorno = (msg.received_at ?? "").slice(0, 10);
+    const nelAnno = giorno >= range.dal && giorno <= range.al;
+    if (!nelAnno) continue;
+    if (allegatiLetti >= maxAllegati) {
+      rinviati.add(msg.id);
       continue;
     }
+    allegatiLetti += 1;
+    const delMessaggio = trimestreFromIsoDate(giorno);
 
-    for (const allegato of utili.slice(0, 3)) {
+    for (const allegato of utili.slice(0, 2)) {
       const file = await shaAllegato(supabase, allegato);
       const xml = file?.xml ? estraiDaXmlFattura(file.xml) : null;
       const estratto = unisciEstratto(
@@ -333,8 +350,8 @@ export async function scanFattureMailDopoSync(
           messaggio_id: msg.id,
           allegato_id: allegato.id,
           casella_email: casellaDi.get(msg.account_id) ?? "",
-          anno: trimestre.anno,
-          trimestre: trimestre.trim,
+          anno: delMessaggio?.anno ?? annoMail.anno,
+          trimestre: delMessaggio?.trim ?? 1,
           oggetto: msg.subject ?? "",
           data_mail: msg.received_at,
           mittente_email: msg.from_address ?? "",
@@ -393,12 +410,16 @@ export async function scanFattureMailDopoSync(
 
   const visti = new Set(rows.map((r) => r.id));
   for (const id of daFare) {
-    if (visti.has(id)) continue;
+    if (visti.has(id) || rinviati.has(id)) continue;
     await supabase.from("fatture_mail_controlli").upsert({
       messaggio_id: id,
       esito: "nessuna_fattura",
     });
   }
 
-  return { controllati: daFare.length, candidati };
+  return {
+    controllati: daFare.length - rinviati.size,
+    candidati,
+    restano: rinviati.size > 0 || daFare.length >= limite,
+  };
 }

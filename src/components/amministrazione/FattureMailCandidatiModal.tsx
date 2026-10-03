@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { FatturaRegistrazioneModal } from "@/components/amministrazione/FatturaRegistrazioneModal";
 import {
   decidiFatturaMailAction,
@@ -32,31 +32,52 @@ export function FattureMailCandidatiModal() {
   const [daRegistrare, setDaRegistrare] = useState<FatturaMailCandidato | null>(
     null
   );
+  const [inControllo, setInControllo] = useState(false);
+  const [controllate, setControllate] = useState(0);
+  const ferma = useRef(false);
 
   useEffect(() => {
     if (typeof window !== "undefined" && sessionStorage.getItem(NASCOSTO) === "1") {
       return;
     }
     let vivo = true;
-    void listFattureMailDaValutareAction().then((res) => {
-      if (!vivo) return;
-      if (!res.success) {
-        setErrore(res.error);
-        return;
+    let lette = 0;
+    setAperto(true);
+    setInControllo(true);
+    setPeriodo("2026");
+    async function run() {
+      for (let passo = 0; passo < 60 && vivo && !ferma.current; passo += 1) {
+        const res = await listFattureMailDaValutareAction();
+        if (!vivo || ferma.current) return;
+        if (!res.success) {
+          setErrore(res.error);
+          setInControllo(false);
+          return;
+        }
+        lette += res.controllati;
+        setControllate(lette);
+        setPeriodo(res.periodo || "2026");
+        setMancanti(res.caselleMancanti);
+        setCandidati(res.candidati);
+        if (!res.restano) {
+          setInControllo(false);
+          if (res.candidati.length === 0 && lette === 0) setAperto(false);
+          return;
+        }
       }
-      setPeriodo(res.periodo);
-      setMancanti(res.caselleMancanti);
-      setCandidati(res.candidati);
-      setAperto(res.candidati.length > 0);
-    });
+      setInControllo(false);
+    }
+    void run();
     return () => {
       vivo = false;
     };
   }, []);
 
   function piuTardi() {
+    ferma.current = true;
     sessionStorage.setItem(NASCOSTO, "1");
     setAperto(false);
+    setInControllo(false);
   }
 
   async function decidi(
@@ -114,14 +135,14 @@ export function FattureMailCandidatiModal() {
                 id="fatture-mail-titolo"
                 className="text-lg font-semibold text-slate-900"
               >
-                Fatture trovate nelle mail
+                Fatture nelle mail del {periodo || "2026"}
               </h2>
               <p className="mt-1 text-sm text-slate-600">
-                {periodo
-                  ? `Trimestre ${periodo}. `
-                  : ""}
-                Queste non risultano già registrate, nemmeno come copia cortesia.
-                Vuoi registrarle?
+                {inControllo
+                  ? `Sto controllando le mail del ${periodo || "2026"}. Mail già lette: ${controllate}.`
+                  : candidati.length > 0
+                    ? "Queste non risultano già registrate, nemmeno come copia cortesia. Vuoi registrarle?"
+                    : `Ho controllato le mail del ${periodo || "2026"}. Non ci sono fatture nuove da registrare.`}
               </p>
               {mancanti.length > 0 ? (
                 <p className="mt-2 text-xs text-amber-800">

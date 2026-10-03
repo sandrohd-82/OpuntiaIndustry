@@ -2,17 +2,16 @@
 
 import { z } from "zod";
 import { writeAuditLog } from "@/lib/audit";
-import { caricaFattureNote } from "@/lib/amministrazione/fatture-mail-coda";
+import {
+  caricaFattureNote,
+  intervalloAnnoMailFatture,
+  scanFattureMailDopoSync,
+} from "@/lib/amministrazione/fatture-mail-coda";
 import {
   caselleFattureMancanti,
   trovaFatturaGiaPresente,
 } from "@/lib/amministrazione/fatture-mail-scan";
-import {
-  dateRangeForTrimestre,
-  labelTrimestre,
-  trimestreFromIsoDate,
-  type TrimestreNumero,
-} from "@/lib/amministrazione/trimestre-commerciale";
+import { type TrimestreNumero } from "@/lib/amministrazione/trimestre-commerciale";
 import { isSuperadminProfile } from "@/lib/auth/roles";
 import { getAuthContext } from "@/lib/auth/session";
 import { createServiceClient } from "@/lib/supabase/server";
@@ -62,12 +61,6 @@ type CandidatoRow = {
   chiave_fattura: string;
 };
 
-function trimestreCorrente() {
-  const t = trimestreFromIsoDate(new Date().toISOString().slice(0, 10));
-  if (!t) return null;
-  return t;
-}
-
 async function segnaGemelle(
   chiave: string,
   tranneId: string,
@@ -90,18 +83,32 @@ export async function listFattureMailDaValutareAction(): Promise<
       candidati: FatturaMailCandidato[];
       caselleMancanti: string[];
       periodo: string;
+      restano: boolean;
+      controllati: number;
     }
   | { success: false; error: string }
 > {
   const auth = await requireSuperadmin();
-  if (!auth) return { success: true, candidati: [], caselleMancanti: [], periodo: "" };
-
-  const trimestre = trimestreCorrente();
-  if (!trimestre) {
-    return { success: true, candidati: [], caselleMancanti: [], periodo: "" };
+  if (!auth) {
+    return {
+      success: true,
+      candidati: [],
+      caselleMancanti: [],
+      periodo: "",
+      restano: false,
+      controllati: 0,
+    };
   }
-  const range = dateRangeForTrimestre(trimestre.anno, trimestre.trim);
+
+  const annoMail = intervalloAnnoMailFatture();
   const supabase = createServiceClient();
+  const scan = await scanFattureMailDopoSync(supabase, {
+    backlog: true,
+    dal: annoMail.dal,
+    al: annoMail.al,
+    limite: 40,
+    maxAllegati: 8,
+  });
 
   const { data: accounts, error: accErr } = await supabase
     .from("webmail_accounts")
@@ -114,8 +121,7 @@ export async function listFattureMailDaValutareAction(): Promise<
     .select(
       "id, casella_email, oggetto, data_mail, mittente_nome, mittente_email, numero_documento, data_documento, fornitore_ragione, fornitore_piva, totale, file_name, anno, trimestre, chiave_fattura"
     )
-    .eq("anno", trimestre.anno)
-    .eq("trimestre", trimestre.trim)
+    .eq("anno", annoMail.anno)
     .eq("stato", "da_valutare")
     .is("copia_di", null)
     .is("deleted_at", null)
@@ -126,14 +132,16 @@ export async function listFattureMailDaValutareAction(): Promise<
         success: true,
         candidati: [],
         caselleMancanti: [],
-        periodo: labelTrimestre(trimestre.anno, trimestre.trim),
+        periodo: String(annoMail.anno),
+        restano: false,
+        controllati: 0,
       };
     }
     return { success: false, error: error.message };
   }
 
   const rows = (data ?? []) as CandidatoRow[];
-  const note = await caricaFattureNote(supabase, range.dal, range.al);
+  const note = await caricaFattureNote(supabase, annoMail.dal, annoMail.al);
   const ancora: CandidatoRow[] = [];
   for (const row of rows) {
     const gia = trovaFatturaGiaPresente(
@@ -189,7 +197,9 @@ export async function listFattureMailDaValutareAction(): Promise<
 
   return {
     success: true,
-    periodo: labelTrimestre(trimestre.anno, trimestre.trim),
+    periodo: String(annoMail.anno),
+    restano: scan.restano,
+    controllati: scan.controllati,
     caselleMancanti: caselleFattureMancanti(
       ((accounts ?? []) as { email_address: string }[]).map(
         (a) => a.email_address
