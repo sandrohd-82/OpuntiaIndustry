@@ -4,9 +4,7 @@ import {
   chiaveFatturaMail,
   estraiDaTestoFattura,
   estraiDaXmlFattura,
-  normalizzaNumeroFattura,
   testoParlaDiFattura,
-  trovaFatturaGiaPresente,
   unisciEstratto,
   xmlNelFile,
   type FatturaGiaNota,
@@ -49,12 +47,8 @@ export async function caricaFattureNote(
   dal: string,
   al: string
 ): Promise<FatturaGiaNota[]> {
-  const dalLargo = new Date(`${dal}T00:00:00.000Z`);
-  dalLargo.setUTCDate(dalLargo.getUTCDate() - 20);
-  const alLargo = new Date(`${al}T00:00:00.000Z`);
-  alLargo.setUTCDate(alLargo.getUTCDate() + 20);
-  const dalIso = dalLargo.toISOString().slice(0, 10);
-  const alIso = alLargo.toISOString().slice(0, 10);
+  const dalIso = dal;
+  const alIso = al;
 
   const [ricevute, fic] = await Promise.all([
     supabase
@@ -258,7 +252,6 @@ export async function scanFattureMailDopoSync(
     allegatiDi.set(a.messaggio_id, list);
   }
 
-  const note = await caricaFattureNote(supabase, range.dal, range.al);
   let candidati = 0;
   let allegatiLetti = 0;
   const rinviati = new Set<string>();
@@ -310,15 +303,6 @@ export async function scanFattureMailDopoSync(
         totale: estratto.totale,
         sha256: sha,
       });
-      const giaNota = trovaFatturaGiaPresente(
-        {
-          numero: estratto.numeroDocumento,
-          piva: estratto.fornitorePiva,
-          totale: estratto.totale,
-          data: estratto.dataDocumento || (msg.received_at ?? "").slice(0, 10),
-        },
-        note
-      );
       const stessaChiave = chiave
         ? await supabase
             .from("fatture_mail_candidati")
@@ -336,15 +320,9 @@ export async function scanFattureMailDopoSync(
       const giaPerCopia =
         gemella &&
         (gemella.stato === "registrata" || gemella.stato === "gia_presente");
-      const stato = giaNota || giaPerCopia ? "gia_presente" : "da_valutare";
-      const motivo = giaNota
-        ? (giaNota.fonte === "sdi" ? "Già presente nello SDI" : "Già registrata")
-        : (giaPerCopia ? "Copia cortesia della stessa fattura" : "");
-      let fatturaId: string | null = null;
-      if (giaNota?.fonte === "registrata") fatturaId = giaNota.id;
-      else if (gemella?.fattura_ricevuta_id) {
-        fatturaId = gemella.fattura_ricevuta_id;
-      }
+      const stato = giaPerCopia ? "gia_presente" : "da_valutare";
+      const motivo = giaPerCopia ? "Copia cortesia della stessa fattura" : "";
+      const fatturaId = giaPerCopia ? (gemella?.fattura_ricevuta_id ?? null) : null;
       const { error } = await supabase.from("fatture_mail_candidati").insert({
           account_id: msg.account_id,
           messaggio_id: msg.id,
@@ -389,16 +367,6 @@ export async function scanFattureMailDopoSync(
           .maybeSingle();
         const principaleId = (principale as { id: string } | null)?.id;
         if (principaleId) await segnaCopie(supabase, chiave, principaleId);
-      }
-      if (normalizzaNumeroFattura(estratto.numeroDocumento).length >= 2 && giaNota) {
-        note.push({
-          id: giaNota.id,
-          numero: estratto.numeroDocumento,
-          piva: estratto.fornitorePiva,
-          totale: estratto.totale,
-          data: estratto.dataDocumento,
-          fonte: giaNota.fonte,
-        });
       }
     }
 

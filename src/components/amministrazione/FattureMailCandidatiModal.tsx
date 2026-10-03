@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { FatturaRegistrazioneModal } from "@/components/amministrazione/FatturaRegistrazioneModal";
 import {
+  apriDocumentoFatturaMailAction,
   decidiFatturaMailAction,
   listFattureMailDaValutareAction,
   type FatturaMailCandidato,
@@ -78,6 +79,18 @@ export function FattureMailCandidatiModal() {
     sessionStorage.setItem(NASCOSTO, "1");
     setAperto(false);
     setInControllo(false);
+  }
+
+  async function apriDocumento(row: FatturaMailCandidato) {
+    setErrore(null);
+    setInCorso(row.id);
+    const res = await apriDocumentoFatturaMailAction({ id: row.id });
+    setInCorso(null);
+    if (!res.success) {
+      setErrore(res.error);
+      return;
+    }
+    window.open(res.url, "_blank", "noopener,noreferrer");
   }
 
   async function decidi(
@@ -175,7 +188,24 @@ export function FattureMailCandidatiModal() {
                         {row.oggetto}
                       </p>
                     ) : null}
+                    <p
+                      className={`mt-2 text-sm font-medium ${
+                        row.corrispondenza === "trovata"
+                          ? "text-emerald-800"
+                          : "text-slate-700"
+                      }`}
+                    >
+                      {row.corrispondenzaTesto}
+                    </p>
                     <div className="mt-3 flex flex-wrap gap-2">
+                      <button
+                        type="button"
+                        disabled={inCorso === row.id}
+                        onClick={() => void apriDocumento(row)}
+                        className="rounded-lg border border-slate-300 px-3 py-1.5 text-xs font-medium text-slate-800 disabled:opacity-40"
+                      >
+                        Apri documento
+                      </button>
                       <button
                         type="button"
                         disabled={inCorso === row.id}

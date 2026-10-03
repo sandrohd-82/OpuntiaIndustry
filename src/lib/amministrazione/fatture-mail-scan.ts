@@ -96,6 +96,24 @@ export function chiaveFatturaMail(input: {
   return "";
 }
 
+const DIECI_GIORNI_MS = 10 * 24 * 60 * 60 * 1000;
+
+export function spostaGiorniIso(iso: string, giorni: number): string {
+  const d = new Date(`${iso}T12:00:00.000Z`);
+  d.setUTCDate(d.getUTCDate() + giorni);
+  return d.toISOString().slice(0, 10);
+}
+
+export function entroDieciGiorni(a: string, b: string): boolean {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(a) || !/^\d{4}-\d{2}-\d{2}$/.test(b)) {
+    return false;
+  }
+  const da = Date.parse(`${a}T12:00:00.000Z`);
+  const db = Date.parse(`${b}T12:00:00.000Z`);
+  return Math.abs(da - db) <= DIECI_GIORNI_MS;
+}
+
+/** Confronto solo nella finestra della data fattura: 10 giorni prima e 10 dopo. */
 export function trovaFatturaGiaPresente(
   input: {
     numero: string;
@@ -106,23 +124,36 @@ export function trovaFatturaGiaPresente(
   note: FatturaGiaNota[]
 ): FatturaGiaNota | null {
   const numero = normalizzaNumeroFattura(input.numero);
-  if (numero.length < 2) return null;
+  if (numero.length < 2 || !/^\d{4}-\d{2}-\d{2}$/.test(input.data)) return null;
   const piva = normalizzaPiva(input.piva);
   for (const nota of note) {
+    if (!entroDieciGiorni(input.data, nota.data)) continue;
     if (normalizzaNumeroFattura(nota.numero) !== numero) continue;
     const stessaPiva = pivaCompatibili(piva, normalizzaPiva(nota.piva));
     if (piva && nota.piva && !stessaPiva) continue;
     if (!stessaPiva && input.totale != null && nota.totale != null) {
       if (Math.abs(input.totale - nota.totale) > 0.05) continue;
     }
-    if (!stessaPiva && (input.totale == null || nota.totale == null)) {
-      if (input.data && nota.data && input.data.slice(0, 7) !== nota.data.slice(0, 7)) {
-        continue;
-      }
-    }
     return nota;
   }
   return null;
+}
+
+export function fraseCorrispondenzaFattura(nota: FatturaGiaNota | null): {
+  esito: "trovata" | "assente";
+  testo: string;
+} {
+  if (!nota) {
+    return { esito: "assente", testo: "Nessuna fattura corrispondente" };
+  }
+  const data = /^\d{4}-\d{2}-\d{2}$/.test(nota.data)
+    ? ` del ${nota.data.slice(8, 10)}/${nota.data.slice(5, 7)}/${nota.data.slice(0, 4)}`
+    : "";
+  const dove = nota.fonte === "sdi" ? "nello SDI" : "tra le fatture registrate";
+  return {
+    esito: "trovata",
+    testo: `Trovata ${dove}: n. ${nota.numero || "—"}${data}`,
+  };
 }
 
 function parseTotale(raw: string): number | null {

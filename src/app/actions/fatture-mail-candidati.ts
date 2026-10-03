@@ -9,6 +9,8 @@ import {
 } from "@/lib/amministrazione/fatture-mail-coda";
 import {
   caselleFattureMancanti,
+  fraseCorrispondenzaFattura,
+  spostaGiorniIso,
   trovaFatturaGiaPresente,
 } from "@/lib/amministrazione/fatture-mail-scan";
 import { type TrimestreNumero } from "@/lib/amministrazione/trimestre-commerciale";
@@ -31,6 +33,8 @@ export type FatturaMailCandidato = {
   fileName: string;
   anno: number;
   trimestre: TrimestreNumero;
+  corrispondenza: "trovata" | "assente";
+  corrispondenzaTesto: string;
 };
 
 const idSchema = z.object({ id: z.string().uuid() });
@@ -122,7 +126,7 @@ export async function listFattureMailDaValutareAction(): Promise<
       "id, casella_email, oggetto, data_mail, mittente_nome, mittente_email, numero_documento, data_documento, fornitore_ragione, fornitore_piva, totale, file_name, anno, trimestre, chiave_fattura"
     )
     .eq("anno", annoMail.anno)
-    .eq("stato", "da_valutare")
+    .or("stato.eq.da_valutare,and(stato.eq.gia_presente,decided_by.is.null)")
     .is("copia_di", null)
     .is("deleted_at", null)
     .order("data_mail", { ascending: false });
@@ -141,42 +145,27 @@ export async function listFattureMailDaValutareAction(): Promise<
   }
 
   const rows = (data ?? []) as CandidatoRow[];
-  const note = await caricaFattureNote(supabase, annoMail.dal, annoMail.al);
-  const ancora: CandidatoRow[] = [];
-  for (const row of rows) {
-    const gia = trovaFatturaGiaPresente(
-      {
-        numero: row.numero_documento,
-        piva: row.fornitore_piva,
-        totale: row.totale == null ? null : Number(row.totale),
-        data: String(row.data_documento ?? "").slice(0, 10),
-      },
-      note
-    );
-    if (!gia) {
-      ancora.push(row);
-      continue;
-    }
-    const motivo =
-      gia.fonte === "sdi" ? "Già presente nello SDI" : "Già registrata";
-    const patch = {
-      stato: "gia_presente",
-      documento_stato: "Chiuso",
-      motivo_match: motivo,
-      fattura_ricevuta_id: gia.fonte === "registrata" ? gia.id : null,
-      decided_at: new Date().toISOString(),
-      updated_by: auth.userId,
-    };
-    await supabase.from("fatture_mail_candidati").update(patch).eq("id", row.id);
-    await segnaGemelle(row.chiave_fattura, row.id, {
-      ...patch,
-      motivo_match: "Copia cortesia della stessa fattura",
-      copia_di: row.id,
-    });
-  }
+  const notePerData = new Map<string, Awaited<ReturnType<typeof caricaFattureNote>>>();
+  const dateUniche = [
+    ...new Set(
+      rows
+        .map((row) => dataConfronto(row))
+        .filter((iso) => /^\d{4}-\d{2}-\d{2}$/.test(iso))
+    ),
+  ];
+  await Promise.all(
+    dateUniche.map(async (iso) => {
+      const note = await caricaFattureNote(
+        supabase,
+        spostaGiorniIso(iso, -10),
+        spostaGiorniIso(iso, 10)
+      );
+      notePerData.set(iso, note);
+    })
+  );
 
   const pive = [
-    ...new Set(ancora.map((r) => r.fornitore_piva.trim()).filter(Boolean)),
+    ...new Set(rows.map((r) => r.fornitore_piva.trim()).filter(Boolean)),
   ];
   const fornitori = pive.length
     ? await supabase
@@ -205,8 +194,20 @@ export async function listFattureMailDaValutareAction(): Promise<
         (a) => a.email_address
       )
     ),
-    candidati: ancora.map((row) => {
+    candidati: rows.map((row) => {
       const fornitore = fornitoreDi.get(row.fornitore_piva.trim().toUpperCase());
+      const giorno = dataConfronto(row);
+      const note = notePerData.get(giorno) ?? [];
+      const trovata = trovaFatturaGiaPresente(
+        {
+          numero: row.numero_documento,
+          piva: row.fornitore_piva,
+          totale: row.totale == null ? null : Number(row.totale),
+          data: giorno,
+        },
+        note
+      );
+      const frase = fraseCorrispondenzaFattura(trovata);
       return {
         id: row.id,
         casellaEmail: row.casella_email,
@@ -222,8 +223,71 @@ export async function listFattureMailDaValutareAction(): Promise<
         fileName: row.file_name,
         anno: row.anno,
         trimestre: row.trimestre as TrimestreNumero,
+        corrispondenza: frase.esito,
+        corrispondenzaTesto: frase.testo,
       };
     }),
+  };
+}
+
+function dataConfronto(row: CandidatoRow): string {
+  const doc = String(row.data_documento ?? "").slice(0, 10);
+  if (/^\d{4}-\d{2}-\d{2}$/.test(doc)) return doc;
+  return String(row.data_mail ?? "").slice(0, 10);
+}
+
+export async function apriDocumentoFatturaMailAction(raw: {
+  id: string;
+}): Promise<
+  | { success: true; url: string; fileName: string }
+  | { success: false; error: string }
+> {
+  const auth = await requireSuperadmin();
+  if (!auth) {
+    return { success: false, error: "Solo il superAdmin può aprire questi documenti." };
+  }
+  const parsed = idSchema.safeParse(raw);
+  if (!parsed.success) return { success: false, error: "Documento non valido." };
+  const supabase = createServiceClient();
+  const { data, error } = await supabase
+    .from("fatture_mail_candidati")
+    .select("allegato_id, file_name")
+    .eq("id", parsed.data.id)
+    .is("deleted_at", null)
+    .maybeSingle();
+  if (error || !data) {
+    return { success: false, error: error?.message ?? "Documento non trovato." };
+  }
+  const riga = data as { allegato_id: string; file_name: string };
+  const { data: allegato, error: allErr } = await supabase
+    .from("webmail_messaggi_allegati")
+    .select("storage_bucket, storage_path, filename")
+    .eq("id", riga.allegato_id)
+    .is("deleted_at", null)
+    .maybeSingle();
+  if (allErr || !allegato) {
+    return { success: false, error: allErr?.message ?? "File non trovato." };
+  }
+  const file = allegato as {
+    storage_bucket: string;
+    storage_path: string;
+    filename: string;
+  };
+  if (!file.storage_path) {
+    return { success: false, error: "Il file non è stato salvato." };
+  }
+  const bucket = file.storage_bucket || "webmail-allegati";
+  const firmato = await supabase.storage.from(bucket).createSignedUrl(file.storage_path, 120);
+  if (firmato.error || !firmato.data?.signedUrl) {
+    return {
+      success: false,
+      error: firmato.error?.message ?? "Non riesco ad aprire il documento.",
+    };
+  }
+  return {
+    success: true,
+    url: firmato.data.signedUrl,
+    fileName: file.filename || riga.file_name,
   };
 }
 
