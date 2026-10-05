@@ -1,11 +1,13 @@
 "use client";
 
 import { useEffect, useRef, useState, useTransition } from "react";
+import { createPortal } from "react-dom";
 import {
   anteprimaSpesaAction,
   listProgettiSpesaAction,
   registraSpesaAction,
 } from "@/app/actions/spese";
+import { ScontrinoZoomPane } from "@/components/fiscale/ScontrinoZoomPane";
 import {
   CATEGORIE_SPESA,
   LABEL_CATEGORIA_SPESA,
@@ -23,6 +25,14 @@ import {
 
 const field =
   "w-full rounded-lg border border-[var(--border)] bg-white px-3 py-2 text-sm";
+
+function vistaDaFile(file: File): "image" | "pdf" | null {
+  if (file.type.startsWith("image/")) return "image";
+  if (file.type === "application/pdf" || file.name.toLowerCase().endsWith(".pdf")) {
+    return "pdf";
+  }
+  return null;
+}
 
 const vuoto = {
   esercente: "",
@@ -55,6 +65,7 @@ export function SpeseCaricamentoBoard() {
   const [tipo, setTipo] = useState<TipoCaricamentoSpesa>("scontrino");
   const [fileScelto, setFileScelto] = useState<File | null>(null);
   const [anteprimaUrl, setAnteprimaUrl] = useState<string | null>(null);
+  const [vistaFile, setVistaFile] = useState<"image" | "pdf" | null>(null);
   const [cameraAperta, setCameraAperta] = useState(false);
   const [anteprima, setAnteprima] = useState<AnteprimaSpesa | null>(null);
   const [form, setForm] = useState(vuoto);
@@ -75,7 +86,9 @@ export function SpeseCaricamentoBoard() {
 
   function impostaFile(file: File) {
     if (urlRef.current) URL.revokeObjectURL(urlRef.current);
-    urlRef.current = file.type.startsWith("image/") ? URL.createObjectURL(file) : null;
+    const vista = vistaDaFile(file);
+    urlRef.current = vista ? URL.createObjectURL(file) : null;
+    setVistaFile(vista);
     setAnteprimaUrl(urlRef.current);
     fileTenuto.current = file;
     setFileScelto(file);
@@ -96,6 +109,22 @@ export function SpeseCaricamentoBoard() {
       if (urlRef.current) URL.revokeObjectURL(urlRef.current);
     };
   }, []);
+
+  const inserimentoManuale = anteprima?.lettura === "manuale";
+
+  useEffect(() => {
+    if (!inserimentoManuale) return;
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    function onKey(event: KeyboardEvent) {
+      if (event.key === "Escape") setAnteprima(null);
+    }
+    window.addEventListener("keydown", onKey);
+    return () => {
+      document.body.style.overflow = prev;
+      window.removeEventListener("keydown", onKey);
+    };
+  }, [inserimentoManuale]);
 
   async function apriCamera() {
     setErrore(null);
@@ -230,6 +259,7 @@ export function SpeseCaricamentoBoard() {
       if (urlRef.current) URL.revokeObjectURL(urlRef.current);
       urlRef.current = null;
       setAnteprimaUrl(null);
+      setVistaFile(null);
       chiudiCamera();
       if (fileRef.current) fileRef.current.value = "";
       if (cameraFallbackRef.current) cameraFallbackRef.current.value = "";
@@ -350,19 +380,36 @@ export function SpeseCaricamentoBoard() {
         </button>
       </section>
 
-      {errore ? (
+      {!inserimentoManuale && errore ? (
         <p className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">
           {errore}
         </p>
       ) : null}
-      {msg ? (
+      {!inserimentoManuale && msg ? (
         <p className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-900">
           {msg}
         </p>
       ) : null}
 
-      {anteprima ? (
-        <section className="space-y-4 rounded-xl border border-[var(--border)] bg-white p-4">
+      {(() => {
+        const modulo = anteprima ? (
+        <section
+          className={
+            inserimentoManuale
+              ? "space-y-4"
+              : "space-y-4 rounded-xl border border-[var(--border)] bg-white p-4"
+          }
+        >
+          {inserimentoManuale && errore ? (
+            <p className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">
+              {errore}
+            </p>
+          ) : null}
+          {inserimentoManuale && msg ? (
+            <p className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-900">
+              {msg}
+            </p>
+          ) : null}
           <p className="text-sm text-slate-700">{anteprima.avviso}</p>
           {anteprima.uscitaImporto != null ? (
             <p className="text-sm font-medium text-slate-900">
@@ -617,7 +664,63 @@ export function SpeseCaricamentoBoard() {
             {pending ? "Registrazione…" : "Conferma e registra"}
           </button>
         </section>
-      ) : null}
+        ) : null;
+        if (
+          inserimentoManuale &&
+          anteprima &&
+          modulo &&
+          typeof document !== "undefined"
+        ) {
+          return createPortal(
+            <div
+              className="fixed inset-0 z-[90] flex flex-col bg-white"
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="scontrino-manuale-title"
+            >
+              <header className="flex shrink-0 items-center justify-between gap-3 border-b border-slate-200 px-4 py-3">
+                <div>
+                  <h2 id="scontrino-manuale-title" className="text-base font-semibold text-slate-900">
+                    Inserimento manuale dello scontrino
+                  </h2>
+                  <p className="text-xs text-slate-500">
+                    A sinistra il documento, a destra i dati da copiare e registrare.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setAnteprima(null)}
+                  className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-800 hover:bg-slate-50"
+                >
+                  Chiudi
+                </button>
+              </header>
+              <div className="grid min-h-0 flex-1 grid-cols-3">
+                <div className="relative col-span-1 min-h-0 border-r border-slate-200">
+                  <div className="absolute inset-0">
+                    {vistaFile === "image" && anteprimaUrl ? (
+                      <ScontrinoZoomPane src={anteprimaUrl} alt="Scontrino da compilare" />
+                    ) : vistaFile === "pdf" && anteprimaUrl ? (
+                      <iframe
+                        title="Scontrino"
+                        src={anteprimaUrl}
+                        className="h-full w-full border-0 bg-white"
+                      />
+                    ) : (
+                      <p className="p-4 text-sm text-slate-600">
+                        Questo file non ha un’anteprima visiva. I dati si compilano nel modulo a destra.
+                      </p>
+                    )}
+                  </div>
+                </div>
+                <div className="col-span-2 min-h-0 overflow-y-auto p-4">{modulo}</div>
+              </div>
+            </div>,
+            document.body
+          );
+        }
+        return modulo;
+      })()}
     </div>
   );
 }
