@@ -76,6 +76,8 @@ import {
 import {
   coordinateBancarieFallback,
   formatNumeroPreventivoDocumento,
+  PREVENTIVO_PRIMO_NUMERO_2026,
+  seqDaNumeroPreventivo,
   yearFromPreventivoData,
   type CoordinateBancarieAgrinsicilia,
 } from "@/lib/amministrazione/preventivo-letterhead";
@@ -277,13 +279,14 @@ async function nextSeqAnno(dataPreventivo: string): Promise<number> {
     .select("numero_interno")
     .is("deleted_at", null);
   if (error) throw new Error(error.message);
-  const re = new RegExp(`^(\\d+)/${year}$`);
   let max = 0;
   for (const row of data ?? []) {
-    const m = String(row.numero_interno).match(re);
-    if (m) max = Math.max(max, Number(m[1]));
+    const value = seqDaNumeroPreventivo(String(row.numero_interno ?? ""), year);
+    if (value != null && value > max) max = value;
   }
-  return max + 1;
+  const next = max + 1;
+  if (year === 2026) return Math.max(next, PREVENTIVO_PRIMO_NUMERO_2026);
+  return next;
 }
 
 export async function peekNextNumeroPreventivoAction(

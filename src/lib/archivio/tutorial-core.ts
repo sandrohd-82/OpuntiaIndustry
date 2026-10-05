@@ -549,7 +549,7 @@ export const TUTORIAL_CORE_ARTICLES: TutorialArticle[] = [
     sectionTitle: "Lotti e numerazioni",
     title: "Numeri ordine, fattura, preventivo, campionatura",
     summary:
-      "Ordini, preventivi e campionature: anno e targa. Fatture 2026: NN/ANNO (es. 23/2026). Dal 2027: 27/0001.",
+      "Ordini e campionature: anno e targa. Preventivi fino al 2026: N/ANNO (prossimo 96/2026); dal 2027: 27/001. Fatture 2026: NN/ANNO (es. 23/2026); dal 2027: 27/0001.",
     path: "/app/amministrazione/ordini/nuovo",
     tags: ["Or-", "Ft-", "Nc-", "Pv-", "Cp-", "numero interno"],
     blocks: [
@@ -558,7 +558,7 @@ export const TUTORIAL_CORE_ARTICLES: TutorialArticle[] = [
         headers: ["Prefisso", "Cosa", "Esempio"],
         rows: [
           ["Or-", "Ordine (anche se è una campionatura-ordine)", "Or-26-C003/391"],
-          ["Pv-", "Preventivo", "Pv-26-C003/12"],
+          ["—", "Preventivo", "96/2026 fino al 2026, poi 27/001"],
           ["Ft-", "Fattura emessa", "23/2026 fino al 2026, poi 27/0001"],
           ["Nc-", "Nota di credito", "Nc-26-C005/2"],
           ["Cp-", "Campionatura", "Cp-26-C003/1"],
@@ -566,7 +566,7 @@ export const TUTORIAL_CORE_ARTICLES: TutorialArticle[] = [
       },
       {
         type: "p",
-        text: "Si legge: tipo + anno a due cifre + targa del cliente (o fornitore se è un documento di acquisto) + progressivo di quella coppia anno/targa. Il 391 di C003 non è lo stesso 391 di C005.",
+        text: "Ordini, note di credito e campionature: tipo + anno a due cifre + targa del cliente (o fornitore se è un documento di acquisto) + progressivo di quella coppia anno/targa. Il 391 di C003 non è lo stesso 391 di C005. I preventivi, fino al 31/12/2026, sono N/ANNO (il prossimo è 96/2026); dal 01/01/2027, in base alla data del documento, diventano AA/NNN (27/001). Le fatture emesse restano NN/ANNO fino al 2026 e dal 2027 sono YY/CCCC (27/0001).",
       },
       {
         type: "p",

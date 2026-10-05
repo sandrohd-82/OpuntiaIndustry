@@ -82,12 +82,39 @@ export function yearFromPreventivoData(isoDate: string): number {
     : new Date().getFullYear();
 }
 
-/** Numero documento visibile: N/ANNO (es. 12/2026). */
+/** Primo numero del 2026 dopo l'azzeramento dei preventivi di prova. */
+export const PREVENTIVO_PRIMO_NUMERO_2026 = 96;
+
+/**
+ * Numero documento visibile.
+ * Fino al 31/12/2026: N/ANNO (es. 96/2026).
+ * Dal 01/01/2027, in base alla data del preventivo: AA/NNN (es. 27/001).
+ */
 export function formatNumeroPreventivoDocumento(
   seq: number,
   year: number
 ): string {
-  return `${seq}/${year}`;
+  if (year >= 2027) {
+    const yy = String(year % 100).padStart(2, "0");
+    return `${yy}/${String(Math.trunc(seq)).padStart(3, "0")}`;
+  }
+  return `${Math.trunc(seq)}/${year}`;
+}
+
+/** Progressivo già usato in un numero salvato, oppure null se il formato non è dell'anno. */
+export function seqDaNumeroPreventivo(
+  numero: string,
+  year: number
+): number | null {
+  const value = numero.trim();
+  const pattern =
+    year >= 2027
+      ? new RegExp(`^${String(year % 100).padStart(2, "0")}/(\\d+)$`)
+      : new RegExp(`^(\\d+)/${year}$`);
+  const match = pattern.exec(value);
+  if (!match?.[1]) return null;
+  const seq = Number(match[1]);
+  return Number.isInteger(seq) && seq > 0 ? seq : null;
 }
 
 export function formatDestinatarioIndirizzo(sede: SedeCliente): {
