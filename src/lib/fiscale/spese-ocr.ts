@@ -126,7 +126,7 @@ export function anteprimaDaLettura(
     }));
   let imponibile = euro(lettura.imponibile);
   let imposta = euro(lettura.imposta);
-  let totale = euro(lettura.totale);
+  const totale = euro(lettura.totale);
   const aliquotaIva = lettura.aliquotaIva;
   if (totale != null && aliquotaIva != null && imponibile == null) {
     imponibile = roundMoney(totale / (1 + aliquotaIva / 100));
