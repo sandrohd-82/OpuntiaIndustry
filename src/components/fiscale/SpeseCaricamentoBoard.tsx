@@ -16,6 +16,7 @@ import {
   LABEL_TIPO_PROGETTO,
   PAGAMENTI_SPESA,
   TIPI_CARICAMENTO_SPESA,
+  calcolaRigheScontrino,
   categoriaRichiedeCausale,
   type AnteprimaSpesa,
   type CategoriaSpesa,
@@ -55,6 +56,33 @@ const vuoto = {
   modalitaPagamento: "carta_aziendale",
 };
 
+type RigaForm = {
+  key: string;
+  descrizione: string;
+  imponibile: string;
+  aliquotaIva: string;
+};
+
+function rigaVuota(partial?: {
+  descrizione?: string;
+  imponibile?: string;
+  aliquotaIva?: string;
+}): RigaForm {
+  return {
+    key: crypto.randomUUID(),
+    descrizione: partial?.descrizione ?? "",
+    imponibile: partial?.imponibile ?? "",
+    aliquotaIva: partial?.aliquotaIva ?? "22",
+  };
+}
+
+function decimale(raw: string): number | null {
+  const testo = raw.trim().replace(",", ".");
+  if (!testo) return null;
+  const valore = Number(testo);
+  return Number.isFinite(valore) ? valore : null;
+}
+
 export function SpeseCaricamentoBoard() {
   const fileRef = useRef<HTMLInputElement>(null);
   const cameraFallbackRef = useRef<HTMLInputElement>(null);
@@ -69,6 +97,7 @@ export function SpeseCaricamentoBoard() {
   const [cameraAperta, setCameraAperta] = useState(false);
   const [anteprima, setAnteprima] = useState<AnteprimaSpesa | null>(null);
   const [form, setForm] = useState(vuoto);
+  const [righe, setRighe] = useState<RigaForm[]>(() => [rigaVuota()]);
   const [progetti, setProgetti] = useState<SpesaProgettoView[]>([]);
   const [msg, setMsg] = useState<string | null>(null);
   const [errore, setErrore] = useState<string | null>(null);
@@ -209,6 +238,19 @@ export function SpeseCaricamentoBoard() {
         nazione: a.nazione,
         valuta: a.valuta || "EUR",
       });
+      if (tipo === "scontrino") {
+        const lette = a.righe
+          .filter((riga) => riga.descrizione || riga.imponibile != null)
+          .map((riga) =>
+            rigaVuota({
+              descrizione: riga.descrizione,
+              imponibile: riga.imponibile != null ? String(riga.imponibile) : "",
+              aliquotaIva:
+                riga.aliquotaIva != null ? String(riga.aliquotaIva) : "22",
+            })
+          );
+        setRighe(lette.length ? lette : [rigaVuota()]);
+      }
     });
   }
 
@@ -229,10 +271,45 @@ export function SpeseCaricamentoBoard() {
     body.set("partitaIva", form.partitaIva);
     body.set("dataDocumento", form.dataDocumento);
     body.set("giustificazione", form.giustificazione);
-    body.set("imponibile", form.imponibile);
-    body.set("aliquotaIva", form.aliquotaIva);
-    body.set("imposta", form.imposta);
-    body.set("totale", form.totale);
+    if (tipo === "scontrino") {
+      const input = [];
+      for (const riga of righe) {
+        const imponibile = decimale(riga.imponibile);
+        const aliquotaIva = decimale(riga.aliquotaIva);
+        if (!riga.descrizione.trim()) {
+          setErrore("Ogni riga ha una descrizione.");
+          return;
+        }
+        if (imponibile == null || imponibile < 0) {
+          setErrore("Inserisci l'imponibile di ogni riga.");
+          return;
+        }
+        if (aliquotaIva == null || aliquotaIva < 0 || aliquotaIva > 100) {
+          setErrore("L'aliquota IVA di ogni riga deve essere tra 0 e 100.");
+          return;
+        }
+        input.push({
+          descrizione: riga.descrizione.trim(),
+          imponibile,
+          aliquotaIva,
+        });
+      }
+      const calc = calcolaRigheScontrino(input);
+      if (calc.totale <= 0) {
+        setErrore("Il totale calcolato deve essere maggiore di zero.");
+        return;
+      }
+      body.set("imponibile", String(calc.imponibile));
+      body.set("aliquotaIva", String(calc.aliquotaIva));
+      body.set("imposta", String(calc.imposta));
+      body.set("totale", String(calc.totale));
+      body.set("righe", JSON.stringify(input));
+    } else {
+      body.set("imponibile", form.imponibile);
+      body.set("aliquotaIva", form.aliquotaIva);
+      body.set("imposta", form.imposta);
+      body.set("totale", form.totale);
+    }
     body.set("valuta", form.valuta);
     body.set("importoValuta", form.importoValuta);
     body.set("cambio", form.cambio);
@@ -254,6 +331,7 @@ export function SpeseCaricamentoBoard() {
       setMsg("Spesa registrata. La trovi in Area fiscale → Gestione Piccole Spese.");
       setAnteprima(null);
       setForm(vuoto);
+      setRighe([rigaVuota()]);
       fileTenuto.current = null;
       setFileScelto(null);
       if (urlRef.current) URL.revokeObjectURL(urlRef.current);
@@ -419,7 +497,7 @@ export function SpeseCaricamentoBoard() {
                 : " · IVA dello scontrino inclusa nel costo, non detraibile."}
             </p>
           ) : null}
-          {anteprima.righe.length ? (
+          {tipo !== "scontrino" && anteprima.righe.length ? (
             <ul className="space-y-1 text-sm text-slate-700">
               {anteprima.righe.map((riga, index) => (
                 <li key={`${riga.descrizione}-${index}`} className="flex justify-between gap-3">
@@ -513,6 +591,133 @@ export function SpeseCaricamentoBoard() {
                 onChange={(e) => patch({ giustificazione: e.target.value })}
               />
             </label>
+            {tipo === "scontrino" ? (
+              <div className="space-y-2 sm:col-span-2">
+                <div className="flex items-center justify-between gap-2">
+                  <p className="text-sm font-medium text-slate-800">Righe</p>
+                  <button
+                    type="button"
+                    onClick={() => setRighe((prev) => [...prev, rigaVuota()])}
+                    className="rounded-lg border border-slate-300 bg-white px-2 py-1 text-xs font-medium text-slate-800 hover:bg-slate-50"
+                  >
+                    Aggiungi riga
+                  </button>
+                </div>
+                <div className="overflow-x-auto rounded-lg border border-slate-200">
+                  <table className="w-full min-w-[520px] border-collapse text-left text-sm">
+                    <thead className="bg-slate-50 text-xs text-slate-600">
+                      <tr>
+                        <th className="px-2 py-2">Descrizione</th>
+                        <th className="px-2 py-2">Imponibile</th>
+                        <th className="px-2 py-2">% IVA</th>
+                        <th className="px-2 py-2 text-right">Totale</th>
+                        <th className="px-2 py-2" />
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {righe.map((riga) => {
+                        const imponibile = decimale(riga.imponibile) ?? 0;
+                        const aliquotaIva = decimale(riga.aliquotaIva) ?? 0;
+                        const calc = calcolaRigheScontrino([
+                          {
+                            descrizione: riga.descrizione || "Voce",
+                            imponibile,
+                            aliquotaIva,
+                          },
+                        ]);
+                        const totaleRiga = calc.righe[0]?.totale ?? 0;
+                        return (
+                          <tr key={riga.key} className="border-t border-slate-100">
+                            <td className="px-2 py-2">
+                              <input
+                                className={field}
+                                value={riga.descrizione}
+                                onChange={(e) =>
+                                  setRighe((prev) =>
+                                    prev.map((item) =>
+                                      item.key === riga.key
+                                        ? { ...item, descrizione: e.target.value }
+                                        : item
+                                    )
+                                  )
+                                }
+                              />
+                            </td>
+                            <td className="w-28 px-2 py-2">
+                              <input
+                                className={field}
+                                inputMode="decimal"
+                                value={riga.imponibile}
+                                onChange={(e) =>
+                                  setRighe((prev) =>
+                                    prev.map((item) =>
+                                      item.key === riga.key
+                                        ? { ...item, imponibile: e.target.value }
+                                        : item
+                                    )
+                                  )
+                                }
+                              />
+                            </td>
+                            <td className="w-24 px-2 py-2">
+                              <input
+                                className={field}
+                                inputMode="decimal"
+                                value={riga.aliquotaIva}
+                                onChange={(e) =>
+                                  setRighe((prev) =>
+                                    prev.map((item) =>
+                                      item.key === riga.key
+                                        ? { ...item, aliquotaIva: e.target.value }
+                                        : item
+                                    )
+                                  )
+                                }
+                              />
+                            </td>
+                            <td className="px-2 py-2 text-right tabular-nums">
+                              {totaleRiga.toLocaleString("it-IT", {
+                                style: "currency",
+                                currency: "EUR",
+                              })}
+                            </td>
+                            <td className="px-2 py-2">
+                              <button
+                                type="button"
+                                disabled={righe.length === 1}
+                                onClick={() =>
+                                  setRighe((prev) =>
+                                    prev.filter((item) => item.key !== riga.key)
+                                  )
+                                }
+                                className="text-xs text-red-700 disabled:opacity-40"
+                              >
+                                Togli
+                              </button>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+                <p className="text-sm text-slate-800">
+                  {(() => {
+                    const calc = calcolaRigheScontrino(
+                      righe.map((riga) => ({
+                        descrizione: riga.descrizione || "Voce",
+                        imponibile: decimale(riga.imponibile) ?? 0,
+                        aliquotaIva: decimale(riga.aliquotaIva) ?? 0,
+                      }))
+                    );
+                    const euro = (n: number) =>
+                      n.toLocaleString("it-IT", { style: "currency", currency: "EUR" });
+                    return `Imponibile ${euro(calc.imponibile)} · IVA ${euro(calc.imposta)} · Totale ${euro(calc.totale)}`;
+                  })()}
+                </p>
+              </div>
+            ) : (
+              <>
             <label className="block text-sm">
               <span className="mb-1 block text-xs font-medium text-[var(--muted)]">
                 Imponibile €
@@ -557,6 +762,8 @@ export function SpeseCaricamentoBoard() {
                 onChange={(e) => patch({ totale: e.target.value })}
               />
             </label>
+              </>
+            )}
             {tipo === "fattura_estera" ? (
               <>
                 <label className="block text-sm">

@@ -125,8 +125,29 @@ export const spesaRegistrazioneSchema = z
     progettoId: z.string().uuid().nullable().default(null),
     note: z.string().trim().max(1000).default(""),
     letturaAutomatica: z.boolean().default(false),
+    righe: z
+      .array(
+        z.object({
+          descrizione: z
+            .string()
+            .trim()
+            .min(1, "Ogni riga ha una descrizione.")
+            .max(300),
+          imponibile: z.number().min(0).max(1_000_000),
+          aliquotaIva: z.number().min(0).max(100),
+        })
+      )
+      .max(80)
+      .default([]),
   })
   .superRefine((value, ctx) => {
+    if (value.tipoCaricamento === "scontrino" && value.righe.length === 0) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["righe"],
+        message: "Aggiungi almeno una riga con descrizione, imponibile e IVA.",
+      });
+    }
     if (
       categoriaRichiedeCausale(value.categoria) &&
       value.giustificazione.length === 0
@@ -206,7 +227,60 @@ export type SpesaDocumentoView = {
   letturaAutomatica: boolean;
   note: string;
   contabilizzatoAt: string | null;
+  righe: SpesaRigaView[];
 };
+
+export type SpesaRigaView = {
+  descrizione: string;
+  imponibile: number;
+  aliquotaIva: number;
+  imposta: number;
+  totale: number;
+};
+
+export type RigaScontrinoInput = {
+  descrizione: string;
+  imponibile: number;
+  aliquotaIva: number;
+};
+
+export type RigaScontrinoCalcolata = RigaScontrinoInput & {
+  imposta: number;
+  totale: number;
+};
+
+function euro2(value: number): number {
+  return Math.round((value + Number.EPSILON) * 100) / 100;
+}
+
+/** Imposta e totale di riga si calcolano da imponibile e aliquota. */
+export function calcolaRigheScontrino(righe: RigaScontrinoInput[]): {
+  righe: RigaScontrinoCalcolata[];
+  imponibile: number;
+  aliquotaIva: number;
+  imposta: number;
+  totale: number;
+} {
+  const calcolate = righe.map((riga) => {
+    const imponibile = euro2(riga.imponibile);
+    const aliquotaIva = euro2(riga.aliquotaIva);
+    const imposta = euro2(imponibile * (aliquotaIva / 100));
+    const totale = euro2(imponibile + imposta);
+    return {
+      descrizione: riga.descrizione.trim(),
+      imponibile,
+      aliquotaIva,
+      imposta,
+      totale,
+    };
+  });
+  const imponibile = euro2(calcolate.reduce((sum, riga) => sum + riga.imponibile, 0));
+  const imposta = euro2(calcolate.reduce((sum, riga) => sum + riga.imposta, 0));
+  const totale = euro2(imponibile + imposta);
+  const aliquote = [...new Set(calcolate.map((riga) => riga.aliquotaIva))];
+  const aliquotaIva = aliquote.length === 1 ? (aliquote[0] ?? 0) : 0;
+  return { righe: calcolate, imponibile, aliquotaIva, imposta, totale };
+}
 
 export type SpesaProgettoView = {
   id: string;

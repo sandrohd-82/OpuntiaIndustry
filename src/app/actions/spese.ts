@@ -9,12 +9,14 @@ import { leggiScontrinoGemini, qualificaScontrino } from "@/lib/fiscale/spese-oc
 import {
   SPESE_BUCKET,
   SPESE_MAX_BYTES,
+  calcolaRigheScontrino,
   spesaRegistrazioneSchema,
   progettoSpesaSchema,
   type AnteprimaSpesa,
   type CategoriaSpesa,
   type PagamentoSpesa,
   type SpesaDocumentoView,
+  type SpesaRigaView,
   type SpesaProgettoView,
   type StatoProgettoSpesa,
   type StatoSpesa,
@@ -152,7 +154,48 @@ function vista(row: DocRow, titoli: Map<string, string>): SpesaDocumentoView {
     letturaAutomatica: Boolean(row.lettura_automatica),
     note: row.note ?? "",
     contabilizzatoAt: row.contabilizzato_at,
+    righe: [],
   };
+}
+
+async function attachRighe(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  spese: SpesaDocumentoView[]
+): Promise<SpesaDocumentoView[]> {
+  const ids = spese
+    .filter((spesa) => spesa.tipoCaricamento === "scontrino")
+    .map((spesa) => spesa.id);
+  if (!ids.length) return spese;
+  const { data } = await supabase
+    .from("spese_documenti_righe")
+    .select("documento_id, descrizione, imponibile, aliquota_iva, imposta, totale, sort_order")
+    .in("documento_id", ids)
+    .is("deleted_at", null)
+    .order("sort_order", { ascending: true });
+  const map = new Map<string, SpesaRigaView[]>();
+  for (const raw of data ?? []) {
+    const row = raw as {
+      documento_id: string;
+      descrizione: string;
+      imponibile: number | string;
+      aliquota_iva: number | string;
+      imposta: number | string;
+      totale: number | string;
+    };
+    const list = map.get(row.documento_id) ?? [];
+    list.push({
+      descrizione: row.descrizione,
+      imponibile: num(row.imponibile),
+      aliquotaIva: num(row.aliquota_iva),
+      imposta: num(row.imposta),
+      totale: num(row.totale),
+    });
+    map.set(row.documento_id, list);
+  }
+  return spese.map((spesa) => ({
+    ...spesa,
+    righe: map.get(spesa.id) ?? [],
+  }));
 }
 
 const DOC_SELECT =
@@ -231,6 +274,44 @@ export async function registraSpesaAction(
   const letto = await fileDaForm(form);
   if (!letto.ok) return { success: false, error: letto.error };
   const tipo = campo(form, "tipoCaricamento");
+  let imponibile = numero(form, "imponibile");
+  let aliquotaIva = numero(form, "aliquotaIva");
+  let imposta = numero(form, "imposta");
+  let totale = numero(form, "totale");
+  let righe: unknown = [];
+  if (tipo === "scontrino") {
+    const rawRighe = campo(form, "righe");
+    let parsedRighe: unknown;
+    try {
+      parsedRighe = rawRighe ? JSON.parse(rawRighe) : [];
+    } catch {
+      return { success: false, error: "Righe dello scontrino non valide." };
+    }
+    if (!Array.isArray(parsedRighe) || parsedRighe.length === 0) {
+      return {
+        success: false,
+        error: "Aggiungi almeno una riga con descrizione, imponibile e IVA.",
+      };
+    }
+    const bozza = parsedRighe.map((riga) => {
+      const row = riga as {
+        descrizione?: unknown;
+        imponibile?: unknown;
+        aliquotaIva?: unknown;
+      };
+      return {
+        descrizione: String(row.descrizione ?? ""),
+        imponibile: Number(row.imponibile),
+        aliquotaIva: Number(row.aliquotaIva),
+      };
+    });
+    const calc = calcolaRigheScontrino(bozza);
+    imponibile = calc.imponibile;
+    aliquotaIva = calc.aliquotaIva;
+    imposta = calc.imposta;
+    totale = calc.totale;
+    righe = bozza;
+  }
   const parsed = spesaRegistrazioneSchema.safeParse({
     tipoCaricamento: tipo,
     categoria: campo(form, "categoria"),
@@ -239,10 +320,10 @@ export async function registraSpesaAction(
     partitaIva: campo(form, "partitaIva"),
     dataDocumento: campo(form, "dataDocumento"),
     giustificazione: campo(form, "giustificazione"),
-    imponibile: numero(form, "imponibile"),
-    aliquotaIva: numero(form, "aliquotaIva"),
-    imposta: numero(form, "imposta"),
-    totale: numero(form, "totale"),
+    imponibile,
+    aliquotaIva,
+    imposta,
+    totale,
     valuta: campo(form, "valuta") || "EUR",
     importoValuta: numeroONull(form, "importoValuta"),
     cambio: numeroONull(form, "cambio"),
@@ -252,6 +333,7 @@ export async function registraSpesaAction(
     progettoId: campo(form, "progettoId") || null,
     note: campo(form, "note"),
     letturaAutomatica: campo(form, "letturaAutomatica") === "true",
+    righe,
   });
   if (!parsed.success) {
     return {
@@ -358,6 +440,36 @@ export async function registraSpesaAction(
     return { success: false, error: error?.message ?? "Registrazione non riuscita." };
   }
 
+  if (input.tipoCaricamento === "scontrino") {
+    const calc = calcolaRigheScontrino(input.righe);
+    const { error: righeErr } = await supabase.from("spese_documenti_righe").insert(
+      calc.righe.map((riga, index) => ({
+        documento_id: data.id,
+        sort_order: index,
+        descrizione: riga.descrizione,
+        imponibile: riga.imponibile,
+        aliquota_iva: riga.aliquotaIva,
+        imposta: riga.imposta,
+        totale: riga.totale,
+        created_by: auth.userId,
+        updated_by: auth.userId,
+      }))
+    );
+    if (righeErr) {
+      const now = new Date().toISOString();
+      await supabase
+        .from("spese_documenti")
+        .update({
+          deleted_at: now,
+          deleted_by: auth.userId,
+          updated_by: auth.userId,
+        })
+        .eq("id", data.id);
+      await admin.storage.from(SPESE_BUCKET).remove([path]);
+      return { success: false, error: righeErr.message };
+    }
+  }
+
   await writeAuditLog({
     entity_type: "spese_documenti",
     entity_id: data.id,
@@ -373,6 +485,7 @@ export async function registraSpesaAction(
       valenza_fiscale: valenzaFiscale,
       progetto_id: input.progettoId,
       stato: "registrato",
+      righe: input.tipoCaricamento === "scontrino" ? input.righe.length : 0,
     },
   });
   return { success: true, id: String(data.id) };
@@ -415,7 +528,13 @@ export async function listSpeseAction(raw: {
       .in("id", ids);
     for (const p of progetti ?? []) titoli.set(String(p.id), String(p.titolo ?? ""));
   }
-  return { success: true, spese: rows.map((r) => vista(r, titoli)) };
+  return {
+    success: true,
+    spese: await attachRighe(
+      supabase,
+      rows.map((r) => vista(r, titoli))
+    ),
+  };
 }
 
 export async function listProgettiSpesaAction(): Promise<
@@ -505,7 +624,10 @@ export async function dettaglioProgettoSpesaAction(id: string): Promise<
     .limit(200);
   if (libErr) return { success: false, error: libErr.message };
   const titoli = new Map<string, string>([[id, String(progetto.titolo ?? "")]]);
-  const collegate = ((collegateRows ?? []) as DocRow[]).map((r) => vista(r, titoli));
+  const collegate = await attachRighe(
+    supabase,
+    ((collegateRows ?? []) as DocRow[]).map((r) => vista(r, titoli))
+  );
   const acc = new Map<CategoriaSpesa, number>();
   for (const s of collegate) {
     if (s.stato === "annullato") continue;

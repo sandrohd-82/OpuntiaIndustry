@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useTransition } from "react";
+import { Fragment, useEffect, useState, useTransition } from "react";
 import {
   annullaSpesaAction,
   contabilizzaSpesaAction,
@@ -196,7 +196,8 @@ export function SpeseRegistroBoard() {
               </tr>
             ) : (
               spese.map((s) => (
-                <tr key={s.id} className="border-t border-slate-100">
+                <Fragment key={s.id}>
+                <tr className="border-t border-slate-100">
                   <td className="px-3 py-2 whitespace-nowrap">
                     {formatDateIt(s.dataDocumento)}
                   </td>
@@ -257,6 +258,39 @@ export function SpeseRegistroBoard() {
                     </div>
                   </td>
                 </tr>
+                {s.tipoCaricamento === "scontrino" && s.righe.length ? (
+                  <tr className="border-t border-slate-100 bg-slate-50">
+                    <td colSpan={9} className="px-3 py-2">
+                      <table className="w-full text-xs">
+                        <thead>
+                          <tr className="text-slate-500">
+                            <th className="py-1 text-left font-medium">Descrizione</th>
+                            <th className="py-1 text-right font-medium">Imponibile</th>
+                            <th className="py-1 text-right font-medium">% IVA</th>
+                            <th className="py-1 text-right font-medium">Totale</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {s.righe.map((riga, index) => (
+                            <tr key={`${s.id}-${index}`}>
+                              <td className="py-1 pr-3">{riga.descrizione}</td>
+                              <td className="py-1 text-right tabular-nums">
+                                {formatEuro(riga.imponibile)}
+                              </td>
+                              <td className="py-1 text-right tabular-nums">
+                                {riga.aliquotaIva}
+                              </td>
+                              <td className="py-1 text-right tabular-nums">
+                                {formatEuro(riga.totale)}
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </td>
+                  </tr>
+                ) : null}
+                </Fragment>
               ))
             )}
           </tbody>
