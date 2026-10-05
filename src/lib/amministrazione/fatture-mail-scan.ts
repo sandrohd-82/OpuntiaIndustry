@@ -62,7 +62,13 @@ export function allegatoSembraFattura(input: {
   if (!extOk) return false;
   const piccolo = input.sizeBytes > 0 && input.sizeBytes < 80_000;
   const nomeLogo = /^(logo|signature|firma|image\d*|cid-)/.test(name);
-  if (input.isInline && piccolo && !PAROLA_FATTURA.test(name)) return false;
+  const immagine = mime.startsWith("image/") || /\.(jpe?g|png|webp|gif|heic|bmp)$/.test(name);
+  const nomeFattura = /\b(fattur|invoice|scontrin|receipt|rechnung)\b/i.test(name);
+  if (immagine && !nomeFattura) return false;
+  if (/privacy|trattamento|policy|report_|challenge|logo|opuntiaitalia/i.test(name)) {
+    return false;
+  }
+  if (input.isInline && piccolo && !nomeFattura) return false;
   if (nomeLogo && piccolo) return false;
   return true;
 }
@@ -204,7 +210,7 @@ export function estraiDaXmlFattura(xml: string): EstrattoFatturaMail | null {
 
 export function estraiDaTestoFattura(testo: string): EstrattoFatturaMail {
   const numeroMatch =
-    /(?:fattura|invoice|n(?:umero|\.)?\s*(?:doc(?:umento)?|fattura)?)\s*[:\s°]*([A-Z0-9][A-Z0-9./-]{1,40})/i.exec(
+    /(?:fattura|invoice|n(?:umero|\.)\s*(?:doc(?:umento)?|fattura)?)\s*[:\s°]*([A-Z0-9][A-Z0-9./-]*\d[A-Z0-9./-]{0,40})/i.exec(
       testo
     );
   const pivaMatch =
@@ -238,21 +244,36 @@ export function unisciEstratto(
 }
 
 const PROFORMA = /\bpro[\s-]?forma\b/i;
+const COPIA_FATTURA = /\bcopia\s+(?:della\s+)?fattura\b/i;
 const ITALIANA_SDI =
-  /\bfattura\s+elettronica\b|\bcodice\s+destinatario\b|\btrasmess[oa]\s+(?:allo\s+)?sdi\b|\bregime\s+fiscale\b|\bcopia\s+(?:di\s+)?cortesia\b/i;
+  /\bfattura\s+elettronica\b|\bcodice\s+destinatario\b|\btrasmess[oa]\s+(?:allo\s+)?sdi\b|\bregime\s+fiscale\b|\bcopia\s+(?:di\s+)?cortesia\b|\bfattura\s+accompagnatoria\b|\bfattura\s+di\s+canone\b|\bnostra\s+fattura\b|\bdocumento\s+di\s+fatturazione\b/i;
 const FORMA_ITALIANA =
   /\bS\.?\s*r\.?\s*l\.?\b|\bS\.?\s*p\.?\s*a\.?\b|\bS\.?\s*n\.?\s*c\.?\b|\bS\.?\s*a\.?\s*s\.?\b|\bitalia\b|\bitaly\b/i;
 const NON_FATTURA =
-  /\bconferma\s+spedizione\b|\blettera\s*di\s*vettura\b|\bterms(?:\s+|_)and(?:\s+|_)conditions\b|\bcondizioni\s+generali\b|\bdisposizione\b|\bbonifico\b|\bfatturato\b|\bchallenge\s*test\b|\bcontrollo\s+fattura\b/i;
+  /\bconferma\s+spedizione\b|\blettera\s*di\s*vettura\b|\bterms(?:\s+|_)and(?:\s+|_)conditions\b|\bcondizioni\s+generali\b|\bdisposizione\b|\bbonifico\b|\bfatturato\b|\bchallenge[_\s-]*test\b|\breport[_\s-]|\bcontrollo\s+fattura\b|\bprivacy\b|\btrattamento\s+dei\s+dati\b|\breminder\b/i;
+const DOMINI_NOSTRI = ["agrinsicilia.com", "opuntiaitalia.com", "opuntiamed.it"];
 
 function paeseCedenteXml(xml: string): string {
   const cedente = xmlBlocks(xml, "CedentePrestatore")[0] ?? "";
   return xmlText(cedente, "IdPaese").trim().toUpperCase();
 }
 
+function dominioEmail(email: string): string {
+  return email.trim().toLowerCase().split("@")[1] ?? "";
+}
+
 function emailItaliana(email: string): boolean {
-  const dominio = email.trim().toLowerCase().split("@")[1] ?? "";
+  const dominio = dominioEmail(email);
   return dominio.endsWith(".it") || dominio.endsWith("fattureincloud.it");
+}
+
+function emailNostra(email: string): boolean {
+  const dominio = dominioEmail(email);
+  return DOMINI_NOSTRI.some((n) => dominio === n || dominio.endsWith(`.${n}`));
+}
+
+function oggettoSenzaInoltro(oggetto: string): string {
+  return oggetto.replace(/^(?:\s*(?:re|fw|fwd|r|i)\s*:\s*)+/i, "").trim();
 }
 
 /**
@@ -269,11 +290,25 @@ export function motivoEsclusioneMailFattura(input: {
   pivaCedente?: string | null;
 }): "proforma" | "italiana_sdi" | "non_fattura" | null {
   const nome = input.fileName.trim();
-  const presentazione = `${input.oggetto ?? ""}\n${input.mittente ?? ""}\n${nome}`;
+  const oggetto = input.oggetto ?? "";
+  const presentazione = `${oggetto}\n${input.mittente ?? ""}\n${nome}`;
   const blob = `${presentazione}\n${input.testo ?? ""}`;
   if (PROFORMA.test(blob)) return "proforma";
-  if (NON_FATTURA.test(presentazione) || /letteradivettura|terms_and_conditions/i.test(nome)) {
+  if (emailNostra(input.emailMittente ?? "")) return "non_fattura";
+  if (
+    NON_FATTURA.test(presentazione) ||
+    /letteradivettura|terms_and_conditions|privacy|trattamento|policy/i.test(nome) ||
+    /\.(jpe?g|png|gif|webp|heic|bmp)$/i.test(nome)
+  ) {
     return "non_fattura";
+  }
+  const oggettoPulito = oggettoSenzaInoltro(oggetto);
+  const oggettoParlaDiFattura = PAROLA_FATTURA.test(oggettoPulito);
+  if (/^(?:re|fw|fwd)\s*:/i.test(oggetto) && !oggettoParlaDiFattura) {
+    return "non_fattura";
+  }
+  if (COPIA_FATTURA.test(presentazione) || /^fattura[_\-\s]/i.test(nome)) {
+    return "italiana_sdi";
   }
   const xml = input.xml ?? "";
   if (/FatturaElettronica/i.test(xml)) {
