@@ -613,6 +613,7 @@ export async function createOrdineAction(
       documento_stato: "registrato",
       versione: 1,
       tipo: "vendita",
+      is_test: false,
       created_by: auth.userId,
       updated_by: auth.userId,
     };

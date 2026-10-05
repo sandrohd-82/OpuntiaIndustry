@@ -8,10 +8,7 @@ import {
   FaPlus,
   FaTrash,
 } from "react-icons/fa6";
-import {
-  getOrdineAllegatoSignedUrlAction,
-  purgeOrdiniTestAction,
-} from "@/app/actions/ordini";
+import { getOrdineAllegatoSignedUrlAction } from "@/app/actions/ordini";
 import { approveOrdineScontoAction } from "@/app/actions/ordine-sconto";
 import { approveScontoSuddivisioneOrdineAction } from "@/app/actions/sconto-suddivisione";
 import { ActionGate } from "@/components/layout/ActionAccessProvider";
@@ -315,8 +312,6 @@ type Props = {
   useWizardCreate?: boolean;
   /** Due azioni: Crea ordine / Invio campionatura */
   dualCreateActions?: boolean;
-  /** Pulsante soft-purge dati is_test */
-  showPurgeTest?: boolean;
   /** Coda processazione: mostra Processa */
   processMode?: boolean;
   /** Filtra vendita / campionatura */
@@ -338,7 +333,6 @@ export function OrdiniBoard({
   loadingLabel,
   useWizardCreate = false,
   dualCreateActions = false,
-  showPurgeTest = false,
   processMode = false,
   tipo,
   showCreate,
@@ -359,8 +353,6 @@ export function OrdiniBoard({
   const [deleting, setDeleting] = useState<Ordine | null>(null);
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
-  const [purgeBusy, setPurgeBusy] = useState(false);
-  const [purgeMsg, setPurgeMsg] = useState<string | null>(null);
   const [processing, setProcessing] = useState<Ordine | null>(null);
   const [approvingId, setApprovingId] = useState<string | null>(null);
   const [campionaturaTick, setCampionaturaTick] = useState(0);
@@ -425,39 +417,6 @@ export function OrdiniBoard({
       <div className="flex flex-wrap items-center justify-between gap-3">
         <p className="text-sm text-[var(--muted)]">{description}</p>
         <div className="flex flex-wrap items-center gap-2">
-          {showPurgeTest ? (
-            <button
-              type="button"
-              disabled={purgeBusy}
-              onClick={() => {
-                void (async () => {
-                  if (
-                    !window.confirm(
-                      "Eliminare (soft delete) tutti i dati di test ordini, movimenti magazzino e osservazioni resa? La configurazione essiccatori/rese non viene toccata."
-                    )
-                  ) {
-                    return;
-                  }
-                  setPurgeBusy(true);
-                  setPurgeMsg(null);
-                  setActionError(null);
-                  const result = await purgeOrdiniTestAction();
-                  setPurgeBusy(false);
-                  if (!result.success) {
-                    setActionError(result.error);
-                    return;
-                  }
-                  setPurgeMsg(
-                    `Pulizia ok: ${result.purged.ordini} ordini, ${result.purged.movimenti} movimenti, ${result.purged.osservazioni} osservazioni, ${result.purged.giacenze} giacenze.`
-                  );
-                  await refresh();
-                })();
-              }}
-              className="inline-flex items-center gap-2 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2.5 text-sm font-medium text-amber-900 hover:bg-amber-100 disabled:opacity-50"
-            >
-              {purgeBusy ? "Pulizia…" : "Pulisci dati test"}
-            </button>
-          ) : null}
           {canCreate && dualCreateActions ? (
             <>
               <ActionGate actionKey={AZ.creaOrdine}>
@@ -516,11 +475,6 @@ export function OrdiniBoard({
           {actionError || error}
         </p>
       )}
-      {purgeMsg ? (
-        <p className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-800">
-          {purgeMsg}
-        </p>
-      ) : null}
 
       {ordini.length === 0 ? (
         <div className="rounded-xl border border-dashed border-[var(--border)] bg-[var(--card)] p-10 text-center">

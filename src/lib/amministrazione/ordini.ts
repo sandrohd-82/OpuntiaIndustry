@@ -475,7 +475,7 @@ export function mapOrdineRow(
       : [],
     capacitaSnapshot:
       (row.capacita_snapshot as Record<string, unknown> | null) ?? {},
-    isTest: row.is_test !== false,
+    isTest: row.is_test === true,
     scontoExtraPct: Number(row.sconto_extra_pct ?? 0),
     scontoFascia: isScontoFascia(row.sconto_fascia)
       ? row.sconto_fascia
