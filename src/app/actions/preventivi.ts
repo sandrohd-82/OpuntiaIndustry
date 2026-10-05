@@ -34,6 +34,7 @@ import { sendMailViaAccount } from "@/lib/webmail/sync";
 import {
   CONFEZIONE_STANDARD,
   createPreventivoSchema,
+  inviaPreventivoMailSchema,
   formatNumeroPreventivo,
   PREVENTIVI_RACCOLTA_GIORNI,
   spedizioneLockAttivo,
@@ -1839,6 +1840,177 @@ function htmlMailPreventivoConFirma(testo: string): string {
   const firma = escapeHtmlMail(AGRINSICILIA_MAIL_FIRMA);
   const logo = `${getPublicAppUrl()}${AGRINSICILIA_LETTERHEAD.logoSrc}`;
   return `<div style="font-family:sans-serif;font-size:14px;color:#111827">${corpo}<br><br><img src="${logo}" alt="${AGRINSICILIA_LETTERHEAD.logoAlt}" width="160" style="display:block;margin:0 0 8px" /><div style="font-size:12px;line-height:1.45">${firma}</div></div>`;
+}
+
+export async function inviaPreventivoMailAction(
+  raw: unknown
+): Promise<
+  { success: true; item: Preventivo } | { success: false; error: string }
+> {
+  const gate = await requirePreventiviAccess();
+  if (!gate.ok) return { success: false, error: gate.error };
+  const parsed = inviaPreventivoMailSchema.safeParse(raw);
+  if (!parsed.success) {
+    return {
+      success: false,
+      error: parsed.error.issues[0]?.message ?? "Dati mail non validi",
+    };
+  }
+  const input = parsed.data;
+  const casella = await assertWebmailAccountAccess(
+    gate.auth,
+    input.mailAccountId
+  );
+  if (!casella.ok) return { success: false, error: casella.error };
+  const pdfBuffer = bufferPdfPreventivo(input.pdfBase64);
+  if (!pdfBuffer) {
+    return {
+      success: false,
+      error:
+        "Preventivo salvato in archivio. La scheda non è allegabile: riprova l'invio.",
+    };
+  }
+  const supabase = await createClient();
+  const { data: row, error: rowErr } = await supabase
+    .from("preventivi")
+    .select("id, numero_interno, sent_at, accettazione_senior_stato")
+    .eq("id", input.preventivoId)
+    .is("deleted_at", null)
+    .maybeSingle();
+  if (rowErr || !row) {
+    return { success: false, error: rowErr?.message ?? "Preventivo non trovato" };
+  }
+  const prev = row as {
+    id: string;
+    numero_interno: string;
+    sent_at: string | null;
+    accettazione_senior_stato: string | null;
+  };
+  if (
+    accettazioneSeniorBloccaInvio(
+      parseAccettazioneSeniorStato(prev.accettazione_senior_stato)
+    )
+  ) {
+    return {
+      success: false,
+      error:
+        "Preventivo salvato in archivio. Il senior deve accettarlo prima dell'invio della mail.",
+    };
+  }
+  if (prev.sent_at) {
+    return {
+      success: false,
+      error: "La mail di questo preventivo è già stata inviata.",
+    };
+  }
+  const now = new Date().toISOString();
+  const { error: draftErr } = await supabase
+    .from("preventivi")
+    .update({
+      mail_bozza_account_id: input.mailAccountId,
+      mail_bozza_to: input.mailTo,
+      mail_bozza_oggetto: input.mailOggetto,
+      mail_bozza_testo: input.mailTesto,
+      updated_by: gate.auth.userId,
+    })
+    .eq("id", prev.id)
+    .is("deleted_at", null);
+  if (draftErr) {
+    return { success: false, error: draftErr.message };
+  }
+  const service = createServiceClient();
+  const { data: account, error: accErr } = await service
+    .from("webmail_accounts")
+    .select(
+      "id, email_address, imap_host, imap_port, imap_secure, smtp_host, smtp_port, smtp_secure, username, password_encrypted"
+    )
+    .eq("id", input.mailAccountId)
+    .is("deleted_at", null)
+    .maybeSingle();
+  if (accErr || !account) {
+    return {
+      success: false,
+      error:
+        accErr?.message ??
+        "Preventivo salvato in archivio. Casella mail non trovata.",
+    };
+  }
+  try {
+    await sendMailViaAccount({
+      account: account as {
+        id: string;
+        email_address: string;
+        imap_host: string;
+        imap_port: number;
+        imap_secure: boolean;
+        smtp_host: string;
+        smtp_port: number;
+        smtp_secure: boolean;
+        username: string;
+        password_encrypted: string;
+      },
+      to: input.mailTo,
+      subject: input.mailOggetto,
+      text: testoMailPreventivoConFirma(input.mailTesto),
+      html: htmlMailPreventivoConFirma(input.mailTesto),
+      attachments: [
+        {
+          filename: nomeFilePreventivoPdf(prev.numero_interno),
+          content: pdfBuffer,
+          contentType: "application/pdf",
+        },
+      ],
+    });
+  } catch (e) {
+    return {
+      success: false,
+      error:
+        e instanceof Error
+          ? `Preventivo salvato in archivio. Invio mail non riuscito: ${e.message}`
+          : "Preventivo salvato in archivio. Invio mail non riuscito.",
+    };
+  }
+  const { data: updated, error: sentErr } = await supabase
+    .from("preventivi")
+    .update({
+      stato: "inviato",
+      documento_stato: "approvato",
+      sent_at: now,
+      sent_by: gate.auth.userId,
+      updated_by: gate.auth.userId,
+    })
+    .eq("id", prev.id)
+    .is("deleted_at", null)
+    .select("*")
+    .single();
+  if (sentErr || !updated) {
+    return {
+      success: false,
+      error:
+        sentErr?.message ??
+        "Mail inviata, ma lo stato del preventivo non è stato aggiornato.",
+    };
+  }
+  const { data: righe } = await supabase
+    .from("preventivi_righe")
+    .select("*")
+    .eq("preventivo_id", prev.id)
+    .order("sort_order", { ascending: true });
+  await writeAuditLog({
+    entity_type: "preventivi",
+    entity_id: prev.id,
+    action: "status_change",
+    actor_id: gate.auth.userId,
+    summary: `Preventivo ${prev.numero_interno} inviato a ${input.mailTo}`,
+    payload: { mailTo: input.mailTo, mailAccountId: input.mailAccountId },
+  });
+  return {
+    success: true,
+    item: mapPreventivo(
+      updated as PreventivoRow,
+      (righe ?? []) as PreventivoRigaRow[]
+    ),
+  };
 }
 
 function bufferPdfPreventivo(raw: string): Buffer | null {

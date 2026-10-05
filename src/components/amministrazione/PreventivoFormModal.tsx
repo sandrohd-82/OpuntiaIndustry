@@ -4,12 +4,14 @@ import {
   useEffect,
   useId,
   useMemo,
+  useRef,
   useState,
   type FormEvent,
 } from "react";
 import {
   createPreventivoAction,
   getPreventivoPerModificaAction,
+  inviaPreventivoMailAction,
   listCasellePreventivoMailAction,
   listPreventivoCommercialiRiferimentoAction,
   peekNextNumeroPreventivoAction,
@@ -57,8 +59,10 @@ import {
   type DestinatarioPreventivo,
 } from "@/lib/amministrazione/preventivo-letterhead";
 import { campiAccordoRiga } from "@/lib/amministrazione/accordi-prezzo";
+import { foglioPreventivoToPdfBase64 } from "@/lib/amministrazione/preventivo-foglio-cattura";
 import { LISTINO_CONTRATTO_MSG } from "@/lib/ecosystem/listino-vigente";
 import {
+  clearPreventivoSessione,
   labelIntenzionePreventivo,
   loadPreventivoSessione,
   PREVENTIVI_SESSIONE_PROVA,
@@ -109,6 +113,7 @@ function newKey() {
 
 export function PreventivoFormModal({ onClose, onSaved, preventivoId }: Props) {
   const titleId = useId();
+  const foglioRef = useRef<HTMLDivElement>(null);
   const { prodotti, ready } = useProdottiPropri();
   const [destinatario, setDestinatario] =
     useState<DestinatarioPreventivo | null>(null);
@@ -260,6 +265,11 @@ export function PreventivoFormModal({ onClose, onSaved, preventivoId }: Props) {
       return () => {
         cancelled = true;
       };
+    }
+    if (!PREVENTIVI_SESSIONE_PROVA) {
+      clearPreventivoSessione();
+      setSessionePronta(true);
+      return;
     }
     const sessione = loadPreventivoSessione();
     if (sessione) {
@@ -487,7 +497,7 @@ export function PreventivoFormModal({ onClose, onSaved, preventivoId }: Props) {
   }
 
   useEffect(() => {
-    if (!sessionePronta || preventivoId) return;
+    if (!PREVENTIVI_SESSIONE_PROVA || !sessionePronta || preventivoId) return;
     snapshotSessione();
     // eslint-disable-next-line react-hooks/exhaustive-deps -- snapshot esplicito del foglio
   }, [
@@ -661,7 +671,7 @@ export function PreventivoFormModal({ onClose, onSaved, preventivoId }: Props) {
     setSavedId(result.item.id);
     setNumeroPreview(result.item.numeroInterno);
     setIntenzione(nextIntenzione);
-    if (!preventivoId) {
+    if (PREVENTIVI_SESSIONE_PROVA && !preventivoId) {
       snapshotSessione(nextIntenzione, result.item.id, result.item.numeroInterno);
     }
     onSaved(result.item);
@@ -678,7 +688,9 @@ export function PreventivoFormModal({ onClose, onSaved, preventivoId }: Props) {
       setSessioneMsg(
         preventivoId
           ? "Preventivo aggiornato. Il numero resta quello già assegnato."
-          : "Bozza tenuta in sessione di prova. Il foglio resta aperto e l’archivio non è stato toccato."
+          : PREVENTIVI_SESSIONE_PROVA
+            ? "Bozza tenuta in sessione di prova. Il foglio resta aperto e l’archivio non è stato toccato."
+            : "Bozza salvata in archivio. Il numero resta quello assegnato."
       );
     }
   }
@@ -834,14 +846,55 @@ export function PreventivoFormModal({ onClose, onSaved, preventivoId }: Props) {
     setInvioEmail(mailTo.trim());
     setInvioOggetto(mailOggetto.trim());
     setInvioMessaggio(mailTesto.trim());
-    const item = await persist("inviato");
+    if (PREVENTIVI_SESSIONE_PROVA) {
+      const item = await persist("inviato");
+      if (!item) return;
+      setInviaOpen(false);
+      setSessioneMsg(
+        preventivoId
+          ? `Preventivo aggiornato. La mail per ${mailTo.trim()} è memorizzata e non è stata inviata.`
+          : `Invio di prova registrato per ${mailTo.trim()}. Nessuna email reale è partita.`
+      );
+      return;
+    }
+    const item = await persist("salvato");
     if (!item) return;
-    setInviaOpen(false);
-    setSessioneMsg(
-      preventivoId
-        ? `Preventivo aggiornato. La mail per ${mailTo.trim()} è memorizzata e non è stata inviata.`
-        : `Invio di prova registrato per ${mailTo.trim()}. Nessuna email reale è partita.`
-    );
+    const node = foglioRef.current;
+    if (!node) {
+      setMailError(
+        "Preventivo salvato in archivio. La scheda non è pronta per l'allegato."
+      );
+      return;
+    }
+    setSaving(true);
+    setMailError(null);
+    try {
+      const pdfBase64 = await foglioPreventivoToPdfBase64(node);
+      const res = await inviaPreventivoMailAction({
+        preventivoId: item.id,
+        mailAccountId,
+        mailTo: mailTo.trim(),
+        mailOggetto: mailOggetto.trim(),
+        mailTesto: mailTesto.trim(),
+        pdfBase64,
+      });
+      setSaving(false);
+      if (!res.success) {
+        setMailError(res.error);
+        return;
+      }
+      clearPreventivoSessione();
+      setInviaOpen(false);
+      onSaved(res.item);
+      onClose();
+    } catch (e) {
+      setSaving(false);
+      setMailError(
+        e instanceof Error
+          ? `Preventivo salvato in archivio. Invio mail non riuscito: ${e.message}`
+          : "Preventivo salvato in archivio. Invio mail non riuscito."
+      );
+    }
   }
 
   const draftNoloImporto =
@@ -864,7 +917,7 @@ export function PreventivoFormModal({ onClose, onSaved, preventivoId }: Props) {
             : PREVENTIVI_SESSIONE_PROVA
               ? "Nuovo preventivo · sessione di prova"
               : savedId
-                ? "Preventivo in sessione"
+                ? `Preventivo ${numeroPreview}`
                 : "Nuovo preventivo"}
           <span className="ml-2 text-xs font-normal text-white/70">
             {labelIntenzionePreventivo(intenzione)}
@@ -927,6 +980,7 @@ export function PreventivoFormModal({ onClose, onSaved, preventivoId }: Props) {
         aria-labelledby={titleId}
       >
         <PreventivoFoglioA4
+          ref={foglioRef}
           titleId={titleId}
           numero={numeroPreview}
           dataPreventivo={dataPreventivo}
@@ -1414,7 +1468,9 @@ export function PreventivoFormModal({ onClose, onSaved, preventivoId }: Props) {
                 {nomeFilePreventivoPdf(numeroPreview)}
               </span>
               <span className="block text-xs text-slate-500">
-                Promemoria allegato. Il file non è ancora generato.
+                {PREVENTIVI_SESSIONE_PROVA
+                  ? "Promemoria allegato. Il file non è ancora generato."
+                  : "All'invio la scheda a video viene allegata in PDF."}
               </span>
             </span>
           </div>

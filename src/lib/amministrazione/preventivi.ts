@@ -409,6 +409,19 @@ export const createPreventivoSchema = z
     { message: "Per richiedere il calcolo compila casella, destinatario, oggetto e testo della mail." }
   );
 
+export const inviaPreventivoMailSchema = z
+  .object({
+    preventivoId: z.string().uuid(),
+    mailAccountId: z.string().uuid(),
+    mailTo: z.string().trim().min(3).max(200),
+    mailOggetto: z.string().trim().min(1).max(300),
+    mailTesto: z.string().trim().min(1).max(8000),
+    pdfBase64: z.string().min(1),
+  })
+  .refine((d) => d.mailTo.includes("@"), {
+    message: "Indirizzo destinatario non valido.",
+  });
+
 export function formatNumeroPreventivo(
   data: string,
   _targa: string,
