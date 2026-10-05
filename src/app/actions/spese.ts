@@ -5,6 +5,7 @@ import { extractPdfText } from "@/lib/amministrazione/bank-pdf-parse";
 import { roundMoney } from "@/lib/amministrazione/fatture";
 import { requireAreaAccess } from "@/lib/areas/guard";
 import { leggiTestoSpesa, leggiXmlSpesa } from "@/lib/fiscale/spese-lettura";
+import { leggiScontrinoGemini, qualificaScontrino } from "@/lib/fiscale/spese-ocr";
 import {
   SPESE_BUCKET,
   SPESE_MAX_BYTES,
@@ -164,49 +165,61 @@ export async function anteprimaSpesaAction(
   const letto = await fileDaForm(form);
   if (!letto.ok) return { success: false, error: letto.error };
   const kind = tipoFile(letto.file);
-  if (kind === "immagine") {
-    return {
-      success: true,
-      anteprima: {
-        esercente: "",
-        partitaIva: "",
-        dataDocumento: "",
-        imponibile: null,
-        aliquotaIva: null,
-        imposta: null,
-        totale: null,
-        nazione: "",
-        valuta: "EUR",
-        lettura: "manuale",
-        avviso:
-          "Sulla foto non c'è lettura automatica. Compila i campi, poi conferma.",
-      },
-    };
-  }
+  const tipoRaw = campo(form, "tipoCaricamento");
+  const tipo =
+    tipoRaw === "xml" || tipoRaw === "fattura_estera" ? tipoRaw : "scontrino";
   const buffer = Buffer.from(await letto.file.arrayBuffer());
   try {
     if (kind === "xml") {
-      return { success: true, anteprima: leggiXmlSpesa(buffer) };
+      return { success: true, anteprima: qualificaScontrino(leggiXmlSpesa(buffer), "xml") };
+    }
+    if (kind === "immagine") {
+      const anteprima = await leggiScontrinoGemini({
+        bytes: buffer,
+        mime: mimeDi(letto.file),
+        tipo,
+      });
+      return { success: true, anteprima };
     }
     const text = await extractPdfText(buffer);
-    return { success: true, anteprima: leggiTestoSpesa(text) };
+    if (text.replace(/\s/g, "").length < 20) {
+      const anteprima = await leggiScontrinoGemini({
+        bytes: buffer,
+        mime: "application/pdf",
+        tipo,
+      });
+      return { success: true, anteprima };
+    }
+    return {
+      success: true,
+      anteprima: qualificaScontrino(leggiTestoSpesa(text), tipo),
+    };
   } catch (err) {
     console.error("[spese anteprima]", err);
     return {
       success: true,
-      anteprima: {
-        esercente: "",
-        partitaIva: "",
-        dataDocumento: "",
-        imponibile: null,
-        aliquotaIva: null,
-        imposta: null,
-        totale: null,
-        nazione: "",
-        valuta: "EUR",
-        lettura: "manuale",
-        avviso: "Non sono riuscito a leggere il file. Compila i campi a mano.",
-      },
+      anteprima: qualificaScontrino(
+        {
+          esercente: "",
+          partitaIva: "",
+          partitaIvaAcquirente: "",
+          dataDocumento: "",
+          imponibile: null,
+          aliquotaIva: null,
+          imposta: null,
+          totale: null,
+          nazione: "",
+          valuta: "EUR",
+          righe: [],
+          lettura: "manuale",
+          letturaJson: null,
+          uscitaImporto: null,
+          ivaDetraibile: false,
+          valenzaFiscale: "commerciale",
+          avviso: "Non sono riuscito a leggere il file. Compila i campi a mano.",
+        },
+        tipo
+      ),
     };
   }
 }
@@ -284,6 +297,25 @@ export async function registraSpesaAction(
   }
 
   const estero = input.tipoCaricamento === "fattura_estera";
+  let letturaJson: Record<string, unknown> | null = null;
+  const rawJson = campo(form, "letturaJson");
+  if (rawJson) {
+    try {
+      const parsedJson = JSON.parse(rawJson) as unknown;
+      if (parsedJson && typeof parsedJson === "object" && !Array.isArray(parsedJson)) {
+        letturaJson = parsedJson as Record<string, unknown>;
+      }
+    } catch {
+      letturaJson = null;
+    }
+  }
+  const pivaAcquirente = String(letturaJson?.partitaIvaAcquirente ?? "").replace(/\D/g, "");
+  const ivaDetraibile = input.tipoCaricamento === "xml";
+  const valenzaFiscale = ivaDetraibile
+    ? "fattura"
+    : pivaAcquirente === "03031180841"
+      ? "fiscale"
+      : "commerciale";
   const { data, error } = await supabase
     .from("spese_documenti")
     .insert({
@@ -311,6 +343,10 @@ export async function registraSpesaAction(
       file_name: letto.file.name || `spesa${ext}`,
       mime,
       lettura_automatica: input.letturaAutomatica,
+      lettura_json: letturaJson,
+      uscita_importo: roundMoney(input.totale),
+      iva_detraibile: ivaDetraibile,
+      valenza_fiscale: valenzaFiscale,
       note: input.note,
       created_by: auth.userId,
       updated_by: auth.userId,
@@ -332,6 +368,9 @@ export async function registraSpesaAction(
       tipo_caricamento: input.tipoCaricamento,
       categoria: input.categoria,
       totale: roundMoney(input.totale),
+      uscita_importo: roundMoney(input.totale),
+      iva_detraibile: ivaDetraibile,
+      valenza_fiscale: valenzaFiscale,
       progetto_id: input.progettoId,
       stato: "registrato",
     },

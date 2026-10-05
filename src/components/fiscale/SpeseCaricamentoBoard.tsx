@@ -213,6 +213,9 @@ export function SpeseCaricamentoBoard() {
     body.set("progettoId", form.progettoId);
     body.set("note", form.note);
     body.set("letturaAutomatica", anteprima?.lettura === "manuale" ? "false" : "true");
+    if (anteprima?.letturaJson) {
+      body.set("letturaJson", JSON.stringify(anteprima.letturaJson));
+    }
     start(async () => {
       const res = await registraSpesaAction(body);
       if (!res.success) {
@@ -361,6 +364,28 @@ export function SpeseCaricamentoBoard() {
       {anteprima ? (
         <section className="space-y-4 rounded-xl border border-[var(--border)] bg-white p-4">
           <p className="text-sm text-slate-700">{anteprima.avviso}</p>
+          {anteprima.uscitaImporto != null ? (
+            <p className="text-sm font-medium text-slate-900">
+              Uscita da registrare: {anteprima.uscitaImporto.toLocaleString("it-IT", { style: "currency", currency: "EUR" })}
+              {anteprima.ivaDetraibile
+                ? " · IVA detraibile solo se la fattura è inerente."
+                : " · IVA dello scontrino inclusa nel costo, non detraibile."}
+            </p>
+          ) : null}
+          {anteprima.righe.length ? (
+            <ul className="space-y-1 text-sm text-slate-700">
+              {anteprima.righe.map((riga, index) => (
+                <li key={`${riga.descrizione}-${index}`} className="flex justify-between gap-3">
+                  <span className="min-w-0 truncate">{riga.descrizione || "Riga"}</span>
+                  <span className="shrink-0 tabular-nums">
+                    {riga.totale != null
+                      ? riga.totale.toLocaleString("it-IT", { style: "currency", currency: "EUR" })
+                      : "—"}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          ) : null}
           <div className="grid gap-3 sm:grid-cols-2">
             <label className="block text-sm sm:col-span-2">
               <span className="mb-1 block text-xs font-medium text-[var(--muted)]">

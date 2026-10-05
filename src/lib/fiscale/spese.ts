@@ -221,9 +221,21 @@ export type SpesaProgettoView = {
   totale: number;
 };
 
+export type RigaLetturaSpesa = {
+  descrizione: string;
+  quantita: number | null;
+  imponibile: number | null;
+  aliquotaIva: number | null;
+  imposta: number | null;
+  totale: number | null;
+};
+
+export type ValenzaFiscaleSpesa = "fiscale" | "commerciale" | "fattura";
+
 export type AnteprimaSpesa = {
   esercente: string;
   partitaIva: string;
+  partitaIvaAcquirente: string;
   dataDocumento: string;
   imponibile: number | null;
   aliquotaIva: number | null;
@@ -231,6 +243,11 @@ export type AnteprimaSpesa = {
   totale: number | null;
   nazione: string;
   valuta: string;
-  lettura: "xml" | "pdf" | "manuale";
+  righe: RigaLetturaSpesa[];
+  lettura: "xml" | "pdf" | "ocr" | "manuale";
+  letturaJson: Record<string, unknown> | null;
+  uscitaImporto: number | null;
+  ivaDetraibile: boolean;
+  valenzaFiscale: ValenzaFiscaleSpesa;
   avviso: string;
 };

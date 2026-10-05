@@ -17,7 +17,13 @@ function vuota(): AnteprimaSpesa {
     totale: null,
     nazione: "",
     valuta: "EUR",
+    righe: [],
     lettura: "manuale",
+    letturaJson: null,
+    partitaIvaAcquirente: "",
+    uscitaImporto: null,
+    ivaDetraibile: false,
+    valenzaFiscale: "commerciale",
     avviso: "Compila i campi e conferma prima di registrare.",
   };
 }
@@ -109,10 +115,40 @@ export function leggiTestoSpesa(text: string): AnteprimaSpesa {
     aliquotaIva,
     imposta: imp,
     totale,
+    righe: righeDaTesto(lines),
     lettura: "pdf",
     avviso:
       "Dati letti dal PDF. Controlla esercente, data e importi prima di registrare.",
   };
+}
+
+function righeDaTesto(lines: string[]) {
+  const righe = [];
+  for (const line of lines) {
+    if (
+      /totale|imponibile|imposta|subtotale|pagamento|resto|contanti|carta|documento commerciale/i.test(
+        line
+      )
+    ) {
+      continue;
+    }
+    const importi = importiInRiga(line);
+    if (!importi.length) continue;
+    const descrizione = line
+      .replace(IMPORTO_RE, "")
+      .replace(/\s+/g, " ")
+      .trim();
+    if (descrizione.length < 2) continue;
+    righe.push({
+      descrizione: descrizione.slice(0, 160),
+      quantita: null,
+      imponibile: null,
+      aliquotaIva: null,
+      imposta: null,
+      totale: importi[importi.length - 1] ?? null,
+    });
+  }
+  return righe;
 }
 
 export function leggiXmlSpesa(buffer: Buffer): AnteprimaSpesa {
@@ -143,7 +179,13 @@ export function leggiXmlSpesa(buffer: Buffer): AnteprimaSpesa {
     totale: model.totale || null,
     nazione: model.emittente.nazione.trim(),
     valuta: "EUR",
+    righe: [],
+    letturaJson: null,
+    partitaIvaAcquirente: "",
     lettura: "xml",
+    ivaDetraibile: true,
+    valenzaFiscale: "fattura",
+    uscitaImporto: model.totale || null,
     avviso:
       "Dati letti dall'XML. Controlla fornitore, data e importi prima di registrare.",
   };
