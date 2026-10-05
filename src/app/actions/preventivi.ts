@@ -718,12 +718,6 @@ export async function listPreventiviAccettatiAction(input: {
   const gate = await requirePreventiviAccess();
   if (!gate.ok) return { success: false, error: gate.error };
   const perimetro = await resolvePerimetroDocumenti();
-  if (
-    !perimetro.unrestricted &&
-    !perimetro.clienti.includes(input.clienteId)
-  ) {
-    return { success: true, items: [] };
-  }
   const supabase = await createClient();
   const { data, error } = await supabase
     .from("preventivi")
@@ -734,7 +728,9 @@ export async function listPreventiviAccettatiAction(input: {
     .order("data_preventivo", { ascending: false })
     .limit(80);
   if (error) return { success: false, error: error.message };
-  const rows = (data ?? []) as PreventivoRow[];
+  const rows = ((data ?? []) as PreventivoRow[]).filter((row) =>
+    rigaNelPerimetro(row, perimetro, { riferimento: true })
+  );
   const righe = await attachRighe(rows.map((r) => r.id));
   let items = rows.map((r) => mapPreventivo(r, righe.get(r.id) ?? []));
   if (input.prodottoId) {

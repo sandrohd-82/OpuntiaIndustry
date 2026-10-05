@@ -75,6 +75,7 @@ import {
   notificaAccettazioneSenior,
 } from "@/lib/amministrazione/accettazione-senior-server";
 import {
+  perimetroOrdiniConPreventivi,
   perimetroOrdiniOr,
   resolvePerimetroDocumenti,
   rigaNelPerimetro,
@@ -259,7 +260,7 @@ export async function listOrdiniAction(
   const supabase = await createClient();
   const stati = Array.isArray(stato) ? stato : [stato];
   const perimetro = await resolvePerimetroDocumenti();
-  const filtro = perimetroOrdiniOr(perimetro);
+  const filtro = perimetroOrdiniConPreventivi(perimetro);
   if (!perimetro.unrestricted && !filtro) {
     return { success: true, ordini: [] };
   }
@@ -388,8 +389,9 @@ export async function countOrdiniElencoAction(): Promise<
   await requireOrdineReadAccess();
   const supabase = await createClient();
   const perimetro = await resolvePerimetroDocumenti();
+  const filtroOrdini = perimetroOrdiniConPreventivi(perimetro);
   const filtro = perimetroOrdiniOr(perimetro);
-  if (!perimetro.unrestricted && !filtro) {
+  if (!perimetro.unrestricted && !filtroOrdini && !filtro) {
     return { success: true, merce: 0, campionature: 0 };
   }
   const scope = await resolveScopeMode("ordini");
@@ -409,13 +411,16 @@ export async function countOrdiniElencoAction(): Promise<
     .from("campionature")
     .select("id", { count: "exact", head: true })
     .is("deleted_at", null);
-  if (filtro) {
-    qVendita = qVendita.or(filtro);
-    qCampOrd = qCampOrd.or(filtro);
-    qCamps = qCamps.or(filtro);
+  if (filtroOrdini) {
+    qVendita = qVendita.or(filtroOrdini);
+    qCampOrd = qCampOrd.or(filtroOrdini);
   } else if (scope && !scope.skip && scope.mode === "proprie") {
     qVendita = qVendita.eq("created_by", scope.userId);
     qCampOrd = qCampOrd.eq("created_by", scope.userId);
+  }
+  if (filtro) {
+    qCamps = qCamps.or(filtro);
+  } else if (scope && !scope.skip && scope.mode === "proprie") {
     qCamps = qCamps.eq("created_by", scope.userId);
   }
   const [vendita, campOrd, camps] = await Promise.all([
@@ -446,7 +451,7 @@ export async function getOrdineAction(
     const supabase = await createClient();
     const { data: legame } = await supabase
       .from("ordini")
-      .select("cliente_id, cliente_possibile_id, created_by")
+      .select("cliente_id, cliente_possibile_id, created_by, preventivo_id")
       .eq("id", id)
       .maybeSingle();
     if (!legame || !rigaNelPerimetro(legame, perimetro)) {

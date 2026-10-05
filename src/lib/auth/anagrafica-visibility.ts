@@ -83,9 +83,9 @@ export const resolveVisibleClienteIds = cache(
 );
 
 /**
- * Preventivi e ordini di un commerciale: solo aziende del sottoalbero
- * (un'azienda affiancata resta del sottoposto) oppure, se non c'è azienda,
- * i documenti scritti dal sottoalbero.
+ * Preventivi e ordini di un commerciale: aziende del sottoalbero
+ * (un'azienda affiancata resta del sottoposto) e, in più, i documenti
+ * di cui lui è l'autore o il commerciale di riferimento.
  * `unrestricted` = Super Admin reale.
  */
 export type PerimetroDocumenti =
@@ -95,6 +95,9 @@ export type PerimetroDocumenti =
       clienti: string[];
       possibili: string[];
       ownerIds: string[];
+      selfId: string;
+      /** Preventivi di cui l'operatore è autore o commerciale di riferimento. */
+      preventiviPropri: string[];
     };
 
 export const resolvePerimetroDocumenti = cache(
@@ -103,14 +106,39 @@ export const resolvePerimetroDocumenti = cache(
     if (ownerIds === null) return { unrestricted: true };
     const auth = await getAuthContext();
     if (!auth) {
-      return { unrestricted: false, clienti: [], possibili: [], ownerIds: [] };
+      return {
+        unrestricted: false,
+        clienti: [],
+        possibili: [],
+        ownerIds: [],
+        selfId: "",
+        preventiviPropri: [],
+      };
     }
     const supabase = await createClient();
-    const [clienti, possibili] = await Promise.all([
+    const [clienti, possibili, preventivi] = await Promise.all([
       loadOwnedAziendaIds(supabase, auth.userId, "clienti"),
       loadOwnedPossibileIds(supabase, auth.userId),
+      supabase
+        .from("preventivi")
+        .select("id")
+        .is("deleted_at", null)
+        .or(
+          `commerciale_riferimento_id.eq.${auth.userId},created_by.eq.${auth.userId}`
+        )
+        .limit(1000),
     ]);
-    return { unrestricted: false, clienti, possibili, ownerIds };
+    const preventiviPropri = (preventivi.data ?? [])
+      .map((row) => String((row as { id?: string }).id ?? ""))
+      .filter(Boolean);
+    return {
+      unrestricted: false,
+      clienti,
+      possibili,
+      ownerIds,
+      selfId: auth.userId,
+      preventiviPropri,
+    };
   }
 );
 
@@ -140,10 +168,14 @@ export function perimetroPreventiviOr(p: PerimetroDocumenti): string | null {
       `and(cliente_id.is.null,cliente_possibile_id.is.null,or(created_by.in.(${ids}),commerciale_riferimento_id.in.(${ids})))`
     );
   }
+  if (p.selfId) {
+    parts.push(`created_by.eq.${p.selfId}`);
+    parts.push(`commerciale_riferimento_id.eq.${p.selfId}`);
+  }
   return parts.length ? parts.join(",") : null;
 }
 
-/** Filtro ordini. Senza commerciale di riferimento in testata. */
+/** Filtro ordini sulle colonne condivise con le campionature. */
 export function perimetroOrdiniOr(p: PerimetroDocumenti): string | null {
   if (p.unrestricted) return null;
   const parts = partiAzienda(p);
@@ -153,7 +185,17 @@ export function perimetroOrdiniOr(p: PerimetroDocumenti): string | null {
       `and(cliente_id.is.null,cliente_possibile_id.is.null,created_by.in.(${ids}))`
     );
   }
+  if (p.selfId) parts.push(`created_by.eq.${p.selfId}`);
   return parts.length ? parts.join(",") : null;
+}
+
+/** Ordini: aggiunge quelli nati da un preventivo di cui l'operatore è il commerciale. */
+export function perimetroOrdiniConPreventivi(p: PerimetroDocumenti): string | null {
+  const base = perimetroOrdiniOr(p);
+  if (p.unrestricted) return null;
+  const legati = inFilter("preventivo_id", p.preventiviPropri);
+  if (!legati) return base;
+  return base ? `${base},${legati}` : legati;
 }
 
 export function rigaNelPerimetro(
@@ -162,6 +204,7 @@ export function rigaNelPerimetro(
     cliente_possibile_id?: string | null;
     created_by?: string | null;
     commerciale_riferimento_id?: string | null;
+    preventivo_id?: string | null;
   },
   p: PerimetroDocumenti,
   opts?: { riferimento?: boolean }
@@ -169,16 +212,25 @@ export function rigaNelPerimetro(
   if (p.unrestricted) return true;
   const cliente = row.cliente_id ? String(row.cliente_id) : "";
   const possibile = row.cliente_possibile_id ? String(row.cliente_possibile_id) : "";
-  if (cliente) return p.clienti.includes(cliente);
-  if (possibile) return p.possibili.includes(possibile);
+  if (cliente && p.clienti.includes(cliente)) return true;
+  if (!cliente && possibile && p.possibili.includes(possibile)) return true;
   const by = row.created_by ? String(row.created_by) : "";
-  if (by && p.ownerIds.includes(by)) return true;
-  if (opts?.riferimento) {
+  if (!cliente && !possibile && by && p.ownerIds.includes(by)) return true;
+  if (!cliente && !possibile && opts?.riferimento) {
     const rif = row.commerciale_riferimento_id
       ? String(row.commerciale_riferimento_id)
       : "";
     if (rif && p.ownerIds.includes(rif)) return true;
   }
+  if (p.selfId && by === p.selfId) return true;
+  if (opts?.riferimento && p.selfId) {
+    const rif = row.commerciale_riferimento_id
+      ? String(row.commerciale_riferimento_id)
+      : "";
+    if (rif === p.selfId) return true;
+  }
+  const preventivoId = row.preventivo_id ? String(row.preventivo_id) : "";
+  if (preventivoId && p.preventiviPropri.includes(preventivoId)) return true;
   return false;
 }
 
