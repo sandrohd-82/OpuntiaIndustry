@@ -34,7 +34,7 @@ export function FattureMailCandidatiModal() {
     null
   );
   const [inControllo, setInControllo] = useState(false);
-  const [controllate, setControllate] = useState(0);
+  const [banner, setBanner] = useState<string | null>(null);
   const ferma = useRef(false);
 
   useEffect(() => {
@@ -42,9 +42,8 @@ export function FattureMailCandidatiModal() {
       return;
     }
     let vivo = true;
-    let lette = 0;
-    setAperto(true);
     setInControllo(true);
+    setBanner("Controllo le fatture nelle mail del 2026…");
     setPeriodo("2026");
     async function run() {
       for (let passo = 0; passo < 60 && vivo && !ferma.current; passo += 1) {
@@ -52,19 +51,29 @@ export function FattureMailCandidatiModal() {
         if (!vivo || ferma.current) return;
         if (!res.success) {
           setErrore(res.error);
+          setBanner(res.error);
           setInControllo(false);
           return;
         }
-        lette += res.controllati;
-        setControllate(lette);
         setPeriodo(res.periodo || "2026");
         setMancanti(res.caselleMancanti);
         setCandidati(res.candidati);
-        if (!res.restano) {
-          setInControllo(false);
-          if (res.candidati.length === 0 && lette === 0) setAperto(false);
-          return;
+        if (res.restano) {
+          setBanner(
+            `Controllo le fatture nelle mail del ${res.periodo || "2026"}…`
+          );
+          continue;
         }
+        setInControllo(false);
+        const quante = res.candidati.length;
+        setBanner(
+          quante === 0
+            ? "Nessuna fattura nuova da registrare"
+            : (quante === 1
+              ? "C'è 1 fattura da registrare"
+              : `Ci sono ${quante} fatture da registrare`)
+        );
+        return;
       }
       setInControllo(false);
     }
@@ -73,6 +82,12 @@ export function FattureMailCandidatiModal() {
       vivo = false;
     };
   }, []);
+
+  useEffect(() => {
+    if (inControllo || !banner) return;
+    const timer = window.setTimeout(() => setBanner(null), 4500);
+    return () => window.clearTimeout(timer);
+  }, [inControllo, banner]);
 
   function piuTardi() {
     ferma.current = true;
@@ -132,10 +147,28 @@ export function FattureMailCandidatiModal() {
     });
   }
 
-  if (!aperto && !daRegistrare) return null;
+  function apriElenco() {
+    if (candidati.length === 0) return;
+    setBanner(null);
+    setAperto(true);
+  }
+
+  if (!aperto && !daRegistrare && !banner) return null;
 
   return (
     <>
+      {banner ? (
+        <div className="pointer-events-none fixed inset-x-0 bottom-4 z-[70] flex justify-center px-4 print:hidden">
+          <button
+            type="button"
+            onClick={apriElenco}
+            disabled={inControllo || candidati.length === 0}
+            className="pointer-events-auto max-w-md rounded-full bg-slate-900 px-4 py-2 text-sm text-white shadow-lg disabled:cursor-default"
+          >
+            {banner}
+          </button>
+        </div>
+      ) : null}
       {aperto ? (
         <div className="fixed inset-0 z-[85] flex items-center justify-center bg-slate-900/50 p-4 print:hidden">
           <div
@@ -151,11 +184,8 @@ export function FattureMailCandidatiModal() {
                 Fatture nelle mail del {periodo || "2026"}
               </h2>
               <p className="mt-1 text-sm text-slate-600">
-                {inControllo
-                  ? `Sto controllando le mail del ${periodo || "2026"}. Mail già lette: ${controllate}.`
-                  : candidati.length > 0
-                    ? "Queste non risultano già registrate, nemmeno come copia cortesia. Vuoi registrarle?"
-                    : `Ho controllato le mail del ${periodo || "2026"}. Non ci sono fatture nuove da registrare.`}
+                Queste non risultano già registrate, nemmeno come copia cortesia.
+                Vuoi registrarle?
               </p>
               {mancanti.length > 0 ? (
                 <p className="mt-2 text-xs text-amber-800">
