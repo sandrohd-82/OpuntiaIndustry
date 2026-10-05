@@ -148,8 +148,11 @@ export async function listFattureMailDaValutareAction(): Promise<
   const visibili: CandidatoRow[] = [];
   for (const row of (data ?? []) as CandidatoRow[]) {
     const esclusa = motivoEsclusioneMailFattura({
-      testo: `${row.oggetto}\n${row.fornitore_ragione}\n${row.numero_documento}`,
+      oggetto: row.oggetto,
+      mittente: `${row.mittente_nome}\n${row.fornitore_ragione}`,
+      emailMittente: row.mittente_email,
       fileName: row.file_name,
+      pivaCedente: row.fornitore_piva,
     });
     if (!esclusa) {
       visibili.push(row);
@@ -163,7 +166,9 @@ export async function listFattureMailDaValutareAction(): Promise<
         motivo_match:
           esclusa === "proforma"
             ? "Proforma: non si registra dalle mail"
-            : "Fattura italiana: passa dallo SDI",
+            : (esclusa === "non_fattura"
+              ? "Non è una fattura da registrare"
+              : "Fattura italiana: passa dallo SDI"),
         decided_at: new Date().toISOString(),
         updated_by: auth.userId,
       })

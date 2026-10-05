@@ -7,7 +7,7 @@ export const CASELLE_FATTURE_MAIL = [
   "sandro@agrinsicilia.com",
 ] as const;
 
-const PAROLA_FATTURA = /fattur|invoice|invoce/i;
+const PAROLA_FATTURA = /\bfattur(?:a|e|azione)\b|\binvoice\b|\binvoce\b/i;
 
 export type EstrattoFatturaMail = {
   numeroDocumento: string;
@@ -240,34 +240,52 @@ export function unisciEstratto(
 const PROFORMA = /\bpro[\s-]?forma\b/i;
 const ITALIANA_SDI =
   /\bfattura\s+elettronica\b|\bcodice\s+destinatario\b|\btrasmess[oa]\s+(?:allo\s+)?sdi\b|\bregime\s+fiscale\b|\bcopia\s+(?:di\s+)?cortesia\b/i;
+const FORMA_ITALIANA =
+  /\bS\.?\s*r\.?\s*l\.?\b|\bS\.?\s*p\.?\s*a\.?\b|\bS\.?\s*n\.?\s*c\.?\b|\bS\.?\s*a\.?\s*s\.?\b|\bitalia\b|\bitaly\b/i;
+const NON_FATTURA =
+  /\bconferma\s+spedizione\b|\blettera\s*di\s*vettura\b|\bterms(?:\s+|_)and(?:\s+|_)conditions\b|\bcondizioni\s+generali\b|\bdisposizione\b|\bbonifico\b|\bfatturato\b|\bchallenge\s*test\b|\bcontrollo\s+fattura\b/i;
 
 function paeseCedenteXml(xml: string): string {
   const cedente = xmlBlocks(xml, "CedentePrestatore")[0] ?? "";
   return xmlText(cedente, "IdPaese").trim().toUpperCase();
 }
 
+function emailItaliana(email: string): boolean {
+  const dominio = email.trim().toLowerCase().split("@")[1] ?? "";
+  return dominio.endsWith(".it") || dominio.endsWith("fattureincloud.it");
+}
+
 /**
- * Proforma e fatture italiane non si registrano dalla mail:
- * la fattura italiana arriva dallo SDI.
+ * Proforma, fatture italiane e mail che non sono una fattura
+ * non si propongono. La fattura italiana arriva dallo SDI.
  */
 export function motivoEsclusioneMailFattura(input: {
-  testo: string;
+  oggetto?: string;
+  mittente?: string;
+  emailMittente?: string;
   fileName: string;
+  testo?: string;
   xml?: string | null;
   pivaCedente?: string | null;
-}): "proforma" | "italiana_sdi" | null {
+}): "proforma" | "italiana_sdi" | "non_fattura" | null {
   const nome = input.fileName.trim();
-  const blob = `${input.testo}\n${nome}`;
+  const presentazione = `${input.oggetto ?? ""}\n${input.mittente ?? ""}\n${nome}`;
+  const blob = `${presentazione}\n${input.testo ?? ""}`;
   if (PROFORMA.test(blob)) return "proforma";
+  if (NON_FATTURA.test(presentazione) || /letteradivettura|terms_and_conditions/i.test(nome)) {
+    return "non_fattura";
+  }
   const xml = input.xml ?? "";
   if (/FatturaElettronica/i.test(xml)) {
     const paese = paeseCedenteXml(xml);
     if (!paese || paese === "IT") return "italiana_sdi";
   }
-  if (/\.p7m$/i.test(nome) || /^IT\d{11}[_.-]/i.test(nome)) return "italiana_sdi";
+  if (/\.p7m$/i.test(nome) || /IT\d{11}/i.test(nome)) return "italiana_sdi";
   if (ITALIANA_SDI.test(blob)) return "italiana_sdi";
+  if (emailItaliana(input.emailMittente ?? "")) return "italiana_sdi";
+  if (FORMA_ITALIANA.test(presentazione)) return "italiana_sdi";
   const piva = normalizzaPiva(input.pivaCedente ?? "");
-  if (/^IT\d{11}$/.test(piva)) return "italiana_sdi";
+  if (/^IT\d{11}$/.test(piva) || /^\d{11}$/.test(piva)) return "italiana_sdi";
   return null;
 }
 

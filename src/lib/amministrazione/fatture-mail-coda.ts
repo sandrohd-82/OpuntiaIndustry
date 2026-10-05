@@ -301,7 +301,10 @@ export async function scanFattureMailDopoSync(
       );
       if (
         motivoEsclusioneMailFattura({
-          testo: `${testo}\n${estratto.fornitoreRagione}`,
+          oggetto: msg.subject ?? "",
+          mittente: `${msg.from_name ?? ""}\n${estratto.fornitoreRagione}`,
+          emailMittente: msg.from_address ?? "",
+          testo,
           fileName: allegato.filename ?? "",
           xml: xmlRaw,
           pivaCedente: xml?.fornitorePiva,
