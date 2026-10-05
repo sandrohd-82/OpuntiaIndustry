@@ -265,6 +265,17 @@ function AnagraficaCard({
   const [codiceFiscale, setCf] = useState(item.codiceFiscale);
   const [cartaIdentita, setCi] = useState(item.cartaIdentita);
   const [cellulare, setCellulare] = useState(item.cellulare ?? "");
+  const [residenzaIndirizzo, setResidenzaIndirizzo] = useState(
+    item.residenzaIndirizzo ?? ""
+  );
+  const [residenzaCap, setResidenzaCap] = useState(item.residenzaCap ?? "");
+  const [residenzaCitta, setResidenzaCitta] = useState(item.residenzaCitta ?? "");
+  const [residenzaProvincia, setResidenzaProvincia] = useState(
+    item.residenzaProvincia ?? ""
+  );
+  const [residenzaNazione, setResidenzaNazione] = useState(
+    item.residenzaNazione ?? ""
+  );
   const [note, setNote] = useState(item.note);
   const [repartoId, setRepartoId] = useState(item.repartoId ?? "");
   const [commercialeGrado, setCommercialeGrado] = useState(
@@ -299,6 +310,11 @@ function AnagraficaCard({
     setCf(item.codiceFiscale);
     setCi(item.cartaIdentita);
     setCellulare(item.cellulare ?? "");
+    setResidenzaIndirizzo(item.residenzaIndirizzo ?? "");
+    setResidenzaCap(item.residenzaCap ?? "");
+    setResidenzaCitta(item.residenzaCitta ?? "");
+    setResidenzaProvincia(item.residenzaProvincia ?? "");
+    setResidenzaNazione(item.residenzaNazione ?? "");
     setNote(item.note);
     setRepartoId(item.repartoId ?? "");
     setCommercialeGrado(item.commercialeGrado ?? "");
@@ -330,6 +346,11 @@ function AnagraficaCard({
       codiceFiscale,
       cartaIdentita,
       cellulare,
+      residenzaIndirizzo,
+      residenzaCap,
+      residenzaCitta,
+      residenzaProvincia,
+      residenzaNazione,
       note,
       mansioneIds,
       repartoId: repartoId || undefined,
@@ -505,6 +526,61 @@ function AnagraficaCard({
                 autoComplete="tel"
                 placeholder="+39 …"
                 maxLength={40}
+              />
+            </label>
+            <label className="text-xs text-[var(--muted)] sm:col-span-2">
+              Residenza — via e civico
+              <input
+                value={residenzaIndirizzo}
+                disabled={!isAdmin}
+                onChange={(e) => setResidenzaIndirizzo(e.target.value)}
+                className={inputCls}
+                autoComplete="street-address"
+                maxLength={200}
+              />
+            </label>
+            <label className="text-xs text-[var(--muted)]">
+              CAP
+              <input
+                value={residenzaCap}
+                disabled={!isAdmin}
+                onChange={(e) => setResidenzaCap(e.target.value)}
+                className={inputCls}
+                autoComplete="postal-code"
+                maxLength={16}
+              />
+            </label>
+            <label className="text-xs text-[var(--muted)]">
+              Città
+              <input
+                value={residenzaCitta}
+                disabled={!isAdmin}
+                onChange={(e) => setResidenzaCitta(e.target.value)}
+                className={inputCls}
+                autoComplete="address-level2"
+                maxLength={80}
+              />
+            </label>
+            <label className="text-xs text-[var(--muted)]">
+              Provincia
+              <input
+                value={residenzaProvincia}
+                disabled={!isAdmin}
+                onChange={(e) => setResidenzaProvincia(e.target.value)}
+                className={inputCls}
+                autoComplete="address-level1"
+                maxLength={80}
+              />
+            </label>
+            <label className="text-xs text-[var(--muted)]">
+              Paese
+              <input
+                value={residenzaNazione}
+                disabled={!isAdmin}
+                onChange={(e) => setResidenzaNazione(e.target.value)}
+                className={inputCls}
+                autoComplete="country-name"
+                maxLength={80}
               />
             </label>
             <label className="text-xs text-[var(--muted)] sm:col-span-2">

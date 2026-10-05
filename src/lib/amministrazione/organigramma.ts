@@ -103,6 +103,11 @@ export type OrganigrammaPersona = {
   codiceFiscale: string;
   cartaIdentita: string;
   cellulare: string;
+  residenzaIndirizzo: string;
+  residenzaCap: string;
+  residenzaCitta: string;
+  residenzaProvincia: string;
+  residenzaNazione: string;
   userId: string | null;
   profilo: OrganigrammaProfiloLink | null;
   parentId: string | null;
@@ -358,6 +363,11 @@ export const personaInputSchema = z.object({
     )
     .optional()
     .default(""),
+  residenzaIndirizzo: z.string().trim().max(200).optional().default(""),
+  residenzaCap: z.string().trim().max(16).optional().default(""),
+  residenzaCitta: z.string().trim().max(80).optional().default(""),
+  residenzaProvincia: z.string().trim().max(80).optional().default(""),
+  residenzaNazione: z.string().trim().max(80).optional().default(""),
   note: z.string().trim().max(2000).optional().default(""),
   mansioneIds: z.array(z.string().uuid()).optional().default([]),
   parentId: z.string().uuid().nullable().optional(),

@@ -158,6 +158,15 @@ function writeAnagrafica(
     [t("Codice fiscale"), t(p.codiceFiscale || "—")],
     [t("Carta d'identità"), t(p.cartaIdentita || "—")],
     [t("Cellulare"), t(p.cellulare || "—")],
+    [
+      t("Residenza"),
+      t(
+        [p.residenzaIndirizzo, p.residenzaCap, p.residenzaCitta, p.residenzaProvincia, p.residenzaNazione]
+          .map((part) => part.trim())
+          .filter(Boolean)
+          .join(", ") || "—"
+      ),
+    ],
     [t("Banca"), t(p.bancaIstituto || "—")],
     [
       t("IBAN"),

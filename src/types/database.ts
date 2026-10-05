@@ -1456,6 +1456,8 @@ export interface CampionaturaRow {
   referente_ricezione_id: string | null;
   pn_nota_id: string | null;
   webmail_messaggio_id: string | null;
+  destinazione?: "azienda" | "commerciale";
+  commerciale_persona_id?: string | null;
   destinatario: string;
   indirizzo_spedizione: string;
   note: string;

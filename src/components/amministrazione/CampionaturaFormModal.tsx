@@ -6,8 +6,10 @@ import { getWebmailMessaggioTextAction } from "@/app/actions/webmail";
 import { WebmailHtmlBody } from "@/components/webmail/WebmailHtmlBody";
 import {
   createCampionaturaAction,
+  listCommercialiCampionaturaAction,
   previewNumeroCampionaturaAction,
   updateCampionaturaAction,
+  type CommercialeCampionaturaOption,
 } from "@/app/actions/campionature";
 import {
   generaCorpoMailSpedizioneAction,
@@ -134,6 +136,15 @@ export function CampionaturaFormModal({
   const [origine, setOrigine] = useState<CampionaturaOrigine>(
     editing?.origine ?? "da_inviare"
   );
+  const [destinazione, setDestinazione] = useState<"azienda" | "commerciale">(
+    editing?.destinazione ?? "azienda"
+  );
+  const [commercialePersonaId, setCommercialePersonaId] = useState(
+    editing?.commercialePersonaId ?? ""
+  );
+  const [commerciali, setCommerciali] = useState<CommercialeCampionaturaOption[]>(
+    []
+  );
   const [dataInvio, setDataInvio] = useState(
     editing?.dataInvio ?? todayInputValue()
   );
@@ -240,8 +251,14 @@ export function CampionaturaFormModal({
     };
   }, [onClose, saving, timelinePick, origineOpen, altroPostoOpen]);
 
+  const commercialeScelto =
+    commerciali.find((c) => c.id === commercialePersonaId) ?? null;
   const targaDocumento =
-    anagraficaFonte === "possibile" ? "Pc" : (cliente?.codiceTarga ?? "");
+    destinazione === "commerciale"
+      ? commercialeScelto?.matricola || (commercialePersonaId ? "CM" : "")
+      : anagraficaFonte === "possibile"
+        ? "Pc"
+        : (cliente?.codiceTarga ?? "");
 
   useEffect(() => {
     if (editing) {
@@ -263,7 +280,7 @@ export function CampionaturaFormModal({
     return () => {
       cancelled = true;
     };
-  }, [targaDocumento, dataInvio, editing]);
+  }, [targaDocumento, dataInvio, editing, destinazione]);
 
   useEffect(() => {
     if (!editing || hydratedAddress.current) return;
@@ -367,9 +384,86 @@ export function CampionaturaFormModal({
     );
   }
 
+  useEffect(() => {
+    let cancelled = false;
+    void listCommercialiCampionaturaAction().then((res) => {
+      if (cancelled || !res.success) return;
+      setCommerciali(res.items);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  async function persistVersoCommerciale() {
+    if (!commercialePersonaId) {
+      setFormError("Seleziona un commerciale.");
+      return;
+    }
+    if (commercialeScelto && !commercialeScelto.residenzaCompleta) {
+      setFormError(
+        `Nella scheda di ${commercialeScelto.nome} manca l'indirizzo di residenza completo (via, CAP, città, provincia, paese).`
+      );
+      return;
+    }
+    if (righe.some((r) => !r.prodottoId)) {
+      setFormError("Seleziona un prodotto per ogni riga.");
+      return;
+    }
+    if (
+      righe.some(
+        (r) => !Number.isInteger(numberOrZero(r.quantita)) || numberOrZero(r.quantita) < 1
+      )
+    ) {
+      setFormError("Indica un numero intero di confezioni, almeno 1.");
+      return;
+    }
+    const mapped = righe.map((r) => {
+      const prodotto = prodotti.find((p) => p.id === r.prodottoId);
+      return {
+        prodottoId: r.prodottoId,
+        prodottoCodice: prodotto?.codice || r.prodottoCodice || "",
+        prodottoNome: prodotto?.nome || r.prodottoNome || "",
+        quantita: numberOrZero(r.quantita),
+        unitaMisura: "pz" as const,
+        lottoCodice: "",
+        note: r.note,
+      };
+    });
+    setSaving(true);
+    setFormError(null);
+    try {
+      const payload = {
+        destinazione: "commerciale" as const,
+        commercialePersonaId,
+        dataInvio,
+        note,
+        righe: mapped,
+      };
+      const result = editing
+        ? await updateCampionaturaAction({ ...payload, id: editing.id })
+        : await createCampionaturaAction(payload);
+      if (!result.success) {
+        setFormError(result.error);
+        return;
+      }
+      onSaved(result.item);
+    } catch (err) {
+      setFormError(
+        err instanceof Error ? err.message : "Salvataggio non riuscito. Riprova."
+      );
+    } finally {
+      setSaving(false);
+    }
+  }
+
   async function persistCampionatura(
     modoMail?: "prenota" | "compila" | "salva"
   ) {
+    if (destinazione === "commerciale") {
+      await persistVersoCommerciale();
+      return;
+    }
     if (
       anagraficaFonte === "possibile"
         ? !possibileClienteId || !cliente
@@ -567,13 +661,39 @@ export function CampionaturaFormModal({
         aria-labelledby={titleId}
         className="w-full max-w-3xl rounded-xl border border-[var(--border)] bg-[var(--card)] p-5 shadow-xl"
       >
-        <h2 id={titleId} className="text-lg font-semibold">
-          {editing
-            ? "Modifica campionatura"
-            : origine === "storico"
-              ? "Registra campionatura in storico"
-              : "Invio campionatura"}
-        </h2>
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <h2 id={titleId} className="text-lg font-semibold">
+            {editing
+              ? "Modifica campionatura"
+              : destinazione === "commerciale"
+                ? "Invio campionatura a commerciale"
+                : origine === "storico"
+                  ? "Registra campionatura in storico"
+                  : "Invio campionatura"}
+          </h2>
+          {editing ? null : (
+            <button
+              type="button"
+              onClick={() => {
+                setFormError(null);
+                if (destinazione === "commerciale") {
+                  setDestinazione("azienda");
+                  return;
+                }
+                setDestinazione("commerciale");
+                setOrigine("da_inviare");
+                setRighe((prev) =>
+                  prev.map((r) => ({ ...r, unitaMisura: "pz", lottoCodice: "" }))
+                );
+              }}
+              className="rounded-lg border border-[var(--border)] bg-white px-3 py-1.5 text-sm font-medium hover:bg-slate-50"
+            >
+              {destinazione === "commerciale"
+                ? "Torna all'invio all'azienda"
+                : "Invia campionatura a commerciale"}
+            </button>
+          )}
+        </div>
         <p className="mt-1 text-sm text-[var(--muted)]">
           Documento distinto dall’ordine. Numero interno{" "}
           <span className="font-mono">
@@ -596,6 +716,45 @@ export function CampionaturaFormModal({
         </p>
 
         <form onSubmit={onSubmit} className="mt-5 space-y-4">
+          {destinazione === "commerciale" ? (
+            <div className="grid gap-4 sm:grid-cols-2">
+              <label className="block text-sm sm:col-span-2">
+                <span className="mb-1 block font-medium">Commerciale</span>
+                <select
+                  required
+                  value={commercialePersonaId}
+                  onChange={(e) => setCommercialePersonaId(e.target.value)}
+                  className="w-full rounded-lg border border-[var(--border)] bg-white px-3 py-2 outline-none focus:border-[var(--primary)]"
+                >
+                  <option value="">Seleziona…</option>
+                  {commerciali.map((c) => (
+                    <option key={c.id} value={c.id}>
+                      {c.nome}
+                      {c.matricola ? ` · ${c.matricola}` : ""}
+                      {c.residenzaCompleta ? "" : " · residenza incompleta"}
+                    </option>
+                  ))}
+                </select>
+                <span className="mt-1 block text-xs text-[var(--muted)]">
+                  {commercialeScelto?.residenzaCompleta
+                    ? `Spedizione a ${commercialeScelto.indirizzoCompleto}.`
+                    : "L'indirizzo è quello di residenza sulla scheda operatore. Non si sceglie un'altra sede."}
+                </span>
+              </label>
+              <label className="block text-sm">
+                <span className="mb-1 block font-medium">Data richiesta</span>
+                <input
+                  type="date"
+                  required
+                  value={dataInvio}
+                  onChange={(e) => setDataInvio(e.target.value)}
+                  className="w-full rounded-lg border border-[var(--border)] bg-white px-3 py-2 outline-none focus:border-[var(--primary)]"
+                />
+              </label>
+            </div>
+          ) : null}
+          {destinazione === "commerciale" ? null : (
+          <>
           <div className="block text-sm">
             <span className="mb-1 block font-medium">Modalità</span>
             <div className="flex flex-wrap gap-2">
@@ -822,10 +981,25 @@ export function CampionaturaFormModal({
               </button>
             </div>
           </div>
+          </>
+          )}
 
           <div>
             <div className="mb-2 flex items-center justify-between gap-2">
-              <p className="text-sm font-medium">Prodotti e lotti</p>
+              <div>
+                <p className="text-sm font-medium">
+                  {destinazione === "commerciale"
+                    ? "Prodotti e confezioni"
+                    : "Prodotti e lotti"}
+                </p>
+                {destinazione === "commerciale" ? (
+                  <p className="text-xs text-[var(--muted)]">
+                    Si conta il numero di confezioni, non la grammatura. Ogni
+                    confezione ha il peso standard. Un peso diverso si scrive
+                    nella nota.
+                  </p>
+                ) : null}
+              </div>
               <button
                 type="button"
                 onClick={() => setRighe((prev) => [...prev, emptyRiga()])}
@@ -839,7 +1013,11 @@ export function CampionaturaFormModal({
               {righe.map((riga, index) => (
                 <div
                   key={index}
-                  className="grid gap-2 rounded-lg border border-[var(--border)] bg-slate-50/70 p-3 sm:grid-cols-[1fr_5.5rem_4.5rem_8rem_auto]"
+                  className={`grid gap-2 rounded-lg border border-[var(--border)] bg-slate-50/70 p-3 ${
+                  destinazione === "commerciale"
+                    ? "sm:grid-cols-[1fr_8rem_auto]"
+                    : "sm:grid-cols-[1fr_5.5rem_4.5rem_8rem_auto]"
+                }`}
                 >
                   <label className="block text-xs sm:col-span-1">
                     <span className="mb-1 block font-medium text-slate-600">
@@ -887,17 +1065,19 @@ export function CampionaturaFormModal({
                   </label>
                   <label className="block text-xs">
                     <span className="mb-1 block font-medium text-slate-600">
-                      Q.tà
+                      {destinazione === "commerciale" ? "N. confezioni" : "Q.tà"}
                     </span>
                     <ClearableNumberInput
                       required
-                      min={0}
-                      step="any"
+                      min={destinazione === "commerciale" ? 1 : 0}
+                      step={destinazione === "commerciale" ? 1 : "any"}
                       value={riga.quantita}
                       onValueChange={(v) => updateRiga(index, { quantita: v })}
                       className="w-full rounded-lg border border-[var(--border)] bg-white px-2 py-1.5 text-sm outline-none focus:border-[var(--primary)]"
                     />
                   </label>
+                  {destinazione === "commerciale" ? null : (
+                  <>
                   <label className="block text-xs">
                     <span className="mb-1 block font-medium text-slate-600">
                       UM
@@ -935,6 +1115,8 @@ export function CampionaturaFormModal({
                       className="w-full rounded-lg border border-[var(--border)] bg-white px-2 py-1.5 font-mono text-sm outline-none focus:border-[var(--primary)]"
                     />
                   </label>
+                  </>
+                  )}
                   <div className="flex items-end justify-end">
                     <button
                       type="button"
@@ -960,7 +1142,11 @@ export function CampionaturaFormModal({
                         onChange={(e) =>
                           updateRiga(index, { note: e.target.value })
                         }
-                        placeholder="Es. Nopal dry C da 50 micron"
+                        placeholder={
+                          destinazione === "commerciale"
+                            ? "Solo se il peso non è quello standard"
+                            : "Es. Nopal dry C da 50 micron"
+                        }
                         className="w-full rounded-lg border border-[var(--border)] bg-white px-2 py-1.5 text-sm outline-none focus:border-[var(--primary)]"
                       />
                     </label>
@@ -970,7 +1156,7 @@ export function CampionaturaFormModal({
             </div>
           </div>
 
-          {origine === "storico" ? (
+          {origine === "storico" && destinazione !== "commerciale" ? (
             <label className="block text-sm">
               <span className="mb-1 block font-medium">Tracking (URL)</span>
               <span className="mb-1 block text-xs text-[var(--muted)]">
@@ -986,6 +1172,7 @@ export function CampionaturaFormModal({
             </label>
           ) : null}
 
+          {destinazione === "commerciale" ? null : (
           <SpedizioneMailPanel
             entityType="campionatura"
             entityId={editing?.id ?? ""}
@@ -1012,9 +1199,16 @@ export function CampionaturaFormModal({
             }}
             onNeedEntity={(modo) => void persistCampionatura(modo)}
           />
+          )}
 
           <label className="block text-sm">
             <span className="mb-1 block font-medium">Note</span>
+            {destinazione === "commerciale" ? (
+              <span className="mb-1 block text-xs text-[var(--muted)]">
+                Per una richiesta particolare indica qui il peso diverso da
+                quello standard.
+              </span>
+            ) : null}
             <textarea
               value={note}
               onChange={(e) => setNote(e.target.value)}
@@ -1047,9 +1241,11 @@ export function CampionaturaFormModal({
                 ? "Salvataggio…"
                 : editing
                   ? "Salva modifiche"
-                  : origine === "storico"
-                    ? "Salva in storico e timeline"
-                    : "Registra ordine"}
+                  : destinazione === "commerciale"
+                    ? "Registra campionatura"
+                    : origine === "storico"
+                      ? "Salva in storico e timeline"
+                      : "Registra ordine"}
             </button>
           </div>
         </form>

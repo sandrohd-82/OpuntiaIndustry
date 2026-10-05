@@ -108,6 +108,8 @@ export type Campionatura = {
   spedizionePrivato: boolean;
   referenteRicezioneId: string | null;
   referenteRicezioneLabel: string;
+  destinazione: "azienda" | "commerciale";
+  commercialePersonaId: string | null;
   destinatario: string;
   indirizzoSpedizione: string;
   note: string;
@@ -135,6 +137,11 @@ export const campionaturaRigaSchema = z.object({
 export const createCampionaturaSchema = z.object({
   campionaturaId: z.string().uuid().optional(),
   origine: z.enum(CAMPIONATURA_ORIGINI).optional().default("da_inviare"),
+  destinazione: z
+    .enum(["azienda", "commerciale"])
+    .optional()
+    .default("azienda"),
+  commercialePersonaId: z.string().uuid().nullable().optional().default(null),
   clienteId: z.string().uuid().optional().or(z.literal("")),
   possibileClienteId: z.string().uuid().optional().nullable(),
   cliente: z.string().trim().min(1),
@@ -142,7 +149,7 @@ export const createCampionaturaSchema = z.object({
   dataInvio: z
     .string()
     .regex(/^\d{4}-\d{2}-\d{2}$/, "Data obbligatoria"),
-  mezzo: z.enum(CAMPIONATURA_MEZZI, { message: "Indica a mezzo di" }),
+  mezzo: z.enum(CAMPIONATURA_MEZZI).nullable().optional(),
   pnNotaId: z.string().uuid().nullable().optional().default(null),
   webmailMessaggioId: z.string().uuid().nullable().optional().default(null),
   trackingUrl: z.string().trim().max(2000).optional().default(""),
@@ -158,11 +165,37 @@ export const createCampionaturaSchema = z.object({
   righe: z.array(campionaturaRigaSchema).min(1, "Aggiungi almeno un prodotto"),
 })
   .superRefine((val, ctx) => {
+    if (val.destinazione === "commerciale") {
+      if (!val.commercialePersonaId) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: "Seleziona un commerciale.",
+          path: ["commercialePersonaId"],
+        });
+      }
+      for (const [i, riga] of val.righe.entries()) {
+        if (riga.unitaMisura !== "pz" || !Number.isInteger(riga.quantita)) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            message: "Indica un numero intero di confezioni.",
+            path: ["righe", i, "quantita"],
+          });
+        }
+      }
+      return;
+    }
     if (!val.clienteId && !val.possibileClienteId) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
         message: "Seleziona un’azienda.",
         path: ["clienteId"],
+      });
+    }
+    if (!val.mezzo) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Indica a mezzo di",
+        path: ["mezzo"],
       });
     }
     if (val.trackingUrl) {

@@ -64,7 +64,7 @@ import { createClient, createServiceClient } from "@/lib/supabase/server";
 
 const BUCKET = "organigramma-docs";
 const PERSONA_COLS =
-  "id, nome, cognome, matricola, fluida_user_id, fluida_contract_id, codice_fiscale, carta_identita, cellulare, user_id, parent_id, co_parent_ids, sort_order, foto_path, documento_stato, note, reparto_id, commerciale_grado, commerciale_provvigione_pct, provvigione_quota_superiore_pct, provvigione_quota_superiore_by, banca_iban, banca_bic, banca_istituto, banca_intestatario, albero_etichetta, albero_gap_dopo, in_forza, cessato_at";
+  "id, nome, cognome, matricola, fluida_user_id, fluida_contract_id, codice_fiscale, carta_identita, cellulare, residenza_indirizzo, residenza_cap, residenza_citta, residenza_provincia, residenza_nazione, user_id, parent_id, co_parent_ids, sort_order, foto_path, documento_stato, note, reparto_id, commerciale_grado, commerciale_provvigione_pct, provvigione_quota_superiore_pct, provvigione_quota_superiore_by, banca_iban, banca_bic, banca_istituto, banca_intestatario, albero_etichetta, albero_gap_dopo, in_forza, cessato_at";
 
 const DOC_COLS =
   "id, persona_id, tipo, titolo, periodo, note, file_name, mime, created_at, certificato_catalogo_id, data_rilascio, validita_anni, data_scadenza";
@@ -79,6 +79,11 @@ type PersonaRow = {
   codice_fiscale: string;
   carta_identita: string;
   cellulare?: string;
+  residenza_indirizzo?: string | null;
+  residenza_cap?: string | null;
+  residenza_citta?: string | null;
+  residenza_provincia?: string | null;
+  residenza_nazione?: string | null;
   user_id: string | null;
   parent_id: string | null;
   co_parent_ids?: string[] | null;
@@ -198,6 +203,11 @@ function mapPersona(
     codiceFiscale: row.codice_fiscale ?? "",
     cartaIdentita: row.carta_identita ?? "",
     cellulare: row.cellulare ?? "",
+    residenzaIndirizzo: row.residenza_indirizzo ?? "",
+    residenzaCap: row.residenza_cap ?? "",
+    residenzaCitta: row.residenza_citta ?? "",
+    residenzaProvincia: row.residenza_provincia ?? "",
+    residenzaNazione: row.residenza_nazione ?? "",
     userId: row.user_id,
     profilo: null,
     parentId: row.parent_id,
@@ -1460,6 +1470,11 @@ export async function createPersonaAction(
       codice_fiscale: v.codiceFiscale ?? "",
       carta_identita: v.cartaIdentita ?? "",
       cellulare: v.cellulare ?? "",
+      residenza_indirizzo: v.residenzaIndirizzo ?? "",
+      residenza_cap: v.residenzaCap ?? "",
+      residenza_citta: v.residenzaCitta ?? "",
+      residenza_provincia: v.residenzaProvincia ?? "",
+      residenza_nazione: v.residenzaNazione ?? "",
       note: v.note ?? "",
       parent_id: v.parentId ?? null,
       reparto_id: repartoId,
@@ -1662,6 +1677,11 @@ export async function updatePersonaAction(
       codice_fiscale: v.codiceFiscale ?? "",
       carta_identita: v.cartaIdentita ?? "",
       cellulare: v.cellulare ?? "",
+      residenza_indirizzo: v.residenzaIndirizzo ?? "",
+      residenza_cap: v.residenzaCap ?? "",
+      residenza_citta: v.residenzaCitta ?? "",
+      residenza_provincia: v.residenzaProvincia ?? "",
+      residenza_nazione: v.residenzaNazione ?? "",
       note: v.note ?? "",
       reparto_id: v.repartoId ?? null,
       commerciale_grado: comm.grado,

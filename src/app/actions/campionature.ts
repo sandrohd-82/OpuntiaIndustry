@@ -1,6 +1,8 @@
 "use server";
 
 import { loadIndirizzoRicezioneMerce } from "@/app/actions/anagrafica-extra";
+import { formatSedeIndirizzo } from "@/lib/amministrazione/anagrafica-extra";
+import { isRepartoCommerciale } from "@/lib/auth/commerciale";
 import { resolveClientePerOrdineFromRawAction } from "@/app/actions/clienti";
 import { writeAuditLog } from "@/lib/audit";
 import {
@@ -96,6 +98,8 @@ function mapCampionatura(
     pnNotaTitolo: extra?.notaTitolo ?? "",
     webmailMessaggioId: row.webmail_messaggio_id,
     webmailOggetto: extra?.mailOggetto ?? "",
+    destinazione: row.destinazione === "commerciale" ? "commerciale" : "azienda",
+    commercialePersonaId: row.commerciale_persona_id ?? null,
     spedizioneTipo: row.spedizione_tipo ?? "sede_azienda",
     spedizionePrivato: Boolean(row.spedizione_privato),
     referenteRicezioneId: row.referente_ricezione_id,
@@ -263,6 +267,312 @@ export async function listCampionatureAction(): Promise<
   };
 }
 
+export type CommercialeCampionaturaOption = {
+  id: string;
+  nome: string;
+  matricola: string;
+  indirizzoCompleto: string;
+  residenzaCompleta: boolean;
+};
+
+export async function listCommercialiCampionaturaAction(): Promise<
+  | { success: true; items: CommercialeCampionaturaOption[] }
+  | { success: false; error: string }
+> {
+  const gate = await requireCampionaturaAccess("read");
+  if (!gate.ok) return { success: false, error: gate.error };
+  const supabase = await createClient();
+  const [{ data: persone, error }, { data: reparti }] = await Promise.all([
+    supabase
+      .from("organigramma_persone")
+      .select(
+        "id, nome, cognome, matricola, in_forza, reparto_id, commerciale_grado, residenza_indirizzo, residenza_cap, residenza_citta, residenza_provincia, residenza_nazione"
+      )
+      .is("deleted_at", null)
+      .eq("in_forza", true)
+      .order("cognome", { ascending: true }),
+    supabase
+      .from("organigramma_reparti")
+      .select("id, codice, nome")
+      .is("deleted_at", null),
+  ]);
+  if (error) return { success: false, error: error.message };
+  const repartoById = new Map(
+    ((reparti ?? []) as Array<{ id: string; codice?: string; nome?: string }>).map(
+      (r) => [r.id, r]
+    )
+  );
+  const items: CommercialeCampionaturaOption[] = [];
+  for (const row of (persone ?? []) as Array<{
+    id: string;
+    nome: string;
+    cognome: string;
+    matricola?: string | null;
+    reparto_id?: string | null;
+    commerciale_grado?: string | null;
+    residenza_indirizzo?: string | null;
+    residenza_cap?: string | null;
+    residenza_citta?: string | null;
+    residenza_provincia?: string | null;
+    residenza_nazione?: string | null;
+  }>) {
+    const reparto = row.reparto_id
+      ? repartoById.get(row.reparto_id)
+      : undefined;
+    if (!row.commerciale_grado && !isRepartoCommerciale(reparto)) continue;
+    const sede = {
+      indirizzo: row.residenza_indirizzo ?? "",
+      cap: row.residenza_cap ?? "",
+      citta: row.residenza_citta ?? "",
+      provincia: row.residenza_provincia ?? "",
+      nazione: row.residenza_nazione ?? "",
+    };
+    const residenzaCompleta = [
+      sede.indirizzo,
+      sede.cap,
+      sede.citta,
+      sede.provincia,
+      sede.nazione,
+    ].every((part) => part.trim().length > 0);
+    items.push({
+      id: row.id,
+      nome: `${row.cognome} ${row.nome}`.trim(),
+      matricola: (row.matricola ?? "").toUpperCase(),
+      indirizzoCompleto: formatSedeIndirizzo(sede),
+      residenzaCompleta,
+    });
+  }
+  return { success: true, items };
+}
+
+async function saveCampionaturaCommerciale(
+  raw: unknown,
+  userId: string
+): Promise<
+  { success: true; item: Campionatura } | { success: false; error: string }
+> {
+  const body =
+    raw && typeof raw === "object" ? (raw as Record<string, unknown>) : {};
+  const personaId = String(body.commercialePersonaId ?? "");
+  if (!z.string().uuid().safeParse(personaId).success) {
+    return { success: false, error: "Seleziona un commerciale." };
+  }
+  const supabase = await createClient();
+  const { data: persona, error: personaErr } = await supabase
+    .from("organigramma_persone")
+    .select(
+      "id, nome, cognome, matricola, in_forza, deleted_at, residenza_indirizzo, residenza_cap, residenza_citta, residenza_provincia, residenza_nazione"
+    )
+    .eq("id", personaId)
+    .maybeSingle();
+  if (personaErr || !persona || persona.deleted_at || persona.in_forza === false) {
+    return {
+      success: false,
+      error: personaErr?.message ?? "Commerciale non trovato o non in forza.",
+    };
+  }
+  const sede = {
+    indirizzo: String(persona.residenza_indirizzo ?? ""),
+    cap: String(persona.residenza_cap ?? ""),
+    citta: String(persona.residenza_citta ?? ""),
+    provincia: String(persona.residenza_provincia ?? ""),
+    nazione: String(persona.residenza_nazione ?? ""),
+  };
+  const nome = `${persona.cognome ?? ""} ${persona.nome ?? ""}`.trim();
+  if (
+    !sede.indirizzo.trim() ||
+    !sede.cap.trim() ||
+    !sede.citta.trim() ||
+    !sede.provincia.trim() ||
+    !sede.nazione.trim()
+  ) {
+    return {
+      success: false,
+      error: `Nella scheda di ${nome} manca l'indirizzo di residenza completo (via, CAP, città, provincia, paese).`,
+    };
+  }
+  const targa = String(persona.matricola ?? "").trim().toUpperCase() || "CM";
+  const righeIn = Array.isArray(body.righe) ? body.righe : [];
+  const parsed = createCampionaturaSchema.safeParse({
+    ...body,
+    destinazione: "commerciale",
+    commercialePersonaId: personaId,
+    origine: "da_inviare",
+    cliente: nome,
+    codiceTargaCliente: targa,
+    mezzo: null,
+    pnNotaId: null,
+    webmailMessaggioId: null,
+    spedizioneTipo: "altro_posto",
+    destinatario: nome,
+    indirizzoSpedizione: formatSedeIndirizzo(sede),
+    righe: righeIn.map((riga) => {
+      const row = riga && typeof riga === "object" ? (riga as Record<string, unknown>) : {};
+      return {
+        ...row,
+        unitaMisura: "pz",
+        lottoCodice: "",
+      };
+    }),
+  });
+  if (!parsed.success) {
+    return {
+      success: false,
+      error: parsed.error.issues[0]?.message ?? "Dati non validi",
+    };
+  }
+  const input = parsed.data;
+  const recordId = String(body.id ?? body.campionaturaId ?? "");
+  const now = new Date().toISOString();
+  let editing: {
+    id: string;
+    numero: string;
+    versione: number;
+    stato: CampionaturaRow["stato"];
+    documentoStato: CampionaturaRow["documento_stato"];
+  } | null = null;
+  if (recordId) {
+    if (!z.string().uuid().safeParse(recordId).success) {
+      return { success: false, error: "Campionatura da aggiornare non valida." };
+    }
+    const { data: prev, error: prevErr } = await supabase
+      .from("campionature")
+      .select("id, numero_interno, versione, stato, documento_stato, deleted_at")
+      .eq("id", recordId)
+      .maybeSingle();
+    if (prevErr || !prev || prev.deleted_at) {
+      return {
+        success: false,
+        error: prevErr?.message ?? "Campionatura da modificare non trovata.",
+      };
+    }
+    if (prev.stato === "annullata") {
+      return {
+        success: false,
+        error: "Questa campionatura è annullata e non si riscrive.",
+      };
+    }
+    editing = {
+      id: String(prev.id),
+      numero: String(prev.numero_interno ?? ""),
+      versione: Number(prev.versione ?? 1),
+      stato: prev.stato,
+      documentoStato: prev.documento_stato,
+    };
+  }
+  let numero = editing?.numero ?? "";
+  if (!editing) {
+    const seqRes = await nextSeq(targa);
+    if (!seqRes.ok) return { success: false, error: seqRes.error };
+    numero = formatNumeroCampionatura(input.dataInvio, targa, seqRes.seq);
+  }
+  const headerPayload = {
+    numero_interno: numero,
+    destinazione: "commerciale",
+    commerciale_persona_id: personaId,
+    cliente_id: null,
+    cliente_possibile_id: null,
+    cliente_ragione_sociale: nome,
+    cliente_codice_targa: targa,
+    data_invio: input.dataInvio,
+    origine: "da_inviare",
+    tracking_url: "",
+    mezzo: null,
+    pn_nota_id: null,
+    webmail_messaggio_id: null,
+    spedizione_tipo: "altro_posto",
+    spedizione_privato: false,
+    referente_ricezione_id: null,
+    destinatario: nome,
+    indirizzo_spedizione: formatSedeIndirizzo(sede),
+    note: input.note ?? "",
+    stato: editing?.stato ?? ("inserita" as const),
+    documento_stato: editing?.documentoStato ?? ("approvato" as const),
+    versione: editing ? editing.versione + 1 : 1,
+    approved_at: now,
+    approved_by: userId,
+    updated_by: userId,
+  };
+  let header: CampionaturaRow;
+  if (editing) {
+    const updated = await supabase
+      .from("campionature")
+      .update(headerPayload)
+      .eq("id", editing.id)
+      .is("deleted_at", null)
+      .select("*")
+      .single();
+    if (updated.error || !updated.data) {
+      return {
+        success: false,
+        error: updated.error?.message ?? "Aggiornamento fallito.",
+      };
+    }
+    header = updated.data as CampionaturaRow;
+    await supabase.from("campionature_righe").delete().eq("campionatura_id", header.id);
+  } else {
+    const inserted = await supabase
+      .from("campionature")
+      .insert({ ...headerPayload, created_by: userId })
+      .select("*")
+      .single();
+    if (inserted.error || !inserted.data) {
+      return {
+        success: false,
+        error: inserted.error?.message ?? "Inserimento fallito",
+      };
+    }
+    header = inserted.data as CampionaturaRow;
+  }
+  const { data: righe, error: rErr } = await supabase
+    .from("campionature_righe")
+    .insert(
+      input.righe.map((r, i) => ({
+        campionatura_id: header.id,
+        prodotto_id: r.prodottoId,
+        prodotto_codice: r.prodottoCodice,
+        prodotto_nome: r.prodottoNome,
+        quantita: r.quantita,
+        unita_misura: "pz",
+        lotto_codice: "",
+        note: r.note ?? "",
+        sort_order: i,
+        created_by: userId,
+        updated_by: userId,
+      }))
+    )
+    .select("*");
+  if (rErr) {
+    if (!editing) {
+      await supabase
+        .from("campionature")
+        .update({ deleted_at: now, deleted_by: userId })
+        .eq("id", header.id);
+    }
+    return { success: false, error: rErr.message };
+  }
+  const pezzi = input.righe.reduce((sum, r) => sum + r.quantita, 0);
+  await writeAuditLog({
+    entity_type: "campionature",
+    entity_id: header.id,
+    action: editing ? "update" : "create",
+    actor_id: userId,
+    summary: editing
+      ? `Aggiornata campionatura ${numero} verso ${nome} (${pezzi} confezioni)`
+      : `Campionatura ${numero} verso ${nome} (${pezzi} confezioni, peso standard)`,
+    payload: {
+      numero_interno: numero,
+      destinazione: "commerciale",
+      commerciale_persona_id: personaId,
+      confezioni: pezzi,
+    },
+  });
+  return {
+    success: true,
+    item: mapCampionatura(header, (righe ?? []) as CampionaturaRigaRow[]),
+  };
+}
+
 export async function createCampionaturaAction(
   raw: unknown
 ): Promise<
@@ -283,6 +593,13 @@ async function createCampionaturaActionInner(
 > {
   const gate = await requireCampionaturaAccess("write");
   if (!gate.ok) return { success: false, error: gate.error };
+  if (
+    raw &&
+    typeof raw === "object" &&
+    (raw as { destinazione?: unknown }).destinazione === "commerciale"
+  ) {
+    return saveCampionaturaCommerciale(raw, gate.auth.userId);
+  }
   const resolved = await resolveClientePerOrdineFromRawAction(raw);
   if (!resolved.success) return resolved;
   const supabase = await createClient();
@@ -726,6 +1043,13 @@ export async function updateCampionaturaAction(
       );
     if (!idParsed.success) {
       return { success: false, error: "Campionatura da aggiornare non valida." };
+    }
+    if (
+      raw &&
+      typeof raw === "object" &&
+      (raw as { destinazione?: unknown }).destinazione === "commerciale"
+    ) {
+      return saveCampionaturaCommerciale(raw, gate.auth.userId);
     }
     const resolved = await resolveClientePerOrdineFromRawAction(raw);
     if (!resolved.success) return resolved;

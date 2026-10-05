@@ -504,6 +504,11 @@ function OperatoreCreateModal({
   const [codiceFiscale, setCf] = useState("");
   const [cartaIdentita, setCi] = useState("");
   const [cellulare, setCellulare] = useState("");
+  const [residenzaIndirizzo, setResidenzaIndirizzo] = useState("");
+  const [residenzaCap, setResidenzaCap] = useState("");
+  const [residenzaCitta, setResidenzaCitta] = useState("");
+  const [residenzaProvincia, setResidenzaProvincia] = useState("");
+  const [residenzaNazione, setResidenzaNazione] = useState("");
   const [repartoId, setRepartoId] = useState("");
   const [parentId, setParentId] = useState("");
   const [qualificaSenior, setQualificaSenior] = useState<
@@ -554,6 +559,11 @@ function OperatoreCreateModal({
       codiceFiscale,
       cartaIdentita,
       cellulare,
+      residenzaIndirizzo,
+      residenzaCap,
+      residenzaCitta,
+      residenzaProvincia,
+      residenzaNazione,
       note,
       mansioneIds,
       parentId: parentId || null,
@@ -648,6 +658,56 @@ function OperatoreCreateModal({
               autoComplete="tel"
               placeholder="+39 …"
               maxLength={40}
+            />
+          </label>
+          <label className="text-xs text-[var(--muted)] sm:col-span-2">
+            Residenza — via e civico
+            <input
+              value={residenzaIndirizzo}
+              onChange={(e) => setResidenzaIndirizzo(e.target.value)}
+              className={inputCls}
+              autoComplete="street-address"
+              maxLength={200}
+            />
+          </label>
+          <label className="text-xs text-[var(--muted)]">
+            CAP
+            <input
+              value={residenzaCap}
+              onChange={(e) => setResidenzaCap(e.target.value)}
+              className={inputCls}
+              autoComplete="postal-code"
+              maxLength={16}
+            />
+          </label>
+          <label className="text-xs text-[var(--muted)]">
+            Città
+            <input
+              value={residenzaCitta}
+              onChange={(e) => setResidenzaCitta(e.target.value)}
+              className={inputCls}
+              autoComplete="address-level2"
+              maxLength={80}
+            />
+          </label>
+          <label className="text-xs text-[var(--muted)]">
+            Provincia
+            <input
+              value={residenzaProvincia}
+              onChange={(e) => setResidenzaProvincia(e.target.value)}
+              className={inputCls}
+              autoComplete="address-level1"
+              maxLength={80}
+            />
+          </label>
+          <label className="text-xs text-[var(--muted)]">
+            Paese
+            <input
+              value={residenzaNazione}
+              onChange={(e) => setResidenzaNazione(e.target.value)}
+              className={inputCls}
+              autoComplete="country-name"
+              maxLength={80}
             />
           </label>
           <label className="text-xs text-[var(--muted)] sm:col-span-2">
