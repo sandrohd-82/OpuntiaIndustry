@@ -10,6 +10,7 @@ import {
 import {
   caselleFattureMancanti,
   fraseCorrispondenzaFattura,
+  motivoEsclusioneMailFattura,
   spostaGiorniIso,
   trovaFatturaGiaPresente,
 } from "@/lib/amministrazione/fatture-mail-scan";
@@ -144,7 +145,32 @@ export async function listFattureMailDaValutareAction(): Promise<
     return { success: false, error: error.message };
   }
 
-  const rows = (data ?? []) as CandidatoRow[];
+  const visibili: CandidatoRow[] = [];
+  for (const row of (data ?? []) as CandidatoRow[]) {
+    const esclusa = motivoEsclusioneMailFattura({
+      testo: `${row.oggetto}\n${row.fornitore_ragione}\n${row.numero_documento}`,
+      fileName: row.file_name,
+    });
+    if (!esclusa) {
+      visibili.push(row);
+      continue;
+    }
+    await supabase
+      .from("fatture_mail_candidati")
+      .update({
+        stato: "ignorata",
+        documento_stato: "Chiuso",
+        motivo_match:
+          esclusa === "proforma"
+            ? "Proforma: non si registra dalle mail"
+            : "Fattura italiana: passa dallo SDI",
+        decided_at: new Date().toISOString(),
+        updated_by: auth.userId,
+      })
+      .eq("id", row.id)
+      .is("decided_by", null);
+  }
+  const rows = visibili;
   const notePerData = new Map<string, Awaited<ReturnType<typeof caricaFattureNote>>>();
   const dateUniche = [
     ...new Set(

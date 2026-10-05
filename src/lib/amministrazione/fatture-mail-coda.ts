@@ -4,6 +4,7 @@ import {
   chiaveFatturaMail,
   estraiDaTestoFattura,
   estraiDaXmlFattura,
+  motivoEsclusioneMailFattura,
   testoParlaDiFattura,
   unisciEstratto,
   xmlNelFile,
@@ -286,16 +287,29 @@ export async function scanFattureMailDopoSync(
     }
     allegatiLetti += 1;
     const delMessaggio = trimestreFromIsoDate(giorno);
+    let tenuti = 0;
 
     for (const allegato of utili.slice(0, 2)) {
       const file = await shaAllegato(supabase, allegato);
-      const xml = file?.xml ? estraiDaXmlFattura(file.xml) : null;
+      const xmlRaw = file?.xml ?? null;
+      const xml = xmlRaw ? estraiDaXmlFattura(xmlRaw) : null;
       const estratto = unisciEstratto(
         xml,
         estraiDaTestoFattura(
           `${testo}\n${allegato.filename ?? ""}\n${msg.from_name ?? ""}`
         )
       );
+      if (
+        motivoEsclusioneMailFattura({
+          testo: `${testo}\n${estratto.fornitoreRagione}`,
+          fileName: allegato.filename ?? "",
+          xml: xmlRaw,
+          pivaCedente: xml?.fornitorePiva,
+        })
+      ) {
+        continue;
+      }
+      tenuti += 1;
       const sha = file?.sha ?? "";
       const chiave = chiaveFatturaMail({
         piva: estratto.fornitorePiva,
@@ -372,7 +386,7 @@ export async function scanFattureMailDopoSync(
 
     await supabase.from("fatture_mail_controlli").upsert({
       messaggio_id: msg.id,
-      esito: "candidato",
+      esito: tenuti > 0 ? "candidato" : "nessuna_fattura",
     });
   }
 

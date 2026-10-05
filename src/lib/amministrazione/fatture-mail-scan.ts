@@ -237,6 +237,40 @@ export function unisciEstratto(
   };
 }
 
+const PROFORMA = /\bpro[\s-]?forma\b/i;
+const ITALIANA_SDI =
+  /\bfattura\s+elettronica\b|\bcodice\s+destinatario\b|\btrasmess[oa]\s+(?:allo\s+)?sdi\b|\bregime\s+fiscale\b|\bcopia\s+(?:di\s+)?cortesia\b/i;
+
+function paeseCedenteXml(xml: string): string {
+  const cedente = xmlBlocks(xml, "CedentePrestatore")[0] ?? "";
+  return xmlText(cedente, "IdPaese").trim().toUpperCase();
+}
+
+/**
+ * Proforma e fatture italiane non si registrano dalla mail:
+ * la fattura italiana arriva dallo SDI.
+ */
+export function motivoEsclusioneMailFattura(input: {
+  testo: string;
+  fileName: string;
+  xml?: string | null;
+  pivaCedente?: string | null;
+}): "proforma" | "italiana_sdi" | null {
+  const nome = input.fileName.trim();
+  const blob = `${input.testo}\n${nome}`;
+  if (PROFORMA.test(blob)) return "proforma";
+  const xml = input.xml ?? "";
+  if (/FatturaElettronica/i.test(xml)) {
+    const paese = paeseCedenteXml(xml);
+    if (!paese || paese === "IT") return "italiana_sdi";
+  }
+  if (/\.p7m$/i.test(nome) || /^IT\d{11}[_.-]/i.test(nome)) return "italiana_sdi";
+  if (ITALIANA_SDI.test(blob)) return "italiana_sdi";
+  const piva = normalizzaPiva(input.pivaCedente ?? "");
+  if (/^IT\d{11}$/.test(piva)) return "italiana_sdi";
+  return null;
+}
+
 export function xmlNelFile(bytes: Buffer): string | null {
   const text = bytes.toString("utf8");
   const xml = text.indexOf("<?xml");
