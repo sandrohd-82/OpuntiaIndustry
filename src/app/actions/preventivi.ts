@@ -30,7 +30,10 @@ import {
   AGRINSICILIA_LETTERHEAD,
   AGRINSICILIA_MAIL_FIRMA,
 } from "@/lib/amministrazione/preventivo-letterhead";
-import { sendMailViaAccount } from "@/lib/webmail/sync";
+import {
+  registraCopiaMailInviata,
+  sendMailViaAccount,
+} from "@/lib/webmail/sync";
 import {
   CONFEZIONE_STANDARD,
   createPreventivoSchema,
@@ -1132,6 +1135,13 @@ export async function savePreventivoAction(
         "Questa azienda è affiancata: il senior deve accettare il preventivo prima dell'invio.",
     };
   }
+  if (current.sent_at && isRichiestaPrezzo) {
+    return {
+      success: false,
+      error:
+        "La mail di questo preventivo è già partita. Non si può rimettere in attesa del calcolo spedizione.",
+    };
+  }
   const entraInAttesa =
     isRichiestaPrezzo && current.stato !== "in_attesa_spedizione";
   if (entraInAttesa) {
@@ -1822,6 +1832,29 @@ async function profiliCalcoloSpedizioni(): Promise<string[]> {
   ];
 }
 
+function motivoBloccoInvioPreventivo(row: {
+  stato: string;
+  modalita_spedizione_prezzo?: string | null;
+  spedizione_importo?: number | null;
+  consegna_metodo?: string | null;
+}): string | null {
+  if (
+    row.stato === "in_attesa_spedizione" ||
+    row.modalita_spedizione_prezzo === "richiesto"
+  ) {
+    return "La mail parte solo dopo che l'operatore del calcolo spedizione inserisce il prezzo e conferma l'invio.";
+  }
+  const consegna = String(row.consegna_metodo ?? "");
+  const importo = Number(row.spedizione_importo ?? 0);
+  if (
+    (consegna === "corriere_cliente" || consegna === "corriere_nostro") &&
+    !(importo > 0)
+  ) {
+    return "Manca il costo di spedizione. La mail non parte.";
+  }
+  return null;
+}
+
 function testoMailPreventivoConFirma(testo: string): string {
   return `${testo.trim()}\n\n${AGRINSICILIA_MAIL_FIRMA}`;
 }
@@ -1872,7 +1905,9 @@ export async function inviaPreventivoMailAction(
   const supabase = await createClient();
   const { data: row, error: rowErr } = await supabase
     .from("preventivi")
-    .select("id, numero_interno, sent_at, accettazione_senior_stato")
+    .select(
+      "id, numero_interno, stato, sent_at, accettazione_senior_stato, modalita_spedizione_prezzo, spedizione_importo, consegna_metodo"
+    )
     .eq("id", input.preventivoId)
     .is("deleted_at", null)
     .maybeSingle();
@@ -1882,8 +1917,12 @@ export async function inviaPreventivoMailAction(
   const prev = row as {
     id: string;
     numero_interno: string;
+    stato: string;
     sent_at: string | null;
     accettazione_senior_stato: string | null;
+    modalita_spedizione_prezzo: string | null;
+    spedizione_importo: number | null;
+    consegna_metodo: string | null;
   };
   if (
     accettazioneSeniorBloccaInvio(
@@ -1902,6 +1941,8 @@ export async function inviaPreventivoMailAction(
       error: "La mail di questo preventivo è già stata inviata.",
     };
   }
+  const bloccoInvio = motivoBloccoInvioPreventivo(prev);
+  if (bloccoInvio) return { success: false, error: bloccoInvio };
   const now = new Date().toISOString();
   const { error: draftErr } = await supabase
     .from("preventivi")
@@ -1934,32 +1975,38 @@ export async function inviaPreventivoMailAction(
         "Preventivo salvato in archivio. Casella mail non trovata.",
     };
   }
+  const accountRow = account as {
+    id: string;
+    email_address: string;
+    imap_host: string;
+    imap_port: number;
+    imap_secure: boolean;
+    smtp_host: string;
+    smtp_port: number;
+    smtp_secure: boolean;
+    username: string;
+    password_encrypted: string;
+  };
+  const pdfNome = nomeFilePreventivoPdf(prev.numero_interno);
+  const mailTestoFirmato = testoMailPreventivoConFirma(input.mailTesto);
+  const mailHtmlFirmato = htmlMailPreventivoConFirma(input.mailTesto);
+  let smtpMessageId: string | null = null;
   try {
-    await sendMailViaAccount({
-      account: account as {
-        id: string;
-        email_address: string;
-        imap_host: string;
-        imap_port: number;
-        imap_secure: boolean;
-        smtp_host: string;
-        smtp_port: number;
-        smtp_secure: boolean;
-        username: string;
-        password_encrypted: string;
-      },
+    const sent = await sendMailViaAccount({
+      account: accountRow,
       to: input.mailTo,
       subject: input.mailOggetto,
-      text: testoMailPreventivoConFirma(input.mailTesto),
-      html: htmlMailPreventivoConFirma(input.mailTesto),
+      text: mailTestoFirmato,
+      html: mailHtmlFirmato,
       attachments: [
         {
-          filename: nomeFilePreventivoPdf(prev.numero_interno),
+          filename: pdfNome,
           content: pdfBuffer,
           contentType: "application/pdf",
         },
       ],
     });
+    smtpMessageId = sent.messageId;
   } catch (e) {
     return {
       success: false,
@@ -1969,6 +2016,24 @@ export async function inviaPreventivoMailAction(
           : "Preventivo salvato in archivio. Invio mail non riuscito.",
     };
   }
+  await registraCopiaMailInviata({
+    supabase: service,
+    accountId: accountRow.id,
+    fromAddress: accountRow.email_address,
+    to: input.mailTo,
+    subject: input.mailOggetto,
+    text: mailTestoFirmato,
+    html: mailHtmlFirmato,
+    messageId: smtpMessageId,
+    userId: gate.auth.userId,
+    attachments: [
+      {
+        filename: pdfNome,
+        content: pdfBuffer,
+        contentType: "application/pdf",
+      },
+    ],
+  });
   const { data: updated, error: sentErr } = await supabase
     .from("preventivi")
     .update({
@@ -2026,6 +2091,7 @@ export async function completaCalcoloSpedizionePreventivoAction(input: {
   preventivoId: string;
   importo: number;
   pdfBase64: string;
+  confermaInvio: boolean;
 }): Promise<
   { success: true; provaChiusa?: boolean } | { success: false; error: string }
 > {
@@ -2034,8 +2100,15 @@ export async function completaCalcoloSpedizionePreventivoAction(input: {
     return { success: false, error: "Non autenticato" };
   }
   const importo = Number(input.importo);
-  if (!Number.isFinite(importo) || importo < 0) {
-    return { success: false, error: "Inserisci l'importo della spedizione." };
+  if (!Number.isFinite(importo) || !(importo > 0)) {
+    return { success: false, error: "Inserisci il costo della spedizione." };
+  }
+  if (input.confermaInvio !== true) {
+    return {
+      success: false,
+      error:
+        "Conferma l'invio della mail dopo aver inserito il prezzo. Senza conferma non parte nulla.",
+    };
   }
   const pdfBuffer = bufferPdfPreventivo(input.pdfBase64 ?? "");
   if (!pdfBuffer) {
@@ -2139,24 +2212,28 @@ export async function completaCalcoloSpedizionePreventivoAction(input: {
     buffer: pdfBuffer,
     fileName: nomeFilePreventivoPdf(prev.numero_interno),
   };
+  const accountRow = account as {
+    id: string;
+    email_address: string;
+    imap_host: string;
+    imap_port: number;
+    imap_secure: boolean;
+    smtp_host: string;
+    smtp_port: number;
+    smtp_secure: boolean;
+    username: string;
+    password_encrypted: string;
+  };
+  const mailTestoFirmato = testoMailPreventivoConFirma(prev.mail_bozza_testo);
+  const mailHtmlFirmato = htmlMailPreventivoConFirma(prev.mail_bozza_testo);
+  let smtpMessageId: string | null = null;
   try {
-    await sendMailViaAccount({
-      account: account as {
-        id: string;
-        email_address: string;
-        imap_host: string;
-        imap_port: number;
-        imap_secure: boolean;
-        smtp_host: string;
-        smtp_port: number;
-        smtp_secure: boolean;
-        username: string;
-        password_encrypted: string;
-      },
+    const sent = await sendMailViaAccount({
+      account: accountRow,
       to: prev.mail_bozza_to,
       subject: prev.mail_bozza_oggetto,
-      text: testoMailPreventivoConFirma(prev.mail_bozza_testo),
-      html: htmlMailPreventivoConFirma(prev.mail_bozza_testo),
+      text: mailTestoFirmato,
+      html: mailHtmlFirmato,
       attachments: [
         {
           filename: pdf.fileName,
@@ -2165,6 +2242,7 @@ export async function completaCalcoloSpedizionePreventivoAction(input: {
         },
       ],
     });
+    smtpMessageId = sent.messageId;
   } catch (e) {
     return {
       success: false,
@@ -2174,6 +2252,24 @@ export async function completaCalcoloSpedizionePreventivoAction(input: {
           : "Importo salvato, invio mail non riuscito.",
     };
   }
+  await registraCopiaMailInviata({
+    supabase: service,
+    accountId: accountRow.id,
+    fromAddress: accountRow.email_address,
+    to: prev.mail_bozza_to,
+    subject: prev.mail_bozza_oggetto,
+    text: mailTestoFirmato,
+    html: mailHtmlFirmato,
+    messageId: smtpMessageId,
+    userId: auth.userId,
+    attachments: [
+      {
+        filename: pdf.fileName,
+        content: pdf.buffer,
+        contentType: "application/pdf",
+      },
+    ],
+  });
   const { error: sentErr } = await service
     .from("preventivi")
     .update({

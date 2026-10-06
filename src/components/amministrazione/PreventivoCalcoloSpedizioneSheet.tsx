@@ -49,6 +49,7 @@ export function PreventivoCalcoloSpedizioneSheet({
   const [mailTo, setMailTo] = useState("");
   const [mailOggetto, setMailOggetto] = useState("");
   const [mailTesto, setMailTesto] = useState("");
+  const [confermaInvio, setConfermaInvio] = useState(false);
   const chiuso = useRef(false);
   const solaLettura = modo === "dettagli";
 
@@ -156,10 +157,16 @@ export function PreventivoCalcoloSpedizioneSheet({
           {solaLettura ? null : (
             <button
               type="button"
-              disabled={busy || !lockOk}
+              disabled={busy || !lockOk || !confermaInvio || !(valore > 0)}
               onClick={() => {
-                if (!importoPronto) {
+                if (!importoPronto || !(valore > 0)) {
                   setError("Inserisci il costo della spedizione.");
+                  return;
+                }
+                if (!confermaInvio) {
+                  setError(
+                    "Conferma l'invio della mail. Senza conferma non parte nulla."
+                  );
                   return;
                 }
                 const node = foglioRef.current;
@@ -175,6 +182,7 @@ export function PreventivoCalcoloSpedizioneSheet({
                       preventivoId: item.id,
                       importo: valore,
                       pdfBase64,
+                      confermaInvio: true,
                     })
                   )
                   .then((res) => {
@@ -201,7 +209,7 @@ export function PreventivoCalcoloSpedizioneSheet({
               }}
               className="rounded-lg bg-[var(--primary)] px-3 py-1.5 text-sm font-medium text-white disabled:opacity-50"
             >
-              {busy ? "Invio…" : "Completa"}
+              {busy ? "Invio…" : "Conferma e invia"}
             </button>
           )}
         </div>
@@ -233,6 +241,18 @@ export function PreventivoCalcoloSpedizioneSheet({
                   onChange={(e) => setImporto(e.target.value)}
                   className="mt-1 w-40 rounded border border-slate-300 px-2 py-1 text-sm text-slate-900"
                 />
+              </label>
+              <label className="mt-3 flex items-start gap-2 text-[12px] text-slate-800">
+                <input
+                  type="checkbox"
+                  checked={confermaInvio}
+                  onChange={(e) => setConfermaInvio(e.target.checked)}
+                  className="mt-0.5"
+                />
+                <span>
+                  Confermo il prezzo e autorizzo l&apos;invio della mail al
+                  cliente. Prima di questa conferma non parte nulla.
+                </span>
               </label>
             </div>
           )}

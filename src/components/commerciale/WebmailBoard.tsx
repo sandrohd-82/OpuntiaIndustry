@@ -777,6 +777,7 @@ export function WebmailBoard({
         let imported = 0;
         const importedIds: string[] = [];
         let round = 0;
+        let previousPending: number | null = null;
         while (round < 200) {
           setSyncProgress(
             `Richiesta ${round + 1}: importazione a piccoli lotti (inviate max 6)…`
@@ -810,6 +811,19 @@ export function WebmailBoard({
             await reload();
             return;
           }
+          if (
+            res.imported === 0 &&
+            previousPending !== null &&
+            res.pending >= previousPending
+          ) {
+            finishSyncImport(
+              importedIds,
+              "Nessuna mail scaricata e la coda non è scesa. Riprova: se resta così, quelle inviate non stanno arrivando dal server."
+            );
+            await reload();
+            return;
+          }
+          previousPending = res.pending;
           setSyncProgress(
             `Importate ${imported}. Pausa breve, poi le successive (${res.pending} ancora)…`
           );

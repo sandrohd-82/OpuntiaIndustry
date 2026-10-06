@@ -148,6 +148,8 @@ export const WEBMAIL_SYNC_SAFE_BATCH = 40;
 /** Inviate: MIME + allegati; lotti piccoli per non far cadere la Server Action. */
 export const WEBMAIL_SYNC_SENT_BATCH = 6;
 const WEBMAIL_SYNC_TIME_BUDGET_MS = 8_000;
+/** Le inviate hanno un tempo proprio: il conteggio della posta in arrivo non deve esaurirlo. */
+const WEBMAIL_SYNC_SENT_BUDGET_MS = 22_000;
 const WEBMAIL_DOWNLOAD_TIMEOUT_MS = 8_000;
 /** Oltre questa soglia non si scarica il MIME intero (timeout / memoria). */
 const WEBMAIL_IMPORT_MAX_BYTES = 2_000_000;
@@ -282,6 +284,16 @@ async function loadMaxInboxUid(
   return loadMaxFolderUid(supabase, accountId, "INBOX");
 }
 
+function uidSintetico(value: string): boolean {
+  const uid = value.trim();
+  return (
+    !uid ||
+    uid.startsWith("smtp-") ||
+    uid.startsWith("compose-") ||
+    uid.startsWith("local-")
+  );
+}
+
 async function sentAlreadyImported(
   supabase: Service,
   accountId: string,
@@ -291,7 +303,7 @@ async function sentAlreadyImported(
     toAddresses: string[];
     sentAt: string;
   }
-): Promise<boolean> {
+): Promise<{ id: string; bindUid: boolean } | null> {
   const header = input.messageId?.trim();
   if (header) {
     const { data, error } = await supabase
@@ -303,20 +315,20 @@ async function sentAlreadyImported(
       .limit(1);
     if (error) {
       console.error("[webmail sync sent message-id]", error.message);
-      return true;
+      return { id: "", bindUid: false };
     }
-    if (data?.[0]?.id) return true;
+    if (data?.[0]?.id) return { id: String(data[0].id), bindUid: true };
   }
   const firstTo = (input.toAddresses[0] ?? "").trim().toLowerCase();
   const subject = input.subject.trim();
-  if (!firstTo || !subject) return false;
+  if (!firstTo || !subject) return null;
   const t = new Date(input.sentAt).getTime();
-  if (!Number.isFinite(t)) return false;
+  if (!Number.isFinite(t)) return null;
   const from = new Date(t - 20 * 60_000).toISOString();
   const to = new Date(t + 20 * 60_000).toISOString();
   const { data, error } = await supabase
     .from("webmail_messaggi")
-    .select("id, to_addresses")
+    .select("id, to_addresses, message_uid")
     .eq("account_id", accountId)
     .eq("direction", "outbound")
     .eq("folder", WEBMAIL_SENT_FOLDER)
@@ -326,33 +338,54 @@ async function sentAlreadyImported(
     .limit(12);
   if (error) {
     console.error("[webmail sync sent duplicate]", error.message);
-    return false;
+    return null;
   }
-  return (data ?? []).some((row) =>
+  const hit = (data ?? []).find((row) =>
     ((row.to_addresses as string[] | null) ?? []).some(
       (addr) => String(addr ?? "").trim().toLowerCase() === firstTo
     )
   );
+  if (!hit?.id) return null;
+  return { id: String(hit.id), bindUid: true };
 }
 
 async function messageIdAlreadyImported(
   supabase: Service,
   accountId: string,
   messageId: string | null | undefined
-): Promise<boolean> {
+): Promise<{ id: string; bindUid: boolean } | null> {
   const header = messageId?.trim();
-  if (!header) return false;
+  if (!header) return null;
   const { data, error } = await supabase
     .from("webmail_messaggi")
-    .select("id")
+    .select("id, message_uid")
     .eq("account_id", accountId)
     .eq("message_id_header", header)
     .limit(1);
   if (error) {
     console.error("[webmail sync message-id]", error.message);
-    return true;
+    return { id: "", bindUid: false };
   }
-  return Boolean(data?.[0]?.id);
+  const row = data?.[0];
+  if (!row?.id) return null;
+  return {
+    id: String(row.id),
+    bindUid: uidSintetico(String(row.message_uid ?? "")),
+  };
+}
+
+/** La mail c'è già: memorizza l'UID IMAP così la prossima sync non la riconta. */
+async function collegaUidImportato(
+  supabase: Service,
+  dup: { id: string; bindUid: boolean },
+  uid: string
+): Promise<void> {
+  if (!dup.bindUid || !dup.id || !uid.trim()) return;
+  const { error } = await supabase
+    .from("webmail_messaggi")
+    .update({ message_uid: uid })
+    .eq("id", dup.id);
+  if (error) console.error("[webmail sync collega uid]", error.message);
 }
 
 async function markExistingSpamByMessageId(
@@ -1075,14 +1108,14 @@ async function importInboxUidList(
         });
 
     if (options?.asSent) {
-      if (
-        await sentAlreadyImported(supabase, account.id, {
-          messageId: messageIdHeader,
-          subject,
-          toAddresses,
-          sentAt: receivedAt,
-        })
-      ) {
+      const dup = await sentAlreadyImported(supabase, account.id, {
+        messageId: messageIdHeader,
+        subject,
+        toAddresses,
+        sentAt: receivedAt,
+      });
+      if (dup) {
+        await collegaUidImportato(supabase, dup, uidStr);
         processed += 1;
         continue;
       }
@@ -1097,11 +1130,17 @@ async function importInboxUidList(
         processed += 1;
         continue;
       }
-    } else if (
-      await messageIdAlreadyImported(supabase, account.id, messageIdHeader)
-    ) {
-      processed += 1;
-      continue;
+    } else {
+      const dup = await messageIdAlreadyImported(
+        supabase,
+        account.id,
+        messageIdHeader
+      );
+      if (dup) {
+        await collegaUidImportato(supabase, dup, uidStr);
+        processed += 1;
+        continue;
+      }
     }
 
     const storeFolder = options?.folder || "INBOX";
@@ -1772,8 +1811,8 @@ export async function syncWebmailAccount(
           batchLimit: WEBMAIL_SYNC_SENT_BATCH,
           mode,
           newMailOnly,
-          timeBudgetMs: WEBMAIL_SYNC_TIME_BUDGET_MS,
-          startedAt,
+          timeBudgetMs: WEBMAIL_SYNC_SENT_BUDGET_MS,
+          startedAt: Date.now(),
         })
       : {
           imported: 0,
@@ -2768,6 +2807,81 @@ export async function sendMailViaAccount(input: {
   const messageId =
     typeof info.messageId === "string" ? info.messageId.trim() : "";
   return { messageId: messageId || null };
+}
+
+/** Copia in Inviate la mail appena spedita via SMTP, allegati compresi. */
+export async function registraCopiaMailInviata(input: {
+  supabase: Service;
+  accountId: string;
+  fromAddress: string;
+  to: string;
+  subject: string;
+  text: string;
+  html?: string;
+  messageId: string | null;
+  userId?: string | null;
+  attachments?: Array<{
+    filename: string;
+    content: Buffer;
+    contentType?: string;
+  }>;
+}): Promise<void> {
+  const header = input.messageId?.trim() || null;
+  if (header) {
+    const { data: existing } = await input.supabase
+      .from("webmail_messaggi")
+      .select("id")
+      .eq("account_id", input.accountId)
+      .eq("message_id_header", header)
+      .limit(1);
+    if (existing?.[0]?.id) return;
+  }
+  const nowIso = new Date().toISOString();
+  const { randomUUID } = await import("crypto");
+  const { data: inserted, error } = await input.supabase
+    .from("webmail_messaggi")
+    .insert({
+      account_id: input.accountId,
+      direction: "outbound",
+      message_uid: `smtp-${randomUUID()}`,
+      message_id_header: header,
+      folder: WEBMAIL_SENT_FOLDER,
+      from_address: input.fromAddress,
+      from_name: "",
+      to_addresses: [input.to],
+      cc_addresses: [],
+      subject: input.subject,
+      body_text: input.text,
+      body_html: input.html || input.text.replace(/\n/g, "<br/>"),
+      received_at: nowIso,
+      sent_at: nowIso,
+      is_seen: true,
+      created_by: input.userId ?? null,
+      updated_by: input.userId ?? null,
+    })
+    .select("id")
+    .single();
+  if (error || !inserted?.id) {
+    console.error("[webmail copia inviata]", error?.message ?? "insert vuoto");
+    return;
+  }
+  const files = (input.attachments ?? []).filter((file) => file.content.length > 0);
+  if (!files.length) return;
+  const saved = await persistMessaggioAttachments({
+    supabase: input.supabase,
+    messaggioId: String(inserted.id),
+    accountId: input.accountId,
+    userId: input.userId,
+    attachments: files.map((file) => ({
+      filename: file.filename,
+      content: file.content,
+      contentType: file.contentType || "application/octet-stream",
+      contentDisposition: "attachment",
+    })) as Attachment[],
+  });
+  if (saved.errors.length) {
+    console.error("[webmail copia inviata allegati]", saved.errors.slice(0, 3).join("; "));
+  }
 }
 
 /**
