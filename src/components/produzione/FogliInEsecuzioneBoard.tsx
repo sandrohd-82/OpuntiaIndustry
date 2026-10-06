@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { listProduzioneAreeAction } from "@/app/actions/produzione-aree";
 import { PageLoading } from "@/components/ui/BusyIndicator";
+import { ChiudiFoglioButton } from "@/components/produzione/ChiudiFoglioButton";
 import { FoglioBilancioPanel } from "@/components/produzione/FoglioBilancioPanel";
 import { FoglioProcessiPanel } from "@/components/produzione/FoglioProcessiPanel";
 import { LottoUscitaBox } from "@/components/produzione/LottoUscitaBox";
@@ -15,7 +16,6 @@ export function FogliInEsecuzioneBoard() {
   const { fogliAperti, closeFoglio, ready } = useFogliLavorazione();
   const [aree, setAree] = useState<ProduzioneArea[]>([]);
   const [error, setError] = useState<string | null>(null);
-  const [closingId, setClosingId] = useState<string | null>(null);
 
   useEffect(() => {
     void listProduzioneAreeAction().then((res) => {
@@ -72,21 +72,12 @@ export function FogliInEsecuzioneBoard() {
                 {formatFoglioRange(foglio)}
               </p>
             </div>
-            <button
-              type="button"
-              disabled={closingId === foglio.id}
-              onClick={() => {
-                setClosingId(foglio.id);
-                setError(null);
-                void closeFoglio(foglio.id).then((r) => {
-                  setClosingId(null);
-                  if (!r.ok) setError(r.error);
-                });
-              }}
+            <ChiudiFoglioButton
+              foglio={foglio}
+              onCloseFoglio={closeFoglio}
+              onError={setError}
               className="rounded-lg border border-[var(--border)] px-3 py-1.5 text-sm font-medium hover:bg-slate-50 disabled:opacity-50"
-            >
-              {closingId === foglio.id ? "Verifica chiusura…" : "Chiudi foglio"}
-            </button>
+            />
           </div>
           <LottoUscitaBox
             foglioId={foglio.id}

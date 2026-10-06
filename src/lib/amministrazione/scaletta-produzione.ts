@@ -161,6 +161,7 @@ export const passaCampionaturaScalettaSchema = z.object({
         processoId: z.string().uuid().nullable().optional(),
         processoCodice: z.string().trim().max(80).optional().default(""),
         processoNome: z.string().trim().max(200).optional().default(""),
+        sottoprodottoPrenotato: z.boolean().optional().default(false),
       })
     )
     .min(1),

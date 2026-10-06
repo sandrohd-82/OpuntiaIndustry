@@ -103,6 +103,9 @@ export function ProcessaCampionaturaProduzioneModal({
   const [processoPerRiga, setProcessoPerRiga] = useState<
     Record<string, string>
   >({});
+  const [sottoprodottoPerRiga, setSottoprodottoPerRiga] = useState<
+    Record<string, boolean>
+  >({});
   const [dataLavorazione, setDataLavorazione] = useState(oggiISO);
   const [dataConfezionamento, setDataConfezionamento] = useState(oggiISO);
   const [serveMov, setServeMov] = useState(false);
@@ -335,6 +338,8 @@ export function ProcessaCampionaturaProduzioneModal({
         processoId: ok ? null : processoPerRiga[r.id] || null,
         processoCodice: proc?.codice ?? "",
         processoNome: proc?.nome ?? "",
+        sottoprodottoPrenotato:
+          !ok && Boolean(sottoprodottoPerRiga[r.id]),
       };
     });
     if (payload.some((p) => !p.lottoInternoCodice)) {
@@ -758,6 +763,37 @@ export function ProcessaCampionaturaProduzioneModal({
                       </select>
                     </label>
                   )}
+                  {!ok ? (
+                    <button
+                      type="button"
+                      aria-pressed={Boolean(sottoprodottoPerRiga[r.id])}
+                      onClick={() =>
+                        setSottoprodottoPerRiga((prev) => ({
+                          ...prev,
+                          [r.id]: !prev[r.id],
+                        }))
+                      }
+                      className={`mt-2 rounded-lg border px-3 py-2 text-left text-sm font-medium ${
+                        sottoprodottoPerRiga[r.id]
+                          ? "border-[var(--primary)] bg-[var(--primary)] text-white"
+                          : "border-[var(--border)] bg-white hover:bg-slate-50"
+                      }`}
+                    >
+                      Crea un secondo prodotto
+                      <span
+                        className={`mt-0.5 block text-xs font-normal ${
+                          sottoprodottoPerRiga[r.id]
+                            ? "text-white/90"
+                            : "text-[var(--muted)]"
+                        }`}
+                      >
+                        Acceso: alla chiusura del foglio si registra quanto{" "}
+                        {lot?.prodottoCodice ?? "prodotto"} è stato consumato,
+                        quale secondo prodotto è nato e in che quantità. Non è
+                        uno scarto.
+                      </span>
+                    </button>
+                  ) : null}
                   <div className="mt-3 text-sm">
                     <label className="block">
                       <span className="mb-1 block font-medium">

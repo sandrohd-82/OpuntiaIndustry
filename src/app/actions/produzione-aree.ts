@@ -19,6 +19,8 @@ import {
 } from "@/lib/produzione/aree-posti";
 import { listMacchinariByAreaIdsAction } from "@/app/actions/produzione-macchinari";
 import type { ProduzioneMacchinario } from "@/lib/produzione/macchinari";
+import { foglioHaSottoprodottoAperto } from "@/app/actions/produzione-sottoprodotti";
+import { SOTTOPRODOTTO_CHIUSURA_MSG } from "@/lib/produzione/sottoprodotti";
 import { createClient } from "@/lib/supabase/server";
 
 type AreaRow = {
@@ -458,6 +460,15 @@ export async function upsertFoglioLavorazioneAction(input: {
     .select("id")
     .eq("id", input.id)
     .maybeSingle();
+  if (input.stato === "chiuso") {
+    const aperti = await foglioHaSottoprodottoAperto(
+      input.codiceProdottoUscita ?? ""
+    );
+    if (!aperti.ok) return { success: false, error: aperti.error };
+    if (aperti.aperti > 0) {
+      return { success: false, error: SOTTOPRODOTTO_CHIUSURA_MSG };
+    }
+  }
   if (existing) {
     const { error } = await supabase
       .from("produzione_fogli_lavorazione")

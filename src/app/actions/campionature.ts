@@ -18,6 +18,10 @@ import {
 } from "@/lib/amministrazione/campionature";
 import { passaCampionaturaScalettaSchema } from "@/lib/amministrazione/scaletta-produzione";
 import {
+  annullaPrenotazioniCampionatura,
+  prenotaSottoprodottiCampionatura,
+} from "@/app/actions/produzione-sottoprodotti";
+import {
   appendSchedaTimeline,
   ensureSchedaOrdine,
 } from "@/lib/produzione/schede-ordini-store";
@@ -1652,7 +1656,22 @@ export async function passaCampionaturaInScalettaAction(
         error: `Indica il processo di trasformazione per ${r.prodotto_codice}.`,
       };
     }
+    if (scelta.sottoprodottoPrenotato && (scelta.conforme || !scelta.processoId)) {
+      return {
+        success: false,
+        error: `Il secondo prodotto si prenota solo se ${r.prodotto_codice} va trasformato.`,
+      };
+    }
   }
+
+  const prenota = await prenotaSottoprodottiCampionatura({
+    userId: gate.auth.userId,
+    campionaturaId: header.id,
+    numeroDocumento: header.numero_interno,
+    righe,
+    scelte: d.righe,
+  });
+  if (!prenota.ok) return { success: false, error: prenota.error };
 
   const now = new Date().toISOString();
   const snapshot = {
@@ -1679,7 +1698,10 @@ export async function passaCampionaturaInScalettaAction(
     })
     .eq("id", header.id)
     .is("deleted_at", null);
-  if (updErr) return { success: false, error: updErr.message };
+  if (updErr) {
+    await annullaPrenotazioniCampionatura(header.id, gate.auth.userId);
+    return { success: false, error: updErr.message };
+  }
 
   for (const scelta of d.righe) {
     const { error: lottoErr } = await supabase
@@ -1810,6 +1832,7 @@ export async function passaCampionaturaInScalettaAction(
         riga_id: r.rigaId,
         lotto: r.lottoInternoCodice,
         processo_id: r.processoId ?? null,
+        sottoprodotto_prenotato: Boolean(r.sottoprodottoPrenotato),
       })),
     },
   });

@@ -5,6 +5,8 @@ import {
   canCloseFoglioAction,
   upsertFoglioLavorazioneAction,
 } from "@/app/actions/produzione-aree";
+import { listSottoprodottiPerChiusuraAction } from "@/app/actions/produzione-sottoprodotti";
+import { SOTTOPRODOTTO_CHIUSURA_MSG } from "@/lib/produzione/sottoprodotti";
 import {
   createFoglioLavorazione,
   FOGLI_STORAGE_KEY,
@@ -134,6 +136,13 @@ export function useFogliLavorazione() {
     const synced = await syncFoglioDb(current);
     if (synced && "success" in synced && synced.success === false) {
       return { ok: false, error: synced.error };
+    }
+    const prenotati = await listSottoprodottiPerChiusuraAction({
+      codiceProdottoUscita: current.codiceProdottoUscita,
+    });
+    if (!prenotati.success) return { ok: false, error: prenotati.error };
+    if (prenotati.items.length > 0) {
+      return { ok: false, error: SOTTOPRODOTTO_CHIUSURA_MSG };
     }
     const check = await canCloseFoglioAction(id);
     if (!check.success) return { ok: false, error: check.error };

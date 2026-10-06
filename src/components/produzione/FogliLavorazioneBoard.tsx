@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from "react";
 import { FaFilePen } from "react-icons/fa6";
+import { ChiudiFoglioButton } from "@/components/produzione/ChiudiFoglioButton";
 import { NuovoFoglioModal } from "@/components/produzione/NuovoFoglioModal";
 import { useFogliLavorazione } from "@/hooks/useFogliLavorazione";
 import { formatFoglioRange } from "@/lib/produzione/fogli-lavorazione";
@@ -22,7 +23,6 @@ export function FogliLavorazioneBoard({
     initialFilter
   );
   const [error, setError] = useState<string | null>(null);
-  const [closingId, setClosingId] = useState<string | null>(null);
 
   const list = useMemo(() => {
     if (filter === "aperti") return fogli.filter((f) => f.stato === "aperto");
@@ -154,23 +154,12 @@ export function FogliLavorazioneBoard({
                 Durata prevista: {formatFoglioRange(foglio)}
               </p>
               {foglio.stato === "aperto" && (
-                <button
-                  type="button"
-                  disabled={closingId === foglio.id}
-                  onClick={() => {
-                    setClosingId(foglio.id);
-                    setError(null);
-                    void closeFoglio(foglio.id).then((r) => {
-                      setClosingId(null);
-                      if (!r.ok) setError(r.error);
-                    });
-                  }}
-                  className="mt-4 rounded-lg border border-[var(--border)] py-2 text-sm font-medium hover:bg-slate-50 disabled:opacity-50"
-                >
-                  {closingId === foglio.id
-                    ? "Verifica chiusura…"
-                    : "Chiudi foglio"}
-                </button>
+                <ChiudiFoglioButton
+                  foglio={foglio}
+                  onCloseFoglio={closeFoglio}
+                  onError={setError}
+                  className="mt-4 w-full rounded-lg border border-[var(--border)] py-2 text-sm font-medium hover:bg-slate-50 disabled:opacity-50"
+                />
               )}
               {foglio.stato === "chiuso" && foglio.closedAt && (
                 <p className="mt-4 text-xs text-[var(--muted)]">
