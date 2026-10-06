@@ -7,16 +7,20 @@ export const CICLO_STATO_ORDINE = {
     hint: "Ordine creato",
   },
   processato: {
-    label: "Processato",
-    hint: "Ordine inserito in scaletta produzione",
+    label: "In scaletta",
+    hint: "In calendario di produzione",
+  },
+  in_produzione: {
+    label: "In produzione",
+    hint: "Lavorazione avviata",
   },
   pronto_spedizione: {
-    label: "Pronto per spedizione",
-    hint: "Ordine pronto in attesa di Ritiro",
+    label: "Pronto per il ritiro",
+    hint: "Produzione chiusa, in attesa del corriere",
   },
   inviato: {
-    label: "Concluso",
-    hint: "Ritirato dal corriere, in viaggio",
+    label: "Partito",
+    hint: "Ritirato dal corriere. Resta in elenco 30 giorni, poi archivio.",
   },
   chiuso: {
     label: "Evaso",
@@ -36,6 +40,8 @@ export function cicloStatoOrdine(stato: OrdineStato): CicloStatoMeta {
       return CICLO_STATO_ORDINE.inserito;
     case "in_scaletta":
       return CICLO_STATO_ORDINE.processato;
+    case "in_produzione":
+      return CICLO_STATO_ORDINE.in_produzione;
     case "pronto_spedizione":
       return CICLO_STATO_ORDINE.pronto_spedizione;
     case "inviato":
@@ -60,6 +66,8 @@ export function cicloStatoCampionatura(
       return CICLO_STATO_ORDINE.inserito;
     case "processata":
       return CICLO_STATO_ORDINE.processato;
+    case "in_produzione":
+      return CICLO_STATO_ORDINE.in_produzione;
     case "pronto_spedizione":
       return CICLO_STATO_ORDINE.pronto_spedizione;
     case "inviata":
@@ -68,6 +76,8 @@ export function cicloStatoCampionatura(
       return CICLO_STATO_ORDINE.chiuso;
     case "annullata":
       return { label: "Annullata", hint: "Campionatura annullata" };
+    case "archiviata":
+      return { label: "In archivio", hint: "Partito da più di 30 giorni" };
     default:
       return { label: stato, hint: "" };
   }
@@ -79,6 +89,9 @@ export function classeCicloStato(label: string): string {
   }
   if (label === CICLO_STATO_ORDINE.processato.label) {
     return "bg-emerald-50 text-emerald-800";
+  }
+  if (label === CICLO_STATO_ORDINE.in_produzione.label) {
+    return "bg-teal-50 text-teal-900";
   }
   if (label === CICLO_STATO_ORDINE.pronto_spedizione.label) {
     return "bg-amber-50 text-amber-900";

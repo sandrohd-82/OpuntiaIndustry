@@ -133,7 +133,7 @@ export function SchedaOrdineModal({
       setError(res.error);
       return;
     }
-    setInfo("Ritiro registrato. L’ordine è Concluso, in attesa di consegna.");
+    setInfo("Ritiro registrato. L’ordine è Partito e resta in elenco 30 giorni.");
     const again = await getSchedaOrdineDettaglioAction(schedaId);
     if (again.success) setDettaglio(again.dettaglio);
     onChanged?.();
@@ -298,7 +298,7 @@ export function SchedaOrdineModal({
                   onClick={() => void salvaRitiro()}
                   className="rounded-lg bg-[var(--primary)] px-3 py-2 text-sm text-white disabled:opacity-40"
                 >
-                  {saving ? "Salvataggio…" : "Conferma ritiro · Concluso"}
+                  {saving ? "Salvataggio…" : "Conferma ritiro · Partito"}
                 </button>
               </div>
             ) : null}

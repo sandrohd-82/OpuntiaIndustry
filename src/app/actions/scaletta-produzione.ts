@@ -20,6 +20,7 @@ import {
   syncSchedaDopoEsito,
 } from "@/lib/produzione/schede-ordini-store";
 import { createClient } from "@/lib/supabase/server";
+import { segnaInProduzioneSeInScaletta } from "@/lib/amministrazione/ciclo-ordine-avanzamento";
 import { syncSchedaNotaByParent } from "@/lib/amministrazione/scheda-timeline-nota";
 import { z } from "zod";
 
@@ -796,6 +797,27 @@ export async function registraScalettaEsitoAction(
     .eq("id", d.impegnoId)
     .is("deleted_at", null);
   if (updErr) return { success: false, error: updErr.message };
+
+  if (
+    d.modo === "completa" &&
+    (tipo === "lavorazione" || tipo === "trasformazione")
+  ) {
+    await segnaInProduzioneSeInScaletta({
+      supabase,
+      ordineId: existing.ordine_id ? String(existing.ordine_id) : null,
+      campionaturaId: existing.campionatura_id
+        ? String(existing.campionatura_id)
+        : null,
+      userId: auth.userId,
+    });
+    await syncSchedaNotaByParent({
+      userId: auth.userId,
+      ordineId: existing.ordine_id ? String(existing.ordine_id) : null,
+      campionaturaId: existing.campionatura_id
+        ? String(existing.campionatura_id)
+        : null,
+    });
+  }
 
   await writeAuditLog({
     entity_type: "produzione_calendario_impegni",

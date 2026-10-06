@@ -405,7 +405,7 @@ export async function backfillSchedeDaScaletta(
   const { data: ords } = await supabase
     .from("ordini")
     .select("id, numero_interno, cliente_ragione_sociale")
-    .eq("stato", "in_scaletta")
+    .in("stato", ["in_scaletta", "in_produzione"])
     .is("deleted_at", null)
     .limit(80);
   for (const o of ords ?? []) {
@@ -427,7 +427,7 @@ export async function backfillSchedeDaScaletta(
   const { data: camps } = await supabase
     .from("campionature")
     .select("id, numero_interno, cliente_ragione_sociale")
-    .eq("stato", "processata")
+    .in("stato", ["processata", "in_produzione"])
     .is("deleted_at", null)
     .limit(80);
   for (const c of camps ?? []) {

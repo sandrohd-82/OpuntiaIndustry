@@ -25,6 +25,7 @@ import {
   appendSchedaTimeline,
   ensureSchedaOrdine,
 } from "@/lib/produzione/schede-ordini-store";
+import { archiviaPartitiScaduti } from "@/lib/amministrazione/ciclo-ordine-avanzamento";
 import { syncSchedaOrdineAziendaNota } from "@/lib/amministrazione/scheda-timeline-nota";
 import { inferCarrierFromUrl } from "@/lib/shipping/tracking";
 import { assegnaLottoProduzioneDaMagazzino } from "@/app/actions/lotto-produzione-magazzino";
@@ -160,6 +161,11 @@ export async function listCampionatureAction(): Promise<
 > {
   const gate = await requireCampionaturaAccess("read");
   if (!gate.ok) return { success: false, error: gate.error };
+  try {
+    await archiviaPartitiScaduti();
+  } catch (e) {
+    console.error("[archivio partiti]", e);
+  }
   const supabase = await createClient();
   const ownerIds = await resolveAnagraficaOwnerUserIds();
   let ownedClienteIds: string[] | null = null;

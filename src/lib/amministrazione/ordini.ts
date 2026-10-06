@@ -328,6 +328,7 @@ export const ordineInputSchema = z
       "in_attesa",
       "sospeso",
       "in_scaletta",
+      "in_produzione",
       "pronto_spedizione",
       "inviato",
       "storico",
@@ -629,16 +630,16 @@ export const ORDINI_STATI_DA_PROCESSARE: OrdineStato[] = [
   "sospeso",
 ];
 
-/** Elenco operativo, incluso lo storico già presente. */
+/** Elenco operativo. Lo storico sta in Archivio. */
 export const ORDINI_STATI_ELENCO: OrdineStato[] = [
   "in_attesa",
   "ricevuto",
   "sospeso",
   "in_scaletta",
+  "in_produzione",
   "pronto_spedizione",
   "inviato",
   "evaso",
-  "storico",
 ];
 
 export function labelDocumentoStato(stato: OrdineDocumentoStato): string {

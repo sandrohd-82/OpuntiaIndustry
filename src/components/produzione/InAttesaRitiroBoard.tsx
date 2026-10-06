@@ -44,8 +44,8 @@ export function InAttesaRitiroBoard() {
     <div className="space-y-5">
       <p className="text-sm text-slate-600">
         Ordini e campionature pronti per il ritiro. All’apertura della scheda
-        registra ora di ritiro e corriere: l’ordine diventa Concluso. Si chiude
-        quando la spedizione risulta consegnata.
+        registra ora di ritiro e corriere: l’ordine diventa Partito e resta in
+        elenco 30 giorni. Si chiude quando la spedizione risulta consegnata.
       </p>
 
       {error ? (

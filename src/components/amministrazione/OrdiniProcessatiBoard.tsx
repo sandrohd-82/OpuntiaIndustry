@@ -9,6 +9,7 @@ export function OrdiniProcessatiBoard() {
         "in_attesa",
         "ricevuto",
         "in_scaletta",
+        "in_produzione",
         "pronto_spedizione",
         "inviato",
         "evaso",

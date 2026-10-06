@@ -41,7 +41,7 @@ export const SCHEDA_EVENTO_LABEL: Record<SchedaEventoTipo, string> = {
   nota: "Nota",
   ritiro: "Ritiro",
   spedizione: "Spedizione",
-  concluso: "Concluso",
+  concluso: "Partito",
   consegnata: "Consegnata",
   chiuso: "Evaso",
 };

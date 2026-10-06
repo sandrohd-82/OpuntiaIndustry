@@ -116,7 +116,7 @@ export const PAGE_EXTRAS: Record<string, TutorialBlock[]> = {
     },
     {
       type: "p",
-      text: "Ciclo ordine in sintesi: Inserito → Processato → Pronto spedizione → Inviato → (storico in Archivio).",
+      text: "Ciclo ordine in sintesi: Inserito → In scaletta → In produzione → Pronto per il ritiro → Partito. Dopo 30 giorni dalla partenza passa in Archivio.",
     },
   ],
   "/app/produzione/ordini/da-processare": [
@@ -126,13 +126,13 @@ export const PAGE_EXTRAS: Record<string, TutorialBlock[]> = {
     },
     {
       type: "p",
-      text: "Ciclo ordine in sintesi: Inserito → Processato → Pronto spedizione → Inviato → (storico in Archivio).",
+      text: "Ciclo ordine in sintesi: Inserito → In scaletta → In produzione → Pronto per il ritiro → Partito. Dopo 30 giorni dalla partenza passa in Archivio.",
     },
   ],
   "/app/amministrazione/ordini/elenco": [
     {
       type: "p",
-      text: "Tutti gli ordini con filtri di stato. È la vista operativa quotidiana, non lo storico chiuso (quello sta in Archivio).",
+      text: "Elenco operativo: Inserito, In scaletta, In produzione, Pronto per il ritiro, Partito. Il Partito resta qui 30 giorni dalla data di ritiro, poi passa in Archivio.",
     },
   ],
   "/app/amministrazione/ordini/preventivi": [
@@ -198,7 +198,7 @@ export const PAGE_EXTRAS: Record<string, TutorialBlock[]> = {
   "/app/produzione/ordini/in-attesa-ritiro": [
     {
       type: "p",
-      text: "Ordini e campionature pronti per il ritiro. L’operatore apre la scheda, inserisce ora di ritiro e corriere (GLS, Poste, SDA, BRT, UPS, DHL o altro). L’ordine diventa Concluso; si chiude quando il tracking è consegnato, o con consegna forzata se i dati non si allineano.",
+      text: "Ordini e campionature pronti per il ritiro. L’operatore apre la scheda, inserisce ora di ritiro e corriere (GLS, Poste, SDA, BRT, UPS, DHL o altro). L’ordine diventa Partito e resta in elenco 30 giorni, poi passa in archivio. Si chiude quando il tracking è consegnato, o con consegna forzata se i dati non si allineano.",
     },
   ],
   "/app/produzione/ordini/schede": [

@@ -254,7 +254,7 @@ export async function registraRitiroAction(
       entity_id: det.scheda.ordineId,
       action: "status_change",
       actor_id: auth.userId,
-      summary: `Ritiro ${corriere.nome} · Concluso`,
+      summary: `Ritiro ${corriere.nome} · Partito`,
       payload: { stato_a: "inviato", ritiro_at: ritiroAt },
     });
     await syncSchedaNotaByParent({
@@ -291,7 +291,7 @@ export async function registraRitiroAction(
       entity_id: det.scheda.campionaturaId,
       action: "status_change",
       actor_id: auth.userId,
-      summary: `Ritiro ${corriere.nome} · Concluso`,
+      summary: `Ritiro ${corriere.nome} · Partito`,
       payload: { stato_a: "inviata", ritiro_at: ritiroAt },
     });
     await syncSchedaNotaByParent({
@@ -317,8 +317,8 @@ export async function registraRitiroAction(
   await appendSchedaTimeline(supabase, {
     schedaId: det.scheda.id,
     eventoTipo: "concluso",
-    titolo: `Ordine concluso · ${det.scheda.numeroScheda}`,
-    dettaglio: "In viaggio. Resta aperto fino a consegna.",
+    titolo: `Partito · ${det.scheda.numeroScheda}`,
+    dettaglio: "Ritirato dal corriere. Resta in elenco 30 giorni, poi archivio.",
     actorId: auth.userId,
   });
   return { success: true };

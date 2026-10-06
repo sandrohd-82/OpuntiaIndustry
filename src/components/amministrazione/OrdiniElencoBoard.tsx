@@ -33,8 +33,9 @@ export function OrdiniElencoBoard() {
         {isCamp ? (
           <div className="space-y-5">
             <p className="text-sm text-[var(--muted)]">
-              Campionature e ordini campionatura: Inserito, Processato, Pronto
-              per spedizione, Inviato.
+              Campionature e ordini campionatura: Inserito, In scaletta, In
+              produzione, Pronto per il ritiro, Partito. Dopo 30 giorni dalla
+              partenza passano in archivio.
             </p>
             <CampionatureBoard embedded />
             <OrdiniBoard
@@ -58,7 +59,7 @@ export function OrdiniElencoBoard() {
             tipo="vendita"
             showCreate={false}
             createLabel="Crea ordine"
-            description="Elenco ordini merce: Inserito, Processato, Pronto per spedizione, Inviato."
+            description="Elenco ordini merce: Inserito, In scaletta, In produzione, Pronto per il ritiro, Partito. Dopo 30 giorni dalla partenza passano in archivio."
             emptyTitle="Nessun ordine merce"
             emptyHint="Gli ordini creati da Nuovo ordine restano in questo elenco."
             loadingLabel="Caricamento elenco ordini…"

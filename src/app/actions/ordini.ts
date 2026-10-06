@@ -28,6 +28,7 @@ import {
   appendSchedaTimeline,
   ensureSchedaOrdine,
 } from "@/lib/produzione/schede-ordini-store";
+import { archiviaPartitiScaduti } from "@/lib/amministrazione/ciclo-ordine-avanzamento";
 import { syncSchedaOrdineAziendaNota } from "@/lib/amministrazione/scheda-timeline-nota";
 import {
   normalizeConfezionamentoDraft,
@@ -257,6 +258,11 @@ export async function listOrdiniAction(
   opts?: { tipo?: OrdineTipoDocumento; escludiScontoInAttesa?: boolean }
 ): Promise<{ success: true; ordini: Ordine[] } | { success: false; error: string }> {
   const { auth } = await requireOrdineReadAccess();
+  try {
+    await archiviaPartitiScaduti();
+  } catch (e) {
+    console.error("[archivio partiti]", e);
+  }
   const supabase = await createClient();
   const stati = Array.isArray(stato) ? stato : [stato];
   const perimetro = await resolvePerimetroDocumenti();
@@ -387,6 +393,11 @@ export async function countOrdiniElencoAction(): Promise<
   | { success: false; error: string }
 > {
   await requireOrdineReadAccess();
+  try {
+    await archiviaPartitiScaduti();
+  } catch (e) {
+    console.error("[archivio partiti]", e);
+  }
   const supabase = await createClient();
   const perimetro = await resolvePerimetroDocumenti();
   const filtroOrdini = perimetroOrdiniConPreventivi(perimetro);
@@ -410,7 +421,8 @@ export async function countOrdiniElencoAction(): Promise<
   let qCamps = supabase
     .from("campionature")
     .select("id", { count: "exact", head: true })
-    .is("deleted_at", null);
+    .is("deleted_at", null)
+    .neq("stato", "archiviata");
   if (filtroOrdini) {
     qVendita = qVendita.or(filtroOrdini);
     qCampOrd = qCampOrd.or(filtroOrdini);

@@ -70,7 +70,7 @@ export function CampionatureBoard({
   const sorted = useMemo(() => {
     const filtered = stati
       ? items.filter((item) => stati.includes(item.stato))
-      : items;
+      : items.filter((item) => item.stato !== "archiviata");
     if (!sort) return filtered;
     return [...filtered].sort((a, b) =>
       compareSortValues(a[sort.key] ?? "", b[sort.key] ?? "", sort.dir)

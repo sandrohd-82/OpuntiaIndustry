@@ -951,6 +951,7 @@ export type OrdineStato =
   | "in_attesa"
   | "sospeso"
   | "in_scaletta"
+  | "in_produzione"
   | "pronto_spedizione"
   | "inviato"
   | "storico"
@@ -1435,9 +1436,11 @@ export type CampionaturaStatoDb =
   | "inserita"
   | "bozza"
   | "processata"
+  | "in_produzione"
   | "pronto_spedizione"
   | "inviata"
   | "consegnata"
+  | "archiviata"
   | "annullata";
 
 export interface CampionaturaRow {

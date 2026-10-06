@@ -15,9 +15,11 @@ export const CAMPIONATURA_STATI = [
   "inserita",
   "bozza",
   "processata",
+  "in_produzione",
   "pronto_spedizione",
   "inviata",
   "consegnata",
+  "archiviata",
   "annullata",
 ] as const;
 
@@ -269,10 +271,12 @@ export function formatNumeroCampionatura(
 export const CAMPIONATURA_STATO_LABEL: Record<CampionaturaStato, string> = {
   inserita: "Inserito",
   bozza: "Inserito",
-  processata: "Processato",
-  pronto_spedizione: "Pronto per spedizione",
-  inviata: "Inviato",
+  processata: "In scaletta",
+  in_produzione: "In produzione",
+  pronto_spedizione: "Pronto per il ritiro",
+  inviata: "Partito",
   consegnata: "Consegnata",
+  archiviata: "In archivio",
   annullata: "Annullata",
 };
 

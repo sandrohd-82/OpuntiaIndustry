@@ -17,6 +17,10 @@
       "schedule": "20 0 * * *"
     },
     {
+      "path": "/api/cron/archivio-partiti",
+      "schedule": "25 0 * * *"
+    },
+    {
       "path": "/api/cron/fatture-keep-sync",
       "schedule": "*/15 * * * *"
     }

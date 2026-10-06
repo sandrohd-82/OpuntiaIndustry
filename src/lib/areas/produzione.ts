@@ -102,7 +102,7 @@ export const PRODUZIONE_SECTIONS: readonly NavItem[] = [
         slug: "in-attesa-ritiro",
         label: "In Attesa Ritiro",
         description:
-          "Pronti per il ritiro: ora, corriere, poi Concluso fino a consegna",
+          "Pronti per il ritiro: ora, corriere, poi Partito per 30 giorni",
         path: "/app/produzione/ordini/in-attesa-ritiro",
       },
     ],

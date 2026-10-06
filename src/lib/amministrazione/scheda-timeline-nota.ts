@@ -74,6 +74,15 @@ export function etichettaStatoSchedaAzienda(input: {
       (shipping === "consegnato" ? input.shippingAt : null);
     return `Consegnato in data ${formatDataIt(when)}`;
   }
+  if (
+    String(input.stato ?? "") === "in_produzione" &&
+    (lastTipo === "lavorazione" ||
+      lastTipo === "trasformazione" ||
+      lastTipo === "completa" ||
+      lastTipo === "scaletta")
+  ) {
+    return "In produzione";
+  }
   if (lastTipo && lastTipo in SCHEDA_EVENTO_LABEL) {
     return SCHEDA_EVENTO_LABEL[lastTipo as SchedaEventoTipo];
   }
