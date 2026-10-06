@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import {
   acquisisciLockSpedizionePreventivoAction,
+  apriPdfPreventivoEmessoAction,
   completaCalcoloSpedizionePreventivoAction,
   contestoSpedizionePreventivoAction,
   getPreventivoPerModificaAction,
@@ -145,7 +146,25 @@ export function PreventivoCalcoloSpedizioneSheet({
         <h2 className="text-sm font-semibold text-white">
           {solaLettura ? "Dettaglio" : "Calcolo spedizione"} · {item.numeroInterno}
         </h2>
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2">
+          {item.pdfEmessi.map((doc) => (
+            <button
+              key={doc.id}
+              type="button"
+              onClick={() => {
+                void apriPdfPreventivoEmessoAction(doc.id).then((res) => {
+                  if (!res.success) {
+                    setError(res.error);
+                    return;
+                  }
+                  window.open(res.url, "_blank", "noopener,noreferrer");
+                });
+              }}
+              className="rounded-lg border border-white/20 bg-white/10 px-3 py-1.5 text-sm text-white"
+            >
+              {item.pdfEmessi.length > 1 ? `PDF v${doc.versione}` : "PDF inviato"}
+            </button>
+          ))}
           <button
             type="button"
             onClick={onClose}

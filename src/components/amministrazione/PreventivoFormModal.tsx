@@ -628,6 +628,7 @@ export function PreventivoFormModal({ onClose, onSaved, preventivoId }: Props) {
         accettazioneSeniorNota: "",
         accettazioneSeniorPuoRispondere: false,
         righe: [],
+        pdfEmessi: [],
         createdAt: new Date().toISOString(),
       };
       return item;

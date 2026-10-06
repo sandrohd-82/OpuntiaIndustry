@@ -1,5 +1,6 @@
 "use server";
 
+import { createHash, randomUUID } from "node:crypto";
 import { writeAuditLog } from "@/lib/audit";
 import {
   PREVENTIVI_SESSIONE_PROVA,
@@ -47,6 +48,7 @@ import {
   nomeFilePreventivoPdf,
   stimaSpedizioneSchema,
   type Preventivo,
+  type PreventivoPdfEmesso,
   type PreventivoConfezioneOption,
   type PreventivoRiga,
   type PreventivoScontisticaRiga,
@@ -214,7 +216,8 @@ function mapPreventivo(
   righe: PreventivoRigaRow[],
   referenteLabel = "",
   viewerId = "",
-  viewerIsSuperadmin = false
+  viewerIsSuperadmin = false,
+  pdfEmessi: PreventivoPdfEmesso[] = []
 ): Preventivo {
   const lockAttivo =
     Boolean(row.spedizione_lock_by) &&
@@ -270,6 +273,7 @@ function mapPreventivo(
       .slice()
       .sort((a, b) => a.sort_order - b.sort_order)
       .map(mapRiga),
+    pdfEmessi,
     createdAt: row.created_at,
   };
 }
@@ -318,6 +322,34 @@ export async function peekNextNumeroPreventivoAction(
       error: e instanceof Error ? e.message : "Numero non disponibile",
     };
   }
+}
+
+async function attachPdfEmessi(
+  ids: string[]
+): Promise<Map<string, PreventivoPdfEmesso[]>> {
+  const map = new Map<string, PreventivoPdfEmesso[]>();
+  if (!ids.length) return map;
+  const supabase = await createClient();
+  const { data } = await supabase
+    .from("preventivi_documenti_emessi")
+    .select("id, preventivo_id, versione, filename, inviato_at, mail_to")
+    .in("preventivo_id", ids)
+    .eq("stato", "inviato")
+    .is("deleted_at", null)
+    .order("versione", { ascending: true });
+  for (const row of data ?? []) {
+    const preventivoId = String(row.preventivo_id);
+    const list = map.get(preventivoId) ?? [];
+    list.push({
+      id: String(row.id),
+      versione: Number(row.versione),
+      filename: String(row.filename ?? ""),
+      inviatoAt: row.inviato_at ? String(row.inviato_at) : "",
+      mailTo: String(row.mail_to ?? ""),
+    });
+    map.set(preventivoId, list);
+  }
+  return map;
 }
 
 async function attachRighe(
@@ -418,6 +450,7 @@ export async function listPreventiviAction(input?: {
   if (error) return { success: false, error: error.message };
   const rows = (data ?? []) as PreventivoRow[];
   const righe = await attachRighe(rows.map((r) => r.id));
+  const pdfEmessi = await attachPdfEmessi(rows.map((r) => r.id));
   const conteggi = {
     da_completare: 0,
     inviati: 0,
@@ -444,7 +477,8 @@ export async function listPreventiviAction(input?: {
         righe.get(r.id) ?? [],
         "",
         gate.auth.userId,
-        isSuperadminProfile(gate.auth.profile)
+        isSuperadminProfile(gate.auth.profile),
+        pdfEmessi.get(r.id) ?? []
       )
     ),
     conteggi,
@@ -738,7 +772,10 @@ export async function listPreventiviAccettatiAction(input: {
     rigaNelPerimetro(row, perimetro, { riferimento: true })
   );
   const righe = await attachRighe(rows.map((r) => r.id));
-  let items = rows.map((r) => mapPreventivo(r, righe.get(r.id) ?? []));
+  const pdfEmessi = await attachPdfEmessi(rows.map((r) => r.id));
+  let items = rows.map((r) =>
+    mapPreventivo(r, righe.get(r.id) ?? [], "", "", false, pdfEmessi.get(r.id) ?? [])
+  );
   if (input.prodottoId) {
     items = items.filter(
       (p) =>
@@ -1874,6 +1911,157 @@ function htmlMailPreventivoConFirma(testo: string): string {
   return `<div style="font-family:sans-serif;font-size:14px;color:#111827">${corpo}<br><br><img src="${logo}" alt="${AGRINSICILIA_LETTERHEAD.logoAlt}" width="160" style="display:block;margin:0 0 8px" /><div style="font-size:12px;line-height:1.45">${firma}</div></div>`;
 }
 
+const PREVENTIVI_PDF_BUCKET = "preventivi-pdf";
+
+function nomePdfEmesso(numero: string, versione: number): string {
+  const base = nomeFilePreventivoPdf(numero).replace(/\.pdf$/i, "");
+  if (versione <= 1) return `${base}.pdf`;
+  return `${base}-v${versione}.pdf`;
+}
+
+/** Archivia il PDF prima della mail. Se fallisce, l'invio non deve partire. */
+async function preparaPdfPreventivoEmesso(input: {
+  preventivoId: string;
+  numero: string;
+  pdf: Buffer;
+  userId: string;
+  mailTo: string;
+  mailOggetto: string;
+}): Promise<
+  | {
+      ok: true;
+      documentoId: string;
+      versione: number;
+      filename: string;
+      sha256: string;
+    }
+  | { ok: false; error: string }
+> {
+  const service = createServiceClient();
+  const { data: aperto, error: openErr } = await service
+    .from("preventivi_documenti_emessi")
+    .select("id, versione")
+    .eq("preventivo_id", input.preventivoId)
+    .eq("stato", "preparato")
+    .is("deleted_at", null)
+    .maybeSingle();
+  if (openErr) {
+    return {
+      ok: false,
+      error: `Il PDF non è stato archiviato, la mail non è partita: ${openErr.message}`,
+    };
+  }
+  let documentoId = "";
+  let versione = 0;
+  if (aperto) {
+    documentoId = String(aperto.id);
+    versione = Number(aperto.versione);
+  } else {
+    const { data: last, error: lastErr } = await service
+      .from("preventivi_documenti_emessi")
+      .select("versione")
+      .eq("preventivo_id", input.preventivoId)
+      .eq("stato", "inviato")
+      .is("deleted_at", null)
+      .order("versione", { ascending: false })
+      .limit(1);
+    if (lastErr) {
+      return {
+        ok: false,
+        error: `Il PDF non è stato archiviato, la mail non è partita: ${lastErr.message}`,
+      };
+    }
+    documentoId = randomUUID();
+    versione = Number(last?.[0]?.versione ?? 0) + 1;
+  }
+  const filename = nomePdfEmesso(input.numero, versione);
+  const path = `${input.preventivoId}/${documentoId}.pdf`;
+  const sha256 = createHash("sha256").update(input.pdf).digest("hex");
+  const upload = await service.storage
+    .from(PREVENTIVI_PDF_BUCKET)
+    .upload(path, input.pdf, {
+      contentType: "application/pdf",
+      upsert: true,
+    });
+  if (upload.error) {
+    return {
+      ok: false,
+      error: `Il PDF non è stato archiviato, la mail non è partita: ${upload.error.message}`,
+    };
+  }
+  if (aperto) {
+    const { error } = await service
+      .from("preventivi_documenti_emessi")
+      .update({
+        filename,
+        storage_bucket: PREVENTIVI_PDF_BUCKET,
+        storage_path: path,
+        mime_type: "application/pdf",
+        size_bytes: input.pdf.length,
+        sha256,
+        mail_to: input.mailTo,
+        mail_oggetto: input.mailOggetto,
+        updated_by: input.userId,
+      })
+      .eq("id", documentoId)
+      .eq("stato", "preparato");
+    if (error) {
+      return {
+        ok: false,
+        error: `Il PDF non è stato archiviato, la mail non è partita: ${error.message}`,
+      };
+    }
+  } else {
+    const { error } = await service.from("preventivi_documenti_emessi").insert({
+      id: documentoId,
+      preventivo_id: input.preventivoId,
+      versione,
+      stato: "preparato",
+      documento_stato: "bozza",
+      storage_bucket: PREVENTIVI_PDF_BUCKET,
+      storage_path: path,
+      filename,
+      mime_type: "application/pdf",
+      size_bytes: input.pdf.length,
+      sha256,
+      mail_to: input.mailTo,
+      mail_oggetto: input.mailOggetto,
+      created_by: input.userId,
+      updated_by: input.userId,
+    });
+    if (error) {
+      await service.storage.from(PREVENTIVI_PDF_BUCKET).remove([path]);
+      return {
+        ok: false,
+        error: `Il PDF non è stato archiviato, la mail non è partita: ${error.message}`,
+      };
+    }
+  }
+  return { ok: true, documentoId, versione, filename, sha256 };
+}
+
+async function chiudiPdfPreventivoEmesso(input: {
+  documentoId: string;
+  userId: string;
+  messageId: string | null;
+}): Promise<string | null> {
+  const service = createServiceClient();
+  const { error } = await service
+    .from("preventivi_documenti_emessi")
+    .update({
+      stato: "inviato",
+      documento_stato: "approvato",
+      inviato_at: new Date().toISOString(),
+      inviato_by: input.userId,
+      mail_message_id: input.messageId ?? "",
+      updated_by: input.userId,
+    })
+    .eq("id", input.documentoId)
+    .eq("stato", "preparato")
+    .is("deleted_at", null);
+  return error?.message ?? null;
+}
+
 export async function inviaPreventivoMailAction(
   raw: unknown
 ): Promise<
@@ -1987,9 +2175,18 @@ export async function inviaPreventivoMailAction(
     username: string;
     password_encrypted: string;
   };
-  const pdfNome = nomeFilePreventivoPdf(prev.numero_interno);
   const mailTestoFirmato = testoMailPreventivoConFirma(input.mailTesto);
   const mailHtmlFirmato = htmlMailPreventivoConFirma(input.mailTesto);
+  const archivio = await preparaPdfPreventivoEmesso({
+    preventivoId: prev.id,
+    numero: prev.numero_interno,
+    pdf: pdfBuffer,
+    userId: gate.auth.userId,
+    mailTo: input.mailTo,
+    mailOggetto: input.mailOggetto,
+  });
+  if (!archivio.ok) return { success: false, error: archivio.error };
+  const pdfNome = archivio.filename;
   let smtpMessageId: string | null = null;
   try {
     const sent = await sendMailViaAccount({
@@ -2016,6 +2213,11 @@ export async function inviaPreventivoMailAction(
           : "Preventivo salvato in archivio. Invio mail non riuscito.",
     };
   }
+  const chiusuraPdf = await chiudiPdfPreventivoEmesso({
+    documentoId: archivio.documentoId,
+    userId: gate.auth.userId,
+    messageId: smtpMessageId,
+  });
   await registraCopiaMailInviata({
     supabase: service,
     accountId: accountRow.id,
@@ -2066,13 +2268,50 @@ export async function inviaPreventivoMailAction(
     action: "status_change",
     actor_id: gate.auth.userId,
     summary: `Preventivo ${prev.numero_interno} inviato a ${input.mailTo}`,
-    payload: { mailTo: input.mailTo, mailAccountId: input.mailAccountId },
+    payload: {
+      mailTo: input.mailTo,
+      mailAccountId: input.mailAccountId,
+      documentoId: archivio.documentoId,
+      versionePdf: archivio.versione,
+      sha256: archivio.sha256,
+    },
+  });
+  if (chiusuraPdf) {
+    return {
+      success: false,
+      error: `Mail inviata. Il PDF è in archivio ma non è stato chiuso come documento emesso: ${chiusuraPdf}`,
+    };
+  }
+  await writeAuditLog({
+    entity_type: "preventivi_documenti_emessi",
+    entity_id: archivio.documentoId,
+    action: "create",
+    actor_id: gate.auth.userId,
+    summary: `PDF v${archivio.versione} del preventivo ${prev.numero_interno} archiviato`,
+    payload: {
+      preventivoId: prev.id,
+      filename: archivio.filename,
+      sha256: archivio.sha256,
+      mailTo: input.mailTo,
+    },
   });
   return {
     success: true,
     item: mapPreventivo(
       updated as PreventivoRow,
-      (righe ?? []) as PreventivoRigaRow[]
+      (righe ?? []) as PreventivoRigaRow[],
+      "",
+      gate.auth.userId,
+      isSuperadminProfile(gate.auth.profile),
+      [
+        {
+          id: archivio.documentoId,
+          versione: archivio.versione,
+          filename: archivio.filename,
+          inviatoAt: now,
+          mailTo: input.mailTo,
+        },
+      ]
     ),
   };
 }
@@ -2184,6 +2423,15 @@ export async function completaCalcoloSpedizionePreventivoAction(input: {
     return { success: false, error: "Manca la mail preparata dal commerciale." };
   }
   const now = new Date().toISOString();
+  const archivio = await preparaPdfPreventivoEmesso({
+    preventivoId: prev.id,
+    numero: prev.numero_interno,
+    pdf: pdfBuffer,
+    userId: auth.userId,
+    mailTo: prev.mail_bozza_to,
+    mailOggetto: prev.mail_bozza_oggetto,
+  });
+  if (!archivio.ok) return { success: false, error: archivio.error };
   const { error: upErr } = await service
     .from("preventivi")
     .update({
@@ -2210,7 +2458,7 @@ export async function completaCalcoloSpedizionePreventivoAction(input: {
   }
   const pdf = {
     buffer: pdfBuffer,
-    fileName: nomeFilePreventivoPdf(prev.numero_interno),
+    fileName: archivio.filename,
   };
   const accountRow = account as {
     id: string;
@@ -2252,6 +2500,11 @@ export async function completaCalcoloSpedizionePreventivoAction(input: {
           : "Importo salvato, invio mail non riuscito.",
     };
   }
+  const chiusuraPdf = await chiudiPdfPreventivoEmesso({
+    documentoId: archivio.documentoId,
+    userId: auth.userId,
+    messageId: smtpMessageId,
+  });
   await registraCopiaMailInviata({
     supabase: service,
     accountId: accountRow.id,
@@ -2289,7 +2542,32 @@ export async function completaCalcoloSpedizionePreventivoAction(input: {
     action: "status_change",
     actor_id: auth.userId,
     summary: `Preventivo ${prev.numero_interno} completato con spedizione ${importo} € e inviato a ${prev.mail_bozza_to}`,
-    payload: { importo, mailTo: prev.mail_bozza_to },
+    payload: {
+      importo,
+      mailTo: prev.mail_bozza_to,
+      documentoId: archivio.documentoId,
+      versionePdf: archivio.versione,
+      sha256: archivio.sha256,
+    },
+  });
+  if (chiusuraPdf) {
+    return {
+      success: false,
+      error: `Mail inviata. Il PDF è in archivio ma non è stato chiuso come documento emesso: ${chiusuraPdf}`,
+    };
+  }
+  await writeAuditLog({
+    entity_type: "preventivi_documenti_emessi",
+    entity_id: archivio.documentoId,
+    action: "create",
+    actor_id: auth.userId,
+    summary: `PDF v${archivio.versione} del preventivo ${prev.numero_interno} archiviato`,
+    payload: {
+      preventivoId: prev.id,
+      filename: archivio.filename,
+      sha256: archivio.sha256,
+      mailTo: prev.mail_bozza_to,
+    },
   });
   if (PREVENTIVI_SESSIONE_PROVA) {
     const closedAt = new Date().toISOString();
@@ -2323,4 +2601,54 @@ export async function completaCalcoloSpedizionePreventivoAction(input: {
     return { success: true, provaChiusa: true };
   }
   return { success: true };
+}
+
+export async function apriPdfPreventivoEmessoAction(
+  documentoId: string
+): Promise<
+  { success: true; url: string; filename: string } | { success: false; error: string }
+> {
+  const gate = await requirePreventiviAccess();
+  if (!gate.ok) return { success: false, error: gate.error };
+  if (!/^[0-9a-f-]{36}$/i.test(documentoId)) {
+    return { success: false, error: "Documento non valido" };
+  }
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from("preventivi_documenti_emessi")
+    .select("id, preventivo_id, storage_bucket, storage_path, filename")
+    .eq("id", documentoId)
+    .eq("stato", "inviato")
+    .is("deleted_at", null)
+    .maybeSingle();
+  if (error || !data) {
+    return { success: false, error: error?.message ?? "PDF non trovato" };
+  }
+  const { data: prev, error: prevErr } = await supabase
+    .from("preventivi")
+    .select("*")
+    .eq("id", String(data.preventivo_id))
+    .maybeSingle();
+  if (prevErr || !prev) {
+    return { success: false, error: "Preventivo non trovato" };
+  }
+  const perimetro = await resolvePerimetroDocumenti();
+  if (!rigaNelPerimetro(prev as PreventivoRow, perimetro, { riferimento: true })) {
+    return { success: false, error: "PDF non trovato" };
+  }
+  const service = createServiceClient();
+  const signed = await service.storage
+    .from(String(data.storage_bucket || PREVENTIVI_PDF_BUCKET))
+    .createSignedUrl(String(data.storage_path), 120);
+  if (signed.error || !signed.data?.signedUrl) {
+    return {
+      success: false,
+      error: signed.error?.message ?? "PDF non apribile",
+    };
+  }
+  return {
+    success: true,
+    url: signed.data.signedUrl,
+    filename: String(data.filename ?? "preventivo.pdf"),
+  };
 }

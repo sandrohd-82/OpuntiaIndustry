@@ -7,6 +7,7 @@ import { PageLoading } from "@/components/ui/BusyIndicator";
 import { AZ } from "@/lib/auth/action-access";
 import { approveScontoSuddivisionePreventivoRigaAction } from "@/app/actions/sconto-suddivisione";
 import {
+  apriPdfPreventivoEmessoAction,
   listPreventiviAction,
   setPreventivoStatoAction,
 } from "@/app/actions/preventivi";
@@ -276,6 +277,26 @@ export function PreventiviBoard({
                       >
                         Dettagli
                       </button>
+                      {item.pdfEmessi.map((doc) => (
+                        <button
+                          key={doc.id}
+                          type="button"
+                          onClick={() => {
+                            void apriPdfPreventivoEmessoAction(doc.id).then((res) => {
+                              if (!res.success) {
+                                setError(res.error);
+                                return;
+                              }
+                              window.open(res.url, "_blank", "noopener,noreferrer");
+                            });
+                          }}
+                          className="rounded-lg border border-[var(--border)] px-2 py-1 text-xs font-medium"
+                        >
+                          {item.pdfEmessi.length > 1
+                            ? `PDF v${doc.versione}`
+                            : "PDF inviato"}
+                        </button>
+                      ))}
                       <ActionGate actionKey={AZ.creaPreventivo}>
                         <button
                           type="button"

@@ -230,7 +230,17 @@ export type Preventivo = {
   accettazioneSeniorNota: string;
   accettazioneSeniorPuoRispondere: boolean;
   righe: PreventivoRiga[];
+  pdfEmessi: PreventivoPdfEmesso[];
   createdAt: string;
+};
+
+/** PDF allegato a un invio. Una riga per spedizione, non si sovrascrive. */
+export type PreventivoPdfEmesso = {
+  id: string;
+  versione: number;
+  filename: string;
+  inviatoAt: string;
+  mailTo: string;
 };
 
 /** Dati per riaprire la modale di creazione su un preventivo già in archivio. */

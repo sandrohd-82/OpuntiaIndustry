@@ -1609,6 +1609,31 @@ export interface PreventivoRigaRow {
   updated_by: string | null;
 }
 
+export interface PreventivoDocumentoEmessoRow {
+  id: string;
+  preventivo_id: string;
+  versione: number;
+  stato: "preparato" | "inviato";
+  documento_stato: "bozza" | "approvato" | "chiuso";
+  storage_bucket: string;
+  storage_path: string;
+  filename: string;
+  mime_type: string;
+  size_bytes: number;
+  sha256: string;
+  mail_to: string;
+  mail_oggetto: string;
+  mail_message_id: string;
+  inviato_at: string | null;
+  inviato_by: string | null;
+  created_at: string;
+  updated_at: string;
+  created_by: string | null;
+  updated_by: string | null;
+  deleted_at: string | null;
+  deleted_by: string | null;
+}
+
 export interface AuditLogRow {
   id: string;
   entity_type: string;
@@ -3139,6 +3164,17 @@ export interface Database {
         Row: PreventivoRigaRow;
         Insert: Partial<PreventivoRigaRow> & { preventivo_id: string };
         Update: Partial<PreventivoRigaRow>;
+        Relationships: [];
+      };
+      preventivi_documenti_emessi: {
+        Row: PreventivoDocumentoEmessoRow;
+        Insert: Partial<PreventivoDocumentoEmessoRow> & {
+          preventivo_id: string;
+          versione: number;
+          storage_path: string;
+          filename: string;
+        };
+        Update: Partial<PreventivoDocumentoEmessoRow>;
         Relationships: [];
       };
       imballaggi_voci: {
