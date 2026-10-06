@@ -14,7 +14,6 @@ export async function generaTestoMailSpedizione(input: {
   const tracking = input.trackingUrl.trim();
   const fallback = templateMailSpedizione({
     prodotti,
-    trackingUrl: tracking,
     codiceInterno: numero,
   });
 
@@ -24,7 +23,7 @@ export async function generaTestoMailSpedizione(input: {
   }
   const model = process.env.OPENAI_MODEL?.trim() || "gpt-4o-mini";
   const trackingIstruzione = tracking
-    ? `Inserisci nel testo questo link di tracking, così com'è:\n${tracking}`
+    ? "Non inserire il link di tracking nel testo e non scrivere la parola Tracking: il link viene aggiunto in fondo, dopo l'ultimo rigo."
     : "Non parlare del tracking: il link non va anticipato né dato per mancante.";
   try {
     const res = await fetch("https://api.openai.com/v1/chat/completions", {
@@ -91,7 +90,6 @@ function pulisciCodiceInterno(testo: string, codiceInterno: string): string {
 
 function templateMailSpedizione(input: {
   prodotti: string;
-  trackingUrl: string;
   codiceInterno: string;
 }): { subject: string; bodyText: string } {
   const righe = [
@@ -100,13 +98,6 @@ function templateMailSpedizione(input: {
     `con la presente vi informiamo che i prodotti richiesti (${input.prodotti}) sono stati spediti.`,
     "",
   ];
-  if (input.trackingUrl) {
-    righe.push(
-      "Per seguire la spedizione potete usare questo tracking:",
-      input.trackingUrl,
-      ""
-    );
-  }
   righe.push(
     "Restiamo a disposizione per ogni chiarimento.",
     "",

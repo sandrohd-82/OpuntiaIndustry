@@ -14,6 +14,7 @@ import {
 } from "@/app/actions/impostazioni-sedi";
 import { labelSede, type ImpostazioniSede } from "@/lib/impostazioni/sedi";
 import { SpedizioneMailComposeModal } from "@/components/amministrazione/SpedizioneMailComposeModal";
+import { ProvaGraficaMailSpedizione } from "@/components/amministrazione/ProvaGraficaMailSpedizione";
 import {
   SpedizioneDestinatarioMailField,
   type SpedizioneAnagraficaMail,
@@ -376,6 +377,14 @@ export function SpedizioneMailPanel({
           className="w-full rounded-lg border border-[var(--border)] px-3 py-2 text-sm"
         />
       </label>
+
+      <ProvaGraficaMailSpedizione
+        accountId={mailAccountId}
+        subject={mailOggetto}
+        bodyText={mailCorpo}
+        trackingUrl={trackingUrl}
+        prenotazioneId={item?.id}
+      />
 
       <label className="block text-sm">
         <span className="mb-1 block font-medium">Luogo di partenza</span>

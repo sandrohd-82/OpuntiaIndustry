@@ -346,17 +346,50 @@ function escapeHtmlMail(value: string): string {
     .replace(/\n/g, "<br>");
 }
 
-function testoMailSpedizioneConFirma(testo: string): string {
-  const base = testo.trim();
-  if (base.includes("AGRINSICILIA Cooperativa agricola")) return base;
-  return `${base}\n\n${AGRINSICILIA_MAIL_FIRMA}`;
+/** Destinatario fisso della prova grafica. Non è mai il cliente. */
+const PROVA_MAIL_SPEDIZIONE = "sandrohd@gmail.com";
+
+function urlTrackingSicuro(raw: string): string | null {
+  const value = raw.trim();
+  if (!value) return null;
+  try {
+    const url = new URL(value);
+    if (url.protocol !== "http:" && url.protocol !== "https:") return null;
+    return url.toString();
+  } catch {
+    return null;
+  }
 }
 
-function htmlMailSpedizioneConFirma(testo: string): string {
-  const corpo = escapeHtmlMail(testo.trim());
+function testoOperatoreSenzaTracking(testo: string, trackingUrl: string): string {
+  const url = trackingUrl.trim();
+  let out = testo.trim();
+  if (url) out = out.split(url).join("");
+  out = out.replace(/\n*Tracking:\s*$/i, "");
+  return out.replace(/\n{3,}/g, "\n\n").trim();
+}
+
+function testoMailSpedizioneConFirma(testo: string, trackingUrl: string): string {
+  const operatore = testoOperatoreSenzaTracking(testo, trackingUrl);
+  const url = urlTrackingSicuro(trackingUrl);
+  const conTracking = url ? `${operatore}\n\nTracking:\n${url}` : operatore;
+  if (conTracking.includes("AGRINSICILIA Cooperativa agricola")) return conTracking;
+  return `${conTracking}\n\n${AGRINSICILIA_MAIL_FIRMA}`;
+}
+
+function htmlMailSpedizioneConFirma(testo: string, trackingUrl: string): string {
+  const operatore = testoOperatoreSenzaTracking(testo, trackingUrl);
+  const corpo = escapeHtmlMail(operatore);
+  const url = urlTrackingSicuro(trackingUrl);
+  const href = url
+    ? url.replace(/&/g, "&amp;").replace(/"/g, "&quot;")
+    : "";
+  const blocco = href
+    ? `<br><br>Tracking:<br><a href="${href}" style="display:inline-block;margin-top:8px;background:#1d4ed8;color:#ffffff;text-decoration:none;padding:10px 16px;border-radius:8px;font-weight:600">Tracking</a>`
+    : "";
   const firma = escapeHtmlMail(AGRINSICILIA_MAIL_FIRMA);
   const logo = `${getPublicAppUrl()}${AGRINSICILIA_LETTERHEAD.logoSrc}`;
-  return `<div style="font-family:sans-serif;font-size:14px;color:#111827">${corpo}<br><br><img src="${logo}" alt="${AGRINSICILIA_LETTERHEAD.logoAlt}" width="160" style="display:block;margin:0 0 8px" /><div style="font-size:12px;line-height:1.45">${firma}</div></div>`;
+  return `<div style="font-family:sans-serif;font-size:14px;line-height:1.45;color:#111827">${corpo}${blocco}<br><br><img src="${logo}" alt="${AGRINSICILIA_LETTERHEAD.logoAlt}" width="160" style="display:block;margin:0 0 8px" /><div style="font-size:12px;line-height:1.45">${firma}</div></div>`;
 }
 
 const inviaSchema = z.object({
@@ -425,11 +458,9 @@ export async function inviaMailSpedizioneAction(
       });
     }
   }
-  let body = d.bodyText;
-  if (item.allegaTracking && item.trackingUrl && !body.includes(item.trackingUrl)) {
-    body = `${body}\n\nTracking: ${item.trackingUrl}`;
-  }
-  const text = testoMailSpedizioneConFirma(body);
+  const body = d.bodyText;
+  const trackingNelTesto = item.allegaTracking ? item.trackingUrl : "";
+  const text = testoMailSpedizioneConFirma(body, trackingNelTesto);
 
   try {
     await sendMailViaAccount({
@@ -448,7 +479,7 @@ export async function inviaMailSpedizioneAction(
       to: d.to,
       subject: d.subject,
       text,
-      html: htmlMailSpedizioneConFirma(body),
+      html: htmlMailSpedizioneConFirma(body, trackingNelTesto),
       attachments,
     });
   } catch (e) {
@@ -490,6 +521,81 @@ export async function inviaMailSpedizioneAction(
     },
   });
   return { success: true };
+}
+
+const provaSchema = z.object({
+  accountId: z.string().uuid(),
+  subject: z.string().trim().min(1).max(240),
+  bodyText: z.string().trim().min(1).max(20000),
+  trackingUrl: z.string().trim().min(1).max(2000),
+  prenotazioneId: z.string().uuid().optional(),
+});
+
+/** Prova grafica: parte solo verso sandrohd@gmail.com. Non chiude e non scrive al cliente. */
+export async function provaGraficaMailSpedizioneAction(
+  raw: unknown
+): Promise<{ success: true; to: string } | { success: false; error: string }> {
+  const { auth } = await gateWrite();
+  const parsed = provaSchema.safeParse(raw);
+  if (!parsed.success) {
+    return {
+      success: false,
+      error: parsed.error.issues[0]?.message ?? "Dati della prova non validi.",
+    };
+  }
+  const d = parsed.data;
+  if (!urlTrackingSicuro(d.trackingUrl)) {
+    return { success: false, error: "URL tracking non valido (http o https)." };
+  }
+  const service = createServiceClient();
+  const { data: account, error: accErr } = await service
+    .from("webmail_accounts")
+    .select(
+      "id, email_address, imap_host, imap_port, imap_secure, smtp_host, smtp_port, smtp_secure, username, password_encrypted"
+    )
+    .eq("id", d.accountId)
+    .is("deleted_at", null)
+    .maybeSingle();
+  if (accErr || !account) {
+    return { success: false, error: accErr?.message ?? "Casella webmail non trovata." };
+  }
+  const text = testoMailSpedizioneConFirma(d.bodyText, d.trackingUrl);
+  try {
+    await sendMailViaAccount({
+      account: account as {
+        id: string;
+        email_address: string;
+        imap_host: string;
+        imap_port: number;
+        imap_secure: boolean;
+        smtp_host: string;
+        smtp_port: number;
+        smtp_secure: boolean;
+        username: string;
+        password_encrypted: string;
+      },
+      to: PROVA_MAIL_SPEDIZIONE,
+      subject: d.subject,
+      text,
+      html: htmlMailSpedizioneConFirma(d.bodyText, d.trackingUrl),
+    });
+  } catch (e) {
+    return {
+      success: false,
+      error: e instanceof Error ? e.message : "Invio della prova fallito.",
+    };
+  }
+  if (d.prenotazioneId) {
+    await writeAuditLog({
+      entity_type: "spedizione_mail_prenotazioni",
+      entity_id: d.prenotazioneId,
+      action: "update",
+      actor_id: auth.userId,
+      summary: `Prova grafica mail spedizione inviata solo a ${PROVA_MAIL_SPEDIZIONE}. Il cliente non è stato avvisato.`,
+      payload: { prova: true, to: PROVA_MAIL_SPEDIZIONE },
+    });
+  }
+  return { success: true, to: PROVA_MAIL_SPEDIZIONE };
 }
 
 export async function listCaselleSpedizioneMailAction(): Promise<

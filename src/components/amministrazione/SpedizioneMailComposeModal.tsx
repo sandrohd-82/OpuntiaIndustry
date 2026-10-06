@@ -5,6 +5,7 @@ import {
   inviaMailSpedizioneAction,
   listCaselleSpedizioneMailAction,
 } from "@/app/actions/spedizione-mail";
+import { ProvaGraficaMailSpedizione } from "@/components/amministrazione/ProvaGraficaMailSpedizione";
 import { SpedizioneDestinatarioMailField } from "@/components/amministrazione/SpedizioneDestinatarioMailField";
 import type { SpedizioneAnagraficaMail } from "@/components/amministrazione/SpedizioneDestinatarioMailField";
 import type { SpedizioneMailPrenotazione } from "@/lib/amministrazione/spedizione-mail";
@@ -187,6 +188,16 @@ export function SpedizioneMailComposeModal({
             {error}
           </p>
         ) : null}
+
+        <div className="mt-4">
+          <ProvaGraficaMailSpedizione
+            accountId={accountId}
+            subject={oggetto}
+            bodyText={corpo}
+            trackingUrl={prenotazione.trackingUrl}
+            prenotazioneId={prenotazione.id}
+          />
+        </div>
 
         <div className="mt-4 flex justify-end gap-2">
           <button
