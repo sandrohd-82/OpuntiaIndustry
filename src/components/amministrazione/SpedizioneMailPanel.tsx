@@ -58,6 +58,8 @@ type Props = {
   emailGeneriche?: string[];
   onSaved?: (item: SpedizioneMailPrenotazione) => void;
   onNeedEntity?: (modo: "prenota" | "compila" | "salva") => void;
+  /** Invio campionatura: niente «Salva e attendi tracking». La bozza è sul documento. */
+  nascondiAttesaTracking?: boolean;
   onDraftChange?: (draft: SpedizioneMailBozza) => void;
   sedePartenzaIdDefault?: string;
   persistDisabled?: boolean;
@@ -77,6 +79,7 @@ export function SpedizioneMailPanel({
   emailGeneriche = [],
   onSaved,
   onNeedEntity,
+  nascondiAttesaTracking = false,
   onDraftChange,
   sedePartenzaIdDefault = "",
   persistDisabled = false,
@@ -392,7 +395,9 @@ export function SpedizioneMailPanel({
           ? "Bozza spedizione solo in sessione: niente upload, prenotazione mail o invio."
           : (sceltaOrdineFissa
             ? "Inserisci il tracking se è già disponibile. L’invio al cliente resta quello deciso in fase di ordine."
-            : "Puoi inserire il tracking se ce l’hai, oppure salvare e lasciare il sistema in attesa. La mail al cliente è facoltativa.")}
+            : nascondiAttesaTracking
+              ? "Il tracking e la mail al cliente sono facoltativi. Salva bozza tiene il documento in elenco anche se i campi sono vuoti."
+              : "Puoi inserire il tracking se ce l’hai, oppure salvare e lasciare il sistema in attesa. La mail al cliente è facoltativa.")}
       </p>
 
       <label className="block text-sm">
@@ -688,7 +693,7 @@ export function SpedizioneMailPanel({
 
       {item?.stato !== "inviata" && !sceltaOrdineFissa ? (
         <div className="flex flex-wrap gap-2">
-          {!vuoleMail ? (
+          {!vuoleMail && !nascondiAttesaTracking ? (
             <button
               type="button"
               disabled={busy || uploading || (!entityId && !onNeedEntity)}

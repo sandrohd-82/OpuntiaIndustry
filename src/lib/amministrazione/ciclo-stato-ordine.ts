@@ -62,8 +62,12 @@ export function cicloStatoCampionatura(
 ): CicloStatoMeta {
   switch (stato) {
     case "inserita":
-    case "bozza":
       return CICLO_STATO_ORDINE.inserito;
+    case "bozza":
+      return {
+        label: "Bozza",
+        hint: "Da completare prima di inserirla in produzione",
+      };
     case "processata":
       return CICLO_STATO_ORDINE.processato;
     case "in_produzione":
@@ -102,6 +106,7 @@ export function classeCicloStato(label: string): string {
   if (label === CICLO_STATO_ORDINE.chiuso.label) {
     return "bg-slate-200 text-slate-800";
   }
+  if (label === "Bozza") return "bg-amber-50 text-amber-950";
   if (label === "Sospeso") return "bg-amber-100 text-amber-900";
   if (label === "In attesa sconto") return "bg-amber-100 text-amber-950";
   if (label === "Annullata") return "bg-red-50 text-red-700";

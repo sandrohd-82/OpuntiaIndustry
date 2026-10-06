@@ -292,8 +292,17 @@ function CampionaturaTableRow({
         </td>
         <td className="px-4 py-3">
           <div className="flex justify-end gap-1">
-            {onProcess &&
-            (item.stato === "inserita" || item.stato === "bozza") ? (
+            {item.stato === "bozza" ? (
+              <button
+                type="button"
+                title="Da completare"
+                onClick={onEdit}
+                className="rounded-lg bg-amber-600 px-2.5 py-1.5 text-xs font-medium text-white hover:bg-amber-700"
+              >
+                Completa
+              </button>
+            ) : null}
+            {onProcess && item.stato === "inserita" ? (
               <ActionGate actionKey={AZ.processaOrdine}>
                 <button
                   type="button"

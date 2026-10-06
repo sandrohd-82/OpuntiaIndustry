@@ -458,10 +458,79 @@ export function CampionaturaFormModal({
   }
 
   async function persistCampionatura(
-    modoMail?: "prenota" | "compila" | "salva"
+    modoMail?: "prenota" | "compila" | "salva" | "bozza"
   ) {
     if (destinazione === "commerciale") {
       await persistVersoCommerciale();
+      return;
+    }
+    if (modoMail === "bozza") {
+      const trackingDaSalvare = spedDraft.current.trackingUrl.trim();
+      if (trackingDaSalvare) {
+        try {
+          const u = new URL(trackingDaSalvare);
+          if (u.protocol !== "http:" && u.protocol !== "https:") {
+            throw new Error("protocol");
+          }
+        } catch {
+          setFormError("URL tracking non valido (usa http o https).");
+          return;
+        }
+      }
+      const mapped = righe
+        .filter((r) => r.prodottoId && numberOrZero(r.quantita) > 0)
+        .map((r) => {
+          const prodotto = prodotti.find((p) => p.id === r.prodottoId);
+          return {
+            prodottoId: r.prodottoId,
+            prodottoCodice: prodotto?.codice || r.prodottoCodice || "",
+            prodottoNome: prodotto?.nome || r.prodottoNome || "",
+            quantita: numberOrZero(r.quantita),
+            unitaMisura: r.unitaMisura,
+            lottoCodice: r.lottoCodice,
+            note: r.note,
+          };
+        })
+        .filter((r) => r.prodottoCodice && r.prodottoNome);
+      setSaving(true);
+      setFormError(null);
+      try {
+        const payload = {
+          intenzione: "bozza" as const,
+          anagraficaFonte,
+          possibileClienteId: possibileClienteId || null,
+          clienteId: cliente?.id || undefined,
+          cliente: cliente?.ragioneSociale || "—",
+          codiceTargaCliente: targaDocumento || "BOZ",
+          origine,
+          dataInvio: dataInvio || new Date().toISOString().slice(0, 10),
+          mezzo: mezzo || null,
+          trackingUrl: trackingDaSalvare,
+          pnNotaId: nota?.id ?? null,
+          webmailMessaggioId: mail?.id ?? null,
+          spedizioneTipo: addressKey === "altro" ? "altro_posto" as const : "sede_azienda" as const,
+          spedizionePrivato,
+          referenteRicezioneId: referenteRicezione?.id ?? null,
+          destinatario: destinatario.trim() || cliente?.ragioneSociale || "",
+          indirizzoSpedizione: indirizzo,
+          note,
+          righe: mapped,
+        };
+        const result = editing
+          ? await updateCampionaturaAction({ ...payload, id: editing.id })
+          : await createCampionaturaAction(payload);
+        if (!result.success) {
+          setFormError(result.error);
+          return;
+        }
+        onSaved(result.item);
+      } catch (err) {
+        setFormError(
+          err instanceof Error ? err.message : "Salvataggio non riuscito. Riprova."
+        );
+      } finally {
+        setSaving(false);
+      }
       return;
     }
     if (
@@ -713,7 +782,7 @@ export function CampionaturaFormModal({
             ? ". Il salvataggio aggiorna questa campionatura, con lo stesso numero interno."
             : origine === "storico"
               ? ". Non crea un ordine da processare: risulta già inviata nella timeline alla data indicata."
-              : ". Salvataggio = Inserito (da processare) e documento approvato (ISO 9001)."}
+              : ". Salva bozza resta in elenco come Bozza, anche con campi vuoti. Il salvataggio completo la inserisce da processare."}
         </p>
 
         <form onSubmit={onSubmit} className="mt-5 space-y-4">
@@ -1199,6 +1268,7 @@ export function CampionaturaFormModal({
               spedDraft.current = d;
             }}
             onNeedEntity={(modo) => void persistCampionatura(modo)}
+            nascondiAttesaTracking
             sceltaOrdineFissa={Boolean(editing)}
           />
           )}
@@ -1234,6 +1304,18 @@ export function CampionaturaFormModal({
             >
               Annulla
             </button>
+            {origine === "da_inviare" &&
+            destinazione === "azienda" &&
+            (!editing || editing.stato === "bozza") ? (
+              <button
+                type="button"
+                disabled={saving}
+                onClick={() => void persistCampionatura("bozza")}
+                className="rounded-lg border border-amber-300 bg-amber-50 px-4 py-2 text-sm font-medium text-amber-950 hover:bg-amber-100 disabled:opacity-50"
+              >
+                {saving ? "Salvataggio…" : "Salva bozza"}
+              </button>
+            ) : null}
             <button
               type="submit"
               disabled={saving}

@@ -610,7 +610,31 @@ async function createCampionaturaActionInner(
   ) {
     return saveCampionaturaCommerciale(raw, gate.auth.userId);
   }
-  const resolved = await resolveClientePerOrdineFromRawAction(raw);
+  const isBozza =
+    Boolean(raw) &&
+    typeof raw === "object" &&
+    (raw as { intenzione?: unknown }).intenzione === "bozza";
+  const haAzienda =
+    Boolean(raw) &&
+    typeof raw === "object" &&
+    Boolean(
+      (raw as { clienteId?: unknown; possibileClienteId?: unknown }).clienteId ||
+        (raw as { possibileClienteId?: unknown }).possibileClienteId
+    );
+  const resolved = isBozza && !haAzienda
+    ? {
+        success: true as const,
+        mode: "cliente" as const,
+        cliente: null,
+        clienteId: null,
+        possibileClienteId: null,
+        ragioneSociale: "—",
+        codiceTarga: "BOZ",
+        commercialeId: null,
+        affiancatoId: null,
+        createdBy: gate.auth.userId,
+      }
+    : await resolveClientePerOrdineFromRawAction(raw);
   if (!resolved.success) return resolved;
   const supabase = await createClient();
   const ownerIds = await resolveAnagraficaOwnerUserIds();
@@ -762,7 +786,8 @@ async function createCampionaturaActionInner(
   let indirizzoSpedizione = input.indirizzoSpedizione;
   if (
     input.spedizioneTipo === "sede_azienda" &&
-    !indirizzoSpedizione.trim()
+    !indirizzoSpedizione.trim() &&
+    (resolved.clienteId || resolved.possibileClienteId)
   ) {
     const ricezione = await loadIndirizzoRicezioneMerce({
       ownerKind:
@@ -800,12 +825,19 @@ async function createCampionaturaActionInner(
     destinatario,
     indirizzo_spedizione: indirizzoSpedizione,
     note: input.note,
-    stato: editing?.stato ?? (isStorico ? "inviata" : "inserita"),
-    documento_stato:
-      editing?.documentoStato ?? (isStorico ? "chiuso" : "approvato"),
+    stato: isBozza
+      ? "bozza"
+      : (editing?.stato === "bozza"
+          ? (isStorico ? "inviata" : "inserita")
+          : (editing?.stato ?? (isStorico ? "inviata" : "inserita"))),
+    documento_stato: isBozza
+      ? "bozza"
+      : ((editing?.documentoStato === "bozza" || !editing)
+          ? (isStorico ? "chiuso" : "approvato")
+          : editing.documentoStato),
     versione: editing ? editing.versione + 1 : 1,
-    approved_at: editing?.approvedAt ?? now,
-    approved_by: editing?.approvedBy ?? gate.auth.userId,
+    approved_at: isBozza ? null : (editing?.approvedAt ?? now),
+    approved_by: isBozza ? null : (editing?.approvedBy ?? gate.auth.userId),
     sent_at: editing ? editing.sentAt : sentAtStorico,
     sent_by: editing ? editing.sentBy : isStorico ? gate.auth.userId : null,
     updated_by: gate.auth.userId,
@@ -847,24 +879,28 @@ async function createCampionaturaActionInner(
     header = inserted.data as CampionaturaRow;
   }
 
-  const { data: righe, error: rErr } = await supabase
-    .from("campionature_righe")
-    .insert(
-      input.righe.map((r, i) => ({
-        campionatura_id: header.id,
-        prodotto_id: r.prodottoId,
-        prodotto_codice: r.prodottoCodice,
-        prodotto_nome: r.prodottoNome,
-        quantita: r.quantita,
-        unita_misura: r.unitaMisura,
-        lotto_codice: r.lottoCodice,
-        note: r.note ?? "",
-        sort_order: i,
-        created_by: gate.auth.userId,
-        updated_by: gate.auth.userId,
-      }))
-    )
-    .select("*");
+  const righeInserite = input.righe.length
+    ? await supabase
+        .from("campionature_righe")
+        .insert(
+          input.righe.map((r, i) => ({
+            campionatura_id: header.id,
+            prodotto_id: r.prodottoId,
+            prodotto_codice: r.prodottoCodice,
+            prodotto_nome: r.prodottoNome,
+            quantita: r.quantita,
+            unita_misura: r.unitaMisura,
+            lotto_codice: r.lottoCodice,
+            note: r.note ?? "",
+            sort_order: i,
+            created_by: gate.auth.userId,
+            updated_by: gate.auth.userId,
+          }))
+        )
+        .select("*")
+    : { data: [], error: null };
+  const righe = righeInserite.data;
+  const rErr = righeInserite.error;
 
   if (rErr) {
     if (!editing) {
@@ -953,7 +989,7 @@ async function createCampionaturaActionInner(
     numero,
     clienteLabel: input.cliente,
     prodotto: input.righe[0]?.prodottoCodice,
-    stato: editing?.stato ?? (isStorico ? "inviata" : "inserita"),
+    stato: header.stato,
     fromCampionaturaTable: true,
     clienteId: resolved.clienteId,
     possibileClienteId: resolved.possibileClienteId,
@@ -964,11 +1000,13 @@ async function createCampionaturaActionInner(
     entity_id: header.id,
     action: editing ? "update" : "create",
     actor_id: gate.auth.userId,
-    summary: editing
-      ? `Aggiornata campionatura ${numero} dalla procedura di inserimento`
-      : isStorico
-        ? `Campionatura ${numero} registrata in storico per ${input.cliente}`
-        : `Campionatura ${numero} inserita per ${input.cliente}`,
+    summary: isBozza
+      ? `Bozza campionatura ${numero} salvata, da completare`
+      : editing
+        ? `Aggiornata campionatura ${numero} dalla procedura di inserimento`
+        : isStorico
+          ? `Campionatura ${numero} registrata in storico per ${input.cliente}`
+          : `Campionatura ${numero} inserita per ${input.cliente}`,
     payload: {
       numero_interno: numero,
       cliente_id: input.clienteId,
@@ -1013,6 +1051,7 @@ async function replaceCampionaturaRighe(
     .delete()
     .eq("campionatura_id", campionaturaId);
   if (delErr) return { ok: false, error: delErr.message };
+  if (!righe.length) return { ok: true, righe: [] };
   const { data, error } = await supabase
     .from("campionature_righe")
     .insert(
@@ -1061,7 +1100,31 @@ export async function updateCampionaturaAction(
     ) {
       return saveCampionaturaCommerciale(raw, gate.auth.userId);
     }
-    const resolved = await resolveClientePerOrdineFromRawAction(raw);
+    const isBozza =
+      Boolean(raw) &&
+      typeof raw === "object" &&
+      (raw as { intenzione?: unknown }).intenzione === "bozza";
+    const haAzienda =
+      Boolean(raw) &&
+      typeof raw === "object" &&
+      Boolean(
+        (raw as { clienteId?: unknown; possibileClienteId?: unknown }).clienteId ||
+          (raw as { possibileClienteId?: unknown }).possibileClienteId
+      );
+    const resolved = isBozza && !haAzienda
+      ? {
+          success: true as const,
+          mode: "cliente" as const,
+          cliente: null,
+          clienteId: null,
+          possibileClienteId: null,
+          ragioneSociale: "—",
+          codiceTarga: "BOZ",
+          commercialeId: null,
+          affiancatoId: null,
+          createdBy: gate.auth.userId,
+        }
+      : await resolveClientePerOrdineFromRawAction(raw);
     if (!resolved.success) return resolved;
     const supabase = await createClient();
     const { data: existingRaw, error: readErr } = await supabase
@@ -1154,7 +1217,11 @@ export async function updateCampionaturaAction(
 
     let destinatario = input.destinatario || input.cliente;
     let indirizzoSpedizione = input.indirizzoSpedizione;
-    if (input.spedizioneTipo === "sede_azienda" && !indirizzoSpedizione.trim()) {
+    if (
+      input.spedizioneTipo === "sede_azienda" &&
+      !indirizzoSpedizione.trim() &&
+      (resolved.clienteId || resolved.possibileClienteId)
+    ) {
       const ricezione = await loadIndirizzoRicezioneMerce({
         ownerKind:
           resolved.mode === "cliente" && resolved.clienteId
@@ -1174,7 +1241,9 @@ export async function updateCampionaturaAction(
     }
 
     const switchingToStorico = isStorico && existing.origine !== "storico";
+    const promuoviBozza = !isBozza && existing.stato === "bozza" && !switchingToStorico;
     const versione = (existing.versione ?? 1) + 1;
+    const now = new Date().toISOString();
     const { data: updated, error: updErr } = await supabase
       .from("campionature")
       .update({
@@ -1184,7 +1253,7 @@ export async function updateCampionaturaAction(
         cliente_codice_targa: input.codiceTargaCliente.trim().toUpperCase(),
         data_invio: input.dataInvio,
         origine: input.origine,
-        tracking_url: isStorico
+        tracking_url: isStorico || isBozza
           ? input.trackingUrl || ""
           : (existing.tracking_url ?? ""),
         mezzo: input.mezzo,
@@ -1198,8 +1267,16 @@ export async function updateCampionaturaAction(
         destinatario,
         indirizzo_spedizione: indirizzoSpedizione,
         note: input.note,
-        stato: switchingToStorico ? "inviata" : existing.stato,
-        documento_stato: switchingToStorico ? "chiuso" : existing.documento_stato,
+        stato: switchingToStorico
+          ? "inviata"
+          : (isBozza ? "bozza" : (promuoviBozza ? "inserita" : existing.stato)),
+        documento_stato: switchingToStorico
+          ? "chiuso"
+          : (isBozza
+              ? "bozza"
+              : (promuoviBozza ? "approvato" : existing.documento_stato)),
+        approved_at: promuoviBozza ? now : existing.approved_at,
+        approved_by: promuoviBozza ? gate.auth.userId : existing.approved_by,
         versione,
         sent_at: switchingToStorico
           ? (existing.sent_at ?? `${input.dataInvio}T12:00:00`)
@@ -1275,7 +1352,9 @@ export async function updateCampionaturaAction(
       numero: existing.numero_interno,
       clienteLabel: input.cliente,
       prodotto: input.righe[0]?.prodottoCodice,
-      stato: switchingToStorico ? "inviata" : existing.stato,
+      stato: switchingToStorico
+        ? "inviata"
+        : (isBozza ? "bozza" : (promuoviBozza ? "inserita" : existing.stato)),
       fromCampionaturaTable: true,
       clienteId: resolved.clienteId,
       possibileClienteId: resolved.possibileClienteId,
@@ -1286,7 +1365,11 @@ export async function updateCampionaturaAction(
       entity_id: existing.id,
       action: "update",
       actor_id: gate.auth.userId,
-      summary: `Campionatura ${existing.numero_interno} aggiornata (v${versione})`,
+      summary: isBozza
+        ? `Bozza campionatura ${existing.numero_interno} salvata, da completare`
+        : promuoviBozza
+          ? `Campionatura ${existing.numero_interno} completata e inserita`
+          : `Campionatura ${existing.numero_interno} aggiornata (v${versione})`,
       payload: {
         numero_interno: existing.numero_interno,
         versione,

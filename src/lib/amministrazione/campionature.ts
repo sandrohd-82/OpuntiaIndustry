@@ -164,9 +164,34 @@ export const createCampionaturaSchema = z.object({
   destinatario: z.string().trim().max(200).optional().default(""),
   indirizzoSpedizione: z.string().trim().max(500).optional().default(""),
   note: z.string().trim().max(4000).optional().default(""),
-  righe: z.array(campionaturaRigaSchema).min(1, "Aggiungi almeno un prodotto"),
+  intenzione: z.enum(["completa", "bozza"]).optional().default("completa"),
+  righe: z.array(campionaturaRigaSchema).optional().default([]),
 })
   .superRefine((val, ctx) => {
+    if (val.intenzione === "bozza") {
+      if (val.trackingUrl) {
+        try {
+          const u = new URL(val.trackingUrl);
+          if (u.protocol !== "http:" && u.protocol !== "https:") {
+            throw new Error("protocol");
+          }
+        } catch {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            message: "URL tracking non valido (usa http o https).",
+            path: ["trackingUrl"],
+          });
+        }
+      }
+      return;
+    }
+    if (val.righe.length < 1) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Aggiungi almeno un prodotto",
+        path: ["righe"],
+      });
+    }
     if (val.destinazione === "commerciale") {
       if (!val.commercialePersonaId) {
         ctx.addIssue({
@@ -270,7 +295,7 @@ export function formatNumeroCampionatura(
 
 export const CAMPIONATURA_STATO_LABEL: Record<CampionaturaStato, string> = {
   inserita: "Inserito",
-  bozza: "Inserito",
+  bozza: "Bozza",
   processata: "In scaletta",
   in_produzione: "In produzione",
   pronto_spedizione: "Pronto per il ritiro",
