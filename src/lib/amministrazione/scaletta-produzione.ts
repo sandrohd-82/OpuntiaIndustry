@@ -54,6 +54,7 @@ export type ScalettaImpegno = {
   problemaNote: string;
   confezionamentoBloccato: boolean;
   archiviata: boolean;
+  processoCodice: string;
 };
 
 export type ScalettaDettaglioRiga = {
@@ -206,6 +207,13 @@ export const passaCampionaturaScalettaSchema = z.object({
 export type PassaCampionaturaScalettaInput = z.infer<
   typeof passaCampionaturaScalettaSchema
 >;
+
+export function codiceProcessoDaNota(note: string): string {
+  const raw = note.trim();
+  const sep = raw.indexOf(":");
+  if (sep < 0) return "";
+  return raw.slice(sep + 1).trim();
+}
 
 export function tipoImpegnoDaNote(note: string): ScalettaTipoImpegno {
   const n = note.trim().toLowerCase();

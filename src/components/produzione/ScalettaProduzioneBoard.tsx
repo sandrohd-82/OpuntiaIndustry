@@ -22,6 +22,12 @@ import {
 } from "@/lib/amministrazione/scaletta-produzione";
 import { addDays } from "@/lib/amministrazione/produzione-capacita";
 import { ScalettaImpegnoModal } from "@/components/produzione/ScalettaImpegnoModal";
+import { ScalettaTestElenco } from "@/components/produzione/ScalettaTestElenco";
+import {
+  buildScalettaTestGruppi,
+  giorniToccati,
+  gruppoVisibile,
+} from "@/lib/amministrazione/scaletta-test";
 
 const WEEKDAYS = ["Lun", "Mar", "Mer", "Gio", "Ven", "Sab", "Dom"];
 
@@ -153,13 +159,29 @@ export function ScalettaProduzioneBoard({
     });
   }, [impegni, q, tipoFiltro]);
 
+  const gruppiVisibili = useMemo(() => {
+    if (archivio) return [];
+    const needle = q.trim().toLowerCase();
+    return buildScalettaTestGruppi(impegni).filter((gruppo) =>
+      gruppoVisibile(gruppo, needle, tipoFiltro)
+    );
+  }, [archivio, impegni, q, tipoFiltro]);
+
   const countByDay = useMemo(() => {
     const m = new Map<string, number>();
+    if (!archivio) {
+      for (const gruppo of gruppiVisibili) {
+        for (const day of giorniToccati(gruppo)) {
+          m.set(day, (m.get(day) ?? 0) + 1);
+        }
+      }
+      return m;
+    }
     for (const i of filtrati) {
       m.set(i.dataGiorno, (m.get(i.dataGiorno) ?? 0) + 1);
     }
     return m;
-  }, [filtrati]);
+  }, [archivio, gruppiVisibili, filtrati]);
 
   const giorniElenco = useMemo(() => {
     const days =
@@ -251,7 +273,7 @@ export function ScalettaProduzioneBoard({
       <p className="text-sm text-[var(--muted)]">
         {archivio
           ? "Archivio della scaletta: lavorazioni e confezionamenti già chiusi, nella stessa struttura del calendario operativo."
-          : "Calendario delle lavorazioni aperte. Il confezionamento si chiude solo dopo le lavorazioni. Le attività completate passano in Archivio."}
+          : "Fase di test. Ogni lavorazione è la voce madre: sotto compaiono trasformazione, se presente, e confezionamento. La presa in carico resta in questa schermata e si azzera al ricaricamento."}
       </p>
 
       <div className="flex flex-wrap items-center gap-2">
@@ -372,6 +394,15 @@ export function ScalettaProduzioneBoard({
         ) : null}
       </div>
 
+      {!archivio ? (
+        <ScalettaTestElenco
+          impegni={impegni}
+          needle={q.trim().toLowerCase()}
+          tipo={tipoFiltro}
+          loading={loading}
+          giorno={selected}
+        />
+      ) : (
       <div className="space-y-3">
         <h3 className="text-sm font-semibold">
           Attività per giorno
@@ -450,6 +481,7 @@ export function ScalettaProduzioneBoard({
           </section>
         ))}
       </div>
+      )}
 
       {!archivio && senzaData.length ? (
         <div className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-3">
@@ -467,7 +499,7 @@ export function ScalettaProduzioneBoard({
         </div>
       ) : null}
 
-      {apertoId ? (
+      {archivio && apertoId ? (
         <ScalettaImpegnoModal
           impegnoId={apertoId}
           onClose={() => setApertoId(null)}

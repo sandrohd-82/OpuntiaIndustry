@@ -1,12 +1,17 @@
 "use server";
 
 import { loadIndirizzoRicezioneMerce } from "@/app/actions/anagrafica-extra";
+import {
+  parseProfileGerarchia,
+  PROFILE_GERARCHIA_LABELS,
+} from "@/lib/auth/gerarchia";
 import { requireOrdineProcessAccess } from "@/lib/auth/ordini-access";
 import { writeAuditLog } from "@/lib/audit";
 import { labelSede } from "@/lib/impostazioni/sedi";
 import {
   parseEsecuzioneStato,
   scalettaEsitoSchema,
+  codiceProcessoDaNota,
   tipoImpegnoDaNote,
   type ScalettaDettaglio,
   type ScalettaDettaglioRiga,
@@ -166,6 +171,7 @@ export async function listScalettaCalendarioAction(raw: unknown): Promise<
       problemaNote: String(r.problema_note ?? ""),
       confezionamentoBloccato: false,
       archiviata: Boolean(r.archiviata_at),
+      processoCodice: codiceProcessoDaNota(String(r.note ?? "")),
     };
   });
 
@@ -871,4 +877,96 @@ export async function registraScalettaEsitoAction(
     return getScalettaImpegnoDettaglioAction(d.impegnoId);
   }
   return det;
+}
+
+export type ScalettaComposizionePasso = {
+  codice: string;
+  nome: string;
+  obbligatorio: boolean;
+};
+
+export type ScalettaComposizione = {
+  codice: string;
+  nome: string;
+  passi: ScalettaComposizionePasso[];
+};
+
+/** Operatore della sessione di test: nome e ruolo, senza scrivere nulla. */
+export async function operatoreScalettaTestAction(): Promise<
+  | { success: true; nome: string; ruolo: string }
+  | { success: false; error: string }
+> {
+  const { auth } = await requireOrdineProcessAccess();
+  const profile = auth.profile;
+  const nome =
+    [profile.first_name, profile.last_name].filter(Boolean).join(" ").trim() ||
+    profile.full_name?.trim() ||
+    auth.email ||
+    "Operatore";
+  const ruolo =
+    profile.job_title?.trim() ||
+    (parseProfileGerarchia(profile.gerarchia) === "operatore"
+      ? "Collaboratore"
+      : PROFILE_GERARCHIA_LABELS[parseProfileGerarchia(profile.gerarchia)]);
+  return { success: true, nome, ruolo };
+}
+
+/** Composizione dei processi citati in scaletta (solo lettura). */
+export async function composizioniScalettaTestAction(
+  codici: string[]
+): Promise<
+  | { success: true; voci: ScalettaComposizione[] }
+  | { success: false; error: string }
+> {
+  await requireOrdineProcessAccess();
+  const unique = [
+    ...new Set(codici.map((c) => c.trim()).filter(Boolean)),
+  ].slice(0, 40);
+  if (!unique.length) return { success: true, voci: [] };
+  const supabase = await createClient();
+  const { data: processi, error } = await supabase
+    .from("produzione_processi")
+    .select("id, codice, nome")
+    .in("codice", unique)
+    .is("deleted_at", null);
+  if (error) return { success: false, error: error.message };
+  const ids = (processi ?? []).map((p) => String(p.id));
+  const passiByProcesso = new Map<
+    string,
+    ScalettaComposizionePasso[]
+  >();
+  if (ids.length) {
+    const { data: passi, error: passiErr } = await supabase
+      .from("produzione_processo_passi")
+      .select(
+        "processo_id, sort_order, obbligatorio, produzione_processo_attivita(codice, nome)"
+      )
+      .in("processo_id", ids)
+      .is("deleted_at", null)
+      .order("sort_order", { ascending: true });
+    if (passiErr) return { success: false, error: passiErr.message };
+    for (const row of passi ?? []) {
+      const pid = String(row.processo_id);
+      const att = row.produzione_processo_attivita as
+        | { codice?: string; nome?: string }
+        | { codice?: string; nome?: string }[]
+        | null;
+      const one = Array.isArray(att) ? att[0] : att;
+      const list = passiByProcesso.get(pid) ?? [];
+      list.push({
+        codice: String(one?.codice ?? ""),
+        nome: String(one?.nome ?? "Attività"),
+        obbligatorio: Boolean(row.obbligatorio),
+      });
+      passiByProcesso.set(pid, list);
+    }
+  }
+  return {
+    success: true,
+    voci: (processi ?? []).map((p) => ({
+      codice: String(p.codice),
+      nome: String(p.nome ?? p.codice),
+      passi: passiByProcesso.get(String(p.id)) ?? [],
+    })),
+  };
 }
