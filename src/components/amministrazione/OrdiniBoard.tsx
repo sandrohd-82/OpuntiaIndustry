@@ -342,7 +342,6 @@ export function OrdiniBoard({
   const { ordini, ready, error, removeOrdine, upsertLocal, refresh } =
     useOrdini(stato, tipo, { escludiScontoInAttesa: processMode });
   const canCreate = showCreate ?? !processMode;
-  const wizardVariant = tipo === "campionatura" ? "campionatura" : "ordine";
   const statoForm: OrdineStato = Array.isArray(stato)
     ? (stato[0] ?? "in_attesa")
     : stato;
@@ -657,7 +656,6 @@ export function OrdiniBoard({
 
       {creating === "ordine" && useWizardCreate && (
         <OrdineNuovoWizardModal
-          variant={wizardVariant}
           onClose={() => setCreating(false)}
           onSaved={(ordine) => {
             upsertLocal(ordine);
@@ -718,7 +716,6 @@ export function OrdiniBoard({
       {editing && editing.consegnaTipo ? (
         <OrdineNuovoWizardModal
           modificaOrdineId={editing.id}
-          variant={editing.tipo === "campionatura" ? "campionatura" : "ordine"}
           onClose={() => setEditing(null)}
           onSaved={(ordine) => {
             upsertLocal(ordine);

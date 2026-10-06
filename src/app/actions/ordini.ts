@@ -1097,6 +1097,13 @@ async function createOrdineWizardActionInner(
     };
   }
   const input = parsed.data;
+  if (input.tipo === "campionatura" && !input.ordineId) {
+    return {
+      success: false,
+      error:
+        "Un ordine non può essere una campionatura. Il campione si registra con Invio campionatura.",
+    };
+  }
 
   const voceRes = await queryListinoVoceVigente(input.prodottoId);
   if (voceRes.error) return { success: false, error: voceRes.error };
@@ -1218,7 +1225,7 @@ async function createOrdineWizardActionInner(
       const { data: prev, error: prevErr } = await supabase
         .from("ordini")
         .select(
-          "id, numero_interno, versione, stato, giorni_produzione, sconto_extra_pct, deleted_at"
+          "id, numero_interno, versione, stato, tipo, giorni_produzione, sconto_extra_pct, deleted_at"
         )
         .eq("id", input.ordineId)
         .maybeSingle();
@@ -1232,6 +1239,16 @@ async function createOrdineWizardActionInner(
         return {
           success: false,
           error: "Questo ordine è chiuso e non si riscrive dalla procedura.",
+        };
+      }
+      if (
+        input.tipo === "campionatura" &&
+        String(prev.tipo ?? "vendita") !== "campionatura"
+      ) {
+        return {
+          success: false,
+          error:
+            "Un ordine non può diventare una campionatura. Il campione si registra con Invio campionatura.",
         };
       }
       editing = {

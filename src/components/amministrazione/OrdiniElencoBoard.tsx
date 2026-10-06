@@ -48,7 +48,7 @@ export function OrdiniElencoBoard() {
               createLabel="Crea ordine"
               description=""
               emptyTitle="Nessun ordine campionatura"
-              emptyHint="Gli ordini e le campionature create da Nuovo ordine restano in questo elenco."
+              emptyHint="Qui restano gli ordini campionatura già registrati. Il campione nuovo si crea con Invio campionatura."
               loadingLabel="Caricamento elenco ordini…"
             />
           </div>

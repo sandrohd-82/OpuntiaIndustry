@@ -54,7 +54,7 @@ export function OrdiniDaProcessareBoard() {
               createLabel="Crea ordine campionatura"
               description=""
               emptyTitle="Nessuna campionatura da processare"
-              emptyHint="Le campionature create da Nuovo ordine compaiono qui finché non vengono processate o chiuse."
+              emptyHint="Il campione nuovo si crea con Invio campionatura, se è in magazzino o dopo la prima produzione disponibile."
               loadingLabel="Caricamento coda da processare…"
             />
           </div>

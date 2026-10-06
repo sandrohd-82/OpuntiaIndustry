@@ -132,7 +132,6 @@ import type { OrdineConfezionamentoNodoStadio } from "@/types/database";
 import { loadOrdinePerModificaWizardAction } from "@/app/actions/ordine-wizard-modifica";
 
 type Props = {
-  variant?: "ordine" | "campionatura";
   /** Riapre la procedura già compilata su questo ordine. */
   modificaOrdineId?: string;
   onClose: () => void;
@@ -279,7 +278,6 @@ function addChildToNode(
 }
 
 export function OrdineNuovoWizardModal({
-  variant = "ordine",
   modificaOrdineId,
   onClose,
   onSaved,
@@ -352,9 +350,7 @@ export function OrdineNuovoWizardModal({
   const [creatingProdotto, setCreatingProdotto] = useState(false);
 
   const [quantita, setQuantita] = useState<number | "">(100);
-  const [unitaMisura, setUnitaMisura] = useState<OrdineUnitaMisura>(
-    variant === "campionatura" ? "g" : "kg"
-  );
+  const [unitaMisura, setUnitaMisura] = useState<OrdineUnitaMisura>("kg");
   const [prezzoUnitario, setPrezzoUnitario] = useState<number | "">("");
   const [scontoExtraPct, setScontoExtraPct] = useState<number | "">("");
   const [accordo, setAccordo] = useState<AccordoPrezzoProdotto | null>(null);
@@ -396,7 +392,7 @@ export function OrdineNuovoWizardModal({
   const [sessioneMsg, setSessioneMsg] = useState<string | null>(null);
   const [fatturaA4Open, setFatturaA4Open] = useState(false);
   const [tipoOrdine, setTipoOrdine] = useState<"vendita" | "campionatura">(
-    variant === "campionatura" ? "campionatura" : "vendita"
+    "vendita"
   );
   const lastStep: Step = tipoOrdine === "campionatura" ? 6 : 7;
 
@@ -1729,9 +1725,7 @@ export function OrdineNuovoWizardModal({
         <h2 id={titleId} className="text-lg font-semibold">
           {modificaOrdineId
             ? `Modifica ordine ${numeroInterno || ""}`.trim()
-            : tipoOrdine === "campionatura"
-              ? "Crea campionatura da produrre"
-              : "Crea ordine di vendita"}
+            : "Crea ordine"}
         </h2>
         <p className="mt-1 text-xs text-[var(--muted)]">
           Seleziona l’azienda digitando il nome: l’elenco sotto si filtra mentre
@@ -1739,8 +1733,8 @@ export function OrdineNuovoWizardModal({
         </p>
         <p className="mt-1 text-sm text-[var(--muted)]">
           L’ordine resta in attesa: amministrazione o produzione lo inseriranno
-          in scaletta. «Invio campionatura» resta il documento del campione già
-          spedito.
+          in scaletta. Il campione si registra con Invio campionatura, se è già
+          in magazzino o dopo la prima produzione disponibile.
         </p>
         {modificaOrdineId && !modificaPronta ? (
           <p className="mt-2 text-sm text-[var(--muted)]">
@@ -1865,50 +1859,6 @@ export function OrdineNuovoWizardModal({
                   className="w-full rounded-lg border border-[var(--border)] px-3 py-2 outline-none focus:border-[var(--primary)]"
                 />
               </label>
-              <fieldset className="space-y-2 rounded-lg border border-[var(--border)] p-3">
-                <legend className="px-1 text-sm font-medium">Tipo documento</legend>
-                <label className="flex items-center gap-2 text-sm">
-                  <input
-                    type="radio"
-                    name="tipo-ordine"
-                    checked={tipoOrdine === "vendita"}
-                    onChange={() => {
-                      setTipoOrdine("vendita");
-                      setUnitaMisura(unitaBase);
-                      if (
-                        accordo?.modalita === "prezzo_fisso" &&
-                        accordo.prezzoKg != null
-                      ) {
-                        setPrezzoUnitario(accordo.prezzoKg);
-                      } else if (voceListino && voceListino.prezzo > 0) {
-                        setPrezzoUnitario(voceListino.prezzo);
-                      }
-                      if (accordo?.modalita === "sconto_percentuale") {
-                        setScontoAccordo(accordo.scontoPct ?? 0);
-                      }
-                    }}
-                  />
-                  Vendita
-                </label>
-                <label className="flex items-center gap-2 text-sm">
-                  <input
-                    type="radio"
-                    name="tipo-ordine"
-                    checked={tipoOrdine === "campionatura"}
-                    onChange={() => {
-                      setTipoOrdine("campionatura");
-                      setUnitaMisura(defaultUnitaCampionatura(unitaBase));
-                      setPrezzoUnitario(0);
-                    }}
-                  />
-                  Campionatura da produrre
-                </label>
-                <p className="text-xs text-[var(--muted)]">
-                  La campionatura-ordine entra in coda come un ordine ed è
-                  sempre gratuita (nessun prezzo di listino). L’invio del
-                  campione già spedito è un documento separato.
-                </p>
-              </fieldset>
               {numeroInterno ? (
                 <p className="text-sm text-[var(--muted)]">
                   N. interno previsto:{" "}
