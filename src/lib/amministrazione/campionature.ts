@@ -281,6 +281,11 @@ export const createReferenteRicezioneSchema = z.object({
   telefono: z.string().trim().max(60).optional().default(""),
   email: z.string().trim().max(120).optional().default(""),
   indirizzo: z.string().trim().min(1, "Indirizzo obbligatorio").max(500),
+  via: z.string().trim().max(200).optional().default(""),
+  cap: z.string().trim().max(12).optional().default(""),
+  citta: z.string().trim().max(80).optional().default(""),
+  provincia: z.string().trim().max(80).optional().default(""),
+  nazione: z.string().trim().max(80).optional().default(""),
 });
 
 export function formatNumeroCampionatura(

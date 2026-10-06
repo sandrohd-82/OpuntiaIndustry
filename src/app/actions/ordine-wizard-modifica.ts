@@ -218,7 +218,7 @@ export async function loadOrdinePerModificaWizardAction(
     const { data: contatto } = await supabase
       .from("rubrica_contatti")
       .select(
-        "id, nome, cognome, telefono, email, rapporto, azienda_tipo, azienda_id, azienda_label, mansione_id, mansione, note, created_at, updated_at"
+        "id, nome, cognome, telefono, email, rapporto, azienda_tipo, azienda_id, azienda_label, mansione_id, mansione, note, indirizzo, cap, citta, provincia, nazione, created_at, updated_at"
       )
       .eq("id", referenteId)
       .is("deleted_at", null)
@@ -238,6 +238,11 @@ export async function loadOrdinePerModificaWizardAction(
         mansioneId: contatto.mansione_id ? String(contatto.mansione_id) : null,
         mansione: String(contatto.mansione ?? ""),
         note: String(contatto.note ?? ""),
+        indirizzo: String(contatto.indirizzo ?? ""),
+        cap: String(contatto.cap ?? ""),
+        citta: String(contatto.citta ?? ""),
+        provincia: String(contatto.provincia ?? ""),
+        nazione: String(contatto.nazione ?? ""),
         createdAt: String(contatto.created_at ?? ""),
         updatedAt: String(contatto.updated_at ?? ""),
       };

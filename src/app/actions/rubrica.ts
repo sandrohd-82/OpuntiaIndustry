@@ -36,7 +36,7 @@ async function guardRubricaAnagrafica() {
 }
 
 const CONTATTO_SELECT =
-  "id, nome, cognome, telefono, email, rapporto, azienda_tipo, azienda_id, azienda_label, mansione_id, mansione, note, created_at, updated_at";
+  "id, nome, cognome, telefono, email, rapporto, azienda_tipo, azienda_id, azienda_label, mansione_id, mansione, note, indirizzo, cap, citta, provincia, nazione, created_at, updated_at";
 
 function mapContatto(r: Record<string, unknown>): RubricaContatto {
   return {
@@ -52,6 +52,11 @@ function mapContatto(r: Record<string, unknown>): RubricaContatto {
     mansioneId: r.mansione_id ? String(r.mansione_id) : null,
     mansione: String(r.mansione ?? ""),
     note: String(r.note ?? ""),
+    indirizzo: String(r.indirizzo ?? ""),
+    cap: String(r.cap ?? ""),
+    citta: String(r.citta ?? ""),
+    provincia: String(r.provincia ?? ""),
+    nazione: String(r.nazione ?? ""),
     createdAt: String(r.created_at),
     updatedAt: String(r.updated_at),
   };
@@ -389,6 +394,11 @@ export async function createRubricaContattoAction(input: unknown): Promise<
       mansione_id: mansione.id,
       mansione: mansione.nome,
       note: d.note ?? "",
+      indirizzo: d.indirizzo ?? "",
+      cap: d.cap ?? "",
+      citta: d.citta ?? "",
+      provincia: d.provincia ?? "",
+      nazione: d.nazione ?? "",
       created_by: auth.userId,
       updated_by: auth.userId,
     })
@@ -426,6 +436,7 @@ export async function createRubricaContattoAction(input: unknown): Promise<
     payload: {
       azienda_tipo: item.aziendaTipo,
       mansione_id: item.mansioneId,
+      ha_indirizzo: Boolean(item.indirizzo.trim()),
     },
   });
   return { success: true, item };
@@ -541,6 +552,11 @@ export async function updateRubricaContattoAction(input: unknown): Promise<
       mansione_id: mansione.id,
       mansione: mansione.nome,
       note: d.note ?? "",
+      indirizzo: d.indirizzo ?? "",
+      cap: d.cap ?? "",
+      citta: d.citta ?? "",
+      provincia: d.provincia ?? "",
+      nazione: d.nazione ?? "",
       updated_by: auth.userId,
     })
     .eq("id", d.id)
@@ -574,6 +590,7 @@ export async function updateRubricaContattoAction(input: unknown): Promise<
       azienda_tipo: item.aziendaTipo,
       azienda_id: item.aziendaId,
       mansione_id: item.mansioneId,
+      ha_indirizzo: Boolean(item.indirizzo.trim()),
     },
   });
   return { success: true, item };

@@ -35,6 +35,12 @@ export type RubricaContatto = {
   mansioneId: string | null;
   mansione: string;
   note: string;
+  /** Recapito facoltativo: può restare vuoto. */
+  indirizzo: string;
+  cap: string;
+  citta: string;
+  provincia: string;
+  nazione: string;
   createdAt: string;
   updatedAt: string;
   /** Collegato all’azienda del contesto (picker ordine/scheda). */
@@ -79,6 +85,11 @@ export const createRubricaContattoSchema = z.object({
   mansione: z.string().trim().max(120).optional().default(""),
   mansioneId: z.string().uuid().nullable().optional(),
   note: z.string().trim().max(2000).optional().default(""),
+  indirizzo: z.string().trim().max(200).optional().default(""),
+  cap: z.string().trim().max(12).optional().default(""),
+  citta: z.string().trim().max(80).optional().default(""),
+  provincia: z.string().trim().max(80).optional().default(""),
+  nazione: z.string().trim().max(80).optional().default(""),
 });
 
 export const updateRubricaContattoSchema = createRubricaContattoSchema.extend({
@@ -106,6 +117,24 @@ export const createRubricaTimelineSchema = z.object({
 
 export function displayContattoName(c: Pick<RubricaContatto, "nome" | "cognome">) {
   return `${c.nome} ${c.cognome}`.trim();
+}
+
+export function contattoIndirizzoTesto(
+  c: Pick<RubricaContatto, "indirizzo" | "cap" | "citta" | "provincia" | "nazione">
+) {
+  return [c.indirizzo, c.cap, c.citta, c.provincia, c.nazione]
+    .map((part) => part.trim())
+    .filter(Boolean)
+    .join(", ");
+}
+
+/** Via, CAP, città, provincia e paese: tutti presenti. Resta facoltativo in rubrica. */
+export function contattoHaIndirizzoCompleto(
+  c: Pick<RubricaContatto, "indirizzo" | "cap" | "citta" | "provincia" | "nazione">
+) {
+  return [c.indirizzo, c.cap, c.citta, c.provincia, c.nazione].every(
+    (part) => part.trim().length > 0
+  );
 }
 
 export const RAPPORTO_LABELS: Record<RubricaRapporto, string> = {

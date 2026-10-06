@@ -510,7 +510,7 @@ export function CampionaturaFormModal({
           webmailMessaggioId: mail?.id ?? null,
           spedizioneTipo: addressKey === "altro" ? "altro_posto" as const : "sede_azienda" as const,
           spedizionePrivato,
-          referenteRicezioneId: referenteRicezione?.id ?? null,
+          referenteRicezioneId: referenteRicezione?.id || null,
           destinatario: destinatario.trim() || cliente?.ragioneSociale || "",
           indirizzoSpedizione: indirizzo,
           note,
@@ -612,7 +612,7 @@ export function CampionaturaFormModal({
         webmailMessaggioId: origine === "storico" ? null : (mail?.id ?? null),
         spedizioneTipo: addressKey === "altro" ? "altro_posto" : "sede_azienda",
         spedizionePrivato,
-        referenteRicezioneId: referenteRicezione?.id ?? null,
+        referenteRicezioneId: referenteRicezione?.id || null,
         destinatario: destinatario.trim() || cliente.ragioneSociale,
         indirizzoSpedizione: indirizzo,
         note,
@@ -1398,13 +1398,19 @@ export function CampionaturaFormModal({
         <CampionaturaAltroPostoModal
           clienteId={cliente.id}
           clienteLabel={cliente.ragioneSociale}
+          aziendaTipo={
+            anagraficaFonte === "possibile" ? "cliente_possibile" : "cliente"
+          }
           onClose={() => setAltroPostoOpen(false)}
           onSaved={(r) => {
             setAddressKey("altro");
             setDestinatario(r.destinatario);
             setIndirizzo(r.indirizzo);
             setSpedizionePrivato(r.isPrivato);
-            setReferenteRicezione({ id: r.referenteId, label: r.label });
+            setReferenteRicezione({
+              id: r.referenteId ?? "",
+              label: r.label,
+            });
             setAltroPostoOpen(false);
           }}
         />

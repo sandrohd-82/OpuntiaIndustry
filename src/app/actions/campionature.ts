@@ -1492,6 +1492,11 @@ export async function createReferenteRicezioneMerceAction(
       azienda_label: d.clienteLabel,
       mansione: REFERENTE_RICEZIONE_MERCE,
       note: noteParts.join("\n"),
+      indirizzo: d.via,
+      cap: d.cap,
+      citta: d.citta,
+      provincia: d.provincia,
+      nazione: d.nazione,
       created_by: gate.auth.userId,
       updated_by: gate.auth.userId,
     })

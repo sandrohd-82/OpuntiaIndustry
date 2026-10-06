@@ -18,6 +18,7 @@ import {
   AZIENDA_TIPO_LABELS,
   MODALITA_LABELS,
   RAPPORTO_LABELS,
+  contattoIndirizzoTesto,
   displayContattoName,
   type RubricaContatto,
   type RubricaMansione,
@@ -236,6 +237,11 @@ export function RubricaBoard() {
                 {c.aziendaLabel ? ` · ${c.aziendaLabel}` : ""}
                 {c.mansione ? ` · ${c.mansione}` : ""}
               </p>
+              {contattoIndirizzoTesto(c) ? (
+                <p className="mt-0.5 text-xs text-slate-700">
+                  {contattoIndirizzoTesto(c)}
+                </p>
+              ) : null}
               {c.note ? (
                 <p className="mt-0.5 text-xs italic text-slate-600">{c.note}</p>
               ) : null}

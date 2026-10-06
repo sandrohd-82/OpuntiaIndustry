@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useTransition } from "react";
+import { useEffect, useRef, useState, useTransition } from "react";
 import { FaXmark } from "react-icons/fa6";
 import {
   createRubricaContattoAction,
@@ -8,9 +8,11 @@ import {
   listRubricaMansioniAction,
   updateRubricaContattoAction,
 } from "@/app/actions/rubrica";
+import { AddressSedeFields } from "@/components/amministrazione/AddressSedeFields";
 import { CanaleInputRow } from "@/components/amministrazione/CanaleAttenzioneControls";
 import { RubricaMansioneCreateModal } from "@/components/amministrazione/RubricaMansioneCreateModal";
 import { SelectMenu } from "@/components/ui/SelectMenu";
+import type { SedeFornitore } from "@/lib/amministrazione/fornitori";
 import {
   AZIENDA_TIPO_LABELS,
   RAPPORTO_LABELS,
@@ -36,6 +38,8 @@ type Props = {
   mansioniCatalog?: RubricaMansione[];
   testMode?: boolean;
   elevated?: boolean;
+  /** Apre la scheda già sul recapito, da compilare se manca. */
+  focusIndirizzo?: boolean;
 };
 
 export function RubricaContattoFormModal({
@@ -50,6 +54,7 @@ export function RubricaContattoFormModal({
   mansioniCatalog = [],
   testMode = false,
   elevated = false,
+  focusIndirizzo = false,
 }: Props) {
   const editing = Boolean(contatto);
   const [pending, startTransition] = useTransition();
@@ -98,6 +103,14 @@ export function RubricaContattoFormModal({
   const [aziendeLoading, setAziendeLoading] = useState(false);
   const [showCreaMansione, setShowCreaMansione] = useState(false);
   const [note, setNote] = useState(contatto?.note ?? "");
+  const [sede, setSede] = useState<SedeFornitore>({
+    nazione: contatto?.nazione ?? "",
+    provincia: contatto?.provincia ?? "",
+    citta: contatto?.citta ?? "",
+    cap: contatto?.cap ?? "",
+    indirizzo: contatto?.indirizzo ?? "",
+  });
+  const indirizzoRef = useRef<HTMLDivElement>(null);
   const [aziende, setAziende] = useState<{ id: string; label: string }[]>(() =>
     contatto?.aziendaId
       ? [
@@ -111,6 +124,11 @@ export function RubricaContattoFormModal({
   const [collegaQuestaAzienda, setCollegaQuestaAzienda] = useState(
     lockToThisAzienda
   );
+
+  useEffect(() => {
+    if (!focusIndirizzo) return;
+    indirizzoRef.current?.scrollIntoView({ block: "center" });
+  }, [focusIndirizzo]);
 
   const aziendaCollegata = lockToThisAzienda
     ? collegaQuestaAzienda
@@ -238,6 +256,11 @@ export function RubricaContattoFormModal({
         mansioneId: mansioneId || null,
         mansione: mansioneNome,
         note,
+        indirizzo: sede.indirizzo,
+        cap: sede.cap,
+        citta: sede.citta,
+        provincia: sede.provincia,
+        nazione: sede.nazione,
       };
       if (testMode && !contatto) {
         const now = new Date().toISOString();
@@ -254,6 +277,11 @@ export function RubricaContattoFormModal({
           mansioneId: payload.mansioneId,
           mansione: mansioneNome,
           note: payload.note ?? "",
+          indirizzo: payload.indirizzo ?? "",
+          cap: payload.cap ?? "",
+          citta: payload.citta ?? "",
+          provincia: payload.provincia ?? "",
+          nazione: payload.nazione ?? "",
           createdAt: now,
           updatedAt: now,
         });
@@ -290,8 +318,8 @@ export function RubricaContattoFormModal({
             </h2>
             <p className="mt-1 text-xs text-[var(--muted)]">
               {editing
-                ? "Modifica i dati e salva. Nome, cognome e tipo di rapporto restano obbligatori."
-                : "Obbligatori: Nome, Cognome, Referente. Telefono e mail sono facoltativi."}
+                ? "Modifica i dati e salva. Nome, cognome e tipo di rapporto restano obbligatori. L'indirizzo è facoltativo."
+                : "Obbligatori: Nome, Cognome, Referente. Telefono, mail e indirizzo sono facoltativi."}
             </p>
           </div>
           <button type="button" onClick={onClose} aria-label="Chiudi">
@@ -349,6 +377,22 @@ export function RubricaContattoFormModal({
               Tipo di rapporto (Referente / Dipendente / Altro).
             </span>
           </label>
+
+          <div ref={indirizzoRef} className="sm:col-span-2">
+            {focusIndirizzo ? (
+              <p className="mb-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-950">
+                Per usare questo referente come destinatario di spedizione
+                compila via, CAP, città, provincia e paese. In rubrica
+                l&apos;indirizzo resta facoltativo.
+              </p>
+            ) : null}
+            <AddressSedeFields
+              title="Indirizzo di recapito (facoltativo)"
+              value={sede}
+              onChange={setSede}
+              requiredFields={false}
+            />
+          </div>
 
           <label className="block text-sm sm:col-span-2">
             <span className="mb-1 block font-medium">Nota</span>
