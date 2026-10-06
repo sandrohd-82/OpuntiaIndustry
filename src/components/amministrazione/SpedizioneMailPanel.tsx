@@ -56,6 +56,8 @@ type Props = {
   }) => void;
   sedePartenzaIdDefault?: string;
   persistDisabled?: boolean;
+  /** La scelta e il testo mail restano quelli salvati in fase di ordine. */
+  sceltaOrdineFissa?: boolean;
 };
 
 export function SpedizioneMailPanel({
@@ -73,6 +75,7 @@ export function SpedizioneMailPanel({
   onDraftChange,
   sedePartenzaIdDefault = "",
   persistDisabled = false,
+  sceltaOrdineFissa = false,
 }: Props) {
   const [trackingUrl, setTrackingUrl] = useState("");
   const [sedePartenzaId, setSedePartenzaId] = useState(sedePartenzaIdDefault);
@@ -138,6 +141,7 @@ export function SpedizioneMailPanel({
   }, [destEmailDefault, destEmail]);
 
   useEffect(() => {
+    if (sceltaOrdineFissa) return;
     if (!vuoleMail) return;
     if (oggettoToccato.current && corpoToccato.current) return;
     let cancel = false;
@@ -158,7 +162,7 @@ export function SpedizioneMailPanel({
       cancel = true;
       window.clearTimeout(timer);
     };
-  }, [vuoleMail, clienteNome, numero, prodotti, trackingUrl]);
+  }, [sceltaOrdineFissa, vuoleMail, clienteNome, numero, prodotti, trackingUrl]);
 
   useEffect(() => {
     onDraftChange?.({
@@ -207,13 +211,17 @@ export function SpedizioneMailPanel({
     }
     if (next.accountId) setMailAccountId(next.accountId);
     setVuoleMail(
-      next.allegaTracking ||
-        next.stato === "inviata" ||
-        Boolean(next.oggetto)
+      sceltaOrdineFissa
+        ? next.allegaTracking
+        : next.allegaTracking ||
+            next.stato === "inviata" ||
+            Boolean(next.oggetto)
     );
   }
 
   const mancaTracking = vuoleMail && !trackingUrl.trim();
+  const casella = accounts.find((a) => a.id === mailAccountId);
+  const casellaTesto = casella ? `${casella.label} · ${casella.email}` : "—";
 
   async function upload(kind: "lettera" | "file", file: File | undefined) {
     if (!file) return;
@@ -270,7 +278,7 @@ export function SpedizioneMailPanel({
     try {
       let oggetto = mailOggetto.trim();
       let corpo = mailCorpo.trim();
-      if (modo !== "salva" && (!oggetto || !corpo)) {
+      if (!sceltaOrdineFissa && modo !== "salva" && (!oggetto || !corpo)) {
         const testo = await generaCorpoMailSpedizioneAction({
           cliente: clienteNome,
           numero,
@@ -302,6 +310,7 @@ export function SpedizioneMailPanel({
         corpo,
         accountId: mailAccountId || null,
         modo,
+        soloTracking: sceltaOrdineFissa,
       });
       if (!res.success) {
         setError(res.error);
@@ -352,7 +361,9 @@ export function SpedizioneMailPanel({
       <p className="text-xs text-[var(--muted)]">
         {persistDisabled
           ? "Bozza spedizione solo in sessione: niente upload, prenotazione mail o invio."
-          : "Puoi inserire il tracking se ce l’hai, oppure salvare e lasciare il sistema in attesa. La mail al cliente è facoltativa."}
+          : (sceltaOrdineFissa
+            ? "Inserisci il tracking se è già disponibile. L’invio al cliente resta quello deciso in fase di ordine."
+            : "Puoi inserire il tracking se ce l’hai, oppure salvare e lasciare il sistema in attesa. La mail al cliente è facoltativa.")}
       </p>
 
       <label className="block text-sm">
@@ -430,6 +441,54 @@ export function SpedizioneMailPanel({
         ) : null}
       </div>
 
+      {sceltaOrdineFissa ? (
+        <div className="space-y-2 text-sm">
+          <p className="font-medium">
+            Vuoi che il tracking venga inviato al cliente?
+          </p>
+          {!bozzaPronta ? (
+            <p className="text-xs text-[var(--muted)]">Caricamento della scelta…</p>
+          ) : item?.allegaTracking ? (
+            <div className="space-y-2 rounded-lg border border-[var(--border)] bg-slate-50 px-3 py-3">
+              <p>Sì. Scelta fatta in fase di ordine.</p>
+              <dl className="space-y-2 text-sm">
+                <div>
+                  <dt className="text-xs font-medium text-[var(--muted)]">
+                    Casella mittente
+                  </dt>
+                  <dd>{casellaTesto}</dd>
+                </div>
+                <div>
+                  <dt className="text-xs font-medium text-[var(--muted)]">
+                    Destinatario
+                  </dt>
+                  <dd>{destEmail.trim() || "—"}</dd>
+                </div>
+                <div>
+                  <dt className="text-xs font-medium text-[var(--muted)]">
+                    Oggetto
+                  </dt>
+                  <dd>{mailOggetto.trim() || "—"}</dd>
+                </div>
+                <div>
+                  <dt className="text-xs font-medium text-[var(--muted)]">
+                    Testo
+                  </dt>
+                  <dd className="whitespace-pre-wrap">
+                    {mailCorpo.trim() || "—"}
+                  </dd>
+                </div>
+              </dl>
+            </div>
+          ) : (
+            <p className="rounded-lg border border-[var(--border)] bg-slate-50 px-3 py-2">
+              No. In fase di ordine non è stato chiesto l’invio del tracking al
+              cliente.
+            </p>
+          )}
+        </div>
+      ) : (
+      <>
       <fieldset className="space-y-2 text-sm">
         <legend className="font-medium">
           Vuoi che il tracking venga inviato al cliente?
@@ -526,6 +585,8 @@ export function SpedizioneMailPanel({
           </div>
         </div>
       ) : null}
+      </>
+      )}
 
       {item?.stato === "prenotata" && !vuoleMail ? (
         <p className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-950">
@@ -612,6 +673,7 @@ export function SpedizioneMailPanel({
           subject={compose.subject}
           bodyText={compose.bodyText}
           to={destEmail}
+          solaLettura={sceltaOrdineFissa}
           anagrafica={anagrafica}
           emailAzienda={destEmailDefault}
           emailPec={emailPec}

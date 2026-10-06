@@ -1390,6 +1390,7 @@ export function OrdineNuovoWizardModal({
           corpo,
           accountId: d.mailAccountId || null,
           modo: modoMail,
+          soloTracking: Boolean(modificaOrdineId),
         });
         if (up.success && up.apriBozza && oggetto) {
           setComposeAfter({
@@ -3075,6 +3076,7 @@ export function OrdineNuovoWizardModal({
                   spedDraft.current = d;
                 }}
                 onNeedEntity={(modo) => void submit(modo)}
+                sceltaOrdineFissa={Boolean(modificaOrdineId)}
               />
             </div>
           ) : null}
@@ -3320,6 +3322,7 @@ export function OrdineNuovoWizardModal({
           emailAzienda={clienteSped?.email ?? ""}
           emailPec={clienteSped?.pec ?? ""}
           emailGeneriche={clienteSped?.emailGeneriche ?? []}
+          solaLettura={Boolean(modificaOrdineId)}
           onClose={() => {
             const o = composeAfter.ordine;
             setComposeAfter(null);

@@ -917,12 +917,12 @@ export function ProcessaCampionaturaProduzioneModal({
           <div className="mt-4 space-y-3 text-sm">
             <div className="flex flex-wrap items-center gap-2">
               <p className="text-xs text-slate-500">
-                Spedizione: tracking se già disponibile, oppure salva e resta in
-                attesa. La mail al cliente è facoltativa.
+                Spedizione: inserisci il tracking se è già disponibile. L’invio
+                al cliente resta quello scelto in fase di ordine.
               </p>
               <InfoSezione
                 titolo="La mail"
-                testo="Qui prepari il messaggio per il cliente. Se non hai ancora il tracking, puoi salvare lo stesso e mandarla dopo."
+                testo="La scelta e il testo della mail sono quelli inseriti sull’ordine. Qui non si modificano: si aggiunge solo il tracking, se c’è già."
               />
             </div>
             <p className="text-xs text-slate-500">
@@ -949,6 +949,7 @@ export function ProcessaCampionaturaProduzioneModal({
                 clienteId: item.clienteId,
               })}
               sedePartenzaIdDefault={sedePartenzaId}
+              sceltaOrdineFissa
               onDraftChange={(d) => setSedePartenzaId(d.sedePartenzaId)}
             />
           </div>

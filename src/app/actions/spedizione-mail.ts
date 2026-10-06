@@ -184,7 +184,40 @@ export async function upsertPrenotazioneSpedizioneMailAction(
     .maybeSingle();
 
   const now = new Date().toISOString();
-  const mancaTracking = trackingMancante(d.allegaTracking, d.trackingUrl);
+  const precedente = existing
+    ? mapSpedizioneMailRow(existing as Record<string, unknown>)
+    : null;
+  const allegaTracking =
+    d.soloTracking && precedente
+      ? precedente.allegaTracking
+      : d.soloTracking
+        ? false
+        : d.allegaTracking;
+  const destinatarioEmail =
+    d.soloTracking && precedente
+      ? precedente.destinatarioEmail
+      : d.soloTracking
+        ? ""
+        : d.destinatarioEmail;
+  const oggettoMail =
+    d.soloTracking && precedente
+      ? precedente.oggetto
+      : d.soloTracking
+        ? ""
+        : d.oggetto;
+  const corpoMail =
+    d.soloTracking && precedente
+      ? precedente.corpo
+      : d.soloTracking
+        ? ""
+        : d.corpo;
+  const accountId =
+    d.soloTracking && precedente
+      ? precedente.accountId
+      : d.soloTracking
+        ? null
+        : (d.accountId ?? null);
+  const mancaTracking = trackingMancante(allegaTracking, d.trackingUrl);
   const attesaTracking = !d.trackingUrl.trim();
   const stato =
     d.modo === "prenota" || (d.modo === "salva" && attesaTracking) || mancaTracking
@@ -199,13 +232,13 @@ export async function upsertPrenotazioneSpedizioneMailAction(
     lettera_via_path: d.letteraViaPath,
     lettera_via_name: d.letteraViaName,
     allegati: d.allegati,
-    allega_tracking: d.allegaTracking,
-    allega_lettera: d.allegaLettera,
-    allega_file: d.allegaFile,
-    destinatario_email: d.destinatarioEmail,
-    oggetto: d.oggetto,
-    corpo: d.corpo,
-    account_id: d.accountId ?? null,
+    allega_tracking: allegaTracking,
+    allega_lettera: d.soloTracking && precedente ? precedente.allegaLettera : d.allegaLettera,
+    allega_file: d.soloTracking && precedente ? precedente.allegaFile : d.allegaFile,
+    destinatario_email: destinatarioEmail,
+    oggetto: oggettoMail,
+    corpo: corpoMail,
+    account_id: accountId,
     prenotata_at: stato === "prenotata" ? now : existing?.prenotata_at ?? now,
     prenotata_by: auth.userId,
     updated_by: auth.userId,

@@ -609,6 +609,7 @@ export function CampionaturaFormModal({
           corpo,
           accountId: d.mailAccountId || null,
           modo: modoMail,
+          soloTracking: Boolean(editing),
         });
         if (!up.success) {
           setFormError(up.error);
@@ -1198,6 +1199,7 @@ export function CampionaturaFormModal({
               spedDraft.current = d;
             }}
             onNeedEntity={(modo) => void persistCampionatura(modo)}
+            sceltaOrdineFissa={Boolean(editing)}
           />
           )}
 
@@ -1398,6 +1400,7 @@ export function CampionaturaFormModal({
           emailAzienda={cliente?.email ?? ""}
           emailPec={cliente?.pec ?? ""}
           emailGeneriche={cliente?.emailGeneriche ?? []}
+          solaLettura={Boolean(editing)}
           onClose={() => {
             const item = composeAfter.item;
             setComposeAfter(null);

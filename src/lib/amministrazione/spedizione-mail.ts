@@ -65,6 +65,8 @@ export const spedizioneMailUpsertSchema = z.object({
   corpo: z.string().trim().max(20000).optional().default(""),
   accountId: z.string().uuid().nullable().optional(),
   modo: z.enum(["prenota", "compila", "salva"]),
+  /** In chiusura spedizione si aggiorna solo il tracking: la mail resta quella dell'ordine. */
+  soloTracking: z.boolean().optional().default(false),
 });
 
 export type SpedizioneMailUpsertInput = z.infer<typeof spedizioneMailUpsertSchema>;

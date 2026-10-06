@@ -24,6 +24,7 @@ type Props = {
   emailGeneriche?: string[];
   onClose: () => void;
   onInviata: () => void;
+  solaLettura?: boolean;
 };
 
 export function SpedizioneMailComposeModal({
@@ -37,6 +38,7 @@ export function SpedizioneMailComposeModal({
   emailGeneriche = [],
   onClose,
   onInviata,
+  solaLettura = false,
 }: Props) {
   const titleId = useId();
   const [oggetto, setOggetto] = useState(subject);
@@ -104,15 +106,18 @@ export function SpedizioneMailComposeModal({
           Invio mail spedizione
         </h3>
         <p className="mt-1 text-sm text-[var(--muted)]">
-          Testo generato in bozza: controlla e invia.
+          {solaLettura
+            ? "Testo deciso in fase di ordine. Si invia così com’è."
+            : "Testo generato in bozza: controlla e invia."}
         </p>
 
         <label className="mt-4 block text-sm">
           <span className="mb-1 block font-medium">Casella mittente</span>
           <select
             value={accountId}
+            disabled={solaLettura}
             onChange={(e) => setAccountId(e.target.value)}
-            className="w-full rounded-lg border border-[var(--border)] px-3 py-2 text-sm"
+            className="w-full rounded-lg border border-[var(--border)] px-3 py-2 text-sm disabled:bg-slate-50"
           >
             <option value="">Seleziona casella…</option>
             {accounts.map((a) => (
@@ -123,30 +128,39 @@ export function SpedizioneMailComposeModal({
           </select>
         </label>
         <div className="mt-3">
-          <SpedizioneDestinatarioMailField
-            value={dest}
-            onChange={setDest}
-            anagrafica={anagrafica}
-            emailAzienda={emailAzienda || to}
-            emailPec={emailPec}
-            emailGeneriche={emailGeneriche}
-          />
+          {solaLettura ? (
+            <p className="text-sm">
+              <span className="mb-1 block font-medium">Destinatario</span>
+              {dest.trim() || "—"}
+            </p>
+          ) : (
+            <SpedizioneDestinatarioMailField
+              value={dest}
+              onChange={setDest}
+              anagrafica={anagrafica}
+              emailAzienda={emailAzienda || to}
+              emailPec={emailPec}
+              emailGeneriche={emailGeneriche}
+            />
+          )}
         </div>
         <label className="mt-3 block text-sm">
           <span className="mb-1 block font-medium">Oggetto</span>
           <input
             value={oggetto}
+            readOnly={solaLettura}
             onChange={(e) => setOggetto(e.target.value)}
-            className="w-full rounded-lg border border-[var(--border)] px-3 py-2 text-sm"
+            className="w-full rounded-lg border border-[var(--border)] px-3 py-2 text-sm read-only:bg-slate-50"
           />
         </label>
         <label className="mt-3 block text-sm">
           <span className="mb-1 block font-medium">Testo</span>
-          <textarea
+            <textarea
             value={corpo}
+            readOnly={solaLettura}
             onChange={(e) => setCorpo(e.target.value)}
             rows={10}
-            className="w-full rounded-lg border border-[var(--border)] px-3 py-2 text-sm"
+            className="w-full rounded-lg border border-[var(--border)] px-3 py-2 text-sm read-only:bg-slate-50"
           />
         </label>
         <div className="mt-3 border-t border-[var(--border)] pt-3">
