@@ -4,6 +4,7 @@ import { useEffect, useId, useState } from "react";
 import {
   inviaMailSpedizioneAction,
   listCaselleSpedizioneMailAction,
+  upsertPrenotazioneSpedizioneMailAction,
 } from "@/app/actions/spedizione-mail";
 import { SpedizioneDestinatarioMailField } from "@/components/amministrazione/SpedizioneDestinatarioMailField";
 import type { SpedizioneAnagraficaMail } from "@/components/amministrazione/SpedizioneDestinatarioMailField";
@@ -24,7 +25,10 @@ type Props = {
   emailGeneriche?: string[];
   onClose: () => void;
   onInviata: () => void;
+  onSalvata?: (item: SpedizioneMailPrenotazione) => void;
   solaLettura?: boolean;
+  /** salva: tiene la bozza, l’invio è al passaggio in scaletta. */
+  intenzione?: "invia" | "salva";
 };
 
 export function SpedizioneMailComposeModal({
@@ -38,8 +42,12 @@ export function SpedizioneMailComposeModal({
   emailGeneriche = [],
   onClose,
   onInviata,
+  onSalvata,
   solaLettura = false,
+  intenzione = "invia",
 }: Props) {
+  const soloBozza = intenzione === "salva";
+  const campiBloccati = solaLettura && !soloBozza;
   const titleId = useId();
   const [oggetto, setOggetto] = useState(subject);
   const [corpo, setCorpo] = useState(bodyText);
@@ -57,6 +65,38 @@ export function SpedizioneMailComposeModal({
       setAccounts(res.accounts);
     });
   }, []);
+
+  async function salvaBozza() {
+    setError(null);
+    setSending(true);
+    try {
+      const res = await upsertPrenotazioneSpedizioneMailAction({
+        entityType: prenotazione.entityType,
+        entityId: prenotazione.entityId,
+        trackingUrl: prenotazione.trackingUrl,
+        letteraViaPath: prenotazione.letteraViaPath,
+        letteraViaName: prenotazione.letteraViaName,
+        allegati: prenotazione.allegati,
+        allegaTracking: prenotazione.allegaTracking,
+        allegaLettera: prenotazione.allegaLettera,
+        allegaFile: prenotazione.allegaFile,
+        destinatarioEmail: dest,
+        oggetto,
+        corpo,
+        accountId: accountId || null,
+        modo: "salva",
+        soloTracking: false,
+        modificaMail: true,
+      });
+      if (!res.success) {
+        setError(res.error);
+        return;
+      }
+      onSalvata?.(res.item);
+    } finally {
+      setSending(false);
+    }
+  }
 
   async function invia() {
     setError(null);
@@ -102,19 +142,21 @@ export function SpedizioneMailComposeModal({
         className="w-full max-w-xl rounded-xl border border-[var(--border)] bg-[var(--card)] p-5 shadow-xl"
       >
         <h3 id={titleId} className="text-lg font-semibold">
-          Invio mail spedizione
+          {soloBozza ? "Modifica mail" : "Invio mail spedizione"}
         </h3>
         <p className="mt-1 text-sm text-[var(--muted)]">
-          {solaLettura
-            ? "Testo deciso in fase di ordine. Si invia così com’è."
-            : "Testo generato in bozza: controlla e invia."}
+          {soloBozza
+            ? "Salva le modifiche. La mail parte solo quando l’ordine va in scaletta."
+            : (solaLettura
+                ? "Testo deciso in fase di ordine. Si invia così com’è."
+                : "Testo generato in bozza: controlla e invia.")}
         </p>
 
         <label className="mt-4 block text-sm">
           <span className="mb-1 block font-medium">Casella mittente</span>
           <select
             value={accountId}
-            disabled={solaLettura}
+            disabled={campiBloccati}
             onChange={(e) => setAccountId(e.target.value)}
             className="w-full rounded-lg border border-[var(--border)] px-3 py-2 text-sm disabled:bg-slate-50"
           >
@@ -127,7 +169,7 @@ export function SpedizioneMailComposeModal({
           </select>
         </label>
         <div className="mt-3">
-          {solaLettura ? (
+          {campiBloccati ? (
             <p className="text-sm">
               <span className="mb-1 block font-medium">Destinatario</span>
               {dest.trim() || "—"}
@@ -147,7 +189,7 @@ export function SpedizioneMailComposeModal({
           <span className="mb-1 block font-medium">Oggetto</span>
           <input
             value={oggetto}
-            readOnly={solaLettura}
+            readOnly={campiBloccati}
             onChange={(e) => setOggetto(e.target.value)}
             className="w-full rounded-lg border border-[var(--border)] px-3 py-2 text-sm read-only:bg-slate-50"
           />
@@ -156,7 +198,7 @@ export function SpedizioneMailComposeModal({
           <span className="mb-1 block font-medium">Testo</span>
             <textarea
             value={corpo}
-            readOnly={solaLettura}
+            readOnly={campiBloccati}
             onChange={(e) => setCorpo(e.target.value)}
             rows={10}
             className="w-full rounded-lg border border-[var(--border)] px-3 py-2 text-sm read-only:bg-slate-50"
@@ -193,15 +235,17 @@ export function SpedizioneMailComposeModal({
             onClick={onClose}
             className="rounded-lg border border-[var(--border)] px-4 py-2 text-sm hover:bg-slate-50"
           >
-            Chiudi
+            {soloBozza ? "Annulla" : "Chiudi"}
           </button>
           <button
             type="button"
             disabled={sending || !accountId || !dest}
-            onClick={() => void invia()}
+            onClick={() => void (soloBozza ? salvaBozza() : invia())}
             className="rounded-lg bg-[var(--primary)] px-4 py-2 text-sm font-medium text-white hover:bg-[var(--primary-hover)] disabled:opacity-50"
           >
-            {sending ? "Invio…" : "Invio"}
+            {sending
+              ? (soloBozza ? "Salvataggio…" : "Invio…")
+              : (soloBozza ? "Salva" : "Invio")}
           </button>
         </div>
       </div>

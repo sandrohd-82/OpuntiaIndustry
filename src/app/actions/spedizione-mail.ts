@@ -255,34 +255,35 @@ export async function upsertPrenotazioneSpedizioneMailAction(
   const precedente = existing
     ? mapSpedizioneMailRow(existing as Record<string, unknown>)
     : null;
+  const bloccaMail = d.soloTracking && !d.modificaMail;
   const allegaTracking =
-    d.soloTracking && precedente
+    bloccaMail && precedente
       ? precedente.allegaTracking
-      : d.soloTracking
+      : bloccaMail
         ? false
         : d.allegaTracking;
   const destinatarioEmail =
-    d.soloTracking && precedente
+    bloccaMail && precedente
       ? precedente.destinatarioEmail
-      : d.soloTracking
+      : bloccaMail
         ? ""
         : d.destinatarioEmail;
   const oggettoMail =
-    d.soloTracking && precedente
+    bloccaMail && precedente
       ? precedente.oggetto
-      : d.soloTracking
+      : bloccaMail
         ? ""
         : d.oggetto;
   const corpoMail =
-    d.soloTracking && precedente
+    bloccaMail && precedente
       ? precedente.corpo
-      : d.soloTracking
+      : bloccaMail
         ? ""
         : d.corpo;
   const accountSalvato =
-    d.soloTracking && precedente
+    bloccaMail && precedente
       ? precedente.accountId
-      : d.soloTracking
+      : bloccaMail
         ? null
         : (d.accountId ?? null);
   const accountId = await casellaMittenteEffettiva(
@@ -292,22 +293,26 @@ export async function upsertPrenotazioneSpedizioneMailAction(
   );
   const mancaTracking = trackingMancante(allegaTracking, d.trackingUrl);
   const attesaTracking = !d.trackingUrl.trim();
-  const stato =
-    d.modo === "prenota" || (d.modo === "salva" && attesaTracking) || mancaTracking
-      ? "prenotata"
-      : "pronta";
+  const giaInviata = precedente?.stato === "inviata";
+  const stato = giaInviata
+    ? "inviata"
+    : (d.modo === "prenota" ||
+        (d.modo === "salva" && attesaTracking) ||
+        mancaTracking
+        ? "prenotata"
+        : "pronta");
   const payload = {
     entity_type: d.entityType,
     entity_id: d.entityId,
     stato,
-    documento_stato: "bozza",
+    documento_stato: giaInviata ? "chiuso" : "bozza",
     tracking_url: d.trackingUrl,
     lettera_via_path: d.letteraViaPath,
     lettera_via_name: d.letteraViaName,
     allegati: d.allegati,
     allega_tracking: allegaTracking,
-    allega_lettera: d.soloTracking && precedente ? precedente.allegaLettera : d.allegaLettera,
-    allega_file: d.soloTracking && precedente ? precedente.allegaFile : d.allegaFile,
+    allega_lettera: bloccaMail && precedente ? precedente.allegaLettera : d.allegaLettera,
+    allega_file: bloccaMail && precedente ? precedente.allegaFile : d.allegaFile,
     destinatario_email: destinatarioEmail,
     oggetto: oggettoMail,
     corpo: corpoMail,
@@ -385,14 +390,15 @@ export async function upsertPrenotazioneSpedizioneMailAction(
     entity_id: item.id,
     action: existing ? "update" : "create",
     actor_id: auth.userId,
-    summary:
-      d.modo === "salva"
-        ? attesaTracking
-          ? `Spedizione ${d.entityType} in attesa tracking`
-          : `Tracking spedizione ${d.entityType} salvato`
-        : stato === "prenotata"
-          ? `Prenotata mail spedizione ${d.entityType} (manca tracking)`
-          : `Bozza mail spedizione ${d.entityType} pronta`,
+    summary: d.modificaMail
+      ? "Mail di spedizione modificata prima del passaggio in scaletta. Il cliente non è stato avvisato."
+      : (d.modo === "salva"
+          ? (attesaTracking
+              ? `Spedizione ${d.entityType} in attesa tracking`
+              : `Tracking spedizione ${d.entityType} salvato`)
+          : (stato === "prenotata"
+              ? `Prenotata mail spedizione ${d.entityType} (manca tracking)`
+              : `Bozza mail spedizione ${d.entityType} pronta`)),
     payload: {
       entity_type: d.entityType,
       entity_id: d.entityId,

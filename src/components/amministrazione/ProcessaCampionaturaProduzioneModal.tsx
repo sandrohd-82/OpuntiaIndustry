@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useId, useMemo, useState } from "react";
+import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { passaCampionaturaInScalettaAction } from "@/app/actions/campionature";
 import { FaCheck } from "react-icons/fa6";
@@ -20,10 +20,17 @@ import {
   labelImballaggioVoce,
   type ImballaggioVoce,
 } from "@/lib/amministrazione/imballaggi-spedizioni";
-import { SpedizioneMailPanel } from "@/components/amministrazione/SpedizioneMailPanel";
+import {
+  SpedizioneMailPanel,
+  type SpedizioneMailBozza,
+} from "@/components/amministrazione/SpedizioneMailPanel";
 import { anagraficaMailDi } from "@/components/amministrazione/SpedizioneDestinatarioMailField";
 import { InfoSezione } from "@/components/ui/InfoSezione";
-import { getClienteEmailSpedizioneAction } from "@/app/actions/spedizione-mail";
+import {
+  getClienteEmailSpedizioneAction,
+  inviaMailSpedizioneAction,
+  upsertPrenotazioneSpedizioneMailAction,
+} from "@/app/actions/spedizione-mail";
 import type {
   LottoInserimentoOption,
   ProcessoInserimentoOption,
@@ -91,6 +98,9 @@ export function ProcessaCampionaturaProduzioneModal({
   const router = useRouter();
   const [step, setStep] = useState<Step>(1);
   const [saving, setSaving] = useState(false);
+  const [invioMail, setInvioMail] = useState(false);
+  const [chiusuraPronta, setChiusuraPronta] = useState(false);
+  const mailBozza = useRef<SpedizioneMailBozza | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [giacenze, setGiacenze] = useState<GiacenzaRiga[]>([]);
   const [lotti, setLotti] = useState<LottoInserimentoOption[]>([]);
@@ -346,8 +356,69 @@ export function ProcessaCampionaturaProduzioneModal({
       setError("Seleziona un lotto per ogni riga.");
       return;
     }
+    const bozza = mailBozza.current;
+    const deveInviare = Boolean(
+      bozza?.allegaTracking && !bozza.mailGiaInviata
+    );
+    if (deveInviare && !bozza?.trackingUrl.trim()) {
+      setError(
+        "Inserisci il tracking: la mail al cliente parte insieme al passaggio in scaletta."
+      );
+      return;
+    }
+    if (deveInviare && !bozza?.destinatarioEmail.includes("@")) {
+      setError("Manca l’indirizzo del cliente a cui inviare la mail.");
+      return;
+    }
+    if (deveInviare && !bozza?.mailAccountId) {
+      setError("Manca la casella da cui parte la mail.");
+      return;
+    }
     setSaving(true);
     try {
+      if (bozza && (bozza.prenotazioneId || bozza.trackingUrl.trim() || deveInviare)) {
+        const salvata = await upsertPrenotazioneSpedizioneMailAction({
+          entityType: "campionatura",
+          entityId: item.id,
+          trackingUrl: bozza.trackingUrl,
+          letteraViaPath: bozza.letteraViaPath,
+          letteraViaName: bozza.letteraViaName,
+          allegati: bozza.allegati,
+          allegaTracking: bozza.allegaTracking,
+          allegaLettera: bozza.allegaLettera,
+          allegaFile: bozza.allegaFile,
+          destinatarioEmail: bozza.destinatarioEmail,
+          oggetto: bozza.mailOggetto,
+          corpo: bozza.mailCorpo,
+          accountId: bozza.mailAccountId || null,
+          modo: "salva",
+          soloTracking: true,
+        });
+        if (!salvata.success) {
+          setError(salvata.error);
+          return;
+        }
+        if (deveInviare) {
+          const inviata = await inviaMailSpedizioneAction({
+            prenotazioneId: salvata.item.id,
+            accountId: salvata.item.accountId || bozza.mailAccountId,
+            to: salvata.item.destinatarioEmail,
+            subject: salvata.item.oggetto,
+            bodyText: salvata.item.corpo,
+          });
+          if (!inviata.success) {
+            setError(inviata.error);
+            return;
+          }
+          setInvioMail(false);
+          if (mailBozza.current) {
+            mailBozza.current = {
+              ...mailBozza.current,
+              mailGiaInviata: true,
+            };
+          }
+        }
+      }
       const res = await passaCampionaturaInScalettaAction({
         campionaturaId: item.id,
         dataLavorazione,
@@ -385,7 +456,7 @@ export function ProcessaCampionaturaProduzioneModal({
         return;
       }
       onSaved(res.item);
-      router.push("/app/produzione/ordini/scaletta");
+      router.push("/app/produzione/ordini/scaletta?avviso=scaletta");
     } finally {
       setSaving(false);
     }
@@ -922,7 +993,7 @@ export function ProcessaCampionaturaProduzioneModal({
               </p>
               <InfoSezione
                 titolo="La mail"
-                testo="La scelta e il testo della mail sono quelli inseriti sull’ordine. Qui non si modificano: si aggiunge solo il tracking, se c’è già."
+                testo="La mail è quella inserita sull’ordine. Se serve, Modifica mail chiede conferma e salva il testo, senza inviarlo. L’invio parte solo con il passaggio in scaletta."
               />
             </div>
             <p className="text-xs text-slate-500">
@@ -950,7 +1021,12 @@ export function ProcessaCampionaturaProduzioneModal({
               })}
               sedePartenzaIdDefault={sedePartenzaId}
               sceltaOrdineFissa
-              onDraftChange={(d) => setSedePartenzaId(d.sedePartenzaId)}
+              onDraftChange={(d) => {
+                mailBozza.current = d;
+                setSedePartenzaId(d.sedePartenzaId);
+                setInvioMail(d.allegaTracking && !d.mailGiaInviata);
+                setChiusuraPronta(d.bozzaPronta);
+              }}
             />
           </div>
         ) : null}
@@ -993,11 +1069,15 @@ export function ProcessaCampionaturaProduzioneModal({
           ) : (
             <button
               type="button"
-              disabled={saving}
+              disabled={saving || !chiusuraPronta}
               onClick={() => void passaInScaletta()}
               className="rounded-lg bg-[var(--primary)] px-4 py-2 text-sm font-medium text-white hover:bg-[var(--primary-hover)] disabled:opacity-50"
             >
-              {saving ? "Salvataggio…" : "Passa in scaletta"}
+              {saving
+                ? (invioMail ? "Invio Mail..." : "Salvataggio…")
+                : (invioMail
+                    ? "Invia mail e passa in scaletta"
+                    : "Passa in scaletta")}
             </button>
           )}
         </div>

@@ -28,6 +28,24 @@ import {
   AGRINSICILIA_MAIL_FIRMA,
 } from "@/lib/amministrazione/preventivo-letterhead";
 
+export type SpedizioneMailBozza = {
+  trackingUrl: string;
+  letteraViaPath: string;
+  letteraViaName: string;
+  allegati: SpedizioneMailAllegato[];
+  allegaTracking: boolean;
+  allegaLettera: boolean;
+  allegaFile: boolean;
+  destinatarioEmail: string;
+  sedePartenzaId: string;
+  bozzaPronta: boolean;
+  mailAccountId: string;
+  mailOggetto: string;
+  mailCorpo: string;
+  prenotazioneId: string;
+  mailGiaInviata: boolean;
+};
+
 type Props = {
   entityType: "campionatura" | "ordine";
   entityId: string;
@@ -40,21 +58,7 @@ type Props = {
   emailGeneriche?: string[];
   onSaved?: (item: SpedizioneMailPrenotazione) => void;
   onNeedEntity?: (modo: "prenota" | "compila" | "salva") => void;
-  onDraftChange?: (draft: {
-    trackingUrl: string;
-    letteraViaPath: string;
-    letteraViaName: string;
-    allegati: SpedizioneMailAllegato[];
-    allegaTracking: boolean;
-    allegaLettera: boolean;
-    allegaFile: boolean;
-    destinatarioEmail: string;
-    sedePartenzaId: string;
-    bozzaPronta: boolean;
-    mailAccountId: string;
-    mailOggetto: string;
-    mailCorpo: string;
-  }) => void;
+  onDraftChange?: (draft: SpedizioneMailBozza) => void;
   sedePartenzaIdDefault?: string;
   persistDisabled?: boolean;
   /** La scelta e il testo mail restano quelli salvati in fase di ordine. */
@@ -105,6 +109,7 @@ export function SpedizioneMailPanel({
   const [busy, setBusy] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [bozzaPronta, setBozzaPronta] = useState(!entityId);
+  const [confermaModifica, setConfermaModifica] = useState(false);
   const letteraInputRef = useRef<HTMLInputElement>(null);
   const mailRadioName = useId();
 
@@ -189,6 +194,8 @@ export function SpedizioneMailPanel({
       mailAccountId,
       mailOggetto,
       mailCorpo,
+      prenotazioneId: item?.id ?? "",
+      mailGiaInviata: item?.stato === "inviata",
     });
   }, [
     trackingUrl,
@@ -202,6 +209,8 @@ export function SpedizioneMailPanel({
     mailAccountId,
     mailOggetto,
     mailCorpo,
+    item?.id,
+    item?.stato,
   ]);
 
   function applyItem(next: SpedizioneMailPrenotazione) {
@@ -355,6 +364,16 @@ export function SpedizioneMailPanel({
     } finally {
       setBusy(false);
     }
+  }
+
+  function apriModificaMail() {
+    if (!item) return;
+    setConfermaModifica(false);
+    setCompose({
+      prenotazione: { ...item, trackingUrl },
+      subject: mailOggetto,
+      bodyText: mailCorpo,
+    });
   }
 
   async function completaTrackingEApri() {
@@ -605,8 +624,9 @@ export function SpedizioneMailPanel({
       ) : null}
       {item?.stato === "prenotata" && vuoleMail ? (
         <p className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-950">
-          Bozza in attesa del tracking. Quando inserisci il link, si apre la
-          mail per il cliente.
+          {sceltaOrdineFissa
+            ? "Bozza pronta. La mail parte quando l’ordine va in scaletta."
+            : "Bozza in attesa del tracking. Quando inserisci il link, si apre la mail per il cliente."}
         </p>
       ) : null}
       {item?.stato === "inviata" ? (
@@ -630,7 +650,43 @@ export function SpedizioneMailPanel({
         </p>
       ) : null}
 
-      {item?.stato !== "inviata" ? (
+      {sceltaOrdineFissa && vuoleMail && item?.stato !== "inviata" ? (
+        confermaModifica ? (
+          <div className="space-y-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-3 text-sm text-amber-950">
+            <p>
+              Confermi di modificare la mail inserita in fase di ordine? Il
+              cliente non riceve nulla adesso: l’invio resta al passaggio in
+              scaletta.
+            </p>
+            <div className="flex flex-wrap gap-2">
+              <button
+                type="button"
+                onClick={() => setConfermaModifica(false)}
+                className="rounded-lg border border-amber-300 bg-white px-3 py-2 text-sm font-medium hover:bg-amber-100"
+              >
+                Annulla
+              </button>
+              <button
+                type="button"
+                onClick={apriModificaMail}
+                className="rounded-lg bg-[var(--primary)] px-3 py-2 text-sm font-medium text-white hover:bg-[var(--primary-hover)]"
+              >
+                Conferma
+              </button>
+            </div>
+          </div>
+        ) : (
+          <button
+            type="button"
+            onClick={() => setConfermaModifica(true)}
+            className="rounded-lg border border-[var(--border)] bg-white px-3 py-2 text-sm font-medium hover:bg-slate-50"
+          >
+            Modifica mail
+          </button>
+        )
+      ) : null}
+
+      {item?.stato !== "inviata" && !sceltaOrdineFissa ? (
         <div className="flex flex-wrap gap-2">
           {!vuoleMail ? (
             <button
@@ -684,6 +740,7 @@ export function SpedizioneMailPanel({
           bodyText={compose.bodyText}
           to={destEmail}
           solaLettura={sceltaOrdineFissa}
+          intenzione={sceltaOrdineFissa ? "salva" : "invia"}
           anagrafica={anagrafica}
           emailAzienda={destEmailDefault}
           emailPec={emailPec}
@@ -695,6 +752,13 @@ export function SpedizioneMailPanel({
               prev ? { ...prev, stato: "inviata" } : prev
             );
             setInfo("Mail inviata.");
+          }}
+          onSalvata={(next) => {
+            setCompose(null);
+            applyItem(next);
+            setInfo(
+              "Mail aggiornata. Partirà quando l’ordine va in scaletta."
+            );
           }}
         />
       ) : null}

@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { Suspense, useEffect, useMemo, useState } from "react";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { listScalettaCalendarioAction } from "@/app/actions/scaletta-produzione";
 import {
   addMonthsIso,
@@ -64,6 +65,36 @@ function classeTipo(tipo: ScalettaTipoImpegno): string {
   if (tipo === "trasformazione") return "bg-violet-100 text-violet-900";
   if (tipo === "attivita") return "bg-amber-100 text-amber-950";
   return "bg-slate-100 text-slate-700";
+}
+
+function AvvisoPassaggioScaletta() {
+  const params = useSearchParams();
+  const router = useRouter();
+  const pathname = usePathname();
+  const [testo, setTesto] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (params.get("avviso") === "scaletta") {
+      setTesto("Ordine passato in scaletta");
+    }
+  }, [params]);
+
+  if (!testo) return null;
+  return (
+    <p className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-900">
+      <span>{testo}</span>
+      <button
+        type="button"
+        onClick={() => {
+          setTesto(null);
+          router.replace(pathname);
+        }}
+        className="rounded-lg border border-emerald-300 bg-white px-3 py-1 text-sm font-medium hover:bg-emerald-100"
+      >
+        OK
+      </button>
+    </p>
+  );
 }
 
 export function ScalettaProduzioneBoard({
@@ -214,6 +245,9 @@ export function ScalettaProduzioneBoard({
 
   return (
     <div className="space-y-5">
+      <Suspense fallback={null}>
+        <AvvisoPassaggioScaletta />
+      </Suspense>
       <p className="text-sm text-[var(--muted)]">
         {archivio
           ? "Archivio della scaletta: lavorazioni e confezionamenti già chiusi, nella stessa struttura del calendario operativo."
