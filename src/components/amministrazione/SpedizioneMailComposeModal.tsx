@@ -56,7 +56,6 @@ export function SpedizioneMailComposeModal({
     void listCaselleSpedizioneMailAction().then((res) => {
       if (!res.success) return;
       setAccounts(res.accounts);
-      setAccountId((prev) => prev || res.accounts[0]?.id || "");
     });
   }, []);
 

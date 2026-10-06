@@ -8,6 +8,12 @@ export const SPEDIZIONE_MAIL_STATI = [
   "annullata",
 ] as const;
 
+/** Casella aziendale usata come default automatico. Non è la mail del commerciale. */
+export function isCasellaInfoAzienda(email: string): boolean {
+  const value = email.trim().toLowerCase();
+  return value === "info@agrinsicilia.com" || value === "info@agrinsicilia";
+}
+
 export type SpedizioneMailEntity = (typeof SPEDIZIONE_MAIL_ENTITY)[number];
 export type SpedizioneMailStato = (typeof SPEDIZIONE_MAIL_STATI)[number];
 

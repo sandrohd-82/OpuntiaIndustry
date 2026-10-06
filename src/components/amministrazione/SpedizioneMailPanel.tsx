@@ -4,6 +4,7 @@ import { useEffect, useId, useRef, useState } from "react";
 import {
   generaCorpoMailSpedizioneAction,
   getPrenotazioneSpedizioneMailAction,
+  casellaMittenteCommercialeAction,
   listCaselleSpedizioneMailAction,
   uploadSpedizioneMailFileAction,
   upsertPrenotazioneSpedizioneMailAction,
@@ -115,9 +116,18 @@ export function SpedizioneMailPanel({
     void listCaselleSpedizioneMailAction().then((res) => {
       if (!res.success) return;
       setAccounts(res.accounts);
-      setMailAccountId((prev) => prev || res.accounts[0]?.id || "");
     });
   }, []);
+
+  useEffect(() => {
+    if (entityId) return;
+    void casellaMittenteCommercialeAction({ entityType, entityId: "" }).then(
+      (res) => {
+        if (!res.success || !res.accountId) return;
+        setMailAccountId((prev) => prev || res.accountId || "");
+      }
+    );
+  }, [entityType, entityId]);
 
   useEffect(() => {
     if (sedePartenzaIdDefault) setSedePartenzaId(sedePartenzaIdDefault);

@@ -5,6 +5,7 @@ import { writeAuditLog } from "@/lib/audit";
 import { requireAnyAreaAccess } from "@/lib/areas/guard";
 import { generaTestoMailSpedizione } from "@/lib/amministrazione/spedizione-mail-ai";
 import {
+  isCasellaInfoAzienda,
   mapSpedizioneMailRow,
   spedizioneMailUpsertSchema,
   trackingMancante,
@@ -28,6 +29,69 @@ async function gateWrite() {
   return requireAnyAreaAccess(["amministrazione", "produzione"]);
 }
 
+async function idAutoreDocumento(
+  entityType: "campionatura" | "ordine",
+  entityId: string
+): Promise<string | null> {
+  if (!entityId) return null;
+  const service = createServiceClient();
+  const table = entityType === "ordine" ? "ordini" : "campionature";
+  const { data } = await service
+    .from(table)
+    .select("created_by")
+    .eq("id", entityId)
+    .maybeSingle();
+  const id = data ? String((data as { created_by?: string | null }).created_by ?? "") : "";
+  return id || null;
+}
+
+async function casellaIdDaEmailProfilo(userId: string | null): Promise<string | null> {
+  if (!userId) return null;
+  const service = createServiceClient();
+  const { data: profile } = await service
+    .from("profiles")
+    .select("email")
+    .eq("id", userId)
+    .maybeSingle();
+  const email = String(profile?.email ?? "").trim().toLowerCase();
+  if (!email || isCasellaInfoAzienda(email)) return null;
+  const { data: accounts } = await service
+    .from("webmail_accounts")
+    .select("id, email_address")
+    .is("deleted_at", null);
+  const match = (accounts ?? []).find(
+    (row) =>
+      String((row as { email_address?: string }).email_address ?? "")
+        .trim()
+        .toLowerCase() === email
+  );
+  return match ? String((match as { id: string }).id) : null;
+}
+
+/** Se la casella salvata è info@, usa la casella uguale all'indirizzo del commerciale. */
+async function casellaMittenteEffettiva(
+  accountId: string | null,
+  entityType: "campionatura" | "ordine",
+  entityId: string
+): Promise<string | null> {
+  const service = createServiceClient();
+  let email = "";
+  if (accountId) {
+    const { data } = await service
+      .from("webmail_accounts")
+      .select("email_address")
+      .eq("id", accountId)
+      .is("deleted_at", null)
+      .maybeSingle();
+    email = String(data?.email_address ?? "");
+  }
+  if (accountId && email && !isCasellaInfoAzienda(email)) return accountId;
+  const delCommerciale = await casellaIdDaEmailProfilo(
+    await idAutoreDocumento(entityType, entityId)
+  );
+  return delCommerciale ?? accountId;
+}
+
 export async function getPrenotazioneSpedizioneMailAction(input: {
   entityType: "campionatura" | "ordine";
   entityId: string;
@@ -46,10 +110,14 @@ export async function getPrenotazioneSpedizioneMailAction(input: {
     .is("deleted_at", null)
     .maybeSingle();
   if (error) return { success: false, error: error.message };
-  return {
-    success: true,
-    item: data ? mapSpedizioneMailRow(data as Record<string, unknown>) : null,
-  };
+  if (!data) return { success: true, item: null };
+  const item = mapSpedizioneMailRow(data as Record<string, unknown>);
+  item.accountId = await casellaMittenteEffettiva(
+    item.accountId,
+    input.entityType,
+    input.entityId
+  );
+  return { success: true, item };
 }
 
 export async function getClienteEmailSpedizioneAction(
@@ -211,12 +279,17 @@ export async function upsertPrenotazioneSpedizioneMailAction(
       : d.soloTracking
         ? ""
         : d.corpo;
-  const accountId =
+  const accountSalvato =
     d.soloTracking && precedente
       ? precedente.accountId
       : d.soloTracking
         ? null
         : (d.accountId ?? null);
+  const accountId = await casellaMittenteEffettiva(
+    accountSalvato,
+    d.entityType,
+    d.entityId
+  );
   const mancaTracking = trackingMancante(allegaTracking, d.trackingUrl);
   const attesaTracking = !d.trackingUrl.trim();
   const stato =
@@ -430,12 +503,18 @@ export async function inviaMailSpedizioneAction(
     return { success: false, error: "Manca ancora il tracking: non si può inviare." };
   }
 
+  const accountEffettivo =
+    (await casellaMittenteEffettiva(
+      d.accountId,
+      item.entityType,
+      item.entityId
+    )) ?? d.accountId;
   const { data: account, error: accErr } = await service
     .from("webmail_accounts")
     .select(
       "id, email_address, imap_host, imap_port, imap_secure, smtp_host, smtp_port, smtp_secure, username, password_encrypted"
     )
-    .eq("id", d.accountId)
+    .eq("id", accountEffettivo)
     .is("deleted_at", null)
     .maybeSingle();
   if (accErr || !account) {
@@ -498,7 +577,7 @@ export async function inviaMailSpedizioneAction(
       destinatario_email: d.to,
       oggetto: d.subject,
       corpo: text,
-      account_id: d.accountId,
+      account_id: accountEffettivo,
       inviata_at: now,
       inviata_by: auth.userId,
       updated_by: auth.userId,
@@ -548,12 +627,29 @@ export async function provaGraficaMailSpedizioneAction(
     return { success: false, error: "URL tracking non valido (http o https)." };
   }
   const service = createServiceClient();
+  let accountIdProva = d.accountId;
+  if (d.prenotazioneId) {
+    const { data: pren } = await service
+      .from("spedizione_mail_prenotazioni")
+      .select("entity_type, entity_id")
+      .eq("id", d.prenotazioneId)
+      .is("deleted_at", null)
+      .maybeSingle();
+    if (pren) {
+      const risolto = await casellaMittenteEffettiva(
+        d.accountId,
+        pren.entity_type === "ordine" ? "ordine" : "campionatura",
+        String(pren.entity_id)
+      );
+      if (risolto) accountIdProva = risolto;
+    }
+  }
   const { data: account, error: accErr } = await service
     .from("webmail_accounts")
     .select(
       "id, email_address, imap_host, imap_port, imap_secure, smtp_host, smtp_port, smtp_secure, username, password_encrypted"
     )
-    .eq("id", d.accountId)
+    .eq("id", accountIdProva)
     .is("deleted_at", null)
     .maybeSingle();
   if (accErr || !account) {
@@ -596,6 +692,23 @@ export async function provaGraficaMailSpedizioneAction(
     });
   }
   return { success: true, to: PROVA_MAIL_SPEDIZIONE };
+}
+
+export async function casellaMittenteCommercialeAction(input: {
+  entityType: "campionatura" | "ordine";
+  entityId: string;
+}): Promise<
+  { success: true; accountId: string | null } | { success: false; error: string }
+> {
+  const { auth } = await requireAnyAreaAccess([
+    "amministrazione",
+    "produzione",
+    "commerciale",
+  ]);
+  const userId = input.entityId
+    ? (await idAutoreDocumento(input.entityType, input.entityId)) ?? auth.userId
+    : auth.userId;
+  return { success: true, accountId: await casellaIdDaEmailProfilo(userId) };
 }
 
 export async function listCaselleSpedizioneMailAction(): Promise<
