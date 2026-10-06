@@ -419,9 +419,6 @@ function escapeHtmlMail(value: string): string {
     .replace(/\n/g, "<br>");
 }
 
-/** Destinatario fisso della prova grafica. Non è mai il cliente. */
-const PROVA_MAIL_SPEDIZIONE = "sandrohd@gmail.com";
-
 function urlTrackingSicuro(raw: string): string | null {
   const value = raw.trim();
   if (!value) return null;
@@ -600,98 +597,6 @@ export async function inviaMailSpedizioneAction(
     },
   });
   return { success: true };
-}
-
-const provaSchema = z.object({
-  accountId: z.string().uuid(),
-  subject: z.string().trim().min(1).max(240),
-  bodyText: z.string().trim().min(1).max(20000),
-  trackingUrl: z.string().trim().min(1).max(2000),
-  prenotazioneId: z.string().uuid().optional(),
-});
-
-/** Prova grafica: parte solo verso sandrohd@gmail.com. Non chiude e non scrive al cliente. */
-export async function provaGraficaMailSpedizioneAction(
-  raw: unknown
-): Promise<{ success: true; to: string } | { success: false; error: string }> {
-  const { auth } = await gateWrite();
-  const parsed = provaSchema.safeParse(raw);
-  if (!parsed.success) {
-    return {
-      success: false,
-      error: parsed.error.issues[0]?.message ?? "Dati della prova non validi.",
-    };
-  }
-  const d = parsed.data;
-  if (!urlTrackingSicuro(d.trackingUrl)) {
-    return { success: false, error: "URL tracking non valido (http o https)." };
-  }
-  const service = createServiceClient();
-  let accountIdProva = d.accountId;
-  if (d.prenotazioneId) {
-    const { data: pren } = await service
-      .from("spedizione_mail_prenotazioni")
-      .select("entity_type, entity_id")
-      .eq("id", d.prenotazioneId)
-      .is("deleted_at", null)
-      .maybeSingle();
-    if (pren) {
-      const risolto = await casellaMittenteEffettiva(
-        d.accountId,
-        pren.entity_type === "ordine" ? "ordine" : "campionatura",
-        String(pren.entity_id)
-      );
-      if (risolto) accountIdProva = risolto;
-    }
-  }
-  const { data: account, error: accErr } = await service
-    .from("webmail_accounts")
-    .select(
-      "id, email_address, imap_host, imap_port, imap_secure, smtp_host, smtp_port, smtp_secure, username, password_encrypted"
-    )
-    .eq("id", accountIdProva)
-    .is("deleted_at", null)
-    .maybeSingle();
-  if (accErr || !account) {
-    return { success: false, error: accErr?.message ?? "Casella webmail non trovata." };
-  }
-  const text = testoMailSpedizioneConFirma(d.bodyText, d.trackingUrl);
-  try {
-    await sendMailViaAccount({
-      account: account as {
-        id: string;
-        email_address: string;
-        imap_host: string;
-        imap_port: number;
-        imap_secure: boolean;
-        smtp_host: string;
-        smtp_port: number;
-        smtp_secure: boolean;
-        username: string;
-        password_encrypted: string;
-      },
-      to: PROVA_MAIL_SPEDIZIONE,
-      subject: d.subject,
-      text,
-      html: htmlMailSpedizioneConFirma(d.bodyText, d.trackingUrl),
-    });
-  } catch (e) {
-    return {
-      success: false,
-      error: e instanceof Error ? e.message : "Invio della prova fallito.",
-    };
-  }
-  if (d.prenotazioneId) {
-    await writeAuditLog({
-      entity_type: "spedizione_mail_prenotazioni",
-      entity_id: d.prenotazioneId,
-      action: "update",
-      actor_id: auth.userId,
-      summary: `Prova grafica mail spedizione inviata solo a ${PROVA_MAIL_SPEDIZIONE}. Il cliente non è stato avvisato.`,
-      payload: { prova: true, to: PROVA_MAIL_SPEDIZIONE },
-    });
-  }
-  return { success: true, to: PROVA_MAIL_SPEDIZIONE };
 }
 
 export async function casellaMittenteCommercialeAction(input: {
