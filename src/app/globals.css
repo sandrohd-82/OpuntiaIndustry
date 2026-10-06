@@ -44,6 +44,46 @@ body {
   font-family: var(--font-sans), system-ui, sans-serif;
 }
 
+/* Ogni controllo cliccabile usa la mano. La freccia resta sul testo. */
+:is(
+  a[href],
+  button:not(:disabled),
+  summary,
+  select:not(:disabled),
+  label:has(:is(input[type="checkbox"], input[type="radio"], input[type="file"])),
+  input:is(
+      [type="checkbox"],
+      [type="radio"],
+      [type="file"],
+      [type="button"],
+      [type="submit"],
+      [type="reset"]
+    ):not(:disabled),
+  [role="button"]:not([aria-disabled="true"]),
+  [role="link"],
+  [role="tab"],
+  [role="menuitem"],
+  [role="option"]
+) {
+  cursor: pointer;
+}
+
+:is(
+  button:disabled,
+  select:disabled,
+  input:is(
+      [type="checkbox"],
+      [type="radio"],
+      [type="file"],
+      [type="button"],
+      [type="submit"],
+      [type="reset"]
+    ):disabled,
+  [aria-disabled="true"]
+) {
+  cursor: not-allowed;
+}
+
 @keyframes ig-shimmer {
   0% {
     background-position: 100% 0;
