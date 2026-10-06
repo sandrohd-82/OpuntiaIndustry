@@ -1599,6 +1599,74 @@ export async function processCampionaturaInProduzioneAction(
   };
 }
 
+/** Un processo usato da più prodotti occupa una sola riga di calendario. */
+function impegniScalettaCampionatura(input: {
+  numero: string;
+  prodotti: string;
+  campionaturaId: string;
+  dataLavorazione: string;
+  dataConfezionamento?: string | null;
+  userId: string;
+  righe: Array<{ id: string; prodotto_codice: string }>;
+  scelte: Array<{
+    rigaId: string;
+    conforme: boolean;
+    processoId?: string | null;
+    processoCodice?: string;
+  }>;
+}) {
+  const base = {
+    ordine_id: null,
+    campionatura_id: input.campionaturaId,
+    linea_codice: null,
+    created_by: input.userId,
+    updated_by: input.userId,
+  };
+  const rows = [
+    {
+      ...base,
+      data_giorno: input.dataLavorazione,
+      etichetta: `${input.numero} · ${input.prodotti} · lavorazione`,
+      note: "lavorazione",
+    },
+  ];
+  if (input.dataConfezionamento) {
+    rows.push({
+      ...base,
+      data_giorno: input.dataConfezionamento,
+      etichetta: `${input.numero} · ${input.prodotti} · confezionamento`,
+      note: "confezionamento",
+    });
+  }
+  const gruppi = new Map<string, { codice: string; prodotti: string[] }>();
+  for (const scelta of input.scelte) {
+    if (scelta.conforme || !scelta.processoId) continue;
+    const note = `trasformazione:${scelta.processoCodice || scelta.processoId}`;
+    const prodotto =
+      input.righe.find((r) => r.id === scelta.rigaId)?.prodotto_codice ?? "";
+    const gruppo = gruppi.get(note) ?? {
+      codice: scelta.processoCodice || "trasformazione",
+      prodotti: [] as string[],
+    };
+    if (prodotto && !gruppo.prodotti.includes(prodotto)) {
+      gruppo.prodotti.push(prodotto);
+    }
+    gruppi.set(note, gruppo);
+  }
+  for (const [note, gruppo] of gruppi) {
+    const elenco = gruppo.prodotti.length
+      ? ` · ${gruppo.prodotti.join(", ")}`
+      : "";
+    rows.push({
+      ...base,
+      data_giorno: input.dataLavorazione,
+      etichetta: `${input.numero} · ${gruppo.codice}${elenco}`,
+      note,
+    });
+  }
+  return rows;
+}
+
 /** Passa la campionatura in Scaletta Produzione (ISO 9001 §8.5.2). */
 export async function passaCampionaturaInScalettaAction(
   raw: unknown
@@ -1730,52 +1798,16 @@ export async function passaCampionaturaInScalettaAction(
     .map((r) => r.prodotto_codice)
     .filter(Boolean)
     .join(", ");
-  const rowsImpegno: Array<{
-    data_giorno: string;
-    ordine_id: null;
-    campionatura_id: string;
-    linea_codice: null;
-    etichetta: string;
-    note: string;
-    created_by: string;
-    updated_by: string;
-  }> = [
-    {
-      data_giorno: d.dataLavorazione,
-      ordine_id: null,
-      campionatura_id: header.id,
-      linea_codice: null,
-      etichetta: `${header.numero_interno} · ${prodotti} · lavorazione`,
-      note: "lavorazione",
-      created_by: gate.auth.userId,
-      updated_by: gate.auth.userId,
-    },
-  ];
-  if (d.dataConfezionamento) {
-    rowsImpegno.push({
-      data_giorno: d.dataConfezionamento,
-      ordine_id: null,
-      campionatura_id: header.id,
-      linea_codice: null,
-      etichetta: `${header.numero_interno} · ${prodotti} · confezionamento`,
-      note: "confezionamento",
-      created_by: gate.auth.userId,
-      updated_by: gate.auth.userId,
-    });
-  }
-  for (const scelta of d.righe) {
-    if (scelta.conforme || !scelta.processoId) continue;
-    rowsImpegno.push({
-      data_giorno: d.dataLavorazione,
-      ordine_id: null,
-      campionatura_id: header.id,
-      linea_codice: null,
-      etichetta: `${header.numero_interno} · ${scelta.processoCodice || "trasformazione"}`,
-      note: `trasformazione:${scelta.processoCodice || scelta.processoId}`,
-      created_by: gate.auth.userId,
-      updated_by: gate.auth.userId,
-    });
-  }
+  const rowsImpegno = impegniScalettaCampionatura({
+    numero: header.numero_interno,
+    prodotti,
+    campionaturaId: header.id,
+    dataLavorazione: d.dataLavorazione,
+    dataConfezionamento: d.dataConfezionamento,
+    userId: gate.auth.userId,
+    righe,
+    scelte: d.righe,
+  });
 
   const { error: impErr } = await supabase
     .from("produzione_calendario_impegni")
