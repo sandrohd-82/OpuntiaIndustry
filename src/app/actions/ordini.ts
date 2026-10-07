@@ -308,7 +308,8 @@ export async function listOrdiniAction(
       .neq("sconto_approvazione_stato", "in_attesa")
       .neq("sconto_suddivisione_stato", "in_attesa")
       .neq("accettazione_senior_stato", "in_attesa")
-      .neq("accettazione_senior_stato", "rifiutata");
+      .neq("accettazione_senior_stato", "rifiutata")
+      .neq("documento_stato", "bozza");
   }
   const { data, error } = await q.order(
     stati.includes("storico") ? "data_consegna" : "data_ordine",
@@ -369,6 +370,7 @@ export async function countOrdiniDaProcessareAction(): Promise<
         "id, tipo, sconto_approvazione_stato, sconto_suddivisione_stato, accettazione_senior_stato"
       )
       .is("deleted_at", null)
+      .neq("documento_stato", "bozza")
       .in("stato", ["in_attesa", "ricevuto", "sospeso"]),
     supabase
       .from("campionature")
@@ -1537,7 +1539,8 @@ async function createOrdineWizardActionInner(
               .join(" · ")
           : `Unica · ${input.pagamentoPiano.tipoUnica}`
         : "",
-      documento_stato: "registrato",
+      documento_stato:
+        campionaturaGratis || !resolved.clienteId ? "registrato" : "bozza",
       versione: 1,
       consegna_tipo: input.consegnaTipo,
       urgente: input.urgente,
@@ -1602,6 +1605,7 @@ async function createOrdineWizardActionInner(
     if (editing) {
       const header = { ...insert } as Record<string, unknown>;
       delete header.created_by;
+      delete header.documento_stato;
       delete header.accettazione_senior_stato;
       delete header.accettazione_senior_user_id;
       delete header.accettazione_senior_by;
@@ -2001,6 +2005,49 @@ export async function processOrdineInScalettaAction(
       error:
         "Ordine in attesa del senior: non può entrare in produzione finché non viene accettato.",
     };
+  }
+  if (existing.modalitaSpedizionePrezzo === "richiesto") {
+    return {
+      success: false,
+      error:
+        "Manca la conferma del costo di spedizione. L'ordine non passa in produzione e nessuna fattura viene inviata.",
+    };
+  }
+  if (existing.documentoStato === "bozza") {
+    return {
+      success: false,
+      error:
+        "L'ordine non è finalizzato. La fattura va creata, senza invio, prima del passaggio in produzione.",
+    };
+  }
+  if (existing.clienteId && existing.tipo !== "campionatura") {
+    const supabaseCheck = await createClient();
+    const { data: fatturaPronta, error: fatErr } = await supabaseCheck
+      .from("fatture_emesse")
+      .select("id, fic_id, courtesy_email_sent")
+      .eq("ordine_id", existing.id)
+      .is("deleted_at", null)
+      .limit(1)
+      .maybeSingle();
+    if (fatErr) return { success: false, error: fatErr.message };
+    if (!fatturaPronta) {
+      return {
+        success: false,
+        error:
+          "Manca la fattura. L'ordine non passa in produzione. Nessuna fattura è stata inviata.",
+      };
+    }
+    const giaInviata = Boolean(
+      (fatturaPronta as { fic_id?: number | null }).fic_id ||
+        (fatturaPronta as { courtesy_email_sent?: boolean }).courtesy_email_sent
+    );
+    if (giaInviata) {
+      return {
+        success: false,
+        error:
+          "La fattura risulta già inviata. Il passaggio in produzione è bloccato.",
+      };
+    }
   }
 
   const riga = existing.righe[0];

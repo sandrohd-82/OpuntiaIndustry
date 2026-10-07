@@ -844,6 +844,73 @@ export async function saveFatturaDaOrdineAction(
   });
 }
 
+/** Crea la fattura dell'ordine e non la invia. Solo dopo il successo l'ordine è pronto per la produzione. */
+export async function creaFatturaOrdineSenzaInvioAction(
+  ordineId: string
+): Promise<
+  | { success: true; fatturaId: string; numeroFattura: string; inviata: false }
+  | { success: false; error: string }
+> {
+  const { auth } = await requireAreaAccess("amministrazione");
+  const ctx = await getFatturaA4ContextAction({ ordineId });
+  if (!ctx.success) return ctx;
+  const res = await saveFatturaDaOrdineAction({
+    ordineId,
+    fatturaId: ctx.fatturaEsistenteId,
+    dataDocumento: ctx.dataDocumento,
+    invioEmail: "",
+    inviaOra: false,
+    sendToSdi: false,
+    piano: ctx.piano,
+    noteDocumento: ctx.noteDocumento,
+    righe: ctx.righe,
+    destinatario: ctx.destinatario,
+  });
+  if (!res.success) return res;
+  if (res.inviata || res.sdiSent || res.courtesyEmailSent || res.ficId) {
+    return {
+      success: false,
+      error:
+        "La fattura risulta inviata. Il passaggio in produzione è bloccato.",
+    };
+  }
+  const supabase = await createClient();
+  const { error } = await supabase
+    .from("ordini")
+    .update({
+      documento_stato: "registrato",
+      updated_by: auth.userId,
+    })
+    .eq("id", ordineId)
+    .is("deleted_at", null);
+  if (error) {
+    return {
+      success: false,
+      error: `Fattura ${res.numeroFattura} creata e non inviata, ma l'ordine non è stato sbloccato: ${error.message}`,
+    };
+  }
+  await writeAuditLog({
+    entity_type: "ordini",
+    entity_id: ordineId,
+    action: "status_change",
+    actor_id: auth.userId,
+    summary: `Fattura ${res.numeroFattura} creata e non inviata. Ordine pronto per la produzione.`,
+    payload: {
+      fattura_id: res.fatturaId,
+      numero_fattura: res.numeroFattura,
+      inviata: false,
+      sdi_sent: false,
+      documento_stato: "registrato",
+    },
+  });
+  return {
+    success: true,
+    fatturaId: res.fatturaId,
+    numeroFattura: res.numeroFattura,
+    inviata: false,
+  };
+}
+
 export async function inviaFatturaAttraversoSdiAction(
   fatturaId: string
 ): Promise<SalvaFatturaDaOrdineResult> {

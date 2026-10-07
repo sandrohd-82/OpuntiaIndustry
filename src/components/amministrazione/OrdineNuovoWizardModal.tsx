@@ -54,9 +54,8 @@ import { CampionaturaAltroPostoModal } from "@/components/amministrazione/Campio
 import { ConsegnaCalendarioModal } from "@/components/amministrazione/ConsegnaCalendarioModal";
 import { ProdottoProprioFormModal } from "@/components/amministrazione/ProdottoProprioFormModal";
 import { ReferentiPickerField } from "@/components/amministrazione/ReferentiPickerField";
+import { creaFatturaOrdineSenzaInvioAction } from "@/app/actions/fattura-da-ordine";
 import { FatturaA4Modal } from "@/components/amministrazione/FatturaA4Modal";
-import { FatturaWebmailComposeModal } from "@/components/amministrazione/FatturaWebmailComposeModal";
-import type { FatturaInvioMailDraft } from "@/lib/amministrazione/fattura-invio-mail";
 import { OrdinePagamentoPianoFields } from "@/components/amministrazione/OrdinePagamentoPianoFields";
 import { SpedizioneMailComposeModal } from "@/components/amministrazione/SpedizioneMailComposeModal";
 import { SpedizioneMailPanel } from "@/components/amministrazione/SpedizioneMailPanel";
@@ -345,8 +344,6 @@ export function OrdineNuovoWizardModal({
     to: string;
     ordine: Ordine;
   } | null>(null);
-  const [fatturaMailDraft, setFatturaMailDraft] =
-    useState<FatturaInvioMailDraft | null>(null);
 
   const [anagraficaFonte, setAnagraficaFonte] =
     useState<AnagraficaOrdineFonte>("cliente");
@@ -427,6 +424,7 @@ export function OrdineNuovoWizardModal({
   const [savedOrdine, setSavedOrdine] = useState<Ordine | null>(null);
   const [sessioneMsg, setSessioneMsg] = useState<string | null>(null);
   const [fatturaA4Open, setFatturaA4Open] = useState(false);
+  const [ordineFinalizzato, setOrdineFinalizzato] = useState(false);
   const [tipoOrdine, setTipoOrdine] = useState<"vendita" | "campionatura">(
     "vendita"
   );
@@ -506,7 +504,6 @@ export function OrdineNuovoWizardModal({
     clearOrdineSessione();
     if (!ORDINI_PERSISTENZA_DEFINITIVA) {
       setSavedOrdine(null);
-      setFatturaMailDraft(null);
       setSessioneMsg(
         "Sessione precedente cancellata: ordine e fattura di prova non ci sono più. Puoi ricominciare il test da zero."
       );
@@ -1134,8 +1131,8 @@ export function OrdineNuovoWizardModal({
   if (saving) etichettaSalvataggio = "Salvataggio…";
   else if (attesaCalcoloSpedizione) {
     etichettaSalvataggio = "Salva e attendi il calcolo";
-  } else if (modificaOrdineId) etichettaSalvataggio = "Salva modifiche";
-  else if (ORDINI_PERSISTENZA_DEFINITIVA) etichettaSalvataggio = "Salva ordine";
+  }   else if (modificaOrdineId) etichettaSalvataggio = "Salva modifiche";
+  else if (ORDINI_PERSISTENZA_DEFINITIVA) etichettaSalvataggio = "Finalizza ordine";
 
   function canNext(): boolean {
     if (step === 1) {
@@ -1627,11 +1624,39 @@ export function OrdineNuovoWizardModal({
           modo: modoMail,
           soloTracking: Boolean(modificaOrdineId),
         });
-        if (!up.success) setFormError(up.error);
+        if (!up.success) {
+          setSavedOrdine(result.ordine);
+          setFormError(
+            `${up.error} L'ordine non passa in produzione e nessuna fattura è stata inviata.`
+          );
+          return;
+        }
+      }
+      const serveFattura =
+        ORDINI_PERSISTENZA_DEFINITIVA &&
+        tipoOrdine !== "campionatura" &&
+        Boolean(clienteId) &&
+        anagraficaFonte === "cliente" &&
+        !attesaCalcoloSpedizione;
+      if (serveFattura) {
+        const fat = await creaFatturaOrdineSenzaInvioAction(result.ordine.id);
+        if (!fat.success) {
+          setSavedOrdine(result.ordine);
+          setFormError(
+            `Ordine salvato, ma non passa in produzione: ${fat.error} Nessuna fattura è stata inviata.`
+          );
+          return;
+        }
+        setOrdineFinalizzato(true);
+        setSessioneMsg(
+          `Ordine ${result.ordine.numeroInterno} finalizzato. Fattura ${fat.numeroFattura} creata e non inviata. Può andare in produzione.`
+        );
+        setSavedOrdine(result.ordine);
+        return;
       }
       if (attesaCalcoloSpedizione) {
         setSessioneMsg(
-          `Ordine ${result.ordine.numeroInterno} salvato. In attesa del calcolo spedizione: non è partita la fattura e non è partita alcuna mail.`
+          `Ordine ${result.ordine.numeroInterno} salvato. Non è in produzione: manca il costo di spedizione. Nessuna fattura è stata creata e nessuna mail è partita.`
         );
         notifyPreventiviSpedizioneNav();
         return;
@@ -3459,12 +3484,10 @@ export function OrdineNuovoWizardModal({
               <div className="space-y-2 rounded-xl border border-[var(--border)] p-4">
                 <p className="text-sm font-semibold">Fattura</p>
                 <p className="text-xs text-[var(--muted)]">
-                  Documento A4 come il preventivo. Puoi modificare intestazione,
-                  dicitura, prezzi e sconto con le matite: la fattura può
-                  differire dall’ordine.
-                  {ORDINI_PERSISTENZA_DEFINITIVA
-                    ? " Sempre salvata; invio email + SDI subito o dopo."
-                    : " Per ora si salva solo in sessione: niente database, email o SDI."}
+                  Documento A4 come il preventivo. Puoi modificarlo prima del
+                  salvataggio. Al termine viene creata e non viene inviata:
+                  niente email e niente SDI. L&apos;ordine passa in produzione
+                  solo se la creazione riesce.
                 </p>
                 {attesaCalcoloSpedizione ? (
                   <p className="text-xs text-amber-800">
@@ -3549,12 +3572,15 @@ export function OrdineNuovoWizardModal({
           <button
             type="button"
             onClick={() => {
-              if (savedOrdine && attesaCalcoloSpedizione) onSaved(savedOrdine);
-              else onClose();
+            if (savedOrdine && (attesaCalcoloSpedizione || ordineFinalizzato)) {
+              onSaved(savedOrdine);
+            } else onClose();
             }}
             className="rounded-lg border border-[var(--border)] bg-white px-4 py-2 text-sm font-medium hover:bg-slate-50"
           >
-            {savedOrdine && attesaCalcoloSpedizione ? "Chiudi" : "Annulla"}
+            {savedOrdine && (attesaCalcoloSpedizione || ordineFinalizzato)
+              ? "Chiudi"
+              : "Annulla"}
           </button>
           <div className="flex gap-2">
             {step > 1 ? (
@@ -3768,25 +3794,11 @@ export function OrdineNuovoWizardModal({
                 }
           }
           pianoIniziale={pagamentoPiano}
+          bloccaInvio
           onClose={() => setFatturaA4Open(false)}
-          onSaved={({ inviata }) => {
-            if (!inviata) return;
+          onSaved={() => {
             setFatturaA4Open(false);
           }}
-          onSimulaInvio={(mailDraft) => {
-            setFatturaA4Open(false);
-            setFatturaMailDraft(mailDraft);
-            setSessioneMsg(
-              "Scheda di invio aperta: da qui parte la mail Webmail e, a parte, la fattura attraverso lo SDI."
-            );
-          }}
-        />
-      ) : null}
-
-      {fatturaMailDraft ? (
-        <FatturaWebmailComposeModal
-          draft={fatturaMailDraft}
-          onClose={() => setFatturaMailDraft(null)}
         />
       ) : null}
 

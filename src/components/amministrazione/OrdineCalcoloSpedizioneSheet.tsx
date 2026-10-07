@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { creaFatturaOrdineSenzaInvioAction } from "@/app/actions/fattura-da-ordine";
 import {
   completaCalcoloSpedizioneOrdineAction,
   listOrdiniInAttesaCalcoloSpedizioneAction,
@@ -163,7 +164,7 @@ function OrdineCalcoloSpedizioneSheet({
             onChange={(e) => setConferma(e.target.checked)}
             className="mt-1"
           />
-          Confermo il costo. Nessun documento parte verso il cliente.
+          Confermo il costo. La fattura viene creata e non viene inviata.
         </label>
         {error ? <p className="mt-3 text-sm text-red-700">{error}</p> : null}
         <div className="mt-5 flex justify-end gap-2">
@@ -192,18 +193,28 @@ function OrdineCalcoloSpedizioneSheet({
                 importo: valore,
                 ivaModo,
                 confermaCosto: true,
-              }).then((res) => {
-                setBusy(false);
+              }).then(async (res) => {
                 if (!res.success) {
+                  setBusy(false);
                   setError(res.error);
                   return;
                 }
-                onCompleted(res.message);
+                const fat = await creaFatturaOrdineSenzaInvioAction(item.id);
+                setBusy(false);
+                if (!fat.success) {
+                  setError(
+                    `Costo registrato, ma la fattura non è stata creata e non è stata inviata. L'ordine non passa in produzione: ${fat.error}`
+                  );
+                  return;
+                }
+                onCompleted(
+                  `Costo registrato. Fattura ${fat.numeroFattura} creata e non inviata. L'ordine può andare in produzione.`
+                );
               });
             }}
             className="rounded-lg bg-amber-700 px-3 py-1.5 text-sm font-medium text-white disabled:opacity-50"
           >
-            {busy ? "Salvataggio…" : "Conferma solo il costo"}
+            {busy ? "Salvataggio…" : "Conferma costo e crea fattura"}
           </button>
         </div>
       </div>

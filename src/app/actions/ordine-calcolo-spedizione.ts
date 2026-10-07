@@ -8,7 +8,7 @@ import { isSuperadminProfile } from "@/lib/auth/roles";
 import { createClient, createServiceClient } from "@/lib/supabase/server";
 
 const COMPLETA_MSG =
-  "Costo registrato. Non è partita la fattura e non è partita alcuna mail: si inviano solo con un comando esplicito dall'ordine.";
+  "Costo registrato. Nessuna fattura è stata inviata.";
 
 async function gateLettura() {
   const auth = await getAuthContext();
@@ -207,7 +207,7 @@ export async function completaCalcoloSpedizioneOrdineAction(
     entity_id: row.id,
     action: "update",
     actor_id: gate.auth.userId,
-    summary: `Costo spedizione ${importo} € confermato sull'ordine ${row.numero_interno}. Nessuna fattura e nessuna mail inviate.`,
+    summary: `Costo spedizione ${importo} € confermato sull'ordine ${row.numero_interno}. La fattura si crea e non si invia.`,
     payload: {
       modalita_spedizione_prezzo: "inserito",
       spedizione_importo: importo,
@@ -221,7 +221,7 @@ export async function completaCalcoloSpedizioneOrdineAction(
       recipientIds: [row.created_by],
       tipo: "attivita",
       title: "Costo spedizione inserito",
-      body: `Ordine ${row.numero_interno} per ${row.cliente_ragione_sociale}: il costo è ${importo} €. La fattura non è partita. Si crea dall'ordine e si invia solo con conferma.`,
+      body: `Ordine ${row.numero_interno} per ${row.cliente_ragione_sociale}: il costo è ${importo} €. La fattura viene creata e non viene inviata.`,
       href: "/app/amministrazione/ordini",
       entityType: "ordini",
       entityId: row.id,

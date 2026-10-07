@@ -67,6 +67,8 @@ type Props = {
   onClose: () => void;
   onSaved?: (info: { fatturaId: string; inviata: boolean }) => void;
   onSimulaInvio?: (draft: FatturaInvioMailDraft) => void;
+  /** Dall'ordine: la fattura si crea, non si invia. */
+  bloccaInvio?: boolean;
 };
 
 type EditKind =
@@ -107,6 +109,7 @@ export function FatturaA4Modal({
   onClose,
   onSaved,
   onSimulaInvio,
+  bloccaInvio = false,
 }: Props) {
   const soloSessione =
     !ORDINI_PERSISTENZA_DEFINITIVA || Boolean(sessioneDraft) || !ordineId;
@@ -275,6 +278,7 @@ export function FatturaA4Modal({
       : null;
 
   async function persist(inviaOra: boolean) {
+    const invioRichiesto = bloccaInvio ? false : inviaOra;
     if (!destinatario) {
       setError("Intestazione destinatario mancante.");
       return;
@@ -282,7 +286,7 @@ export function FatturaA4Modal({
     const email = inviaEmail
       ? (emailNuova.trim() || emailSel).toLowerCase()
       : "";
-    if (!soloSessione && inviaEmail && !email.includes("@")) {
+    if (!soloSessione && invioRichiesto && inviaEmail && !email.includes("@")) {
       setError("Seleziona o aggiungi l’email a cui inviare la fattura.");
       return;
     }
@@ -303,14 +307,14 @@ export function FatturaA4Modal({
         noteDocumento,
         piano,
         invioEmail: email,
-        intenzione: inviaOra ? "inviata-prova" : "salvata",
+        intenzione: invioRichiesto ? "inviata-prova" : "salvata",
         contributoSpedizioneRimosso: !righe.some(isRigaContributoSpedizione),
       };
       saveOrdineSessione({ ordine: prev.ordine, fattura });
       setSaving(false);
       setConfirmOpen(false);
-      onSaved?.({ fatturaId: prev.ordine.id, inviata: inviaOra });
-      if (inviaOra) {
+      onSaved?.({ fatturaId: prev.ordine.id, inviata: invioRichiesto });
+      if (invioRichiesto) {
         onSimulaInvio?.({
           to: email,
           numeroFattura: numero,
@@ -353,8 +357,8 @@ export function FatturaA4Modal({
     setFatturaId(res.fatturaId);
     setNumero(res.numeroFattura);
     setConfirmOpen(false);
-    onSaved?.({ fatturaId: res.fatturaId, inviata: inviaOra });
-    if (inviaOra && destinatario) {
+    onSaved?.({ fatturaId: res.fatturaId, inviata: invioRichiesto });
+    if (invioRichiesto && destinatario) {
       onSimulaInvio?.({
         fatturaId: res.fatturaId,
         to: email,
@@ -593,6 +597,7 @@ export function FatturaA4Modal({
                   Scarica
                 </button>
               ) : null}
+              {bloccaInvio ? null : (
               <button
                 type="button"
                 onClick={() => void salvaProforma("mail")}
@@ -601,6 +606,7 @@ export function FatturaA4Modal({
               >
                 Invia proforma
               </button>
+              )}
               <button
                 type="button"
                 onClick={() => void convertiProforma(false)}
@@ -609,6 +615,7 @@ export function FatturaA4Modal({
               >
                 Converti in fattura
               </button>
+              {bloccaInvio ? null : (
               <button
                 type="button"
                 onClick={() => void convertiProforma(true)}
@@ -617,6 +624,7 @@ export function FatturaA4Modal({
               >
                 Converti e apri scheda di invio
               </button>
+              )}
             </>
           ) : null}
           {vista === "fattura" ? (
@@ -1069,12 +1077,18 @@ export function FatturaA4Modal({
       {confirmOpen ? (
         <div className="fixed inset-0 z-[90] flex items-center justify-center bg-slate-950/50 p-4">
           <div className="w-full max-w-md rounded-xl bg-white p-5 shadow-xl">
-            <h3 className="text-base font-semibold">Invio fattura</h3>
+            <h3 className="text-base font-semibold">
+              {bloccaInvio ? "Crea fattura" : "Invio fattura"}
+            </h3>
             <p className="mt-1 text-sm text-[var(--muted)]">
-              {soloSessione
-                ? "Per ora la fattura resta solo in sessione: niente database, email o SDI. Ti dirò io quando salvare in modo definitivo."
-                : "La fattura viene salvata. Se prosegui, si apre la scheda di invio: da lì parte la mail Webmail e, con un comando separato, la fattura attraverso lo SDI."}
+              {bloccaInvio
+                ? "La fattura viene solo creata. Non parte nessuna email e non parte nulla verso lo SDI."
+                : (soloSessione
+                  ? "Per ora la fattura resta solo in sessione: niente database, email o SDI. Ti dirò io quando salvare in modo definitivo."
+                  : "La fattura viene salvata. Se prosegui, si apre la scheda di invio: da lì parte la mail Webmail e, con un comando separato, la fattura attraverso lo SDI.")}
             </p>
+            {bloccaInvio ? null : (
+            <>
             <label className="mt-4 flex items-center gap-2 text-sm">
               <input
                 type="checkbox"
@@ -1116,6 +1130,8 @@ export function FatturaA4Modal({
                 </label>
               </div>
             ) : null}
+            </>
+            )}
             {error ? (
               <p className="mt-3 text-sm text-red-700">{error}</p>
             ) : null}
@@ -1136,10 +1152,11 @@ export function FatturaA4Modal({
               >
                 {saving
                   ? "Salvataggio…"
-                  : soloSessione
-                    ? "Salva in sessione"
-                    : "Salva, invia dopo"}
+                  : (bloccaInvio
+                    ? "Crea senza inviare"
+                    : (soloSessione ? "Salva in sessione" : "Salva, invia dopo"))}
               </button>
+              {bloccaInvio ? null : (
               <button
                 type="button"
                 disabled={saving}
@@ -1152,6 +1169,7 @@ export function FatturaA4Modal({
                     ? "Simula invio (sessione)"
                     : "Apri scheda di invio"}
               </button>
+              )}
             </div>
           </div>
         </div>
