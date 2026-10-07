@@ -274,6 +274,10 @@ export type CreateCampionaturaInput = z.infer<typeof createCampionaturaSchema>;
 export const createReferenteRicezioneSchema = z.object({
   clienteId: z.string().uuid(),
   clienteLabel: z.string().trim().min(1),
+  aziendaTipo: z
+    .enum(["cliente", "cliente_possibile"])
+    .optional()
+    .default("cliente"),
   isPrivato: z.boolean(),
   ragioneSociale: z.string().trim().max(200).optional().default(""),
   nome: z.string().trim().min(1, "Nome obbligatorio").max(80),

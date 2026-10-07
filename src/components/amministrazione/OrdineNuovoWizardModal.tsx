@@ -50,6 +50,7 @@ import { calcolaConsegnaOrdineAction } from "@/app/actions/produzione-capacita";
 import { linkEntityReferenteAction } from "@/app/actions/rubrica";
 import { AziendaTimelineModal } from "@/components/amministrazione/AziendaTimelineModal";
 import { AziendaOrdineSelect } from "@/components/amministrazione/AziendaOrdineSelect";
+import { CampionaturaAltroPostoModal } from "@/components/amministrazione/CampionaturaAltroPostoModal";
 import { ConsegnaCalendarioModal } from "@/components/amministrazione/ConsegnaCalendarioModal";
 import { ProdottoProprioFormModal } from "@/components/amministrazione/ProdottoProprioFormModal";
 import { ReferentiPickerField } from "@/components/amministrazione/ReferentiPickerField";
@@ -474,6 +475,8 @@ export function OrdineNuovoWizardModal({
   const [sediExtra, setSediExtra] = useState<AnagraficaSede[]>([]);
   const [sediError, setSediError] = useState<string | null>(null);
   const [addressKey, setAddressKey] = useState("");
+  const [altroPostoOpen, setAltroPostoOpen] = useState(false);
+  const [altroPostoLabel, setAltroPostoLabel] = useState("");
   const [destinatario, setDestinatario] = useState("");
   const [indirizzoSpedizione, setIndirizzoSpedizione] = useState("");
 
@@ -697,6 +700,7 @@ export function OrdineNuovoWizardModal({
           (o) => o.indirizzo.trim().toLowerCase() === current
         );
         if (hit) setAddressKey(hit.key);
+        else if (current) setAddressKey("altro");
         return;
       }
       const preferred = pickSpedizioneDefault(options, purpose);
@@ -2885,6 +2889,7 @@ export function OrdineNuovoWizardModal({
                         addressManual.current = true;
                         preserveSavedAddress.current = false;
                         setAddressKey(opt.key);
+                        setAltroPostoLabel("");
                         setDestinatario(opt.destinatario);
                         setIndirizzoSpedizione(opt.indirizzo);
                       }}
@@ -2898,11 +2903,39 @@ export function OrdineNuovoWizardModal({
                     </span>
                   </label>
                 ))}
+                {addressKey === "altro" && indirizzoSpedizione ? (
+                  <label className="flex cursor-pointer gap-2 rounded-lg border border-[var(--primary)] bg-slate-50 px-3 py-2">
+                    <input type="radio" checked readOnly className="mt-1" />
+                    <span>
+                      <span className="font-medium">
+                        Altro posto
+                        {altroPostoLabel ? ` · ${altroPostoLabel}` : ""}
+                      </span>
+                      <span className="mt-0.5 block text-xs text-[var(--muted)]">
+                        {destinatario} — {indirizzoSpedizione}
+                      </span>
+                    </span>
+                  </label>
+                ) : null}
                 {!clienteSped ? (
                   <p className="text-xs text-[var(--muted)]">
                     Seleziona prima l’azienda.
                   </p>
                 ) : null}
+                <button
+                  type="button"
+                  disabled={!clienteId && !possibileClienteId}
+                  onClick={() => {
+                    if (!clienteId && !possibileClienteId) {
+                      setFormError("Seleziona prima un’azienda.");
+                      return;
+                    }
+                    setAltroPostoOpen(true);
+                  }}
+                  className="mt-2 rounded-lg border border-[var(--border)] bg-white px-3 py-2 text-sm font-medium hover:bg-slate-50 disabled:opacity-50"
+                >
+                  Spedisci in altro posto
+                </button>
               </fieldset>
               <fieldset className="space-y-2 rounded-lg border border-[var(--border)] p-3">
                 <legend className="px-1 text-sm font-medium">Mezzo</legend>
@@ -3404,6 +3437,28 @@ export function OrdineNuovoWizardModal({
           </div>
         </div>
       </div>
+
+      {altroPostoOpen && (clienteId || possibileClienteId) ? (
+        <CampionaturaAltroPostoModal
+          clienteId={clienteId || possibileClienteId}
+          clienteLabel={clienteNome}
+          aziendaTipo={
+            anagraficaFonte === "possibile" && !clienteId
+              ? "cliente_possibile"
+              : "cliente"
+          }
+          onClose={() => setAltroPostoOpen(false)}
+          onSaved={(r) => {
+            addressManual.current = true;
+            preserveSavedAddress.current = false;
+            setAddressKey("altro");
+            setAltroPostoLabel(r.label);
+            setDestinatario(r.destinatario);
+            setIndirizzoSpedizione(r.indirizzo);
+            setAltroPostoOpen(false);
+          }}
+        />
+      ) : null}
 
       {creatingProdotto && (
         <ProdottoProprioFormModal

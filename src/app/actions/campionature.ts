@@ -1487,7 +1487,7 @@ export async function createReferenteRicezioneMerceAction(
       telefono: d.telefono,
       email: d.email,
       rapporto: "referente",
-      azienda_tipo: "cliente",
+      azienda_tipo: d.aziendaTipo,
       azienda_id: d.clienteId,
       azienda_label: d.clienteLabel,
       mansione: REFERENTE_RICEZIONE_MERCE,
@@ -1505,11 +1505,19 @@ export async function createReferenteRicezioneMerceAction(
   if (error || !data) {
     return { success: false, error: error?.message ?? "Creazione referente fallita" };
   }
-  const { error: linkErr } = await service.from("clienti_referenti").insert({
-    cliente_id: d.clienteId,
-    contatto_id: data.id,
-    created_by: gate.auth.userId,
-  });
+  const link =
+    d.aziendaTipo === "cliente_possibile"
+      ? await service.from("clienti_possibili_referenti").insert({
+          cliente_possibile_id: d.clienteId,
+          contatto_id: data.id,
+          created_by: gate.auth.userId,
+        })
+      : await service.from("clienti_referenti").insert({
+          cliente_id: d.clienteId,
+          contatto_id: data.id,
+          created_by: gate.auth.userId,
+        });
+  const linkErr = link.error;
   if (linkErr && !/duplicate|unique/i.test(linkErr.message)) {
     return { success: false, error: linkErr.message };
   }
@@ -1519,7 +1527,7 @@ export async function createReferenteRicezioneMerceAction(
     action: "create",
     actor_id: gate.auth.userId,
     summary: `Referente ${REFERENTE_RICEZIONE_MERCE}: ${d.nome} ${d.cognome}`,
-    payload: { cliente_id: d.clienteId, campionatura: true },
+    payload: { cliente_id: d.clienteId, azienda_tipo: d.aziendaTipo },
   });
   return {
     success: true,

@@ -128,6 +128,7 @@ export function CampionaturaAltroPostoModal({
       clienteId,
       clienteLabel,
       isPrivato: destinazione === "privato",
+      aziendaTipo,
       ragioneSociale,
       nome,
       cognome,
