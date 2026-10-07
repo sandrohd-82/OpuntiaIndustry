@@ -28,6 +28,10 @@ export type OrdineWizardModifica = {
   unitaMisura: OrdineUnitaMisura;
   prezzoUnitario: number;
   scontoExtraPct: number;
+  scontoListinoPct: number;
+  scontoListinoStandardPct: number;
+  confezionamentoListino: string;
+  modoConfezione: string;
   scontoAccordo: number | null;
   scontoSuddivisioneAttiva: boolean;
   scontoQuotaAziendaPct: number;
@@ -318,6 +322,10 @@ export async function loadOrdinePerModificaWizardAction(
       unitaMisura,
       prezzoUnitario: prezzoRipresa ?? prezzoListino ?? Number(riga.prezzo_unitario ?? 0),
       scontoExtraPct: Number(ordine.sconto_extra_pct ?? 0),
+      scontoListinoPct: Number(riga.sconto_listino_pct ?? 0),
+      scontoListinoStandardPct: Number(riga.sconto_listino_standard_pct ?? 0),
+      confezionamentoListino: String(riga.confezionamento ?? ""),
+      modoConfezione: String(ripresa.modoConfezione ?? ""),
       scontoAccordo:
         typeof ripresa.scontoAccordo === "number"
           ? ripresa.scontoAccordo

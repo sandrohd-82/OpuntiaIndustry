@@ -142,6 +142,11 @@ export const ordineWizardInputSchema = z
     lottoCodice: z.string().trim().max(80).optional().default(""),
     notaProdotto: z.string().trim().max(500).optional().default(""),
     prezzoUnitario: z.number().min(0),
+    scontoListinoPct: z.number().min(0).max(100).optional().default(0),
+    scontoListinoStandardPct: z.number().min(0).max(100).optional().default(0),
+    confezionamentoListino: z.string().trim().max(400).optional().default(""),
+    imballaggioVoceId: z.string().uuid().nullable().optional().default(null),
+    modoConfezione: z.string().trim().max(80).optional().default(""),
     ivaPercentuale: z.number().min(0).default(22),
     consegnaTipo: z.enum(["asap", "data"]),
     dataRichiesta: z

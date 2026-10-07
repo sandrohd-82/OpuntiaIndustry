@@ -54,6 +54,11 @@ import {
 } from "@/lib/amministrazione/sconto-fuori-listino-server";
 import { accordoForzato } from "@/lib/amministrazione/accordi-prezzo";
 import { prezzoNettoDaSconto } from "@/lib/amministrazione/sconto-fuori-listino";
+import { getPreventivoProdottoContestoAction } from "@/app/actions/preventivi";
+import {
+  CONFEZIONE_SISTEMA,
+  pianoConfezionamento,
+} from "@/lib/amministrazione/preventivo-confezionamento";
 import {
   colonneSuddivisione,
   preparaSuddivisione,
@@ -220,6 +225,10 @@ async function replaceRighe(
       accordoValoreOrigine?: number | null;
       accordoGiustificazione?: string;
       accordoForzato?: boolean;
+      scontoListinoPct?: number;
+      scontoListinoStandardPct?: number;
+      confezionamento?: string;
+      imballaggioVoceId?: string | null;
     }
   >
 ): Promise<string | null> {
@@ -246,6 +255,10 @@ async function replaceRighe(
     accordo_valore_origine: r.accordoValoreOrigine ?? null,
     accordo_giustificazione: r.accordoGiustificazione ?? "",
     accordo_forzato: Boolean(r.accordoForzato),
+    sconto_listino_pct: r.scontoListinoPct ?? 0,
+    sconto_listino_standard_pct: r.scontoListinoStandardPct ?? 0,
+    confezionamento: r.confezionamento ?? "",
+    imballaggio_voce_id: r.imballaggioVoceId ?? null,
     sort_order: i,
   }));
 
@@ -1054,6 +1067,67 @@ export async function createOrdineWizardAction(
   }
 }
 
+async function scontoListinoPerOrdine(input: {
+  prodottoId: string;
+  quantita: number;
+  modoConfezione: string;
+  preventivoId?: string | null;
+  accordoSconto: boolean;
+  chiestoPct: number;
+  chiestoStandard: number;
+  testoChiesto: string;
+  voceChiesta: string | null;
+}): Promise<{
+  standard: number;
+  applicato: number;
+  testo: string;
+  voceId: string | null;
+}> {
+  if (input.accordoSconto) {
+    return {
+      standard: 0,
+      applicato: 0,
+      testo: input.testoChiesto,
+      voceId: input.voceChiesta,
+    };
+  }
+  if (input.preventivoId) {
+    const standard = Math.min(100, Math.max(0, input.chiestoStandard));
+    const applicato = Math.min(standard, Math.max(0, input.chiestoPct));
+    return {
+      standard,
+      applicato,
+      testo: input.testoChiesto,
+      voceId: input.voceChiesta,
+    };
+  }
+  const ctx = await getPreventivoProdottoContestoAction(input.prodottoId);
+  if (!ctx.success) {
+    const standard = Math.min(100, Math.max(0, input.chiestoStandard));
+    return {
+      standard,
+      applicato: Math.min(standard, Math.max(0, input.chiestoPct)),
+      testo: input.testoChiesto,
+      voceId: input.voceChiesta,
+    };
+  }
+  const piano = pianoConfezionamento({
+    quantita: input.quantita,
+    condizioni: ctx.condizioni,
+    modo: input.modoConfezione || CONFEZIONE_SISTEMA,
+  });
+  const standard = piano.scontoPct;
+  const voceId = piano.manuale
+    ? piano.modo
+    : (piano.pezzi[0]?.imballaggioVoceId ?? null);
+  return {
+    standard,
+    applicato: Math.min(standard, Math.max(0, input.chiestoPct)),
+    testo: piano.testo,
+    voceId,
+  };
+}
+
 function capacitaConRipresa(
   base: Record<string, unknown>,
   input: OrdineWizardInput
@@ -1062,6 +1136,7 @@ function capacitaConRipresa(
     ...base,
     ripresa: {
       prezzoUnitario: input.prezzoUnitario,
+      modoConfezione: input.modoConfezione || CONFEZIONE_SISTEMA,
       scontoAccordo:
         input.accordoModalita === "sconto_percentuale"
           ? (input.accordoValoreApplicato ?? input.accordoValoreOrigine ?? 0)
@@ -1174,9 +1249,26 @@ async function createOrdineWizardActionInner(
         )
       : input.prezzoUnitario;
   const prezzoListino = campionaturaGratis ? 0 : prezzoCatalogo;
+  const listinoRiga = campionaturaGratis
+    ? { standard: 0, applicato: 0, testo: "", voceId: null as string | null }
+    : await scontoListinoPerOrdine({
+        prodottoId: input.prodottoId,
+        quantita: input.quantita,
+        modoConfezione: input.modoConfezione || CONFEZIONE_SISTEMA,
+        preventivoId: input.preventivoId,
+        accordoSconto: input.accordoModalita === "sconto_percentuale",
+        chiestoPct: input.scontoListinoPct ?? 0,
+        chiestoStandard: input.scontoListinoStandardPct ?? 0,
+        testoChiesto: input.confezionamentoListino ?? "",
+        voceChiesta: input.imballaggioVoceId ?? null,
+      });
+  const prezzoDopoListino =
+    campionaturaGratis || input.accordoModalita === "sconto_percentuale"
+      ? prezzoBase
+      : prezzoNettoDaSconto(prezzoBase, listinoRiga.applicato);
   const prezzoUnitario = campionaturaGratis
     ? 0
-    : prezzoNettoDaSconto(prezzoBase, scontoVal.pct);
+    : prezzoNettoDaSconto(prezzoDopoListino, scontoVal.pct);
   const accordoApplicato =
     input.accordoModalita === "prezzo_fisso"
       ? input.prezzoUnitario
@@ -1524,6 +1616,10 @@ async function createOrdineWizardActionInner(
           accordoApplicato == null
             ? false
             : accordoForzato(input.accordoValoreOrigine, accordoApplicato),
+        scontoListinoPct: listinoRiga.applicato,
+        scontoListinoStandardPct: listinoRiga.standard,
+        confezionamento: listinoRiga.testo,
+        imballaggioVoceId: listinoRiga.voceId,
       },
     ]);
     if (righeErr) return { success: false, error: righeErr };

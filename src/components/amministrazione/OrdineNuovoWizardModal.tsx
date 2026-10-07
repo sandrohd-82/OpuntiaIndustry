@@ -35,7 +35,17 @@ import {
   listCorrieriAction,
   listImballaggiVociAction,
 } from "@/app/actions/imballaggi-spedizioni";
-import { listPreventiviAccettatiAction } from "@/app/actions/preventivi";
+import {
+  getPreventivoProdottoContestoAction,
+  listPreventiviAccettatiAction,
+} from "@/app/actions/preventivi";
+import {
+  CONFEZIONE_SISTEMA,
+  confezioniListinoDistinte,
+  modoConfezioneApplicato,
+  pianoConfezionamento,
+} from "@/lib/amministrazione/preventivo-confezionamento";
+import type { PreventivoScontisticaRiga } from "@/lib/amministrazione/preventivi";
 import { calcolaConsegnaOrdineAction } from "@/app/actions/produzione-capacita";
 import { linkEntityReferenteAction } from "@/app/actions/rubrica";
 import { AziendaTimelineModal } from "@/components/amministrazione/AziendaTimelineModal";
@@ -353,6 +363,23 @@ export function OrdineNuovoWizardModal({
   const [unitaMisura, setUnitaMisura] = useState<OrdineUnitaMisura>("kg");
   const [prezzoUnitario, setPrezzoUnitario] = useState<number | "">("");
   const [scontoExtraPct, setScontoExtraPct] = useState<number | "">("");
+  const [condizioniListino, setCondizioniListino] = useState<
+    PreventivoScontisticaRiga[]
+  >([]);
+  const [modoConfezione, setModoConfezione] = useState(CONFEZIONE_SISTEMA);
+  const [scontoListinoManuale, setScontoListinoManuale] = useState<
+    number | null
+  >(null);
+  const [modificaScontoListino, setModificaScontoListino] = useState(false);
+  const [scontoListinoInput, setScontoListinoInput] = useState<number | "">(
+    ""
+  );
+  const [fontePreventivo, setFontePreventivo] = useState(false);
+  const [scontoListinoDalPreventivo, setScontoListinoDalPreventivo] =
+    useState<number | null>(null);
+  const [testoConfezionePreventivo, setTestoConfezionePreventivo] =
+    useState("");
+  const fontePreventivoRef = useRef(false);
   const [accordo, setAccordo] = useState<AccordoPrezzoProdotto | null>(null);
   const [scontoAccordo, setScontoAccordo] = useState<number | "">("");
   const [scontoSuddivisioneAttiva, setScontoSuddivisioneAttiva] = useState(false);
@@ -571,6 +598,21 @@ export function OrdineNuovoWizardModal({
       setQuantita(d.quantita);
       setUnitaMisura(d.unitaMisura);
       setScontoExtraPct(d.scontoExtraPct || "");
+      setModoConfezione(d.modoConfezione || CONFEZIONE_SISTEMA);
+      setScontoListinoDalPreventivo(
+        d.preventivoId ? d.scontoListinoStandardPct : null
+      );
+      setFontePreventivo(Boolean(d.preventivoId));
+      fontePreventivoRef.current = Boolean(d.preventivoId);
+      setTestoConfezionePreventivo(d.confezionamentoListino || "");
+      {
+        const ridotto =
+          d.scontoListinoStandardPct > 0 &&
+          d.scontoListinoPct + 0.0001 < d.scontoListinoStandardPct;
+        setScontoListinoManuale(ridotto ? d.scontoListinoPct : null);
+        setModificaScontoListino(ridotto);
+        setScontoListinoInput(ridotto ? d.scontoListinoPct : "");
+      }
       setScontoSuddivisioneAttiva(d.scontoSuddivisioneAttiva);
       setScontoQuotaAzienda(d.scontoQuotaAziendaPct || "");
       setScontoQuotaCommerciale(d.scontoQuotaCommercialePct || "");
@@ -800,6 +842,31 @@ export function OrdineNuovoWizardModal({
     return map;
   }, [catalogo]);
 
+  useEffect(() => {
+    if (!prodotto?.id || tipoOrdine === "campionatura") {
+      setCondizioniListino([]);
+      return;
+    }
+    let cancelled = false;
+    void getPreventivoProdottoContestoAction(prodotto.id).then((res) => {
+      if (cancelled || !res.success) return;
+      setCondizioniListino(res.condizioni);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [prodotto?.id, tipoOrdine]);
+
+  useEffect(() => {
+    if (fontePreventivoRef.current) {
+      fontePreventivoRef.current = false;
+      return;
+    }
+    setFontePreventivo(false);
+    setScontoListinoDalPreventivo(null);
+    setTestoConfezionePreventivo("");
+  }, [quantita, modoConfezione]);
+
   const quantitaInserita = numberOrZero(quantita);
   const umEffettiva: OrdineUnitaMisura =
     tipoOrdine === "campionatura" ? unitaMisura : unitaBase;
@@ -810,9 +877,73 @@ export function OrdineNuovoWizardModal({
     accordo?.modalita === "sconto_percentuale"
       ? prezzoNettoDaSconto(prezzoKg, scontoAccordoNum)
       : prezzoKg;
+  const packListino = useMemo(
+    () => confezioniListinoDistinte(condizioniListino),
+    [condizioniListino]
+  );
+  const modoConfezioneEff = modoConfezioneApplicato(
+    modoConfezione,
+    packListino.map((p) => p.imballaggioVoceId)
+  );
+  const pianoListino = useMemo(() => {
+    if (tipoOrdine === "campionatura" || !packListino.length || !(quantitaInserita > 0)) {
+      return null;
+    }
+    return pianoConfezionamento({
+      quantita: quantitaInserita,
+      condizioni: condizioniListino,
+      modo: modoConfezioneEff,
+    });
+  }, [
+    tipoOrdine,
+    packListino.length,
+    quantitaInserita,
+    condizioniListino,
+    modoConfezioneEff,
+  ]);
+  const propostaListino = useMemo(() => {
+    if (tipoOrdine === "campionatura" || !packListino.length || !(quantitaInserita > 0)) {
+      return null;
+    }
+    return pianoConfezionamento({
+      quantita: quantitaInserita,
+      condizioni: condizioniListino,
+      modo: CONFEZIONE_SISTEMA,
+    });
+  }, [tipoOrdine, packListino.length, quantitaInserita, condizioniListino]);
+  const accordoSconto = accordo?.modalita === "sconto_percentuale";
+  const scontoListinoOrigine = accordoSconto
+    ? 0
+    : (fontePreventivo
+        ? (scontoListinoDalPreventivo ?? 0)
+        : (pianoListino?.scontoPct ?? 0));
+  const scontoListinoApplicato = accordoSconto
+    ? 0
+    : scontoListinoManuale == null
+      ? scontoListinoOrigine
+      : Math.min(Math.max(0, scontoListinoManuale), scontoListinoOrigine);
+  const testoConfezione =
+    fontePreventivo && testoConfezionePreventivo
+      ? testoConfezionePreventivo
+      : (pianoListino?.testo ?? "");
+  const voceDalPreventivo =
+    fontePreventivo && preventivoId
+      ? (preventiviAccettati
+          .find((p) => p.id === preventivoId)
+          ?.righe.find((r) => r.prodottoId === prodotto?.id)?.imballaggioVoceId ??
+        null)
+      : null;
+  const voceImballoOrdine =
+    voceDalPreventivo ??
+    (pianoListino?.manuale
+      ? pianoListino.modo
+      : (pianoListino?.pezzi[0]?.imballaggioVoceId ?? null));
   const scontoPct = parseScontoExtraPct(scontoExtraPct);
   const fasciaSconto = fasciaScontoExtra(scontoPct);
-  const prezzoNetto = prezzoNettoDaSconto(prezzoDopoAccordo, scontoPct);
+  const prezzoDopoListino = accordoSconto
+    ? prezzoDopoAccordo
+    : prezzoNettoDaSconto(prezzoDopoAccordo, scontoListinoApplicato);
+  const prezzoNetto = prezzoNettoDaSconto(prezzoDopoListino, scontoPct);
   const IVA_PCT = 22;
   const rigaImporti = useMemo(() => {
     const riga = {
@@ -1036,19 +1167,57 @@ export function OrdineNuovoWizardModal({
 
   function applyPreventivo(id: string) {
     setPreventivoId(id);
-    if (!id) return;
+    if (!id) {
+      setFontePreventivo(false);
+      setScontoListinoDalPreventivo(null);
+      setTestoConfezionePreventivo("");
+      setScontoListinoManuale(null);
+      setModificaScontoListino(false);
+      if (
+        voceListino &&
+        voceListino.prezzo > 0 &&
+        accordo?.modalita !== "prezzo_fisso"
+      ) {
+        setPrezzoUnitario(voceListino.prezzo);
+      }
+      return;
+    }
     const item = preventiviAccettati.find((p) => p.id === id);
     if (!item) return;
     const riga =
       item.righe.find((r) => r.prodottoId === prodotto?.id) ?? item.righe[0];
     if (riga) {
+      fontePreventivoRef.current = true;
+      setFontePreventivo(true);
       setQuantita(riga.quantita);
-      setPrezzoUnitario(
-        voceListino && voceListino.prezzo > 0
-          ? voceListino.prezzo
-          : riga.prezzoUnitario
-      );
+      setPrezzoUnitario(riga.prezzoUnitario);
       setScontoExtraPct(riga.scontoExtraPct || "");
+      setScontoListinoDalPreventivo(riga.scontoListinoStandardPct);
+      setTestoConfezionePreventivo(riga.confezionamento || "");
+      const ridotto =
+        riga.scontoListinoStandardPct > 0 &&
+        riga.scontoListinoPct + 0.0001 < riga.scontoListinoStandardPct;
+      setScontoListinoManuale(ridotto ? riga.scontoListinoPct : null);
+      setModificaScontoListino(ridotto);
+      setScontoListinoInput(ridotto ? riga.scontoListinoPct : "");
+      if (riga.scontoSuddivisioneAttiva) {
+        setScontoSuddivisioneAttiva(true);
+        setScontoQuotaAzienda(riga.scontoQuotaAziendaPct || "");
+        setScontoQuotaCommerciale(riga.scontoQuotaCommercialePct || "");
+      }
+      if (riga.accordoModalita === "sconto_percentuale") {
+        setScontoAccordo(riga.scontoListinoPct);
+      }
+      savedPriceRef.current = {
+        prezzo: riga.prezzoUnitario,
+        scontoAccordo:
+          riga.accordoModalita === "sconto_percentuale"
+            ? riga.scontoListinoPct
+            : scontoAccordo,
+        dataDisp: dataDisponibilitaPresunta,
+      };
+      const altro = prodotti.find((p) => p.id === riga.prodottoId);
+      if (altro && altro.id !== prodotto?.id) setProdotto(altro);
       setOverridesSeeded(false);
     }
     setTipoPagamento(item.tipoPagamento);
@@ -1277,6 +1446,14 @@ export function OrdineNuovoWizardModal({
         unitaMisura: umEffettiva,
         prezzoUnitario: tipoOrdine === "campionatura" ? 0 : numberOrZero(prezzoUnitario),
         scontoExtraPct: tipoOrdine === "campionatura" ? 0 : scontoPct,
+        scontoListinoPct:
+          tipoOrdine === "campionatura" ? 0 : scontoListinoApplicato,
+        scontoListinoStandardPct:
+          tipoOrdine === "campionatura" ? 0 : scontoListinoOrigine,
+        confezionamentoListino:
+          tipoOrdine === "campionatura" ? "" : testoConfezione,
+        imballaggioVoceId: voceImballoOrdine,
+        modoConfezione: modoConfezioneEff,
         accordoId: accordo?.id ?? null,
         accordoModalita: accordo?.modalita ?? null,
         accordoValoreOrigine: accordo
@@ -2062,6 +2239,7 @@ export function OrdineNuovoWizardModal({
                     value={prezzoUnitario}
                     onValueChange={setPrezzoUnitario}
                     disabled={
+                      !fontePreventivo &&
                       Boolean(voceListino && voceListino.prezzo > 0) &&
                       accordo?.modalita !== "prezzo_fisso"
                     }
@@ -2077,6 +2255,10 @@ export function OrdineNuovoWizardModal({
                         unita: unitaBase,
                       })}
                     </p>
+                  ) : fontePreventivo ? (
+                    <p className="mt-1 text-xs text-[var(--muted)]">
+                      Prezzo del preventivo. Puoi modificarlo.
+                    </p>
                   ) : voceListino && voceListino.prezzo > 0 ? (
                     <p className="mt-1 text-xs text-[var(--muted)]">
                       Prezzo da listino In Uso (€/{voceListino.unitaMisura})
@@ -2085,6 +2267,112 @@ export function OrdineNuovoWizardModal({
                 </label>
                 )}
               </div>
+              {tipoOrdine === "campionatura" || packListino.length === 0 ? null : (
+                <div className="space-y-2 rounded-lg border border-[var(--border)] px-4 py-3">
+                  <p className="text-sm font-medium">Confezione e sconto di listino</p>
+                  <p className="text-xs text-[var(--muted)]">
+                    {fontePreventivo
+                      ? "Presi dal preventivo. Quantità, confezione e sconto si possono cambiare."
+                      : "In base alla quantità il sistema propone la confezione con lo sconto di listino più alto. Puoi scegliere un’altra confezione o ridurre lo sconto."}
+                  </p>
+                  <label className="block text-sm">
+                    <span className="mb-1 block font-medium">Confezionamento</span>
+                    <select
+                      value={modoConfezioneEff}
+                      onChange={(e) => {
+                        fontePreventivoRef.current = false;
+                        setModoConfezione(e.target.value);
+                        setScontoListinoManuale(null);
+                        setModificaScontoListino(false);
+                        setScontoListinoInput("");
+                      }}
+                      className="w-full rounded-lg border border-[var(--border)] bg-white px-3 py-2 text-sm"
+                    >
+                      <option value={CONFEZIONE_SISTEMA}>
+                        Soluzione migliore (sconto di listino più alto)
+                      </option>
+                      {packListino.map((p) => (
+                        <option key={p.imballaggioVoceId} value={p.imballaggioVoceId}>
+                          Solo {p.kg.toLocaleString("it-IT")} kg — {p.etichetta}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  {fontePreventivo && testoConfezione ? (
+                    <p className="rounded-lg border border-sky-200 bg-sky-50 px-3 py-2 text-xs text-sky-950">
+                      Preventivo: {testoConfezione}
+                      {scontoListinoApplicato > 0
+                        ? `. Sconto listino ${scontoListinoApplicato.toLocaleString("it-IT")}%.`
+                        : ". Nessuno sconto di listino."}
+                    </p>
+                  ) : propostaListino ? (
+                    <p className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs text-emerald-950">
+                      Proposta: {propostaListino.testo}
+                      {propostaListino.scontoPct > 0
+                        ? `. Sconto listino ${propostaListino.scontoPct.toLocaleString("it-IT")}%${
+                            propostaListino.targa ? ` ${propostaListino.targa}` : ""
+                          }.`
+                        : ". Nessuno sconto di listino su questa quantità."}
+                    </p>
+                  ) : null}
+                  {pianoListino && modoConfezioneEff !== CONFEZIONE_SISTEMA && !fontePreventivo ? (
+                    <p className="text-xs text-[var(--muted)]">
+                      Scelta operatore: {pianoListino.testo}.
+                      {scontoListinoOrigine > 0
+                        ? ` Sconto standard ${scontoListinoOrigine.toLocaleString("it-IT")}%.`
+                        : " Nessuno sconto di listino su questa confezione."}
+                    </p>
+                  ) : null}
+                  {scontoListinoOrigine > 0 && !accordoSconto ? (
+                    <div className="text-sm">
+                      <p>
+                        Sconto standard{" "}
+                        <span className="font-semibold">
+                          {scontoListinoApplicato.toLocaleString("it-IT")}%
+                        </span>
+                        {scontoListinoApplicato + 0.0001 < scontoListinoOrigine
+                          ? ` su ${scontoListinoOrigine.toLocaleString("it-IT")}% di listino`
+                          : " di listino"}
+                        .
+                      </p>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setModificaScontoListino(true);
+                          setScontoListinoInput(scontoListinoApplicato);
+                        }}
+                        className="mt-2 rounded-lg border border-[var(--border)] bg-white px-3 py-1.5 text-sm font-medium hover:bg-slate-50"
+                      >
+                        Modifica sconto standard
+                      </button>
+                      {modificaScontoListino ? (
+                        <label className="mt-2 block">
+                          <span className="mb-1 block text-xs text-[var(--muted)]">
+                            Da 0 a {scontoListinoOrigine.toLocaleString("it-IT")}%.
+                            0 annulla lo sconto. Un aumento si scrive in Sconto extra.
+                          </span>
+                          <ClearableNumberInput
+                            min={0}
+                            max={scontoListinoOrigine}
+                            value={scontoListinoInput}
+                            onValueChange={(value) => {
+                              if (value === "") {
+                                setScontoListinoInput("");
+                                setScontoListinoManuale(null);
+                                return;
+                              }
+                              const capped = Math.min(value, scontoListinoOrigine);
+                              setScontoListinoInput(capped);
+                              setScontoListinoManuale(capped);
+                            }}
+                            className="w-full max-w-xs rounded-lg border border-[var(--border)] px-3 py-2"
+                          />
+                        </label>
+                      ) : null}
+                    </div>
+                  ) : null}
+                </div>
+              )}
               {tipoOrdine === "campionatura" ? null : accordo?.modalita === "sconto_percentuale" ? (
                 <label className="block text-sm">
                   <span className="mb-1 block font-medium">
@@ -2145,20 +2433,25 @@ export function OrdineNuovoWizardModal({
                       setScontoQuotaCommerciale(next.quotaCommerciale);
                     }}
                   />
-                  {scontoPct > 0 ? (
+                      {scontoPct > 0 || scontoListinoApplicato > 0 ? (
                     <p className="mt-1 text-xs text-[var(--muted)]">
                       Prezzo netto {prezzoNetto.toLocaleString("it-IT", {
                         style: "currency",
                         currency: "EUR",
                       })}
                       /{unitaBase}
-                      {fasciaSconto === "fino_10"
-                        ? " · nessuna firma aggiuntiva"
-                        : fasciaSconto === "oltre_30" &&
-                            scontoCtx &&
-                            !scontoCtx.canOltre30
-                          ? " · riservato a Senior o Super Admin"
-                          : " · l’ordine resta In attesa sconto fino alle firme"}
+                      {scontoListinoApplicato > 0
+                        ? ` · sconto listino ${scontoListinoApplicato.toLocaleString("it-IT")}%`
+                        : ""}
+                      {scontoPct <= 0
+                        ? ""
+                        : (fasciaSconto === "fino_10"
+                            ? " · nessuna firma aggiuntiva"
+                            : (fasciaSconto === "oltre_30" &&
+                                scontoCtx &&
+                                !scontoCtx.canOltre30
+                                ? " · riservato a Senior o Super Admin"
+                                : " · l’ordine resta In attesa sconto fino alle firme"))}
                     </p>
                   ) : null}
                 </label>
@@ -2762,6 +3055,13 @@ export function OrdineNuovoWizardModal({
 
           {step === 6 && (
             <div className="space-y-4">
+              {testoConfezione ? (
+                <p className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-950">
+                  Confezione per lo sconto: {testoConfezione}. Qui sotto si
+                  compila il confezionamento di produzione, che resta
+                  modificabile.
+                </p>
+              ) : null}
               <fieldset className="space-y-2 rounded-lg border border-[var(--border)] p-3">
                 <legend className="px-1 text-sm font-medium">
                   Movimentazione

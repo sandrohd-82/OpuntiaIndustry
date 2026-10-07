@@ -1406,6 +1406,10 @@ export interface OrdineRigaRow {
   accordo_valore_origine?: number | null;
   accordo_giustificazione?: string;
   accordo_forzato?: boolean;
+  sconto_listino_pct?: number;
+  sconto_listino_standard_pct?: number;
+  confezionamento?: string;
+  imballaggio_voce_id?: string | null;
   note?: string;
   sort_order: number;
   created_at: string;
@@ -1428,6 +1432,10 @@ export interface OrdineRigaInsert {
   accordo_valore_origine?: number | null;
   accordo_giustificazione?: string;
   accordo_forzato?: boolean;
+  sconto_listino_pct?: number;
+  sconto_listino_standard_pct?: number;
+  confezionamento?: string;
+  imballaggio_voce_id?: string | null;
   note?: string;
   sort_order?: number;
 }
