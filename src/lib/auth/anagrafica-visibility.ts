@@ -86,6 +86,8 @@ export const resolveVisibleClienteIds = cache(
  * Preventivi e ordini di un commerciale: aziende del sottoalbero
  * (un'azienda affiancata resta del sottoposto) e, in più, i documenti
  * di cui lui è l'autore o il commerciale di riferimento.
+ * Gli ordini includono anche quelli creati dai sottoposti, anche se
+ * l'azienda è affiancata o il documento non ha un cliente (invio a un commerciale).
  * `unrestricted` = Super Admin reale.
  */
 export type PerimetroDocumenti =
@@ -175,17 +177,20 @@ export function perimetroPreventiviOr(p: PerimetroDocumenti): string | null {
   return parts.length ? parts.join(",") : null;
 }
 
-/** Filtro ordini sulle colonne condivise con le campionature. */
+/**
+ * Filtro ordini e campionature.
+ * Il commerciale vede i documenti delle sue aziende, quelli che ha creato lui
+ * (anche collegati a un sottoposto o senza cliente) e tutti quelli creati
+ * dal sottoalbero. Non vede i documenti dei superiori.
+ */
 export function perimetroOrdiniOr(p: PerimetroDocumenti): string | null {
   if (p.unrestricted) return null;
   const parts = partiAzienda(p);
   if (p.ownerIds.length) {
-    const ids = p.ownerIds.join(",");
-    parts.push(
-      `and(cliente_id.is.null,cliente_possibile_id.is.null,created_by.in.(${ids}))`
-    );
+    parts.push(`created_by.in.(${p.ownerIds.join(",")})`);
+  } else if (p.selfId) {
+    parts.push(`created_by.eq.${p.selfId}`);
   }
-  if (p.selfId) parts.push(`created_by.eq.${p.selfId}`);
   return parts.length ? parts.join(",") : null;
 }
 
@@ -207,7 +212,7 @@ export function rigaNelPerimetro(
     preventivo_id?: string | null;
   },
   p: PerimetroDocumenti,
-  opts?: { riferimento?: boolean }
+  opts?: { riferimento?: boolean; autoriSottoalbero?: boolean }
 ): boolean {
   if (p.unrestricted) return true;
   const cliente = row.cliente_id ? String(row.cliente_id) : "";
@@ -215,7 +220,13 @@ export function rigaNelPerimetro(
   if (cliente && p.clienti.includes(cliente)) return true;
   if (!cliente && possibile && p.possibili.includes(possibile)) return true;
   const by = row.created_by ? String(row.created_by) : "";
-  if (!cliente && !possibile && by && p.ownerIds.includes(by)) return true;
+  if (
+    by &&
+    p.ownerIds.includes(by) &&
+    ((!cliente && !possibile) || opts?.autoriSottoalbero)
+  ) {
+    return true;
+  }
   if (!cliente && !possibile && opts?.riferimento) {
     const rif = row.commerciale_riferimento_id
       ? String(row.commerciale_riferimento_id)

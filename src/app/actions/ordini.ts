@@ -482,7 +482,10 @@ export async function getOrdineAction(
       .select("cliente_id, cliente_possibile_id, created_by, preventivo_id")
       .eq("id", id)
       .maybeSingle();
-    if (!legame || !rigaNelPerimetro(legame, perimetro)) {
+    if (
+      !legame ||
+      !rigaNelPerimetro(legame, perimetro, { autoriSottoalbero: true })
+    ) {
       return { success: false, error: "Ordine non trovato." };
     }
   }

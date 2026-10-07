@@ -182,9 +182,6 @@ export async function listCampionatureAction(): Promise<
     if (leadClause) leadQ = leadQ.or(leadClause);
     const { data: ownLeads } = await leadQ;
     ownedLeadIds = (ownLeads ?? []).map((r) => String(r.id));
-    if (ownedClienteIds.length === 0 && ownedLeadIds.length === 0) {
-      return { success: true, items: [] };
-    }
   }
   let q = supabase
     .from("campionature")
@@ -192,15 +189,19 @@ export async function listCampionatureAction(): Promise<
     .is("deleted_at", null)
     .order("data_invio", { ascending: false })
     .limit(200);
-  if (ownedClienteIds) {
+  if (ownerIds) {
     const parts: string[] = [];
-    if (ownedClienteIds.length) {
+    if (ownedClienteIds?.length) {
       parts.push(`cliente_id.in.(${ownedClienteIds.join(",")})`);
     }
     if (ownedLeadIds?.length) {
       parts.push(`cliente_possibile_id.in.(${ownedLeadIds.join(",")})`);
     }
-    if (parts.length) q = q.or(parts.join(","));
+    if (ownerIds.length) {
+      parts.push(`created_by.in.(${ownerIds.join(",")})`);
+    }
+    if (!parts.length) return { success: true, items: [] };
+    q = q.or(parts.join(","));
   }
   const { data, error } = await q;
   if (error) return { success: false, error: error.message };
