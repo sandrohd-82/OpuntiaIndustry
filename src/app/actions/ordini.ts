@@ -1056,6 +1056,69 @@ export async function listOrdineAuditLogAction(
  * Wizard: crea ordine vendita/campionatura in attesa di processazione.
  * Non inserisce giorni in scaletta. L’ordine è definitivo (non è un dato di prova).
  */
+async function scartaOrdineNonFinalizzato(ordineId: string): Promise<void> {
+  const service = createServiceClient();
+  const { data: conf } = await service
+    .from("ordini_confezionamento")
+    .select("id")
+    .eq("ordine_id", ordineId);
+  const confIds = (conf ?? []).map((c) => String(c.id));
+  if (confIds.length) {
+    await service
+      .from("ordini_confezionamento_nodi")
+      .delete()
+      .in("confezionamento_id", confIds);
+    await service.from("ordini_confezionamento").delete().in("id", confIds);
+  }
+  await service.from("ordini_pagamento_rate").delete().eq("ordine_id", ordineId);
+  await service.from("ordini_righe").delete().eq("ordine_id", ordineId);
+  await service.from("ordine_sconto_approvazioni").delete().eq("ordine_id", ordineId);
+  await service.from("produzione_calendario_impegni").delete().eq("ordine_id", ordineId);
+  await service.from("produzione_schede_ordini").delete().eq("ordine_id", ordineId);
+  await service
+    .from("spedizione_mail_prenotazioni")
+    .delete()
+    .eq("entity_type", "ordine")
+    .eq("entity_id", ordineId);
+  const { data: fatture } = await service
+    .from("fatture_emesse")
+    .select("id, fic_id")
+    .eq("ordine_id", ordineId);
+  const aperte = (fatture ?? []).filter((f) => !f.fic_id);
+  const ids = aperte.map((f) => String(f.id));
+  if (ids.length) {
+    await service.from("fatture_emesse_righe").delete().in("fattura_id", ids);
+    await service.from("fatture_emesse_dilazioni").delete().in("fattura_id", ids);
+    await service.from("fatture_emesse").delete().in("id", ids);
+  }
+  await service.from("ordini").delete().eq("id", ordineId);
+}
+
+/** Cancella un ordine che non ha completato la finalizzazione e non è stato inviato. */
+export async function annullaOrdineNonFinalizzatoAction(
+  ordineId: string
+): Promise<{ success: true } | { success: false; error: string }> {
+  await requireAreaAccess("amministrazione");
+  if (!ordineId) return { success: false, error: "Ordine mancante." };
+  const supabase = await createClient();
+  const { data: fatture } = await supabase
+    .from("fatture_emesse")
+    .select("id, fic_id, courtesy_email_sent")
+    .eq("ordine_id", ordineId)
+    .is("deleted_at", null);
+  const inviata = (fatture ?? []).some(
+    (f) => f.fic_id || f.courtesy_email_sent
+  );
+  if (inviata) {
+    return {
+      success: false,
+      error: "Questo ordine ha già un invio: non viene cancellato.",
+    };
+  }
+  await scartaOrdineNonFinalizzato(ordineId);
+  return { success: true };
+}
+
 export async function createOrdineWizardAction(
   raw: unknown
 ): Promise<OrdiniActionResult> {
@@ -1655,6 +1718,11 @@ async function createOrdineWizardActionInner(
       row = { id: String(inserted.data.id) };
     }
 
+    const boccia = async (message: string) => {
+      if (!editing) await scartaOrdineNonFinalizzato(row.id);
+      return { success: false as const, error: message };
+    };
+
     if (suddivisione.value.stato === "approvata" && suddivisione.value.attiva) {
       const firmaErr = await registraFirmaSuddivisione({
         entityType: "ordine",
@@ -1667,7 +1735,7 @@ async function createOrdineWizardActionInner(
         actorId: auth.userId,
         summary: `Suddivisione sconto già approvata in inserimento (${suddivisione.value.quotaAziendaPct}% azienda, ${suddivisione.value.quotaCommercialePct}% commerciale)`,
       });
-      if (firmaErr) return { success: false, error: firmaErr };
+      if (firmaErr) return boccia(firmaErr);
     }
 
     const righeErr = await replaceRighe(row.id, [
@@ -1695,7 +1763,7 @@ async function createOrdineWizardActionInner(
         imballaggioVoceId: listinoRiga.voceId,
       },
     ]);
-    if (righeErr) return { success: false, error: righeErr };
+    if (righeErr) return boccia(righeErr);
 
     if (!editing && accettazioneOrdine.stato === "in_attesa") {
       await notificaAccettazioneSenior({
@@ -1724,9 +1792,7 @@ async function createOrdineWizardActionInner(
             updated_by: auth.userId,
           }))
         );
-      if (rateErr) {
-        return { success: false, error: `Piano pagamento: ${rateErr.message}` };
-      }
+      if (rateErr) return boccia(`Piano pagamento: ${rateErr.message}`);
     }
 
     if (input.confezionamento) {
@@ -1754,10 +1820,7 @@ async function createOrdineWizardActionInner(
         .select("id")
         .single();
       if (confErr || !confRow) {
-        return {
-          success: false,
-          error: confErr?.message ?? "Salvataggio confezionamento fallito.",
-        };
+        return boccia(confErr?.message ?? "Salvataggio confezionamento fallito.");
       }
       const confId = (confRow as { id: string }).id;
 
@@ -1800,7 +1863,7 @@ async function createOrdineWizardActionInner(
       }
 
       const nodiErr = await insertNodi(conf.nodi, null, 0);
-      if (nodiErr) return { success: false, error: nodiErr };
+      if (nodiErr) return boccia(nodiErr);
     }
 
     await syncSchedaOrdineAziendaNota({
@@ -1828,12 +1891,11 @@ async function createOrdineWizardActionInner(
     })
       : null;
     if (scontoErr) {
-      return {
-        success: false,
-        error: editing
+      return boccia(
+        editing
           ? `Ordine aggiornato, ma la firma dello sconto non è stata registrata: ${scontoErr}`
-          : `Ordine creato, ma la firma dello sconto non è stata registrata: ${scontoErr}`,
-      };
+          : `Ordine creato, ma la firma dello sconto non è stata registrata: ${scontoErr}`
+      );
     }
 
     await writeAudit({
@@ -1884,7 +1946,7 @@ async function createOrdineWizardActionInner(
 
     const ordine = await loadOrdineWithRighe(row.id);
     if (!ordine) {
-      return { success: false, error: "Ordine creato ma non leggibile." };
+      return boccia("Ordine creato ma non leggibile.");
     }
     return { success: true, ordine };
   } catch (e) {

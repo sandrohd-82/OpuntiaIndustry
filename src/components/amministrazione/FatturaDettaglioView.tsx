@@ -22,6 +22,7 @@ type Props = {
   previewTitle?: string;
   onEdit?: () => void;
   onInviaFic?: () => void;
+  inviaLabel?: string;
   inviaBusy?: boolean;
 };
 
@@ -32,6 +33,7 @@ export function FatturaDettaglioView({
   previewTitle,
   onEdit,
   onInviaFic,
+  inviaLabel,
   inviaBusy,
 }: Props) {
   const isPreview = variant === "preview";
@@ -85,7 +87,7 @@ export function FatturaDettaglioView({
               disabled={inviaBusy}
               className="inline-flex items-center rounded-lg border border-[var(--primary)] px-3 py-1.5 text-sm font-medium text-[var(--primary)] hover:bg-slate-50 disabled:opacity-50"
             >
-              {inviaBusy ? "Invio…" : "Invia fattura attraverso SDI"}
+              {inviaBusy ? "Invio…" : (inviaLabel ?? "Invia fattura attraverso SDI")}
             </button>
           ) : null}
           {onEdit && !isPreview ? (

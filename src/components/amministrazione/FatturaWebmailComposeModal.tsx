@@ -39,6 +39,8 @@ export function FatturaWebmailComposeModal({ draft, onClose }: Props) {
   const [pdfName, setPdfName] = useState("Fattura.pdf");
   const [loading, setLoading] = useState(true);
   const [sendingMail, setSendingMail] = useState(false);
+  const [passoMail, setPassoMail] = useState(0);
+  const [passoSdi, setPassoSdi] = useState(0);
   const [sendingSdi, setSendingSdi] = useState(false);
   const [mailInviata, setMailInviata] = useState(false);
   const [sdiInviato, setSdiInviato] = useState(false);
@@ -133,6 +135,13 @@ export function FatturaWebmailComposeModal({ draft, onClose }: Props) {
       setError("Seleziona la casella mittente.");
       return;
     }
+    if (passoMail < 1) {
+      setPassoMail(1);
+      setMsg(
+        "Prima conferma. Premi di nuovo per inviare la mail: solo allora il documento prende il numero progressivo."
+      );
+      return;
+    }
     setSendingMail(true);
     setError(null);
     const res = await inviaFatturaDaWebmailAction({
@@ -141,10 +150,12 @@ export function FatturaWebmailComposeModal({ draft, onClose }: Props) {
       to: to.trim(),
       subject: subject.trim(),
       bodyText: bodyText.trim(),
+      doppiaConferma: true,
     });
     setSendingMail(false);
     if (!res.success) {
       setError(res.error);
+      setPassoMail(0);
       return;
     }
     setMailInviata(true);
@@ -160,12 +171,20 @@ export function FatturaWebmailComposeModal({ draft, onClose }: Props) {
       setError("Salva prima la fattura, poi inviala attraverso lo SDI.");
       return;
     }
+    if (passoSdi < 1) {
+      setPassoSdi(1);
+      setMsg(
+        "Prima conferma. Premi di nuovo per inviare allo SDI: solo allora la fattura prende il numero progressivo."
+      );
+      return;
+    }
     setSendingSdi(true);
     setError(null);
-    const res = await inviaFatturaAttraversoSdiAction(draft.fatturaId);
+    const res = await inviaFatturaAttraversoSdiAction(draft.fatturaId, true);
     setSendingSdi(false);
     if (!res.success) {
       setError(res.error);
+      setPassoSdi(0);
       return;
     }
     if (res.eiStatus === "send_error" || !res.sdiSent) {
@@ -309,7 +328,11 @@ export function FatturaWebmailComposeModal({ draft, onClose }: Props) {
             onClick={() => void inviaAttraversoSdi()}
             className="rounded-lg border border-[var(--primary)] px-4 py-2 text-sm font-medium text-[var(--primary)] disabled:opacity-50"
           >
-            {sendingSdi ? "Invio SDI…" : "Invia fattura attraverso SDI"}
+            {sendingSdi
+              ? "Invio SDI…"
+              : (passoSdi === 1
+                ? "Confermo l'invio allo SDI"
+                : "Invia fattura attraverso SDI")}
           </button>
           )}
           <button
@@ -329,9 +352,11 @@ export function FatturaWebmailComposeModal({ draft, onClose }: Props) {
           >
             {sendingMail
               ? "Invio mail…"
-              : ORDINI_PERSISTENZA_DEFINITIVA
-                ? "Invia da Webmail"
-                : "Conferma bozza (sessione)"}
+              : (passoMail === 1
+                ? "Confermo l'invio della mail"
+                : (ORDINI_PERSISTENZA_DEFINITIVA
+                  ? "Invia da Webmail"
+                  : "Conferma bozza (sessione)"))}
           </button>
         </div>
       </div>

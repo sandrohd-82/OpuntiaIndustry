@@ -9,6 +9,7 @@ import {
 } from "@/lib/amministrazione/fattura-a4-documento";
 import { buildFatturaA4PdfBlob } from "@/lib/amministrazione/fattura-a4-pdf";
 import { requireAnyAreaAccess } from "@/lib/areas/guard";
+import { materializzaNumeroDocumento } from "@/app/actions/fattura-da-ordine";
 import { motivoBloccoInvioClienteOrdine } from "@/app/actions/ordine-calcolo-spedizione";
 import { createClient, createServiceClient } from "@/lib/supabase/server";
 import { persistMessaggioAttachments } from "@/lib/webmail/attachments";
@@ -52,6 +53,7 @@ const invioWebmailSchema = z.object({
   to: z.string().trim().email("Indirizzo destinatario non valido"),
   subject: z.string().trim().min(1).max(500),
   bodyText: z.string().trim().min(1).max(50000),
+  doppiaConferma: z.literal(true),
 });
 
 export async function inviaFatturaDaWebmailAction(
@@ -131,9 +133,9 @@ export async function inviaFatturaDaWebmailAction(
       indirizzo: String(cliente?.sede_amm_indirizzo ?? ""),
     },
   };
-  const numero = String(
-    fattura.numero_fattura || fattura.numero_documento_esterno || "Fattura"
-  );
+  const numeri = await materializzaNumeroDocumento(input.fatturaId);
+  if (!numeri.success) return numeri;
+  const numero = numeri.numeroFattura;
   const pdf = buildFatturaA4PdfBlob({
     numeroFattura: numero,
     dataDocumento: String(fattura.data_emissione ?? ""),

@@ -134,8 +134,13 @@ export function numeroFatturaVisibile(input: {
     return (input.numeroInterno ?? "").trim();
   }
   const pubblico = (input.numeroFattura ?? "").trim();
-  if (pubblico) return pubblico;
+  if (isNumeroFatturaEmessa(pubblico) || /^PR-\d+\/20\d{2}$/.test(pubblico)) {
+    return pubblico;
+  }
   const interno = (input.numeroInterno ?? "").trim();
+  if (!pubblico || pubblico === "Prenotata" || interno.startsWith("Pren-")) {
+    return "Prenotata";
+  }
   if (interno.toUpperCase().startsWith("FT-")) return interno.slice(3);
-  return interno;
+  return pubblico || interno;
 }

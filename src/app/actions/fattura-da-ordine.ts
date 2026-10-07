@@ -6,7 +6,6 @@ import { requireAreaAccess } from "@/lib/areas/guard";
 import {
   buildDescrizioneDocumento,
   splitNumeroForFic,
-  toNumeroFatturaGestionale,
 } from "@/lib/amministrazione/fattura-emissione";
 import { mapClienteRow, type Cliente } from "@/lib/amministrazione/clienti";
 import {
@@ -28,9 +27,9 @@ import {
   type OrdinePagamentoPiano,
 } from "@/lib/amministrazione/ordine-pagamento-piano";
 import {
-  anteprimaNumeroFattura,
   assegnaNumeroFattura,
   assegnaNumeroProforma,
+  isNumeroFatturaEmessa,
 } from "@/lib/amministrazione/numero-fattura";
 import { AGRINSICILIA_COORDINATE } from "@/lib/amministrazione/preventivo-letterhead";
 import {
@@ -420,14 +419,19 @@ export async function getFatturaA4ContextAction(input: {
     }
     const totals = totalsFromFatturaRighe(righe);
     const dataDocumento = existingRow?.data_emissione || todayIsoDate();
-    const nums = existingRow?.numero_interno
+    const numeroGia =
+      existingRow?.numero_fattura?.trim() &&
+      (isNumeroFatturaEmessa(existingRow.numero_fattura) ||
+        /^PR-\d+\/20\d{2}$/.test(existingRow.numero_fattura.trim()));
+    const nums = numeroGia
       ? {
-          numeroInterno: existingRow.numero_interno,
-          numeroFattura:
-            existingRow.numero_fattura ||
-            toNumeroFatturaGestionale(existingRow.numero_interno),
+          numeroInterno: existingRow?.numero_interno || `Ft-${existingRow?.numero_fattura}`,
+          numeroFattura: existingRow?.numero_fattura ?? "",
         }
-      : await anteprimaNumeroFattura(supabase, dataDocumento);
+      : {
+          numeroInterno: existingRow?.numero_interno || `Pren-${ordine.numero_interno}`,
+          numeroFattura: "Prenotata",
+        };
 
     const { data: proformaRow } = await supabase
       .from("fatture_emesse")
@@ -538,6 +542,7 @@ const saveSchema = z.object({
   invioEmail: z.string().email("Email non valida").or(z.literal("")).optional(),
   inviaOra: z.boolean(),
   sendToSdi: z.boolean().optional().default(true),
+  doppiaConferma: z.boolean().optional().default(false),
   piano: ordinePagamentoPianoSchema,
   noteDocumento: z.string().optional().default(""),
   righe: z.array(rigaDocumentoSchema).min(1).optional(),
@@ -642,6 +647,7 @@ export async function saveFatturaDaOrdineAction(
           fatturaId: row.id,
           invioEmail: input.invioEmail ?? row.invio_email,
           sendToSdi: input.sendToSdi,
+          doppiaConferma: input.doppiaConferma,
         });
       }
       const headerPatch: Record<string, unknown> = {
@@ -703,21 +709,33 @@ export async function saveFatturaDaOrdineAction(
   }
 
   if (!fatturaId) {
-    try {
-      const assegnato = await assegnaNumeroFattura(
-        supabase,
-        input.dataDocumento
-      );
-      numeroInterno = assegnato.numeroInterno;
-      numeroFattura = assegnato.numeroFattura;
-    } catch (e) {
+    if (input.inviaOra && !input.doppiaConferma) {
       return {
         success: false,
         error:
-          e instanceof Error
-            ? e.message
-            : "Impossibile assegnare il numero fattura.",
+          "L'invio della fattura richiede la doppia conferma. Il numero non è stato assegnato e nulla è partito.",
       };
+    }
+    if (!input.inviaOra) {
+      numeroInterno = `Pren-${ctx.numeroOrdine}`.slice(0, 80);
+      numeroFattura = "";
+    } else {
+      try {
+        const assegnato = await assegnaNumeroFattura(
+          supabase,
+          input.dataDocumento
+        );
+        numeroInterno = assegnato.numeroInterno;
+        numeroFattura = assegnato.numeroFattura;
+      } catch (e) {
+        return {
+          success: false,
+          error:
+            e instanceof Error
+              ? e.message
+              : "Impossibile assegnare il numero fattura.",
+        };
+      }
     }
     const insert: FatturaEmessaInsert & Record<string, unknown> = {
       numero_interno: numeroInterno,
@@ -812,7 +830,9 @@ export async function saveFatturaDaOrdineAction(
     entity_id: fatturaId!,
     action: "fattura_a4_salva",
     actor_id: auth.userId,
-    summary: `Salvata fattura ${numeroFattura} da ordine ${ctx.numeroOrdine}`,
+    summary: numeroFattura
+      ? `Salvata fattura ${numeroFattura} da ordine ${ctx.numeroOrdine}`
+      : `Fattura prenotata senza numero da ordine ${ctx.numeroOrdine}`,
     payload: {
       ordineId: input.ordineId,
       inviaOra: input.inviaOra,
@@ -827,7 +847,7 @@ export async function saveFatturaDaOrdineAction(
       success: true,
       fatturaId: fatturaId!,
       numeroInterno,
-      numeroFattura,
+      numeroFattura: numeroFattura || "Prenotata",
       inviata: false,
       ficId: null,
       pdfUrl: "",
@@ -841,7 +861,62 @@ export async function saveFatturaDaOrdineAction(
     fatturaId: fatturaId!,
     invioEmail: input.invioEmail ?? "",
     sendToSdi: input.sendToSdi,
+    doppiaConferma: input.doppiaConferma,
   });
+}
+
+/** Assegna il progressivo solo quando l'invio è già stato confermato due volte. */
+export async function materializzaNumeroDocumento(
+  fatturaId: string
+): Promise<
+  | { success: true; numeroFattura: string; numeroInterno: string }
+  | { success: false; error: string }
+> {
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from("fatture_emesse")
+    .select("id, numero_fattura, numero_interno, tipo_documento, data_emissione")
+    .eq("id", fatturaId)
+    .is("deleted_at", null)
+    .maybeSingle();
+  if (error || !data) {
+    return { success: false, error: error?.message ?? "Documento non trovato." };
+  }
+  const tipo = String(data.tipo_documento ?? "fattura");
+  const numero = String(data.numero_fattura ?? "").trim();
+  const interno = String(data.numero_interno ?? "").trim();
+  const dataDocumento = String(data.data_emissione ?? "").slice(0, 10);
+  if (tipo === "proforma" && /^PR-\d+\/20\d{2}$/.test(numero)) {
+    return { success: true, numeroFattura: numero, numeroInterno: interno || numero };
+  }
+  if (tipo !== "proforma" && isNumeroFatturaEmessa(numero)) {
+    return { success: true, numeroFattura: numero, numeroInterno: interno || `Ft-${numero}` };
+  }
+  try {
+    const assegnato =
+      tipo === "proforma"
+        ? await assegnaNumeroProforma(supabase, dataDocumento)
+        : await assegnaNumeroFattura(supabase, dataDocumento);
+    const { error: upErr } = await supabase
+      .from("fatture_emesse")
+      .update({
+        numero_fattura: assegnato.numeroFattura,
+        numero_interno: assegnato.numeroInterno,
+        numero_documento_esterno: assegnato.numeroFattura,
+      })
+      .eq("id", fatturaId);
+    if (upErr) return { success: false, error: upErr.message };
+    return {
+      success: true,
+      numeroFattura: assegnato.numeroFattura,
+      numeroInterno: assegnato.numeroInterno,
+    };
+  } catch (e) {
+    return {
+      success: false,
+      error: e instanceof Error ? e.message : "Numero non assegnato.",
+    };
+  }
 }
 
 /** Crea la fattura dell'ordine e non la invia. Solo dopo il successo l'ordine è pronto per la produzione. */
@@ -894,7 +969,7 @@ export async function creaFatturaOrdineSenzaInvioAction(
     entity_id: ordineId,
     action: "status_change",
     actor_id: auth.userId,
-    summary: `Fattura ${res.numeroFattura} creata e non inviata. Ordine pronto per la produzione.`,
+    summary: `Fattura prenotata senza numero per l'ordine. Nessun invio. Ordine pronto per la produzione.`,
     payload: {
       fattura_id: res.fatturaId,
       numero_fattura: res.numeroFattura,
@@ -912,12 +987,14 @@ export async function creaFatturaOrdineSenzaInvioAction(
 }
 
 export async function inviaFatturaAttraversoSdiAction(
-  fatturaId: string
+  fatturaId: string,
+  doppiaConferma = false
 ): Promise<SalvaFatturaDaOrdineResult> {
   return inviaFatturaSalvataAction({
     fatturaId,
     sendToSdi: true,
     sendCourtesyEmail: false,
+    doppiaConferma,
   });
 }
 
@@ -927,6 +1004,8 @@ export async function inviaFatturaSalvataAction(input: {
   sendToSdi?: boolean;
   /** La mail di cortesia FiC non sostituisce l'invio Webmail. */
   sendCourtesyEmail?: boolean;
+  /** Seconda conferma esplicita. Senza questo flag non si assegna il numero e non parte nulla. */
+  doppiaConferma?: boolean;
 }): Promise<SalvaFatturaDaOrdineResult> {
   const { auth } = await requireAreaAccess("amministrazione");
   const supabase = await createClient();
@@ -949,6 +1028,18 @@ export async function inviaFatturaSalvataAction(input: {
         "La proforma non si invia allo SDI. Convertila in fattura e poi usa Invia fattura attraverso SDI.",
     };
   }
+  if (input.doppiaConferma !== true) {
+    return {
+      success: false,
+      error:
+        "L'invio della fattura richiede la doppia conferma. Il numero non è stato assegnato e nulla è partito.",
+    };
+  }
+  const numeri = await materializzaNumeroDocumento(fattura.id);
+  if (!numeri.success) return numeri;
+  fattura.numero_fattura = numeri.numeroFattura;
+  fattura.numero_interno = numeri.numeroInterno;
+  fattura.numero_documento_esterno = numeri.numeroFattura;
   const [{ data: dilazioni }, { data: clienteData }] = await Promise.all([
     supabase
       .from("fatture_emesse_dilazioni")
@@ -1289,22 +1380,13 @@ export async function saveProformaDaOrdineAction(raw: unknown): Promise<
     );
     if (righeErr) return { success: false, error: righeErr };
   } else {
-    let assegnato: { numeroFattura: string; numeroInterno: string };
-    try {
-      assegnato = await assegnaNumeroProforma(supabase, input.dataDocumento);
-    } catch (e) {
-      return {
-        success: false,
-        error: e instanceof Error ? e.message : "Numero proforma non assegnato.",
-      };
-    }
-    numeroProforma = assegnato.numeroFattura;
+    numeroProforma = "Prenotata";
     const { data: inserted, error: insErr } = await supabase
       .from("fatture_emesse")
       .insert({
-        numero_interno: assegnato.numeroInterno,
-        numero_fattura: assegnato.numeroFattura,
-        numero_documento_esterno: assegnato.numeroFattura,
+        numero_interno: `Pren-PR-${ctx.numeroOrdine}`.slice(0, 80),
+        numero_fattura: "",
+        numero_documento_esterno: "",
         tipo_documento: "proforma",
         cliente_id: ctx.cliente.id,
         cliente_ragione_sociale: input.destinatario.ragioneSociale,
@@ -1316,7 +1398,7 @@ export async function saveProformaDaOrdineAction(raw: unknown): Promise<
         imposta: totals.imposta,
         totale: totals.totale,
         stato_pagamento: "da_pagare",
-        documento_stato: "registrata",
+        documento_stato: "bozza",
         note: input.noteDocumento.trim(),
         ordine_id: input.ordineId,
         origine: "emissione_gestionale",
@@ -1342,7 +1424,7 @@ export async function saveProformaDaOrdineAction(raw: unknown): Promise<
       entity_id: proformaId,
       action: "create",
       actor_id: auth.userId,
-      summary: `Creata proforma ${numeroProforma} da ordine ${ctx.numeroOrdine}`,
+      summary: `Proforma prenotata senza numero da ordine ${ctx.numeroOrdine}`,
       payload: { ordineId: input.ordineId, numeroProforma },
     });
   }
@@ -1391,22 +1473,13 @@ export async function convertProformaInFatturaAction(input: {
     };
   }
 
-  let assegnato: { numeroFattura: string; numeroInterno: string };
-  try {
-    assegnato = await assegnaNumeroFattura(supabase, proforma.data_emissione);
-  } catch (e) {
-    return {
-      success: false,
-      error: e instanceof Error ? e.message : "Numero fattura non assegnato.",
-    };
-  }
-
+  const numeroPrenotato = `Pren-${proforma.numero_interno || proforma.id}`.slice(0, 80);
   const { data: inserted, error: insErr } = await supabase
     .from("fatture_emesse")
     .insert({
-      numero_interno: assegnato.numeroInterno,
-      numero_fattura: assegnato.numeroFattura,
-      numero_documento_esterno: assegnato.numeroFattura,
+      numero_interno: numeroPrenotato,
+      numero_fattura: "",
+      numero_documento_esterno: "",
       tipo_documento: "fattura",
       proforma_origine_id: proforma.id,
       cliente_id: proforma.cliente_id,
@@ -1480,17 +1553,17 @@ export async function convertProformaInFatturaAction(input: {
     entity_id: fatturaId,
     action: "create",
     actor_id: auth.userId,
-    summary: `Proforma ${proforma.numero_fattura} convertita in fattura ${assegnato.numeroFattura}`,
+    summary: `Proforma ${proforma.numero_fattura || "prenotata"} convertita in fattura prenotata, senza numero`,
     payload: {
       proformaId: proforma.id,
       numeroProforma: proforma.numero_fattura,
-      numeroFattura: assegnato.numeroFattura,
+      numeroFattura: "",
     },
   });
 
   return {
     success: true,
     fatturaId,
-    numeroFattura: assegnato.numeroFattura,
+    numeroFattura: "Prenotata",
   };
 }

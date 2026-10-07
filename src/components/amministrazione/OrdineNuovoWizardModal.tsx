@@ -3,6 +3,7 @@
 import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { FaPlus, FaTrash } from "react-icons/fa6";
 import {
+  annullaOrdineNonFinalizzatoAction,
   createOrdineWizardAction,
   previewNumeroInternoOrdineAction,
 } from "@/app/actions/ordini";
@@ -54,7 +55,10 @@ import { CampionaturaAltroPostoModal } from "@/components/amministrazione/Campio
 import { ConsegnaCalendarioModal } from "@/components/amministrazione/ConsegnaCalendarioModal";
 import { ProdottoProprioFormModal } from "@/components/amministrazione/ProdottoProprioFormModal";
 import { ReferentiPickerField } from "@/components/amministrazione/ReferentiPickerField";
-import { creaFatturaOrdineSenzaInvioAction } from "@/app/actions/fattura-da-ordine";
+import {
+  creaFatturaOrdineSenzaInvioAction,
+  inviaFatturaSalvataAction,
+} from "@/app/actions/fattura-da-ordine";
 import { FatturaA4Modal } from "@/components/amministrazione/FatturaA4Modal";
 import { OrdinePagamentoPianoFields } from "@/components/amministrazione/OrdinePagamentoPianoFields";
 import { SpedizioneMailComposeModal } from "@/components/amministrazione/SpedizioneMailComposeModal";
@@ -425,6 +429,8 @@ export function OrdineNuovoWizardModal({
   const [sessioneMsg, setSessioneMsg] = useState<string | null>(null);
   const [fatturaA4Open, setFatturaA4Open] = useState(false);
   const [ordineFinalizzato, setOrdineFinalizzato] = useState(false);
+  const [fatturaPrenotataId, setFatturaPrenotataId] = useState<string | null>(null);
+  const [confermaInvioFattura, setConfermaInvioFattura] = useState(0);
   const [tipoOrdine, setTipoOrdine] = useState<"vendita" | "campionatura">(
     "vendita"
   );
@@ -1402,6 +1408,16 @@ export function OrdineNuovoWizardModal({
         return;
       }
     }
+    if (opts?.keepOpen && !savedOrdine) {
+      if (attesaCalcoloSpedizione) {
+        setFormError(
+          "La fattura non si apre: prima si conferma il costo di spedizione. Non parte nulla verso il cliente."
+        );
+        return;
+      }
+      setFatturaA4Open(true);
+      return;
+    }
     setSaving(true);
     setFormError(null);
     const confNorm = normalizeConfezionamentoDraft(conf);
@@ -1573,7 +1589,8 @@ export function OrdineNuovoWizardModal({
         setFormError(result.error);
         return;
       }
-      setSavedOrdine(result.ordine);
+      const ordineSalvato = result.ordine;
+      setSavedOrdine(ordineSalvato);
       if (spedDraft.current.sedePartenzaId) {
         await updateSedePartenzaAction({
           entityType: "ordine",
@@ -1581,35 +1598,29 @@ export function OrdineNuovoWizardModal({
           sedeId: spedDraft.current.sedePartenzaId,
         });
       }
-      if (opts?.keepOpen) {
-        setFatturaA4Open(true);
-        return;
-      }
-      if (modoMail && !(modificaOrdineId && !spedDraft.current.bozzaPronta)) {
+      async function memorizzaMail(): Promise<string | null> {
+        if (!modoMail || attesaCalcoloSpedizione) return null;
+        if (modificaOrdineId && !spedDraft.current.bozzaPronta) return null;
         const d = spedDraft.current;
         let oggetto = d.mailOggetto.trim();
         let corpo = d.mailCorpo.trim();
         if (d.allegaTracking && (!oggetto || !corpo)) {
           const testo = await generaCorpoMailSpedizioneAction({
             cliente: clienteNome,
-            numero: result.ordine.numeroInterno,
+            numero: ordineSalvato.numeroInterno,
             prodotti: prodotto
               ? `${prodotto.codice} ${quantitaInserita} ${umEffettiva}`
               : "",
             trackingUrl: d.trackingUrl,
             haLettera: false,
           });
-          if (!testo.success) {
-            setFormError(testo.error);
-            onSaved(result.ordine);
-            return;
-          }
+          if (!testo.success) return testo.error;
           oggetto = testo.subject;
           corpo = testo.bodyText;
         }
         const up = await upsertPrenotazioneSpedizioneMailAction({
           entityType: "ordine",
-          entityId: result.ordine.id,
+          entityId: ordineSalvato.id,
           trackingUrl: d.trackingUrl,
           letteraViaPath: d.letteraViaPath,
           letteraViaName: d.letteraViaName,
@@ -1624,13 +1635,7 @@ export function OrdineNuovoWizardModal({
           modo: modoMail,
           soloTracking: Boolean(modificaOrdineId),
         });
-        if (!up.success) {
-          setSavedOrdine(result.ordine);
-          setFormError(
-            `${up.error} L'ordine non passa in produzione e nessuna fattura è stata inviata.`
-          );
-          return;
-        }
+        return up.success ? null : up.error;
       }
       const serveFattura =
         ORDINI_PERSISTENZA_DEFINITIVA &&
@@ -1641,24 +1646,41 @@ export function OrdineNuovoWizardModal({
       if (serveFattura) {
         const fat = await creaFatturaOrdineSenzaInvioAction(result.ordine.id);
         if (!fat.success) {
-          setSavedOrdine(result.ordine);
+          await annullaOrdineNonFinalizzatoAction(result.ordine.id);
+          setSavedOrdine(null);
           setFormError(
-            `Ordine salvato, ma non passa in produzione: ${fat.error} Nessuna fattura è stata inviata.`
+            `Finalizzazione annullata: ${fat.error} L'ordine non è stato registrato. Nessuna fattura è stata inviata.`
           );
           return;
         }
+        const mailErr = await memorizzaMail();
+        setFatturaPrenotataId(fat.fatturaId);
+        setConfermaInvioFattura(0);
         setOrdineFinalizzato(true);
         setSessioneMsg(
-          `Ordine ${result.ordine.numeroInterno} finalizzato. Fattura ${fat.numeroFattura} creata e non inviata. Può andare in produzione.`
+          `Ordine ${result.ordine.numeroInterno} finalizzato. La fattura è prenotata, senza numero progressivo. Nessuna mail e nessuno SDI sono partiti.`
         );
+        if (mailErr) {
+          setFormError(
+            `La bozza mail non è stata memorizzata: ${mailErr}. Nessun invio è partito.`
+          );
+        }
         setSavedOrdine(result.ordine);
         return;
       }
       if (attesaCalcoloSpedizione) {
         setSessioneMsg(
-          `Ordine ${result.ordine.numeroInterno} salvato. Non è in produzione: manca il costo di spedizione. Nessuna fattura è stata creata e nessuna mail è partita.`
+          `Ordine ${result.ordine.numeroInterno} salvato in attesa del costo. Non è in produzione. Nessuna fattura e nessuna mail sono state registrate.`
         );
         notifyPreventiviSpedizioneNav();
+        return;
+      }
+      const mailErr = await memorizzaMail();
+      if (mailErr) {
+        setSavedOrdine(result.ordine);
+        setFormError(
+          `Ordine finalizzato, ma la bozza mail non è stata memorizzata: ${mailErr}. Nessun invio è partito.`
+        );
         return;
       }
       onSaved(result.ordine);
@@ -3484,10 +3506,10 @@ export function OrdineNuovoWizardModal({
               <div className="space-y-2 rounded-xl border border-[var(--border)] p-4">
                 <p className="text-sm font-semibold">Fattura</p>
                 <p className="text-xs text-[var(--muted)]">
-                  Documento A4 come il preventivo. Puoi modificarlo prima del
-                  salvataggio. Al termine viene creata e non viene inviata:
-                  niente email e niente SDI. L&apos;ordine passa in produzione
-                  solo se la creazione riesce.
+                  Anteprima A4, senza registrare nulla. Alla finalizzazione la
+                  fattura resta prenotata, senza numero progressivo. Il numero
+                  si assegna solo all&apos;invio, e l&apos;invio parte solo dopo
+                  la doppia conferma. Niente email e niente SDI prima.
                 </p>
                 {attesaCalcoloSpedizione ? (
                   <p className="text-xs text-amber-800">
@@ -3506,11 +3528,7 @@ export function OrdineNuovoWizardModal({
                     onClick={() => void submit("salva", { keepOpen: true })}
                     className="rounded-lg bg-[var(--primary)] px-3 py-2 text-sm font-medium text-white disabled:opacity-50"
                   >
-                    {savedOrdine
-                      ? "Apri documento fattura"
-                      : (ORDINI_PERSISTENZA_DEFINITIVA
-                        ? "Crea fattura A4"
-                        : "Apri fattura (sessione)")}
+                    {savedOrdine ? "Apri documento fattura" : "Anteprima fattura"}
                   </button>
                 )}
               </div>
@@ -3521,9 +3539,8 @@ export function OrdineNuovoWizardModal({
             <div className="mt-4 space-y-3">
               {attesaCalcoloSpedizione ? (
                 <p className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-950">
-                  Il salvataggio non invia nulla al cliente. Se chiedi la mail
-                  di tracking, viene solo memorizzata: parte dopo il tracking
-                  e solo con la conferma dell&apos;operatore.
+                  Finché manca il costo di spedizione l&apos;ordine non è
+                  finalizzato: nessuna fattura e nessuna mail vengono registrate.
                 </p>
               ) : null}
               <SpedizioneMailPanel
@@ -3582,7 +3599,47 @@ export function OrdineNuovoWizardModal({
               ? "Chiudi"
               : "Annulla"}
           </button>
-          <div className="flex gap-2">
+          <div className="flex flex-wrap justify-end gap-2">
+            {ordineFinalizzato && fatturaPrenotataId ? (
+              <button
+                type="button"
+                disabled={saving || confermaInvioFattura >= 2}
+                onClick={() => {
+                  if (confermaInvioFattura < 1) {
+                    setConfermaInvioFattura(1);
+                    setSessioneMsg(
+                      "Prima conferma. Premi di nuovo per inviare la fattura allo SDI: solo allora prende il numero progressivo."
+                    );
+                    return;
+                  }
+                  setSaving(true);
+                  void inviaFatturaSalvataAction({
+                    fatturaId: fatturaPrenotataId,
+                    sendToSdi: true,
+                    sendCourtesyEmail: false,
+                    doppiaConferma: true,
+                  }).then((res) => {
+                    setSaving(false);
+                    if (!res.success) {
+                      setFormError(res.error);
+                      setConfermaInvioFattura(0);
+                      return;
+                    }
+                    setConfermaInvioFattura(2);
+                    setSessioneMsg(
+                      `Fattura ${res.numeroFattura} inviata allo SDI. Nessuna mail di cortesia è partita.`
+                    );
+                  });
+                }}
+                className="rounded-lg border border-[var(--primary)] px-4 py-2 text-sm font-medium text-[var(--primary)] disabled:opacity-50"
+              >
+                {confermaInvioFattura >= 2
+                  ? "Fattura inviata"
+                  : (confermaInvioFattura === 1
+                    ? "Confermo l'invio della fattura"
+                    : "Invia la fattura ora")}
+              </button>
+            ) : null}
             {step > 1 ? (
               <button
                 type="button"
@@ -3768,13 +3825,13 @@ export function OrdineNuovoWizardModal({
         />
       ) : null}
 
-      {fatturaA4Open && savedOrdine ? (
+      {fatturaA4Open ? (
         <FatturaA4Modal
           ordineId={
-            ORDINI_PERSISTENZA_DEFINITIVA ? savedOrdine.id : undefined
+            savedOrdine && ORDINI_PERSISTENZA_DEFINITIVA ? savedOrdine.id : undefined
           }
           sessioneDraft={
-            ORDINI_PERSISTENZA_DEFINITIVA
+            savedOrdine && ORDINI_PERSISTENZA_DEFINITIVA
               ? null
               : {
                   cliente: clienteSped,

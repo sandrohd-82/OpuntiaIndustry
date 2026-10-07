@@ -26,6 +26,7 @@ export function FatturaDettaglioClient({ initial }: Props) {
   const [previewError, setPreviewError] = useState<string | null>(null);
   const [inviaBusy, setInviaBusy] = useState(false);
   const [inviaMsg, setInviaMsg] = useState<string | null>(null);
+  const [passoInvio, setPassoInvio] = useState(0);
 
   useEffect(() => {
     setFattura(initial);
@@ -107,9 +108,21 @@ export function FatturaDettaglioClient({ initial }: Props) {
         fattura={fattura}
         layoutWidth="full"
         inviaBusy={inviaBusy}
+        inviaLabel={
+          passoInvio === 1
+            ? "Confermo l'invio allo SDI"
+            : "Invia fattura attraverso SDI"
+        }
         onInviaFic={
           fattura.kind === "emessa" && !fattura.ficId
             ? () => {
+                if (passoInvio < 1) {
+                  setPassoInvio(1);
+                  setInviaMsg(
+                    "Prima conferma. Premi di nuovo: solo allora la fattura prende il numero progressivo e parte allo SDI. Nessuna mail parte da qui."
+                  );
+                  return;
+                }
                 void (async () => {
                   setInviaBusy(true);
                   setInviaMsg(null);
@@ -117,12 +130,15 @@ export function FatturaDettaglioClient({ initial }: Props) {
                     fatturaId: fattura.id,
                     sendToSdi: true,
                     sendCourtesyEmail: false,
+                    doppiaConferma: true,
                   });
                   setInviaBusy(false);
                   if (!res.success) {
                     setInviaMsg(res.error);
+                    setPassoInvio(0);
                     return;
                   }
+                  setPassoInvio(2);
                   setInviaMsg(
                     `Inviata ${res.numeroFattura}` +
                       (res.sdiSent ? " allo SDI" : "") +
