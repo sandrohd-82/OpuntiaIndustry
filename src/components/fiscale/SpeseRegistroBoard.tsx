@@ -265,6 +265,8 @@ export function SpeseRegistroBoard() {
                         <thead>
                           <tr className="text-slate-500">
                             <th className="py-1 text-left font-medium">Descrizione</th>
+                            <th className="py-1 text-right font-medium">Numero</th>
+                            <th className="py-1 text-right font-medium">Prezzo</th>
                             <th className="py-1 text-right font-medium">Imponibile</th>
                             <th className="py-1 text-right font-medium">% IVA</th>
                             <th className="py-1 text-right font-medium">Totale</th>
@@ -274,6 +276,12 @@ export function SpeseRegistroBoard() {
                           {s.righe.map((riga, index) => (
                             <tr key={`${s.id}-${index}`}>
                               <td className="py-1 pr-3">{riga.descrizione}</td>
+                              <td className="py-1 text-right tabular-nums">
+                                {riga.quantita.toLocaleString("it-IT")}
+                              </td>
+                              <td className="py-1 text-right tabular-nums">
+                                {formatEuro(riga.prezzoUnitario)}
+                              </td>
                               <td className="py-1 text-right tabular-nums">
                                 {formatEuro(riga.imponibile)}
                               </td>

@@ -168,7 +168,9 @@ async function attachRighe(
   if (!ids.length) return spese;
   const { data } = await supabase
     .from("spese_documenti_righe")
-    .select("documento_id, descrizione, imponibile, aliquota_iva, imposta, totale, sort_order")
+    .select(
+      "documento_id, descrizione, quantita, prezzo_unitario, imponibile, aliquota_iva, imposta, totale, sort_order"
+    )
     .in("documento_id", ids)
     .is("deleted_at", null)
     .order("sort_order", { ascending: true });
@@ -177,6 +179,8 @@ async function attachRighe(
     const row = raw as {
       documento_id: string;
       descrizione: string;
+      quantita: number | string | null;
+      prezzo_unitario: number | string | null;
       imponibile: number | string;
       aliquota_iva: number | string;
       imposta: number | string;
@@ -185,6 +189,8 @@ async function attachRighe(
     const list = map.get(row.documento_id) ?? [];
     list.push({
       descrizione: row.descrizione,
+      quantita: num(row.quantita ?? 1) || 1,
+      prezzoUnitario: num(row.prezzo_unitario ?? row.imponibile),
       imponibile: num(row.imponibile),
       aliquotaIva: num(row.aliquota_iva),
       imposta: num(row.imposta),
@@ -290,18 +296,25 @@ export async function registraSpesaAction(
     if (!Array.isArray(parsedRighe) || parsedRighe.length === 0) {
       return {
         success: false,
-        error: "Aggiungi almeno una riga con descrizione, imponibile e IVA.",
+        error: "Aggiungi almeno una riga con descrizione, prezzo, numero e IVA.",
       };
     }
     const bozza = parsedRighe.map((riga) => {
       const row = riga as {
         descrizione?: unknown;
+        quantita?: unknown;
+        prezzoUnitario?: unknown;
         imponibile?: unknown;
         aliquotaIva?: unknown;
       };
+      const quantita = Number(row.quantita ?? 1);
+      const prezzoUnitario = Number(
+        row.prezzoUnitario ?? row.imponibile ?? 0
+      );
       return {
         descrizione: String(row.descrizione ?? ""),
-        imponibile: Number(row.imponibile),
+        quantita: Number.isFinite(quantita) && quantita > 0 ? quantita : 1,
+        prezzoUnitario: Number.isFinite(prezzoUnitario) ? prezzoUnitario : 0,
         aliquotaIva: Number(row.aliquotaIva),
       };
     });
@@ -310,7 +323,7 @@ export async function registraSpesaAction(
     aliquotaIva = calc.aliquotaIva;
     imposta = calc.imposta;
     totale = calc.totale;
-    righe = bozza;
+    righe = calc.righe;
   }
   const parsed = spesaRegistrazioneSchema.safeParse({
     tipoCaricamento: tipo,
@@ -447,6 +460,8 @@ export async function registraSpesaAction(
         documento_id: data.id,
         sort_order: index,
         descrizione: riga.descrizione,
+        quantita: riga.quantita,
+        prezzo_unitario: riga.prezzoUnitario,
         imponibile: riga.imponibile,
         aliquota_iva: riga.aliquotaIva,
         imposta: riga.imposta,

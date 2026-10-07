@@ -59,19 +59,22 @@ const vuoto = {
 type RigaForm = {
   key: string;
   descrizione: string;
-  imponibile: string;
+  prezzo: string;
+  quantita: string;
   aliquotaIva: string;
 };
 
 function rigaVuota(partial?: {
   descrizione?: string;
-  imponibile?: string;
+  prezzo?: string;
+  quantita?: string;
   aliquotaIva?: string;
 }): RigaForm {
   return {
     key: crypto.randomUUID(),
     descrizione: partial?.descrizione ?? "",
-    imponibile: partial?.imponibile ?? "",
+    prezzo: partial?.prezzo ?? "",
+    quantita: partial?.quantita ?? "1",
     aliquotaIva: partial?.aliquotaIva ?? "22",
   };
 }
@@ -240,15 +243,21 @@ export function SpeseCaricamentoBoard() {
       });
       if (tipo === "scontrino") {
         const lette = a.righe
-          .filter((riga) => riga.descrizione || riga.imponibile != null)
-          .map((riga) =>
-            rigaVuota({
+          .filter((riga) => riga.descrizione || riga.imponibile != null || riga.totale != null)
+          .map((riga) => {
+            const numero =
+              riga.quantita != null && riga.quantita > 0 ? riga.quantita : 1;
+            const importo = riga.imponibile ?? riga.totale;
+            const prezzo =
+              importo != null ? String(Math.round((importo / numero) * 100) / 100) : "";
+            return rigaVuota({
               descrizione: riga.descrizione,
-              imponibile: riga.imponibile != null ? String(riga.imponibile) : "",
+              prezzo,
+              quantita: String(numero),
               aliquotaIva:
                 riga.aliquotaIva != null ? String(riga.aliquotaIva) : "22",
-            })
-          );
+            });
+          });
         setRighe(lette.length ? lette : [rigaVuota()]);
       }
     });
@@ -274,14 +283,19 @@ export function SpeseCaricamentoBoard() {
     if (tipo === "scontrino") {
       const input = [];
       for (const riga of righe) {
-        const imponibile = decimale(riga.imponibile);
+        const prezzoUnitario = decimale(riga.prezzo);
+        const quantita = decimale(riga.quantita);
         const aliquotaIva = decimale(riga.aliquotaIva);
         if (!riga.descrizione.trim()) {
           setErrore("Ogni riga ha una descrizione.");
           return;
         }
-        if (imponibile == null || imponibile < 0) {
-          setErrore("Inserisci l'imponibile di ogni riga.");
+        if (prezzoUnitario == null || prezzoUnitario < 0) {
+          setErrore("Inserisci il prezzo di ogni prodotto.");
+          return;
+        }
+        if (quantita == null || quantita <= 0) {
+          setErrore("Indica il numero di pezzi di ogni prodotto.");
           return;
         }
         if (aliquotaIva == null || aliquotaIva < 0 || aliquotaIva > 100) {
@@ -290,7 +304,8 @@ export function SpeseCaricamentoBoard() {
         }
         input.push({
           descrizione: riga.descrizione.trim(),
-          imponibile,
+          prezzoUnitario,
+          quantita,
           aliquotaIva,
         });
       }
@@ -604,11 +619,12 @@ export function SpeseCaricamentoBoard() {
                   </button>
                 </div>
                 <div className="overflow-x-auto rounded-lg border border-slate-200">
-                  <table className="w-full min-w-[520px] border-collapse text-left text-sm">
+                  <table className="w-full min-w-[680px] border-collapse text-left text-sm">
                     <thead className="bg-slate-50 text-xs text-slate-600">
                       <tr>
                         <th className="px-2 py-2">Descrizione</th>
-                        <th className="px-2 py-2">Imponibile</th>
+                        <th className="px-2 py-2">Prezzo</th>
+                        <th className="px-2 py-2">Numero</th>
                         <th className="px-2 py-2">% IVA</th>
                         <th className="px-2 py-2 text-right">Totale</th>
                         <th className="px-2 py-2" />
@@ -616,16 +632,10 @@ export function SpeseCaricamentoBoard() {
                     </thead>
                     <tbody>
                       {righe.map((riga) => {
-                        const imponibile = decimale(riga.imponibile) ?? 0;
-                        const aliquotaIva = decimale(riga.aliquotaIva) ?? 0;
-                        const calc = calcolaRigheScontrino([
-                          {
-                            descrizione: riga.descrizione || "Voce",
-                            imponibile,
-                            aliquotaIva,
-                          },
-                        ]);
-                        const totaleRiga = calc.righe[0]?.totale ?? 0;
+                        const prezzo = decimale(riga.prezzo) ?? 0;
+                        const numero = decimale(riga.quantita) ?? 0;
+                        const totaleRiga =
+                          Math.round((prezzo * numero + Number.EPSILON) * 100) / 100;
                         return (
                           <tr key={riga.key} className="border-t border-slate-100">
                             <td className="px-2 py-2">
@@ -647,12 +657,28 @@ export function SpeseCaricamentoBoard() {
                               <input
                                 className={field}
                                 inputMode="decimal"
-                                value={riga.imponibile}
+                                value={riga.prezzo}
                                 onChange={(e) =>
                                   setRighe((prev) =>
                                     prev.map((item) =>
                                       item.key === riga.key
-                                        ? { ...item, imponibile: e.target.value }
+                                        ? { ...item, prezzo: e.target.value }
+                                        : item
+                                    )
+                                  )
+                                }
+                              />
+                            </td>
+                            <td className="w-24 px-2 py-2">
+                              <input
+                                className={field}
+                                inputMode="decimal"
+                                value={riga.quantita}
+                                onChange={(e) =>
+                                  setRighe((prev) =>
+                                    prev.map((item) =>
+                                      item.key === riga.key
+                                        ? { ...item, quantita: e.target.value }
                                         : item
                                     )
                                   )
@@ -701,12 +727,17 @@ export function SpeseCaricamentoBoard() {
                     </tbody>
                   </table>
                 </div>
+                <p className="text-xs text-slate-500">
+                  Il totale della riga è prezzo × numero. Esempio: 0,45 × 6 = 2,70.
+                  L&apos;IVA si calcola su quell&apos;importo.
+                </p>
                 <p className="text-sm text-slate-800">
                   {(() => {
                     const calc = calcolaRigheScontrino(
                       righe.map((riga) => ({
                         descrizione: riga.descrizione || "Voce",
-                        imponibile: decimale(riga.imponibile) ?? 0,
+                        prezzoUnitario: decimale(riga.prezzo) ?? 0,
+                        quantita: decimale(riga.quantita) ?? 0,
                         aliquotaIva: decimale(riga.aliquotaIva) ?? 0,
                       }))
                     );

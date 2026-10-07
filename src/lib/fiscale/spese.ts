@@ -133,6 +133,11 @@ export const spesaRegistrazioneSchema = z
             .trim()
             .min(1, "Ogni riga ha una descrizione.")
             .max(300),
+          quantita: z
+            .number()
+            .positive("Il numero di pezzi deve essere maggiore di zero.")
+            .max(1_000_000),
+          prezzoUnitario: z.number().min(0).max(1_000_000),
           imponibile: z.number().min(0).max(1_000_000),
           aliquotaIva: z.number().min(0).max(100),
         })
@@ -145,7 +150,7 @@ export const spesaRegistrazioneSchema = z
       ctx.addIssue({
         code: "custom",
         path: ["righe"],
-        message: "Aggiungi almeno una riga con descrizione, imponibile e IVA.",
+        message: "Aggiungi almeno una riga con descrizione, prezzo, numero e IVA.",
       });
     }
     if (
@@ -232,6 +237,8 @@ export type SpesaDocumentoView = {
 
 export type SpesaRigaView = {
   descrizione: string;
+  quantita: number;
+  prezzoUnitario: number;
   imponibile: number;
   aliquotaIva: number;
   imposta: number;
@@ -240,11 +247,13 @@ export type SpesaRigaView = {
 
 export type RigaScontrinoInput = {
   descrizione: string;
-  imponibile: number;
+  quantita: number;
+  prezzoUnitario: number;
   aliquotaIva: number;
 };
 
 export type RigaScontrinoCalcolata = RigaScontrinoInput & {
+  imponibile: number;
   imposta: number;
   totale: number;
 };
@@ -253,7 +262,11 @@ function euro2(value: number): number {
   return Math.round((value + Number.EPSILON) * 100) / 100;
 }
 
-/** Imposta e totale di riga si calcolano da imponibile e aliquota. */
+function qty3(value: number): number {
+  return Math.round((value + Number.EPSILON) * 1000) / 1000;
+}
+
+/** L'imponibile di riga è prezzo × numero. Imposta e totale fiscale si calcolano da lì. */
 export function calcolaRigheScontrino(righe: RigaScontrinoInput[]): {
   righe: RigaScontrinoCalcolata[];
   imponibile: number;
@@ -262,12 +275,16 @@ export function calcolaRigheScontrino(righe: RigaScontrinoInput[]): {
   totale: number;
 } {
   const calcolate = righe.map((riga) => {
-    const imponibile = euro2(riga.imponibile);
+    const quantita = qty3(riga.quantita);
+    const prezzoUnitario = euro2(riga.prezzoUnitario);
+    const imponibile = euro2(prezzoUnitario * quantita);
     const aliquotaIva = euro2(riga.aliquotaIva);
     const imposta = euro2(imponibile * (aliquotaIva / 100));
     const totale = euro2(imponibile + imposta);
     return {
       descrizione: riga.descrizione.trim(),
+      quantita,
+      prezzoUnitario,
       imponibile,
       aliquotaIva,
       imposta,
