@@ -160,7 +160,10 @@ export const createCampionaturaSchema = z.object({
     .optional()
     .default("sede_azienda"),
   spedizionePrivato: z.boolean().optional().default(false),
-  referenteRicezioneId: z.string().uuid().nullable().optional().default(null),
+  referenteRicezioneId: z.preprocess(
+    (value) => (value == null || value === "" ? null : value),
+    z.string().uuid("Referente non valido.").nullable()
+  ),
   destinatario: z.string().trim().max(200).optional().default(""),
   indirizzoSpedizione: z.string().trim().max(500).optional().default(""),
   note: z.string().trim().max(4000).optional().default(""),

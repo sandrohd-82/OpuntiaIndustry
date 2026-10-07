@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useId, useState, type FormEvent } from "react";
+import { useEffect, useId, useState } from "react";
 import {
   listCommercialiCampionaturaAction,
   type CommercialeCampionaturaOption,
@@ -111,23 +111,44 @@ export function CampionaturaAltroPostoModal({
     setError(null);
   }
 
-  function onSubmit(e: FormEvent) {
-    e.preventDefault();
+  function confermaDestinazione() {
     if (destinazione === "rubrica") return;
-    const indirizzo = formatIndirizzoSede(sede);
+    if (!nome.trim() || !cognome.trim()) {
+      setError("Inserisci nome e cognome.");
+      return;
+    }
+    if (destinazione === "azienda" && !ragioneSociale.trim()) {
+      setError("Inserisci la ragione sociale.");
+      return;
+    }
+    const sedeTesto = {
+      indirizzo: String(sede.indirizzo ?? ""),
+      cap: String(sede.cap ?? ""),
+      citta: String(sede.citta ?? ""),
+      provincia: String(sede.provincia ?? ""),
+      nazione: String(sede.nazione ?? ""),
+    };
+    const indirizzo = formatIndirizzoSede(sedeTesto);
     if (!indirizzo.trim()) {
       setError("Inserisci l'indirizzo di spedizione.");
       return;
     }
     const persona = `${nome.trim()} ${cognome.trim()}`.trim();
-    const destinatario =
+    const contatti = [telefono.trim(), email.trim()].filter(Boolean).join(" · ");
+    const destinatario = [
       destinazione === "privato"
         ? persona
-        : [ragioneSociale.trim(), persona].filter(Boolean).join(" — ");
+        : [ragioneSociale.trim(), persona].filter(Boolean).join(" — "),
+      contatti,
+    ]
+      .filter(Boolean)
+      .join(" · ")
+      .slice(0, 200);
     const label =
       destinazione === "privato"
         ? `Privato · ${persona}`
         : `Azienda · ${ragioneSociale.trim() || persona}`;
+    setError(null);
     onSaved({
       referenteId: null,
       destinatario,
@@ -387,7 +408,7 @@ export function CampionaturaAltroPostoModal({
             </div>
           </div>
         ) : (
-          <form onSubmit={onSubmit} className="mt-4 space-y-4">
+          <div className="mt-4 space-y-4">
             {destinazione === "azienda" ? (
               <label className="block text-sm">
                 <span className="mb-1 block font-medium">Ragione sociale</span>
@@ -436,7 +457,7 @@ export function CampionaturaAltroPostoModal({
               <CanaleInputRow
                 label="Email (consigliata)"
                 canale="email"
-                type="email"
+                type="text"
                 inputMode="email"
                 value={email}
                 onChange={setEmail}
@@ -465,13 +486,14 @@ export function CampionaturaAltroPostoModal({
                 Annulla
               </button>
               <button
-                type="submit"
+                type="button"
+                onClick={confermaDestinazione}
                 className="rounded-lg bg-[var(--primary)] px-4 py-2 text-sm font-medium text-white hover:bg-[var(--primary-hover)]"
               >
                 Usa solo per questo invio
               </button>
             </div>
-          </form>
+          </div>
         )}
       </div>
 

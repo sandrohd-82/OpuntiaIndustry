@@ -1407,10 +1407,11 @@ export function CampionaturaFormModal({
             setDestinatario(r.destinatario);
             setIndirizzo(r.indirizzo);
             setSpedizionePrivato(r.isPrivato);
-            setReferenteRicezione({
-              id: r.referenteId ?? "",
-              label: r.label,
-            });
+            setReferenteRicezione(
+              r.referenteId
+                ? { id: r.referenteId, label: r.label }
+                : { id: "", label: r.label }
+            );
             setAltroPostoOpen(false);
           }}
         />
