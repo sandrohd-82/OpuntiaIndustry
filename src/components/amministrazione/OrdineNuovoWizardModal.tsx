@@ -129,6 +129,8 @@ import {
 import {
   childStadioFor,
   voceCollegataAlProdotto,
+  CONFEZIONAMENTO_STANDARD_LABEL,
+  CONFEZIONAMENTO_STANDARD_NOTA,
   emptyConfezionamentoDraft,
   emptyNodo,
   filterVociForWizardStadio,
@@ -1377,7 +1379,12 @@ export function OrdineNuovoWizardModal({
       }
       return;
     }
-    if (Math.abs(kgDelta) > 0.001 && conf.nodi.length > 0 && !conf.coerenzaIgnorata) {
+    if (
+      !conf.affidatoProduzione &&
+      Math.abs(kgDelta) > 0.001 &&
+      conf.nodi.length > 0 &&
+      !conf.coerenzaIgnorata
+    ) {
       setFormError(
         kgDelta > 0
           ? `${kgDelta} kg restano fuori dal confezionamento: modifica oppure spunta «Ignora».`
@@ -3195,13 +3202,60 @@ export function OrdineNuovoWizardModal({
 
           {step === 6 && (
             <div className="space-y-4">
-              {testoConfezione ? (
+              <fieldset className="space-y-2 rounded-lg border border-[var(--border)] p-3">
+                <legend className="px-1 text-sm font-medium">
+                  Chi definisce il confezionamento
+                </legend>
+                <label className="flex items-start gap-2 text-sm">
+                  <input
+                    type="radio"
+                    className="mt-1"
+                    name="confezionamento-modo"
+                    checked={Boolean(conf.affidatoProduzione)}
+                    onChange={() =>
+                      setConf({
+                        ...emptyConfezionamentoDraft(),
+                        affidatoProduzione: true,
+                        coerenzaIgnorata: true,
+                        note: CONFEZIONAMENTO_STANDARD_NOTA,
+                      })
+                    }
+                  />
+                  <span>{CONFEZIONAMENTO_STANDARD_LABEL}</span>
+                </label>
+                <label className="flex items-start gap-2 text-sm">
+                  <input
+                    type="radio"
+                    className="mt-1"
+                    name="confezionamento-modo"
+                    checked={!conf.affidatoProduzione}
+                    onChange={() =>
+                      setConf((p) => ({
+                        ...p,
+                        affidatoProduzione: false,
+                        coerenzaIgnorata: false,
+                        note: "",
+                      }))
+                    }
+                  />
+                  <span>Indica il confezionamento</span>
+                </label>
+              </fieldset>
+              {conf.affidatoProduzione ? (
+                <p className="rounded-lg border border-sky-200 bg-sky-50 px-3 py-2 text-sm text-sky-950">
+                  Nessun imballo da compilare. Puoi andare avanti: l&apos;operatore
+                  di produzione definirà come confezionare questa quantità.
+                </p>
+              ) : null}
+              {testoConfezione && !conf.affidatoProduzione ? (
                 <p className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-950">
                   Confezione per lo sconto: {testoConfezione}. Qui sotto si
                   compila il confezionamento di produzione, che resta
                   modificabile.
                 </p>
               ) : null}
+              {!conf.affidatoProduzione ? (
+              <>
               <fieldset className="space-y-2 rounded-lg border border-[var(--border)] p-3">
                 <legend className="px-1 text-sm font-medium">
                   Movimentazione
@@ -3376,6 +3430,8 @@ export function OrdineNuovoWizardModal({
                   </p>
                 )}
               </div>
+              </>
+              ) : null}
 
             </div>
           )}

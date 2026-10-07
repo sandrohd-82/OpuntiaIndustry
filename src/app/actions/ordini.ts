@@ -1740,6 +1740,7 @@ async function createOrdineWizardActionInner(
           kg_confezionati: kgConf,
           kg_delta: kgDelta,
           coerenza_ignorata: conf.coerenzaIgnorata,
+          affidato_produzione: Boolean(conf.affidatoProduzione),
           note: conf.note.trim(),
           versione: 1,
           documento_stato: "bozza",
@@ -1856,6 +1857,9 @@ async function createOrdineWizardActionInner(
         sconto_suddivisione_stato: suddivisione.value.stato,
         sconto_quota_azienda_pct: suddivisione.value.quotaAziendaPct,
         sconto_quota_commerciale_pct: suddivisione.value.quotaCommercialePct,
+        confezionamento_affidato_produzione: Boolean(
+          input.confezionamento?.affidatoProduzione
+        ),
       },
     });
 

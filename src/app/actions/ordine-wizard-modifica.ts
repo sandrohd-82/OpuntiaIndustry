@@ -179,7 +179,7 @@ export async function loadOrdinePerModificaWizardAction(
   const { data: confHead } = await supabase
     .from("ordini_confezionamento")
     .select(
-      "id, movimentazione_modo, pallet_catalogo_id, pallet_misure_custom, coerenza_ignorata, note"
+      "id, movimentazione_modo, pallet_catalogo_id, pallet_misure_custom, coerenza_ignorata, affidato_produzione, note"
     )
     .eq("ordine_id", ordineId)
     .is("deleted_at", null)
@@ -212,6 +212,9 @@ export async function loadOrdinePerModificaWizardAction(
         : null,
       palletMisureCustom: String(confHead.pallet_misure_custom ?? ""),
       coerenzaIgnorata: Boolean(confHead.coerenza_ignorata),
+      affidatoProduzione: Boolean(
+        (confHead as { affidato_produzione?: boolean | null }).affidato_produzione
+      ),
       note: String(confHead.note ?? ""),
       nodi: buildNodi((nodi ?? []) as Array<Record<string, unknown>>, null),
     };

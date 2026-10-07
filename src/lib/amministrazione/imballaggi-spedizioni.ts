@@ -305,6 +305,12 @@ export type ConfezionamentoNodoDraft = {
   children: ConfezionamentoNodoDraft[];
 };
 
+export const CONFEZIONAMENTO_STANDARD_LABEL =
+  "Confezionamento Standard (Affidato all'operatore di produzione)";
+
+export const CONFEZIONAMENTO_STANDARD_NOTA =
+  "Confezionamento standard affidato all'operatore di produzione. Il commerciale non ha indicato imballi.";
+
 export type ConfezionamentoDraft = {
   movimentazioneModo: OrdineConfezionamentoModo;
   palletCatalogoId: string | null;
@@ -312,6 +318,8 @@ export type ConfezionamentoDraft = {
   nodi: ConfezionamentoNodoDraft[];
   coerenzaIgnorata: boolean;
   note: string;
+  /** Il commerciale non compila gli imballi: li definisce la produzione. */
+  affidatoProduzione?: boolean;
   /** Allineamento pianta: peso per elemento o complessivo (solo carico magazzino). */
   pesoModo?: "per_elemento" | "complessivo";
   pesiElementiKg?: Array<number | "">;
@@ -327,6 +335,7 @@ export function emptyConfezionamentoDraft(): ConfezionamentoDraft {
     nodi: [],
     coerenzaIgnorata: false,
     note: "",
+    affidatoProduzione: false,
     pesoModo: "per_elemento",
     pesiElementiKg: [],
     pesoComplessivoKg: "",
@@ -428,7 +437,18 @@ export function normalizeConfezionamentoDraft(
       children: norm(n.children),
     }));
   }
-  return { ...draft, nodi: norm(draft.nodi) };
+  if (draft.affidatoProduzione) {
+    return {
+      ...draft,
+      affidatoProduzione: true,
+      nodi: [],
+      palletCatalogoId: null,
+      palletMisureCustom: "",
+      coerenzaIgnorata: true,
+      note: CONFEZIONAMENTO_STANDARD_NOTA,
+    };
+  }
+  return { ...draft, nodi: norm(draft.nodi), affidatoProduzione: false };
 }
 
 export function childStadioFor(
@@ -509,6 +529,7 @@ export const confezionamentoDraftSchema = z.object({
   nodi: z.array(confezionamentoNodoSchema),
   coerenzaIgnorata: z.boolean(),
   note: z.string(),
+  affidatoProduzione: z.boolean().optional().default(false),
   pesoModo: z.enum(["per_elemento", "complessivo"]).optional(),
   pesiElementiKg: z.array(z.union([z.number(), z.literal("")])).optional(),
   pesoComplessivoKg: z

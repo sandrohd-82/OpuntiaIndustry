@@ -1343,6 +1343,7 @@ export interface OrdineConfezionamentoRow {
   kg_confezionati: number;
   kg_delta: number;
   coerenza_ignorata: boolean;
+  affidato_produzione?: boolean;
   note: string;
   versione: number;
   documento_stato: "bozza" | "approvato" | "chiuso";
@@ -1364,6 +1365,7 @@ export type OrdineConfezionamentoInsert = {
   kg_confezionati?: number;
   kg_delta?: number;
   coerenza_ignorata?: boolean;
+  affidato_produzione?: boolean;
   note?: string;
   versione?: number;
   documento_stato?: "bozza" | "approvato" | "chiuso";
