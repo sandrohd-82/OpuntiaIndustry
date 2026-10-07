@@ -11,10 +11,15 @@ import {
   SPESE_MAX_BYTES,
   calcolaRigheScontrino,
   spesaRegistrazioneSchema,
+  errorePeriodoPartecipante,
+  partecipanteSpesaSchema,
+  periodiPartecipanteSovrapposti,
   progettoSpesaSchema,
   type AnteprimaSpesa,
   type CategoriaSpesa,
   type PagamentoSpesa,
+  type PartecipanteProgettoView,
+  type SoggettoPartecipanteOption,
   type SpesaDocumentoView,
   type SpesaRigaView,
   type SpesaProgettoView,
@@ -22,6 +27,7 @@ import {
   type StatoSpesa,
   type TipoCaricamentoSpesa,
   type TipoProgettoSpesa,
+  type TipoSoggettoPartecipante,
 } from "@/lib/fiscale/spese";
 import { createClient, createServiceClient } from "@/lib/supabase/server";
 
@@ -558,6 +564,241 @@ export async function listSpeseAction(raw: {
   };
 }
 
+type SpesaDb = Awaited<ReturnType<typeof createClient>>;
+
+type PartecipanteRow = {
+  id: string;
+  soggetto_tipo: TipoSoggettoPartecipante;
+  organigramma_persona_id: string | null;
+  rubrica_contatto_id: string | null;
+  cliente_id: string | null;
+  cliente_possibile_id: string | null;
+  etichetta: string;
+  data_inizio: string;
+  data_fine: string | null;
+};
+
+function idSoggettoRiga(
+  row: Pick<
+    PartecipanteRow,
+    | "soggetto_tipo"
+    | "organigramma_persona_id"
+    | "rubrica_contatto_id"
+    | "cliente_id"
+    | "cliente_possibile_id"
+  >
+): string {
+  if (row.soggetto_tipo === "operatore") return String(row.organigramma_persona_id ?? "");
+  if (row.soggetto_tipo === "referente") return String(row.rubrica_contatto_id ?? "");
+  if (row.soggetto_tipo === "cliente") return String(row.cliente_id ?? "");
+  return String(row.cliente_possibile_id ?? "");
+}
+
+function colonneSoggetto(tipo: TipoSoggettoPartecipante, id: string) {
+  return {
+    organigramma_persona_id: tipo === "operatore" ? id : null,
+    rubrica_contatto_id: tipo === "referente" ? id : null,
+    cliente_id: tipo === "cliente" ? id : null,
+    cliente_possibile_id: tipo === "cliente_possibile" ? id : null,
+  };
+}
+
+async function etichettaSoggetto(
+  tipo: TipoSoggettoPartecipante,
+  id: string
+): Promise<{ etichetta: string } | { error: string }> {
+  const service = createServiceClient();
+  if (tipo === "operatore") {
+    const { data, error } = await service
+      .from("organigramma_persone")
+      .select("nome, cognome, in_forza")
+      .eq("id", id)
+      .is("deleted_at", null)
+      .maybeSingle();
+    if (error) return { error: error.message };
+    if (!data || data.in_forza === false) return { error: "Operatore non disponibile." };
+    const etichetta = `${data.nome ?? ""} ${data.cognome ?? ""}`.trim();
+    return { etichetta: etichetta.slice(0, 200) || "Operatore" };
+  }
+  if (tipo === "referente") {
+    const { data, error } = await service
+      .from("rubrica_contatti")
+      .select("nome, cognome, rapporto")
+      .eq("id", id)
+      .is("deleted_at", null)
+      .maybeSingle();
+    if (error) return { error: error.message };
+    if (!data || data.rapporto !== "referente") return { error: "Referente non disponibile." };
+    const etichetta = `${data.nome ?? ""} ${data.cognome ?? ""}`.trim();
+    return { etichetta: etichetta.slice(0, 200) || "Referente" };
+  }
+  if (tipo === "cliente") {
+    const { data, error } = await service
+      .from("clienti")
+      .select("ragione_sociale")
+      .eq("id", id)
+      .is("deleted_at", null)
+      .maybeSingle();
+    if (error) return { error: error.message };
+    if (!data) return { error: "Cliente non disponibile." };
+    return { etichetta: String(data.ragione_sociale).trim().slice(0, 200) };
+  }
+  const { data, error } = await service
+    .from("clienti_possibili")
+    .select("ragione_sociale, stato")
+    .eq("id", id)
+    .is("deleted_at", null)
+    .maybeSingle();
+  if (error) return { error: error.message };
+  if (!data || data.stato === "scartato" || data.stato === "convertito") {
+    return { error: "Possibile cliente non disponibile." };
+  }
+  return { etichetta: String(data.ragione_sociale).trim().slice(0, 200) };
+}
+
+async function leggiPartecipanti(
+  supabase: SpesaDb,
+  progettoId: string
+): Promise<PartecipanteProgettoView[]> {
+  const { data, error } = await supabase
+    .from("spese_progetti_partecipanti")
+    .select(
+      "id, soggetto_tipo, organigramma_persona_id, rubrica_contatto_id, cliente_id, cliente_possibile_id, etichetta, data_inizio, data_fine"
+    )
+    .eq("progetto_id", progettoId)
+    .is("deleted_at", null)
+    .order("data_inizio", { ascending: true });
+  if (error || !data) return [];
+  const rows = data as PartecipanteRow[];
+  const service = createServiceClient();
+  const vive = new Map<string, string>();
+  const perTipo = (tipo: TipoSoggettoPartecipante) =>
+    rows.filter((row) => row.soggetto_tipo === tipo).map((row) => idSoggettoRiga(row)).filter(Boolean);
+  const [operatori, referenti, clienti, possibili] = await Promise.all([
+    perTipo("operatore").length
+      ? service
+          .from("organigramma_persone")
+          .select("id, nome, cognome")
+          .in("id", perTipo("operatore"))
+      : Promise.resolve({ data: [] as { id: string; nome: string; cognome: string }[] }),
+    perTipo("referente").length
+      ? service.from("rubrica_contatti").select("id, nome, cognome").in("id", perTipo("referente"))
+      : Promise.resolve({ data: [] as { id: string; nome: string; cognome: string }[] }),
+    perTipo("cliente").length
+      ? service.from("clienti").select("id, ragione_sociale").in("id", perTipo("cliente"))
+      : Promise.resolve({ data: [] as { id: string; ragione_sociale: string }[] }),
+    perTipo("cliente_possibile").length
+      ? service
+          .from("clienti_possibili")
+          .select("id, ragione_sociale")
+          .in("id", perTipo("cliente_possibile"))
+      : Promise.resolve({ data: [] as { id: string; ragione_sociale: string }[] }),
+  ]);
+  for (const row of operatori.data ?? []) {
+    vive.set(`operatore:${row.id}`, `${row.nome ?? ""} ${row.cognome ?? ""}`.trim());
+  }
+  for (const row of referenti.data ?? []) {
+    vive.set(`referente:${row.id}`, `${row.nome ?? ""} ${row.cognome ?? ""}`.trim());
+  }
+  for (const row of clienti.data ?? []) {
+    vive.set(`cliente:${row.id}`, String(row.ragione_sociale ?? "").trim());
+  }
+  for (const row of possibili.data ?? []) {
+    vive.set(`cliente_possibile:${row.id}`, String(row.ragione_sociale ?? "").trim());
+  }
+  return rows.map((row) => {
+    const soggettoId = idSoggettoRiga(row);
+    const viva = vive.get(`${row.soggetto_tipo}:${soggettoId}`);
+    return {
+      id: String(row.id),
+      soggettoTipo: row.soggetto_tipo,
+      soggettoId,
+      etichetta: viva || String(row.etichetta),
+      dataInizio: String(row.data_inizio).slice(0, 10),
+      dataFine: row.data_fine ? String(row.data_fine).slice(0, 10) : null,
+    };
+  });
+}
+
+async function inserisciPartecipante(
+  supabase: SpesaDb,
+  userId: string,
+  progetto: {
+    id: string;
+    data_inizio: string;
+    data_fine: string | null;
+    documento_stato: string;
+  },
+  raw: {
+    soggettoTipo: TipoSoggettoPartecipante;
+    soggettoId: string;
+    dataInizio: string;
+    dataFine: string | null;
+  }
+): Promise<{ success: true; id: string; etichetta: string } | { success: false; error: string }> {
+  if (progetto.documento_stato !== "bozza") {
+    return {
+      success: false,
+      error: "I partecipanti si modificano solo finché il progetto è in bozza.",
+    };
+  }
+  const parsed = partecipanteSpesaSchema.safeParse(raw);
+  if (!parsed.success) {
+    return {
+      success: false,
+      error: parsed.error.issues[0]?.message ?? "Partecipante non valido.",
+    };
+  }
+  const periodo = errorePeriodoPartecipante(
+    String(progetto.data_inizio).slice(0, 10),
+    progetto.data_fine ? String(progetto.data_fine).slice(0, 10) : null,
+    parsed.data.dataInizio,
+    parsed.data.dataFine
+  );
+  if (periodo) return { success: false, error: periodo };
+  const soggetto = await etichettaSoggetto(parsed.data.soggettoTipo, parsed.data.soggettoId);
+  if ("error" in soggetto) return { success: false, error: soggetto.error };
+  const { data: gia, error: giaErr } = await supabase
+    .from("spese_progetti_partecipanti")
+    .select(
+      "data_inizio, data_fine, soggetto_tipo, organigramma_persona_id, rubrica_contatto_id, cliente_id, cliente_possibile_id"
+    )
+    .eq("progetto_id", progetto.id)
+    .eq("soggetto_tipo", parsed.data.soggettoTipo)
+    .is("deleted_at", null);
+  if (giaErr) return { success: false, error: giaErr.message };
+  const occupato = (gia ?? []).some((row) => {
+    if (idSoggettoRiga(row as PartecipanteRow) !== parsed.data.soggettoId) return false;
+    return periodiPartecipanteSovrapposti(
+      String(row.data_inizio).slice(0, 10),
+      row.data_fine ? String(row.data_fine).slice(0, 10) : null,
+      parsed.data.dataInizio,
+      parsed.data.dataFine
+    );
+  });
+  if (occupato) {
+    return { success: false, error: "Questo partecipante ha già un periodo che si sovrappone." };
+  }
+  const { data, error } = await supabase
+    .from("spese_progetti_partecipanti")
+    .insert({
+      progetto_id: progetto.id,
+      soggetto_tipo: parsed.data.soggettoTipo,
+      ...colonneSoggetto(parsed.data.soggettoTipo, parsed.data.soggettoId),
+      etichetta: soggetto.etichetta,
+      data_inizio: parsed.data.dataInizio,
+      data_fine: parsed.data.dataFine,
+      created_by: userId,
+      updated_by: userId,
+    })
+    .select("id")
+    .single();
+  if (error || !data) {
+    return { success: false, error: error?.message ?? "Collegamento non riuscito." };
+  }
+  return { success: true, id: String(data.id), etichetta: soggetto.etichetta };
+}
+
 export async function listProgettiSpesaAction(): Promise<
   | { success: true; progetti: SpesaProgettoView[] }
   | { success: false; error: string }
@@ -573,6 +814,7 @@ export async function listProgettiSpesaAction(): Promise<
   const progetti = data ?? [];
   const ids = progetti.map((p) => String(p.id));
   const somme = new Map<string, { n: number; totale: number }>();
+  const presenti = new Map<string, number>();
   if (ids.length) {
     const { data: docs } = await supabase
       .from("spese_documenti")
@@ -586,6 +828,15 @@ export async function listProgettiSpesaAction(): Promise<
       cur.n += 1;
       cur.totale += num(d.totale as number | string);
       somme.set(id, cur);
+    }
+    const { data: parti } = await supabase
+      .from("spese_progetti_partecipanti")
+      .select("progetto_id")
+      .in("progetto_id", ids)
+      .is("deleted_at", null);
+    for (const row of parti ?? []) {
+      const id = String(row.progetto_id ?? "");
+      presenti.set(id, (presenti.get(id) ?? 0) + 1);
     }
   }
   return {
@@ -603,6 +854,7 @@ export async function listProgettiSpesaAction(): Promise<
         documentoStato: p.documento_stato as StatoProgettoSpesa,
         versione: Number(p.versione) || 1,
         conteggioDocumenti: sum?.n ?? 0,
+        conteggioPartecipanti: presenti.get(id) ?? 0,
         totale: roundMoney(sum?.totale ?? 0),
       };
     }),
@@ -614,6 +866,7 @@ export async function dettaglioProgettoSpesaAction(id: string): Promise<
       success: true;
       collegate: SpesaDocumentoView[];
       libere: SpesaDocumentoView[];
+      partecipanti: PartecipanteProgettoView[];
       totaliCategoria: { categoria: CategoriaSpesa; totale: number }[];
     }
   | { success: false; error: string }
@@ -657,6 +910,7 @@ export async function dettaglioProgettoSpesaAction(id: string): Promise<
   return {
     success: true,
     collegate,
+    partecipanti: await leggiPartecipanti(supabase, id),
     libere: ((libereRows ?? []) as DocRow[]).map((r) => vista(r, new Map())),
     totaliCategoria: [...acc.entries()].map(([categoria, totale]) => ({
       categoria,
@@ -671,6 +925,12 @@ export async function creaProgettoSpesaAction(raw: {
   descrizione?: string;
   dataInizio: string;
   dataFine?: string | null;
+  partecipanti?: {
+    soggettoTipo: TipoSoggettoPartecipante;
+    soggettoId: string;
+    dataInizio: string;
+    dataFine?: string | null;
+  }[];
 }): Promise<{ success: true; id: string } | { success: false; error: string }> {
   const { auth } = await requireAreaAccess("area-fiscale");
   const parsed = progettoSpesaSchema.safeParse({
@@ -679,6 +939,12 @@ export async function creaProgettoSpesaAction(raw: {
     descrizione: raw.descrizione ?? "",
     dataInizio: raw.dataInizio,
     dataFine: raw.dataFine || null,
+    partecipanti: (raw.partecipanti ?? []).map((persona) => ({
+      soggettoTipo: persona.soggettoTipo,
+      soggettoId: persona.soggettoId,
+      dataInizio: persona.dataInizio,
+      dataFine: persona.dataFine || null,
+    })),
   });
   if (!parsed.success) {
     return {
@@ -703,15 +969,235 @@ export async function creaProgettoSpesaAction(raw: {
     .select("id")
     .single();
   if (error || !data) return { success: false, error: error?.message ?? "Creazione non riuscita." };
+  const progettoId = String(data.id);
+  for (const persona of parsed.data.partecipanti) {
+    const messo = await inserisciPartecipante(
+      supabase,
+      auth.userId,
+      {
+        id: progettoId,
+        data_inizio: parsed.data.dataInizio,
+        data_fine: parsed.data.dataFine,
+        documento_stato: "bozza",
+      },
+      persona
+    );
+    if (!messo.success) {
+      const nowIso = new Date().toISOString();
+      await supabase
+        .from("spese_progetti_partecipanti")
+        .update({
+          deleted_at: nowIso,
+          deleted_by: auth.userId,
+          updated_by: auth.userId,
+        })
+        .eq("progetto_id", progettoId);
+      await supabase
+        .from("spese_progetti")
+        .update({
+          deleted_at: nowIso,
+          deleted_by: auth.userId,
+          updated_by: auth.userId,
+        })
+        .eq("id", progettoId);
+      await writeAuditLog({
+        entity_type: "spese_progetti",
+        entity_id: progettoId,
+        action: "delete",
+        actor_id: auth.userId,
+        summary: `Creazione annullata: ${parsed.data.titolo}`,
+        payload: { motivo: messo.error },
+      });
+      return { success: false, error: messo.error };
+    }
+  }
   await writeAuditLog({
     entity_type: "spese_progetti",
-    entity_id: data.id,
+    entity_id: progettoId,
     action: "create",
     actor_id: auth.userId,
     summary: `Progetto spesa creato: ${parsed.data.titolo}`,
-    payload: { tipo: parsed.data.tipo, documento_stato: "bozza" },
+    payload: {
+      tipo: parsed.data.tipo,
+      documento_stato: "bozza",
+      partecipanti: parsed.data.partecipanti.length,
+    },
   });
-  return { success: true, id: String(data.id) };
+  return { success: true, id: progettoId };
+}
+
+export async function elencoSoggettiPartecipantiSpesaAction(): Promise<
+  | { success: true; soggetti: SoggettoPartecipanteOption[] }
+  | { success: false; error: string }
+> {
+  await requireAreaAccess("area-fiscale");
+  const service = createServiceClient();
+  const [operatori, referenti, clienti, possibili] = await Promise.all([
+    service
+      .from("organigramma_persone")
+      .select("id, nome, cognome")
+      .is("deleted_at", null)
+      .eq("in_forza", true)
+      .order("cognome"),
+    service
+      .from("rubrica_contatti")
+      .select("id, nome, cognome")
+      .is("deleted_at", null)
+      .eq("rapporto", "referente")
+      .order("cognome"),
+    service
+      .from("clienti")
+      .select("id, ragione_sociale")
+      .is("deleted_at", null)
+      .order("ragione_sociale"),
+    service
+      .from("clienti_possibili")
+      .select("id, ragione_sociale, stato")
+      .is("deleted_at", null)
+      .not("stato", "in", "(scartato,convertito)")
+      .order("ragione_sociale"),
+  ]);
+  const errore = operatori.error || referenti.error || clienti.error || possibili.error;
+  if (errore) return { success: false, error: errore.message };
+  const soggetti: SoggettoPartecipanteOption[] = [
+    ...(operatori.data ?? []).map((row) => ({
+      id: String(row.id),
+      tipo: "operatore" as const,
+      etichetta: `${row.nome ?? ""} ${row.cognome ?? ""}`.trim(),
+    })),
+    ...(referenti.data ?? []).map((row) => ({
+      id: String(row.id),
+      tipo: "referente" as const,
+      etichetta: `${row.nome ?? ""} ${row.cognome ?? ""}`.trim(),
+    })),
+    ...(clienti.data ?? []).map((row) => ({
+      id: String(row.id),
+      tipo: "cliente" as const,
+      etichetta: String(row.ragione_sociale ?? "").trim(),
+    })),
+    ...(possibili.data ?? []).map((row) => ({
+      id: String(row.id),
+      tipo: "cliente_possibile" as const,
+      etichetta: String(row.ragione_sociale ?? "").trim(),
+    })),
+  ].filter((soggetto) => soggetto.etichetta.length > 0);
+  return { success: true, soggetti };
+}
+
+export async function aggiungiPartecipanteProgettoAction(raw: {
+  progettoId: string;
+  soggettoTipo: TipoSoggettoPartecipante;
+  soggettoId: string;
+  dataInizio: string;
+  dataFine?: string | null;
+}): Promise<{ success: true } | { success: false; error: string }> {
+  const { auth } = await requireAreaAccess("area-fiscale");
+  if (!raw.progettoId) return { success: false, error: "Progetto mancante." };
+  const supabase = await createClient();
+  const { data: progetto } = await supabase
+    .from("spese_progetti")
+    .select("id, titolo, data_inizio, data_fine, documento_stato, versione")
+    .eq("id", raw.progettoId)
+    .is("deleted_at", null)
+    .maybeSingle();
+  if (!progetto) return { success: false, error: "Progetto non trovato." };
+  const messo = await inserisciPartecipante(
+    supabase,
+    auth.userId,
+    {
+      id: String(progetto.id),
+      data_inizio: String(progetto.data_inizio),
+      data_fine: progetto.data_fine ? String(progetto.data_fine) : null,
+      documento_stato: String(progetto.documento_stato),
+    },
+    {
+      soggettoTipo: raw.soggettoTipo,
+      soggettoId: raw.soggettoId,
+      dataInizio: raw.dataInizio,
+      dataFine: raw.dataFine || null,
+    }
+  );
+  if (!messo.success) return messo;
+  await supabase
+    .from("spese_progetti")
+    .update({
+      versione: Number(progetto.versione) + 1,
+      updated_by: auth.userId,
+    })
+    .eq("id", progetto.id)
+    .eq("documento_stato", "bozza");
+  await writeAuditLog({
+    entity_type: "spese_progetti",
+    entity_id: String(progetto.id),
+    action: "update",
+    actor_id: auth.userId,
+    summary: `Partecipante aggiunto a ${progetto.titolo}: ${messo.etichetta}`,
+    payload: {
+      partecipante_id: messo.id,
+      soggetto_tipo: raw.soggettoTipo,
+      soggetto_id: raw.soggettoId,
+      data_inizio: raw.dataInizio,
+      data_fine: raw.dataFine || null,
+    },
+  });
+  return { success: true };
+}
+
+export async function rimuoviPartecipanteProgettoAction(input: {
+  progettoId: string;
+  partecipanteId: string;
+}): Promise<{ success: true } | { success: false; error: string }> {
+  const { auth } = await requireAreaAccess("area-fiscale");
+  const supabase = await createClient();
+  const { data: progetto } = await supabase
+    .from("spese_progetti")
+    .select("id, titolo, documento_stato, versione")
+    .eq("id", input.progettoId)
+    .is("deleted_at", null)
+    .maybeSingle();
+  if (!progetto) return { success: false, error: "Progetto non trovato." };
+  if (progetto.documento_stato !== "bozza") {
+    return {
+      success: false,
+      error: "I partecipanti si modificano solo finché il progetto è in bozza.",
+    };
+  }
+  const { data: row } = await supabase
+    .from("spese_progetti_partecipanti")
+    .select("id, etichetta")
+    .eq("id", input.partecipanteId)
+    .eq("progetto_id", input.progettoId)
+    .is("deleted_at", null)
+    .maybeSingle();
+  if (!row) return { success: false, error: "Partecipante non trovato." };
+  const nowIso = new Date().toISOString();
+  const { error } = await supabase
+    .from("spese_progetti_partecipanti")
+    .update({
+      deleted_at: nowIso,
+      deleted_by: auth.userId,
+      updated_by: auth.userId,
+    })
+    .eq("id", row.id)
+    .is("deleted_at", null);
+  if (error) return { success: false, error: error.message };
+  await supabase
+    .from("spese_progetti")
+    .update({
+      versione: Number(progetto.versione) + 1,
+      updated_by: auth.userId,
+    })
+    .eq("id", progetto.id)
+    .eq("documento_stato", "bozza");
+  await writeAuditLog({
+    entity_type: "spese_progetti",
+    entity_id: String(progetto.id),
+    action: "update",
+    actor_id: auth.userId,
+    summary: `Partecipante tolto da ${progetto.titolo}: ${row.etichetta}`,
+    payload: { partecipante_id: row.id, etichetta: row.etichetta },
+  });
+  return { success: true };
 }
 
 export async function approvaProgettoSpesaAction(

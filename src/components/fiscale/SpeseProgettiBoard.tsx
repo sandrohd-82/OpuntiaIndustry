@@ -2,18 +2,27 @@
 
 import { useEffect, useState, useTransition } from "react";
 import {
+  aggiungiPartecipanteProgettoAction,
   approvaProgettoSpesaAction,
   collegaSpeseProgettoAction,
   contabilizzaProgettoSpesaAction,
   creaProgettoSpesaAction,
   dettaglioProgettoSpesaAction,
+  elencoSoggettiPartecipantiSpesaAction,
   listProgettiSpesaAction,
+  rimuoviPartecipanteProgettoAction,
 } from "@/app/actions/spese";
 import { formatDateIt, formatEuro } from "@/lib/amministrazione/fatture";
+import {
+  PartecipantiProgettoCampo,
+  type VocePartecipante,
+} from "@/components/fiscale/PartecipantiProgettoCampo";
 import {
   LABEL_CATEGORIA_SPESA,
   LABEL_STATO_PROGETTO,
   LABEL_TIPO_PROGETTO,
+  errorePeriodoPartecipante,
+  type SoggettoPartecipanteOption,
   type SpesaDocumentoView,
   type SpesaProgettoView,
   type TipoProgettoSpesa,
@@ -28,6 +37,9 @@ export function SpeseProgettiBoard() {
   const [collegate, setCollegate] = useState<SpesaDocumentoView[]>([]);
   const [libere, setLibere] = useState<SpesaDocumentoView[]>([]);
   const [totali, setTotali] = useState<{ categoria: string; totale: number }[]>([]);
+  const [partecipanti, setPartecipanti] = useState<VocePartecipante[]>([]);
+  const [bozzaPartecipanti, setBozzaPartecipanti] = useState<VocePartecipante[]>([]);
+  const [soggetti, setSoggetti] = useState<SoggettoPartecipanteOption[]>([]);
   const [selezionate, setSelezionate] = useState<string[]>([]);
   const [tipo, setTipo] = useState<TipoProgettoSpesa>("trasferta");
   const [titolo, setTitolo] = useState("");
@@ -40,6 +52,8 @@ export function SpeseProgettiBoard() {
 
   function caricaElenco(seleziona?: string) {
     start(async () => {
+      const soggettiRes = await elencoSoggettiPartecipantiSpesaAction();
+      if (soggettiRes.success) setSoggetti(soggettiRes.soggetti);
       const res = await listProgettiSpesaAction();
       if (!res.success) {
         setErrore(res.error);
@@ -61,6 +75,16 @@ export function SpeseProgettiBoard() {
     setCollegate(res.collegate);
     setLibere(res.libere);
     setTotali(res.totaliCategoria);
+    setPartecipanti(
+      res.partecipanti.map((persona) => ({
+        chiave: persona.id,
+        soggettoTipo: persona.soggettoTipo,
+        soggettoId: persona.soggettoId,
+        etichetta: persona.etichetta,
+        dataInizio: persona.dataInizio,
+        dataFine: persona.dataFine,
+      }))
+    );
     setSelezionate([]);
   }
 
@@ -74,6 +98,18 @@ export function SpeseProgettiBoard() {
   function crea() {
     setErrore(null);
     setMsg(null);
+    for (const persona of bozzaPartecipanti) {
+      const msgPeriodo = errorePeriodoPartecipante(
+        dataInizio,
+        dataFine || null,
+        persona.dataInizio,
+        persona.dataFine
+      );
+      if (msgPeriodo) {
+        setErrore(`${persona.etichetta}: ${msgPeriodo}`);
+        return;
+      }
+    }
     start(async () => {
       const res = await creaProgettoSpesaAction({
         tipo,
@@ -81,6 +117,12 @@ export function SpeseProgettiBoard() {
         descrizione,
         dataInizio,
         dataFine: dataFine || null,
+        partecipanti: bozzaPartecipanti.map((persona) => ({
+          soggettoTipo: persona.soggettoTipo,
+          soggettoId: persona.soggettoId,
+          dataInizio: persona.dataInizio,
+          dataFine: persona.dataFine,
+        })),
       });
       if (!res.success) {
         setErrore(res.error);
@@ -89,6 +131,7 @@ export function SpeseProgettiBoard() {
       setTitolo("");
       setDescrizione("");
       setDataFine("");
+      setBozzaPartecipanti([]);
       setMsg("Progetto creato in bozza.");
       const elenco = await listProgettiSpesaAction();
       if (!elenco.success) return;
@@ -154,7 +197,7 @@ export function SpeseProgettiBoard() {
   }
 
   return (
-    <div className="grid gap-4 lg:grid-cols-[280px_minmax(0,1fr)]">
+    <div className="grid gap-4 lg:grid-cols-[minmax(280px,380px)_minmax(0,1fr)]">
       <section className="space-y-3 rounded-xl border border-[var(--border)] bg-[var(--card)] p-4">
         <h2 className="text-sm font-medium">Nuovo progetto o viaggio</h2>
         <select className={field} value={tipo} onChange={(e) => setTipo(e.target.value as TipoProgettoSpesa)}>
@@ -185,6 +228,32 @@ export function SpeseProgettiBoard() {
           placeholder="Descrizione"
           value={descrizione}
           onChange={(e) => setDescrizione(e.target.value)}
+        />
+        <PartecipantiProgettoCampo
+          progettoInizio={dataInizio}
+          progettoFine={dataFine}
+          soggetti={soggetti}
+          voci={bozzaPartecipanti}
+          solaLettura={false}
+          pending={pending}
+          onAggiungi={(input) => {
+            const etichetta =
+              soggetti.find(
+                (soggetto) =>
+                  soggetto.tipo === input.soggettoTipo && soggetto.id === input.soggettoId
+              )?.etichetta ?? "Partecipante";
+            setBozzaPartecipanti((prev) => [
+              ...prev,
+              {
+                chiave: crypto.randomUUID(),
+                etichetta,
+                ...input,
+              },
+            ]);
+          }}
+          onRimuovi={(chiave) =>
+            setBozzaPartecipanti((prev) => prev.filter((voce) => voce.chiave !== chiave))
+          }
         />
         <button
           type="button"
@@ -240,7 +309,7 @@ export function SpeseProgettiBoard() {
                 {formatDateIt(progetto.dataInizio)}
                 {progetto.dataFine ? ` – ${formatDateIt(progetto.dataFine)}` : ""}
                 {" · "}
-                {progetto.conteggioDocumenti} documenti · {formatEuro(progetto.totale)}
+                {progetto.conteggioPartecipanti} partecipanti · {progetto.conteggioDocumenti} documenti · {formatEuro(progetto.totale)}
               </p>
               {progetto.descrizione ? (
                 <p className="mt-2 text-sm">{progetto.descrizione}</p>
@@ -267,6 +336,53 @@ export function SpeseProgettiBoard() {
                   </button>
                 ) : null}
               </div>
+            </div>
+
+            <div className="rounded-xl border border-[var(--border)] bg-white p-4">
+              <PartecipantiProgettoCampo
+                progettoInizio={progetto.dataInizio}
+                progettoFine={progetto.dataFine ?? ""}
+                soggetti={soggetti}
+                voci={partecipanti}
+                solaLettura={progetto.documentoStato !== "bozza"}
+                pending={pending}
+                onAggiungi={(input) => {
+                  if (!scelto) return;
+                  setErrore(null);
+                  start(async () => {
+                    const res = await aggiungiPartecipanteProgettoAction({
+                      progettoId: scelto,
+                      ...input,
+                    });
+                    if (!res.success) {
+                      setErrore(res.error);
+                      return;
+                    }
+                    setMsg("Partecipante aggiunto.");
+                    await caricaDettaglio(scelto);
+                    const elenco = await listProgettiSpesaAction();
+                    if (elenco.success) setProgetti(elenco.progetti);
+                  });
+                }}
+                onRimuovi={(chiave) => {
+                  if (!scelto) return;
+                  setErrore(null);
+                  start(async () => {
+                    const res = await rimuoviPartecipanteProgettoAction({
+                      progettoId: scelto,
+                      partecipanteId: chiave,
+                    });
+                    if (!res.success) {
+                      setErrore(res.error);
+                      return;
+                    }
+                    setMsg("Partecipante tolto.");
+                    await caricaDettaglio(scelto);
+                    const elenco = await listProgettiSpesaAction();
+                    if (elenco.success) setProgetti(elenco.progetti);
+                  });
+                }}
+              />
             </div>
 
             <div className="rounded-xl border border-[var(--border)] bg-white p-4">

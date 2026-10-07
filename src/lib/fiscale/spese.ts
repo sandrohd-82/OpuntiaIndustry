@@ -36,6 +36,12 @@ export const STATI_SPESA = [
 
 export const STATI_PROGETTO_SPESA = ["bozza", "approvato", "chiuso"] as const;
 export const TIPI_PROGETTO_SPESA = ["progetto", "trasferta"] as const;
+export const TIPI_SOGGETTO_PARTECIPANTE = [
+  "operatore",
+  "referente",
+  "cliente",
+  "cliente_possibile",
+] as const;
 
 export type CategoriaSpesa = (typeof CATEGORIE_SPESA)[number];
 export type PagamentoSpesa = (typeof PAGAMENTI_SPESA)[number];
@@ -43,6 +49,7 @@ export type TipoCaricamentoSpesa = (typeof TIPI_CARICAMENTO_SPESA)[number];
 export type StatoSpesa = (typeof STATI_SPESA)[number];
 export type StatoProgettoSpesa = (typeof STATI_PROGETTO_SPESA)[number];
 export type TipoProgettoSpesa = (typeof TIPI_PROGETTO_SPESA)[number];
+export type TipoSoggettoPartecipante = (typeof TIPI_SOGGETTO_PARTECIPANTE)[number];
 
 const CATEGORIE_CON_CAUSALE = new Set<CategoriaSpesa>([
   "cancelleria",
@@ -94,6 +101,65 @@ export const LABEL_TIPO_PROGETTO: Record<TipoProgettoSpesa, string> = {
   progetto: "Progetto",
   trasferta: "Viaggio di lavoro",
 };
+
+export const LABEL_SOGGETTO_PARTECIPANTE: Record<TipoSoggettoPartecipante, string> = {
+  operatore: "Operatore",
+  referente: "Referente",
+  cliente: "Cliente",
+  cliente_possibile: "Possibile cliente",
+};
+
+/** Null se il giorno o l'arco sta dentro le date del progetto. */
+export function errorePeriodoPartecipante(
+  progettoInizio: string,
+  progettoFine: string | null,
+  inizio: string,
+  fine: string | null
+): string | null {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(progettoInizio) || !/^\d{4}-\d{2}-\d{2}$/.test(inizio)) {
+    return "Data non valida.";
+  }
+  if (fine && !/^\d{4}-\d{2}-\d{2}$/.test(fine)) return "Data fine non valida.";
+  if (fine && fine < inizio) return "La data fine non può precedere l'inizio.";
+  if (inizio < progettoInizio) {
+    return "La data del partecipante precede l'inizio del progetto.";
+  }
+  if (progettoFine && (fine ?? inizio) > progettoFine) {
+    return "Il periodo del partecipante esce dalle date del progetto.";
+  }
+  return null;
+}
+
+export function periodiPartecipanteSovrapposti(
+  aInizio: string,
+  aFine: string | null,
+  bInizio: string,
+  bFine: string | null
+): boolean {
+  const aEnd = aFine ?? aInizio;
+  const bEnd = bFine ?? bInizio;
+  return aInizio <= bEnd && bInizio <= aEnd;
+}
+
+export const partecipanteSpesaSchema = z
+  .object({
+    soggettoTipo: z.enum(TIPI_SOGGETTO_PARTECIPANTE),
+    soggettoId: z.string().uuid("Scegli un partecipante."),
+    dataInizio: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Data del partecipante non valida."),
+    dataFine: z
+      .string()
+      .regex(/^\d{4}-\d{2}-\d{2}$/)
+      .nullable(),
+  })
+  .superRefine((value, ctx) => {
+    if (value.dataFine && value.dataFine < value.dataInizio) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["dataFine"],
+        message: "La data fine non può precedere l'inizio.",
+      });
+    }
+  });
 
 const categoriaSchema = z.enum(CATEGORIE_SPESA);
 const pagamentoSchema = z.enum(PAGAMENTI_SPESA);
@@ -196,6 +262,7 @@ export const progettoSpesaSchema = z
       .regex(/^\d{4}-\d{2}-\d{2}$/)
       .nullable()
       .default(null),
+    partecipanti: z.array(partecipanteSpesaSchema).max(80).default([]),
   })
   .superRefine((value, ctx) => {
     if (value.dataFine && value.dataFine < value.dataInizio) {
@@ -205,6 +272,39 @@ export const progettoSpesaSchema = z
         message: "La data fine non può precedere l'inizio.",
       });
     }
+    value.partecipanti.forEach((persona, index) => {
+      const msg = errorePeriodoPartecipante(
+        value.dataInizio,
+        value.dataFine,
+        persona.dataInizio,
+        persona.dataFine
+      );
+      if (msg) {
+        ctx.addIssue({
+          code: "custom",
+          path: ["partecipanti", index, "dataInizio"],
+          message: msg,
+        });
+      }
+      const sovrapposto = value.partecipanti.slice(0, index).some(
+        (altro) =>
+          altro.soggettoTipo === persona.soggettoTipo &&
+          altro.soggettoId === persona.soggettoId &&
+          periodiPartecipanteSovrapposti(
+            altro.dataInizio,
+            altro.dataFine,
+            persona.dataInizio,
+            persona.dataFine
+          )
+      );
+      if (sovrapposto) {
+        ctx.addIssue({
+          code: "custom",
+          path: ["partecipanti", index, "soggettoId"],
+          message: "Questo partecipante ha già un periodo che si sovrappone.",
+        });
+      }
+    });
   });
 
 export type SpesaDocumentoView = {
@@ -329,7 +429,23 @@ export type SpesaProgettoView = {
   documentoStato: StatoProgettoSpesa;
   versione: number;
   conteggioDocumenti: number;
+  conteggioPartecipanti: number;
   totale: number;
+};
+
+export type SoggettoPartecipanteOption = {
+  id: string;
+  tipo: TipoSoggettoPartecipante;
+  etichetta: string;
+};
+
+export type PartecipanteProgettoView = {
+  id: string;
+  soggettoTipo: TipoSoggettoPartecipante;
+  soggettoId: string;
+  etichetta: string;
+  dataInizio: string;
+  dataFine: string | null;
 };
 
 export type RigaLetturaSpesa = {
