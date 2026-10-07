@@ -1,7 +1,7 @@
 "use server";
 
 import { loadIndirizzoRicezioneMerce } from "@/app/actions/anagrafica-extra";
-import { createClient } from "@/lib/supabase/server";
+import { createClient, createServiceClient } from "@/lib/supabase/server";
 import { assegnaLottoProduzioneDaMagazzino } from "@/app/actions/lotto-produzione-magazzino";
 import { calcolaConsegnaOrdineAction } from "@/app/actions/produzione-capacita";
 import {
@@ -55,6 +55,9 @@ import {
 import { accordoForzato } from "@/lib/amministrazione/accordi-prezzo";
 import { prezzoNettoDaSconto } from "@/lib/amministrazione/sconto-fuori-listino";
 import { getPreventivoProdottoContestoAction } from "@/app/actions/preventivi";
+import { elencoProfiliCalcoloSpedizioni } from "@/app/actions/ordine-calcolo-spedizione";
+import { risolviSpedizioneOrdineDiretto } from "@/lib/amministrazione/ordine-calcolo-spedizione";
+import { dispatchNotifiche } from "@/lib/notifiche/dispatch";
 import {
   CONFEZIONE_SISTEMA,
   pianoConfezionamento,
@@ -1312,12 +1315,14 @@ async function createOrdineWizardActionInner(
       stato: string;
       giorni: string[];
       scontoPct: number;
+      modalitaPrecedente: string;
+      calcolataBy: string | null;
     } | null = null;
     if (input.ordineId) {
       const { data: prev, error: prevErr } = await supabase
         .from("ordini")
         .select(
-          "id, numero_interno, versione, stato, tipo, giorni_produzione, sconto_extra_pct, deleted_at"
+          "id, numero_interno, versione, stato, tipo, giorni_produzione, sconto_extra_pct, modalita_spedizione_prezzo, spedizione_calcolata_by, deleted_at"
         )
         .eq("id", input.ordineId)
         .maybeSingle();
@@ -1352,6 +1357,13 @@ async function createOrdineWizardActionInner(
           ? prev.giorni_produzione.map((d: unknown) => String(d))
           : [],
         scontoPct: Number(prev.sconto_extra_pct ?? 0),
+        modalitaPrecedente: String(
+          (prev as { modalita_spedizione_prezzo?: string | null })
+            .modalita_spedizione_prezzo ?? "non_applicabile"
+        ),
+        calcolataBy:
+          (prev as { spedizione_calcolata_by?: string | null })
+            .spedizione_calcolata_by ?? null,
       };
     }
     if (input.preventivoId && !campionaturaGratis) {
@@ -1426,6 +1438,57 @@ async function createOrdineWizardActionInner(
       }
     }
 
+    const spedizione = risolviSpedizioneOrdineDiretto({
+      campionatura: campionaturaGratis,
+      preventivoId: campionaturaGratis ? null : (input.preventivoId ?? null),
+      aCarico: input.spedizioneACarico,
+      modalitaRichiesta: input.modalitaSpedizionePrezzo,
+      importo: input.spedizioneImporto,
+      ivaModo: input.spedizioneIvaModo,
+    });
+    if (!spedizione.ok) return { success: false, error: spedizione.error };
+    const passaInAttesaCalcolo =
+      spedizione.modalita === "richiesto" &&
+      editing?.modalitaPrecedente !== "richiesto";
+    if (
+      editing?.calcolataBy &&
+      editing.modalitaPrecedente === "inserito" &&
+      spedizione.modalita === "richiesto"
+    ) {
+      return {
+        success: false,
+        error:
+          "Il costo di spedizione è già stato confermato. La fattura si crea dall'ordine e parte solo con un invio esplicito.",
+      };
+    }
+    let incaricatiCalcolo: string[] = [];
+    if (passaInAttesaCalcolo) {
+      incaricatiCalcolo = await elencoProfiliCalcoloSpedizioni();
+      if (!incaricatiCalcolo.length) {
+        return {
+          success: false,
+          error:
+            "Nessuna persona è assegnata a Calcolo spedizioni. Impostala in Impostazioni, Compiti e adempimenti.",
+        };
+      }
+      if (editing) {
+        const service = createServiceClient();
+        const { data: fatturaGia } = await service
+          .from("fatture_emesse")
+          .select("id")
+          .eq("ordine_id", editing.id)
+          .is("deleted_at", null)
+          .limit(1);
+        if ((fatturaGia ?? []).length > 0) {
+          return {
+            success: false,
+            error:
+              "C'è già un documento fiscale su questo ordine: non si può rimettere in attesa di calcolo.",
+          };
+        }
+      }
+    }
+
     const accettazioneOrdine = await decisioneAccettazioneSenior({
       clienteId: resolved.clienteId,
       possibileClienteId: resolved.possibileClienteId,
@@ -1449,8 +1512,8 @@ async function createOrdineWizardActionInner(
         : null,
       origine_storico: null,
       trasporto_azienda: "",
-      trasporto_imponibile: 0,
-      trasporto_iva_percentuale: 22,
+      trasporto_imponibile: spedizione.trasportoImponibile,
+      trasporto_iva_percentuale: spedizione.trasportoIva,
       importo_euro: importo,
       note: input.note?.trim() ?? "",
       tipo_pagamento: input.tipoPagamento,
@@ -1510,6 +1573,9 @@ async function createOrdineWizardActionInner(
         input.spedizioneACarico === "diviso"
           ? (input.spedizionePctAgrinsicilia ?? null)
           : null,
+      modalita_spedizione_prezzo: spedizione.modalita,
+      spedizione_importo: spedizione.importo,
+      spedizione_iva_modo: spedizione.ivaModo,
       destinatario: destSped.destinatario,
       indirizzo_spedizione: destSped.indirizzo,
       preventivo_id: campionaturaGratis ? null : (input.preventivoId ?? null),
@@ -1779,6 +1845,8 @@ async function createOrdineWizardActionInner(
         stato: ordineSospeso ? "sospeso" : "in_attesa",
         consegna_tipo: input.consegnaTipo,
         spedizione_a_carico: input.spedizioneACarico,
+        modalita_spedizione_prezzo: spedizione.modalita,
+        spedizione_importo: spedizione.importo,
         preventivo_id: input.preventivoId ?? null,
         sconto_extra_pct: scontoVal.pct,
         sconto_fascia: scontoVal.fascia,
@@ -1787,6 +1855,21 @@ async function createOrdineWizardActionInner(
         sconto_quota_commerciale_pct: suddivisione.value.quotaCommercialePct,
       },
     });
+
+    if (passaInAttesaCalcolo) {
+      await dispatchNotifiche({
+        actorId: auth.userId,
+        includeActor: true,
+        recipientIds: incaricatiCalcolo,
+        tipo: "attivita",
+        title: "Calcolo spedizione urgente",
+        body: `Ordine ${numeroInterno} per ${input.cliente.trim()}: inserisci il costo di spedizione e confermalo. Non parte né la fattura né alcuna mail.`,
+        href: "/app/amministrazione/ordini/preventivi",
+        entityType: "ordini",
+        entityId: row.id,
+        payload: { priorita: "urgente", compito: "calcolo_spedizioni", invio_cliente: false },
+      });
+    }
 
     const ordine = await loadOrdineWithRighe(row.id);
     if (!ordine) {

@@ -1027,6 +1027,11 @@ export interface OrdineRow {
   corriere_da_compilare: boolean;
   spedizione_a_carico: "cliente" | "agrinsicilia" | "diviso" | null;
   spedizione_pct_agrinsicilia: number | null;
+  modalita_spedizione_prezzo?: "non_applicabile" | "inserito" | "richiesto";
+  spedizione_importo?: number;
+  spedizione_iva_modo?: "compreso" | "piu_iva";
+  spedizione_calcolata_at?: string | null;
+  spedizione_calcolata_by?: string | null;
   giorni_produzione: string[];
   sede_partenza_id?: string | null;
   destinatario?: string;
@@ -1107,6 +1112,11 @@ export interface OrdineInsert {
   corriere_da_compilare?: boolean;
   spedizione_a_carico?: "cliente" | "agrinsicilia" | "diviso" | null;
   spedizione_pct_agrinsicilia?: number | null;
+  modalita_spedizione_prezzo?: "non_applicabile" | "inserito" | "richiesto";
+  spedizione_importo?: number;
+  spedizione_iva_modo?: "compreso" | "piu_iva";
+  spedizione_calcolata_at?: string | null;
+  spedizione_calcolata_by?: string | null;
   giorni_produzione?: string[];
   destinatario?: string;
   indirizzo_spedizione?: string;
@@ -1175,6 +1185,11 @@ export interface OrdineUpdate {
   corriere_da_compilare?: boolean;
   spedizione_a_carico?: "cliente" | "agrinsicilia" | "diviso" | null;
   spedizione_pct_agrinsicilia?: number | null;
+  modalita_spedizione_prezzo?: "non_applicabile" | "inserito" | "richiesto";
+  spedizione_importo?: number;
+  spedizione_iva_modo?: "compreso" | "piu_iva";
+  spedizione_calcolata_at?: string | null;
+  spedizione_calcolata_by?: string | null;
   giorni_produzione?: string[];
   destinatario?: string;
   indirizzo_spedizione?: string;

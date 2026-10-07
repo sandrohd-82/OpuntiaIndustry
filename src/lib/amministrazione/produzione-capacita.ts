@@ -170,6 +170,12 @@ export const ordineWizardInputSchema = z
       .enum(["cliente", "agrinsicilia", "diviso"])
       .default("cliente"),
     spedizionePctAgrinsicilia: z.number().min(0).max(100).nullable().optional(),
+    modalitaSpedizionePrezzo: z
+      .enum(["non_applicabile", "inserito", "richiesto"])
+      .optional()
+      .default("inserito"),
+    spedizioneImporto: z.number().min(0).optional().default(0),
+    spedizioneIvaModo: z.enum(["compreso", "piu_iva"]).optional().default("piu_iva"),
     destinatario: z.string().trim().max(200).optional().default(""),
     indirizzoSpedizione: z.string().trim().max(500).optional().default(""),
     giorniProduzione: z

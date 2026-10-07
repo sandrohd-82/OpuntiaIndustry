@@ -46,6 +46,9 @@ export type OrdineWizardModifica = {
   corriereDaCompilare: boolean;
   spedizioneACarico: "cliente" | "agrinsicilia" | "diviso";
   spedizionePctAgrinsicilia: number | null;
+  modalitaSpedizionePrezzo: "non_applicabile" | "inserito" | "richiesto";
+  spedizioneImporto: number;
+  spedizioneIvaModo: "compreso" | "piu_iva";
   destinatario: string;
   indirizzoSpedizione: string;
   preventivoId: string | null;
@@ -357,6 +360,15 @@ export async function loadOrdinePerModificaWizardAction(
         ordine.spedizione_pct_agrinsicilia == null
           ? null
           : Number(ordine.spedizione_pct_agrinsicilia),
+      modalitaSpedizionePrezzo: (
+        ordine.modalita_spedizione_prezzo === "richiesto" ||
+        ordine.modalita_spedizione_prezzo === "inserito"
+          ? ordine.modalita_spedizione_prezzo
+          : "non_applicabile"
+      ) as "non_applicabile" | "inserito" | "richiesto",
+      spedizioneImporto: Number(ordine.spedizione_importo ?? 0),
+      spedizioneIvaModo:
+        ordine.spedizione_iva_modo === "compreso" ? "compreso" : "piu_iva",
       destinatario: String(ordine.destinatario ?? ""),
       indirizzoSpedizione: String(ordine.indirizzo_spedizione ?? ""),
       preventivoId: ordine.preventivo_id ? String(ordine.preventivo_id) : null,

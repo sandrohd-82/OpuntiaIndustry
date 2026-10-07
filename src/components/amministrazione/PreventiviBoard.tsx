@@ -13,6 +13,7 @@ import {
 } from "@/app/actions/preventivi";
 import { createClient } from "@/lib/supabase/client";
 import { PreventivoCalcoloSpedizioneSheet } from "@/components/amministrazione/PreventivoCalcoloSpedizioneSheet";
+import { OrdiniAttesaCalcoloSpedizione } from "@/components/amministrazione/OrdineCalcoloSpedizioneSheet";
 import { PreventivoFormModal } from "@/components/amministrazione/PreventivoFormModal";
 import { AccettazioneSeniorBar } from "@/components/amministrazione/AccettazioneSeniorBar";
 import { accettazioneSeniorBloccaInvio } from "@/lib/amministrazione/accettazione-senior";
@@ -147,7 +148,7 @@ export function PreventiviBoard({
           {archivio
             ? "Preventivi creati da più di 30 giorni. Da completare, Inviati e Accettati sono raccolte di questa pagina."
             : raccolta === "da_completare"
-              ? "Bozze e preventivi in attesa del costo spedizione. Restano qui 30 giorni dalla creazione, poi passano in Archivio."
+              ? "Bozze e preventivi in attesa del costo spedizione. Gli ordini diretti in attesa dello stesso calcolo sono nel riquadro sopra. Restano qui 30 giorni dalla creazione, poi passano in Archivio."
               : raccolta === "inviati"
                 ? "Preventivi inviati o respinti. Restano qui 30 giorni dalla creazione, poi passano in Archivio."
                 : "Preventivi accettati. Restano qui 30 giorni dalla creazione, poi passano in Archivio."}
@@ -176,6 +177,8 @@ export function PreventiviBoard({
           {notice}
         </p>
       ) : null}
+
+      {archivio ? null : <OrdiniAttesaCalcoloSpedizione />}
 
       {items.length === 0 ? (
         <div className="rounded-xl border border-dashed border-[var(--border)] bg-[var(--card)] p-10 text-center">

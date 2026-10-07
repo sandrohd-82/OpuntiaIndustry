@@ -9,6 +9,7 @@ import {
 } from "@/lib/amministrazione/fattura-a4-documento";
 import { buildFatturaA4PdfBlob } from "@/lib/amministrazione/fattura-a4-pdf";
 import { requireAnyAreaAccess } from "@/lib/areas/guard";
+import { motivoBloccoInvioClienteOrdine } from "@/app/actions/ordine-calcolo-spedizione";
 import { createClient, createServiceClient } from "@/lib/supabase/server";
 import { persistMessaggioAttachments } from "@/lib/webmail/attachments";
 import { sendMailViaAccount } from "@/lib/webmail/sync";
@@ -70,7 +71,7 @@ export async function inviaFatturaDaWebmailAction(
   const { data: fattura, error: fatErr } = await supabase
     .from("fatture_emesse")
     .select(
-      "id, numero_fattura, numero_documento_esterno, data_emissione, note, cliente_id, cliente_ragione_sociale, destinatario_snapshot, tipo_documento"
+      "id, numero_fattura, numero_documento_esterno, data_emissione, note, cliente_id, ordine_id, cliente_ragione_sociale, destinatario_snapshot, tipo_documento"
     )
     .eq("id", input.fatturaId)
     .is("deleted_at", null)
@@ -78,6 +79,10 @@ export async function inviaFatturaDaWebmailAction(
   if (fatErr || !fattura) {
     return { success: false, error: fatErr?.message ?? "Fattura non trovata." };
   }
+  const bloccoSpedizione = await motivoBloccoInvioClienteOrdine(
+    (fattura as { ordine_id?: string | null }).ordine_id
+  );
+  if (bloccoSpedizione) return { success: false, error: bloccoSpedizione };
   const { data: cliente } = await supabase
     .from("clienti")
     .select(

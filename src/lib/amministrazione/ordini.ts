@@ -191,6 +191,9 @@ export type Ordine = {
   corriereDaCompilare: boolean;
   spedizioneACarico: "cliente" | "agrinsicilia" | "diviso" | null;
   spedizionePctAgrinsicilia: number | null;
+  modalitaSpedizionePrezzo: "non_applicabile" | "inserito" | "richiesto";
+  spedizioneImporto: number;
+  spedizioneIvaModo: "compreso" | "piu_iva";
   giorniProduzione: string[];
   capacitaSnapshot: Record<string, unknown>;
   isTest: boolean;
@@ -471,6 +474,14 @@ export function mapOrdineRow(
       row.spedizione_pct_agrinsicilia == null
         ? null
         : Number(row.spedizione_pct_agrinsicilia),
+    modalitaSpedizionePrezzo:
+      row.modalita_spedizione_prezzo === "inserito" ||
+      row.modalita_spedizione_prezzo === "richiesto"
+        ? row.modalita_spedizione_prezzo
+        : "non_applicabile",
+    spedizioneImporto: Number(row.spedizione_importo ?? 0),
+    spedizioneIvaModo:
+      row.spedizione_iva_modo === "compreso" ? "compreso" : "piu_iva",
     giorniProduzione: Array.isArray(row.giorni_produzione)
       ? row.giorni_produzione.map((g) => String(g))
       : [],

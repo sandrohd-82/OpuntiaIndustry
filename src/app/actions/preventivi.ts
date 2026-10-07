@@ -746,7 +746,12 @@ export async function countPreventiviAttesaSpedizioneNavAction(): Promise<
   if (filtro) countQuery = countQuery.or(filtro);
   const { count, error } = await countQuery;
   if (error) return { success: false, error: error.message };
-  return { success: true, totale: count ?? 0 };
+  const { count: ordiniAttesa } = await supabase
+    .from("ordini")
+    .select("id", { count: "exact", head: true })
+    .eq("modalita_spedizione_prezzo", "richiesto")
+    .is("deleted_at", null);
+  return { success: true, totale: (count ?? 0) + (ordiniAttesa ?? 0) };
 }
 
 export async function listPreventiviAccettatiAction(input: {

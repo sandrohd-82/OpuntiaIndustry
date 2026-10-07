@@ -116,7 +116,10 @@ import {
 import type { Cliente } from "@/lib/amministrazione/clienti";
 import type { AnagraficaOrdineFonte } from "@/lib/amministrazione/ordine-anagrafica";
 import { clienteFromPossibile } from "@/lib/promemorie-e-note/types";
-import type { Preventivo } from "@/lib/amministrazione/preventivi";
+import {
+  notifyPreventiviSpedizioneNav,
+  type Preventivo,
+} from "@/lib/amministrazione/preventivi";
 import type { RubricaContatto } from "@/lib/rubrica/types";
 import {
   imponibileRiga,
@@ -471,6 +474,9 @@ export function OrdineNuovoWizardModal({
   const [spedizioneIvaModo, setSpedizioneIvaModo] = useState<
     "compreso" | "piu_iva"
   >("piu_iva");
+  const [modalitaSpedizionePrezzo, setModalitaSpedizionePrezzo] = useState<
+    "inserito" | "richiesto"
+  >("inserito");
   const [clienteSped, setClienteSped] = useState<Cliente | null>(null);
   const [sediExtra, setSediExtra] = useState<AnagraficaSede[]>([]);
   const [sediError, setSediError] = useState<string | null>(null);
@@ -629,6 +635,11 @@ export function OrdineNuovoWizardModal({
       setCorriereDopo(d.corriereDaCompilare);
       setACarico(d.spedizioneACarico);
       setPctAgrin(d.spedizionePctAgrinsicilia ?? 50);
+      setModalitaSpedizionePrezzo(
+        d.modalitaSpedizionePrezzo === "richiesto" ? "richiesto" : "inserito"
+      );
+      setSpedizioneImporto(d.spedizioneImporto > 0 ? d.spedizioneImporto : "");
+      setSpedizioneIvaModo(d.spedizioneIvaModo);
       setDestinatario(d.destinatario);
       setIndirizzoSpedizione(d.indirizzoSpedizione);
       setPreventivoId(d.preventivoId ?? "");
@@ -1109,6 +1120,18 @@ export function OrdineNuovoWizardModal({
     setDataConsegnaCalendario(null);
   }, [prodotto?.id]);
 
+  const attesaCalcoloSpedizione =
+    tipoOrdine !== "campionatura" &&
+    !preventivoId &&
+    aCarico === "cliente" &&
+    modalitaSpedizionePrezzo === "richiesto";
+  let etichettaSalvataggio = "Salva in sessione";
+  if (saving) etichettaSalvataggio = "Salvataggio…";
+  else if (attesaCalcoloSpedizione) {
+    etichettaSalvataggio = "Salva e attendi il calcolo";
+  } else if (modificaOrdineId) etichettaSalvataggio = "Salva modifiche";
+  else if (ORDINI_PERSISTENZA_DEFINITIVA) etichettaSalvataggio = "Salva ordine";
+
   function canNext(): boolean {
     if (step === 1) {
       if (anagraficaFonte === "possibile") {
@@ -1307,6 +1330,12 @@ export function OrdineNuovoWizardModal({
     if (anagraficaFonte === "cliente" && !clienteId) return;
     if (savedOrdine) {
       if (opts?.keepOpen) {
+        if (attesaCalcoloSpedizione) {
+          setFormError(
+            "La fattura non si apre: prima si conferma il costo di spedizione. Non parte nulla verso il cliente."
+          );
+          return;
+        }
         if (!ORDINI_PERSISTENZA_DEFINITIVA) {
           const prev = loadOrdineSessione();
           if (prev) {
@@ -1398,11 +1427,19 @@ export function OrdineNuovoWizardModal({
         });
         ordine.trasporto = {
           ...emptyTrasporto(),
-          imponibile:
-            aCarico === "cliente" ? numberOrZero(spedizioneImporto) : 0,
+          imponibile: attesaCalcoloSpedizione
+            ? 0
+            : (aCarico === "cliente" ? numberOrZero(spedizioneImporto) : 0),
           ivaPercentuale:
             aCarico === "cliente" && spedizioneIvaModo === "compreso" ? 0 : 22,
         };
+        ordine.modalitaSpedizionePrezzo = attesaCalcoloSpedizione
+          ? "richiesto"
+          : (aCarico === "cliente" ? "inserito" : "non_applicabile");
+        ordine.spedizioneImporto = attesaCalcoloSpedizione
+          ? 0
+          : (aCarico === "cliente" ? numberOrZero(spedizioneImporto) : 0);
+        ordine.spedizioneIvaModo = spedizioneIvaModo;
         saveOrdineSessione({
           ordine,
           fattura: prev?.fattura
@@ -1429,9 +1466,11 @@ export function OrdineNuovoWizardModal({
         });
         setSavedOrdine(ordine);
         setSessioneMsg(
-          `Salvato in sessione (${ordine.numeroInterno || "senza numero"}). Niente è stato scritto sul server.`
+          attesaCalcoloSpedizione
+            ? `Salvato in sessione (${ordine.numeroInterno || "senza numero"}). Calcolo spedizione in attesa: nessuna fattura e nessuna mail.`
+            : `Salvato in sessione (${ordine.numeroInterno || "senza numero"}). Niente è stato scritto sul server.`
         );
-        if (opts?.keepOpen) setFatturaA4Open(true);
+        if (opts?.keepOpen && !attesaCalcoloSpedizione) setFatturaA4Open(true);
         return;
       }
       const result = await createOrdineWizardAction({
@@ -1494,6 +1533,13 @@ export function OrdineNuovoWizardModal({
         corriereId: corriereDopo ? null : corriereId || null,
         corriereDaCompilare: corriereDopo,
         spedizioneACarico: aCarico,
+        modalitaSpedizionePrezzo: attesaCalcoloSpedizione
+          ? "richiesto"
+          : (aCarico === "cliente" ? "inserito" : "non_applicabile"),
+        spedizioneImporto: attesaCalcoloSpedizione
+          ? 0
+          : (aCarico === "cliente" ? numberOrZero(spedizioneImporto) : 0),
+        spedizioneIvaModo,
         spedizionePctAgrinsicilia:
           aCarico === "diviso" ? Number(pctAgrin) : null,
         destinatario,
@@ -1527,6 +1573,13 @@ export function OrdineNuovoWizardModal({
           entityId: result.ordine.id,
           sedeId: spedDraft.current.sedePartenzaId,
         });
+      }
+      if (attesaCalcoloSpedizione) {
+        setSessioneMsg(
+          `Ordine ${result.ordine.numeroInterno} salvato. In attesa del calcolo spedizione: non è partita la fattura e non è partita alcuna mail.`
+        );
+        notifyPreventiviSpedizioneNav();
+        return;
       }
       if (opts?.keepOpen) {
         setFatturaA4Open(true);
@@ -3048,38 +3101,84 @@ export function OrdineNuovoWizardModal({
                     <p className="text-sm font-medium">
                       Richiesta importo al cliente
                     </p>
-                    <p className="text-xs text-[var(--muted)]">
-                      In fattura compare la voce «Contributo Spese di
-                      spedizione»: puoi modificarla o cancellarla dal
-                      documento.
-                    </p>
-                    <label className="block text-sm">
-                      <span className="mb-1 block font-medium">Importo (€)</span>
-                      <ClearableNumberInput
-                        min={0}
-                        value={spedizioneImporto}
-                        onValueChange={setSpedizioneImporto}
-                        className="w-40 rounded-lg border border-[var(--border)] px-3 py-2"
-                      />
-                    </label>
-                    <label className="flex items-center gap-2 text-sm">
-                      <input
-                        type="radio"
-                        name="spedizione-iva-modo"
-                        checked={spedizioneIvaModo === "compreso"}
-                        onChange={() => setSpedizioneIvaModo("compreso")}
-                      />
-                      Importo compreso
-                    </label>
-                    <label className="flex items-center gap-2 text-sm">
-                      <input
-                        type="radio"
-                        name="spedizione-iva-modo"
-                        checked={spedizioneIvaModo === "piu_iva"}
-                        onChange={() => setSpedizioneIvaModo("piu_iva")}
-                      />
-                      Importo + IVA
-                    </label>
+                    {tipoOrdine !== "campionatura" && !preventivoId ? (
+                      <div className="space-y-2">
+                        <p className="text-xs text-[var(--muted)]">
+                          L&apos;ordine è diretto, senza preventivo. Puoi
+                          inserire il prezzo ora oppure chiedere il calcolo,
+                          come sul preventivo.
+                        </p>
+                        <label className="flex items-center gap-2 text-sm">
+                          <input
+                            type="radio"
+                            name="modalita-spedizione-prezzo"
+                            checked={modalitaSpedizionePrezzo === "inserito"}
+                            onChange={() =>
+                              setModalitaSpedizionePrezzo("inserito")
+                            }
+                          />
+                          Inserisci il prezzo ora
+                        </label>
+                        <label className="flex items-center gap-2 text-sm">
+                          <input
+                            type="radio"
+                            name="modalita-spedizione-prezzo"
+                            checked={modalitaSpedizionePrezzo === "richiesto"}
+                            onChange={() =>
+                              setModalitaSpedizionePrezzo("richiesto")
+                            }
+                          />
+                          Richiedi l&apos;inserimento del prezzo
+                        </label>
+                      </div>
+                    ) : (
+                      <p className="text-xs text-[var(--muted)]">
+                        In fattura compare la voce «Contributo Spese di
+                        spedizione»: puoi modificarla o cancellarla dal
+                        documento. Fattura e mail partono solo se le confermi.
+                      </p>
+                    )}
+                    {attesaCalcoloSpedizione ? (
+                      <p className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-950">
+                        L&apos;ordine si salva e resta in attesa dell&apos;operatore
+                        calcolo spedizioni. Non si apre la fattura e non parte
+                        alcuna mail finché il costo non è confermato. Anche
+                        dopo, fattura e mail partono solo con un comando
+                        esplicito.
+                      </p>
+                    ) : (
+                      <>
+                        <label className="block text-sm">
+                          <span className="mb-1 block font-medium">
+                            Importo (€)
+                          </span>
+                          <ClearableNumberInput
+                            min={0}
+                            value={spedizioneImporto}
+                            onValueChange={setSpedizioneImporto}
+                            className="w-40 rounded-lg border border-[var(--border)] px-3 py-2"
+                          />
+                        </label>
+                        <label className="flex items-center gap-2 text-sm">
+                          <input
+                            type="radio"
+                            name="spedizione-iva-modo"
+                            checked={spedizioneIvaModo === "compreso"}
+                            onChange={() => setSpedizioneIvaModo("compreso")}
+                          />
+                          Importo compreso
+                        </label>
+                        <label className="flex items-center gap-2 text-sm">
+                          <input
+                            type="radio"
+                            name="spedizione-iva-modo"
+                            checked={spedizioneIvaModo === "piu_iva"}
+                            onChange={() => setSpedizioneIvaModo("piu_iva")}
+                          />
+                          Importo + IVA
+                        </label>
+                      </>
+                    )}
                   </div>
                 ) : null}
               </fieldset>
@@ -3310,7 +3409,12 @@ export function OrdineNuovoWizardModal({
                     ? " Sempre salvata; invio email + SDI subito o dopo."
                     : " Per ora si salva solo in sessione: niente database, email o SDI."}
                 </p>
-                {anagraficaFonte !== "cliente" ? (
+                {attesaCalcoloSpedizione ? (
+                  <p className="text-xs text-amber-800">
+                    La fattura resta chiusa finché l&apos;operatore non conferma
+                    il costo di spedizione. Non parte nulla verso il cliente.
+                  </p>
+                ) : anagraficaFonte !== "cliente" ? (
                   <p className="text-xs text-amber-800">
                     Per creare la fattura serve un cliente registrato (non un
                     possibile cliente).
@@ -3324,9 +3428,9 @@ export function OrdineNuovoWizardModal({
                   >
                     {savedOrdine
                       ? "Apri documento fattura"
-                      : ORDINI_PERSISTENZA_DEFINITIVA
+                      : (ORDINI_PERSISTENZA_DEFINITIVA
                         ? "Crea fattura A4"
-                        : "Apri fattura (sessione)"}
+                        : "Apri fattura (sessione)")}
                   </button>
                 )}
               </div>
@@ -3335,6 +3439,12 @@ export function OrdineNuovoWizardModal({
 
           {step === lastStep ? (
             <div className="mt-4">
+              {attesaCalcoloSpedizione ? (
+                <p className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-950">
+                  Il salvataggio non invia nulla al cliente. La mail di
+                  tracking si sblocca dopo la conferma del costo di spedizione.
+                </p>
+              ) : (
               <SpedizioneMailPanel
                 entityType="ordine"
                 entityId={modificaOrdineId ?? ""}
@@ -3361,6 +3471,7 @@ export function OrdineNuovoWizardModal({
                 onNeedEntity={(modo) => void submit(modo)}
                 sceltaOrdineFissa={Boolean(modificaOrdineId)}
               />
+              )}
             </div>
           ) : null}
 
@@ -3379,10 +3490,13 @@ export function OrdineNuovoWizardModal({
         <div className="mt-6 flex flex-wrap items-center justify-between gap-2">
           <button
             type="button"
-            onClick={onClose}
+            onClick={() => {
+              if (savedOrdine && attesaCalcoloSpedizione) onSaved(savedOrdine);
+              else onClose();
+            }}
             className="rounded-lg border border-[var(--border)] bg-white px-4 py-2 text-sm font-medium hover:bg-slate-50"
           >
-            Annulla
+            {savedOrdine && attesaCalcoloSpedizione ? "Chiudi" : "Annulla"}
           </button>
           <div className="flex gap-2">
             {step > 1 ? (
@@ -3415,6 +3529,10 @@ export function OrdineNuovoWizardModal({
                     !calcolo?.dataConsegnaStimata)
                 }
                 onClick={() => {
+                  if (attesaCalcoloSpedizione) {
+                    void submit();
+                    return;
+                  }
                   const d = spedDraft.current;
                   const modo = !d.allegaTracking
                     ? "salva"
@@ -3425,13 +3543,7 @@ export function OrdineNuovoWizardModal({
                 }}
                 className="rounded-lg bg-[var(--primary)] px-4 py-2 text-sm font-medium text-white hover:bg-[var(--primary-hover)] disabled:opacity-50"
               >
-                {saving
-                  ? "Salvataggio…"
-                  : modificaOrdineId
-                    ? "Salva modifiche"
-                    : ORDINI_PERSISTENZA_DEFINITIVA
-                      ? "Salva ordine"
-                      : "Salva in sessione"}
+                {etichettaSalvataggio}
               </button>
             )}
           </div>

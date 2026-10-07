@@ -796,6 +796,11 @@ export function AppSidebar({
       )
       .on(
         "postgres_changes",
+        { event: "*", schema: "public", table: "ordini" },
+        loadCount
+      )
+      .on(
+        "postgres_changes",
         { event: "*", schema: "public", table: "app_notifiche" },
         loadCount
       )

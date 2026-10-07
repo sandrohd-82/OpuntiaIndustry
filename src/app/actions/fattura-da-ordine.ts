@@ -37,6 +37,7 @@ import {
   ORDINI_PERSISTENZA_BLOCCATA_MSG,
   ORDINI_PERSISTENZA_DEFINITIVA,
 } from "@/lib/amministrazione/ordine-sessione";
+import { motivoBloccoInvioClienteOrdine } from "@/app/actions/ordine-calcolo-spedizione";
 import {
   createIssuedDocument,
   fetchFicVatTypes,
@@ -298,6 +299,8 @@ export async function getFatturaA4ContextAction(input: {
       return { success: false, error: ordErr?.message ?? "Ordine non trovato." };
     }
     const ordine = ordineData as OrdineRow;
+    const bloccoSpedizione = await motivoBloccoInvioClienteOrdine(ordine.id);
+    if (bloccoSpedizione) return { success: false, error: bloccoSpedizione };
     if (!ordine.cliente_id) {
       return {
         success: false,
@@ -356,16 +359,21 @@ export async function getFatturaA4ContextAction(input: {
         note: "",
       };
     });
+    const importoSpedizioneSalvato = Number(ordine.spedizione_importo ?? 0);
+    const importoSpedizione =
+      importoSpedizioneSalvato > 0
+        ? importoSpedizioneSalvato
+        : Number(ordine.trasporto_imponibile) || 0;
     righe = applyContributoSpeseSpedizione(righe, {
       aCaricoCliente:
-        ordine.spedizione_a_carico === "cliente" ||
-        Number(ordine.trasporto_imponibile) > 0,
-      importo: Number(ordine.trasporto_imponibile) || 0,
-      ivaInclusa: Number(ordine.trasporto_iva_percentuale) === 0,
-      ivaAliquota:
-        Number(ordine.trasporto_iva_percentuale) > 0
-          ? Number(ordine.trasporto_iva_percentuale)
-          : 22,
+        ordine.spedizione_a_carico === "cliente" || importoSpedizione > 0,
+      importo: importoSpedizione,
+      ivaInclusa:
+        ordine.spedizione_iva_modo === "compreso" ||
+        (importoSpedizioneSalvato <= 0 &&
+          importoSpedizione > 0 &&
+          Number(ordine.trasporto_iva_percentuale) === 0),
+      ivaAliquota: 22,
     });
     let destinatario = destinatarioFromCliente(cliente);
     let noteDocumento = "";
@@ -865,6 +873,8 @@ export async function inviaFatturaSalvataAction(input: {
     return { success: false, error: error?.message ?? "Fattura non trovata." };
   }
   const fattura = fatturaData as FatturaEmessaRow;
+  const bloccoSpedizione = await motivoBloccoInvioClienteOrdine(fattura.ordine_id);
+  if (bloccoSpedizione) return { success: false, error: bloccoSpedizione };
   if (fattura.tipo_documento === "proforma") {
     return {
       success: false,
@@ -1293,6 +1303,8 @@ export async function convertProformaInFatturaAction(input: {
     return { success: false, error: error?.message ?? "Proforma non trovata." };
   }
   const proforma = row as FatturaEmessaRow;
+  const bloccoSpedizione = await motivoBloccoInvioClienteOrdine(proforma.ordine_id);
+  if (bloccoSpedizione) return { success: false, error: bloccoSpedizione };
   if (proforma.tipo_documento !== "proforma") {
     return { success: false, error: "Il documento non è una proforma." };
   }

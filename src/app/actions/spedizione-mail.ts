@@ -17,6 +17,7 @@ import {
   AGRINSICILIA_MAIL_FIRMA,
 } from "@/lib/amministrazione/preventivo-letterhead";
 import { inferCarrierFromUrl } from "@/lib/shipping/tracking";
+import { motivoBloccoInvioClienteOrdine } from "@/app/actions/ordine-calcolo-spedizione";
 import { createClient, createServiceClient } from "@/lib/supabase/server";
 import { sendMailViaAccount } from "@/lib/webmail/sync";
 import { z } from "zod";
@@ -501,6 +502,10 @@ export async function inviaMailSpedizioneAction(
   const item = mapSpedizioneMailRow(pren as Record<string, unknown>);
   if (item.stato === "inviata") {
     return { success: false, error: "Mail già inviata." };
+  }
+  if (item.entityType === "ordine") {
+    const bloccoSpedizione = await motivoBloccoInvioClienteOrdine(item.entityId);
+    if (bloccoSpedizione) return { success: false, error: bloccoSpedizione };
   }
   if (trackingMancante(item.allegaTracking, item.trackingUrl)) {
     return { success: false, error: "Manca ancora il tracking: non si può inviare." };
