@@ -11,6 +11,7 @@ import {
   elencoSoggettiPartecipantiSpesaAction,
   listProgettiSpesaAction,
   rimuoviPartecipanteProgettoAction,
+  urlAllegatoSpesaAction,
 } from "@/app/actions/spese";
 import { formatDateIt, formatEuro } from "@/lib/amministrazione/fatture";
 import {
@@ -30,6 +31,147 @@ import {
 
 const field =
   "w-full rounded-lg border border-[var(--border)] bg-white px-3 py-2 text-sm";
+
+function fileImmagine(name: string): boolean {
+  return /\.(png|jpe?g|webp|gif)$/i.test(name);
+}
+
+function SpesaVoceProgetto({
+  spesa,
+  selezionabile,
+  selezionata,
+  onToggle,
+}: {
+  spesa: SpesaDocumentoView;
+  selezionabile: boolean;
+  selezionata: boolean;
+  onToggle: () => void;
+}) {
+  const [pannello, setPannello] = useState<null | "dettagli" | "documento">(null);
+  const [url, setUrl] = useState<string | null>(null);
+  const [fileErrore, setFileErrore] = useState<string | null>(null);
+  const [caricaFile, setCaricaFile] = useState(false);
+
+  function apriDettagli() {
+    setPannello((cur) => (cur === "dettagli" ? null : "dettagli"));
+  }
+
+  function apriDocumento() {
+    if (pannello === "documento") {
+      setPannello(null);
+      return;
+    }
+    setPannello("documento");
+    if (url || caricaFile) return;
+    setCaricaFile(true);
+    setFileErrore(null);
+    void urlAllegatoSpesaAction(spesa.id).then((res) => {
+      setCaricaFile(false);
+      if (!res.success) {
+        setFileErrore(res.error);
+        return;
+      }
+      setUrl(res.url);
+    });
+  }
+
+  const immagine = fileImmagine(spesa.fileName);
+
+  return (
+    <li className="py-2">
+      <div className="flex items-center gap-2">
+        {selezionabile ? (
+          <input type="checkbox" checked={selezionata} onChange={onToggle} />
+        ) : (
+          <span className="w-4" />
+        )}
+        <span className="min-w-0 flex-1">
+          {formatDateIt(spesa.dataDocumento)} · {spesa.esercente}
+          <span className="block text-xs text-[var(--muted)]">
+            {LABEL_CATEGORIA_SPESA[spesa.categoria]} · {spesa.stato}
+          </span>
+        </span>
+        <span className="tabular-nums">{formatEuro(spesa.totale)}</span>
+        <button
+          type="button"
+          onClick={apriDettagli}
+          className={`rounded border px-2 py-1 text-xs ${
+            pannello === "dettagli" ? "border-slate-800 bg-slate-100" : "border-slate-300"
+          }`}
+        >
+          Dettagli
+        </button>
+        <button
+          type="button"
+          onClick={apriDocumento}
+          className={`rounded border px-2 py-1 text-xs ${
+            pannello === "documento" ? "border-slate-800 bg-slate-100" : "border-slate-300"
+          }`}
+        >
+          Documento
+        </button>
+      </div>
+      {pannello === "dettagli" ? (
+        <div className="mt-2 overflow-x-auto rounded-lg bg-slate-50 p-2">
+          {spesa.prezziIvaCompresa ? (
+            <p className="mb-1 text-xs text-slate-600">
+              Prezzi inseriti IVA compresa. Imponibile e IVA sono scorporati dal totale.
+            </p>
+          ) : null}
+          {spesa.righe.length === 0 ? (
+            <p className="text-xs text-slate-500">Questo documento non ha righe.</p>
+          ) : (
+            <table className="w-full text-xs">
+              <thead>
+                <tr className="text-slate-500">
+                  <th className="py-1 text-left font-medium">Descrizione</th>
+                  <th className="py-1 text-right font-medium">Numero</th>
+                  <th className="py-1 text-right font-medium">Prezzo</th>
+                  <th className="py-1 text-right font-medium">Imponibile</th>
+                  <th className="py-1 text-right font-medium">% IVA</th>
+                  <th className="py-1 text-right font-medium">IVA</th>
+                  <th className="py-1 text-right font-medium">Totale</th>
+                </tr>
+              </thead>
+              <tbody>
+                {spesa.righe.map((riga, index) => (
+                  <tr key={`${spesa.id}-${index}`}>
+                    <td className="py-1 pr-3">{riga.descrizione}</td>
+                    <td className="py-1 text-right tabular-nums">
+                      {riga.quantita.toLocaleString("it-IT")}
+                    </td>
+                    <td className="py-1 text-right tabular-nums">{formatEuro(riga.prezzoUnitario)}</td>
+                    <td className="py-1 text-right tabular-nums">{formatEuro(riga.imponibile)}</td>
+                    <td className="py-1 text-right tabular-nums">{riga.aliquotaIva}</td>
+                    <td className="py-1 text-right tabular-nums">{formatEuro(riga.imposta)}</td>
+                    <td className="py-1 text-right tabular-nums">{formatEuro(riga.totale)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </div>
+      ) : null}
+      {pannello === "documento" ? (
+        <div className="mt-2 rounded-lg bg-slate-50 p-2">
+          {caricaFile ? <p className="text-xs text-slate-500">Apertura del documento…</p> : null}
+          {fileErrore ? <p className="text-xs text-red-700">{fileErrore}</p> : null}
+          {url && immagine ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img
+              src={url}
+              alt={spesa.fileName || spesa.esercente}
+              className="max-h-80 w-full rounded object-contain"
+            />
+          ) : null}
+          {url && !immagine ? (
+            <iframe title={spesa.fileName || "Documento"} src={url} className="h-80 w-full rounded bg-white" />
+          ) : null}
+        </div>
+      ) : null}
+    </li>
+  );
+}
 
 export function SpeseProgettiBoard() {
   const [progetti, setProgetti] = useState<SpesaProgettoView[]>([]);
@@ -422,24 +564,13 @@ export function SpeseProgettiBoard() {
               </div>
               <ul className="mt-2 divide-y divide-slate-100 text-sm">
                 {collegate.map((s) => (
-                  <li key={s.id} className="flex items-center gap-2 py-2">
-                    {s.stato === "registrato" && progetto.documentoStato !== "chiuso" ? (
-                      <input
-                        type="checkbox"
-                        checked={selezionate.includes(s.id)}
-                        onChange={() => toggle(s.id)}
-                      />
-                    ) : (
-                      <span className="w-4" />
-                    )}
-                    <span className="min-w-0 flex-1">
-                      {formatDateIt(s.dataDocumento)} · {s.esercente}
-                      <span className="block text-xs text-[var(--muted)]">
-                        {LABEL_CATEGORIA_SPESA[s.categoria]} · {s.stato}
-                      </span>
-                    </span>
-                    <span className="tabular-nums">{formatEuro(s.totale)}</span>
-                  </li>
+                  <SpesaVoceProgetto
+                    key={s.id}
+                    spesa={s}
+                    selezionabile={s.stato === "registrato" && progetto.documentoStato !== "chiuso"}
+                    selezionata={selezionate.includes(s.id)}
+                    onToggle={() => toggle(s.id)}
+                  />
                 ))}
               </ul>
             </div>
@@ -467,17 +598,13 @@ export function SpeseProgettiBoard() {
                     <li className="py-2 text-slate-500">Nessuna spesa registrata senza progetto.</li>
                   ) : (
                     libere.map((s) => (
-                      <li key={s.id} className="flex items-center gap-2 py-2">
-                        <input
-                          type="checkbox"
-                          checked={selezionate.includes(s.id)}
-                          onChange={() => toggle(s.id)}
-                        />
-                        <span className="min-w-0 flex-1">
-                          {formatDateIt(s.dataDocumento)} · {s.esercente}
-                        </span>
-                        <span className="tabular-nums">{formatEuro(s.totale)}</span>
-                      </li>
+                      <SpesaVoceProgetto
+                        key={s.id}
+                        spesa={s}
+                        selezionabile
+                        selezionata={selezionate.includes(s.id)}
+                        onToggle={() => toggle(s.id)}
+                      />
                     ))
                   )}
                 </ul>

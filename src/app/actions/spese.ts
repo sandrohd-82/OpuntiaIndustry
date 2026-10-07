@@ -170,9 +170,7 @@ async function attachRighe(
   supabase: Awaited<ReturnType<typeof createClient>>,
   spese: SpesaDocumentoView[]
 ): Promise<SpesaDocumentoView[]> {
-  const ids = spese
-    .filter((spesa) => spesa.tipoCaricamento === "scontrino")
-    .map((spesa) => spesa.id);
+  const ids = spese.map((spesa) => spesa.id);
   if (!ids.length) return spese;
   const { data } = await supabase
     .from("spese_documenti_righe")
@@ -911,7 +909,10 @@ export async function dettaglioProgettoSpesaAction(id: string): Promise<
     success: true,
     collegate,
     partecipanti: await leggiPartecipanti(supabase, id),
-    libere: ((libereRows ?? []) as DocRow[]).map((r) => vista(r, new Map())),
+    libere: await attachRighe(
+      supabase,
+      ((libereRows ?? []) as DocRow[]).map((r) => vista(r, new Map()))
+    ),
     totaliCategoria: [...acc.entries()].map(([categoria, totale]) => ({
       categoria,
       totale: roundMoney(totale),
@@ -1464,7 +1465,7 @@ export async function urlAllegatoSpesaAction(
     .maybeSingle();
   if (!data?.storage_path) return { success: false, error: "File non trovato." };
   const admin = createServiceClient();
-  const signed = await admin.storage.from(SPESE_BUCKET).createSignedUrl(String(data.storage_path), 120);
+  const signed = await admin.storage.from(SPESE_BUCKET).createSignedUrl(String(data.storage_path), 600);
   if (signed.error || !signed.data?.signedUrl) {
     return { success: false, error: signed.error?.message ?? "Apertura file non riuscita." };
   }
