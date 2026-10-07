@@ -235,10 +235,22 @@ export function voceCollegataAlProdotto(
   );
 }
 
+/** Tanica, fusto, cisternetta: si spedisce da solo oppure dentro un cartone. */
+export function voceBidoneContenitore(
+  v: Pick<ImballaggioVoce, "nome" | "codice" | "doppioRuolo">
+): boolean {
+  if (!v.doppioRuolo) return false;
+  if (/\b(bidoni|bidone|fusti|fusto|taniche|tanica|cisternetta|cisterna)\b/i.test(v.nome)) {
+    return true;
+  }
+  return /(?:^|-)(?:TNC|FST|BID)(?:-|$)/i.test(v.codice);
+}
+
 export function filterVociForWizardStadio(
   voci: ImballaggioVoce[],
   stadio: ImballaggioStadio,
-  prodottoId: string | null
+  prodottoId: string | null,
+  opts?: { bidoniInEntrambi?: boolean }
 ): ImballaggioVoce[] {
   if (stadio === "movimentazione") {
     return voci.filter((v) => v.stadio === "movimentazione");
@@ -256,7 +268,11 @@ export function filterVociForWizardStadio(
     );
   }
   return sortConsigliati(
-    voci.filter((v) => v.stadio === "isolamento" && !v.doppioRuolo)
+    voci.filter((v) => {
+      if (v.stadio !== "isolamento") return false;
+      if (!v.doppioRuolo) return true;
+      return Boolean(opts?.bidoniInEntrambi) && voceBidoneContenitore(v);
+    })
   );
 }
 

@@ -140,7 +140,10 @@ import {
   type Corriere,
   type ImballaggioVoce,
 } from "@/lib/amministrazione/imballaggi-spedizioni";
-import type { CapacitaCalcoloResult } from "@/lib/amministrazione/produzione-capacita";
+import {
+  resolveLineaFromProdottoCodice,
+  type CapacitaCalcoloResult,
+} from "@/lib/amministrazione/produzione-capacita";
 import type { ProdottoProprio } from "@/lib/amministrazione/prodotti-propri";
 import type { OrdineConfezionamentoNodoStadio } from "@/types/database";
 import { loadOrdinePerModificaWizardAction } from "@/app/actions/ordine-wizard-modifica";
@@ -1675,7 +1678,12 @@ export function OrdineNuovoWizardModal({
         : filterVociForWizardStadio(
             catalogo,
             nodo.stadio,
-            prodotto?.id ?? null
+            prodotto?.id ?? null,
+            {
+              bidoniInEntrambi:
+                resolveLineaFromProdottoCodice(prodotto?.codice ?? "", [])
+                  ?.codice === "gel",
+            }
           );
     const selectedVoce =
       nodo.catalogoId && !optionsBase.some((v) => v.id === nodo.catalogoId)
@@ -3305,9 +3313,10 @@ export function OrdineNuovoWizardModal({
                 {conf.nodi.length === 0 ? (
                   <p className="text-sm text-[var(--muted)]">
                     Nessun blocco. Aggiungi pallet/confezione e scendi ai
-                    livelli.                     Isolamento: elenco catalogo; in cima i collegati al
-                    prodotto (Consigliato). Le voci a doppio ruolo (es.
-                    bidone gel) restano una sola selezione in confezione.
+                    livelli. Isolamento: elenco catalogo; in cima i collegati
+                    al prodotto (Consigliato). Per il gel, bidoni, taniche e
+                    fusti sono sia in confezione, se partono da soli, sia in
+                    isolamento, se vanno dentro un cartone.
                   </p>
                 ) : (
                   conf.nodi.map((n) => renderNodo(n, 0))
