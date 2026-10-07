@@ -2,7 +2,7 @@ import type { Cliente, SedeCliente } from "@/lib/amministrazione/clienti";
 import {
   calcolaTotaliEmissione,
 } from "@/lib/amministrazione/fattura-emissione";
-import { importoRiga } from "@/lib/amministrazione/fatture";
+import { importoRiga, roundMoney } from "@/lib/amministrazione/fatture";
 import { emptySede, normalizeSede } from "@/lib/amministrazione/fornitori";
 import type { DestinatarioPreventivo } from "@/lib/amministrazione/preventivo-letterhead";
 
@@ -147,21 +147,66 @@ export function isRigaContributoSpedizionePredefinita(
   );
 }
 
+/**
+ * Dall'importo già comprensivo di IVA ricava l'imponibile.
+ * Imponibile arrotondato + IVA arrotondata, e il totale di riga, coincidono col lordo.
+ */
+export function imponibileDaImportoComprensivo(
+  lordo: number,
+  aliquota: number
+): number {
+  const lordoArrotondato = roundMoney(
+    Number.isFinite(lordo) ? Math.max(0, lordo) : 0
+  );
+  const rate = aliquota / 100;
+  if (!(rate > 0) || !(lordoArrotondato > 0)) return lordoArrotondato;
+  const lordoCenti = Math.round(lordoArrotondato * 100);
+  const stimato = Math.round(lordoCenti / (1 + rate));
+  let migliore = roundMoney(lordoArrotondato / (1 + rate));
+  let erroreMigliore = Number.POSITIVE_INFINITY;
+  for (let delta = -5; delta <= 5; delta += 1) {
+    const centi = stimato + delta;
+    if (centi < 0) continue;
+    const imponibile = centi / 100;
+    const impostaRaw = (imponibile * aliquota) / 100;
+    const imposta = roundMoney(impostaRaw);
+    const totaleCenti = Math.round(roundMoney(imponibile + impostaRaw) * 100);
+    const sommaCenti = Math.round((imponibile + imposta) * 100);
+    if (sommaCenti === lordoCenti && totaleCenti === lordoCenti) {
+      return imponibile;
+    }
+    const errore = Math.abs(totaleCenti - lordoCenti);
+    if (errore < erroreMigliore) {
+      erroreMigliore = errore;
+      migliore = imponibile;
+    }
+  }
+  return migliore;
+}
+
 export function rigaContributoSpeseSpedizione(input: {
   importo: number;
   ivaInclusa: boolean;
   ivaAliquota?: number;
 }): FatturaA4Riga {
   const importo = Number.isFinite(input.importo) ? Math.max(0, input.importo) : 0;
+  const aliquota = input.ivaAliquota ?? 22;
+  let prezzoUnitario = importo;
+  let ivaPercentuale = aliquota;
+  if (input.ivaInclusa && aliquota > 0) {
+    prezzoUnitario = imponibileDaImportoComprensivo(importo, aliquota);
+  } else if (input.ivaInclusa) {
+    ivaPercentuale = 0;
+  }
   return {
     prodottoId: null,
     codice: CONTRIBUTO_SPESE_SPEDIZIONE_CODICE,
     descrizione: CONTRIBUTO_SPESE_SPEDIZIONE_DESCRIZIONE,
     quantita: 1,
     unitaMisura: "nr",
-    prezzoUnitario: importo,
+    prezzoUnitario,
     scontoPercentuale: 0,
-    ivaPercentuale: input.ivaInclusa ? 0 : (input.ivaAliquota ?? 22),
+    ivaPercentuale,
     isSpedizione: true,
     note: "",
   };

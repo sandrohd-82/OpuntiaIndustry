@@ -3166,7 +3166,7 @@ export function OrdineNuovoWizardModal({
                             checked={spedizioneIvaModo === "compreso"}
                             onChange={() => setSpedizioneIvaModo("compreso")}
                           />
-                          Importo compreso
+                          Importo comprensivo di Iva
                         </label>
                         <label className="flex items-center gap-2 text-sm">
                           <input

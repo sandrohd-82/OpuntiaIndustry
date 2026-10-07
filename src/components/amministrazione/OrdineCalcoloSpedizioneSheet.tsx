@@ -145,7 +145,7 @@ function OrdineCalcoloSpedizioneSheet({
             checked={ivaModo === "compreso"}
             onChange={() => setIvaModo("compreso")}
           />
-          Importo compreso
+          Importo comprensivo di Iva
         </label>
         <label className="mt-1 flex items-center gap-2 text-sm">
           <input
