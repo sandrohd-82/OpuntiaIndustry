@@ -271,27 +271,6 @@ export const createCampionaturaSchema = z.object({
 
 export type CreateCampionaturaInput = z.infer<typeof createCampionaturaSchema>;
 
-export const createReferenteRicezioneSchema = z.object({
-  clienteId: z.string().uuid(),
-  clienteLabel: z.string().trim().min(1),
-  aziendaTipo: z
-    .enum(["cliente", "cliente_possibile"])
-    .optional()
-    .default("cliente"),
-  isPrivato: z.boolean(),
-  ragioneSociale: z.string().trim().max(200).optional().default(""),
-  nome: z.string().trim().min(1, "Nome obbligatorio").max(80),
-  cognome: z.string().trim().min(1, "Cognome obbligatorio").max(80),
-  telefono: z.string().trim().max(60).optional().default(""),
-  email: z.string().trim().max(120).optional().default(""),
-  indirizzo: z.string().trim().min(1, "Indirizzo obbligatorio").max(500),
-  via: z.string().trim().max(200).optional().default(""),
-  cap: z.string().trim().max(12).optional().default(""),
-  citta: z.string().trim().max(80).optional().default(""),
-  provincia: z.string().trim().max(80).optional().default(""),
-  nazione: z.string().trim().max(80).optional().default(""),
-});
-
 export function formatNumeroCampionatura(
   dataInvio: string,
   targa: string,
@@ -432,8 +411,6 @@ export function pickSpedizioneDefault(
   if (purpose === "campionature") return camp ?? acq ?? options[0];
   return acq ?? camp ?? options[0];
 }
-
-export const REFERENTE_RICEZIONE_MERCE = "Ricezione merce";
 
 export function emptyCampionaturaRiga(): Omit<CampionaturaRiga, "id"> {
   return {

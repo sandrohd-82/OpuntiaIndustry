@@ -2,7 +2,6 @@
 
 import { useEffect, useId, useState, type FormEvent } from "react";
 import {
-  createReferenteRicezioneMerceAction,
   listCommercialiCampionaturaAction,
   type CommercialeCampionaturaOption,
 } from "@/app/actions/campionature";
@@ -39,7 +38,6 @@ type Props = {
 
 export function CampionaturaAltroPostoModal({
   clienteId,
-  clienteLabel,
   aziendaTipo = "cliente",
   onClose,
   onSaved,
@@ -53,7 +51,6 @@ export function CampionaturaAltroPostoModal({
   const [telefono, setTelefono] = useState("");
   const [email, setEmail] = useState("");
   const [sede, setSede] = useState(emptySede());
-  const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [commerciali, setCommerciali] = useState<CommercialeCampionaturaOption[]>(
     []
@@ -114,7 +111,7 @@ export function CampionaturaAltroPostoModal({
     setError(null);
   }
 
-  async function onSubmit(e: FormEvent) {
+  function onSubmit(e: FormEvent) {
     e.preventDefault();
     if (destinazione === "rubrica") return;
     const indirizzo = formatIndirizzoSede(sede);
@@ -122,36 +119,21 @@ export function CampionaturaAltroPostoModal({
       setError("Inserisci l'indirizzo di spedizione.");
       return;
     }
-    setSaving(true);
-    setError(null);
-    const result = await createReferenteRicezioneMerceAction({
-      clienteId,
-      clienteLabel,
-      isPrivato: destinazione === "privato",
-      aziendaTipo,
-      ragioneSociale,
-      nome,
-      cognome,
-      telefono,
-      email,
-      indirizzo,
-      via: sede.indirizzo,
-      cap: sede.cap,
-      citta: sede.citta,
-      provincia: sede.provincia,
-      nazione: sede.nazione,
-    });
-    setSaving(false);
-    if (!result.success) {
-      setError(result.error);
-      return;
-    }
+    const persona = `${nome.trim()} ${cognome.trim()}`.trim();
+    const destinatario =
+      destinazione === "privato"
+        ? persona
+        : [ragioneSociale.trim(), persona].filter(Boolean).join(" — ");
+    const label =
+      destinazione === "privato"
+        ? `Privato · ${persona}`
+        : `Azienda · ${ragioneSociale.trim() || persona}`;
     onSaved({
-      referenteId: result.id,
-      destinatario: result.destinatario,
+      referenteId: null,
+      destinatario,
       indirizzo,
       isPrivato: destinazione === "privato",
-      label: result.label,
+      label,
     });
   }
 
@@ -191,7 +173,7 @@ export function CampionaturaAltroPostoModal({
       className="fixed inset-0 z-[80] flex items-start justify-center overflow-y-auto bg-slate-950/55 px-4 py-8"
       role="presentation"
       onClick={(e) => {
-        if (e.target === e.currentTarget && !saving) onClose();
+        if (e.target === e.currentTarget) onClose();
       }}
     >
       <div
@@ -205,9 +187,12 @@ export function CampionaturaAltroPostoModal({
           Spedisci in altro posto
         </h3>
         <p className="mt-1 text-sm text-[var(--muted)]">
+          Vale solo per questo ordine o questa campionatura. Non viene salvato
+          come referente, non diventa l&apos;indirizzo predefinito dell&apos;azienda
+          e non resta come scelta per i prossimi invii.
           {destinazione === "rubrica"
-            ? "Scegli un commerciale con il suo indirizzo, oppure un referente della rubrica."
-            : "I dati vengono salvati come referente «Ricezione merce» sull’azienda selezionata."}
+            ? " Puoi però usare un commerciale o un referente già presente."
+            : ""}
         </p>
 
         <div className="mt-4 flex flex-wrap gap-2">
@@ -474,7 +459,6 @@ export function CampionaturaAltroPostoModal({
             <div className="flex justify-end gap-2">
               <button
                 type="button"
-                disabled={saving}
                 onClick={onClose}
                 className="rounded-lg border border-[var(--border)] px-4 py-2 text-sm font-medium hover:bg-slate-50"
               >
@@ -482,10 +466,9 @@ export function CampionaturaAltroPostoModal({
               </button>
               <button
                 type="submit"
-                disabled={saving}
-                className="rounded-lg bg-[var(--primary)] px-4 py-2 text-sm font-medium text-white hover:bg-[var(--primary-hover)] disabled:opacity-50"
+                className="rounded-lg bg-[var(--primary)] px-4 py-2 text-sm font-medium text-white hover:bg-[var(--primary-hover)]"
               >
-                {saving ? "Salvataggio…" : "Salva destinatario"}
+                Usa solo per questo invio
               </button>
             </div>
           </form>

@@ -7,10 +7,8 @@ import { resolveClientePerOrdineFromRawAction } from "@/app/actions/clienti";
 import { writeAuditLog } from "@/lib/audit";
 import {
   createCampionaturaSchema,
-  createReferenteRicezioneSchema,
   formatNumeroCampionatura,
   type CreateCampionaturaInput,
-  REFERENTE_RICEZIONE_MERCE,
   type Campionatura,
   type CampionaturaMezzo,
   type CampionaturaOrigine,
@@ -1446,95 +1444,6 @@ export async function softDeleteCampionaturaAction(
     summary: `Campionatura ${existing.numero_interno} archiviata (soft delete)`,
   });
   return { success: true };
-}
-
-export async function createReferenteRicezioneMerceAction(
-  raw: unknown
-): Promise<
-  | {
-      success: true;
-      id: string;
-      destinatario: string;
-      label: string;
-    }
-  | { success: false; error: string }
-> {
-  const gate = await requireCampionaturaAccess("write");
-  if (!gate.ok) return { success: false, error: gate.error };
-  const parsed = createReferenteRicezioneSchema.safeParse(raw);
-  if (!parsed.success) {
-    return {
-      success: false,
-      error: parsed.error.issues[0]?.message ?? "Dati non validi",
-    };
-  }
-  const d = parsed.data;
-  const destinatario = d.isPrivato
-    ? `${d.nome} ${d.cognome}`.trim()
-    : [d.ragioneSociale, `${d.nome} ${d.cognome}`.trim()]
-        .filter(Boolean)
-        .join(" — ");
-  const noteParts = [
-    d.isPrivato ? "Spedizione a privato" : `Spedizione presso ${d.ragioneSociale}`,
-    d.indirizzo,
-  ];
-  const service = createServiceClient();
-  const { data, error } = await service
-    .from("rubrica_contatti")
-    .insert({
-      nome: d.nome,
-      cognome: d.cognome,
-      telefono: d.telefono,
-      email: d.email,
-      rapporto: "referente",
-      azienda_tipo: d.aziendaTipo,
-      azienda_id: d.clienteId,
-      azienda_label: d.clienteLabel,
-      mansione: REFERENTE_RICEZIONE_MERCE,
-      note: noteParts.join("\n"),
-      indirizzo: d.via,
-      cap: d.cap,
-      citta: d.citta,
-      provincia: d.provincia,
-      nazione: d.nazione,
-      created_by: gate.auth.userId,
-      updated_by: gate.auth.userId,
-    })
-    .select("id, nome, cognome")
-    .single();
-  if (error || !data) {
-    return { success: false, error: error?.message ?? "Creazione referente fallita" };
-  }
-  const link =
-    d.aziendaTipo === "cliente_possibile"
-      ? await service.from("clienti_possibili_referenti").insert({
-          cliente_possibile_id: d.clienteId,
-          contatto_id: data.id,
-          created_by: gate.auth.userId,
-        })
-      : await service.from("clienti_referenti").insert({
-          cliente_id: d.clienteId,
-          contatto_id: data.id,
-          created_by: gate.auth.userId,
-        });
-  const linkErr = link.error;
-  if (linkErr && !/duplicate|unique/i.test(linkErr.message)) {
-    return { success: false, error: linkErr.message };
-  }
-  await writeAuditLog({
-    entity_type: "rubrica_contatti",
-    entity_id: String(data.id),
-    action: "create",
-    actor_id: gate.auth.userId,
-    summary: `Referente ${REFERENTE_RICEZIONE_MERCE}: ${d.nome} ${d.cognome}`,
-    payload: { cliente_id: d.clienteId, azienda_tipo: d.aziendaTipo },
-  });
-  return {
-    success: true,
-    id: String(data.id),
-    destinatario,
-    label: `${d.nome} ${d.cognome}`.trim(),
-  };
 }
 
 const processCampionaturaSchema = z.object({
