@@ -442,14 +442,16 @@ function testoOperatoreSenzaTracking(testo: string, trackingUrl: string): string
   const url = trackingUrl.trim();
   let out = testo.trim();
   if (url) out = out.split(url).join("");
-  out = out.replace(/\n*Tracking:\s*$/i, "");
+  out = out.replace(/\n*(?:Visualizza tracking|Tracking):\s*$/i, "");
   return out.replace(/\n{3,}/g, "\n\n").trim();
 }
 
 function testoMailSpedizioneConFirma(testo: string, trackingUrl: string): string {
   const operatore = testoOperatoreSenzaTracking(testo, trackingUrl);
   const url = urlTrackingSicuro(trackingUrl);
-  const conTracking = url ? `${operatore}\n\nTracking:\n${url}` : operatore;
+  const conTracking = url
+    ? `${operatore}\n\nVisualizza tracking:\n${url}`
+    : operatore;
   if (conTracking.includes("AGRINSICILIA Cooperativa agricola")) return conTracking;
   return `${conTracking}\n\n${AGRINSICILIA_MAIL_FIRMA}`;
 }
@@ -462,7 +464,7 @@ function htmlMailSpedizioneConFirma(testo: string, trackingUrl: string): string 
     ? url.replace(/&/g, "&amp;").replace(/"/g, "&quot;")
     : "";
   const blocco = href
-    ? `<br><br>Tracking:<br><a href="${href}" style="display:inline-block;margin-top:8px;background:#1d4ed8;color:#ffffff;text-decoration:none;padding:10px 16px;border-radius:8px;font-weight:600">Tracking</a>`
+    ? `<br><br><a href="${href}" style="display:inline-block;margin-top:8px;background:#1d4ed8;color:#ffffff;text-decoration:none;padding:10px 16px;border-radius:8px;font-weight:600">Visualizza tracking</a>`
     : "";
   const firma = escapeHtmlMail(AGRINSICILIA_MAIL_FIRMA);
   const logo = `${getPublicAppUrl()}${AGRINSICILIA_LETTERHEAD.logoSrc}`;

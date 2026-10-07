@@ -1584,13 +1584,6 @@ export function OrdineNuovoWizardModal({
           sedeId: spedDraft.current.sedePartenzaId,
         });
       }
-      if (attesaCalcoloSpedizione) {
-        setSessioneMsg(
-          `Ordine ${result.ordine.numeroInterno} salvato. In attesa del calcolo spedizione: non è partita la fattura e non è partita alcuna mail.`
-        );
-        notifyPreventiviSpedizioneNav();
-        return;
-      }
       if (opts?.keepOpen) {
         setFatturaA4Open(true);
         return;
@@ -1599,11 +1592,13 @@ export function OrdineNuovoWizardModal({
         const d = spedDraft.current;
         let oggetto = d.mailOggetto.trim();
         let corpo = d.mailCorpo.trim();
-        if (modoMail !== "salva" && (!oggetto || !corpo)) {
+        if (d.allegaTracking && (!oggetto || !corpo)) {
           const testo = await generaCorpoMailSpedizioneAction({
             cliente: clienteNome,
             numero: result.ordine.numeroInterno,
-            prodotti: `${prodotto.codice} ${quantitaInserita} ${umEffettiva}`,
+            prodotti: prodotto
+              ? `${prodotto.codice} ${quantitaInserita} ${umEffettiva}`
+              : "",
             trackingUrl: d.trackingUrl,
             haLettera: false,
           });
@@ -1622,7 +1617,7 @@ export function OrdineNuovoWizardModal({
           letteraViaPath: d.letteraViaPath,
           letteraViaName: d.letteraViaName,
           allegati: d.allegati,
-          allegaTracking: modoMail === "salva" ? false : d.allegaTracking,
+          allegaTracking: d.allegaTracking,
           allegaLettera: false,
           allegaFile: false,
           destinatarioEmail: d.destinatarioEmail,
@@ -1632,17 +1627,14 @@ export function OrdineNuovoWizardModal({
           modo: modoMail,
           soloTracking: Boolean(modificaOrdineId),
         });
-        if (up.success && up.apriBozza && oggetto) {
-          setComposeAfter({
-            prenotazione: up.item,
-            subject: oggetto,
-            bodyText: corpo,
-            to: d.destinatarioEmail,
-            ordine: result.ordine,
-          });
-          return;
-        }
         if (!up.success) setFormError(up.error);
+      }
+      if (attesaCalcoloSpedizione) {
+        setSessioneMsg(
+          `Ordine ${result.ordine.numeroInterno} salvato. In attesa del calcolo spedizione: non è partita la fattura e non è partita alcuna mail.`
+        );
+        notifyPreventiviSpedizioneNav();
+        return;
       }
       onSaved(result.ordine);
     } catch (err) {
@@ -3503,13 +3495,14 @@ export function OrdineNuovoWizardModal({
           ) : null}
 
           {step === lastStep ? (
-            <div className="mt-4">
+            <div className="mt-4 space-y-3">
               {attesaCalcoloSpedizione ? (
                 <p className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-950">
-                  Il salvataggio non invia nulla al cliente. La mail di
-                  tracking si sblocca dopo la conferma del costo di spedizione.
+                  Il salvataggio non invia nulla al cliente. Se chiedi la mail
+                  di tracking, viene solo memorizzata: parte dopo il tracking
+                  e solo con la conferma dell&apos;operatore.
                 </p>
-              ) : (
+              ) : null}
               <SpedizioneMailPanel
                 entityType="ordine"
                 entityId={modificaOrdineId ?? ""}
@@ -3535,8 +3528,8 @@ export function OrdineNuovoWizardModal({
                 }}
                 onNeedEntity={(modo) => void submit(modo)}
                 sceltaOrdineFissa={Boolean(modificaOrdineId)}
+                impostazioneDocumento={!modificaOrdineId}
               />
-              )}
             </div>
           ) : null}
 
@@ -3594,16 +3587,23 @@ export function OrdineNuovoWizardModal({
                     !calcolo?.dataConsegnaStimata)
                 }
                 onClick={() => {
-                  if (attesaCalcoloSpedizione) {
-                    void submit();
+                  const d = spedDraft.current;
+                  if (d.allegaTracking && !d.destinatarioEmail.includes("@")) {
+                    setFormError(
+                      "Indica il destinatario della mail di tracking."
+                    );
                     return;
                   }
-                  const d = spedDraft.current;
-                  const modo = !d.allegaTracking
-                    ? "salva"
-                    : d.trackingUrl.trim()
-                      ? "compila"
-                      : "prenota";
+                  if (d.allegaTracking && !d.mailAccountId) {
+                    setFormError(
+                      "Seleziona la casella da cui partirà la mail di tracking."
+                    );
+                    return;
+                  }
+                  const modo =
+                    d.allegaTracking && !d.trackingUrl.trim()
+                      ? "prenota"
+                      : "salva";
                   void submit(modo);
                 }}
                 className="rounded-lg bg-[var(--primary)] px-4 py-2 text-sm font-medium text-white hover:bg-[var(--primary-hover)] disabled:opacity-50"

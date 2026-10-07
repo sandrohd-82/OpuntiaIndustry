@@ -7,6 +7,7 @@ import {
   casellaMittenteCommercialeAction,
   listCaselleSpedizioneMailAction,
   uploadSpedizioneMailFileAction,
+  inviaMailSpedizioneAction,
   upsertPrenotazioneSpedizioneMailAction,
 } from "@/app/actions/spedizione-mail";
 import {
@@ -65,6 +66,11 @@ type Props = {
   persistDisabled?: boolean;
   /** La scelta e il testo mail restano quelli salvati in fase di ordine. */
   sceltaOrdineFissa?: boolean;
+  /**
+   * Ordine: la scelta è un'impostazione del documento.
+   * Il salvataggio è il bottone del wizard, non un'azione a parte.
+   */
+  impostazioneDocumento?: boolean;
 };
 
 export function SpedizioneMailPanel({
@@ -84,6 +90,7 @@ export function SpedizioneMailPanel({
   sedePartenzaIdDefault = "",
   persistDisabled = false,
   sceltaOrdineFissa = false,
+  impostazioneDocumento = false,
 }: Props) {
   const [trackingUrl, setTrackingUrl] = useState("");
   const [sedePartenzaId, setSedePartenzaId] = useState(sedePartenzaIdDefault);
@@ -113,6 +120,7 @@ export function SpedizioneMailPanel({
   const [uploading, setUploading] = useState(false);
   const [bozzaPronta, setBozzaPronta] = useState(!entityId);
   const [confermaModifica, setConfermaModifica] = useState(false);
+  const [confermaInvio, setConfermaInvio] = useState(false);
   const letteraInputRef = useRef<HTMLInputElement>(null);
   const mailRadioName = useId();
 
@@ -356,12 +364,14 @@ export function SpedizioneMailPanel({
       } else if (modo === "salva") {
         setInfo(
           trackingUrl.trim()
-            ? "Tracking salvato. Nessuna mail da inviare."
-            : "Salvato. Il sistema resta in attesa del tracking."
+            ? (vuoleMail
+                ? "Tracking salvato. La mail non è partita: serve la conferma dell’operatore."
+                : "Tracking salvato. Nessuna mail da inviare.")
+            : "Salvato. La mail resta in attesa del tracking."
         );
       } else {
         setInfo(
-          "Mail prenotata. Quando inserirai il tracking si aprirà la bozza già compilata."
+          "Mail salvata. Non parte: l’operatore inserisce il tracking e conferma l’invio."
         );
       }
     } finally {
@@ -387,6 +397,68 @@ export function SpedizioneMailPanel({
     await salva("compila");
   }
 
+  async function confermaInvioTracking() {
+    if (!trackingUrl.trim()) {
+      setError("Inserisci il tracking prima di confermare l’invio.");
+      return;
+    }
+    if (!entityId) {
+      setError("Salva prima il documento.");
+      return;
+    }
+    setBusy(true);
+    setError(null);
+    setInfo(null);
+    try {
+      const salvata = await upsertPrenotazioneSpedizioneMailAction({
+        entityType,
+        entityId,
+        trackingUrl,
+        letteraViaPath: letteraPath,
+        letteraViaName: letteraName,
+        allegati,
+        allegaTracking: true,
+        allegaLettera: false,
+        allegaFile: false,
+        destinatarioEmail: destEmail,
+        oggetto: mailOggetto,
+        corpo: mailCorpo,
+        accountId: mailAccountId || null,
+        modo: "salva",
+        soloTracking: true,
+      });
+      if (!salvata.success) {
+        setError(salvata.error);
+        return;
+      }
+      const accountId = salvata.item.accountId || mailAccountId;
+      if (!accountId || !salvata.item.destinatarioEmail.includes("@")) {
+        setError("Manca la casella o il destinatario della mail salvata.");
+        return;
+      }
+      const inviata = await inviaMailSpedizioneAction({
+        prenotazioneId: salvata.item.id,
+        accountId,
+        to: salvata.item.destinatarioEmail,
+        subject: salvata.item.oggetto,
+        bodyText: salvata.item.corpo,
+      });
+      if (!inviata.success) {
+        applyItem(salvata.item);
+        setConfermaInvio(false);
+        setError(inviata.error);
+        return;
+      }
+      applyItem({ ...salvata.item, stato: "inviata" });
+      setConfermaInvio(false);
+      setInfo(
+        "Mail inviata. Nel messaggio c’è il bottone Visualizza tracking."
+      );
+    } finally {
+      setBusy(false);
+    }
+  }
+
   return (
     <div className="space-y-3 rounded-lg border border-[var(--border)] px-3 py-3">
       <p className="text-sm font-medium">Spedizione</p>
@@ -394,10 +466,12 @@ export function SpedizioneMailPanel({
         {persistDisabled
           ? "Bozza spedizione solo in sessione: niente upload, prenotazione mail o invio."
           : (sceltaOrdineFissa
-            ? "Inserisci il tracking se è già disponibile. L’invio al cliente resta quello deciso in fase di ordine."
-            : nascondiAttesaTracking
-              ? "Il tracking e la mail al cliente sono facoltativi. Salva bozza tiene il documento in elenco anche se i campi sono vuoti."
-              : "Puoi inserire il tracking se ce l’hai, oppure salvare e lasciare il sistema in attesa. La mail al cliente è facoltativa.")}
+            ? "Inserisci il tracking quando c’è. Se in fase di ordine è stata chiesta la mail, parte solo dopo la tua conferma. Nessuna mail parte da sola."
+            : (impostazioneDocumento
+              ? "La scelta si salva con l’ordine, come le altre impostazioni. Se chiedi la mail, la scrivi adesso e resta in attesa del tracking."
+              : (nascondiAttesaTracking
+                ? "Il tracking e la mail al cliente sono facoltativi. Salva bozza tiene il documento in elenco anche se i campi sono vuoti."
+                : "Puoi inserire il tracking se ce l’hai, oppure salvare e lasciare il sistema in attesa. La mail al cliente è facoltativa.")))}
       </p>
 
       <label className="block text-sm">
@@ -528,8 +602,9 @@ export function SpedizioneMailPanel({
           Vuoi che il tracking venga inviato al cliente?
         </legend>
         <p className="text-xs text-[var(--muted)]">
-          Se sì, si crea una bozza mail che aspetta il link del tracking. Al
-          cliente arriva solo quel link.
+          {impostazioneDocumento
+            ? "Se sì, scrivi la mail adesso: viene salvata con l’ordine e non parte. Quando l’operatore inserisce il tracking, nella mail compare il bottone Visualizza tracking e l’invio chiede la sua conferma."
+            : "Se sì, si crea una bozza mail che aspetta il link del tracking. Al cliente arriva solo quel link, dopo conferma."}
         </p>
         <label className="flex items-center gap-2">
           <input
@@ -606,7 +681,9 @@ export function SpedizioneMailPanel({
           </label>
           <div className="border-t border-[var(--border)] pt-3">
             <p className="mb-2 text-xs text-[var(--muted)]">
-              In calce alla mail partono il logo e i dati Agrinsicilia.
+              Il bottone Visualizza tracking non va nel testo: il sistema lo
+              aggiunge quando l’operatore inserisce il link. In calce partono
+              anche il logo e i dati Agrinsicilia. Nessuna mail parte da sola.
             </p>
             <img
               src={AGRINSICILIA_LETTERHEAD.logoSrc}
@@ -630,8 +707,8 @@ export function SpedizioneMailPanel({
       {item?.stato === "prenotata" && vuoleMail ? (
         <p className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-950">
           {sceltaOrdineFissa
-            ? "Bozza pronta. La mail parte quando l’ordine va in scaletta."
-            : "Bozza in attesa del tracking. Quando inserisci il link, si apre la mail per il cliente."}
+            ? "Bozza salvata. Inserisci il tracking e conferma l’invio. Nessuna mail parte da sola."
+            : "Bozza salvata in attesa del tracking. L’invio resta alla conferma dell’operatore."}
         </p>
       ) : null}
       {item?.stato === "inviata" ? (
@@ -660,8 +737,8 @@ export function SpedizioneMailPanel({
           <div className="space-y-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-3 text-sm text-amber-950">
             <p>
               Confermi di modificare la mail inserita in fase di ordine? Il
-              cliente non riceve nulla adesso: l’invio resta al passaggio in
-              scaletta.
+              cliente non riceve nulla adesso: l’invio resta alla conferma
+              dell’operatore, dopo il tracking.
             </p>
             <div className="flex flex-wrap gap-2">
               <button
@@ -691,7 +768,54 @@ export function SpedizioneMailPanel({
         )
       ) : null}
 
-      {item?.stato !== "inviata" && !sceltaOrdineFissa ? (
+      {entityType === "ordine" &&
+      sceltaOrdineFissa &&
+      vuoleMail &&
+      item?.stato !== "inviata" ? (
+        confermaInvio ? (
+          <div className="space-y-2 rounded-lg border border-sky-200 bg-sky-50 px-3 py-3 text-sm text-sky-950">
+            <p>
+              Il tracking è nel messaggio. Nella mail compare il bottone
+              Visualizza tracking. Confermi l’invio al cliente? Senza questa
+              conferma non parte nulla.
+            </p>
+            <p>
+              <span className="inline-block rounded-lg bg-blue-700 px-3 py-2 text-sm font-semibold text-white">
+                Visualizza tracking
+              </span>
+            </p>
+            <div className="flex flex-wrap gap-2">
+              <button
+                type="button"
+                disabled={busy}
+                onClick={() => setConfermaInvio(false)}
+                className="rounded-lg border border-sky-300 bg-white px-3 py-2 text-sm font-medium hover:bg-sky-100 disabled:opacity-50"
+              >
+                Annulla
+              </button>
+              <button
+                type="button"
+                disabled={busy || !trackingUrl.trim()}
+                onClick={() => void confermaInvioTracking()}
+                className="rounded-lg bg-[var(--primary)] px-3 py-2 text-sm font-medium text-white hover:bg-[var(--primary-hover)] disabled:opacity-50"
+              >
+                {busy ? "Invio…" : "Conferma invio"}
+              </button>
+            </div>
+          </div>
+        ) : (
+          <button
+            type="button"
+            disabled={busy || !trackingUrl.trim()}
+            onClick={() => setConfermaInvio(true)}
+            className="rounded-lg bg-[var(--primary)] px-3 py-2 text-sm font-medium text-white hover:bg-[var(--primary-hover)] disabled:opacity-50"
+          >
+            Invia mail con tracking
+          </button>
+        )
+      ) : null}
+
+      {item?.stato !== "inviata" && !sceltaOrdineFissa && !impostazioneDocumento ? (
         <div className="flex flex-wrap gap-2">
           {!vuoleMail && !nascondiAttesaTracking ? (
             <button
@@ -762,7 +886,7 @@ export function SpedizioneMailPanel({
             setCompose(null);
             applyItem(next);
             setInfo(
-              "Mail aggiornata. Partirà quando l’ordine va in scaletta."
+              "Mail aggiornata. Non parte finché l’operatore non inserisce il tracking e conferma l’invio."
             );
           }}
         />

@@ -121,7 +121,7 @@ export function SpedizioneMailComposeModal({
 
   const allegati: string[] = [];
   if (prenotazione.allegaTracking && prenotazione.trackingUrl) {
-    allegati.push("Tracking");
+    allegati.push("Visualizza tracking");
   }
   if (prenotazione.allegaLettera && prenotazione.letteraViaName) {
     allegati.push(`Lettera di via (${prenotazione.letteraViaName})`);
@@ -146,7 +146,7 @@ export function SpedizioneMailComposeModal({
         </h3>
         <p className="mt-1 text-sm text-[var(--muted)]">
           {soloBozza
-            ? "Salva le modifiche. La mail parte solo quando l’ordine va in scaletta."
+            ? "Salva le modifiche. La mail non parte adesso: l’invio resta alla conferma dell’operatore, dopo il tracking."
             : (solaLettura
                 ? "Testo deciso in fase di ordine. Si invia così com’è."
                 : "Testo generato in bozza: controlla e invia.")}

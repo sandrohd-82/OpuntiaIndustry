@@ -79,9 +79,9 @@ function testoTracking(
     : "";
   if (mail.stato === "inviata") return `Sì. Mail già inviata${email}.`;
   if (!mail.trackingUrl.trim()) {
-    return `Sì. Bozza in attesa del tracking${email}.`;
+    return `Sì. Bozza salvata in attesa del tracking${email}. Non parte da sola.`;
   }
-  return `Sì. Bozza pronta con il tracking${email}.`;
+  return `Sì. Tracking inserito${email}. L’invio aspetta la conferma dell’operatore.`;
 }
 
 function labelCarico(ordine: Ordine): string {
