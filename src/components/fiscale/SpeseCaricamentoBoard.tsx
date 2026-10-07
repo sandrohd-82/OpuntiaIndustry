@@ -101,6 +101,7 @@ export function SpeseCaricamentoBoard() {
   const [anteprima, setAnteprima] = useState<AnteprimaSpesa | null>(null);
   const [form, setForm] = useState(vuoto);
   const [righe, setRighe] = useState<RigaForm[]>(() => [rigaVuota()]);
+  const [prezziIvaCompresa, setPrezziIvaCompresa] = useState(false);
   const [progetti, setProgetti] = useState<SpesaProgettoView[]>([]);
   const [msg, setMsg] = useState<string | null>(null);
   const [errore, setErrore] = useState<string | null>(null);
@@ -309,7 +310,7 @@ export function SpeseCaricamentoBoard() {
           aliquotaIva,
         });
       }
-      const calc = calcolaRigheScontrino(input);
+      const calc = calcolaRigheScontrino(input, prezziIvaCompresa);
       if (calc.totale <= 0) {
         setErrore("Il totale calcolato deve essere maggiore di zero.");
         return;
@@ -318,6 +319,7 @@ export function SpeseCaricamentoBoard() {
       body.set("aliquotaIva", String(calc.aliquotaIva));
       body.set("imposta", String(calc.imposta));
       body.set("totale", String(calc.totale));
+      body.set("prezziIvaCompresa", prezziIvaCompresa ? "true" : "false");
       body.set("righe", JSON.stringify(input));
     } else {
       body.set("imponibile", form.imponibile);
@@ -608,6 +610,19 @@ export function SpeseCaricamentoBoard() {
             </label>
             {tipo === "scontrino" ? (
               <div className="space-y-2 sm:col-span-2">
+                <label className="flex items-start gap-2 text-sm text-slate-800">
+                  <input
+                    type="checkbox"
+                    className="mt-1"
+                    checked={prezziIvaCompresa}
+                    onChange={(e) => setPrezziIvaCompresa(e.target.checked)}
+                  />
+                  <span>
+                    I prezzi inseriti sono IVA compresa. Il totale della riga
+                    resta prezzo × numero; imponibile e IVA si scorporano con
+                    l&apos;aliquota della riga.
+                  </span>
+                </label>
                 <div className="flex items-center justify-between gap-2">
                   <p className="text-sm font-medium text-slate-800">Righe</p>
                   <button
@@ -626,6 +641,12 @@ export function SpeseCaricamentoBoard() {
                         <th className="px-2 py-2">Prezzo</th>
                         <th className="px-2 py-2">Numero</th>
                         <th className="px-2 py-2">% IVA</th>
+                        {prezziIvaCompresa ? (
+                          <>
+                            <th className="px-2 py-2 text-right">Imponibile</th>
+                            <th className="px-2 py-2 text-right">IVA</th>
+                          </>
+                        ) : null}
                         <th className="px-2 py-2 text-right">Totale</th>
                         <th className="px-2 py-2" />
                       </tr>
@@ -634,8 +655,21 @@ export function SpeseCaricamentoBoard() {
                       {righe.map((riga) => {
                         const prezzo = decimale(riga.prezzo) ?? 0;
                         const numero = decimale(riga.quantita) ?? 0;
-                        const totaleRiga =
-                          Math.round((prezzo * numero + Number.EPSILON) * 100) / 100;
+                        const aliquota = decimale(riga.aliquotaIva) ?? 0;
+                        const calcRiga = calcolaRigheScontrino(
+                          [
+                            {
+                              descrizione: riga.descrizione || "Voce",
+                              prezzoUnitario: prezzo,
+                              quantita: numero > 0 ? numero : 0,
+                              aliquotaIva: aliquota,
+                            },
+                          ],
+                          prezziIvaCompresa
+                        ).righe[0];
+                        const totaleRiga = prezziIvaCompresa
+                          ? (calcRiga?.totale ?? 0)
+                          : Math.round((prezzo * numero + Number.EPSILON) * 100) / 100;
                         return (
                           <tr key={riga.key} className="border-t border-slate-100">
                             <td className="px-2 py-2">
@@ -701,6 +735,22 @@ export function SpeseCaricamentoBoard() {
                                 }
                               />
                             </td>
+                            {prezziIvaCompresa ? (
+                              <>
+                                <td className="px-2 py-2 text-right tabular-nums">
+                                  {(calcRiga?.imponibile ?? 0).toLocaleString("it-IT", {
+                                    style: "currency",
+                                    currency: "EUR",
+                                  })}
+                                </td>
+                                <td className="px-2 py-2 text-right tabular-nums">
+                                  {(calcRiga?.imposta ?? 0).toLocaleString("it-IT", {
+                                    style: "currency",
+                                    currency: "EUR",
+                                  })}
+                                </td>
+                              </>
+                            ) : null}
                             <td className="px-2 py-2 text-right tabular-nums">
                               {totaleRiga.toLocaleString("it-IT", {
                                 style: "currency",
@@ -728,8 +778,9 @@ export function SpeseCaricamentoBoard() {
                   </table>
                 </div>
                 <p className="text-xs text-slate-500">
-                  Il totale della riga è prezzo × numero. Esempio: 0,45 × 6 = 2,70.
-                  L&apos;IVA si calcola su quell&apos;importo.
+                  {prezziIvaCompresa
+                    ? "Il totale inserito è IVA compresa: prezzo × numero. Nella riga compaiono imponibile, IVA e totale."
+                    : "Il totale della riga è prezzo × numero. Esempio: 0,45 × 6 = 2,70. L'IVA si calcola su quell'importo."}
                 </p>
                 <p className="text-sm text-slate-800">
                   {(() => {
@@ -739,7 +790,8 @@ export function SpeseCaricamentoBoard() {
                         prezzoUnitario: decimale(riga.prezzo) ?? 0,
                         quantita: decimale(riga.quantita) ?? 0,
                         aliquotaIva: decimale(riga.aliquotaIva) ?? 0,
-                      }))
+                      })),
+                      prezziIvaCompresa
                     );
                     const euro = (n: number) =>
                       n.toLocaleString("it-IT", { style: "currency", currency: "EUR" });

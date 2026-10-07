@@ -261,6 +261,12 @@ export function SpeseRegistroBoard() {
                 {s.tipoCaricamento === "scontrino" && s.righe.length ? (
                   <tr className="border-t border-slate-100 bg-slate-50">
                     <td colSpan={9} className="px-3 py-2">
+                      {s.prezziIvaCompresa ? (
+                        <p className="mb-1 text-xs text-slate-600">
+                          Prezzi inseriti IVA compresa. Imponibile e IVA sono
+                          scorporati dal totale.
+                        </p>
+                      ) : null}
                       <table className="w-full text-xs">
                         <thead>
                           <tr className="text-slate-500">
@@ -269,6 +275,7 @@ export function SpeseRegistroBoard() {
                             <th className="py-1 text-right font-medium">Prezzo</th>
                             <th className="py-1 text-right font-medium">Imponibile</th>
                             <th className="py-1 text-right font-medium">% IVA</th>
+                            <th className="py-1 text-right font-medium">IVA</th>
                             <th className="py-1 text-right font-medium">Totale</th>
                           </tr>
                         </thead>
@@ -287,6 +294,9 @@ export function SpeseRegistroBoard() {
                               </td>
                               <td className="py-1 text-right tabular-nums">
                                 {riga.aliquotaIva}
+                              </td>
+                              <td className="py-1 text-right tabular-nums">
+                                {formatEuro(riga.imposta)}
                               </td>
                               <td className="py-1 text-right tabular-nums">
                                 {formatEuro(riga.totale)}

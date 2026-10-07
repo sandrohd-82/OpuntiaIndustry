@@ -49,6 +49,7 @@ type DocRow = {
   versione: number;
   file_name: string;
   lettura_automatica: boolean;
+  prezzi_iva_compresa?: boolean | null;
   note: string;
   contabilizzato_at: string | null;
   storage_path?: string;
@@ -154,6 +155,7 @@ function vista(row: DocRow, titoli: Map<string, string>): SpesaDocumentoView {
     letturaAutomatica: Boolean(row.lettura_automatica),
     note: row.note ?? "",
     contabilizzatoAt: row.contabilizzato_at,
+    prezziIvaCompresa: Boolean(row.prezzi_iva_compresa),
     righe: [],
   };
 }
@@ -205,7 +207,7 @@ async function attachRighe(
 }
 
 const DOC_SELECT =
-  "id, tipo_caricamento, categoria, modalita_pagamento, esercente, partita_iva, data_documento, giustificazione, imponibile, aliquota_iva, imposta, totale, valuta, importo_valuta, cambio, nazione, flag_esterometro, tipo_autofattura, progetto_id, stato, versione, file_name, lettura_automatica, note, contabilizzato_at, storage_path";
+  "id, tipo_caricamento, categoria, modalita_pagamento, esercente, partita_iva, data_documento, giustificazione, imponibile, aliquota_iva, imposta, totale, valuta, importo_valuta, cambio, nazione, flag_esterometro, tipo_autofattura, progetto_id, stato, versione, file_name, lettura_automatica, prezzi_iva_compresa, note, contabilizzato_at, storage_path";
 
 export async function anteprimaSpesaAction(
   form: FormData
@@ -318,7 +320,8 @@ export async function registraSpesaAction(
         aliquotaIva: Number(row.aliquotaIva),
       };
     });
-    const calc = calcolaRigheScontrino(bozza);
+    const prezziIvaCompresa = campo(form, "prezziIvaCompresa") === "true";
+    const calc = calcolaRigheScontrino(bozza, prezziIvaCompresa);
     imponibile = calc.imponibile;
     aliquotaIva = calc.aliquotaIva;
     imposta = calc.imposta;
@@ -346,6 +349,7 @@ export async function registraSpesaAction(
     progettoId: campo(form, "progettoId") || null,
     note: campo(form, "note"),
     letturaAutomatica: campo(form, "letturaAutomatica") === "true",
+    prezziIvaCompresa: campo(form, "prezziIvaCompresa") === "true",
     righe,
   });
   if (!parsed.success) {
@@ -438,6 +442,7 @@ export async function registraSpesaAction(
       file_name: letto.file.name || `spesa${ext}`,
       mime,
       lettura_automatica: input.letturaAutomatica,
+      prezzi_iva_compresa: input.prezziIvaCompresa,
       lettura_json: letturaJson,
       uscita_importo: roundMoney(input.totale),
       iva_detraibile: ivaDetraibile,
@@ -454,7 +459,7 @@ export async function registraSpesaAction(
   }
 
   if (input.tipoCaricamento === "scontrino") {
-    const calc = calcolaRigheScontrino(input.righe);
+    const calc = calcolaRigheScontrino(input.righe, input.prezziIvaCompresa);
     const { error: righeErr } = await supabase.from("spese_documenti_righe").insert(
       calc.righe.map((riga, index) => ({
         documento_id: data.id,
@@ -501,6 +506,7 @@ export async function registraSpesaAction(
       progetto_id: input.progettoId,
       stato: "registrato",
       righe: input.tipoCaricamento === "scontrino" ? input.righe.length : 0,
+      prezzi_iva_compresa: input.prezziIvaCompresa,
     },
   });
   return { success: true, id: String(data.id) };

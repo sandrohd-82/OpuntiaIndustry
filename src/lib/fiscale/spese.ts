@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { imponibileDaImportoComprensivo } from "@/lib/amministrazione/fattura-a4-documento";
 
 export const SPESE_BUCKET = "spese-documenti";
 export const SPESE_MAX_BYTES = 8 * 1024 * 1024;
@@ -125,6 +126,7 @@ export const spesaRegistrazioneSchema = z
     progettoId: z.string().uuid().nullable().default(null),
     note: z.string().trim().max(1000).default(""),
     letturaAutomatica: z.boolean().default(false),
+    prezziIvaCompresa: z.boolean().default(false),
     righe: z
       .array(
         z.object({
@@ -232,6 +234,7 @@ export type SpesaDocumentoView = {
   letturaAutomatica: boolean;
   note: string;
   contabilizzatoAt: string | null;
+  prezziIvaCompresa: boolean;
   righe: SpesaRigaView[];
 };
 
@@ -266,8 +269,15 @@ function qty3(value: number): number {
   return Math.round((value + Number.EPSILON) * 1000) / 1000;
 }
 
-/** L'imponibile di riga è prezzo × numero. Imposta e totale fiscale si calcolano da lì. */
-export function calcolaRigheScontrino(righe: RigaScontrinoInput[]): {
+/**
+ * Se i prezzi sono IVA compresa, prezzo × numero è il totale.
+ * Imponibile e IVA si scorporano con l'aliquota della riga.
+ * Altrimenti prezzo × numero è l'imponibile e l'IVA si aggiunge.
+ */
+export function calcolaRigheScontrino(
+  righe: RigaScontrinoInput[],
+  prezziIvaCompresa = false
+): {
   righe: RigaScontrinoCalcolata[];
   imponibile: number;
   aliquotaIva: number;
@@ -277,10 +287,17 @@ export function calcolaRigheScontrino(righe: RigaScontrinoInput[]): {
   const calcolate = righe.map((riga) => {
     const quantita = qty3(riga.quantita);
     const prezzoUnitario = euro2(riga.prezzoUnitario);
-    const imponibile = euro2(prezzoUnitario * quantita);
     const aliquotaIva = euro2(riga.aliquotaIva);
-    const imposta = euro2(imponibile * (aliquotaIva / 100));
-    const totale = euro2(imponibile + imposta);
+    const importo = euro2(prezzoUnitario * quantita);
+    const imponibile = prezziIvaCompresa
+      ? (aliquotaIva > 0
+          ? imponibileDaImportoComprensivo(importo, aliquotaIva)
+          : importo)
+      : importo;
+    const imposta = prezziIvaCompresa
+      ? euro2(importo - imponibile)
+      : euro2(imponibile * (aliquotaIva / 100));
+    const totale = prezziIvaCompresa ? importo : euro2(imponibile + imposta);
     return {
       descrizione: riga.descrizione.trim(),
       quantita,
@@ -292,8 +309,11 @@ export function calcolaRigheScontrino(righe: RigaScontrinoInput[]): {
     };
   });
   const imponibile = euro2(calcolate.reduce((sum, riga) => sum + riga.imponibile, 0));
-  const imposta = euro2(calcolate.reduce((sum, riga) => sum + riga.imposta, 0));
-  const totale = euro2(imponibile + imposta);
+  const totaleInserito = euro2(calcolate.reduce((sum, riga) => sum + riga.totale, 0));
+  const imposta = prezziIvaCompresa
+    ? euro2(totaleInserito - imponibile)
+    : euro2(calcolate.reduce((sum, riga) => sum + riga.imposta, 0));
+  const totale = prezziIvaCompresa ? totaleInserito : euro2(imponibile + imposta);
   const aliquote = [...new Set(calcolate.map((riga) => riga.aliquotaIva))];
   const aliquotaIva = aliquote.length === 1 ? (aliquote[0] ?? 0) : 0;
   return { righe: calcolate, imponibile, aliquotaIva, imposta, totale };
