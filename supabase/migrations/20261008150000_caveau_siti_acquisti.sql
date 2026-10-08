@@ -33,6 +33,7 @@ create trigger caveau_siti_acquisti_set_updated_at
 alter table public.caveau_siti_acquisti enable row level security;
 
 revoke all on table public.caveau_siti_acquisti from anon, authenticated;
+grant select, insert, update, delete on table public.caveau_siti_acquisti to service_role;
 
 comment on table public.caveau_siti_acquisti is
   'Acquisti di un sito aziendale. Obbligatori url e titolo. Accesso solo Super Admin via service role.';

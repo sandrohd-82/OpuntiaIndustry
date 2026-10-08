@@ -30,6 +30,7 @@ create trigger caveau_siti_aziendali_set_updated_at
 alter table public.caveau_siti_aziendali enable row level security;
 
 revoke all on table public.caveau_siti_aziendali from anon, authenticated;
+grant select, insert, update, delete on table public.caveau_siti_aziendali to service_role;
 
 comment on table public.caveau_siti_aziendali is
   'Siti aziendali registrati. La password è cifrata (AES-256-GCM). Accesso solo Super Admin via service role.';
