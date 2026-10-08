@@ -7,6 +7,7 @@ import {
   listProgettiSpesaAction,
   registraSpesaAction,
   suggerisciEsercentiSpesaAction,
+  type SuggerimentoEsercenteSpesa,
 } from "@/app/actions/spese";
 import { ScontrinoZoomPane } from "@/components/fiscale/ScontrinoZoomPane";
 import {
@@ -43,11 +44,9 @@ function EsercenteSpesaCampo({
 }: {
   value: string;
   onChange: (nome: string) => void;
-  onSelect: (voce: { nome: string; partitaIva: string }) => void;
+  onSelect: (voce: SuggerimentoEsercenteSpesa) => void;
 }) {
-  const [catalogo, setCatalogo] = useState<
-    { nome: string; usi: number; partitaIva: string }[]
-  >([]);
+  const [catalogo, setCatalogo] = useState<SuggerimentoEsercenteSpesa[]>([]);
   const [aperto, setAperto] = useState(false);
   const [attivo, setAttivo] = useState(0);
 
@@ -84,7 +83,7 @@ function EsercenteSpesaCampo({
     setAttivo(0);
   }, [query]);
 
-  function scegli(voce: { nome: string; partitaIva: string }) {
+  function scegli(voce: SuggerimentoEsercenteSpesa) {
     onSelect(voce);
     setAperto(false);
   }
@@ -239,6 +238,9 @@ export function SpeseCaricamentoBoard() {
   const [progetti, setProgetti] = useState<SpesaProgettoView[]>([]);
   const [msg, setMsg] = useState<string | null>(null);
   const [errore, setErrore] = useState<string | null>(null);
+  const [scelteCausale, setScelteCausale] = useState<
+    { testo: string; usi: number }[]
+  >([]);
   const [pending, start] = useTransition();
 
   function patch(partial: Partial<typeof vuoto>) {
@@ -477,6 +479,7 @@ export function SpeseCaricamentoBoard() {
       setMsg("Spesa registrata. La trovi in Area fiscale → Gestione Piccole Spese.");
       setAnteprima(null);
       setForm(vuoto);
+      setScelteCausale([]);
       setRighe([rigaVuota()]);
       fileTenuto.current = null;
       setFileScelto(null);
@@ -664,14 +667,30 @@ export function SpeseCaricamentoBoard() {
               </span>
               <EsercenteSpesaCampo
                 value={form.esercente}
-                onChange={(esercente) => patch({ esercente })}
-                onSelect={(voce) =>
-                  patch(
-                    voce.partitaIva
-                      ? { esercente: voce.nome, partitaIva: voce.partitaIva }
-                      : { esercente: voce.nome }
-                  )
-                }
+                onChange={(esercente) => {
+                  setScelteCausale([]);
+                  patch({ esercente });
+                }}
+                onSelect={(voce) => {
+                  const base = voce.partitaIva
+                    ? { esercente: voce.nome, partitaIva: voce.partitaIva }
+                    : { esercente: voce.nome };
+                  if (!inserimentoManuale || voce.giustificazioni.length === 0) {
+                    setScelteCausale([]);
+                    patch(base);
+                    return;
+                  }
+                  if (voce.giustificazioni.length === 1) {
+                    setScelteCausale([]);
+                    patch({
+                      ...base,
+                      giustificazione: voce.giustificazioni[0].testo,
+                    });
+                    return;
+                  }
+                  setScelteCausale(voce.giustificazioni);
+                  patch(base);
+                }}
               />
             </div>
             <label className="block text-sm">
@@ -736,6 +755,30 @@ export function SpeseCaricamentoBoard() {
                 Giustificazione / causale
                 {causaleObbligatoria ? " (obbligatoria)" : ""}
               </span>
+              {inserimentoManuale && scelteCausale.length > 1 ? (
+                <div className="mb-2 flex flex-wrap gap-2">
+                  {scelteCausale.map((voce) => {
+                    const scelta = form.giustificazione.trim() === voce.testo;
+                    return (
+                      <button
+                        key={voce.testo}
+                        type="button"
+                        onClick={() => patch({ giustificazione: voce.testo })}
+                        className={`max-w-full rounded-lg border px-2.5 py-1.5 text-left text-xs ${
+                          scelta
+                            ? "border-[var(--primary)] bg-slate-100 text-slate-900"
+                            : "border-slate-300 bg-white text-slate-800 hover:bg-slate-50"
+                        }`}
+                      >
+                        <span className="block">{voce.testo}</span>
+                        <span className="text-[var(--muted)]">
+                          {voce.usi === 1 ? "1 volta" : `${voce.usi} volte`}
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
+              ) : null}
               <textarea
                 className={field}
                 rows={2}

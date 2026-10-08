@@ -562,22 +562,34 @@ export async function listSpeseAction(raw: {
   };
 }
 
+export type SuggerimentoEsercenteSpesa = {
+  nome: string;
+  usi: number;
+  partitaIva: string;
+  giustificazioni: { testo: string; usi: number }[];
+};
+
 /** Nomi già scritti sui documenti di quest'area, i più usati per primi. Non legge l'anagrafica fornitori. */
 export async function suggerisciEsercentiSpesaAction(): Promise<
-  | { success: true; voci: { nome: string; usi: number; partitaIva: string }[] }
+  | { success: true; voci: SuggerimentoEsercenteSpesa[] }
   | { success: false; error: string }
 > {
   await requireAreaAccess("area-fiscale");
   const supabase = await createClient();
   const conteggi = new Map<
     string,
-    { nome: string; usi: number; iva: Map<string, number> }
+    {
+      nome: string;
+      usi: number;
+      iva: Map<string, number>;
+      causali: Map<string, number>;
+    }
   >();
   const pagina = 1000;
   for (let da = 0; da < 8000; da += pagina) {
     const { data, error } = await supabase
       .from("spese_documenti")
-      .select("esercente, partita_iva")
+      .select("esercente, partita_iva, giustificazione")
       .is("deleted_at", null)
       .neq("esercente", "")
       .range(da, da + pagina - 1);
@@ -590,10 +602,13 @@ export async function suggerisciEsercentiSpesaAction(): Promise<
         nome,
         usi: 0,
         iva: new Map<string, number>(),
+        causali: new Map<string, number>(),
       };
       attuale.usi += 1;
       const piva = String(row.partita_iva ?? "").trim();
       if (piva) attuale.iva.set(piva, (attuale.iva.get(piva) ?? 0) + 1);
+      const causale = String(row.giustificazione ?? "").trim();
+      if (causale) attuale.causali.set(causale, (attuale.causali.get(causale) ?? 0) + 1);
       conteggi.set(nome, attuale);
     }
     if (righe.length < pagina) break;
@@ -608,7 +623,10 @@ export async function suggerisciEsercentiSpesaAction(): Promise<
           usiIva = n;
         }
       }
-      return { nome: voce.nome, usi: voce.usi, partitaIva };
+      const giustificazioni = [...voce.causali.entries()]
+        .map(([testo, usi]) => ({ testo, usi }))
+        .sort((a, b) => b.usi - a.usi || a.testo.localeCompare(b.testo, "it"));
+      return { nome: voce.nome, usi: voce.usi, partitaIva, giustificazioni };
     })
     .sort((a, b) => b.usi - a.usi || a.nome.localeCompare(b.nome, "it"));
   return { success: true, voci };
