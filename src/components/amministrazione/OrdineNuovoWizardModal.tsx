@@ -3646,14 +3646,7 @@ export function OrdineNuovoWizardModal({
             ) : (
               <button
                 type="button"
-                disabled={
-                  saving ||
-                  !modificaPronta ||
-                  calcoloLoading ||
-                  (tipoOrdine !== "campionatura" &&
-                    !modificaOrdineId &&
-                    !calcolo?.dataConsegnaStimata)
-                }
+                disabled={saving || !modificaPronta || calcoloLoading}
                 onClick={() => {
                   const d = spedDraft.current;
                   if (d.allegaTracking && !d.destinatarioEmail.includes("@")) {

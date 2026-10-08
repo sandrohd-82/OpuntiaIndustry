@@ -166,7 +166,9 @@ export function FatturaA4Modal({
     let cancelled = false;
     void (async () => {
       setLoading(true);
-      const comm = await listPreventivoCommercialiRiferimentoAction();
+      const comm = await listPreventivoCommercialiRiferimentoAction({
+        includiSenzaAccount: true,
+      });
       if (cancelled) return;
       if (comm.success) {
         setCommerciali(comm.items);

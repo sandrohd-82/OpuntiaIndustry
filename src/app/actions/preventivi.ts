@@ -1725,7 +1725,9 @@ export async function getCoordinateBancarieAgrinsiciliaAction(): Promise<
   return { success: true, item: coordinateBancarieFallback() };
 }
 
-export async function listPreventivoCommercialiRiferimentoAction(): Promise<
+export async function listPreventivoCommercialiRiferimentoAction(opts?: {
+  includiSenzaAccount?: boolean;
+}): Promise<
   | {
       success: true;
       items: PreventivoCommercialeRiferimento[];
@@ -1736,7 +1738,9 @@ export async function listPreventivoCommercialiRiferimentoAction(): Promise<
   const gate = await requirePreventiviAccess();
   if (!gate.ok) return { success: false, error: gate.error };
   try {
-    const items = await loadPreventivoCommercialiRiferimento();
+    const items = await loadPreventivoCommercialiRiferimento({
+      includiSenzaAccount: Boolean(opts?.includiSenzaAccount),
+    });
     const defaultItem =
       items.find((item) => item.id === gate.auth.userId) ?? null;
     return { success: true, items, defaultItem };

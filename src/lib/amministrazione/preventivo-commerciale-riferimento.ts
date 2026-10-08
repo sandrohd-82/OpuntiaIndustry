@@ -6,6 +6,8 @@ export type PreventivoCommercialeRiferimento = {
   nome: string;
   telefono: string;
   email: string;
+  /** Persona in organigramma senza accesso. Vale solo in fattura: non si scrive sulla FK utenti. */
+  personaSenzaAccount?: boolean;
 };
 
 function displayNome(opts: {
@@ -67,10 +69,13 @@ async function loadAuthPhones(
   return map;
 }
 
-/** Solo commerciali (grado/reparto) e admin. Non tutti gli operatori. */
-export async function loadPreventivoCommercialiRiferimento(): Promise<
-  PreventivoCommercialeRiferimento[]
-> {
+/** Commerciali (grado o reparto) e admin.
+ *  Con `includiSenzaAccount` aggiunge anche chi è in organigramma senza accesso utente.
+ *  Quella lista si usa solo in fattura: il preventivo continua a salvare un id utente.
+ */
+export async function loadPreventivoCommercialiRiferimento(opts?: {
+  includiSenzaAccount?: boolean;
+}): Promise<PreventivoCommercialeRiferimento[]> {
   const service = createServiceClient();
   const [
     { data: profiles },
@@ -91,9 +96,10 @@ export async function loadPreventivoCommercialiRiferimento(): Promise<
       .is("deleted_at", null),
     service
       .from("organigramma_persone")
-      .select("user_id, nome, cognome, cellulare, commerciale_grado, reparto_id")
-      .is("deleted_at", null)
-      .not("user_id", "is", null),
+      .select(
+        "id, user_id, nome, cognome, cellulare, commerciale_grado, reparto_id, in_forza, cessato_at"
+      )
+      .is("deleted_at", null),
     service
       .from("organigramma_reparti")
       .select("id, codice, nome")
@@ -173,6 +179,45 @@ export async function loadPreventivoCommercialiRiferimento(): Promise<
       telefono: persona?.cellulare || phones.get(id) || "",
       email,
     });
+  }
+  if (opts?.includiSenzaAccount) {
+    const giaInElenco = new Set(
+      items.map((item) => item.nome.trim().toLowerCase())
+    );
+    for (const p of persone ?? []) {
+      const row = p as {
+        id?: string;
+        user_id?: string | null;
+        nome?: string | null;
+        cognome?: string | null;
+        cellulare?: string | null;
+        commerciale_grado?: string | null;
+        reparto_id?: string | null;
+        in_forza?: boolean | null;
+        cessato_at?: string | null;
+      };
+      if (row.user_id) continue;
+      if (row.in_forza === false || row.cessato_at) continue;
+      const commerciale = Boolean(
+        parseCommercialeGrado(row.commerciale_grado) ||
+          commercialeRepartoIds.has(String(row.reparto_id ?? ""))
+      );
+      if (!commerciale) continue;
+      const id = String(row.id ?? "").trim();
+      const nome = displayNome({
+        personaNome: row.nome,
+        personaCognome: row.cognome,
+      });
+      if (!id || giaInElenco.has(nome.toLowerCase())) continue;
+      giaInElenco.add(nome.toLowerCase());
+      items.push({
+        id,
+        nome,
+        telefono: String(row.cellulare ?? "").trim(),
+        email: "",
+        personaSenzaAccount: true,
+      });
+    }
   }
   items.sort((a, b) => a.nome.localeCompare(b.nome, "it"));
   return items;
