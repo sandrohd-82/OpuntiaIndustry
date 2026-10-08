@@ -170,7 +170,7 @@ export function FatturaA4Modal({
       if (cancelled) return;
       if (comm.success) {
         setCommerciali(comm.items);
-        setCommerciale(comm.items[0] ?? null);
+        setCommerciale(comm.defaultItem ?? null);
       }
       if (soloSessione) {
         const prev = loadOrdineSessione()?.fattura;
@@ -545,7 +545,7 @@ export function FatturaA4Modal({
       <div className="mx-auto mb-4 flex max-w-[210mm] items-center justify-between gap-3 print:hidden">
         <h2 id={titleId} className="text-sm font-semibold text-white">
           {vista === "proforma" ? "Proforma da ordine" : "Fattura da ordine"}
-          {soloSessione ? " · sessione" : ""}
+          {soloSessione && !ORDINI_PERSISTENZA_DEFINITIVA ? " · sessione" : ""}
         </h2>
         <div className="flex flex-wrap justify-end gap-2">
           <button
@@ -624,7 +624,8 @@ export function FatturaA4Modal({
               )}
             </>
           ) : null}
-          {vista === "fattura" ? (
+          {vista === "fattura" &&
+          !(soloSessione && ORDINI_PERSISTENZA_DEFINITIVA) ? (
             <button
               type="button"
               onClick={() => setConfirmOpen(true)}
@@ -647,7 +648,7 @@ export function FatturaA4Modal({
           {error}
         </p>
       ) : null}
-      {soloSessione && !msg ? (
+      {soloSessione && !ORDINI_PERSISTENZA_DEFINITIVA && !msg ? (
         <p className="mx-auto mb-3 max-w-[210mm] rounded border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-950 print:hidden">
           Salvataggio solo in sessione: niente database, email o SDI.
         </p>
