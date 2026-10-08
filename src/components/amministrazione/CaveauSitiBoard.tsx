@@ -1,6 +1,6 @@
 "use client";
 
-import { Fragment, useCallback, useEffect, useId, useState } from "react";
+import { Fragment, useCallback, useEffect, useId, useMemo, useState } from "react";
 import {
   aggiornaCaveauAcquistoAction,
   aggiornaCaveauSitoAction,
@@ -60,6 +60,50 @@ function prezzoTesto(valore: number | null): string {
   return String(valore).replace(".", ",");
 }
 
+type Verso = "asc" | "desc";
+type CampoSito = "nome" | "url" | "mail" | "versione";
+type CampoAcquisto = "registratoAt" | "titolo" | "url" | "descrizione" | "prezzo";
+
+function valoreOrdine(
+  a: string | number | null,
+  b: string | number | null,
+  verso: Verso
+): number {
+  const vuoto = (v: string | number | null) => v == null || v === "";
+  if (vuoto(a) && vuoto(b)) return 0;
+  if (vuoto(a)) return 1;
+  if (vuoto(b)) return -1;
+  const base =
+    typeof a === "number" && typeof b === "number"
+      ? a - b
+      : String(a).localeCompare(String(b), "it", { numeric: true, sensitivity: "base" });
+  return verso === "asc" ? base : -base;
+}
+
+function IntestazioneOrdine({
+  children,
+  attivo,
+  verso,
+  onClick,
+}: {
+  children: string;
+  attivo: boolean;
+  verso: Verso;
+  onClick: () => void;
+}) {
+  const segno = attivo ? (verso === "asc" ? "↑" : "↓") : "↕";
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="inline-flex items-center gap-1 uppercase tracking-wide hover:text-slate-800"
+    >
+      {children}
+      <span aria-hidden="true">{segno}</span>
+    </button>
+  );
+}
+
 function formatQuando(iso: string): string {
   if (!iso) return "";
   const d = new Date(iso);
@@ -71,6 +115,14 @@ export function CaveauSitiBoard() {
   const formTitleId = useId();
   const rivelaTitleId = useId();
   const [righe, setRighe] = useState<CaveauSitoRiga[]>([]);
+  const [ordineSiti, setOrdineSiti] = useState<{ campo: CampoSito; verso: Verso }>({
+    campo: "nome",
+    verso: "asc",
+  });
+  const [ordineAcquisti, setOrdineAcquisti] = useState<
+    Record<string, { campo: CampoAcquisto; verso: Verso }>
+  >({});
+  const [acquistiAperti, setAcquistiAperti] = useState<Record<string, boolean>>({});
   const [errore, setErrore] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [bozza, setBozza] = useState<Bozza | null>(null);
@@ -83,6 +135,33 @@ export function CaveauSitiBoard() {
   const [acquisto, setAcquisto] = useState<AcquistoBozza | null>(null);
   const [eliminaAcquisto, setEliminaAcquisto] = useState<CaveauAcquistoRiga | null>(null);
   const acquistoTitleId = useId();
+
+  const sitiOrdinati = useMemo(
+    () =>
+      [...righe].sort((a, b) =>
+        valoreOrdine(a[ordineSiti.campo], b[ordineSiti.campo], ordineSiti.verso)
+      ),
+    [righe, ordineSiti]
+  );
+
+  function cliccaOrdineSiti(campo: CampoSito) {
+    setOrdineSiti((prev) =>
+      prev.campo === campo
+        ? { campo, verso: prev.verso === "asc" ? "desc" : "asc" }
+        : { campo, verso: "asc" }
+    );
+  }
+
+  function cliccaOrdineAcquisti(sitoId: string, campo: CampoAcquisto) {
+    setOrdineAcquisti((prev) => {
+      const corrente = prev[sitoId] ?? { campo: "registratoAt" as const, verso: "desc" as const };
+      const prossimo =
+        corrente.campo === campo
+          ? { campo, verso: corrente.verso === "asc" ? ("desc" as const) : ("asc" as const) }
+          : { campo, verso: "asc" as const };
+      return { ...prev, [sitoId]: prossimo };
+    });
+  }
 
   const load = useCallback(async () => {
     const res = await listCaveauSitiAction();
@@ -259,13 +338,45 @@ export function CaveauSitiBoard() {
 
       <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white">
         <table className="min-w-full text-left text-sm">
-          <thead className="bg-slate-50 text-xs uppercase tracking-wide text-slate-500">
+          <thead className="bg-slate-50 text-xs text-slate-500">
             <tr>
-              <th className="px-3 py-2">Sito</th>
-              <th className="px-3 py-2">URL</th>
-              <th className="px-3 py-2">Mail</th>
+              <th className="px-3 py-2">
+                <IntestazioneOrdine
+                  attivo={ordineSiti.campo === "nome"}
+                  verso={ordineSiti.verso}
+                  onClick={() => cliccaOrdineSiti("nome")}
+                >
+                  Sito
+                </IntestazioneOrdine>
+              </th>
+              <th className="px-3 py-2">
+                <IntestazioneOrdine
+                  attivo={ordineSiti.campo === "url"}
+                  verso={ordineSiti.verso}
+                  onClick={() => cliccaOrdineSiti("url")}
+                >
+                  URL
+                </IntestazioneOrdine>
+              </th>
+              <th className="px-3 py-2">
+                <IntestazioneOrdine
+                  attivo={ordineSiti.campo === "mail"}
+                  verso={ordineSiti.verso}
+                  onClick={() => cliccaOrdineSiti("mail")}
+                >
+                  Mail
+                </IntestazioneOrdine>
+              </th>
               <th className="px-3 py-2">Password</th>
-              <th className="px-3 py-2">Versione</th>
+              <th className="px-3 py-2">
+                <IntestazioneOrdine
+                  attivo={ordineSiti.campo === "versione"}
+                  verso={ordineSiti.verso}
+                  onClick={() => cliccaOrdineSiti("versione")}
+                >
+                  Versione
+                </IntestazioneOrdine>
+              </th>
               <th className="px-3 py-2" />
             </tr>
           </thead>
@@ -277,7 +388,7 @@ export function CaveauSitiBoard() {
                 </td>
               </tr>
             ) : (
-              righe.map((riga) => (
+              sitiOrdinati.map((riga) => (
                 <Fragment key={riga.id}>
                   <tr className="border-t border-slate-200">
                     <td className="px-3 py-2 font-medium text-slate-900">
@@ -350,10 +461,24 @@ export function CaveauSitiBoard() {
                   </tr>
                   <tr className="border-t border-slate-100 bg-slate-50">
                     <td colSpan={6} className="px-3 py-3">
-                      <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
-                        <p className="text-xs font-medium uppercase tracking-wide text-slate-500">
-                          Acquisti ({riga.acquisti.length})
-                        </p>
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <button
+                          type="button"
+                          aria-expanded={Boolean(acquistiAperti[riga.id])}
+                          className="inline-flex items-center gap-2 text-sm font-medium text-slate-800"
+                          onClick={() =>
+                            setAcquistiAperti((prev) => ({
+                              ...prev,
+                              [riga.id]: !prev[riga.id],
+                            }))
+                          }
+                        >
+                          <span aria-hidden="true">
+                            {acquistiAperti[riga.id] ? "▾" : "▸"}
+                          </span>
+                          {acquistiAperti[riga.id] ? "Nascondi acquisti" : "Mostra acquisti"} (
+                          {riga.acquisti.length})
+                        </button>
                         <button
                           type="button"
                           className="rounded-md border border-slate-300 bg-white px-2 py-1 text-xs"
@@ -362,22 +487,57 @@ export function CaveauSitiBoard() {
                           Nuovo acquisto
                         </button>
                       </div>
-                      {riga.acquisti.length === 0 ? (
-                        <p className="text-sm text-slate-500">Nessun acquisto registrato.</p>
-                      ) : (
-                        <table className="min-w-full text-left text-sm">
-                          <thead className="text-xs uppercase tracking-wide text-slate-500">
+                      {acquistiAperti[riga.id] ? (
+                        (riga.acquisti.length === 0 ? (
+                          <p className="mt-3 text-sm text-slate-500">Nessun acquisto registrato.</p>
+                        ) : (
+                        <table className="mt-3 min-w-full text-left text-sm">
+                          <thead className="text-xs text-slate-500">
                             <tr>
-                              <th className="px-2 py-1">Data</th>
-                              <th className="px-2 py-1">Titolo</th>
-                              <th className="px-2 py-1">URL</th>
-                              <th className="px-2 py-1">Descrizione</th>
-                              <th className="px-2 py-1">Prezzo</th>
+                              {(
+                                [
+                                  ["registratoAt", "Data"],
+                                  ["titolo", "Titolo"],
+                                  ["url", "URL"],
+                                  ["descrizione", "Descrizione"],
+                                  ["prezzo", "Prezzo"],
+                                ] as const
+                              ).map(([campo, etichetta]) => {
+                                const ordine = ordineAcquisti[riga.id] ?? {
+                                  campo: "registratoAt" as const,
+                                  verso: "desc" as const,
+                                };
+                                return (
+                                  <th key={campo} className="px-2 py-1">
+                                    <IntestazioneOrdine
+                                      attivo={ordine.campo === campo}
+                                      verso={ordine.verso}
+                                      onClick={() => cliccaOrdineAcquisti(riga.id, campo)}
+                                    >
+                                      {etichetta}
+                                    </IntestazioneOrdine>
+                                  </th>
+                                );
+                              })}
                               <th className="px-2 py-1" />
                             </tr>
                           </thead>
                           <tbody>
-                            {riga.acquisti.map((voce) => (
+                            {[...riga.acquisti]
+                              .sort((a, b) => {
+                                const ordine = ordineAcquisti[riga.id] ?? {
+                                  campo: "registratoAt" as const,
+                                  verso: "desc" as const,
+                                };
+                                if (ordine.campo === "prezzo") {
+                                  return valoreOrdine(a.prezzo, b.prezzo, ordine.verso);
+                                }
+                                if (ordine.campo === "registratoAt") {
+                                  return valoreOrdine(a.registratoAt, b.registratoAt, ordine.verso);
+                                }
+                                return valoreOrdine(a[ordine.campo], b[ordine.campo], ordine.verso);
+                              })
+                              .map((voce) => (
                               <tr key={voce.id} className="border-t border-slate-200">
                                 <td className="px-2 py-1 text-slate-700">
                                   {voce.registratoAt ? formatQuando(voce.registratoAt) : "—"}
@@ -443,7 +603,8 @@ export function CaveauSitiBoard() {
                             ))}
                           </tbody>
                         </table>
-                      )}
+                        ))
+                      ) : null}
                     </td>
                   </tr>
                 </Fragment>
