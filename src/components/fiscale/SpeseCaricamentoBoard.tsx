@@ -5,15 +5,20 @@ import { createPortal } from "react-dom";
 import {
   anteprimaSpesaAction,
   listProgettiSpesaAction,
+  listRicevuteRecentiSpesaAction,
   registraSpesaAction,
   suggerisciEsercentiSpesaAction,
+  urlAllegatoSpesaAction,
+  type RicevutaRecenteSpesa,
   type SuggerimentoEsercenteSpesa,
 } from "@/app/actions/spese";
+import { formatDateIt, formatEuro } from "@/lib/amministrazione/fatture";
 import { ScontrinoZoomPane } from "@/components/fiscale/ScontrinoZoomPane";
 import {
   CATEGORIE_SPESA,
   LABEL_CATEGORIA_SPESA,
   LABEL_PAGAMENTO_SPESA,
+  LABEL_STATO_SPESA,
   LABEL_TIPO_CARICAMENTO,
   LABEL_TIPO_PROGETTO,
   PAGAMENTI_SPESA,
@@ -28,6 +33,18 @@ import {
 
 const field =
   "w-full rounded-lg border border-[var(--border)] bg-white px-3 py-2 text-sm";
+
+function formatSalvataggio(iso: string): string {
+  const data = new Date(iso);
+  if (Number.isNaN(data.getTime())) return "—";
+  return data.toLocaleString("it-IT", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
 
 function testoRicerca(value: string): string {
   return value
@@ -241,10 +258,36 @@ export function SpeseCaricamentoBoard() {
   const [scelteCausale, setScelteCausale] = useState<
     { testo: string; usi: number }[]
   >([]);
+  const [ricevute, setRicevute] = useState<RicevutaRecenteSpesa[]>([]);
+  const [ricevuteErrore, setRicevuteErrore] = useState<string | null>(null);
   const [pending, start] = useTransition();
 
   function patch(partial: Partial<typeof vuoto>) {
     setForm((prev) => ({ ...prev, ...partial }));
+  }
+
+  async function caricaRicevute() {
+    const res = await listRicevuteRecentiSpesaAction();
+    if (!res.success) {
+      setRicevuteErrore(res.error);
+      setRicevute([]);
+      return;
+    }
+    setRicevuteErrore(null);
+    setRicevute(res.ricevute);
+  }
+
+  useEffect(() => {
+    void caricaRicevute();
+  }, []);
+
+  async function apriRicevuta(id: string) {
+    const res = await urlAllegatoSpesaAction(id);
+    if (!res.success) {
+      setRicevuteErrore(res.error);
+      return;
+    }
+    window.open(res.url, "_blank", "noopener,noreferrer");
   }
 
   function chiudiCamera() {
@@ -477,6 +520,7 @@ export function SpeseCaricamentoBoard() {
         return;
       }
       setMsg("Spesa registrata. La trovi in Area fiscale → Gestione Piccole Spese.");
+      void caricaRicevute();
       setAnteprima(null);
       setForm(vuoto);
       setScelteCausale([]);
@@ -617,6 +661,64 @@ export function SpeseCaricamentoBoard() {
           {msg}
         </p>
       ) : null}
+
+      <section className="rounded-xl border border-[var(--border)] bg-[var(--card)] p-4">
+        <h2 className="text-sm font-semibold text-slate-900">
+          Ricevute salvate negli ultimi 30 giorni
+        </h2>
+        <p className="mt-1 text-xs text-[var(--muted)]">
+          Le più recenti per prime, in base a quando sono state registrate.
+        </p>
+        {ricevuteErrore ? (
+          <p className="mt-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">
+            {ricevuteErrore}
+          </p>
+        ) : null}
+        {ricevute.length === 0 ? (
+          ricevuteErrore ? null : (
+            <p className="mt-3 text-sm text-slate-500">
+              Nessuna ricevuta salvata negli ultimi 30 giorni.
+            </p>
+          )
+        ) : (
+          <ul className="mt-3 divide-y divide-slate-100 rounded-lg border border-slate-200 bg-white">
+            {ricevute.map((voce) => (
+              <li key={voce.id} className="flex items-start justify-between gap-3 px-3 py-2">
+                <div className="min-w-0">
+                  <p className="text-sm font-medium text-slate-900">{voce.esercente}</p>
+                  <p className="text-xs text-[var(--muted)]">
+                    Salvata {formatSalvataggio(voce.salvataIl)}
+                    {" · "}
+                    documento {formatDateIt(voce.dataDocumento)}
+                    {" · "}
+                    {LABEL_TIPO_CARICAMENTO[voce.tipoCaricamento]}
+                    {" · "}
+                    {LABEL_STATO_SPESA[voce.stato]}
+                  </p>
+                  {voce.giustificazione ? (
+                    <p className="mt-0.5 text-xs text-slate-700">{voce.giustificazione}</p>
+                  ) : null}
+                </div>
+                <div className="flex shrink-0 flex-col items-end gap-1">
+                  <p className="text-sm tabular-nums">
+                    {formatEuro(voce.totale)}
+                    {voce.valuta !== "EUR" ? (
+                      <span className="block text-xs text-[var(--muted)]">{voce.valuta}</span>
+                    ) : null}
+                  </p>
+                  <button
+                    type="button"
+                    className="rounded border border-slate-300 px-2 py-1 text-xs"
+                    onClick={() => void apriRicevuta(voce.id)}
+                  >
+                    Documento
+                  </button>
+                </div>
+              </li>
+            ))}
+          </ul>
+        )}
+      </section>
 
       {(() => {
         const modulo = anteprima ? (

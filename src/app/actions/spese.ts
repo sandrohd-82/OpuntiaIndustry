@@ -562,6 +562,50 @@ export async function listSpeseAction(raw: {
   };
 }
 
+export type RicevutaRecenteSpesa = {
+  id: string;
+  salvataIl: string;
+  dataDocumento: string;
+  esercente: string;
+  giustificazione: string;
+  tipoCaricamento: TipoCaricamentoSpesa;
+  totale: number;
+  valuta: string;
+  stato: StatoSpesa;
+};
+
+/** Ricevute registrate negli ultimi 30 giorni, le più recenti per prime. */
+export async function listRicevuteRecentiSpesaAction(): Promise<
+  | { success: true; ricevute: RicevutaRecenteSpesa[] }
+  | { success: false; error: string }
+> {
+  await requireAreaAccess("area-fiscale");
+  const supabase = await createClient();
+  const dal = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
+  const { data, error } = await supabase
+    .from("spese_documenti")
+    .select(
+      "id, created_at, data_documento, esercente, giustificazione, tipo_caricamento, totale, valuta, stato"
+    )
+    .is("deleted_at", null)
+    .gte("created_at", dal)
+    .order("created_at", { ascending: false })
+    .limit(200);
+  if (error) return { success: false, error: error.message };
+  const ricevute: RicevutaRecenteSpesa[] = (data ?? []).map((row) => ({
+    id: String(row.id),
+    salvataIl: String(row.created_at ?? ""),
+    dataDocumento: String(row.data_documento ?? "").slice(0, 10),
+    esercente: String(row.esercente ?? ""),
+    giustificazione: String(row.giustificazione ?? ""),
+    tipoCaricamento: row.tipo_caricamento as TipoCaricamentoSpesa,
+    totale: num(row.totale),
+    valuta: String(row.valuta ?? "EUR"),
+    stato: row.stato as StatoSpesa,
+  }));
+  return { success: true, ricevute };
+}
+
 export type SuggerimentoEsercenteSpesa = {
   nome: string;
   usi: number;
