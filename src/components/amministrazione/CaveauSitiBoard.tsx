@@ -1,14 +1,17 @@
 "use client";
 
-import { useCallback, useEffect, useId, useState } from "react";
+import { Fragment, useCallback, useEffect, useId, useState } from "react";
 import {
+  aggiornaCaveauAcquistoAction,
   aggiornaCaveauSitoAction,
+  creaCaveauAcquistoAction,
   creaCaveauSitoAction,
+  eliminaCaveauAcquistoAction,
   eliminaCaveauSitoAction,
   listCaveauSitiAction,
   rivelaPasswordCaveauAction,
 } from "@/app/actions/caveau-siti";
-import type { CaveauSitoRiga } from "@/lib/amministrazione/caveau-siti";
+import type { CaveauAcquistoRiga, CaveauSitoRiga } from "@/lib/amministrazione/caveau-siti";
 import { fraseConfermaSoftDelete } from "@/lib/soft-delete";
 
 type Bozza = {
@@ -20,6 +23,41 @@ type Bozza = {
 };
 
 const vuota: Bozza = { id: null, nome: "", url: "", mail: "", password: "" };
+
+type AcquistoBozza = {
+  id: string | null;
+  sitoId: string;
+  sitoNome: string;
+  url: string;
+  titolo: string;
+  descrizione: string;
+  prezzo: string;
+  registratoAt: string;
+};
+
+function adessoLocale(): string {
+  const d = new Date();
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
+function versoLocale(iso: string | null): string {
+  if (!iso) return "";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "";
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
+function formatPrezzo(valore: number | null): string {
+  if (valore == null) return "—";
+  return valore.toLocaleString("it-IT", { style: "currency", currency: "EUR" });
+}
+
+function prezzoTesto(valore: number | null): string {
+  if (valore == null) return "";
+  return String(valore).replace(".", ",");
+}
 
 function formatQuando(iso: string): string {
   if (!iso) return "";
@@ -40,6 +78,9 @@ export function CaveauSitiBoard() {
   const [rivela, setRivela] = useState<CaveauSitoRiga | null>(null);
   const [codice, setCodice] = useState("");
   const [passwordVista, setPasswordVista] = useState<string | null>(null);
+  const [acquisto, setAcquisto] = useState<AcquistoBozza | null>(null);
+  const [eliminaAcquisto, setEliminaAcquisto] = useState<CaveauAcquistoRiga | null>(null);
+  const acquistoTitleId = useId();
 
   const load = useCallback(async () => {
     const res = await listCaveauSitiAction();
@@ -119,6 +160,62 @@ export function CaveauSitiBoard() {
     setPasswordVista(null);
   }
 
+  function nuovoAcquisto(sito: CaveauSitoRiga) {
+    setErrore(null);
+    setAcquisto({
+      id: null,
+      sitoId: sito.id,
+      sitoNome: sito.nome,
+      url: "",
+      titolo: "",
+      descrizione: "",
+      prezzo: "",
+      registratoAt: adessoLocale(),
+    });
+  }
+
+  async function salvaAcquisto() {
+    if (!acquisto || busy) return;
+    setBusy(true);
+    setErrore(null);
+    const payload = {
+      sitoId: acquisto.sitoId,
+      url: acquisto.url,
+      titolo: acquisto.titolo,
+      descrizione: acquisto.descrizione,
+      prezzo: acquisto.prezzo,
+      registratoAt: acquisto.registratoAt,
+    };
+    const res = acquisto.id
+      ? await aggiornaCaveauAcquistoAction({ ...payload, id: acquisto.id })
+      : await creaCaveauAcquistoAction(payload);
+    setBusy(false);
+    if (!res.ok) {
+      setErrore(res.error);
+      return;
+    }
+    setAcquisto(null);
+    await load();
+  }
+
+  async function confermaEliminaAcquisto() {
+    if (!eliminaAcquisto || busy) return;
+    setBusy(true);
+    setErrore(null);
+    const res = await eliminaCaveauAcquistoAction({
+      id: eliminaAcquisto.id,
+      conferma,
+    });
+    setBusy(false);
+    if (!res.ok) {
+      setErrore(res.error);
+      return;
+    }
+    setEliminaAcquisto(null);
+    setConferma("");
+    await load();
+  }
+
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
@@ -165,74 +262,174 @@ export function CaveauSitiBoard() {
               </tr>
             ) : (
               righe.map((riga) => (
-                <tr key={riga.id} className="border-t border-slate-100">
-                  <td className="px-3 py-2 font-medium text-slate-900">
-                    {riga.nome}
-                    <div className="text-xs font-normal text-slate-500">
-                      {formatQuando(riga.updatedAt)}
-                    </div>
-                  </td>
-                  <td className="px-3 py-2">
-                    {/^https?:\/\//i.test(riga.url) ? (
-                      <a
-                        href={riga.url}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="text-sky-800 underline"
-                      >
-                        {riga.url}
-                      </a>
-                    ) : (
-                      <span className="text-slate-700">{riga.url}</span>
-                    )}
-                  </td>
-                  <td className="px-3 py-2 text-slate-700">{riga.mail}</td>
-                  <td className="px-3 py-2 font-mono text-slate-400">••••••••</td>
-                  <td className="px-3 py-2 text-slate-600">{riga.versione}</td>
-                  <td className="px-3 py-2">
-                    <div className="flex flex-wrap gap-2">
-                      <button
-                        type="button"
-                        className="rounded-md border border-slate-300 px-2 py-1 text-xs"
-                        onClick={() => {
-                          setErrore(null);
-                          setRivela(riga);
-                          setCodice("");
-                          setPasswordVista(null);
-                        }}
-                      >
-                        Mostra
-                      </button>
-                      <button
-                        type="button"
-                        className="rounded-md border border-slate-300 px-2 py-1 text-xs"
-                        onClick={() => {
-                          setErrore(null);
-                          setBozza({
-                            id: riga.id,
-                            nome: riga.nome,
-                            url: riga.url,
-                            mail: riga.mail,
-                            password: "",
-                          });
-                        }}
-                      >
-                        Modifica
-                      </button>
-                      <button
-                        type="button"
-                        className="rounded-md border border-red-200 px-2 py-1 text-xs text-red-700"
-                        onClick={() => {
-                          setErrore(null);
-                          setElimina(riga);
-                          setConferma("");
-                        }}
-                      >
-                        Elimina
-                      </button>
-                    </div>
-                  </td>
-                </tr>
+                <Fragment key={riga.id}>
+                  <tr className="border-t border-slate-200">
+                    <td className="px-3 py-2 font-medium text-slate-900">
+                      {riga.nome}
+                      <div className="text-xs font-normal text-slate-500">
+                        {formatQuando(riga.updatedAt)}
+                      </div>
+                    </td>
+                    <td className="px-3 py-2">
+                      {/^https?:\/\//i.test(riga.url) ? (
+                        <a
+                          href={riga.url}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="text-sky-800 underline"
+                        >
+                          {riga.url}
+                        </a>
+                      ) : (
+                        <span className="text-slate-700">{riga.url}</span>
+                      )}
+                    </td>
+                    <td className="px-3 py-2 text-slate-700">{riga.mail}</td>
+                    <td className="px-3 py-2 font-mono text-slate-400">••••••••</td>
+                    <td className="px-3 py-2 text-slate-600">{riga.versione}</td>
+                    <td className="px-3 py-2">
+                      <div className="flex flex-wrap gap-2">
+                        <button
+                          type="button"
+                          className="rounded-md border border-slate-300 px-2 py-1 text-xs"
+                          onClick={() => {
+                            setErrore(null);
+                            setRivela(riga);
+                            setCodice("");
+                            setPasswordVista(null);
+                          }}
+                        >
+                          Mostra
+                        </button>
+                        <button
+                          type="button"
+                          className="rounded-md border border-slate-300 px-2 py-1 text-xs"
+                          onClick={() => {
+                            setErrore(null);
+                            setBozza({
+                              id: riga.id,
+                              nome: riga.nome,
+                              url: riga.url,
+                              mail: riga.mail,
+                              password: "",
+                            });
+                          }}
+                        >
+                          Modifica
+                        </button>
+                        <button
+                          type="button"
+                          className="rounded-md border border-red-200 px-2 py-1 text-xs text-red-700"
+                          onClick={() => {
+                            setErrore(null);
+                            setElimina(riga);
+                            setConferma("");
+                          }}
+                        >
+                          Elimina
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                  <tr className="border-t border-slate-100 bg-slate-50">
+                    <td colSpan={6} className="px-3 py-3">
+                      <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+                        <p className="text-xs font-medium uppercase tracking-wide text-slate-500">
+                          Acquisti ({riga.acquisti.length})
+                        </p>
+                        <button
+                          type="button"
+                          className="rounded-md border border-slate-300 bg-white px-2 py-1 text-xs"
+                          onClick={() => nuovoAcquisto(riga)}
+                        >
+                          Nuovo acquisto
+                        </button>
+                      </div>
+                      {riga.acquisti.length === 0 ? (
+                        <p className="text-sm text-slate-500">Nessun acquisto registrato.</p>
+                      ) : (
+                        <table className="min-w-full text-left text-sm">
+                          <thead className="text-xs uppercase tracking-wide text-slate-500">
+                            <tr>
+                              <th className="px-2 py-1">Data</th>
+                              <th className="px-2 py-1">Titolo</th>
+                              <th className="px-2 py-1">URL</th>
+                              <th className="px-2 py-1">Descrizione</th>
+                              <th className="px-2 py-1">Prezzo</th>
+                              <th className="px-2 py-1" />
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {riga.acquisti.map((voce) => (
+                              <tr key={voce.id} className="border-t border-slate-200">
+                                <td className="px-2 py-1 text-slate-700">
+                                  {voce.registratoAt ? formatQuando(voce.registratoAt) : "—"}
+                                </td>
+                                <td className="px-2 py-1 font-medium text-slate-900">
+                                  {voce.titolo}
+                                </td>
+                                <td className="px-2 py-1">
+                                  {/^https?:\/\//i.test(voce.url) ? (
+                                    <a
+                                      href={voce.url}
+                                      target="_blank"
+                                      rel="noreferrer"
+                                      className="text-sky-800 underline"
+                                    >
+                                      {voce.url}
+                                    </a>
+                                  ) : (
+                                    <span className="text-slate-700">{voce.url}</span>
+                                  )}
+                                </td>
+                                <td className="max-w-xs px-2 py-1 text-slate-600">
+                                  {voce.descrizione || "—"}
+                                </td>
+                                <td className="px-2 py-1 tabular-nums text-slate-800">
+                                  {formatPrezzo(voce.prezzo)}
+                                </td>
+                                <td className="px-2 py-1">
+                                  <div className="flex gap-2">
+                                    <button
+                                      type="button"
+                                      className="rounded-md border border-slate-300 bg-white px-2 py-1 text-xs"
+                                      onClick={() => {
+                                        setErrore(null);
+                                        setAcquisto({
+                                          id: voce.id,
+                                          sitoId: riga.id,
+                                          sitoNome: riga.nome,
+                                          url: voce.url,
+                                          titolo: voce.titolo,
+                                          descrizione: voce.descrizione,
+                                          prezzo: prezzoTesto(voce.prezzo),
+                                          registratoAt: versoLocale(voce.registratoAt),
+                                        });
+                                      }}
+                                    >
+                                      Modifica
+                                    </button>
+                                    <button
+                                      type="button"
+                                      className="rounded-md border border-red-200 bg-white px-2 py-1 text-xs text-red-700"
+                                      onClick={() => {
+                                        setErrore(null);
+                                        setEliminaAcquisto(voce);
+                                        setConferma("");
+                                      }}
+                                    >
+                                      Elimina
+                                    </button>
+                                  </div>
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      )}
+                    </td>
+                  </tr>
+                </Fragment>
               ))
             )}
           </tbody>
@@ -341,6 +538,136 @@ export function CaveauSitiBoard() {
                 type="button"
                 className="rounded-lg bg-red-700 px-3 py-2 text-sm text-white disabled:opacity-60"
                 onClick={() => void confermaElimina()}
+                disabled={busy}
+              >
+                Elimina
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {acquisto ? (
+        <div className="fixed inset-0 z-[80] flex items-center justify-center bg-slate-950/60 p-4">
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby={acquistoTitleId}
+            className="w-full max-w-lg rounded-2xl border border-slate-200 bg-white p-5 shadow-xl"
+          >
+            <h2 id={acquistoTitleId} className="text-lg font-semibold text-slate-900">
+              {acquisto.id ? "Modifica acquisto" : "Nuovo acquisto"} — {acquisto.sitoNome}
+            </h2>
+            <p className="mt-1 text-xs text-slate-500">
+              Obbligatori solo URL e titolo. La data è quella di adesso e si può cambiare.
+            </p>
+            <div className="mt-4 space-y-3">
+              <label className="block text-sm">
+                <span className="text-slate-600">URL</span>
+                <input
+                  className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2"
+                  value={acquisto.url}
+                  onChange={(e) => setAcquisto({ ...acquisto, url: e.target.value })}
+                />
+              </label>
+              <label className="block text-sm">
+                <span className="text-slate-600">Titolo / nome</span>
+                <input
+                  className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2"
+                  value={acquisto.titolo}
+                  onChange={(e) => setAcquisto({ ...acquisto, titolo: e.target.value })}
+                />
+              </label>
+              <label className="block text-sm">
+                <span className="text-slate-600">Descrizione</span>
+                <textarea
+                  className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2"
+                  rows={3}
+                  value={acquisto.descrizione}
+                  onChange={(e) =>
+                    setAcquisto({ ...acquisto, descrizione: e.target.value })
+                  }
+                />
+              </label>
+              <div className="grid gap-3 sm:grid-cols-2">
+                <label className="block text-sm">
+                  <span className="text-slate-600">Prezzo (€)</span>
+                  <input
+                    inputMode="decimal"
+                    className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2"
+                    value={acquisto.prezzo}
+                    onChange={(e) => setAcquisto({ ...acquisto, prezzo: e.target.value })}
+                  />
+                </label>
+                <label className="block text-sm">
+                  <span className="text-slate-600">Data</span>
+                  <input
+                    type="datetime-local"
+                    className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2"
+                    value={acquisto.registratoAt}
+                    onChange={(e) =>
+                      setAcquisto({ ...acquisto, registratoAt: e.target.value })
+                    }
+                  />
+                </label>
+              </div>
+            </div>
+            <div className="mt-5 flex justify-end gap-2">
+              <button
+                type="button"
+                className="rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                onClick={() => setAcquisto(null)}
+                disabled={busy}
+              >
+                Chiudi
+              </button>
+              <button
+                type="button"
+                className="rounded-lg bg-slate-900 px-3 py-2 text-sm text-white disabled:opacity-60"
+                onClick={() => void salvaAcquisto()}
+                disabled={busy}
+              >
+                Salva
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {eliminaAcquisto ? (
+        <div className="fixed inset-0 z-[80] flex items-center justify-center bg-slate-950/60 p-4">
+          <div
+            role="dialog"
+            aria-modal="true"
+            className="w-full max-w-md rounded-2xl border border-slate-200 bg-white p-5 shadow-xl"
+          >
+            <h2 className="text-lg font-semibold text-slate-900">
+              Rimuovi {eliminaAcquisto.titolo}
+            </h2>
+            <p className="mt-2 text-sm text-slate-600">
+              La riga resta in archivio. Per confermare scrivi{" "}
+              <span className="font-medium">
+                {fraseConfermaSoftDelete(eliminaAcquisto.titolo)}
+              </span>
+            </p>
+            <input
+              className="mt-3 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+              value={conferma}
+              onChange={(e) => setConferma(e.target.value)}
+            />
+            <div className="mt-5 flex justify-end gap-2">
+              <button
+                type="button"
+                className="rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                onClick={() => setEliminaAcquisto(null)}
+                disabled={busy}
+              >
+                Chiudi
+              </button>
+              <button
+                type="button"
+                className="rounded-lg bg-red-700 px-3 py-2 text-sm text-white disabled:opacity-60"
+                onClick={() => void confermaEliminaAcquisto()}
                 disabled={busy}
               >
                 Elimina
