@@ -1172,13 +1172,6 @@ export function OrdineNuovoWizardModal({
       if (ordineSospeso && !dataDisponibilitaPresunta) return false;
       if (
         tipoOrdine !== "campionatura" &&
-        preventivoId &&
-        (!mailAccettazione || !referenteAccettazione)
-      ) {
-        return false;
-      }
-      if (
-        tipoOrdine !== "campionatura" &&
         fasciaSconto === "oltre_30" &&
         scontoCtx &&
         !scontoCtx.canOltre30
@@ -2641,7 +2634,8 @@ export function OrdineNuovoWizardModal({
                 <p className="text-xs text-[var(--muted)]">
                   Se il cliente ha scritto per mail, collega il messaggio.
                   Prima compaiono le inerenti: da lì puoi caricare tutte
-                  quelle dell’azienda o cercarle in casella.
+                  quelle dell’azienda o cercarle in casella. Il preventivo
+                  resta facoltativo.
                 </p>
                 <button
                   type="button"
@@ -2666,9 +2660,9 @@ export function OrdineNuovoWizardModal({
                 <div className="space-y-3 rounded-lg border border-[var(--border)] px-4 py-3">
                   <p className="text-sm font-medium">Preventivo accettato</p>
                   <p className="text-xs text-[var(--muted)]">
-                    Collegabile solo se stato Accettato. Un prodotto o più
-                    righe («di tanti»). Se lo colleghi, servono anche mail e
-                    referente di accettazione.
+                    Facoltativo, anche se hai collegato la mail di richiesta.
+                    Solo stato Accettato, un prodotto o più righe («di tanti»).
+                    Mail e referente di accettazione restano facoltativi.
                   </p>
                   <OrdinePreventivoPicker
                     clienteId={clienteId}
