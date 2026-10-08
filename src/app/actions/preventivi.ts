@@ -791,6 +791,71 @@ export async function listPreventiviAccettatiAction(input: {
   return { success: true, items };
 }
 
+/** Ricerca preventivi per collegarli a un ordine. Rispetta il perimetro commerciale. */
+export async function cercaPreventiviPerOrdineAction(raw: {
+  dataDa?: string;
+  dataA?: string;
+  azienda?: string;
+  numero?: string;
+  stato?: PreventivoStato | "";
+  archivio?: "tutti" | "operativi" | "archivio";
+}): Promise<
+  | { success: true; items: Preventivo[]; truncated: boolean }
+  | { success: false; error: string }
+> {
+  const gate = await requirePreventiviAccess();
+  if (!gate.ok) return { success: false, error: gate.error };
+  const dataDa = /^\d{4}-\d{2}-\d{2}$/.test(raw.dataDa ?? "") ? raw.dataDa : "";
+  const dataA = /^\d{4}-\d{2}-\d{2}$/.test(raw.dataA ?? "") ? raw.dataA : "";
+  const azienda = (raw.azienda ?? "").trim().replace(/[%_]/g, "").slice(0, 120);
+  const numero = (raw.numero ?? "").trim().replace(/[%_]/g, "").slice(0, 40);
+  const stato = raw.stato && PREVENTIVO_STATI_CERCA.includes(raw.stato) ? raw.stato : "";
+  const archivio = raw.archivio ?? "tutti";
+  const perimetro = await resolvePerimetroDocumenti();
+  const filtro = perimetroPreventiviOr(perimetro);
+  if (!perimetro.unrestricted && !filtro) {
+    return { success: true, items: [], truncated: false };
+  }
+  const supabase = await createClient();
+  const limite = 80;
+  let query = supabase
+    .from("preventivi")
+    .select("*")
+    .is("deleted_at", null)
+    .order("data_preventivo", { ascending: false })
+    .limit(limite);
+  if (dataDa) query = query.gte("data_preventivo", dataDa);
+  if (dataA) query = query.lte("data_preventivo", dataA);
+  if (stato) query = query.eq("stato", stato);
+  if (archivio === "operativi") query = query.is("archiviato_at", null);
+  if (archivio === "archivio") query = query.not("archiviato_at", "is", null);
+  if (numero) query = query.ilike("numero_interno", `%${numero}%`);
+  if (azienda) query = query.ilike("cliente_ragione_sociale", `%${azienda}%`);
+  if (filtro) query = query.or(filtro);
+  const { data, error } = await query;
+  if (error) return { success: false, error: error.message };
+  const rows = ((data ?? []) as PreventivoRow[]).filter((row) =>
+    rigaNelPerimetro(row, perimetro, { riferimento: true })
+  );
+  const righe = await attachRighe(rows.map((r) => r.id));
+  const pdfEmessi = await attachPdfEmessi(rows.map((r) => r.id));
+  return {
+    success: true,
+    truncated: (data ?? []).length >= limite,
+    items: rows.map((r) =>
+      mapPreventivo(r, righe.get(r.id) ?? [], "", "", false, pdfEmessi.get(r.id) ?? [])
+    ),
+  };
+}
+
+const PREVENTIVO_STATI_CERCA: PreventivoStato[] = [
+  "creato",
+  "in_attesa_spedizione",
+  "inviato",
+  "accettato",
+  "respinto",
+];
+
 export async function getListinoPrezzoVigenteAction(
   prodottoId: string
 ): Promise<

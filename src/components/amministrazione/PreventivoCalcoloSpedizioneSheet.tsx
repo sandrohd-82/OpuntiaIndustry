@@ -31,11 +31,13 @@ export function PreventivoCalcoloSpedizioneSheet({
   modo = "completa",
   onClose,
   onCompleted,
+  overlayClassName = "z-[70]",
 }: {
   item: Preventivo;
   modo?: "dettagli" | "completa";
   onClose: () => void;
   onCompleted?: (message: string) => void;
+  overlayClassName?: string;
 }) {
   const foglioRef = useRef<HTMLDivElement>(null);
   const [azienda, setAzienda] = useState(item.cliente);
@@ -141,7 +143,7 @@ export function PreventivoCalcoloSpedizioneSheet({
     : !importoPronto || valore <= 0;
 
   return (
-    <div className="fixed inset-0 z-[70] flex flex-col bg-slate-950/70">
+    <div className={`fixed inset-0 flex flex-col bg-slate-950/70 ${overlayClassName}`}>
       <div className="flex flex-wrap items-center justify-between gap-3 border-b border-white/10 px-4 py-3">
         <h2 className="text-sm font-semibold text-white">
           {solaLettura ? "Dettaglio" : "Calcolo spedizione"} · {item.numeroInterno}

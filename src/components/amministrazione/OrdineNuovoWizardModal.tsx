@@ -40,6 +40,7 @@ import {
   getPreventivoProdottoContestoAction,
   listPreventiviAccettatiAction,
 } from "@/app/actions/preventivi";
+import { OrdinePreventivoPicker } from "@/components/amministrazione/OrdinePreventivoPicker";
 import {
   CONFEZIONE_SISTEMA,
   confezioniListinoDistinte,
@@ -404,6 +405,9 @@ export function OrdineNuovoWizardModal({
     isSenior: boolean;
   } | null>(null);
   const [preventivoId, setPreventivoId] = useState("");
+  const [preventivoScelto, setPreventivoScelto] = useState<Preventivo | null>(
+    null
+  );
   const [preventiviAccettati, setPreventiviAccettati] = useState<Preventivo[]>(
     []
   );
@@ -951,11 +955,9 @@ export function OrdineNuovoWizardModal({
       ? testoConfezionePreventivo
       : (pianoListino?.testo ?? "");
   const voceDalPreventivo =
-    fontePreventivo && preventivoId
-      ? (preventiviAccettati
-          .find((p) => p.id === preventivoId)
-          ?.righe.find((r) => r.prodottoId === prodotto?.id)?.imballaggioVoceId ??
-        null)
+    fontePreventivo && preventivoScelto
+      ? (preventivoScelto.righe.find((r) => r.prodottoId === prodotto?.id)
+          ?.imballaggioVoceId ?? null)
       : null;
   const voceImballoOrdine =
     voceDalPreventivo ??
@@ -1092,6 +1094,7 @@ export function OrdineNuovoWizardModal({
       return;
     }
     setPreventivoId("");
+    setPreventivoScelto(null);
     setMailAccettazione(null);
     setReferenteAccettazione(null);
     setTipoPagamento("alla_consegna");
@@ -1107,7 +1110,12 @@ export function OrdineNuovoWizardModal({
       prodottoId: prodotto?.id,
     }).then((res) => {
       if (cancelled) return;
-      setPreventiviAccettati(res.success ? res.items : []);
+      const items = res.success ? res.items : [];
+      setPreventiviAccettati(items);
+      setPreventivoScelto((corrente) => {
+        if (!preventivoId) return null;
+        return items.find((p) => p.id === preventivoId) ?? corrente;
+      });
     });
     return () => {
       cancelled = true;
@@ -1201,9 +1209,10 @@ export function OrdineNuovoWizardModal({
     return true;
   }
 
-  function applyPreventivo(id: string) {
-    setPreventivoId(id);
-    if (!id) {
+  function applyPreventivo(item: Preventivo | null) {
+    setPreventivoId(item?.id ?? "");
+    setPreventivoScelto(item);
+    if (!item) {
       setFontePreventivo(false);
       setScontoListinoDalPreventivo(null);
       setTestoConfezionePreventivo("");
@@ -1218,8 +1227,6 @@ export function OrdineNuovoWizardModal({
       }
       return;
     }
-    const item = preventiviAccettati.find((p) => p.id === id);
-    if (!item) return;
     const riga =
       item.righe.find((r) => r.prodottoId === prodotto?.id) ?? item.righe[0];
     if (riga) {
@@ -2661,35 +2668,15 @@ export function OrdineNuovoWizardModal({
                   <p className="text-xs text-[var(--muted)]">
                     Collegabile solo se stato Accettato. Un prodotto o più
                     righe («di tanti»). Se lo colleghi, servono anche mail e
-                    referente di accettazione. Nella mail, prima le inerenti.
+                    referente di accettazione.
                   </p>
-                  <label className="block text-sm">
-                    <span className="mb-1 block font-medium">Preventivo</span>
-                    <select
-                      value={preventivoId}
-                      onChange={(e) => applyPreventivo(e.target.value)}
-                      className="w-full rounded-lg border border-[var(--border)] bg-white px-3 py-2 text-sm"
-                    >
-                      <option value="">Nessuno</option>
-                      {preventiviAccettati.map((p) => (
-                        <option key={p.id} value={p.id}>
-                          {p.numeroInterno} · {p.righe.length}{" "}
-                          {p.righe.length === 1 ? "prodotto" : "prodotti"}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                  {preventivoId ? (
-                    <p className="text-xs text-[var(--muted)]">
-                      {preventiviAccettati
-                        .find((p) => p.id === preventivoId)
-                        ?.righe.map(
-                          (r) =>
-                            `${r.prodottoCodice} ${r.quantita} ${r.unitaMisura} @ ${r.prezzoUnitario} €`
-                        )
-                        .join(" · ")}
-                    </p>
-                  ) : null}
+                  <OrdinePreventivoPicker
+                    clienteId={clienteId}
+                    clienteNome={clienteNome}
+                    selezionato={preventivoScelto}
+                    inerenti={preventiviAccettati}
+                    onSelect={applyPreventivo}
+                  />
                   <div className="grid gap-3 sm:grid-cols-2">
                     <div className="text-sm">
                       <span className="mb-1 block font-medium">
@@ -3771,8 +3758,7 @@ export function OrdineNuovoWizardModal({
               : [],
             extra: [
               clienteNome,
-              preventiviAccettati.find((p) => p.id === preventivoId)
-                ?.numeroInterno ?? "",
+              preventivoScelto?.numeroInterno ?? "",
               quantita !== "" ? `${quantita} ${unitaMisura}` : "",
             ].filter(Boolean),
             onPicked: (picked: { id: string; subject: string }) => {
