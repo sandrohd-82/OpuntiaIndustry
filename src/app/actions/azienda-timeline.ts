@@ -1068,6 +1068,8 @@ const searchSchema = inputSchema.extend({
   prodotti: z.array(z.string().trim().max(160)).max(20).optional(),
   extra: z.array(z.string().trim().max(160)).max(20).optional(),
   aziendaLabel: z.string().trim().max(200).optional(),
+  /** inerenti: solo le più attinenti. tutte: ricevute e inviate degli indirizzi collegati. */
+  ambito: z.enum(["inerenti", "tutte"]).optional(),
 });
 
 export async function searchWebmailForAziendaTimelineAction(
@@ -1078,6 +1080,7 @@ export async function searchWebmailForAziendaTimelineAction(
       items: AziendaTimelineMailHit[];
       domains: string[];
       emails: AziendaTimelineMailHint[];
+      truncated: boolean;
     }
   | { success: false; error: string }
 > {
@@ -1094,10 +1097,13 @@ export async function searchWebmailForAziendaTimelineAction(
       items: [],
       domains: hints.domains,
       emails: hints.emails,
+      truncated: false,
     };
   }
   const manual = normalizeEmail(emailQuery);
-  const receivedOnly = Boolean(purpose);
+  const tutte = parsed.data.ambito === "tutte";
+  const receivedOnly = Boolean(purpose) && !tutte;
+  const limite = tutte ? 400 : (purpose ? 80 : 60);
 
   const orParts: string[] = [];
   function pushToContains(addr: string) {
@@ -1131,7 +1137,7 @@ export async function searchWebmailForAziendaTimelineAction(
     .is("deleted_at", null)
     .or(orParts.join(","))
     .order("received_at", { ascending: false })
-    .limit(purpose ? 80 : 60);
+    .limit(limite);
   mailQ = mailQ.neq("folder", "TRASH").neq("folder", "JUNK");
   if (receivedOnly) {
     mailQ = mailQ.eq("direction", "inbound");
@@ -1271,16 +1277,18 @@ export async function searchWebmailForAziendaTimelineAction(
     };
   });
 
-  if (rankCtx) {
+  if (tutte) {
+    items.sort((a, b) =>
+      compareMailRichiestaDateDesc(a.receivedAt, b.receivedAt)
+    );
+  } else if (rankCtx) {
+    for (let i = items.length - 1; i >= 0; i -= 1) {
+      if (!items[i]?.probable) items.splice(i, 1);
+    }
     items.sort((a, b) => {
-      const pa = a.probable ? 1 : 0;
-      const pb = b.probable ? 1 : 0;
-      if (pa !== pb) return pb - pa;
-      if (a.probable && b.probable) {
-        const sa = a.relevanceScore ?? 0;
-        const sb = b.relevanceScore ?? 0;
-        if (sa !== sb) return sb - sa;
-      }
+      const sa = a.relevanceScore ?? 0;
+      const sb = b.relevanceScore ?? 0;
+      if (sa !== sb) return sb - sa;
       return compareMailRichiestaDateDesc(a.receivedAt, b.receivedAt);
     });
   }
@@ -1290,6 +1298,7 @@ export async function searchWebmailForAziendaTimelineAction(
     items,
     domains: hints.domains,
     emails: hints.emails,
+    truncated: (data ?? []).length >= limite,
   };
 }
 

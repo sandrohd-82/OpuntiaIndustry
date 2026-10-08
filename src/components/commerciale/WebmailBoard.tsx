@@ -153,12 +153,17 @@ export function WebmailBoard({
   view = "all",
   categoriaId = null,
   hideTopFilters = false,
+  pick = null,
 }: {
   initialAccountId?: string | null;
   view?: WebmailMailboxView;
   categoriaId?: string | null;
   /** Nasconde filtri account/categoria quando la vista è guidata dal menu. */
   hideTopFilters?: boolean;
+  /** Se valorizzato, la mail aperta si può scegliere e la finestra si chiude. */
+  pick?: {
+    onSelect: (msg: { id: string; subject: string }) => void;
+  } | null;
 }) {
   const [accounts, setAccounts] = useState<WebmailAccountPublic[]>([]);
   const [categorie, setCategorie] = useState<WebmailCategoria[]>([]);
@@ -1659,6 +1664,20 @@ export function WebmailBoard({
                 <p className="mt-2 font-semibold text-slate-900">
                   {selected.subject}
                 </p>
+                {pick ? (
+                  <button
+                    type="button"
+                    onClick={() =>
+                      pick.onSelect({
+                        id: selected.id,
+                        subject: selected.subject,
+                      })
+                    }
+                    className="mt-3 rounded-lg bg-sky-700 px-3 py-2 text-sm font-medium text-white"
+                  >
+                    Seleziona questa mail
+                  </button>
+                ) : null}
                 {isWebmailImportParziale(selected.bodyText) ? (
                   <div className="mt-3 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-950">
                     <p>

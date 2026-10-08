@@ -61,6 +61,7 @@ import { NotaRichBody, NotaAllegatoPreview } from "@/components/promemorie-e-not
 import { getWebmailMessaggioTextAction } from "@/app/actions/webmail";
 import { WebmailHtmlBody } from "@/components/webmail/WebmailHtmlBody";
 import { AnagraficaTimelineSyncBar } from "@/components/amministrazione/AnagraficaTimelineSyncBar";
+import { WebmailScegliModal } from "@/components/amministrazione/WebmailScegliModal";
 import { FaChevronDown, FaPen } from "react-icons/fa6";
 
 function pad2(n: number): string {
@@ -577,6 +578,9 @@ export function AziendaTimelineModal({
   const [mailQuery, setMailQuery] = useState("");
   const [mailHits, setMailHits] = useState<AziendaTimelineMailHit[]>([]);
   const [mailSearching, setMailSearching] = useState(isMailPick);
+  const [mailAmbito, setMailAmbito] = useState<"inerenti" | "tutte">("inerenti");
+  const [mailTruncated, setMailTruncated] = useState(false);
+  const [cercaIoOpen, setCercaIoOpen] = useState(false);
   const [selectedMail, setSelectedMail] = useState<AziendaTimelineMailHit | null>(
     null
   );
@@ -628,7 +632,7 @@ export function AziendaTimelineModal({
         }
       );
     }
-    void runMailSearch("");
+    void runMailSearch("", isMailPick ? "inerenti" : undefined);
     // eslint-disable-next-line react-hooks/exhaustive-deps -- solo all'apertura pannello
   }, [panel, aziendaTipo, aziendaId, isMailPick]);
 
@@ -645,7 +649,11 @@ export function AziendaTimelineModal({
     });
   }, [panel]);
 
-  async function runMailSearch(query: string) {
+  async function runMailSearch(
+    query: string,
+    ambito?: "inerenti" | "tutte"
+  ) {
+    const ambitoEff = isMailPick ? (ambito ?? mailAmbito) : undefined;
     setMailSearching(true);
     const res = await searchWebmailForAziendaTimelineAction({
       aziendaTipo,
@@ -655,26 +663,40 @@ export function AziendaTimelineModal({
       prodotti: isMailPick ? pickMode?.prodotti : undefined,
       extra: isMailPick ? pickMode?.extra : undefined,
       aziendaLabel,
+      ambito: ambitoEff,
     });
     setMailSearching(false);
     if (!res.success) {
       setError(res.error);
       setMailHits([]);
+      setMailTruncated(false);
       return;
     }
     setMailHits(res.items);
+    setMailTruncated(Boolean(res.truncated) && ambitoEff === "tutte");
     setMailDomains(res.domains);
     if (res.emails) setMailHints(res.emails);
   }
 
-  const mailProbabili = useMemo(
-    () => (isMailPick ? mailHits.filter((h) => h.probable) : []),
-    [isMailPick, mailHits]
-  );
-  const mailAltre = useMemo(
-    () => (isMailPick ? mailHits.filter((h) => !h.probable) : mailHits),
-    [isMailPick, mailHits]
-  );
+  async function scegliMailDallaCasella(msg: { id: string; subject: string }) {
+    if (
+      pickMode?.purpose !== "campionatura-mail" &&
+      pickMode?.purpose !== "ordine-accettazione-mail" &&
+      pickMode?.purpose !== "ordine-richiesta-mail"
+    ) {
+      return;
+    }
+    const res = await linkWebmailToAziendaTimelineAction({
+      aziendaTipo,
+      aziendaId,
+      aziendaLabel,
+      messaggioId: msg.id,
+    });
+    if (!res.success) throw new Error(res.error);
+    pickMode.onPicked({ id: msg.id, subject: msg.subject });
+    setCercaIoOpen(false);
+    setPanel("none");
+  }
 
   const presentFilterGroups = useMemo(() => {
     const present = new Set(
@@ -1020,11 +1042,11 @@ export function AziendaTimelineModal({
               {pickMode?.purpose === "campionatura-nota"
                 ? "Seleziona la nota da collegare alla richiesta di campionatura, oppure creane una."
                 : pickMode?.purpose === "ordine-accettazione-mail"
-                  ? "Prima le mail più inerenti all’accettazione, poi le altre ricevute dalla più recente."
+                  ? "Prima le mail inerenti all’accettazione. Poi puoi caricare tutte quelle dell’azienda o cercarle in casella."
                 : pickMode?.purpose === "ordine-richiesta-mail"
-                  ? "Prima le mail più inerenti alla richiesta d’ordine, poi le altre ricevute dalla più recente."
+                  ? "Prima le mail inerenti alla richiesta. Poi puoi caricare tutte quelle dell’azienda o cercarle in casella."
                   : pickMode?.purpose === "campionatura-mail"
-                  ? "Prima le mail più inerenti alla campionatura, poi le altre ricevute dalla più recente."
+                  ? "Prima le mail inerenti alla campionatura. Poi puoi caricare tutte quelle dell’azienda o cercarle in casella."
                   : "Asse dal basso (passato) all’alto (recente). Puoi aggiungere note, collegare mail o copiare Promemoria, Attività e Note già create."}
             </p>
             {!isMailPick && presentFilterGroups.length > 0 ? (
@@ -1284,9 +1306,37 @@ export function AziendaTimelineModal({
             </p>
             <p className="mt-0.5 text-xs text-sky-900/80">
               {isMailPick
-                ? "Mail ricevute dell’azienda: in alto le più inerenti al contenuto della richiesta, sotto le altre dalla più recente alla più lontana."
+                ? mailAmbito === "tutte"
+                  ? "Tutte le mail ricevute e inviate agli indirizzi di questa azienda, dalla più recente alla più lontana."
+                  : "Solo le mail inerenti. Le altre restano nascoste finché non le chiedi."
                 : "Default: indirizzi scheda/referenti e stesso dominio aziendale (escl. caselle consumer). Solo caselle con i tuoi permessi."}
             </p>
+            {isMailPick ? (
+              <div className="mt-2 flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  disabled={mailSearching}
+                  onClick={() => {
+                    const next = mailAmbito === "tutte" ? "inerenti" : "tutte";
+                    setMailAmbito(next);
+                    setSelectedMail(null);
+                    void runMailSearch(mailQuery, next);
+                  }}
+                  className="rounded-lg border border-sky-300 bg-white px-3 py-1.5 text-xs font-medium text-sky-950 hover:bg-sky-100 disabled:opacity-50"
+                >
+                  {mailAmbito === "tutte"
+                    ? "Mostra solo le inerenti"
+                    : "Carica tutte le mail di questa azienda"}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setCercaIoOpen(true)}
+                  className="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-medium text-slate-800 hover:bg-slate-50"
+                >
+                  Cercherò io
+                </button>
+              </div>
+            ) : null}
             {mailHints.length > 0 || mailDomains.length > 0 ? (
               <div className="mt-2 flex flex-wrap gap-1.5">
                 {mailHints.map((h) => (
@@ -1355,42 +1405,23 @@ export function AziendaTimelineModal({
                 </li>
               ) : mailHits.length === 0 ? (
                 <li className="text-xs text-[var(--muted)]">
-                  Nessuna mail ricevuta trovata nelle caselle accessibili.
+                  {isMailPick && mailAmbito === "inerenti"
+                    ? "Nessuna mail inerente. Puoi caricare tutte quelle dell’azienda o cercarle in casella."
+                    : "Nessuna mail trovata nelle caselle accessibili."}
                 </li>
               ) : isMailPick ? (
                 <>
-                  {mailProbabili.length > 0 ? (
-                    <li className="list-none px-0.5 pt-1 text-[11px] font-semibold uppercase tracking-wide text-emerald-900">
-                      Più probabili
+                  <li className="list-none px-0.5 pt-1 text-[11px] font-semibold uppercase tracking-wide text-emerald-900">
+                    {mailAmbito === "tutte"
+                      ? "Tutte le mail dell’azienda, dalla più recente"
+                      : "Mail inerenti"}
+                  </li>
+                  {mailTruncated ? (
+                    <li className="list-none px-0.5 text-[11px] text-[var(--muted)]">
+                      Mostrate le 400 più recenti.
                     </li>
                   ) : null}
-                  {mailProbabili.map((hit) => (
-                    <TimelineMailHitRow
-                      key={hit.id}
-                      hit={hit}
-                      pending={pending}
-                      pickMode={true}
-                      selected={selectedMail?.id === hit.id}
-                      onSelect={() => {
-                        setError(null);
-                        setSelectedMail(hit);
-                      }}
-                      onLink={() => linkMail(hit)}
-                      onVisualizza={() =>
-                        setVisualizza({
-                          type: "mail",
-                          id: hit.id,
-                          title: hit.subject,
-                        })
-                      }
-                    />
-                  ))}
-                  {mailAltre.length > 0 ? (
-                    <li className="list-none px-0.5 pt-2 text-[11px] font-semibold uppercase tracking-wide text-slate-600">
-                      Altre mail ricevute, dalla più recente
-                    </li>
-                  ) : null}
-                  {mailAltre.map((hit) => (
+                  {mailHits.map((hit) => (
                     <TimelineMailHitRow
                       key={hit.id}
                       hit={hit}
@@ -1715,5 +1746,15 @@ export function AziendaTimelineModal({
   );
 
   if (typeof document === "undefined") return null;
-  return createPortal(dialog, document.body);
+  return (
+    <>
+      {createPortal(dialog, document.body)}
+      {cercaIoOpen ? (
+        <WebmailScegliModal
+          onClose={() => setCercaIoOpen(false)}
+          onSelect={scegliMailDallaCasella}
+        />
+      ) : null}
+    </>
+  );
 }

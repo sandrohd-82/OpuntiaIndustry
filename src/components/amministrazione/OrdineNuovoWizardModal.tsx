@@ -2632,8 +2632,9 @@ export function OrdineNuovoWizardModal({
               <div className="space-y-2 rounded-lg border border-[var(--border)] px-4 py-3">
                 <p className="text-sm font-medium">Richiesta pervenuta per mail</p>
                 <p className="text-xs text-[var(--muted)]">
-                  Se il cliente ha scritto per mail, collega il messaggio
-                  ricevuto. Il sistema mette in alto le più inerenti.
+                  Se il cliente ha scritto per mail, collega il messaggio.
+                  Prima compaiono le inerenti: da lì puoi caricare tutte
+                  quelle dell’azienda o cercarle in casella.
                 </p>
                 <button
                   type="button"
@@ -2660,7 +2661,7 @@ export function OrdineNuovoWizardModal({
                   <p className="text-xs text-[var(--muted)]">
                     Collegabile solo se stato Accettato. Un prodotto o più
                     righe («di tanti»). Se lo colleghi, servono anche mail e
-                    referente di accettazione.
+                    referente di accettazione. Nella mail, prima le inerenti.
                   </p>
                   <label className="block text-sm">
                     <span className="mb-1 block font-medium">Preventivo</span>
