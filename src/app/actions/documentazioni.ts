@@ -17,6 +17,7 @@ import {
   documentazioneUpdateSchema,
   extFromMime,
   isScadutaByDate,
+  scadenzaIsoOrNull,
   type DocumentazioneDocumentoStato,
   type DocumentazioneFile,
   type DocumentazioneRepartoOpt,
@@ -302,7 +303,7 @@ export async function createDocumentazioneAction(
   }
   const supabase = await createClient();
   const scaduta = isScadutaByDate(
-    parsed.data.senzaScadenza ? null : parsed.data.dataScadenza
+    scadenzaIsoOrNull(parsed.data.dataScadenza)
   );
   const { data, error } = await supabase
     .from("documentazioni_aziendali")
@@ -311,10 +312,10 @@ export async function createDocumentazioneAction(
       reparto_id: parsed.data.repartoId,
       spiegazione: parsed.data.spiegazione ?? "",
       data_inizio: parsed.data.dataInizio,
-      data_scadenza: parsed.data.senzaScadenza ? null : parsed.data.dataScadenza,
-      necessita_rinnovo: parsed.data.senzaScadenza
-        ? false
-        : (parsed.data.necessitaRinnovo ?? false),
+      data_scadenza: scadenzaIsoOrNull(parsed.data.dataScadenza),
+      necessita_rinnovo: scadenzaIsoOrNull(parsed.data.dataScadenza)
+        ? (parsed.data.necessitaRinnovo ?? false)
+        : false,
       stato_operativo: scaduta ? "scaduto" : "in_attesa",
       documento_stato: "bozza",
       versione: 1,
@@ -375,7 +376,7 @@ export async function updateDocumentazioneAction(
     };
   }
   const scaduta = isScadutaByDate(
-    parsed.data.senzaScadenza ? null : parsed.data.dataScadenza
+    scadenzaIsoOrNull(parsed.data.dataScadenza)
   );
   let stato = asStatoOp(String(current.stato_operativo));
   if (scaduta) stato = "scaduto";
@@ -392,10 +393,10 @@ export async function updateDocumentazioneAction(
       reparto_id: parsed.data.repartoId,
       spiegazione: parsed.data.spiegazione ?? "",
       data_inizio: parsed.data.dataInizio,
-      data_scadenza: parsed.data.senzaScadenza ? null : parsed.data.dataScadenza,
-      necessita_rinnovo: parsed.data.senzaScadenza
-        ? false
-        : (parsed.data.necessitaRinnovo ?? false),
+      data_scadenza: scadenzaIsoOrNull(parsed.data.dataScadenza),
+      necessita_rinnovo: scadenzaIsoOrNull(parsed.data.dataScadenza)
+        ? (parsed.data.necessitaRinnovo ?? false)
+        : false,
       stato_operativo: stato,
       updated_by: gate.auth.userId,
     })
@@ -534,20 +535,20 @@ export async function rinnovaDocumentazioneAction(
 
   const newVer = oldVer + 1;
   const scaduta = isScadutaByDate(
-    parsed.data.senzaScadenza ? null : parsed.data.dataScadenza
+    scadenzaIsoOrNull(parsed.data.dataScadenza)
   );
   const { data, error } = await supabase
     .from("documentazioni_aziendali")
     .update({
       data_inizio: parsed.data.dataInizio,
-      data_scadenza: parsed.data.senzaScadenza ? null : parsed.data.dataScadenza,
+      data_scadenza: scadenzaIsoOrNull(parsed.data.dataScadenza),
       spiegazione:
         parsed.data.spiegazione !== undefined
           ? parsed.data.spiegazione
           : current.spiegazione,
-      necessita_rinnovo: parsed.data.senzaScadenza
-        ? false
-        : (parsed.data.necessitaRinnovo ?? true),
+      necessita_rinnovo: scadenzaIsoOrNull(parsed.data.dataScadenza)
+        ? (parsed.data.necessitaRinnovo ?? true)
+        : false,
       versione: newVer,
       stato_operativo: scaduta ? "scaduto" : "in_attesa",
       documento_stato: "bozza",

@@ -88,16 +88,15 @@ export const documentazioneInputSchema = z
     repartoId: z.string().uuid("Seleziona un reparto."),
     spiegazione: z.string().trim().max(8000).optional().default(""),
     dataInizio: dateOnly,
-    senzaScadenza: z.boolean().optional().default(false),
     dataScadenza: z.string().trim().optional().default(""),
     necessitaRinnovo: z.boolean().optional().default(false),
   })
   .superRefine((v, ctx) => {
-    if (v.senzaScadenza) return;
+    if (!v.dataScadenza) return;
     if (!/^\d{4}-\d{2}-\d{2}$/.test(v.dataScadenza)) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
-        message: "Indica la data di scadenza, oppure dichiara che non scade.",
+        message: "Data di scadenza non valida.",
         path: ["dataScadenza"],
       });
       return;
@@ -119,18 +118,17 @@ export const documentazioneRinnovoSchema = z
   .object({
     id: z.string().uuid(),
     dataInizio: dateOnly,
-    senzaScadenza: z.boolean().optional().default(false),
     dataScadenza: z.string().trim().optional().default(""),
     spiegazione: z.string().trim().max(8000).optional(),
     necessitaRinnovo: z.boolean().optional().default(true),
     copiaFile: z.boolean().optional().default(true),
   })
   .superRefine((v, ctx) => {
-    if (v.senzaScadenza) return;
+    if (!v.dataScadenza) return;
     if (!/^\d{4}-\d{2}-\d{2}$/.test(v.dataScadenza)) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
-        message: "Indica la data di scadenza, oppure dichiara che non scade.",
+        message: "Data di scadenza non valida.",
         path: ["dataScadenza"],
       });
       return;
@@ -199,6 +197,12 @@ export function extFromMime(mime: string): string {
 
 export function todayIsoDate(): string {
   return new Date().toISOString().slice(0, 10);
+}
+
+/** Data vuota = documento senza scadenza. */
+export function scadenzaIsoOrNull(dataScadenza: string | null | undefined): string | null {
+  const raw = (dataScadenza ?? "").trim().slice(0, 10);
+  return /^\d{4}-\d{2}-\d{2}$/.test(raw) ? raw : null;
 }
 
 export function isScadutaByDate(
