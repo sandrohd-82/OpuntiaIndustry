@@ -17,8 +17,11 @@ import {
   caveauAcquistoUpdateSchema,
   caveauEliminaSchema,
   caveauRivelaSchema,
+  CAVEAU_UNITA_BASE,
   caveauSitoSchema,
   caveauSitoUpdateSchema,
+  caveauUnitaSchema,
+  normalizzaUnita,
   prezzoAcquistoOrNull,
   registratoAtOrNull,
   type CaveauAcquistoRiga,
@@ -30,6 +33,7 @@ import { createServiceClient } from "@/lib/supabase/server";
 const PATH = "/app/amministrazione/caveau-siti";
 const ENTITY = "caveau_siti_aziendali";
 const ENTITY_ACQUISTO = "caveau_siti_acquisti";
+const ENTITY_UNITA = "caveau_unita_misura";
 const FINESTRA_MS = 15 * 60 * 1000;
 const PAUSA_INVIO_MS = 30 * 1000;
 
@@ -95,7 +99,7 @@ async function contaInviiCodice(actorId: string): Promise<number | null> {
 }
 
 export async function listCaveauSitiAction(): Promise<
-  { ok: true; righe: CaveauSitoRiga[] } | { ok: false; error: string }
+  { ok: true; righe: CaveauSitoRiga[]; unitaExtra: string[] } | { ok: false; error: string }
 > {
   const g = await gate();
   if (!g.ok) return g;
@@ -121,7 +125,7 @@ export async function listCaveauSitiAction(): Promise<
   if (siti.length > 0) {
     const { data: acquisti, error: acqErr } = await db
       .from("caveau_siti_acquisti")
-      .select("id, sito_id, url, titolo, descrizione, prezzo, registrato_at, versione, created_at")
+      .select("id, sito_id, url, titolo, descrizione, prezzo, unita_misura, registrato_at, versione, created_at")
       .in(
         "sito_id",
         siti.map((sito) => sito.id)
@@ -141,6 +145,7 @@ export async function listCaveauSitiAction(): Promise<
         titolo: String(row.titolo ?? ""),
         descrizione: String(row.descrizione ?? ""),
         prezzo: prezzoN != null && Number.isFinite(prezzoN) ? prezzoN : null,
+        unitaMisura: String(row.unita_misura ?? ""),
         registratoAt: row.registrato_at ? String(row.registrato_at) : null,
         versione: Number(row.versione ?? 1),
       });
@@ -151,7 +156,14 @@ export async function listCaveauSitiAction(): Promise<
     ...sito,
     acquisti: perSito.get(sito.id) ?? [],
   }));
-  return { ok: true, righe };
+  const { data: unita, error: unitaErr } = await db
+    .from("caveau_unita_misura")
+    .select("sigla")
+    .is("deleted_at", null)
+    .order("sigla", { ascending: true });
+  if (unitaErr) return { ok: false, error: "Impossibile leggere le unità di misura." };
+  const unitaExtra = (unita ?? []).map((row) => String(row.sigla ?? "")).filter(Boolean);
+  return { ok: true, righe, unitaExtra };
 }
 
 export async function creaCaveauSitoAction(
@@ -482,11 +494,26 @@ export async function inviaCodiceCaveauAction(): Promise<
   return { ok: true, email };
 }
 
+async function unitaNota(sigla: string): Promise<boolean> {
+  if (!sigla) return true;
+  if ((CAVEAU_UNITA_BASE as readonly string[]).includes(sigla)) return true;
+  const db = createServiceClient();
+  const { data, error } = await db
+    .from("caveau_unita_misura")
+    .select("id")
+    .is("deleted_at", null)
+    .ilike("sigla", sigla)
+    .limit(1);
+  if (error) return false;
+  return (data ?? []).length > 0;
+}
+
 function campiAcquisto(input: {
   url: string;
   titolo: string;
   descrizione: string;
   prezzo: string;
+  unitaMisura: string;
   registratoAt: string;
 }):
   | {
@@ -495,11 +522,14 @@ function campiAcquisto(input: {
       titolo: string;
       descrizione: string;
       prezzo: number | null;
+      unitaMisura: string;
       registratoAt: string | null;
     }
   | { ok: false; error: string } {
   const prezzo = prezzoAcquistoOrNull(input.prezzo);
   if (!prezzo.ok) return prezzo;
+  const unita = normalizzaUnita(input.unitaMisura);
+  if (!unita.ok) return unita;
   const quando = registratoAtOrNull(input.registratoAt);
   if (!quando.ok) return quando;
   return {
@@ -508,6 +538,7 @@ function campiAcquisto(input: {
     titolo: input.titolo,
     descrizione: input.descrizione,
     prezzo: prezzo.value,
+    unitaMisura: unita.value,
     registratoAt: quando.value,
   };
 }
@@ -535,6 +566,9 @@ export async function creaCaveauAcquistoAction(
   }
   const campi = campiAcquisto(parsed.data);
   if (!campi.ok) return campi;
+  if (!(await unitaNota(campi.unitaMisura))) {
+    return { ok: false, error: "Unità non registrata. Aggiungila da Altro." };
+  }
   if (!(await sitoVivo(parsed.data.sitoId))) {
     return { ok: false, error: "Sito non trovato." };
   }
@@ -548,6 +582,7 @@ export async function creaCaveauAcquistoAction(
       titolo: campi.titolo,
       descrizione: campi.descrizione,
       prezzo: campi.prezzo,
+      unita_misura: campi.unitaMisura,
       registrato_at: campi.registratoAt,
       created_by: g.actorId,
       updated_by: g.actorId,
@@ -567,6 +602,7 @@ export async function creaCaveauAcquistoAction(
       url: campi.url,
       titolo: campi.titolo,
       prezzo: campi.prezzo,
+      unita_misura: campi.unitaMisura,
       registrato_at: campi.registratoAt,
     },
   });
@@ -586,6 +622,9 @@ export async function aggiornaCaveauAcquistoAction(
   }
   const campi = campiAcquisto(parsed.data);
   if (!campi.ok) return campi;
+  if (!(await unitaNota(campi.unitaMisura))) {
+    return { ok: false, error: "Unità non registrata. Aggiungila da Altro." };
+  }
 
   const db = createServiceClient();
   const { data: current, error: readErr } = await db
@@ -604,6 +643,7 @@ export async function aggiornaCaveauAcquistoAction(
       titolo: campi.titolo,
       descrizione: campi.descrizione,
       prezzo: campi.prezzo,
+      unita_misura: campi.unitaMisura,
       registrato_at: campi.registratoAt,
       versione: Number(current.versione ?? 1) + 1,
       updated_by: g.actorId,
@@ -623,11 +663,52 @@ export async function aggiornaCaveauAcquistoAction(
       url: campi.url,
       titolo: campi.titolo,
       prezzo: campi.prezzo,
+      unita_misura: campi.unitaMisura,
       registrato_at: campi.registratoAt,
     },
   });
   revalidatePath(PATH);
   return { ok: true };
+}
+
+export async function creaCaveauUnitaAction(
+  input: unknown
+): Promise<{ ok: true; sigla: string } | { ok: false; error: string }> {
+  const g = await gate();
+  if (!g.ok) return g;
+  const parsed = caveauUnitaSchema.safeParse(input);
+  if (!parsed.success) {
+    return { ok: false, error: parsed.error.issues[0]?.message ?? "Sigla non valida." };
+  }
+  const unita = normalizzaUnita(parsed.data.sigla);
+  if (!unita.ok) return unita;
+  if (!unita.value) return { ok: false, error: "Indica la sigla." };
+  if ((CAVEAU_UNITA_BASE as readonly string[]).includes(unita.value) || (await unitaNota(unita.value))) {
+    return { ok: false, error: "Questa unità è già in elenco." };
+  }
+
+  const db = createServiceClient();
+  const { data, error } = await db
+    .from("caveau_unita_misura")
+    .insert({
+      sigla: unita.value,
+      created_by: g.actorId,
+      updated_by: g.actorId,
+    })
+    .select("id")
+    .single();
+  if (error || !data) return { ok: false, error: "Registrazione dell'unità non riuscita." };
+
+  await audita({
+    entityType: ENTITY_UNITA,
+    entityId: String(data.id),
+    action: "create",
+    actorId: g.actorId,
+    summary: `Unità di misura registrata: ${unita.value}`,
+    payload: { sigla: unita.value },
+  });
+  revalidatePath(PATH);
+  return { ok: true, sigla: unita.value };
 }
 
 export async function eliminaCaveauAcquistoAction(

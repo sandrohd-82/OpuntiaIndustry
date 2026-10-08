@@ -6,13 +6,18 @@ import {
   aggiornaCaveauSitoAction,
   creaCaveauAcquistoAction,
   creaCaveauSitoAction,
+  creaCaveauUnitaAction,
   eliminaCaveauAcquistoAction,
   eliminaCaveauSitoAction,
   inviaCodiceCaveauAction,
   listCaveauSitiAction,
   rivelaPasswordCaveauAction,
 } from "@/app/actions/caveau-siti";
-import type { CaveauAcquistoRiga, CaveauSitoRiga } from "@/lib/amministrazione/caveau-siti";
+import {
+  CAVEAU_UNITA_BASE,
+  type CaveauAcquistoRiga,
+  type CaveauSitoRiga,
+} from "@/lib/amministrazione/caveau-siti";
 import { fraseConfermaSoftDelete } from "@/lib/soft-delete";
 
 type Bozza = {
@@ -33,6 +38,7 @@ type AcquistoBozza = {
   titolo: string;
   descrizione: string;
   prezzo: string;
+  unita: string;
   registratoAt: string;
 };
 
@@ -50,9 +56,15 @@ function versoLocale(iso: string | null): string {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
 
-function formatPrezzo(valore: number | null): string {
-  if (valore == null) return "—";
-  return valore.toLocaleString("it-IT", { style: "currency", currency: "EUR" });
+function formatPrezzo(valore: number | null, unita: string): string {
+  const importo =
+    valore == null
+      ? ""
+      : valore.toLocaleString("it-IT", { style: "currency", currency: "EUR" });
+  if (!importo && !unita) return "—";
+  if (!unita) return importo;
+  if (!importo) return unita;
+  return `${importo} / ${unita}`;
 }
 
 function prezzoTesto(valore: number | null): string {
@@ -169,6 +181,9 @@ export function CaveauSitiBoard() {
   const formTitleId = useId();
   const rivelaTitleId = useId();
   const [righe, setRighe] = useState<CaveauSitoRiga[]>([]);
+  const [unitaExtra, setUnitaExtra] = useState<string[]>([]);
+  const [unitaAperta, setUnitaAperta] = useState(false);
+  const [nuovaUnita, setNuovaUnita] = useState("");
   const [ordineSiti, setOrdineSiti] = useState<{ campo: CampoSito; verso: Verso }>({
     campo: "nome",
     verso: "asc",
@@ -193,6 +208,7 @@ export function CaveauSitiBoard() {
     testo: string;
   } | null>(null);
   const acquistoTitleId = useId();
+  const unitaTitleId = useId();
   const descrizioneTitleId = useId();
 
   const sitiOrdinati = useMemo(
@@ -231,6 +247,7 @@ export function CaveauSitiBoard() {
     }
     setErrore(null);
     setRighe(res.righe);
+    setUnitaExtra(res.unitaExtra);
   }, []);
 
   useEffect(() => {
@@ -324,6 +341,7 @@ export function CaveauSitiBoard() {
       titolo: "",
       descrizione: "",
       prezzo: "",
+      unita: "",
       registratoAt: adessoLocale(),
     });
   }
@@ -338,6 +356,7 @@ export function CaveauSitiBoard() {
       titolo: acquisto.titolo,
       descrizione: acquisto.descrizione,
       prezzo: acquisto.prezzo,
+      unitaMisura: acquisto.unita,
       registratoAt: acquisto.registratoAt,
     };
     const res = acquisto.id
@@ -350,6 +369,24 @@ export function CaveauSitiBoard() {
     }
     setAcquisto(null);
     await load();
+  }
+
+  async function salvaUnita() {
+    if (busy) return;
+    setBusy(true);
+    setErrore(null);
+    const res = await creaCaveauUnitaAction({ sigla: nuovaUnita });
+    setBusy(false);
+    if (!res.ok) {
+      setErrore(res.error);
+      return;
+    }
+    setUnitaExtra((prev) =>
+      prev.includes(res.sigla) ? prev : [...prev, res.sigla].sort((a, b) => a.localeCompare(b, "it"))
+    );
+    setAcquisto((corrente) => (corrente ? { ...corrente, unita: res.sigla } : corrente));
+    setNuovaUnita("");
+    setUnitaAperta(false);
   }
 
   async function confermaEliminaAcquisto() {
@@ -630,7 +667,7 @@ export function CaveauSitiBoard() {
                                   />
                                 </td>
                                 <td className="px-2 py-1 tabular-nums text-slate-800">
-                                  {formatPrezzo(voce.prezzo)}
+                                  {formatPrezzo(voce.prezzo, voce.unitaMisura)}
                                 </td>
                                 <td className="px-2 py-1">
                                   <div className="flex gap-2">
@@ -647,6 +684,7 @@ export function CaveauSitiBoard() {
                                           titolo: voce.titolo,
                                           descrizione: voce.descrizione,
                                           prezzo: prezzoTesto(voce.prezzo),
+                                          unita: voce.unitaMisura,
                                           registratoAt: versoLocale(voce.registratoAt),
                                         });
                                       }}
@@ -753,6 +791,51 @@ export function CaveauSitiBoard() {
         </div>
       ) : null}
 
+      {unitaAperta ? (
+        <div className="fixed inset-0 z-[95] flex items-center justify-center bg-slate-950/60 p-4">
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby={unitaTitleId}
+            className="w-full max-w-sm rounded-2xl border border-slate-200 bg-white p-5 shadow-xl"
+          >
+            <h2 id={unitaTitleId} className="text-lg font-semibold text-slate-900">
+              Nuova unità
+            </h2>
+            <p className="mt-1 text-sm text-slate-600">
+              Sigla breve, per esempio un, mt o lt. Resta in elenco per i prossimi acquisti.
+            </p>
+            {errore ? <p className="mt-3 text-sm text-red-700">{errore}</p> : null}
+            <label className="mt-4 block text-sm">
+              <span className="text-slate-600">Sigla</span>
+              <input
+                className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2"
+                value={nuovaUnita}
+                onChange={(e) => setNuovaUnita(e.target.value)}
+              />
+            </label>
+            <div className="mt-5 flex justify-end gap-2">
+              <button
+                type="button"
+                className="rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                onClick={() => setUnitaAperta(false)}
+                disabled={busy}
+              >
+                Chiudi
+              </button>
+              <button
+                type="button"
+                className="rounded-lg bg-slate-900 px-3 py-2 text-sm text-white disabled:opacity-60"
+                onClick={() => void salvaUnita()}
+                disabled={busy}
+              >
+                Salva
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
       {elimina ? (
         <div className="fixed inset-0 z-[80] flex items-center justify-center bg-slate-950/60 p-4">
           <div
@@ -834,7 +917,7 @@ export function CaveauSitiBoard() {
                   }
                 />
               </label>
-              <div className="grid gap-3 sm:grid-cols-2">
+              <div className="grid gap-3 sm:grid-cols-3">
                 <label className="block text-sm">
                   <span className="text-slate-600">Prezzo (€)</span>
                   <input
@@ -843,6 +926,44 @@ export function CaveauSitiBoard() {
                     value={acquisto.prezzo}
                     onChange={(e) => setAcquisto({ ...acquisto, prezzo: e.target.value })}
                   />
+                </label>
+                <label className="block text-sm">
+                  <span className="text-slate-600">Unità</span>
+                  <select
+                    className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2"
+                    value={acquisto.unita}
+                    onChange={(e) => {
+                      if (e.target.value === "__altro__") {
+                        setNuovaUnita("");
+                        setUnitaAperta(true);
+                        return;
+                      }
+                      setAcquisto({ ...acquisto, unita: e.target.value });
+                    }}
+                  >
+                    <option value="">—</option>
+                    {CAVEAU_UNITA_BASE.map((sigla) => (
+                      <option key={sigla} value={sigla}>
+                        {sigla}
+                      </option>
+                    ))}
+                    {unitaExtra
+                      .filter(
+                        (sigla) =>
+                          !(CAVEAU_UNITA_BASE as readonly string[]).includes(sigla)
+                      )
+                      .map((sigla) => (
+                        <option key={sigla} value={sigla}>
+                          {sigla}
+                        </option>
+                      ))}
+                    {acquisto.unita &&
+                    !(CAVEAU_UNITA_BASE as readonly string[]).includes(acquisto.unita) &&
+                    !unitaExtra.includes(acquisto.unita) ? (
+                      <option value={acquisto.unita}>{acquisto.unita}</option>
+                    ) : null}
+                    <option value="__altro__">Altro…</option>
+                  </select>
                 </label>
                 <label className="block text-sm">
                   <span className="text-slate-600">Data</span>

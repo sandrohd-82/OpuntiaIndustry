@@ -41,8 +41,37 @@ export const caveauAcquistoSchema = z.object({
   titolo: acquistoTitolo,
   descrizione: z.string().trim().max(4000).optional().default(""),
   prezzo: z.string().max(20).optional().default(""),
+  unitaMisura: z.string().trim().max(12).optional().default(""),
   registratoAt: z.string().max(40).optional().default(""),
 });
+
+export const CAVEAU_UNITA_BASE = [
+  "un",
+  "nr",
+  "pz",
+  "kg",
+  "g",
+  "lt",
+  "ml",
+  "mt",
+  "cm",
+  "m",
+] as const;
+
+export const caveauUnitaSchema = z.object({
+  sigla: z.string().trim().min(1, "Indica la sigla.").max(12),
+});
+
+export function normalizzaUnita(
+  raw: string
+): { ok: true; value: string } | { ok: false; error: string } {
+  const value = raw.trim().toLowerCase();
+  if (!value) return { ok: true, value: "" };
+  if (!/^[a-z0-9]{1,12}$/.test(value)) {
+    return { ok: false, error: "L'unità è una sigla breve, per esempio mt o lt." };
+  }
+  return { ok: true, value };
+}
 
 export const caveauAcquistoUpdateSchema = caveauAcquistoSchema.extend({
   id: z.string().uuid(),
@@ -82,6 +111,7 @@ export type CaveauAcquistoRiga = {
   titolo: string;
   descrizione: string;
   prezzo: number | null;
+  unitaMisura: string;
   registratoAt: string | null;
   versione: number;
 };
