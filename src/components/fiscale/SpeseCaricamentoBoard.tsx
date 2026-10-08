@@ -4,11 +4,13 @@ import { useEffect, useRef, useState, useTransition } from "react";
 import { createPortal } from "react-dom";
 import {
   anteprimaSpesaAction,
+  listCausaliSpesaAction,
   listProgettiSpesaAction,
   listRicevuteRecentiSpesaAction,
   registraSpesaAction,
   suggerisciEsercentiSpesaAction,
   urlAllegatoSpesaAction,
+  type CausaleSpesaUsata,
   type RicevutaRecenteSpesa,
   type SuggerimentoEsercenteSpesa,
 } from "@/app/actions/spese";
@@ -52,6 +54,117 @@ function testoRicerca(value: string): string {
     .toLocaleLowerCase("it-IT")
     .normalize("NFD")
     .replace(/\p{M}/gu, "");
+}
+
+function CausaliUsateFinestra({
+  corrente,
+  onScegli,
+  onClose,
+}: {
+  corrente: string;
+  onScegli: (testo: string) => void;
+  onClose: () => void;
+}) {
+  const [causali, setCausali] = useState<CausaleSpesaUsata[]>([]);
+  const [errore, setErrore] = useState("");
+  const [caricamento, setCaricamento] = useState(true);
+  const [filtro, setFiltro] = useState("");
+
+  useEffect(() => {
+    let vivo = true;
+    void listCausaliSpesaAction().then((res) => {
+      if (!vivo) return;
+      setCaricamento(false);
+      if (!res.success) {
+        setErrore(res.error);
+        return;
+      }
+      setCausali(res.causali);
+    });
+    return () => {
+      vivo = false;
+    };
+  }, []);
+
+  const chiave = testoRicerca(filtro);
+  const visibili = chiave
+    ? causali.filter((voce) => testoRicerca(voce.testo).includes(chiave))
+    : causali;
+  const sceltaAttuale = testoRicerca(corrente);
+  let elencoCausali = (
+    <ul>
+      {visibili.map((voce) => {
+        const scelta = testoRicerca(voce.testo) === sceltaAttuale;
+        return (
+          <li key={voce.testo} className="border-b border-slate-100 last:border-b-0">
+            <button
+              type="button"
+              onClick={() => onScegli(voce.testo)}
+              className={`flex w-full items-start justify-between gap-3 px-3 py-2 text-left text-sm hover:bg-slate-50 ${
+                scelta ? "bg-slate-100" : ""
+              }`}
+            >
+              <span>{voce.testo}</span>
+              <span className="shrink-0 text-xs text-slate-500">
+                {voce.usi === 1 ? "1 volta" : `${voce.usi} volte`}
+              </span>
+            </button>
+          </li>
+        );
+      })}
+    </ul>
+  );
+  if (caricamento) {
+    elencoCausali = <p className="px-3 py-3 text-sm text-slate-500">Caricamento…</p>;
+  } else if (errore) {
+    elencoCausali = <p className="px-3 py-3 text-sm text-red-700">{errore}</p>;
+  } else if (visibili.length === 0) {
+    elencoCausali = (
+      <p className="px-3 py-3 text-sm text-slate-500">
+        {causali.length === 0
+          ? "Nessuna causale registrata finora."
+          : "Nessuna causale corrisponde alla ricerca."}
+      </p>
+    );
+  }
+
+  return createPortal(
+    <div className="fixed inset-0 z-[95] flex items-start justify-center overflow-y-auto bg-slate-950/50 px-3 py-8">
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="causali-usate-titolo"
+        className="w-full max-w-lg rounded-2xl border border-slate-200 bg-white p-4 shadow-2xl"
+      >
+        <h3 id="causali-usate-titolo" className="text-base font-semibold text-slate-900">
+          Causali già usate
+        </h3>
+        <p className="mt-1 text-xs text-slate-600">
+          Elenco delle giustificazioni scritte sugli scontrini finora. Scegline
+          una per non registrarne una nuova uguale.
+        </p>
+        <input
+          value={filtro}
+          onChange={(e) => setFiltro(e.target.value)}
+          placeholder="Cerca una causale"
+          className="mt-3 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+        />
+        <div className="mt-3 max-h-80 overflow-y-auto rounded-lg border border-slate-200">
+          {elencoCausali}
+        </div>
+        <div className="mt-3 flex justify-end">
+          <button
+            type="button"
+            onClick={onClose}
+            className="rounded-lg border border-slate-300 px-3 py-2 text-sm font-medium hover:bg-slate-50"
+          >
+            Chiudi
+          </button>
+        </div>
+      </div>
+    </div>,
+    document.body
+  );
 }
 
 function EsercenteSpesaCampo({
@@ -256,6 +369,7 @@ export function SpeseCaricamentoBoard() {
   const [progetti, setProgetti] = useState<SpesaProgettoView[]>([]);
   const [msg, setMsg] = useState<string | null>(null);
   const [errore, setErrore] = useState<string | null>(null);
+  const [causaliAperte, setCausaliAperte] = useState(false);
   const [scelteCausale, setScelteCausale] = useState<
     { testo: string; usi: number }[]
   >([]);
@@ -858,10 +972,21 @@ export function SpeseCaricamentoBoard() {
                 ))}
               </select>
             </label>
-            <label className="block text-sm sm:col-span-2">
-              <span className="mb-1 block text-xs font-medium text-[var(--muted)]">
-                Giustificazione / causale
-                {causaleObbligatoria ? " (obbligatoria)" : ""}
+            <div className="block text-sm sm:col-span-2">
+              <span className="mb-1 flex flex-wrap items-center justify-between gap-2 text-xs font-medium text-[var(--muted)]">
+                <span>
+                  Giustificazione / causale
+                  {causaleObbligatoria ? " (obbligatoria)" : ""}
+                </span>
+                {tipo === "scontrino" ? (
+                  <button
+                    type="button"
+                    onClick={() => setCausaliAperte(true)}
+                    className="rounded-lg border border-slate-300 bg-white px-2 py-1 text-xs font-medium text-slate-800 hover:bg-slate-50"
+                  >
+                    Causali già usate
+                  </button>
+                ) : null}
               </span>
               {inserimentoManuale && scelteCausale.length > 1 ? (
                 <div className="mb-2 flex flex-wrap gap-2">
@@ -893,7 +1018,7 @@ export function SpeseCaricamentoBoard() {
                 value={form.giustificazione}
                 onChange={(e) => patch({ giustificazione: e.target.value })}
               />
-            </label>
+            </div>
             {tipo === "scontrino" ? (
               <div className="space-y-2 sm:col-span-2">
                 <label className="flex items-start gap-2 text-sm text-slate-800">
@@ -1335,6 +1460,16 @@ export function SpeseCaricamentoBoard() {
         }
         return modulo;
       })()}
+      {causaliAperte ? (
+        <CausaliUsateFinestra
+          corrente={form.giustificazione}
+          onScegli={(testo) => {
+            patch({ giustificazione: testo });
+            setCausaliAperte(false);
+          }}
+          onClose={() => setCausaliAperte(false)}
+        />
+      ) : null}
     </div>
   );
 }

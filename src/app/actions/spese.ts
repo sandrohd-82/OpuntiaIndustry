@@ -619,6 +619,57 @@ export async function listRicevuteRecentiSpesaAction(): Promise<
   return { success: true, ricevute };
 }
 
+export type CausaleSpesaUsata = {
+  testo: string;
+  usi: number;
+};
+
+/** Causali già scritte sugli scontrini ancora in archivio, le più usate per prime. */
+export async function listCausaliSpesaAction(): Promise<
+  | { success: true; causali: CausaleSpesaUsata[] }
+  | { success: false; error: string }
+> {
+  await requireAreaAccess("area-fiscale");
+  const supabase = await createClient();
+  const esatte = new Map<string, number>();
+  const pagina = 1000;
+  for (let da = 0; da < 8000; da += pagina) {
+    const { data, error } = await supabase
+      .from("spese_documenti")
+      .select("giustificazione")
+      .eq("tipo_caricamento", "scontrino")
+      .is("deleted_at", null)
+      .neq("giustificazione", "")
+      .range(da, da + pagina - 1);
+    if (error) return { success: false, error: error.message };
+    const righe = data ?? [];
+    for (const row of righe) {
+      const testo = String(row.giustificazione ?? "").trim().replace(/\s+/g, " ");
+      if (!testo) continue;
+      esatte.set(testo, (esatte.get(testo) ?? 0) + 1);
+    }
+    if (righe.length < pagina) break;
+  }
+  const gruppi = new Map<string, CausaleSpesaUsata & { usiGrafia: number }>();
+  for (const [testo, usi] of esatte) {
+    const chiave = testo.toLocaleLowerCase("it-IT");
+    const attuale = gruppi.get(chiave);
+    if (!attuale) {
+      gruppi.set(chiave, { testo, usi, usiGrafia: usi });
+      continue;
+    }
+    attuale.usi += usi;
+    if (usi > attuale.usiGrafia) {
+      attuale.testo = testo;
+      attuale.usiGrafia = usi;
+    }
+  }
+  const causali = [...gruppi.values()]
+    .map(({ testo, usi }) => ({ testo, usi }))
+    .sort((a, b) => b.usi - a.usi || a.testo.localeCompare(b.testo, "it"));
+  return { success: true, causali };
+}
+
 export type SuggerimentoEsercenteSpesa = {
   nome: string;
   usi: number;
