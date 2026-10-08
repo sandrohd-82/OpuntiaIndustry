@@ -56,6 +56,7 @@ type DocRow = {
   file_name: string;
   lettura_automatica: boolean;
   prezzi_iva_compresa?: boolean | null;
+  priva_iva?: boolean | null;
   note: string;
   contabilizzato_at: string | null;
   storage_path?: string;
@@ -159,6 +160,7 @@ function vista(row: DocRow, titoli: Map<string, string>): SpesaDocumentoView {
     versione: row.versione,
     fileName: row.file_name,
     letturaAutomatica: Boolean(row.lettura_automatica),
+    privaIva: Boolean(row.priva_iva),
     note: row.note ?? "",
     contabilizzatoAt: row.contabilizzato_at,
     prezziIvaCompresa: Boolean(row.prezzi_iva_compresa),
@@ -211,7 +213,7 @@ async function attachRighe(
 }
 
 const DOC_SELECT =
-  "id, tipo_caricamento, categoria, modalita_pagamento, esercente, partita_iva, data_documento, giustificazione, imponibile, aliquota_iva, imposta, totale, valuta, importo_valuta, cambio, nazione, flag_esterometro, tipo_autofattura, progetto_id, stato, versione, file_name, lettura_automatica, prezzi_iva_compresa, note, contabilizzato_at, storage_path";
+  "id, tipo_caricamento, categoria, modalita_pagamento, esercente, partita_iva, data_documento, giustificazione, imponibile, aliquota_iva, imposta, totale, valuta, importo_valuta, cambio, nazione, flag_esterometro, tipo_autofattura, progetto_id, stato, versione, file_name, lettura_automatica, prezzi_iva_compresa, priva_iva, note, contabilizzato_at, storage_path";
 
 export async function anteprimaSpesaAction(
   form: FormData
@@ -305,6 +307,7 @@ export async function registraSpesaAction(
         error: "Aggiungi almeno una riga con descrizione, prezzo, numero e IVA.",
       };
     }
+    const privaIva = campo(form, "privaIva") === "true";
     const bozza = parsedRighe.map((riga) => {
       const row = riga as {
         descrizione?: unknown;
@@ -317,14 +320,16 @@ export async function registraSpesaAction(
       const prezzoUnitario = Number(
         row.prezzoUnitario ?? row.imponibile ?? 0
       );
+      const aliquota = Number(row.aliquotaIva);
       return {
         descrizione: String(row.descrizione ?? ""),
         quantita: Number.isFinite(quantita) && quantita > 0 ? quantita : 1,
         prezzoUnitario: Number.isFinite(prezzoUnitario) ? prezzoUnitario : 0,
-        aliquotaIva: Number(row.aliquotaIva),
+        aliquotaIva: privaIva ? 0 : aliquota,
       };
     });
-    const prezziIvaCompresa = campo(form, "prezziIvaCompresa") === "true";
+    const prezziIvaCompresa =
+      privaIva ? false : campo(form, "prezziIvaCompresa") === "true";
     const calc = calcolaRigheScontrino(bozza, prezziIvaCompresa);
     imponibile = calc.imponibile;
     aliquotaIva = calc.aliquotaIva;
@@ -353,7 +358,11 @@ export async function registraSpesaAction(
     progettoId: campo(form, "progettoId") || null,
     note: campo(form, "note"),
     letturaAutomatica: campo(form, "letturaAutomatica") === "true",
-    prezziIvaCompresa: campo(form, "prezziIvaCompresa") === "true",
+    prezziIvaCompresa:
+      tipo === "scontrino" && campo(form, "privaIva") === "true"
+        ? false
+        : campo(form, "prezziIvaCompresa") === "true",
+    privaIva: tipo === "scontrino" && campo(form, "privaIva") === "true",
     righe,
   });
   if (!parsed.success) {
@@ -447,6 +456,7 @@ export async function registraSpesaAction(
       mime,
       lettura_automatica: input.letturaAutomatica,
       prezzi_iva_compresa: input.prezziIvaCompresa,
+      priva_iva: input.privaIva,
       lettura_json: letturaJson,
       uscita_importo: roundMoney(input.totale),
       iva_detraibile: ivaDetraibile,
@@ -511,6 +521,7 @@ export async function registraSpesaAction(
       stato: "registrato",
       righe: input.tipoCaricamento === "scontrino" ? input.righe.length : 0,
       prezzi_iva_compresa: input.prezziIvaCompresa,
+      priva_iva: input.privaIva,
     },
   });
   return { success: true, id: String(data.id) };
@@ -572,6 +583,7 @@ export type RicevutaRecenteSpesa = {
   totale: number;
   valuta: string;
   stato: StatoSpesa;
+  privaIva: boolean;
 };
 
 /** Ricevute registrate negli ultimi 30 giorni, le più recenti per prime. */
@@ -585,7 +597,7 @@ export async function listRicevuteRecentiSpesaAction(): Promise<
   const { data, error } = await supabase
     .from("spese_documenti")
     .select(
-      "id, created_at, data_documento, esercente, giustificazione, tipo_caricamento, totale, valuta, stato"
+      "id, created_at, data_documento, esercente, giustificazione, tipo_caricamento, totale, valuta, stato, priva_iva"
     )
     .is("deleted_at", null)
     .gte("created_at", dal)
@@ -602,6 +614,7 @@ export async function listRicevuteRecentiSpesaAction(): Promise<
     totale: num(row.totale),
     valuta: String(row.valuta ?? "EUR"),
     stato: row.stato as StatoSpesa,
+    privaIva: Boolean(row.priva_iva),
   }));
   return { success: true, ricevute };
 }

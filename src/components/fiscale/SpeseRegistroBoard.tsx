@@ -206,6 +206,9 @@ export function SpeseRegistroBoard() {
                     {s.giustificazione ? (
                       <p className="text-xs text-[var(--muted)]">{s.giustificazione}</p>
                     ) : null}
+                    {s.privaIva ? (
+                      <p className="text-xs text-[var(--muted)]">Priva di IVA</p>
+                    ) : null}
                   </td>
                   <td className="px-3 py-2">{LABEL_TIPO_CARICAMENTO[s.tipoCaricamento]}</td>
                   <td className="px-3 py-2">{LABEL_CATEGORIA_SPESA[s.categoria]}</td>

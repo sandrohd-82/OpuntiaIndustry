@@ -252,6 +252,7 @@ export function SpeseCaricamentoBoard() {
   const [form, setForm] = useState(vuoto);
   const [righe, setRighe] = useState<RigaForm[]>(() => [rigaVuota()]);
   const [prezziIvaCompresa, setPrezziIvaCompresa] = useState(false);
+  const [privaIva, setPrivaIva] = useState(false);
   const [progetti, setProgetti] = useState<SpesaProgettoView[]>([]);
   const [msg, setMsg] = useState<string | null>(null);
   const [errore, setErrore] = useState<string | null>(null);
@@ -460,7 +461,7 @@ export function SpeseCaricamentoBoard() {
       for (const riga of righe) {
         const prezzoUnitario = decimale(riga.prezzo);
         const quantita = decimale(riga.quantita);
-        const aliquotaIva = decimale(riga.aliquotaIva);
+        const aliquotaIva = privaIva ? 0 : decimale(riga.aliquotaIva);
         if (!riga.descrizione.trim()) {
           setErrore("Ogni riga ha una descrizione.");
           return;
@@ -473,7 +474,7 @@ export function SpeseCaricamentoBoard() {
           setErrore("Indica il numero di pezzi di ogni prodotto.");
           return;
         }
-        if (aliquotaIva == null || aliquotaIva < 0 || aliquotaIva > 100) {
+        if (!privaIva && (aliquotaIva == null || aliquotaIva < 0 || aliquotaIva > 100)) {
           setErrore("L'aliquota IVA di ogni riga deve essere tra 0 e 100.");
           return;
         }
@@ -481,10 +482,10 @@ export function SpeseCaricamentoBoard() {
           descrizione: riga.descrizione.trim(),
           prezzoUnitario,
           quantita,
-          aliquotaIva,
+          aliquotaIva: aliquotaIva ?? 0,
         });
       }
-      const calc = calcolaRigheScontrino(input, prezziIvaCompresa);
+      const calc = calcolaRigheScontrino(input, privaIva ? false : prezziIvaCompresa);
       if (calc.totale <= 0) {
         setErrore("Il totale calcolato deve essere maggiore di zero.");
         return;
@@ -493,7 +494,8 @@ export function SpeseCaricamentoBoard() {
       body.set("aliquotaIva", String(calc.aliquotaIva));
       body.set("imposta", String(calc.imposta));
       body.set("totale", String(calc.totale));
-      body.set("prezziIvaCompresa", prezziIvaCompresa ? "true" : "false");
+      body.set("prezziIvaCompresa", !privaIva && prezziIvaCompresa ? "true" : "false");
+      body.set("privaIva", privaIva ? "true" : "false");
       body.set("righe", JSON.stringify(input));
     } else {
       body.set("imponibile", form.imponibile);
@@ -524,6 +526,8 @@ export function SpeseCaricamentoBoard() {
       setAnteprima(null);
       setForm(vuoto);
       setScelteCausale([]);
+      setPrivaIva(false);
+      setPrezziIvaCompresa(false);
       setRighe([rigaVuota()]);
       fileTenuto.current = null;
       setFileScelto(null);
@@ -692,6 +696,7 @@ export function SpeseCaricamentoBoard() {
                     documento {formatDateIt(voce.dataDocumento)}
                     {" · "}
                     {LABEL_TIPO_CARICAMENTO[voce.tipoCaricamento]}
+                    {voce.privaIva ? " · priva di IVA" : ""}
                     {" · "}
                     {LABEL_STATO_SPESA[voce.stato]}
                   </p>
@@ -809,6 +814,7 @@ export function SpeseCaricamentoBoard() {
             <label className="block text-sm">
               <span className="mb-1 block text-xs font-medium text-[var(--muted)]">
                 P. IVA
+                {tipo === "scontrino" && privaIva ? " (non obbligatoria)" : ""}
               </span>
               <input
                 className={field}
@@ -894,6 +900,37 @@ export function SpeseCaricamentoBoard() {
                   <input
                     type="checkbox"
                     className="mt-1"
+                    checked={privaIva}
+                    onChange={(e) => {
+                      const attivo = e.target.checked;
+                      setPrivaIva(attivo);
+                      if (attivo) {
+                        setPrezziIvaCompresa(false);
+                        setRighe((prev) =>
+                          prev.map((item) => ({ ...item, aliquotaIva: "0" }))
+                        );
+                      } else {
+                        setRighe((prev) =>
+                          prev.map((item) =>
+                            item.aliquotaIva === "0"
+                              ? { ...item, aliquotaIva: "22" }
+                              : item
+                          )
+                        );
+                      }
+                    }}
+                  />
+                  <span>
+                    Ricevuta priva di IVA (taxi e simili). L&apos;importo è
+                    tutto costo, senza imposta. La partita IVA non è
+                    obbligatoria.
+                  </span>
+                </label>
+                {privaIva ? null : (
+                <label className="flex items-start gap-2 text-sm text-slate-800">
+                  <input
+                    type="checkbox"
+                    className="mt-1"
                     checked={prezziIvaCompresa}
                     onChange={(e) => setPrezziIvaCompresa(e.target.checked)}
                   />
@@ -903,6 +940,7 @@ export function SpeseCaricamentoBoard() {
                     l&apos;aliquota della riga.
                   </span>
                 </label>
+                )}
                 <div className="flex items-center justify-between gap-2">
                   <p className="text-sm font-medium text-slate-800">Righe</p>
                   <button
@@ -920,7 +958,7 @@ export function SpeseCaricamentoBoard() {
                         <th className="px-2 py-2">Descrizione</th>
                         <th className="px-2 py-2">Prezzo</th>
                         <th className="px-2 py-2">Numero</th>
-                        <th className="px-2 py-2">% IVA</th>
+                        {privaIva ? null : <th className="px-2 py-2">% IVA</th>}
                         {prezziIvaCompresa ? (
                           <>
                             <th className="px-2 py-2 text-right">Imponibile</th>
@@ -999,6 +1037,7 @@ export function SpeseCaricamentoBoard() {
                                 }
                               />
                             </td>
+                            {privaIva ? null : (
                             <td className="w-24 px-2 py-2">
                               <input
                                 className={field}
@@ -1015,6 +1054,7 @@ export function SpeseCaricamentoBoard() {
                                 }
                               />
                             </td>
+                            )}
                             {prezziIvaCompresa ? (
                               <>
                                 <td className="px-2 py-2 text-right tabular-nums">
@@ -1058,9 +1098,11 @@ export function SpeseCaricamentoBoard() {
                   </table>
                 </div>
                 <p className="text-xs text-slate-500">
-                  {prezziIvaCompresa
-                    ? "Il totale inserito è IVA compresa: prezzo × numero. Nella riga compaiono imponibile, IVA e totale."
-                    : "Il totale della riga è prezzo × numero. Esempio: 0,45 × 6 = 2,70. L'IVA si calcola su quell'importo."}
+                  {privaIva
+                    ? "Il totale della riga è prezzo × numero e non contiene IVA."
+                    : (prezziIvaCompresa
+                      ? "Il totale inserito è IVA compresa: prezzo × numero. Nella riga compaiono imponibile, IVA e totale."
+                      : "Il totale della riga è prezzo × numero. Esempio: 0,45 × 6 = 2,70. L'IVA si calcola su quell'importo.")}
                 </p>
                 <p className="text-sm text-slate-800">
                   {(() => {
@@ -1069,13 +1111,15 @@ export function SpeseCaricamentoBoard() {
                         descrizione: riga.descrizione || "Voce",
                         prezzoUnitario: decimale(riga.prezzo) ?? 0,
                         quantita: decimale(riga.quantita) ?? 0,
-                        aliquotaIva: decimale(riga.aliquotaIva) ?? 0,
+                        aliquotaIva: privaIva ? 0 : (decimale(riga.aliquotaIva) ?? 0),
                       })),
-                      prezziIvaCompresa
+                      privaIva ? false : prezziIvaCompresa
                     );
                     const euro = (n: number) =>
                       n.toLocaleString("it-IT", { style: "currency", currency: "EUR" });
-                    return `Imponibile ${euro(calc.imponibile)} · IVA ${euro(calc.imposta)} · Totale ${euro(calc.totale)}`;
+                    return privaIva
+                      ? `Priva di IVA · Totale ${euro(calc.totale)}`
+                      : `Imponibile ${euro(calc.imponibile)} · IVA ${euro(calc.imposta)} · Totale ${euro(calc.totale)}`;
                   })()}
                 </p>
               </div>

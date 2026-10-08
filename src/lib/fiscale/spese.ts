@@ -193,6 +193,7 @@ export const spesaRegistrazioneSchema = z
     note: z.string().trim().max(1000).default(""),
     letturaAutomatica: z.boolean().default(false),
     prezziIvaCompresa: z.boolean().default(false),
+    privaIva: z.boolean().default(false),
     righe: z
       .array(
         z.object({
@@ -214,6 +215,20 @@ export const spesaRegistrazioneSchema = z
       .default([]),
   })
   .superRefine((value, ctx) => {
+    if (value.privaIva && value.tipoCaricamento !== "scontrino") {
+      ctx.addIssue({
+        code: "custom",
+        path: ["privaIva"],
+        message: "La ricevuta priva di IVA si usa solo sullo scontrino.",
+      });
+    }
+    if (value.privaIva && (value.imposta > 0.001 || value.aliquotaIva > 0)) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["imposta"],
+        message: "Una ricevuta priva di IVA non ha imposta.",
+      });
+    }
     if (value.tipoCaricamento === "scontrino" && value.righe.length === 0) {
       ctx.addIssue({
         code: "custom",
@@ -335,6 +350,7 @@ export type SpesaDocumentoView = {
   note: string;
   contabilizzatoAt: string | null;
   prezziIvaCompresa: boolean;
+  privaIva: boolean;
   righe: SpesaRigaView[];
 };
 
