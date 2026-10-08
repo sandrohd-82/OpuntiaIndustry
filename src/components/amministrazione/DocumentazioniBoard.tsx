@@ -14,6 +14,7 @@ import {
   uploadDocumentazioneFileAction,
 } from "@/app/actions/documentazioni";
 import { SoftDeleteConfirmModal } from "@/components/amministrazione/SoftDeleteConfirmModal";
+import { FileDropZone } from "@/components/ui/FileDropZone";
 import {
   formatDateDoc,
   statoOperativoLabel,
@@ -77,6 +78,8 @@ export function DocumentazioniBoard({ mode }: Props) {
     kind: "archivia" | "elimina";
     item: DocumentazioneScheda;
   }>(null);
+  const [bozzaFile, setBozzaFile] = useState<File | null>(null);
+  const [fileInCarico, setFileInCarico] = useState<File | null>(null);
 
   async function load() {
     setBusy(true);
@@ -117,6 +120,8 @@ export function DocumentazioniBoard({ mode }: Props) {
   function openNew() {
     setEditing(null);
     setForm(emptyForm);
+    setBozzaFile(null);
+    setFileInCarico(null);
     setOpen(true);
     setError(null);
   }
@@ -131,6 +136,8 @@ export function DocumentazioniBoard({ mode }: Props) {
       dataScadenza: item.dataScadenza,
       necessitaRinnovo: item.necessitaRinnovo,
     });
+    setBozzaFile(null);
+    setFileInCarico(null);
     setOpen(true);
     setError(null);
   }
@@ -163,12 +170,29 @@ export function DocumentazioniBoard({ mode }: Props) {
     const res = editing
       ? await updateDocumentazioneAction({ id: editing.id, ...payload })
       : await createDocumentazioneAction(payload);
-    setBusy(false);
     if (!res.success) {
+      setBusy(false);
       setError(res.error);
       return;
     }
-    setEditing(res.item);
+    let item = res.item;
+    if (bozzaFile) {
+      const fd = new FormData();
+      fd.set("documentazioneId", item.id);
+      fd.set("file", bozzaFile);
+      const up = await uploadDocumentazioneFileAction(fd);
+      if (!up.success) {
+        setBusy(false);
+        setEditing(item);
+        await load();
+        setError(`Scheda registrata. Il file non è stato caricato: ${up.error}`);
+        return;
+      }
+      item = up.item;
+      setBozzaFile(null);
+    }
+    setBusy(false);
+    setEditing(item);
     await load();
   }
 
@@ -215,13 +239,19 @@ export function DocumentazioniBoard({ mode }: Props) {
   }
 
   async function onUpload(file: File) {
-    if (!editing) return;
+    if (!editing) {
+      setBozzaFile(file);
+      setError(null);
+      return;
+    }
     const fd = new FormData();
     fd.set("documentazioneId", editing.id);
     fd.set("file", file);
+    setFileInCarico(file);
     setBusy(true);
     const res = await uploadDocumentazioneFileAction(fd);
     setBusy(false);
+    setFileInCarico(null);
     if (!res.success) {
       setError(res.error);
       return;
@@ -505,6 +535,35 @@ export function DocumentazioniBoard({ mode }: Props) {
             </div>
 
             {!archivio ? (
+              <div className="mt-4">
+                <p className="mb-2 text-sm font-medium">Documento</p>
+                <FileDropZone
+                  title="Carica il documento"
+                  hint="PDF, JPG, PNG, WebP · max 15 MB"
+                  readyCaption={
+                    current
+                      ? "pronto, il caricamento è in corso"
+                      : "pronto, parte con Crea scheda"
+                  }
+                  file={current ? fileInCarico : bozzaFile}
+                  busy={busy && Boolean(current ? fileInCarico : bozzaFile)}
+                  disabled={busy}
+                  onFile={(file) => void onUpload(file)}
+                  onInvalid={(message) => setError(message)}
+                />
+                {!current && bozzaFile ? (
+                  <button
+                    type="button"
+                    onClick={() => setBozzaFile(null)}
+                    className="mt-2 text-xs text-slate-600 underline"
+                  >
+                    Togli il file scelto
+                  </button>
+                ) : null}
+              </div>
+            ) : null}
+
+            {!archivio ? (
               <div className="mt-4 flex flex-wrap gap-2">
                 <button
                   type="button"
@@ -593,27 +652,8 @@ export function DocumentazioniBoard({ mode }: Props) {
                     ))}
                   </ul>
                 )}
-                {!archivio ? (
-                  <label className="mt-2 block text-sm">
-                    <span className="font-medium">Aggiungi file (PDF o immagine)</span>
-                    <input
-                      type="file"
-                      accept="application/pdf,image/jpeg,image/png,image/webp"
-                      className={`${inputCls} file:mr-3`}
-                      onChange={(e) => {
-                        const file = e.target.files?.[0];
-                        e.target.value = "";
-                        if (file) void onUpload(file);
-                      }}
-                    />
-                  </label>
-                ) : null}
               </section>
-            ) : (
-              <p className="mt-4 text-sm text-[var(--muted)]">
-                Dopo la creazione puoi caricare più file sulla stessa scheda.
-              </p>
-            )}
+            ) : null}
 
             {current && current.versioni.length > 0 ? (
               <section className="mt-6 space-y-2">
