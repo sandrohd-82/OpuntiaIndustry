@@ -88,10 +88,20 @@ export const documentazioneInputSchema = z
     repartoId: z.string().uuid("Seleziona un reparto."),
     spiegazione: z.string().trim().max(8000).optional().default(""),
     dataInizio: dateOnly,
-    dataScadenza: dateOnly,
+    senzaScadenza: z.boolean().optional().default(false),
+    dataScadenza: z.string().trim().optional().default(""),
     necessitaRinnovo: z.boolean().optional().default(false),
   })
   .superRefine((v, ctx) => {
+    if (v.senzaScadenza) return;
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(v.dataScadenza)) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Indica la data di scadenza, oppure dichiara che non scade.",
+        path: ["dataScadenza"],
+      });
+      return;
+    }
     if (v.dataScadenza < v.dataInizio) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
@@ -109,12 +119,22 @@ export const documentazioneRinnovoSchema = z
   .object({
     id: z.string().uuid(),
     dataInizio: dateOnly,
-    dataScadenza: dateOnly,
+    senzaScadenza: z.boolean().optional().default(false),
+    dataScadenza: z.string().trim().optional().default(""),
     spiegazione: z.string().trim().max(8000).optional(),
     necessitaRinnovo: z.boolean().optional().default(true),
     copiaFile: z.boolean().optional().default(true),
   })
   .superRefine((v, ctx) => {
+    if (v.senzaScadenza) return;
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(v.dataScadenza)) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Indica la data di scadenza, oppure dichiara che non scade.",
+        path: ["dataScadenza"],
+      });
+      return;
+    }
     if (v.dataScadenza < v.dataInizio) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
@@ -181,6 +201,11 @@ export function todayIsoDate(): string {
   return new Date().toISOString().slice(0, 10);
 }
 
-export function isScadutaByDate(dataScadenza: string, today = todayIsoDate()) {
-  return dataScadenza.slice(0, 10) < today;
+export function isScadutaByDate(
+  dataScadenza: string | null | undefined,
+  today = todayIsoDate()
+) {
+  const raw = (dataScadenza ?? "").slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(raw)) return false;
+  return raw < today;
 }

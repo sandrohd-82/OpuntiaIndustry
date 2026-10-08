@@ -33,6 +33,7 @@ type FormState = {
   repartoId: string;
   spiegazione: string;
   dataInizio: string;
+  senzaScadenza: boolean;
   dataScadenza: string;
   necessitaRinnovo: boolean;
 };
@@ -42,6 +43,7 @@ const emptyForm: FormState = {
   repartoId: "",
   spiegazione: "",
   dataInizio: "",
+  senzaScadenza: false,
   dataScadenza: "",
   necessitaRinnovo: false,
 };
@@ -69,6 +71,7 @@ export function DocumentazioniBoard({ mode }: Props) {
   const [rinnovoOpen, setRinnovoOpen] = useState(false);
   const [rinnovo, setRinnovo] = useState({
     dataInizio: "",
+    senzaScadenza: false,
     dataScadenza: "",
     spiegazione: "",
     necessitaRinnovo: true,
@@ -133,6 +136,7 @@ export function DocumentazioniBoard({ mode }: Props) {
       repartoId: item.repartoId,
       spiegazione: item.spiegazione,
       dataInizio: item.dataInizio,
+      senzaScadenza: !item.dataScadenza,
       dataScadenza: item.dataScadenza,
       necessitaRinnovo: item.necessitaRinnovo,
     });
@@ -143,13 +147,16 @@ export function DocumentazioniBoard({ mode }: Props) {
   }
 
   function openRinnovo(item: DocumentazioneScheda) {
-    const dates = suggestedRinnovoDates(item.dataInizio, item.dataScadenza);
+    const dates = item.dataScadenza
+      ? suggestedRinnovoDates(item.dataInizio, item.dataScadenza)
+      : { dataInizio: item.dataInizio, dataScadenza: "" };
     setEditing(item);
     setRinnovo({
       dataInizio: dates.dataInizio,
+      senzaScadenza: !item.dataScadenza,
       dataScadenza: dates.dataScadenza,
       spiegazione: item.spiegazione,
-      necessitaRinnovo: item.necessitaRinnovo,
+      necessitaRinnovo: Boolean(item.dataScadenza && item.necessitaRinnovo),
       copiaFile: true,
     });
     setRinnovoOpen(true);
@@ -164,8 +171,9 @@ export function DocumentazioniBoard({ mode }: Props) {
       repartoId: form.repartoId,
       spiegazione: form.spiegazione,
       dataInizio: form.dataInizio,
-      dataScadenza: form.dataScadenza,
-      necessitaRinnovo: form.necessitaRinnovo,
+      senzaScadenza: form.senzaScadenza,
+      dataScadenza: form.senzaScadenza ? "" : form.dataScadenza,
+      necessitaRinnovo: form.senzaScadenza ? false : form.necessitaRinnovo,
     };
     const res = editing
       ? await updateDocumentazioneAction({ id: editing.id, ...payload })
@@ -215,9 +223,10 @@ export function DocumentazioniBoard({ mode }: Props) {
     const res = await rinnovaDocumentazioneAction({
       id: editing.id,
       dataInizio: rinnovo.dataInizio,
-      dataScadenza: rinnovo.dataScadenza,
+      senzaScadenza: rinnovo.senzaScadenza,
+      dataScadenza: rinnovo.senzaScadenza ? "" : rinnovo.dataScadenza,
       spiegazione: rinnovo.spiegazione,
-      necessitaRinnovo: rinnovo.necessitaRinnovo,
+      necessitaRinnovo: rinnovo.senzaScadenza ? false : rinnovo.necessitaRinnovo,
       copiaFile: rinnovo.copiaFile,
     });
     setBusy(false);
@@ -232,6 +241,7 @@ export function DocumentazioniBoard({ mode }: Props) {
       repartoId: res.item.repartoId,
       spiegazione: res.item.spiegazione,
       dataInizio: res.item.dataInizio,
+      senzaScadenza: !res.item.dataScadenza,
       dataScadenza: res.item.dataScadenza,
       necessitaRinnovo: res.item.necessitaRinnovo,
     });
@@ -369,7 +379,9 @@ export function DocumentazioniBoard({ mode }: Props) {
                   </td>
                   <td className="px-3 py-2">{it.repartoNome}</td>
                   <td className="px-3 py-2 text-xs">
-                    {formatDateDoc(it.dataInizio)} – {formatDateDoc(it.dataScadenza)}
+                    {it.dataScadenza
+                      ? `${formatDateDoc(it.dataInizio)} – ${formatDateDoc(it.dataScadenza)}`
+                      : `${formatDateDoc(it.dataInizio)} · senza scadenza`}
                   </td>
                   <td className="px-3 py-2">
                     <span
@@ -489,7 +501,7 @@ export function DocumentazioniBoard({ mode }: Props) {
                 <input
                   type="checkbox"
                   checked={form.necessitaRinnovo}
-                  disabled={archivio}
+                  disabled={archivio || form.senzaScadenza}
                   onChange={(e) =>
                     setForm((f) => ({ ...f, necessitaRinnovo: e.target.checked }))
                   }
@@ -508,18 +520,36 @@ export function DocumentazioniBoard({ mode }: Props) {
                   className={inputCls}
                 />
               </label>
-              <label className="text-sm">
-                <span className="font-medium">Data scadenza</span>
-                <input
-                  type="date"
-                  value={form.dataScadenza}
-                  disabled={archivio}
-                  onChange={(e) =>
-                    setForm((f) => ({ ...f, dataScadenza: e.target.value }))
-                  }
-                  className={inputCls}
-                />
-              </label>
+              <div className="text-sm">
+                <label className="mb-2 flex items-center gap-2">
+                  <input
+                    type="checkbox"
+                    checked={form.senzaScadenza}
+                    disabled={archivio}
+                    onChange={(e) =>
+                      setForm((f) => ({
+                        ...f,
+                        senzaScadenza: e.target.checked,
+                        dataScadenza: e.target.checked ? "" : f.dataScadenza,
+                        necessitaRinnovo: e.target.checked ? false : f.necessitaRinnovo,
+                      }))
+                    }
+                  />
+                  Non ha scadenza
+                </label>
+                <label className={form.senzaScadenza ? "block opacity-40" : "block"}>
+                  <span className="font-medium">Data scadenza</span>
+                  <input
+                    type="date"
+                    value={form.senzaScadenza ? "" : form.dataScadenza}
+                    disabled={archivio || form.senzaScadenza}
+                    onChange={(e) =>
+                      setForm((f) => ({ ...f, dataScadenza: e.target.value }))
+                    }
+                    className={`${inputCls} disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-400`}
+                  />
+                </label>
+              </div>
               <label className="text-sm sm:col-span-2">
                 <span className="font-medium">Spiegazione</span>
                 <textarea
@@ -732,15 +762,33 @@ export function DocumentazioniBoard({ mode }: Props) {
                   className={inputCls}
                 />
               </label>
-              <label className="block text-sm">
+              <label className="flex items-center gap-2 text-sm">
+                <input
+                  type="checkbox"
+                  checked={rinnovo.senzaScadenza}
+                  onChange={(e) =>
+                    setRinnovo((r) => ({
+                      ...r,
+                      senzaScadenza: e.target.checked,
+                      dataScadenza: e.target.checked ? "" : r.dataScadenza,
+                      necessitaRinnovo: e.target.checked ? false : r.necessitaRinnovo,
+                    }))
+                  }
+                />
+                Non ha scadenza
+              </label>
+              <label
+                className={`block text-sm ${rinnovo.senzaScadenza ? "opacity-40" : ""}`}
+              >
                 <span className="font-medium">Nuova data scadenza</span>
                 <input
                   type="date"
-                  value={rinnovo.dataScadenza}
+                  value={rinnovo.senzaScadenza ? "" : rinnovo.dataScadenza}
+                  disabled={rinnovo.senzaScadenza}
                   onChange={(e) =>
                     setRinnovo((r) => ({ ...r, dataScadenza: e.target.value }))
                   }
-                  className={inputCls}
+                  className={`${inputCls} disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-400`}
                 />
               </label>
               <label className="block text-sm">
@@ -758,6 +806,7 @@ export function DocumentazioniBoard({ mode }: Props) {
                 <input
                   type="checkbox"
                   checked={rinnovo.necessitaRinnovo}
+                  disabled={rinnovo.senzaScadenza}
                   onChange={(e) =>
                     setRinnovo((r) => ({
                       ...r,
