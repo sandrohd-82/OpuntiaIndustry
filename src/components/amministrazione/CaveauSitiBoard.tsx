@@ -1,6 +1,6 @@
 "use client";
 
-import { Fragment, useCallback, useEffect, useId, useMemo, useState } from "react";
+import { Fragment, useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import {
   aggiornaCaveauAcquistoAction,
   aggiornaCaveauSitoAction,
@@ -80,6 +80,60 @@ function valoreOrdine(
   return verso === "asc" ? base : -base;
 }
 
+function DescrizioneDueRighe({
+  testo,
+  onLeggi,
+}: {
+  testo: string;
+  onLeggi: () => void;
+}) {
+  const pieno = useRef<HTMLParagraphElement>(null);
+  const stretto = useRef<HTMLParagraphElement>(null);
+  const [tagliata, setTagliata] = useState(false);
+
+  useEffect(() => {
+    const intero = pieno.current;
+    const visibile = stretto.current;
+    if (!intero || !visibile) return;
+    setTagliata(intero.scrollHeight > visibile.clientHeight + 1);
+  }, [testo]);
+
+  if (!testo.trim()) return <span>—</span>;
+
+  return (
+    <div className="relative max-w-xs">
+      <p
+        ref={pieno}
+        aria-hidden="true"
+        className="invisible absolute inset-x-0 whitespace-pre-wrap"
+      >
+        {testo}
+      </p>
+      <p
+        ref={stretto}
+        className="whitespace-pre-wrap text-slate-600"
+        style={{
+          display: "-webkit-box",
+          WebkitLineClamp: 2,
+          WebkitBoxOrient: "vertical",
+          overflow: "hidden",
+        }}
+      >
+        {testo}
+      </p>
+      {tagliata ? (
+        <button
+          type="button"
+          className="mt-1 text-xs text-sky-800 underline"
+          onClick={onLeggi}
+        >
+          Leggi altro
+        </button>
+      ) : null}
+    </div>
+  );
+}
+
 function IntestazioneOrdine({
   children,
   attivo,
@@ -134,7 +188,12 @@ export function CaveauSitiBoard() {
   const [codiceInviatoA, setCodiceInviatoA] = useState<string | null>(null);
   const [acquisto, setAcquisto] = useState<AcquistoBozza | null>(null);
   const [eliminaAcquisto, setEliminaAcquisto] = useState<CaveauAcquistoRiga | null>(null);
+  const [descrizioneAperta, setDescrizioneAperta] = useState<{
+    titolo: string;
+    testo: string;
+  } | null>(null);
   const acquistoTitleId = useId();
+  const descrizioneTitleId = useId();
 
   const sitiOrdinati = useMemo(
     () =>
@@ -559,8 +618,16 @@ export function CaveauSitiBoard() {
                                     <span className="text-slate-700">{voce.url}</span>
                                   )}
                                 </td>
-                                <td className="max-w-xs px-2 py-1 text-slate-600">
-                                  {voce.descrizione || "—"}
+                                <td className="px-2 py-1 text-slate-600">
+                                  <DescrizioneDueRighe
+                                    testo={voce.descrizione}
+                                    onLeggi={() =>
+                                      setDescrizioneAperta({
+                                        titolo: voce.titolo,
+                                        testo: voce.descrizione,
+                                      })
+                                    }
+                                  />
                                 </td>
                                 <td className="px-2 py-1 tabular-nums text-slate-800">
                                   {formatPrezzo(voce.prezzo)}
@@ -849,6 +916,33 @@ export function CaveauSitiBoard() {
                 disabled={busy}
               >
                 Elimina
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {descrizioneAperta ? (
+        <div className="fixed inset-0 z-[85] flex items-center justify-center bg-slate-950/60 p-4">
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby={descrizioneTitleId}
+            className="w-full max-w-md rounded-2xl border border-slate-200 bg-white p-5 shadow-xl"
+          >
+            <h2 id={descrizioneTitleId} className="text-lg font-semibold text-slate-900">
+              {descrizioneAperta.titolo}
+            </h2>
+            <p className="mt-3 max-h-64 overflow-y-auto whitespace-pre-wrap text-sm text-slate-700">
+              {descrizioneAperta.testo}
+            </p>
+            <div className="mt-5 flex justify-end">
+              <button
+                type="button"
+                className="rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                onClick={() => setDescrizioneAperta(null)}
+              >
+                Chiudi
               </button>
             </div>
           </div>
