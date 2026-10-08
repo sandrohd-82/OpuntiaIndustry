@@ -151,24 +151,42 @@ export async function sendSmtpMail(options: {
   }
 }
 
-export type OtpEmailPurpose = "accesso" | "conferma";
+export type OtpEmailPurpose = "accesso" | "conferma" | "caveau";
+
+const OTP_EMAIL_COPY: Record<
+  OtpEmailPurpose,
+  { subject: string; title: string; intro: string; lead: string }
+> = {
+  accesso: {
+    subject: "Codice di verifica - Industry Gestionale",
+    title: "Codice di verifica",
+    intro: "Usa questo codice per completare l'accesso a Industry Gestionale.",
+    lead: "Il tuo codice di verifica per accedere a Industry Gestionale è:",
+  },
+  conferma: {
+    subject: "Codice di conferma - Industry Gestionale",
+    title: "Codice di conferma",
+    intro: "Usa questo codice per confermare l'operazione su Industry Gestionale.",
+    lead: "Il tuo codice di conferma per Industry Gestionale è:",
+  },
+  caveau: {
+    subject: "Codice per una password - Industry Gestionale",
+    title: "Codice per la password",
+    intro: "Usa questo codice per vedere una password dei siti registrati.",
+    lead: "Il codice per vedere la password è:",
+  },
+};
 
 export async function sendOtpEmail(
   to: string,
   otp: string,
   purpose: OtpEmailPurpose = "accesso"
 ): Promise<void> {
-  const isConferma = purpose === "conferma";
-  const subject = isConferma
-    ? "Codice di conferma - Industry Gestionale"
-    : "Codice di verifica - Industry Gestionale";
-  const intro = isConferma
-    ? "Usa questo codice per confermare l'operazione su Industry Gestionale."
-    : "Usa questo codice per completare l'accesso a Industry Gestionale.";
+  const copy = OTP_EMAIL_COPY[purpose];
+  const subject = copy.subject;
+  const intro = copy.intro;
   const text = [
-    isConferma
-      ? "Il tuo codice di conferma per Industry Gestionale è:"
-      : "Il tuo codice di verifica per accedere a Industry Gestionale è:",
+    copy.lead,
     "",
     otp,
     "",
@@ -178,7 +196,7 @@ export async function sendOtpEmail(
 
   const html = `
     <div style="font-family:Segoe UI,Arial,sans-serif;max-width:480px;margin:0 auto;color:#0f172a">
-      <h2 style="margin:0 0 12px">${isConferma ? "Codice di conferma" : "Codice di verifica"}</h2>
+      <h2 style="margin:0 0 12px">${copy.title}</h2>
       <p style="margin:0 0 16px;color:#475569">
         ${intro}
       </p>

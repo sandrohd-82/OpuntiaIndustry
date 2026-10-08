@@ -157,7 +157,7 @@ export const AMMINISTRAZIONE_SECTIONS: readonly NavItem[] = [
     slug: "caveau-siti",
     label: "Siti registrati",
     description:
-      "Siti a cui l'azienda è registrata. Password cifrata, visibile solo con il codice (solo Super Admin)",
+      "Siti a cui l'azienda è registrata. Password cifrata, visibile con il codice inviato per email al Super Admin",
     path: "/app/amministrazione/caveau-siti",
     superAdminOnly: true,
   },

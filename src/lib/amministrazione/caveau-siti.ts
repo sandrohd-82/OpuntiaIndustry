@@ -21,7 +21,10 @@ export const caveauSitoUpdateSchema = z.object({
 
 export const caveauRivelaSchema = z.object({
   id: z.string().uuid(),
-  codice: z.string().trim().min(1, "Inserisci il codice.").max(200),
+  codice: z
+    .string()
+    .trim()
+    .regex(/^\d{6}$/, "Inserisci il codice di 6 cifre ricevuto per email."),
 });
 
 export const caveauEliminaSchema = z.object({

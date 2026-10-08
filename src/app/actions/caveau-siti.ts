@@ -1,12 +1,15 @@
 "use server";
 
+import { timingSafeEqual } from "crypto";
 import { revalidatePath } from "next/cache";
-import { getAuthContext } from "@/lib/auth/session";
+import { getAuthContext, getAuthUser } from "@/lib/auth/session";
 import { isSuperadminProfile } from "@/lib/auth/roles";
+import { EMAIL_OTP_MAX_ATTEMPTS, EMAIL_OTP_TTL_MINUTES } from "@/lib/auth/constants";
+import { generateEmailOtp, hashOtp, otpExpiresAt } from "@/lib/auth/two-factor";
+import { sendOtpEmail } from "@/lib/email/smtp";
 import {
   caveauConfigurato,
   cifraPasswordCaveau,
-  codiceCaveauValido,
   decifraPasswordCaveau,
 } from "@/lib/amministrazione/caveau-siti-crypto";
 import {
@@ -27,8 +30,8 @@ import { createServiceClient } from "@/lib/supabase/server";
 const PATH = "/app/amministrazione/caveau-siti";
 const ENTITY = "caveau_siti_aziendali";
 const ENTITY_ACQUISTO = "caveau_siti_acquisti";
-const TENTATIVI_MAX = 5;
 const FINESTRA_MS = 15 * 60 * 1000;
+const PAUSA_INVIO_MS = 30 * 1000;
 
 type Gate =
   | { ok: true; actorId: string }
@@ -47,7 +50,14 @@ async function gate(): Promise<Gate> {
 }
 
 function configError(): string {
-  return "Il caveau non è configurato sul server. Servono CREDENTIALS_VAULT_KEY e CREDENTIALS_VAULT_CODE.";
+  return "Il caveau non è configurato sul server. Manca CREDENTIALS_VAULT_KEY.";
+}
+
+function hashUguale(inserito: string, atteso: string): boolean {
+  const a = Buffer.from(hashOtp(inserito), "hex");
+  const b = Buffer.from(atteso, "hex");
+  if (a.length === 0 || a.length !== b.length) return false;
+  return timingSafeEqual(a, b);
 }
 
 async function audita(input: {
@@ -70,14 +80,14 @@ async function audita(input: {
   if (error) console.error("[caveau audit]", error.message);
 }
 
-async function tentativiRecenti(actorId: string): Promise<number | null> {
+async function contaInviiCodice(actorId: string): Promise<number | null> {
   const since = new Date(Date.now() - FINESTRA_MS).toISOString();
   const db = createServiceClient();
   const { count, error } = await db
     .from("audit_log")
     .select("id", { count: "exact", head: true })
     .eq("entity_type", ENTITY)
-    .eq("action", "reveal_denied")
+    .eq("action", "codice_inviato")
     .eq("actor_id", actorId)
     .gte("created_at", since);
   if (error) return null;
@@ -325,26 +335,52 @@ export async function rivelaPasswordCaveauAction(
     return { ok: false, error: parsed.error.issues[0]?.message ?? "Dati non validi." };
   }
 
-  const usati = await tentativiRecenti(g.actorId);
-  if (usati === null) {
-    return { ok: false, error: "Controllo dei tentativi non disponibile. Riprova." };
+  const db = createServiceClient();
+  const { data: sfida, error: sfidaErr } = await db
+    .from("caveau_codici_email")
+    .select("codice_hash, expires_at, attempts")
+    .eq("actor_id", g.actorId)
+    .is("deleted_at", null)
+    .maybeSingle();
+  if (sfidaErr) return { ok: false, error: "Controllo del codice non disponibile. Riprova." };
+  if (!sfida?.codice_hash) {
+    return { ok: false, error: "Prima chiedi il codice: arriva per email." };
   }
-  if (usati >= TENTATIVI_MAX) {
-    return { ok: false, error: "Troppi codici errati. Riprova tra qualche minuto." };
+  if (Number(sfida.attempts ?? 0) >= EMAIL_OTP_MAX_ATTEMPTS) {
+    return { ok: false, error: "Troppi tentativi. Chiedi un nuovo codice." };
   }
-
-  if (!codiceCaveauValido(parsed.data.codice)) {
+  const scadenza = new Date(String(sfida.expires_at ?? ""));
+  if (Number.isNaN(scadenza.getTime()) || scadenza.getTime() < Date.now()) {
+    return { ok: false, error: "Codice scaduto. Chiedine uno nuovo per email." };
+  }
+  if (!hashUguale(parsed.data.codice, String(sfida.codice_hash))) {
+    await db
+      .from("caveau_codici_email")
+      .update({
+        attempts: Number(sfida.attempts ?? 0) + 1,
+        updated_by: g.actorId,
+      })
+      .eq("actor_id", g.actorId)
+      .is("deleted_at", null);
     await audita({
       entityId: parsed.data.id,
       action: "reveal_denied",
       actorId: g.actorId,
-      summary: "Codice caveau rifiutato",
+      summary: "Codice email rifiutato",
       payload: { esito: "codice_errato" },
     });
     return { ok: false, error: "Codice non valido." };
   }
+  await db
+    .from("caveau_codici_email")
+    .update({
+      codice_hash: "",
+      expires_at: new Date(0).toISOString(),
+      updated_by: g.actorId,
+    })
+    .eq("actor_id", g.actorId)
+    .is("deleted_at", null);
 
-  const db = createServiceClient();
   const { data, error } = await db
     .from("caveau_siti_aziendali")
     .select("id, nome, password_cifrata")
@@ -368,6 +404,82 @@ export async function rivelaPasswordCaveauAction(
     payload: { nome: String(data.nome ?? "") },
   });
   return { ok: true, password };
+}
+
+export async function inviaCodiceCaveauAction(): Promise<
+  { ok: true; email: string } | { ok: false; error: string }
+> {
+  const g = await gate();
+  if (!g.ok) return g;
+  const user = await getAuthUser();
+  const email = user?.email?.trim() ?? "";
+  if (!email.includes("@")) {
+    return { ok: false, error: "Email del Super Admin non disponibile." };
+  }
+
+  const inviati = await contaInviiCodice(g.actorId);
+  if (inviati === null) {
+    return { ok: false, error: "Controllo degli invii non disponibile. Riprova." };
+  }
+  if (inviati >= EMAIL_OTP_MAX_ATTEMPTS) {
+    return { ok: false, error: "Troppi codici inviati. Riprova tra qualche minuto." };
+  }
+
+  const db = createServiceClient();
+  const { data: attuale } = await db
+    .from("caveau_codici_email")
+    .select("updated_at, codice_hash")
+    .eq("actor_id", g.actorId)
+    .is("deleted_at", null)
+    .maybeSingle();
+  const ultimo = attuale?.updated_at ? new Date(String(attuale.updated_at)).getTime() : 0;
+  if (attuale?.codice_hash && ultimo && Date.now() - ultimo < PAUSA_INVIO_MS) {
+    return { ok: false, error: "Codice appena inviato. Controlla la posta." };
+  }
+
+  const codice = generateEmailOtp();
+  const scadenza = otpExpiresAt().toISOString();
+  const { error } = await db.from("caveau_codici_email").upsert(
+    {
+      actor_id: g.actorId,
+      codice_hash: hashOtp(codice),
+      expires_at: scadenza,
+      attempts: 0,
+      created_by: g.actorId,
+      updated_by: g.actorId,
+      deleted_at: null,
+      deleted_by: null,
+    },
+    { onConflict: "actor_id" }
+  );
+  if (error) return { ok: false, error: "Impossibile preparare il codice." };
+
+  try {
+    await sendOtpEmail(email, codice, "caveau");
+  } catch (e) {
+    console.error("[caveau email]", e instanceof Error ? e.message : "invio");
+    await db
+      .from("caveau_codici_email")
+      .update({
+        codice_hash: "",
+        expires_at: new Date(0).toISOString(),
+        updated_by: g.actorId,
+      })
+      .eq("actor_id", g.actorId);
+    return {
+      ok: false,
+      error: "Impossibile inviare l'email con il codice. Controlla la posta più tardi.",
+    };
+  }
+
+  await audita({
+    entityId: g.actorId,
+    action: "codice_inviato",
+    actorId: g.actorId,
+    summary: "Codice per la password inviato al Super Admin",
+    payload: { minuti: EMAIL_OTP_TTL_MINUTES },
+  });
+  return { ok: true, email };
 }
 
 function campiAcquisto(input: {

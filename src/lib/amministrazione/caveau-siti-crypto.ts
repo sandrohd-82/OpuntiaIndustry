@@ -1,10 +1,4 @@
-import {
-  createCipheriv,
-  createDecipheriv,
-  createHash,
-  randomBytes,
-  timingSafeEqual,
-} from "crypto";
+import { createCipheriv, createDecipheriv, createHash, randomBytes } from "crypto";
 
 const ALGORITHM = "aes-256-gcm";
 
@@ -18,8 +12,7 @@ function vaultKey(): Buffer {
 
 export function caveauConfigurato(): boolean {
   const key = process.env.CREDENTIALS_VAULT_KEY?.trim() ?? "";
-  const code = process.env.CREDENTIALS_VAULT_CODE?.trim() ?? "";
-  return key.length >= 16 && code.length >= 8;
+  return key.length >= 16;
 }
 
 export function cifraPasswordCaveau(plain: string): string {
@@ -42,13 +35,4 @@ export function decifraPasswordCaveau(payload: string): string {
     decipher.final(),
   ]);
   return plain.toString("utf8");
-}
-
-/** Confronto a tempo costante sul digest, così la lunghezza del codice non si legge dai tempi. */
-export function codiceCaveauValido(inserito: string): boolean {
-  const atteso = process.env.CREDENTIALS_VAULT_CODE?.trim() ?? "";
-  if (atteso.length < 8) return false;
-  const a = createHash("sha256").update(inserito, "utf8").digest();
-  const b = createHash("sha256").update(atteso, "utf8").digest();
-  return timingSafeEqual(a, b);
 }

@@ -8,6 +8,7 @@ import {
   creaCaveauSitoAction,
   eliminaCaveauAcquistoAction,
   eliminaCaveauSitoAction,
+  inviaCodiceCaveauAction,
   listCaveauSitiAction,
   rivelaPasswordCaveauAction,
 } from "@/app/actions/caveau-siti";
@@ -78,6 +79,7 @@ export function CaveauSitiBoard() {
   const [rivela, setRivela] = useState<CaveauSitoRiga | null>(null);
   const [codice, setCodice] = useState("");
   const [passwordVista, setPasswordVista] = useState<string | null>(null);
+  const [codiceInviatoA, setCodiceInviatoA] = useState<string | null>(null);
   const [acquisto, setAcquisto] = useState<AcquistoBozza | null>(null);
   const [eliminaAcquisto, setEliminaAcquisto] = useState<CaveauAcquistoRiga | null>(null);
   const acquistoTitleId = useId();
@@ -158,6 +160,20 @@ export function CaveauSitiBoard() {
     setRivela(null);
     setCodice("");
     setPasswordVista(null);
+    setCodiceInviatoA(null);
+  }
+
+  async function inviaCodice() {
+    if (busy) return;
+    setBusy(true);
+    setErrore(null);
+    const res = await inviaCodiceCaveauAction();
+    setBusy(false);
+    if (!res.ok) {
+      setErrore(res.error);
+      return;
+    }
+    setCodiceInviatoA(res.email);
   }
 
   function nuovoAcquisto(sito: CaveauSitoRiga) {
@@ -221,7 +237,7 @@ export function CaveauSitiBoard() {
       <div className="flex flex-wrap items-center justify-between gap-3">
         <p className="max-w-2xl text-sm text-slate-600">
           Elenco dei siti a cui l&apos;azienda è registrata. La password resta cifrata e si
-          mostra solo dopo il codice del caveau, chiesto ogni volta.
+          mostra solo con il codice inviato per email al Super Admin.
         </p>
         <button
           type="button"
@@ -292,12 +308,13 @@ export function CaveauSitiBoard() {
                         <button
                           type="button"
                           className="rounded-md border border-slate-300 px-2 py-1 text-xs"
-                          onClick={() => {
-                            setErrore(null);
-                            setRivela(riga);
-                            setCodice("");
-                            setPasswordVista(null);
-                          }}
+                        onClick={() => {
+                          setErrore(null);
+                          setRivela(riga);
+                          setCodice("");
+                          setPasswordVista(null);
+                          setCodiceInviatoA(null);
+                        }}
                         >
                           Mostra
                         </button>
@@ -704,16 +721,24 @@ export function CaveauSitiBoard() {
                 </button>
               </div>
             ) : (
-              <label className="mt-4 block text-sm">
-                <span className="text-slate-600">Codice del caveau</span>
-                <input
-                  type="password"
-                  autoComplete="off"
-                  className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2"
-                  value={codice}
-                  onChange={(e) => setCodice(e.target.value)}
-                />
-              </label>
+              <div className="mt-4 space-y-3">
+                <p className="text-sm text-slate-600">
+                  {codiceInviatoA
+                    ? `Codice inviato a ${codiceInviatoA}. Vale pochi minuti e si usa una volta sola.`
+                    : "Chiedi il codice: arriva sulla email del Super Admin che ha fatto l'accesso."}
+                </p>
+                {errore ? <p className="text-sm text-red-700">{errore}</p> : null}
+                <label className="block text-sm">
+                  <span className="text-slate-600">Codice ricevuto per email</span>
+                  <input
+                    inputMode="numeric"
+                    autoComplete="one-time-code"
+                    className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 tracking-widest"
+                    value={codice}
+                    onChange={(e) => setCodice(e.target.value)}
+                  />
+                </label>
+              </div>
             )}
             <div className="mt-5 flex justify-end gap-2">
               <button
@@ -724,6 +749,16 @@ export function CaveauSitiBoard() {
               >
                 Chiudi
               </button>
+              {passwordVista ? null : (
+                <button
+                  type="button"
+                  className="rounded-lg border border-slate-300 px-3 py-2 text-sm disabled:opacity-60"
+                  onClick={() => void inviaCodice()}
+                  disabled={busy}
+                >
+                  Invia codice
+                </button>
+              )}
               {passwordVista ? null : (
                 <button
                   type="button"
