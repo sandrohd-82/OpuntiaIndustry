@@ -133,7 +133,6 @@ export function ElaboraContabilitaModal({ kind, isoDates, onClose }: Props) {
     <div
       className="fixed inset-0 z-[80] flex items-start justify-center overflow-y-auto bg-slate-950/60 px-4 py-8 sm:py-12"
       role="presentation"
-      onClick={onClose}
     >
       <div
         role="dialog"

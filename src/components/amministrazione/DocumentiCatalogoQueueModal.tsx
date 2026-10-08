@@ -7,8 +7,6 @@ import { FatturaRegistrazioneModal } from "@/components/amministrazione/FatturaR
 import { useActionAccess } from "@/components/layout/ActionAccessProvider";
 import { formatDateIt, formatEuro, type Fattura } from "@/lib/amministrazione/fatture";
 import { AZ } from "@/lib/auth/action-access";
-import { hasNestedModalOpen } from "@/lib/ui/nested-modal";
-
 type Props = {
   fatture: Fattura[];
   onFinished: (updatedCount: number) => void;
@@ -73,17 +71,6 @@ export function DocumentiCatalogoQueueModal({
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- solo al cambio documento
   }, [current?.id, canModifica]);
-
-  useEffect(() => {
-    function onKey(e: KeyboardEvent) {
-      if (e.key !== "Escape") return;
-      if (hasNestedModalOpen()) return;
-      e.preventDefault();
-      onPaused();
-    }
-    document.addEventListener("keydown", onKey, true);
-    return () => document.removeEventListener("keydown", onKey, true);
-  }, [onPaused]);
 
   function advance() {
     setEditing(null);

@@ -162,17 +162,6 @@ export function PreventivoAggiungiProdottoModal({
   );
 
   useEffect(() => {
-    function onKey(e: KeyboardEvent) {
-      if (e.key !== "Escape") return;
-      e.preventDefault();
-      e.stopPropagation();
-      onClose();
-    }
-    document.addEventListener("keydown", onKey, true);
-    return () => document.removeEventListener("keydown", onKey, true);
-  }, [onClose]);
-
-  useEffect(() => {
     if (!prodottoId) {
       setPrezzo(null);
       setListinoId(null);
@@ -434,9 +423,6 @@ export function PreventivoAggiungiProdottoModal({
     <div
       className="fixed inset-0 z-[100] flex items-start justify-center overflow-y-auto bg-slate-950/55 px-4 py-10"
       role="presentation"
-      onClick={(e) => {
-        if (e.target === e.currentTarget) onClose();
-      }}
     >
       <div
         role="dialog"

@@ -77,9 +77,6 @@ export function IngressoMpLottoPrintModal({
       role="dialog"
       aria-modal
       aria-labelledby={titleId}
-      onMouseDown={(e) => {
-        if (e.target === e.currentTarget) onClose();
-      }}
     >
       <div className="w-full max-w-xl rounded-xl border border-[var(--border)] bg-white p-5 shadow-xl print:border-0 print:shadow-none">
         <h2 id={titleId} className="text-base font-semibold print:hidden">

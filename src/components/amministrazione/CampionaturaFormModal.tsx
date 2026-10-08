@@ -208,6 +208,7 @@ export function CampionaturaFormModal({
     mailAccountId: "",
     mailOggetto: "",
     mailCorpo: "",
+    mailGiaInviata: false,
   });
   const [composeAfter, setComposeAfter] = useState<{
     prenotazione: SpedizioneMailPrenotazione;
@@ -641,7 +642,7 @@ export function CampionaturaFormModal({
           sedeId: spedDraft.current.sedePartenzaId,
         });
       }
-      if (modoMail && (!editing || bozzaPronta)) {
+      if (modoMail && (!editing || bozzaPronta) && !spedDraft.current.mailGiaInviata) {
         const d = spedDraft.current;
         let oggetto = d.mailOggetto.trim();
         let corpo = d.mailCorpo.trim();
@@ -678,14 +679,15 @@ export function CampionaturaFormModal({
           corpo,
           accountId: d.mailAccountId || null,
           modo: modoMail,
-          soloTracking: Boolean(editing),
+          soloTracking: false,
+          modificaMail: Boolean(editing),
         });
         if (!up.success) {
           setFormError(up.error);
           onSaved(saved);
           return;
         }
-        if (up.apriBozza && oggetto) {
+        if (up.apriBozza && oggetto && !editing) {
           setComposeAfter({
             prenotazione: up.item,
             subject: oggetto,
@@ -721,9 +723,6 @@ export function CampionaturaFormModal({
     <div
       className="fixed inset-0 z-[60] flex items-start justify-center overflow-y-auto bg-slate-950/60 px-4 py-8"
       role="presentation"
-      onClick={(e) => {
-        if (e.target === e.currentTarget && !saving) onClose();
-      }}
     >
       <div
         role="dialog"
@@ -1339,9 +1338,6 @@ export function CampionaturaFormModal({
         <div
           className="fixed inset-0 z-[70] flex items-center justify-center bg-slate-950/50 px-4"
           role="presentation"
-          onClick={(e) => {
-            if (e.target === e.currentTarget) setOrigineOpen(false);
-          }}
         >
           <div
             role="dialog"
@@ -1540,9 +1536,6 @@ function CampionaturaMailPreviewModal({
     <div
       className="fixed inset-0 z-[80] flex items-start justify-center overflow-y-auto bg-slate-950/55 px-4 py-8"
       role="presentation"
-      onClick={(e) => {
-        if (e.target === e.currentTarget) onClose();
-      }}
     >
       <div
         role="dialog"

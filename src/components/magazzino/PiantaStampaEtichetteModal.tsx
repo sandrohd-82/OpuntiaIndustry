@@ -67,16 +67,6 @@ export function PiantaStampaEtichetteModal({
     };
   }, [ubicazioneId]);
 
-  useEffect(() => {
-    function onKey(e: KeyboardEvent) {
-      if (e.key !== "Escape") return;
-      e.stopImmediatePropagation();
-      onClose();
-    }
-    document.addEventListener("keydown", onKey, true);
-    return () => document.removeEventListener("keydown", onKey, true);
-  }, [onClose]);
-
   async function stampa() {
     if (!occ) return;
     const elementi = includeColli ? occ.elementi : [];
@@ -106,9 +96,6 @@ export function PiantaStampaEtichetteModal({
     <div
       className="fixed inset-0 z-[280] flex items-start justify-center overflow-y-auto bg-slate-950/60 px-4 py-8"
       role="presentation"
-      onMouseDown={(e) => {
-        if (e.target === e.currentTarget) onClose();
-      }}
     >
       <div
         role="dialog"

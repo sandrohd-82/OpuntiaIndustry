@@ -137,9 +137,6 @@ export function ClienteCediAffiancaFields({
         <div
           className="fixed inset-0 z-[200] flex items-center justify-center bg-slate-950/50 p-4"
           role="presentation"
-          onClick={(e) => {
-            if (e.target === e.currentTarget) setAperto(false);
-          }}
         >
           <div
             role="dialog"

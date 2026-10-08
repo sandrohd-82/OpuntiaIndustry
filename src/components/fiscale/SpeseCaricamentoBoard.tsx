@@ -272,13 +272,8 @@ export function SpeseCaricamentoBoard() {
     if (!inserimentoManuale) return;
     const prev = document.body.style.overflow;
     document.body.style.overflow = "hidden";
-    function onKey(event: KeyboardEvent) {
-      if (event.key === "Escape") setAnteprima(null);
-    }
-    window.addEventListener("keydown", onKey);
     return () => {
       document.body.style.overflow = prev;
-      window.removeEventListener("keydown", onKey);
     };
   }, [inserimentoManuale]);
 

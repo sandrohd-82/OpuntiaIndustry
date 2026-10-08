@@ -12,7 +12,6 @@ export function AnagraficaDuplicatiBlockModal({
   return (
     <div
       className="fixed inset-0 z-[130] flex items-start justify-center bg-slate-950/55 p-4 py-16"
-      onClick={onClose}
     >
       <div
         role="dialog"

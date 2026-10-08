@@ -63,12 +63,7 @@ export function PiantaPostoMappaModal({
 
   return createPortal(
     <div className="fixed inset-0 z-[260]" role="presentation">
-      <button
-        type="button"
-        aria-label="Chiudi"
-        className="absolute inset-0 bg-slate-950/40"
-        onClick={onClose}
-      />
+      <div className="absolute inset-0 bg-slate-950/40" />
       <div
         role="dialog"
         aria-modal="true"

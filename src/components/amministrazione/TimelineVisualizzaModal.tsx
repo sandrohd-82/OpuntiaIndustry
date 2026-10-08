@@ -64,10 +64,6 @@ export function TimelineVisualizzaModal({ target, onClose }: Props) {
       data-nested-modal="true"
       className="fixed inset-0 z-[110] flex items-start justify-center overflow-y-auto bg-slate-950/60 px-4 py-8"
       role="presentation"
-      onClick={(e) => {
-        e.stopPropagation();
-        if (e.target === e.currentTarget) onClose();
-      }}
     >
       <div
         role="dialog"

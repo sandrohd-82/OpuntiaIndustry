@@ -289,9 +289,6 @@ export function LottoAgrinsiciliaModal({
       role="dialog"
       aria-modal
       aria-labelledby={titleId}
-      onMouseDown={(e) => {
-        if (e.target === e.currentTarget) onClose();
-      }}
     >
       <div className="max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-xl border border-[var(--border)] bg-white p-5 shadow-xl">
         <h2 id={titleId} className="text-base font-semibold">

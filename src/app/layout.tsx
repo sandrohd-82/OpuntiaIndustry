@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import { BRAND_FAVICON, BRAND_NAME } from "@/lib/branding/assets";
+import { ModalChiusuraSoloTasti } from "@/components/ui/ModalChiusuraSoloTasti";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -39,6 +40,7 @@ export default function RootLayout({
       <body
         className={`${geistSans.variable} ${geistMono.variable} antialiased`}
       >
+        <ModalChiusuraSoloTasti />
         {children}
       </body>
     </html>

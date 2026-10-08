@@ -340,7 +340,6 @@ export function ChatSearchExportModal({
     <>
       <div
         className="fixed inset-0 z-[80] flex items-start justify-center overflow-y-auto bg-slate-950/60 px-3 py-8"
-        onClick={onClose}
       >
         <div
           role="dialog"

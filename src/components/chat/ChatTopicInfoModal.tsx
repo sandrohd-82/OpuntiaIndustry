@@ -51,7 +51,6 @@ export function ChatTopicInfoModal({ open, onClose, topicId, onError }: Props) {
   return (
     <div
       className="fixed inset-0 z-[90] flex items-end justify-center bg-slate-950/50 sm:items-center"
-      onClick={onClose}
     >
       <div
         className="max-h-[85vh] w-full max-w-md overflow-y-auto rounded-t-2xl border border-[var(--border)] bg-[var(--card)] p-4 shadow-xl sm:rounded-2xl"

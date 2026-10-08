@@ -123,9 +123,6 @@ export function MentionMailModal({ onClose, onPick }: Props) {
     <div
       className="fixed inset-0 z-[90] flex items-start justify-center bg-slate-950/50 px-4 py-10"
       role="presentation"
-      onClick={(e) => {
-        if (e.target === e.currentTarget) onClose();
-      }}
     >
       <div
         role="dialog"

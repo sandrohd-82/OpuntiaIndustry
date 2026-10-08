@@ -340,6 +340,7 @@ export function OrdineNuovoWizardModal({
     mailAccountId: "",
     mailOggetto: "",
     mailCorpo: "",
+    mailGiaInviata: false,
   });
   const [composeAfter, setComposeAfter] = useState<{
     prenotazione: SpedizioneMailPrenotazione;
@@ -1602,6 +1603,7 @@ export function OrdineNuovoWizardModal({
         if (!modoMail || attesaCalcoloSpedizione) return null;
         if (modificaOrdineId && !spedDraft.current.bozzaPronta) return null;
         const d = spedDraft.current;
+        if (d.mailGiaInviata) return null;
         let oggetto = d.mailOggetto.trim();
         let corpo = d.mailCorpo.trim();
         if (d.allegaTracking && (!oggetto || !corpo)) {
@@ -1633,7 +1635,8 @@ export function OrdineNuovoWizardModal({
           corpo,
           accountId: d.mailAccountId || null,
           modo: modoMail,
-          soloTracking: Boolean(modificaOrdineId),
+          soloTracking: false,
+          modificaMail: Boolean(modificaOrdineId),
         });
         return up.success ? null : up.error;
       }

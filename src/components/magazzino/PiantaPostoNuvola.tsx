@@ -1,11 +1,6 @@
 "use client";
 
-import {
-  useEffect,
-  useLayoutEffect,
-  useRef,
-  type ReactNode,
-} from "react";
+import { useLayoutEffect, useRef, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 
 type Anchor = { left: number; top: number; right: number; bottom: number };
@@ -46,14 +41,6 @@ export function PiantaPostoNuvola({
 }) {
   const cardRef = useRef<HTMLDivElement>(null);
 
-  useEffect(() => {
-    function onKey(e: KeyboardEvent) {
-      if (e.key === "Escape") onClose();
-    }
-    document.addEventListener("keydown", onKey);
-    return () => document.removeEventListener("keydown", onKey);
-  }, [onClose]);
-
   useLayoutEffect(() => {
     const el = cardRef.current;
     if (!el) return;
@@ -74,12 +61,7 @@ export function PiantaPostoNuvola({
 
   return createPortal(
     <div className="fixed inset-0 z-[240]" role="presentation">
-      <button
-        type="button"
-        aria-label="Chiudi"
-        className="absolute inset-0 z-[240] cursor-default bg-slate-950/25"
-        onClick={onClose}
-      />
+      <div className="absolute inset-0 z-[240] bg-slate-950/25" />
       <div
         ref={cardRef}
         role="dialog"
@@ -87,6 +69,15 @@ export function PiantaPostoNuvola({
         className="absolute z-[250] w-[min(36rem,calc(100vw-2rem))] max-h-[calc(100dvh-2rem)] overflow-y-auto overscroll-contain rounded-2xl border border-slate-300 bg-white p-1 shadow-[0_18px_50px_rgba(15,23,42,0.35)]"
         onClick={(e) => e.stopPropagation()}
       >
+        <div className="flex justify-end px-2 pt-2">
+          <button
+            type="button"
+            onClick={onClose}
+            className="rounded-lg px-2 py-1 text-xs font-medium text-slate-600 hover:bg-slate-100"
+          >
+            Chiudi
+          </button>
+        </div>
         {children}
       </div>
     </div>,

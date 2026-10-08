@@ -287,7 +287,6 @@ export function WebmailCollegaAziendaFlow({
   return (
     <div
       className="fixed inset-0 z-[95] flex flex-col bg-slate-950/55 p-0 sm:p-3"
-      onClick={onClose}
     >
       <div
         role="dialog"

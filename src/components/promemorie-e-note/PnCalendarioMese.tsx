@@ -265,9 +265,6 @@ export function PnCalendarioMese({
         <div
           className="fixed inset-0 z-[80] flex items-start justify-center overflow-y-auto bg-slate-950/50 px-4 py-10"
           role="presentation"
-          onClick={(e) => {
-            if (e.target === e.currentTarget) chiudi();
-          }}
         >
           <div
             role="dialog"

@@ -29,10 +29,6 @@ export function NotaInserisciDraftModal({
     <div
       data-nested-modal
       className="fixed inset-0 z-[140] flex items-end justify-center bg-slate-950/55 p-0 sm:items-center sm:p-4"
-      onClick={(e) => {
-        e.stopPropagation();
-        onClose();
-      }}
       onMouseDown={(e) => e.stopPropagation()}
     >
       <div

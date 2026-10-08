@@ -217,10 +217,6 @@ export function PiantaPostoFotoModal({
   const modal = (
     <div
       className="fixed inset-0 z-[280] flex items-start justify-center overflow-y-auto bg-slate-950/60 px-4 py-8"
-      onMouseDown={(e) => {
-        if (busy) return;
-        if (e.target === e.currentTarget) onClose();
-      }}
     >
       <div
         role="dialog"

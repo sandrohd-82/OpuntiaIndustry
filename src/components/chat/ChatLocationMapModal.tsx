@@ -400,7 +400,6 @@ export function ChatLocationMapModal({
   return (
     <div
       className="fixed inset-0 z-[95] flex items-end justify-center bg-slate-950/55 sm:items-center"
-      onClick={onClose}
     >
       <div
         className="flex max-h-[92vh] w-full max-w-lg flex-col overflow-hidden rounded-t-2xl border border-[var(--border)] bg-[var(--card)] shadow-xl sm:rounded-2xl"

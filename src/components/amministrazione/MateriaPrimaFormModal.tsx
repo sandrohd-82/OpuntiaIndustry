@@ -445,7 +445,6 @@ export function MateriaPrimaFormModal({
         <div
           className="fixed inset-0 z-[70] flex items-center justify-center bg-slate-950/50 p-4"
           role="presentation"
-          onClick={() => setModelloOpen(false)}
         >
           <div
             role="dialog"

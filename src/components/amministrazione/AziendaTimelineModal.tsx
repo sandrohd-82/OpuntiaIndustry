@@ -994,18 +994,6 @@ export function AziendaTimelineModal({
         elevated ? "z-[100]" : "z-[80]"
       }`}
       role="presentation"
-      onClick={(e) => {
-        e.stopPropagation();
-        if (
-          inserisciOpen ||
-          salvaBozzaOpen ||
-          visualizza ||
-          hasNestedModalOpen()
-        ) {
-          return;
-        }
-        onClose();
-      }}
     >
       <div
         role="dialog"

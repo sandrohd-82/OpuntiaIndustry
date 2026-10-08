@@ -135,9 +135,6 @@ export function ScalettaImpegnoModal({ impegnoId, onClose, onChanged }: Props) {
     <div
       className="fixed inset-0 z-[70] flex items-start justify-center overflow-y-auto bg-slate-950/60 px-4 py-8"
       role="presentation"
-      onClick={(e) => {
-        if (e.target === e.currentTarget && !saving) onClose();
-      }}
     >
       <div
         role="dialog"

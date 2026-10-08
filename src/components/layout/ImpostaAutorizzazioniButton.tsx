@@ -240,7 +240,6 @@ export function ImpostaAutorizzazioniButton({
       {open ? (
         <div
           className="fixed inset-0 z-50 flex items-start justify-center bg-slate-900/40 p-4 sm:p-8"
-          onClick={() => setOpen(false)}
         >
           <div
             role="dialog"

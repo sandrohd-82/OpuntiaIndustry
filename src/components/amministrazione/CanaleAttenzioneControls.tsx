@@ -148,7 +148,6 @@ export function CanaleAttenzioneButton({
       {open ? (
         <div
           className="fixed inset-0 z-[120] flex items-start justify-center bg-slate-950/50 p-4 py-16"
-          onClick={() => setOpen(false)}
         >
           <div
             role="dialog"
@@ -244,7 +243,6 @@ function CallConfirm({
   return (
     <div
       className="fixed inset-0 z-[120] flex items-start justify-center bg-slate-950/50 p-4 py-16"
-      onClick={onClose}
     >
       <div
         role="dialog"

@@ -41,9 +41,6 @@ export function InfoHint({
         <span
           className={`fixed inset-0 flex items-center justify-center bg-slate-950/50 p-4 ${overlayClassName ?? "z-[80]"}`}
           role="presentation"
-          onClick={(e) => {
-            if (e.target === e.currentTarget) setOpen(false);
-          }}
         >
           <span
             role="dialog"

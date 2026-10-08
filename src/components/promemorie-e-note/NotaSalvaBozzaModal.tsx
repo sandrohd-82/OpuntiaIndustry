@@ -125,10 +125,6 @@ export function NotaSalvaBozzaModal({
     <div
       className="fixed inset-0 z-[120] flex items-center justify-center bg-slate-950/60 p-4"
       role="presentation"
-      onClick={(e) => {
-        e.stopPropagation();
-        onClose();
-      }}
     >
       <div
         role="dialog"

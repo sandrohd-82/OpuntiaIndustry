@@ -119,7 +119,6 @@ export function SpedizioneMailPanel({
   const [busy, setBusy] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [bozzaPronta, setBozzaPronta] = useState(!entityId);
-  const [confermaModifica, setConfermaModifica] = useState(false);
   const [confermaInvio, setConfermaInvio] = useState(false);
   const letteraInputRef = useRef<HTMLInputElement>(null);
   const mailRadioName = useId();
@@ -135,14 +134,14 @@ export function SpedizioneMailPanel({
   }, []);
 
   useEffect(() => {
-    if (entityId) return;
-    void casellaMittenteCommercialeAction({ entityType, entityId: "" }).then(
+    if (mailAccountId) return;
+    void casellaMittenteCommercialeAction({ entityType, entityId }).then(
       (res) => {
         if (!res.success || !res.accountId) return;
         setMailAccountId((prev) => prev || res.accountId || "");
       }
     );
-  }, [entityType, entityId]);
+  }, [entityType, entityId, mailAccountId]);
 
   useEffect(() => {
     if (sedePartenzaIdDefault) setSedePartenzaId(sedePartenzaIdDefault);
@@ -167,7 +166,6 @@ export function SpedizioneMailPanel({
   }, [destEmailDefault, destEmail]);
 
   useEffect(() => {
-    if (sceltaOrdineFissa) return;
     if (!vuoleMail) return;
     if (oggettoToccato.current && corpoToccato.current) return;
     let cancel = false;
@@ -188,7 +186,7 @@ export function SpedizioneMailPanel({
       cancel = true;
       window.clearTimeout(timer);
     };
-  }, [sceltaOrdineFissa, vuoleMail, clienteNome, numero, prodotti, trackingUrl]);
+  }, [vuoleMail, clienteNome, numero, prodotti, trackingUrl]);
 
   useEffect(() => {
     onDraftChange?.({
@@ -379,16 +377,6 @@ export function SpedizioneMailPanel({
     }
   }
 
-  function apriModificaMail() {
-    if (!item) return;
-    setConfermaModifica(false);
-    setCompose({
-      prenotazione: { ...item, trackingUrl },
-      subject: mailOggetto,
-      bodyText: mailCorpo,
-    });
-  }
-
   async function completaTrackingEApri() {
     if (!trackingUrl.trim()) {
       setError("Inserisci il tracking per aprire la bozza.");
@@ -549,7 +537,7 @@ export function SpedizioneMailPanel({
         ) : null}
       </div>
 
-      {sceltaOrdineFissa ? (
+      {sceltaOrdineFissa && item?.stato === "inviata" ? (
         <div className="space-y-2 text-sm">
           <p className="font-medium">
             Vuoi che il tracking venga inviato al cliente?
@@ -602,8 +590,8 @@ export function SpedizioneMailPanel({
           Vuoi che il tracking venga inviato al cliente?
         </legend>
         <p className="text-xs text-[var(--muted)]">
-          {impostazioneDocumento
-            ? "Se sì, scrivi la mail adesso: viene salvata con l’ordine e non parte. Quando l’operatore inserisce il tracking, nella mail compare il bottone Visualizza tracking e l’invio chiede la sua conferma."
+          {impostazioneDocumento || sceltaOrdineFissa
+            ? "Puoi cambiare la scelta fatta in creazione. Se sì, compila casella, destinatario, oggetto e testo: la mail viene salvata e non parte. L’invio chiede la conferma dell’operatore, dopo il tracking."
             : "Se sì, si crea una bozza mail che aspetta il link del tracking. Al cliente arriva solo quel link, dopo conferma."}
         </p>
         <label className="flex items-center gap-2">
@@ -730,42 +718,6 @@ export function SpedizioneMailPanel({
         <p className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-900">
           {info}
         </p>
-      ) : null}
-
-      {sceltaOrdineFissa && vuoleMail && item?.stato !== "inviata" ? (
-        confermaModifica ? (
-          <div className="space-y-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-3 text-sm text-amber-950">
-            <p>
-              Confermi di modificare la mail inserita in fase di ordine? Il
-              cliente non riceve nulla adesso: l’invio resta alla conferma
-              dell’operatore, dopo il tracking.
-            </p>
-            <div className="flex flex-wrap gap-2">
-              <button
-                type="button"
-                onClick={() => setConfermaModifica(false)}
-                className="rounded-lg border border-amber-300 bg-white px-3 py-2 text-sm font-medium hover:bg-amber-100"
-              >
-                Annulla
-              </button>
-              <button
-                type="button"
-                onClick={apriModificaMail}
-                className="rounded-lg bg-[var(--primary)] px-3 py-2 text-sm font-medium text-white hover:bg-[var(--primary-hover)]"
-              >
-                Conferma
-              </button>
-            </div>
-          </div>
-        ) : (
-          <button
-            type="button"
-            onClick={() => setConfermaModifica(true)}
-            className="rounded-lg border border-[var(--border)] bg-white px-3 py-2 text-sm font-medium hover:bg-slate-50"
-          >
-            Modifica mail
-          </button>
-        )
       ) : null}
 
       {entityType === "ordine" &&

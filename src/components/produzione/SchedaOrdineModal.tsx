@@ -175,7 +175,6 @@ export function SchedaOrdineModal({
       className={`fixed inset-0 flex items-end justify-center bg-slate-950/50 sm:items-center ${
         overlayClassName ?? "z-[80]"
       }`}
-      onClick={onClose}
     >
       <div
         role="dialog"

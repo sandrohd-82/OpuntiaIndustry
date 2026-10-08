@@ -119,7 +119,6 @@ export function WebmailCollegaAziendaModal({
   return (
     <div
       className="fixed inset-0 z-[90] flex items-end justify-center bg-slate-950/50 p-0 sm:items-center sm:p-4"
-      onClick={onClose}
     >
       <div
         role="dialog"

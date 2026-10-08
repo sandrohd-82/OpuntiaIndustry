@@ -40,7 +40,6 @@ export function StampaFogliLottoModal({
     <div
       className="fixed inset-0 z-[70] flex items-start justify-center overflow-y-auto bg-slate-950/60 px-4 py-10"
       role="presentation"
-      onClick={onClose}
     >
       <div
         role="dialog"

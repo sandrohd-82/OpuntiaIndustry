@@ -60,7 +60,6 @@ export function ChatPrintableAttachmentsModal({
   return (
     <div
       className="fixed inset-0 z-[90] flex items-start justify-center overflow-y-auto bg-slate-950/60 px-3 py-10"
-      onClick={onClose}
     >
       <div
         role="dialog"

@@ -459,10 +459,6 @@ export function NotaInserisciSheet({
       {showMainSheet ? (
         <div
           className="fixed inset-0 z-[120] flex items-end justify-center bg-slate-950/50 sm:items-center"
-          onClick={(e) => {
-            e.stopPropagation();
-            onClose();
-          }}
           onMouseDown={(e) => e.stopPropagation()}
         >
           <div

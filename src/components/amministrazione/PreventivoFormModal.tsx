@@ -907,9 +907,6 @@ export function PreventivoFormModal({ onClose, onSaved, preventivoId }: Props) {
     <div
       className="fixed inset-0 z-[60] overflow-y-auto bg-slate-950/65 px-3 py-6 sm:px-6"
       role="presentation"
-      onClick={(e) => {
-        if (e.target === e.currentTarget && !saving && !fieldOpen) onClose();
-      }}
     >
       <div className="mx-auto mb-4 flex max-w-[210mm] items-center justify-between gap-3 print:hidden">
         <h2 id={titleId} className="text-sm font-semibold text-white">

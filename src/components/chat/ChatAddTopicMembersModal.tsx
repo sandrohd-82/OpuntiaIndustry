@@ -214,7 +214,6 @@ export function ChatAddTopicMembersModal({
   return (
     <div
       className="fixed inset-0 z-[90] flex items-end justify-center bg-slate-950/50 sm:items-center"
-      onClick={onClose}
     >
       <div
         className="flex max-h-[90vh] w-full max-w-md flex-col overflow-hidden rounded-t-2xl border border-[var(--border)] bg-[var(--card)] shadow-xl sm:rounded-2xl"

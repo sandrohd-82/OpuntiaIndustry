@@ -42,9 +42,6 @@ export function PiantaPostoFotoCarousel({
       role="dialog"
       aria-modal
       aria-label="Foto posto"
-      onMouseDown={(e) => {
-        if (e.target === e.currentTarget) onClose();
-      }}
     >
       <div className="flex max-h-[92vh] w-full max-w-4xl flex-col rounded-xl bg-white p-4 shadow-xl">
         <div className="mb-3 flex items-center justify-between gap-3">
