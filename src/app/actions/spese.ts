@@ -562,6 +562,39 @@ export async function listSpeseAction(raw: {
   };
 }
 
+/** Nomi già scritti sui documenti di quest'area, i più usati per primi. Non legge l'anagrafica fornitori. */
+export async function suggerisciEsercentiSpesaAction(): Promise<
+  | { success: true; voci: { nome: string; usi: number }[] }
+  | { success: false; error: string }
+> {
+  await requireAreaAccess("area-fiscale");
+  const supabase = await createClient();
+  const conteggi = new Map<string, { nome: string; usi: number }>();
+  const pagina = 1000;
+  for (let da = 0; da < 8000; da += pagina) {
+    const { data, error } = await supabase
+      .from("spese_documenti")
+      .select("esercente")
+      .is("deleted_at", null)
+      .neq("esercente", "")
+      .range(da, da + pagina - 1);
+    if (error) return { success: false, error: error.message };
+    const righe = data ?? [];
+    for (const row of righe) {
+      const nome = String(row.esercente ?? "").trim();
+      if (!nome) continue;
+      const attuale = conteggi.get(nome);
+      if (attuale) attuale.usi += 1;
+      else conteggi.set(nome, { nome, usi: 1 });
+    }
+    if (righe.length < pagina) break;
+  }
+  const voci = [...conteggi.values()].sort(
+    (a, b) => b.usi - a.usi || a.nome.localeCompare(b.nome, "it")
+  );
+  return { success: true, voci };
+}
+
 type SpesaDb = Awaited<ReturnType<typeof createClient>>;
 
 type PartecipanteRow = {

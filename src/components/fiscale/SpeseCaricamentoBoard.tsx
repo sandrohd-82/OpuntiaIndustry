@@ -6,6 +6,7 @@ import {
   anteprimaSpesaAction,
   listProgettiSpesaAction,
   registraSpesaAction,
+  suggerisciEsercentiSpesaAction,
 } from "@/app/actions/spese";
 import { ScontrinoZoomPane } from "@/components/fiscale/ScontrinoZoomPane";
 import {
@@ -26,6 +27,128 @@ import {
 
 const field =
   "w-full rounded-lg border border-[var(--border)] bg-white px-3 py-2 text-sm";
+
+function testoRicerca(value: string): string {
+  return value
+    .trim()
+    .toLocaleLowerCase("it-IT")
+    .normalize("NFD")
+    .replace(/\p{M}/gu, "");
+}
+
+function EsercenteSpesaCampo({
+  value,
+  onChange,
+}: {
+  value: string;
+  onChange: (nome: string) => void;
+}) {
+  const [catalogo, setCatalogo] = useState<{ nome: string; usi: number }[]>([]);
+  const [aperto, setAperto] = useState(false);
+  const [attivo, setAttivo] = useState(0);
+
+  useEffect(() => {
+    let vivo = true;
+    void suggerisciEsercentiSpesaAction().then((res) => {
+      if (!vivo || !res.success) return;
+      setCatalogo(res.voci);
+    });
+    return () => {
+      vivo = false;
+    };
+  }, []);
+
+  const query = testoRicerca(value);
+  const suggerimenti =
+    query.length === 0
+      ? []
+      : catalogo
+          .filter((voce) => {
+            const nome = testoRicerca(voce.nome);
+            return nome.includes(query) && nome !== query;
+          })
+          .sort((a, b) => {
+            const aPrefisso = testoRicerca(a.nome).startsWith(query) ? 0 : 1;
+            const bPrefisso = testoRicerca(b.nome).startsWith(query) ? 0 : 1;
+            if (b.usi !== a.usi) return b.usi - a.usi;
+            if (aPrefisso !== bPrefisso) return aPrefisso - bPrefisso;
+            return a.nome.localeCompare(b.nome, "it");
+          })
+          .slice(0, 8);
+
+  useEffect(() => {
+    setAttivo(0);
+  }, [query]);
+
+  function scegli(nome: string) {
+    onChange(nome);
+    setAperto(false);
+  }
+
+  return (
+    <div
+      className="relative"
+      onBlur={(e) => {
+        if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setAperto(false);
+      }}
+    >
+      <input
+        className={field}
+        value={value}
+        autoComplete="off"
+        aria-autocomplete="list"
+        aria-expanded={aperto && suggerimenti.length > 0}
+        onChange={(e) => {
+          onChange(e.target.value);
+          setAperto(true);
+        }}
+        onFocus={() => setAperto(true)}
+        onKeyDown={(e) => {
+          if (!aperto || suggerimenti.length === 0) return;
+          if (e.key === "ArrowDown") {
+            e.preventDefault();
+            setAttivo((i) => (i + 1) % suggerimenti.length);
+          } else if (e.key === "ArrowUp") {
+            e.preventDefault();
+            setAttivo((i) => (i - 1 + suggerimenti.length) % suggerimenti.length);
+          } else if (e.key === "Enter" && suggerimenti[attivo]) {
+            e.preventDefault();
+            scegli(suggerimenti[attivo].nome);
+          } else if (e.key === "Escape") {
+            setAperto(false);
+          }
+        }}
+      />
+      {aperto && suggerimenti.length > 0 ? (
+        <ul
+          role="listbox"
+          className="absolute z-20 mt-1 max-h-56 w-full overflow-auto rounded-lg border border-[var(--border)] bg-white py-1 shadow-lg"
+        >
+          {suggerimenti.map((voce, index) => (
+            <li key={voce.nome}>
+              <button
+                type="button"
+                role="option"
+                aria-selected={index === attivo}
+                className={`flex w-full items-center justify-between gap-3 px-3 py-2 text-left text-sm ${
+                  index === attivo ? "bg-slate-100" : "hover:bg-slate-50"
+                }`}
+                onMouseDown={(e) => e.preventDefault()}
+                onMouseEnter={() => setAttivo(index)}
+                onClick={() => scegli(voce.nome)}
+              >
+                <span className="min-w-0 truncate">{voce.nome}</span>
+                <span className="shrink-0 text-xs text-[var(--muted)]">
+                  {voce.usi === 1 ? "1 volta" : `${voce.usi} volte`}
+                </span>
+              </button>
+            </li>
+          ))}
+        </ul>
+      ) : null}
+    </div>
+  );
+}
 
 function vistaDaFile(file: File): "image" | "pdf" | null {
   if (file.type.startsWith("image/")) return "image";
@@ -529,16 +652,15 @@ export function SpeseCaricamentoBoard() {
             </ul>
           ) : null}
           <div className="grid gap-3 sm:grid-cols-2">
-            <label className="block text-sm sm:col-span-2">
+            <div className="block text-sm sm:col-span-2">
               <span className="mb-1 block text-xs font-medium text-[var(--muted)]">
                 Esercente / fornitore
               </span>
-              <input
-                className={field}
+              <EsercenteSpesaCampo
                 value={form.esercente}
-                onChange={(e) => patch({ esercente: e.target.value })}
+                onChange={(esercente) => patch({ esercente })}
               />
-            </label>
+            </div>
             <label className="block text-sm">
               <span className="mb-1 block text-xs font-medium text-[var(--muted)]">
                 Data documento
