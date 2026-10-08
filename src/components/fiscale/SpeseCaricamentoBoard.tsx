@@ -39,11 +39,15 @@ function testoRicerca(value: string): string {
 function EsercenteSpesaCampo({
   value,
   onChange,
+  onSelect,
 }: {
   value: string;
   onChange: (nome: string) => void;
+  onSelect: (voce: { nome: string; partitaIva: string }) => void;
 }) {
-  const [catalogo, setCatalogo] = useState<{ nome: string; usi: number }[]>([]);
+  const [catalogo, setCatalogo] = useState<
+    { nome: string; usi: number; partitaIva: string }[]
+  >([]);
   const [aperto, setAperto] = useState(false);
   const [attivo, setAttivo] = useState(0);
 
@@ -80,8 +84,8 @@ function EsercenteSpesaCampo({
     setAttivo(0);
   }, [query]);
 
-  function scegli(nome: string) {
-    onChange(nome);
+  function scegli(voce: { nome: string; partitaIva: string }) {
+    onSelect(voce);
     setAperto(false);
   }
 
@@ -113,7 +117,7 @@ function EsercenteSpesaCampo({
             setAttivo((i) => (i - 1 + suggerimenti.length) % suggerimenti.length);
           } else if (e.key === "Enter" && suggerimenti[attivo]) {
             e.preventDefault();
-            scegli(suggerimenti[attivo].nome);
+            scegli(suggerimenti[attivo]);
           } else if (e.key === "Escape") {
             setAperto(false);
           }
@@ -135,9 +139,16 @@ function EsercenteSpesaCampo({
                 }`}
                 onMouseDown={(e) => e.preventDefault()}
                 onMouseEnter={() => setAttivo(index)}
-                onClick={() => scegli(voce.nome)}
+                onClick={() => scegli(voce)}
               >
-                <span className="min-w-0 truncate">{voce.nome}</span>
+                <span className="min-w-0">
+                  <span className="block truncate">{voce.nome}</span>
+                  {voce.partitaIva ? (
+                    <span className="block text-xs text-[var(--muted)]">
+                      P. IVA {voce.partitaIva}
+                    </span>
+                  ) : null}
+                </span>
                 <span className="shrink-0 text-xs text-[var(--muted)]">
                   {voce.usi === 1 ? "1 volta" : `${voce.usi} volte`}
                 </span>
@@ -654,6 +665,13 @@ export function SpeseCaricamentoBoard() {
               <EsercenteSpesaCampo
                 value={form.esercente}
                 onChange={(esercente) => patch({ esercente })}
+                onSelect={(voce) =>
+                  patch(
+                    voce.partitaIva
+                      ? { esercente: voce.nome, partitaIva: voce.partitaIva }
+                      : { esercente: voce.nome }
+                  )
+                }
               />
             </div>
             <label className="block text-sm">

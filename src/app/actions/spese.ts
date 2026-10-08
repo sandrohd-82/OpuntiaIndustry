@@ -564,17 +564,20 @@ export async function listSpeseAction(raw: {
 
 /** Nomi già scritti sui documenti di quest'area, i più usati per primi. Non legge l'anagrafica fornitori. */
 export async function suggerisciEsercentiSpesaAction(): Promise<
-  | { success: true; voci: { nome: string; usi: number }[] }
+  | { success: true; voci: { nome: string; usi: number; partitaIva: string }[] }
   | { success: false; error: string }
 > {
   await requireAreaAccess("area-fiscale");
   const supabase = await createClient();
-  const conteggi = new Map<string, { nome: string; usi: number }>();
+  const conteggi = new Map<
+    string,
+    { nome: string; usi: number; iva: Map<string, number> }
+  >();
   const pagina = 1000;
   for (let da = 0; da < 8000; da += pagina) {
     const { data, error } = await supabase
       .from("spese_documenti")
-      .select("esercente")
+      .select("esercente, partita_iva")
       .is("deleted_at", null)
       .neq("esercente", "")
       .range(da, da + pagina - 1);
@@ -583,15 +586,31 @@ export async function suggerisciEsercentiSpesaAction(): Promise<
     for (const row of righe) {
       const nome = String(row.esercente ?? "").trim();
       if (!nome) continue;
-      const attuale = conteggi.get(nome);
-      if (attuale) attuale.usi += 1;
-      else conteggi.set(nome, { nome, usi: 1 });
+      const attuale = conteggi.get(nome) ?? {
+        nome,
+        usi: 0,
+        iva: new Map<string, number>(),
+      };
+      attuale.usi += 1;
+      const piva = String(row.partita_iva ?? "").trim();
+      if (piva) attuale.iva.set(piva, (attuale.iva.get(piva) ?? 0) + 1);
+      conteggi.set(nome, attuale);
     }
     if (righe.length < pagina) break;
   }
-  const voci = [...conteggi.values()].sort(
-    (a, b) => b.usi - a.usi || a.nome.localeCompare(b.nome, "it")
-  );
+  const voci = [...conteggi.values()]
+    .map((voce) => {
+      let partitaIva = "";
+      let usiIva = 0;
+      for (const [piva, n] of voce.iva) {
+        if (n > usiIva) {
+          partitaIva = piva;
+          usiIva = n;
+        }
+      }
+      return { nome: voce.nome, usi: voce.usi, partitaIva };
+    })
+    .sort((a, b) => b.usi - a.usi || a.nome.localeCompare(b.nome, "it"));
   return { success: true, voci };
 }
 
