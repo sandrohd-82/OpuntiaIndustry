@@ -21,8 +21,10 @@ import {
   caveauSitoSchema,
   caveauSitoUpdateSchema,
   caveauUnitaSchema,
+  chiaveUrlCaveau,
   normalizzaUnita,
   prezzoAcquistoOrNull,
+  urlCaveauAccettabile,
   registratoAtOrNull,
   type CaveauAcquistoRiga,
   type CaveauSitoRiga,
@@ -177,6 +179,10 @@ export async function creaCaveauSitoAction(
   if (!parsed.success) {
     return { ok: false, error: parsed.error.issues[0]?.message ?? "Dati non validi." };
   }
+  const url = urlCaveauAccettabile(parsed.data.url);
+  if (!url.ok) return url;
+  const gia = await urlGiaPresente({ chiave: url.chiave });
+  if (!gia.ok) return gia;
 
   let cifrata: string;
   try {
@@ -190,7 +196,7 @@ export async function creaCaveauSitoAction(
     .from("caveau_siti_aziendali")
     .insert({
       nome: parsed.data.nome,
-      url: parsed.data.url,
+      url: url.url,
       mail: parsed.data.mail,
       password_cifrata: cifrata,
       created_by: g.actorId,
@@ -205,7 +211,7 @@ export async function creaCaveauSitoAction(
     action: "create",
     actorId: g.actorId,
     summary: `Sito registrato: ${parsed.data.nome}`,
-    payload: { nome: parsed.data.nome, url: parsed.data.url, mail: parsed.data.mail },
+    payload: { nome: parsed.data.nome, url: url.url, mail: parsed.data.mail },
   });
   revalidatePath(PATH);
   return { ok: true };
@@ -222,6 +228,13 @@ export async function aggiornaCaveauSitoAction(
   if (!parsed.success) {
     return { ok: false, error: parsed.error.issues[0]?.message ?? "Dati non validi." };
   }
+  const url = urlCaveauAccettabile(parsed.data.url);
+  if (!url.ok) return url;
+  const gia = await urlGiaPresente({
+    chiave: url.chiave,
+    escludiSitoId: parsed.data.id,
+  });
+  if (!gia.ok) return gia;
 
   const db = createServiceClient();
   const { data: current, error: readErr } = await db
@@ -246,7 +259,7 @@ export async function aggiornaCaveauSitoAction(
     .from("caveau_siti_aziendali")
     .update({
       nome: parsed.data.nome,
-      url: parsed.data.url,
+      url: url.url,
       mail: parsed.data.mail,
       password_cifrata: cifrata,
       versione: Number(current.versione ?? 1) + 1,
@@ -263,7 +276,7 @@ export async function aggiornaCaveauSitoAction(
     summary: `Sito aggiornato: ${parsed.data.nome}`,
     payload: {
       nome: parsed.data.nome,
-      url: parsed.data.url,
+      url: url.url,
       mail: parsed.data.mail,
       password_sostituita: Boolean(nuova),
     },
@@ -543,6 +556,51 @@ function campiAcquisto(input: {
   };
 }
 
+async function urlGiaPresente(opts: {
+  chiave: string;
+  escludiSitoId?: string;
+  escludiAcquistoId?: string;
+}): Promise<{ ok: true } | { ok: false; error: string }> {
+  const db = createServiceClient();
+  const [{ data: siti, error: sitiErr }, { data: acquisti, error: acqErr }] =
+    await Promise.all([
+      db
+        .from("caveau_siti_aziendali")
+        .select("id, nome, url")
+        .is("deleted_at", null),
+      db
+        .from("caveau_siti_acquisti")
+        .select("id, titolo, url, sito_id")
+        .is("deleted_at", null),
+    ]);
+  if (sitiErr || acqErr) {
+    return { ok: false, error: "Impossibile verificare se l'URL è già presente." };
+  }
+  const nomeSito = new Map<string, string>();
+  for (const row of siti ?? []) {
+    const id = String(row.id ?? "");
+    nomeSito.set(id, String(row.nome ?? "").trim() || "senza nome");
+    if (opts.escludiSitoId && id === opts.escludiSitoId) continue;
+    if (chiaveUrlCaveau(String(row.url ?? "")) !== opts.chiave) continue;
+    return {
+      ok: false,
+      error: `Questo URL è già registrato sul sito «${nomeSito.get(id)}».`,
+    };
+  }
+  for (const row of acquisti ?? []) {
+    const id = String(row.id ?? "");
+    if (opts.escludiAcquistoId && id === opts.escludiAcquistoId) continue;
+    if (chiaveUrlCaveau(String(row.url ?? "")) !== opts.chiave) continue;
+    const titolo = String(row.titolo ?? "").trim() || "senza titolo";
+    const sito = nomeSito.get(String(row.sito_id ?? "")) ?? "un sito";
+    return {
+      ok: false,
+      error: `Questo URL è già presente nell'acquisto «${titolo}» del sito «${sito}».`,
+    };
+  }
+  return { ok: true };
+}
+
 async function sitoVivo(sitoId: string): Promise<boolean> {
   const db = createServiceClient();
   const { data, error } = await db
@@ -566,6 +624,10 @@ export async function creaCaveauAcquistoAction(
   }
   const campi = campiAcquisto(parsed.data);
   if (!campi.ok) return campi;
+  const url = urlCaveauAccettabile(campi.url);
+  if (!url.ok) return url;
+  const gia = await urlGiaPresente({ chiave: url.chiave });
+  if (!gia.ok) return gia;
   if (!(await unitaNota(campi.unitaMisura))) {
     return { ok: false, error: "Unità non registrata. Aggiungila da Altro." };
   }
@@ -578,7 +640,7 @@ export async function creaCaveauAcquistoAction(
     .from("caveau_siti_acquisti")
     .insert({
       sito_id: parsed.data.sitoId,
-      url: campi.url,
+      url: url.url,
       titolo: campi.titolo,
       descrizione: campi.descrizione,
       prezzo: campi.prezzo,
@@ -599,7 +661,7 @@ export async function creaCaveauAcquistoAction(
     summary: `Acquisto registrato: ${campi.titolo}`,
     payload: {
       sito_id: parsed.data.sitoId,
-      url: campi.url,
+      url: url.url,
       titolo: campi.titolo,
       prezzo: campi.prezzo,
       unita_misura: campi.unitaMisura,
@@ -622,6 +684,13 @@ export async function aggiornaCaveauAcquistoAction(
   }
   const campi = campiAcquisto(parsed.data);
   if (!campi.ok) return campi;
+  const url = urlCaveauAccettabile(campi.url);
+  if (!url.ok) return url;
+  const gia = await urlGiaPresente({
+    chiave: url.chiave,
+    escludiAcquistoId: parsed.data.id,
+  });
+  if (!gia.ok) return gia;
   if (!(await unitaNota(campi.unitaMisura))) {
     return { ok: false, error: "Unità non registrata. Aggiungila da Altro." };
   }
@@ -639,7 +708,7 @@ export async function aggiornaCaveauAcquistoAction(
   const { error } = await db
     .from("caveau_siti_acquisti")
     .update({
-      url: campi.url,
+      url: url.url,
       titolo: campi.titolo,
       descrizione: campi.descrizione,
       prezzo: campi.prezzo,
@@ -660,7 +729,7 @@ export async function aggiornaCaveauAcquistoAction(
     summary: `Acquisto aggiornato: ${campi.titolo}`,
     payload: {
       sito_id: parsed.data.sitoId,
-      url: campi.url,
+      url: url.url,
       titolo: campi.titolo,
       prezzo: campi.prezzo,
       unita_misura: campi.unitaMisura,

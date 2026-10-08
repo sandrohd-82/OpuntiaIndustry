@@ -62,6 +62,48 @@ export const caveauUnitaSchema = z.object({
   sigla: z.string().trim().min(1, "Indica la sigla.").max(12),
 });
 
+/** Chiave di confronto: ignora protocollo, www e slash finale. Null se non è un indirizzo web. */
+export function chiaveUrlCaveau(raw: string): string | null {
+  const testo = raw.trim();
+  if (!testo || testo.length > 500) return null;
+  const conProtocollo = /^[a-z][a-z0-9+.-]*:\/\//i.test(testo)
+    ? testo
+    : `https://${testo}`;
+  let parsed: URL;
+  try {
+    parsed = new URL(conProtocollo);
+  } catch {
+    return null;
+  }
+  if (parsed.protocol !== "http:" && parsed.protocol !== "https:") return null;
+  if (parsed.username || parsed.password) return null;
+  const host = parsed.hostname.toLowerCase().replace(/^www\./, "");
+  if (!host || host.includes(" ") || !host.includes(".")) return null;
+  let path = parsed.pathname;
+  try {
+    path = decodeURI(path);
+  } catch {
+    path = parsed.pathname;
+  }
+  path = path.replace(/\/+$/, "");
+  return `${host}${path}${parsed.search}`.toLowerCase();
+}
+
+export function urlCaveauAccettabile(
+  raw: string
+): { ok: true; url: string; chiave: string } | { ok: false; error: string } {
+  const url = raw.trim();
+  const chiave = chiaveUrlCaveau(url);
+  if (!chiave) {
+    return {
+      ok: false,
+      error:
+        "URL non valido. Indica un indirizzo web, per esempio https://esempio.it/pagina.",
+    };
+  }
+  return { ok: true, url, chiave };
+}
+
 export function normalizzaUnita(
   raw: string
 ): { ok: true; value: string } | { ok: false; error: string } {
