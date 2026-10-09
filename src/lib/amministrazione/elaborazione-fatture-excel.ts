@@ -2,6 +2,7 @@ import { nomiPdfUnivoci } from "@/lib/amministrazione/fattura-classica-pdf";
 import { roundMoney } from "@/lib/amministrazione/fatture";
 import {
   bandieraNazione,
+  codiceNazione,
   nomeNazione,
 } from "@/lib/amministrazione/nazione-fattura";
 import {
@@ -92,6 +93,34 @@ export type FatturaElaborazioneSorgente = {
   origineDocumento: string;
   /** Solo registri in entrata: SI se almeno una riga è ammortizzabile. */
   beneAmmortizzabile: "SI" | "NO" | null;
+  /** Matita dal 1° gennaio. Il file PDF delle inviate non la usa. */
+  numeroProgressivoAnno?: number | null;
+  notaCredito: boolean;
+};
+
+export const TITOLI_USCITA_EXCEL = [
+  "Numero progressivo",
+  "Numero documento",
+  "Data documento",
+  "Intestazione",
+  "Imponibile",
+  "IVA",
+  "Totale",
+  "Nazionalità",
+  "Beni strumentali",
+] as const;
+
+export type RigaCartellaUscita = {
+  numeroProgressivo: number | null;
+  nomeFile: string;
+  numeroDocumento: string;
+  data: string;
+  intestazione: string;
+  imponibile: number;
+  iva: number;
+  totale: number;
+  nazione: string;
+  beniStrumentali: "SI" | "NO";
   notaCredito: boolean;
 };
 
@@ -175,6 +204,67 @@ function importiDi(doc: FatturaElaborazioneSorgente) {
     iva: roundMoney(doc.classica.imposta),
     totale: roundMoney(doc.classica.totale),
   };
+}
+
+function codiceDestinazione(
+  doc: FatturaElaborazioneSorgente,
+  kind: CommercialistaRegistroKind
+): string {
+  const raw = registroLatoEmesso(kind)
+    ? (doc.classica?.destinatario.nazione ?? "")
+    : "";
+  const codice = codiceNazione(raw);
+  if (codice) return codice;
+  return raw.trim() ? "—" : "IT";
+}
+
+/** Resoconto delle inviate: la matita in colonna A parte dal 1° gennaio. */
+export function righeCartellaUscita(
+  docs: FatturaElaborazioneSorgente[],
+  kind: CommercialistaRegistroKind
+): RigaCartellaUscita[] {
+  const nomi = nomiPdfUnivoci(
+    docs.map((doc) => ({
+      numeroSequenza: doc.numeroSequenza,
+      numeroFattura:
+        doc.numeroDocumento ||
+        doc.classica?.numero ||
+        doc.model.numero ||
+        doc.numeroInterno,
+      data: doc.classica?.dataDocumento || doc.dataEmissione || doc.model.data || "",
+    })),
+    "entrata"
+  );
+  const nomePerDoc = new Map(docs.map((doc, i) => [doc, nomi[i] ?? ""]));
+  const ordinate = [...docs].sort((a, b) => {
+    const da =
+      isoGiorno(a.classica?.dataDocumento || a.dataEmissione || a.model.data) ||
+      "9999-99-99";
+    const db =
+      isoGiorno(b.classica?.dataDocumento || b.dataEmissione || b.model.data) ||
+      "9999-99-99";
+    if (da !== db) return da < db ? -1 : 1;
+    return (a.numeroProgressivoAnno ?? 999999) - (b.numeroProgressivoAnno ?? 999999);
+  });
+  return ordinate.map((doc) => {
+    const giorno =
+      isoGiorno(doc.classica?.dataDocumento || doc.dataEmissione || doc.model.data) ||
+      "";
+    const importi = importiDi(doc);
+    return {
+      numeroProgressivo: doc.numeroProgressivoAnno ?? null,
+      nomeFile: nomePerDoc.get(doc) ?? "",
+      numeroDocumento: doc.numeroDocumento || doc.numeroInterno,
+      data: giorno ? dataIt(giorno) : "—",
+      intestazione: intestazioneDi(doc, kind),
+      imponibile: importi.imponibile,
+      iva: importi.iva,
+      totale: importi.totale,
+      nazione: codiceDestinazione(doc, kind),
+      beniStrumentali: doc.beneAmmortizzabile === "SI" ? "SI" : "NO",
+      notaCredito: doc.notaCredito,
+    };
+  });
 }
 
 /** Elenco ordinato per data, con il totale di ogni mese e il totale generale. */

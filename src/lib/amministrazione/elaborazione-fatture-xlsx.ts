@@ -1,6 +1,8 @@
 import ExcelJS from "exceljs";
 import {
+  righeCartellaUscita,
   righeElaborazioneFatture,
+  TITOLI_USCITA_EXCEL,
   titoliElaborazioneExcel,
   type FatturaElaborazioneSorgente,
   type RigaElaborazioneExcel,
@@ -160,4 +162,77 @@ export async function buildElaborazioneFattureXlsx(input: {
     bytes,
     base64: Buffer.from(bytes).toString("base64"),
   };
+}
+
+/** Excel delle inviate: il numero documento apre il PDF nella stessa cartella. */
+export async function buildUscitaCartellaXlsx(input: {
+  kind: CommercialistaRegistroKind;
+  docs: FatturaElaborazioneSorgente[];
+}): Promise<{ filename: string; bytes: Uint8Array }> {
+  const righe = righeCartellaUscita(input.docs, input.kind);
+  const wb = new ExcelJS.Workbook();
+  wb.creator = "OpuntiaIndustry";
+  wb.created = new Date();
+  const ws = wb.addWorksheet(nomeFoglioRegistro(input.kind), {
+    views: [{ state: "frozen", ySplit: 1 }],
+  });
+  ws.columns = TITOLI_USCITA_EXCEL.map((titolo) => ({
+    width: titolo === "Intestazione" || titolo === "Numero documento" ? 36 : 18,
+  }));
+  const header = ws.addRow([...TITOLI_USCITA_EXCEL]);
+  header.font = { name: "Calibri", size: 11, bold: true, color: { argb: "FFFFFFFF" } };
+  header.eachCell((cell) => {
+    cell.fill = {
+      type: "pattern",
+      pattern: "solid",
+      fgColor: { argb: "FF1E293B" },
+    };
+    cell.alignment = { vertical: "middle" };
+  });
+  header.height = 22;
+  for (const riga of righe) {
+    const excelRow = ws.addRow([
+      riga.numeroProgressivo,
+      riga.numeroDocumento,
+      riga.data,
+      riga.intestazione,
+      riga.imponibile,
+      riga.iva,
+      riga.totale,
+      riga.nazione,
+      riga.beniStrumentali,
+    ]);
+    excelRow.font = { name: "Calibri", size: 11 };
+    for (const col of [5, 6, 7]) {
+      excelRow.getCell(col).numFmt = "#,##0.00";
+      excelRow.getCell(col).alignment = { horizontal: "right" };
+    }
+    excelRow.getCell(8).alignment = { horizontal: "center" };
+    excelRow.getCell(9).alignment = { horizontal: "center" };
+    if (riga.nomeFile && riga.numeroDocumento) {
+      const cell = excelRow.getCell(2);
+      cell.value = {
+        text: riga.numeroDocumento,
+        hyperlink: riga.nomeFile,
+        tooltip: "Apri il PDF",
+      };
+      cell.font = {
+        name: "Calibri",
+        size: 11,
+        color: { argb: "FF1D4ED8" },
+        underline: true,
+      };
+    }
+    if (riga.notaCredito) {
+      excelRow.eachCell((cell) => {
+        cell.fill = {
+          type: "pattern",
+          pattern: "solid",
+          fgColor: { argb: "FFFEECEC" },
+        };
+      });
+    }
+  }
+  const buffer = await wb.xlsx.writeBuffer();
+  return { filename: "resoconto.xlsx", bytes: new Uint8Array(buffer) };
 }

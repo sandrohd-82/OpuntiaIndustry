@@ -757,16 +757,17 @@ function sequenzaCrescentePerData(
  */
 async function mappaNumeroProvvisorioAnno(
   supabase: Awaited<ReturnType<typeof createClient>>,
-  kind: "ricevuta" | "nota_ricevuta" | "ddt_ricevuto",
+  kind: CommercialistaRegistroKind,
   anno: number
 ): Promise<Map<string, number> | { error: string }> {
   const dalAnno = `${anno}-01-01`;
   const alAnno = `${anno}-12-31`;
-  if (kind === "ddt_ricevuto") {
+  if (kind === "ddt_emesso" || kind === "ddt_ricevuto") {
+    const direzione = kind === "ddt_emesso" ? "emesso" : "ricevuto";
     const { data, error } = await supabase
       .from("ddt_documenti")
       .select("id, numero_interno, data_documento")
-      .eq("direzione", "ricevuto")
+      .eq("direzione", direzione)
       .is("deleted_at", null)
       .neq("stato", "annullato")
       .gte("data_documento", dalAnno)
@@ -776,6 +777,38 @@ async function mappaNumeroProvvisorioAnno(
       (data ?? []).map((row) => ({
         id: String(row.id),
         data: String(row.data_documento ?? ""),
+        numero: String(row.numero_interno ?? ""),
+      }))
+    );
+  }
+  if (kind === "emessa" || kind === "nota_emessa") {
+    const { data, error } = await supabase
+      .from("fatture_emesse")
+      .select(
+        "id, numero_interno, tipo_documento, stato_pagamento, fattura_collegata_id, data_emissione"
+      )
+      .is("deleted_at", null)
+      .gte("data_emissione", dalAnno)
+      .lte("data_emissione", alAnno);
+    if (error) return { error: error.message };
+    const rows = (data ?? [])
+      .filter((row) =>
+        includeInRegistroCommercialista({
+          tipo_documento: row.tipo_documento,
+          stato_pagamento: row.stato_pagamento,
+          fattura_collegata_id: row.fattura_collegata_id,
+          numero_interno: row.numero_interno,
+        })
+      )
+      .filter((row) =>
+        kind === "nota_emessa"
+          ? isNotaCreditoEmessa(row.tipo_documento, row.numero_interno)
+          : true
+      );
+    return sequenzaCrescentePerData(
+      rows.map((row) => ({
+        id: String(row.id),
+        data: String(row.data_emissione ?? ""),
         numero: String(row.numero_interno ?? ""),
       }))
     );
@@ -1117,6 +1150,11 @@ export type CommercialistaPaperDoc = {
   origineDocumento: string;
   /** Registri in entrata: SI solo se c'è un bene ammortizzabile. */
   beneAmmortizzabile: "SI" | "NO" | null;
+  /**
+   * Matita dell'anno, solo per l'Excel delle inviate.
+   * Il nome del file e la matita sul PDF restano sulla numerazione del periodo.
+   */
+  numeroProgressivoAnno: number | null;
   model: PaperInvoiceModel;
   /** Stesso foglio della fattura classica, dati SDI. Ricevute senza piè di pagina. */
   classica: FatturaClassicaStampaModel | null;
@@ -1330,17 +1368,24 @@ export async function getCommercialistaPaperBatchAction(input: {
 
   if (input.kind === "ddt_emesso" || input.kind === "ddt_ricevuto") {
     let sequenzaAnno: Map<string, number> | null = null;
+    let progressivoAnno: Map<string, number> | null = null;
     if (input.kind === "ddt_ricevuto") {
       const mappa = await mappaNumeroProvvisorioAnno(supabase, input.kind, anno);
       if (mappaOErrore(mappa)) return { success: false, error: mappa.error };
       sequenzaAnno = mappa;
+    }
+    if (input.kind === "ddt_emesso") {
+      const mappa = await mappaNumeroProvvisorioAnno(supabase, input.kind, anno);
+      if (mappaOErrore(mappa)) return { success: false, error: mappa.error };
+      progressivoAnno = mappa;
     }
     const fogli = await loadDdtPaperDocs(
       supabase,
       input.kind,
       dal,
       al,
-      sequenzaAnno
+      sequenzaAnno,
+      progressivoAnno
     );
     if (!fogli.ok) return { success: false, error: fogli.error };
     return {
@@ -1417,10 +1462,16 @@ export async function getCommercialistaPaperBatchAction(input: {
     }))
   );
   let sequenza = sequenzaPeriodo;
+  let progressivoAnno: Map<string, number> | null = null;
   if (input.kind === "ricevuta" || input.kind === "nota_ricevuta") {
     const mappa = await mappaNumeroProvvisorioAnno(supabase, input.kind, anno);
     if (mappaOErrore(mappa)) return { success: false, error: mappa.error };
     sequenza = mappa;
+  }
+  if (input.kind === "emessa" || input.kind === "nota_emessa") {
+    const mappa = await mappaNumeroProvvisorioAnno(supabase, input.kind, anno);
+    if (mappaOErrore(mappa)) return { success: false, error: mappa.error };
+    progressivoAnno = mappa;
   }
 
   const docs: CommercialistaPaperDoc[] = [];
@@ -1449,18 +1500,26 @@ export async function getCommercialistaPaperBatchAction(input: {
       numeroSequenza: sequenza.get(t.id) ?? null,
       notaCredito: comeNc,
       numeroDocumento:
-        loaded.fattura.numeroDocumentoEsterno.trim() ||
-        classica?.numero.trim() ||
-        model.numero.trim() ||
-        t.numero_interno,
+        input.kind === "emessa" || input.kind === "nota_emessa"
+          ? classica?.numero.trim() ||
+            model.numero.trim() ||
+            t.numero_interno
+          : loaded.fattura.numeroDocumentoEsterno.trim() ||
+            classica?.numero.trim() ||
+            model.numero.trim() ||
+            t.numero_interno,
       origineDocumento: etichettaOrigineDocumento({
         ficId: loaded.fattura.ficId,
         haXmlSdi: Boolean(classica),
         fileName: loaded.fattura.ricevuta?.fileName,
       }),
-      beneAmmortizzabile: registroMostraBeneConsumo(input.kind)
-        ? (loaded.fattura.righe.some((r) => r.isBeneAmmortizzabile) ? "SI" : "NO")
-        : null,
+      beneAmmortizzabile:
+        registroMostraBeneConsumo(input.kind) ||
+        input.kind === "emessa" ||
+        input.kind === "nota_emessa"
+          ? (loaded.fattura.righe.some((r) => r.isBeneAmmortizzabile) ? "SI" : "NO")
+          : null,
+      numeroProgressivoAnno: progressivoAnno?.get(t.id) ?? null,
       model,
       classica,
       sdiAssente: !classica,
@@ -1496,7 +1555,8 @@ async function loadDdtPaperDocs(
   kind: "ddt_emesso" | "ddt_ricevuto",
   dal: string,
   al: string,
-  sequenzaAnno: Map<string, number> | null
+  sequenzaAnno: Map<string, number> | null,
+  progressivoAnno: Map<string, number> | null
 ): Promise<
   | { ok: true; docs: CommercialistaPaperDoc[] }
   | { ok: false; error: string }
@@ -1634,7 +1694,8 @@ async function loadDdtPaperDocs(
       notaCredito: false,
       numeroDocumento: String(d.numero_fic || d.numero_interno || ""),
       origineDocumento: "Manuale",
-      beneAmmortizzabile: kind === "ddt_ricevuto" ? "NO" : null,
+      beneAmmortizzabile: "NO",
+      numeroProgressivoAnno: progressivoAnno?.get(id) ?? null,
       model,
       classica: null,
       sdiAssente: false,

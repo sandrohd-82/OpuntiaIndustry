@@ -6,13 +6,17 @@ import { FaDownload, FaXmark } from "react-icons/fa6";
 import {
   auditCommercialistaPaperAction,
   getCommercialistaPaperBatchAction,
-  scaricaElaborazioneFattureExcelAction,
   type CommercialistaPaperDoc,
 } from "@/app/actions/commercialista";
 import { formatEuro } from "@/lib/amministrazione/fatture";
-import { buildElaborazioneFattureXlsx } from "@/lib/amministrazione/elaborazione-fatture-xlsx";
 import {
+  buildElaborazioneFattureXlsx,
+  buildUscitaCartellaXlsx,
+} from "@/lib/amministrazione/elaborazione-fatture-xlsx";
+import {
+  righeCartellaUscita,
   righeElaborazioneFatture,
+  TITOLI_USCITA_EXCEL,
   titoliElaborazioneExcel,
 } from "@/lib/amministrazione/elaborazione-fatture-excel";
 import {
@@ -57,6 +61,10 @@ export function CommercialistaElaboraFattureModal({
     [docs, kind]
   );
   const titoli = titoliElaborazioneExcel(kind);
+  const righeUscita = useMemo(
+    () => (beneConsumo ? [] : righeCartellaUscita(docs, kind)),
+    [beneConsumo, docs, kind]
+  );
 
   useEffect(() => {
     startLoad(async () => {
@@ -124,13 +132,15 @@ export function CommercialistaElaboraFattureModal({
             });
         await scriviFileInCartella(cartella, pdf.fileName, pdf.blob);
       }
-      const excel = await buildElaborazioneFattureXlsx({
-        kind,
-        anno,
-        trimestre,
-        docs,
-        collegaPdf: true,
-      });
+      const excel = beneConsumo
+        ? await buildElaborazioneFattureXlsx({
+            kind,
+            anno,
+            trimestre,
+            docs,
+            collegaPdf: true,
+          })
+        : await buildUscitaCartellaXlsx({ kind, docs });
       await scriviFileInCartella(
         cartella,
         excel.filename,
@@ -147,49 +157,13 @@ export function CommercialistaElaboraFattureModal({
         mostraSequenza: true,
       });
       setScaricaMsg(
-        `Cartella «${nomeCartella}» salvata: ${docs.length} PDF e il resoconto. Il numero documento apre il PDF.`
+        beneConsumo
+          ? `Cartella «${nomeCartella}» salvata: ${docs.length} PDF e il resoconto. Il numero documento apre il PDF.`
+          : `Cartella «${nomeCartella}» salvata: ${docs.length} PDF e il resoconto. Il nome del file usa la numerazione del periodo; nel foglio il progressivo parte dal 1° gennaio.`
       );
     } catch (err) {
       setScaricaMsg(
         err instanceof Error ? err.message : "Non sono riuscito a salvare la cartella."
-      );
-    } finally {
-      setScaricando(false);
-    }
-  }
-
-  async function scarica() {
-    if (righe.length === 0 || scaricando) return;
-    setScaricaMsg(null);
-    setScaricando(true);
-    try {
-      const res = await scaricaElaborazioneFattureExcelAction({
-        kind,
-        anno,
-        trimestre,
-      });
-      if (!res.success) {
-        setScaricaMsg(res.error);
-        return;
-      }
-      const bin = atob(res.base64);
-      const bytes = new Uint8Array(bin.length);
-      for (let i = 0; i < bin.length; i += 1) bytes[i] = bin.charCodeAt(i);
-      const blob = new Blob([bytes], {
-        type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-      });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = res.filename;
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-      URL.revokeObjectURL(url);
-      setScaricaMsg("Excel scaricato.");
-    } catch (err) {
-      setScaricaMsg(
-        err instanceof Error ? err.message : "Non sono riuscito a scaricare l'Excel."
       );
     } finally {
       setScaricando(false);
@@ -218,25 +192,21 @@ export function CommercialistaElaboraFattureModal({
                 {labelPeriodo || `Anno ${anno} · T${trimestre}`}
                 {docs.length > 0 ? ` · ${docs.length} documenti` : null}
               </p>
-              {beneConsumo ? (
-                <p className="mt-1 max-w-xl text-xs text-slate-500">
-                  Il numero 1 è il primo documento del 1° gennaio. Salva cartella
-                  chiede dove scrivere: dentro trovi i PDF e il resoconto, e il
-                  numero documento apre il PDF.
-                </p>
-              ) : null}
+              <p className="mt-1 max-w-xl text-xs text-slate-500">
+                {beneConsumo
+                  ? "Il numero 1 è il primo documento del 1° gennaio. Salva cartella chiede dove scrivere: dentro trovi i PDF e il resoconto, e il numero documento apre il PDF."
+                  : "Il nome del file usa la numerazione già in uso, non quella dal 1° gennaio. Nel resoconto il progressivo parte dal 1° gennaio e il numero documento apre il PDF."}
+              </p>
             </div>
             <div className="flex flex-wrap items-center gap-2">
               <button
                 type="button"
                 disabled={righe.length === 0 || scaricando || pending}
-                onClick={() => void (beneConsumo ? salvaCartella() : scarica())}
+                onClick={() => void salvaCartella()}
                 className="inline-flex items-center gap-1.5 rounded-lg bg-[var(--primary)] px-3 py-1.5 text-xs font-medium text-white disabled:opacity-40"
               >
                 <FaDownload size={12} />
-                {scaricando
-                  ? "Preparazione…"
-                  : (beneConsumo ? "Salva cartella" : "Scarica Excel")}
+                {scaricando ? "Preparazione…" : "Salva cartella"}
               </button>
               <button
                 type="button"
@@ -268,6 +238,52 @@ export function CommercialistaElaboraFattureModal({
             <p className="text-center text-sm text-slate-600">
               Nessun documento nel periodo.
             </p>
+          ) : !beneConsumo ? (
+            <div className="mx-auto max-w-6xl overflow-hidden rounded-lg border border-slate-300 bg-white shadow-sm">
+              <table className="w-full border-collapse text-left text-sm">
+                <thead className="bg-slate-800 text-xs text-white">
+                  <tr>
+                    {TITOLI_USCITA_EXCEL.map((titolo) => (
+                      <th key={titolo} className="px-3 py-2 font-semibold whitespace-nowrap">
+                        {titolo}
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {righeUscita.map((riga, index) => (
+                    <tr
+                      key={`${riga.nomeFile}-${index}`}
+                      className={
+                        riga.notaCredito
+                          ? "border-t border-red-100 bg-[#FEECEC]"
+                          : "border-t border-slate-200"
+                      }
+                    >
+                      <td className="px-3 py-1.5 tabular-nums">
+                        {riga.numeroProgressivo ?? "—"}
+                      </td>
+                      <td className="px-3 py-1.5 whitespace-nowrap">{riga.numeroDocumento}</td>
+                      <td className="px-3 py-1.5 whitespace-nowrap">{riga.data}</td>
+                      <td className="px-3 py-1.5">{riga.intestazione}</td>
+                      <td className="px-3 py-1.5 text-right tabular-nums">
+                        {formatEuro(riga.imponibile)}
+                      </td>
+                      <td className="px-3 py-1.5 text-right tabular-nums">
+                        {formatEuro(riga.iva)}
+                      </td>
+                      <td className="px-3 py-1.5 text-right tabular-nums">
+                        {formatEuro(riga.totale)}
+                      </td>
+                      <td className="px-3 py-1.5 text-center">{riga.nazione}</td>
+                      <td className="px-3 py-1.5 text-center font-medium">
+                        {riga.beniStrumentali}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           ) : (
             <div className="mx-auto max-w-6xl overflow-hidden rounded-lg border border-slate-300 bg-white shadow-sm">
               <table className="w-full border-collapse text-left text-sm">
