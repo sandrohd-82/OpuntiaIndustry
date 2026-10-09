@@ -42,6 +42,19 @@ type AcquistoBozza = {
   registratoAt: string;
 };
 
+function hrefEsterno(raw: string): string | null {
+  const testo = raw.trim();
+  if (!testo) return null;
+  const conProtocollo = /^https?:\/\//i.test(testo) ? testo : `https://${testo}`;
+  try {
+    const url = new URL(conProtocollo);
+    if (url.protocol !== "http:" && url.protocol !== "https:") return null;
+    return url.toString();
+  } catch {
+    return null;
+  }
+}
+
 function adessoLocale(): string {
   const d = new Date();
   const pad = (n: number) => String(n).padStart(2, "0");
@@ -594,7 +607,7 @@ export function CaveauSitiBoard() {
                                 [
                                   ["registratoAt", "Data"],
                                   ["titolo", "Titolo"],
-                                  ["url", "URL"],
+                                  ["url", "Link"],
                                   ["descrizione", "Descrizione"],
                                   ["prezzo", "Prezzo"],
                                 ] as const
@@ -633,7 +646,9 @@ export function CaveauSitiBoard() {
                                 }
                                 return valoreOrdine(a[ordine.campo], b[ordine.campo], ordine.verso);
                               })
-                              .map((voce) => (
+                              .map((voce) => {
+                              const link = hrefEsterno(voce.url);
+                              return (
                               <tr key={voce.id} className="border-t border-slate-200">
                                 <td className="px-2 py-1 text-slate-700">
                                   {voce.registratoAt ? formatQuando(voce.registratoAt) : "—"}
@@ -642,17 +657,17 @@ export function CaveauSitiBoard() {
                                   {voce.titolo}
                                 </td>
                                 <td className="px-2 py-1">
-                                  {/^https?:\/\//i.test(voce.url) ? (
+                                  {link ? (
                                     <a
-                                      href={voce.url}
+                                      href={link}
                                       target="_blank"
                                       rel="noreferrer"
-                                      className="text-sky-800 underline"
+                                      className="inline-block rounded-md border border-slate-300 bg-white px-2 py-1 text-xs font-medium text-slate-800 hover:bg-slate-50"
                                     >
-                                      {voce.url}
+                                      Apri link
                                     </a>
                                   ) : (
-                                    <span className="text-slate-700">{voce.url}</span>
+                                    <span className="text-slate-500">—</span>
                                   )}
                                 </td>
                                 <td className="px-2 py-1 text-slate-600">
@@ -705,7 +720,8 @@ export function CaveauSitiBoard() {
                                   </div>
                                 </td>
                               </tr>
-                            ))}
+                              );
+                            })}
                           </tbody>
                         </table>
                         ))
