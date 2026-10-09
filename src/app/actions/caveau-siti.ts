@@ -15,6 +15,8 @@ import {
 import {
   caveauAcquistoSchema,
   caveauAcquistoUpdateSchema,
+  messaggioValidazioneCaveau,
+  normalizzaInputAcquisto,
   caveauEliminaSchema,
   caveauRivelaSchema,
   CAVEAU_DOCUMENTO_BUCKET,
@@ -688,9 +690,9 @@ export async function creaCaveauAcquistoAction(
   const g = await gate();
   if (!g.ok) return g;
 
-  const parsed = caveauAcquistoSchema.safeParse(input);
+  const parsed = caveauAcquistoSchema.safeParse(normalizzaInputAcquisto(input));
   if (!parsed.success) {
-    return { ok: false, error: parsed.error.issues[0]?.message ?? "Dati non validi." };
+    return { ok: false, error: messaggioValidazioneCaveau(parsed.error) };
   }
   const campi = campiAcquisto(parsed.data);
   if (!campi.ok) return campi;
@@ -748,9 +750,9 @@ export async function aggiornaCaveauAcquistoAction(
   const g = await gate();
   if (!g.ok) return g;
 
-  const parsed = caveauAcquistoUpdateSchema.safeParse(input);
+  const parsed = caveauAcquistoUpdateSchema.safeParse(normalizzaInputAcquisto(input));
   if (!parsed.success) {
-    return { ok: false, error: parsed.error.issues[0]?.message ?? "Dati non validi." };
+    return { ok: false, error: messaggioValidazioneCaveau(parsed.error) };
   }
   const campi = campiAcquisto(parsed.data);
   if (!campi.ok) return campi;
@@ -914,13 +916,14 @@ export async function caricaCaveauAcquistoDocumentoAction(
   if (!nome || nome.length > 120) {
     return { ok: false, error: "Indica il nome del documento, al massimo 120 caratteri." };
   }
-  if (!(file instanceof File) || file.size <= 0) {
+  if (!(file instanceof Blob) || file.size <= 0) {
     return { ok: false, error: "Scegli un file per il documento." };
   }
   if (file.size > CAVEAU_DOCUMENTO_MAX_BYTES) {
     return { ok: false, error: "Il file supera 15 MB." };
   }
-  const mime = mimeDocumentoCaveau(file.name, file.type);
+  const nomeOriginale = file instanceof File && file.name ? file.name : "documento";
+  const mime = mimeDocumentoCaveau(nomeOriginale, file.type);
   if (!mime) {
     return {
       ok: false,
@@ -930,17 +933,29 @@ export async function caricaCaveauAcquistoDocumentoAction(
   if (!(await sitoAcquistoVivo(acquistoId))) {
     return { ok: false, error: "Acquisto non trovato." };
   }
-  const ext = file.name.split(".").pop()?.replace(/[^\w]+/g, "").slice(0, 8) || "bin";
+  const ext = nomeOriginale.split(".").pop()?.replace(/[^\w]+/g, "").slice(0, 8) || "bin";
   const fileName =
-    file.name.replace(/[^\w.\- ()àèéìòùÀÈÉÌÒÙ]+/g, "_").slice(0, 120) || "documento";
+    nomeOriginale.replace(/[^\w.\- ()àèéìòùÀÈÉÌÒÙ]+/g, "_").slice(0, 120) || "documento";
   const path = `acquisti/${acquistoId}/${randomUUID()}.${ext}`;
   const db = createServiceClient();
-  const bytes = Buffer.from(await file.arrayBuffer());
-  const { error: upErr } = await db.storage.from(CAVEAU_DOCUMENTO_BUCKET).upload(path, bytes, {
-    contentType: mime,
-    upsert: false,
-  });
-  if (upErr) return { ok: false, error: "Caricamento del file non riuscito." };
+  let bytes: ArrayBuffer;
+  try {
+    bytes = await file.arrayBuffer();
+  } catch {
+    return { ok: false, error: "Il file non si può leggere. Riprova." };
+  }
+  const { error: upErr } = await db.storage.from(CAVEAU_DOCUMENTO_BUCKET).upload(
+    path,
+    new Blob([bytes], { type: mime }),
+    { contentType: mime, upsert: false }
+  );
+  if (upErr) {
+    console.error("[caveau documento]", upErr.message);
+    return {
+      ok: false,
+      error: "Caricamento del file non riuscito. Usa PDF, immagine, Word o Excel, fino a 15 MB.",
+    };
+  }
   const { data, error } = await db
     .from("caveau_siti_acquisto_documenti")
     .insert({

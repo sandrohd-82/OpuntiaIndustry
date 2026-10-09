@@ -32,18 +32,82 @@ export const caveauEliminaSchema = z.object({
   conferma: z.string().trim().min(1),
 });
 
-const acquistoUrl = z.string().trim().min(1, "Indica l'URL.").max(500);
-const acquistoTitolo = z.string().trim().min(1, "Indica il titolo.").max(200);
+export const CAVEAU_URL_MAX = 2000;
+
+const acquistoUrl = z
+  .string()
+  .trim()
+  .min(1, "Indica l'URL.")
+  .max(CAVEAU_URL_MAX, "L'URL è troppo lungo.");
+const acquistoTitolo = z
+  .string()
+  .trim()
+  .min(1, "Indica il titolo.")
+  .max(200, "Il titolo è troppo lungo.");
 
 export const caveauAcquistoSchema = z.object({
-  sitoId: z.string().uuid(),
+  sitoId: z.string().trim().uuid("Sito non valido."),
   url: acquistoUrl,
   titolo: acquistoTitolo,
-  descrizione: z.string().trim().max(4000).optional().default(""),
-  prezzo: z.string().max(20).optional().default(""),
-  unitaMisura: z.string().trim().max(12).optional().default(""),
-  registratoAt: z.string().max(40).optional().default(""),
+  descrizione: z
+    .string()
+    .trim()
+    .max(4000, "La descrizione è troppo lunga.")
+    .optional()
+    .default(""),
+  prezzo: z.string().trim().max(20, "Il prezzo è troppo lungo.").optional().default(""),
+  unitaMisura: z
+    .string()
+    .trim()
+    .max(12, "L'unità è troppo lunga.")
+    .optional()
+    .default(""),
+  registratoAt: z.string().trim().max(64, "Data non valida.").optional().default(""),
 });
+
+const CAMPI_ACQUISTO: Record<string, string> = {
+  id: "Acquisto",
+  sitoId: "Sito",
+  url: "URL",
+  titolo: "Titolo",
+  descrizione: "Descrizione",
+  prezzo: "Prezzo",
+  unitaMisura: "Unità",
+  registratoAt: "Data",
+};
+
+/** Evita il messaggio inglese di Zod («Invalid input») e indica il campo. */
+export function messaggioValidazioneCaveau(error: z.ZodError): string {
+  const issue = error.issues[0];
+  if (!issue) return "Dati non validi.";
+  const testo = issue.message.trim();
+  if (testo && !/^invalid\b/i.test(testo)) return testo;
+  const campo = CAMPI_ACQUISTO[String(issue.path[0] ?? "")];
+  return campo ? `Controlla il campo ${campo}.` : "Dati non validi.";
+}
+
+function testoAcquisto(value: unknown): string {
+  if (typeof value === "string") return value;
+  if (typeof value === "number" && Number.isFinite(value)) return String(value);
+  return "";
+}
+
+/** Il modulo arriva sempre come testo, anche se un campo è vuoto o numerico. */
+export function normalizzaInputAcquisto(input: unknown): unknown {
+  if (!input || typeof input !== "object") return input;
+  const raw = input as Record<string, unknown>;
+  const out: Record<string, string> = {
+    sitoId: testoAcquisto(raw.sitoId),
+    url: testoAcquisto(raw.url),
+    titolo: testoAcquisto(raw.titolo),
+    descrizione: testoAcquisto(raw.descrizione),
+    prezzo: testoAcquisto(raw.prezzo),
+    unitaMisura: testoAcquisto(raw.unitaMisura ?? raw.unita),
+    registratoAt: testoAcquisto(raw.registratoAt),
+  };
+  if (typeof raw.id === "string") out.id = raw.id;
+  return out;
+}
 
 export const CAVEAU_UNITA_BASE = [
   "un",
@@ -65,7 +129,7 @@ export const caveauUnitaSchema = z.object({
 /** Chiave di confronto: ignora protocollo, www e slash finale. Null se non è un indirizzo web. */
 export function chiaveUrlCaveau(raw: string): string | null {
   const testo = raw.trim();
-  if (!testo || testo.length > 500) return null;
+  if (!testo || testo.length > CAVEAU_URL_MAX) return null;
   const conProtocollo = /^[a-z][a-z0-9+.-]*:\/\//i.test(testo)
     ? testo
     : `https://${testo}`;
@@ -116,7 +180,7 @@ export function normalizzaUnita(
 }
 
 export const caveauAcquistoUpdateSchema = caveauAcquistoSchema.extend({
-  id: z.string().uuid(),
+  id: z.string().trim().uuid("Acquisto non valido."),
 });
 
 export function prezzoAcquistoOrNull(

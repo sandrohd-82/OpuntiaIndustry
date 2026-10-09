@@ -489,6 +489,19 @@ export function CaveauSitiBoard() {
     }
     setBusy(true);
     setErrore(null);
+    try {
+      await salvaAcquistoPronto(compilati);
+    } catch {
+      setBusy(false);
+      setErrore("Salvataggio non riuscito. Riprova.");
+    }
+  }
+
+  async function salvaAcquistoPronto(compilati: DocNuovo[]) {
+    if (!acquisto) {
+      setBusy(false);
+      return;
+    }
     const payload = {
       sitoId: acquisto.sitoId,
       url: acquisto.url,
@@ -1167,6 +1180,7 @@ export function CaveauSitiBoard() {
                   <span className="text-slate-600">Data</span>
                   <input
                     type="datetime-local"
+                    step={60}
                     className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2"
                     value={acquisto.registratoAt}
                     onChange={(e) =>
