@@ -87,7 +87,9 @@ export async function buildElaborazioneFattureXlsx(input: {
   });
   header.height = 22;
 
-  for (const riga of righe) {
+  for (let i = 0; i < righe.length; i += 1) {
+    const riga = righe[i];
+    if (!riga) continue;
     const excelRow = ws.addRow(celle(riga, input.kind));
     excelRow.font = { name: "Calibri", size: 11 };
     const colImporto = (nome: string) => titoli.indexOf(nome) + 1;
@@ -150,6 +152,9 @@ export async function buildElaborazioneFattureXlsx(input: {
         };
       });
     }
+    if (riga.tipo === "mese" && righe[i + 1]?.tipo === "fattura") {
+      ws.addRow([]);
+    }
   }
 
   const buffer = await wb.xlsx.writeBuffer();
@@ -197,7 +202,9 @@ export async function buildUscitaCartellaXlsx(input: {
     cell.alignment = { vertical: "middle" };
   });
   header.height = 22;
-  for (const riga of righe) {
+  for (let i = 0; i < righe.length; i += 1) {
+    const riga = righe[i];
+    if (!riga) continue;
     const documento = riga.tipo === "documento";
     const excelRow = ws.addRow(
       documento
@@ -260,6 +267,9 @@ export async function buildUscitaCartellaXlsx(input: {
           fgColor: { argb: scuro ? "FF0F172A" : "FFFEF3C7" },
         };
       });
+    }
+    if (riga.tipo === "mese" && righe[i + 1]?.tipo === "documento") {
+      ws.addRow([]);
     }
   }
   const buffer = await wb.xlsx.writeBuffer();

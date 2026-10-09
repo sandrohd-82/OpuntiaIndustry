@@ -57,7 +57,9 @@ export async function buildElencoMistoXlsx(input: {
     cell.alignment = { vertical: "middle" };
   });
 
-  for (const riga of input.righe) {
+  for (let i = 0; i < input.righe.length; i += 1) {
+    const riga = input.righe[i];
+    if (!riga) continue;
     const excelRow = ws.addRow([
       riga.sequenza,
       riga.gruppo,
@@ -106,6 +108,9 @@ export async function buildElencoMistoXlsx(input: {
           fgColor: { argb: scuro ? "FF0F172A" : "FFFEF3C7" },
         };
       });
+    }
+    if (riga.tipoRiga === "mese" && input.righe[i + 1]?.tipoRiga === "mese") {
+      ws.addRow([]);
     }
   }
 
