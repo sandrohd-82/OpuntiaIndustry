@@ -32,6 +32,7 @@ import {
 import { ReferentiPickerField } from "@/components/amministrazione/ReferentiPickerField";
 import { CommercialeAssignField } from "@/components/amministrazione/CommercialeAssignField";
 import { ClienteCediAffiancaFields } from "@/components/amministrazione/ClienteCediAffiancaFields";
+import { LinguaIntercomunicazioneField } from "@/components/amministrazione/LinguaIntercomunicazioneField";
 import { AnagraficaContattiGenericiFields } from "@/components/amministrazione/AnagraficaContattiGenericiFields";
 import { CanaleInputRow } from "@/components/amministrazione/CanaleAttenzioneControls";
 import { CONTATTI_GENERICI_MAX_ITEMS } from "@/lib/amministrazione/contatti-generici";
@@ -125,6 +126,9 @@ export function PossibileClienteFormModal({
     initial?.codiceFiscale ?? ""
   );
   const [email, setEmail] = useState(initial?.email ?? "");
+  const [lingua, setLingua] = useState(
+    initial?.linguaIntercomunicazione ?? "it"
+  );
   const [telefono, setTelefono] = useState(initial?.telefono ?? "");
   const [pec, setPec] = useState(initial?.pec ?? "");
   const [sdiCode, setSdiCode] = useState(initial?.sdiCode ?? "");
@@ -228,6 +232,7 @@ export function PossibileClienteFormModal({
       codiceFiscale: codiceFiscale.trim(),
       isPrivato: false,
       email: email.trim(),
+      linguaIntercomunicazione: lingua,
       pec: pec.trim(),
       sdiCode: sdiCode.trim(),
       telefono: telefono.trim(),
@@ -345,6 +350,7 @@ export function PossibileClienteFormModal({
                 className="w-full rounded-lg border border-[var(--border)] px-3 py-2 outline-none focus:border-[var(--primary)]"
               />
             </label>
+            <LinguaIntercomunicazioneField value={lingua} onChange={setLingua} />
             {isEdit ? (
               <CommercialeAssignField
                 value={commercialeId}

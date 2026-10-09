@@ -17,6 +17,7 @@ import {
 } from "@/components/amministrazione/PreventivoDestinatarioPicker";
 import { PreventivoEditModal } from "@/components/amministrazione/PreventivoEditModal";
 import { FatturaA4RigaEditor } from "@/components/amministrazione/FatturaA4RigaEditor";
+import { TraduciIntercomunicazione } from "@/components/amministrazione/TraduciIntercomunicazione";
 import { PreventivoDocField } from "@/components/amministrazione/PreventivoDocPencil";
 import { ClearableNumberInput } from "@/components/ui/ClearableNumberInput";
 import type { Cliente } from "@/lib/amministrazione/clienti";
@@ -639,6 +640,31 @@ export function FatturaA4Modal({
           ) : null}
         </div>
       </div>
+
+      {cliente?.id ? (
+        <div className="mx-auto mb-3 max-w-[210mm] rounded-lg bg-white px-3 py-2 print:hidden">
+          <TraduciIntercomunicazione
+            tipo="cliente"
+            id={cliente.id}
+            documento="fattura"
+            testi={[
+              ...righe.flatMap((riga, index) => [
+                {
+                  key: `desc-${index}`,
+                  etichetta: `Riga ${index + 1}`,
+                  text: riga.descrizione,
+                },
+                {
+                  key: `nota-${index}`,
+                  etichetta: `Nota riga ${index + 1}`,
+                  text: riga.note,
+                },
+              ]),
+              { key: "note", etichetta: "Note documento", text: noteDocumento },
+            ]}
+          />
+        </div>
+      ) : null}
 
       {msg ? (
         <p className="mx-auto mb-3 max-w-[210mm] rounded border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-900 print:hidden">

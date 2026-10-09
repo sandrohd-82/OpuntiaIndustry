@@ -11,6 +11,7 @@ import {
 } from "react";
 import { createPortal } from "react-dom";
 import { FaChevronDown } from "react-icons/fa6";
+import { TraduciIntercomunicazione } from "@/components/amministrazione/TraduciIntercomunicazione";
 import {
   confirmWebmailCategoriaSuggestionAction,
   confirmWebmailMessaggioDeleteAction,
@@ -2604,6 +2605,37 @@ export function WebmailBoard({
                                   .filter(Boolean)
                                   .join("\n\n")}
                               </pre>
+                            ) : null}
+                            {selected.aziendaId &&
+                            (selected.aziendaTipo === "cliente" ||
+                              selected.aziendaTipo === "cliente_possibile") ? (
+                              <TraduciIntercomunicazione
+                                tipo={selected.aziendaTipo}
+                                id={selected.aziendaId}
+                                documento="mail"
+                                testi={[
+                                  {
+                                    key: "oggetto",
+                                    etichetta: "Oggetto",
+                                    text: draftSubject,
+                                  },
+                                  {
+                                    key: "corpo",
+                                    etichetta: "Corpo",
+                                    text: draftBody,
+                                  },
+                                ]}
+                                onApplica={(items) => {
+                                  const oggetto = items.find(
+                                    (item) => item.key === "oggetto"
+                                  );
+                                  const corpo = items.find(
+                                    (item) => item.key === "corpo"
+                                  );
+                                  if (oggetto) setDraftSubject(oggetto.text);
+                                  if (corpo) setDraftBody(corpo.text);
+                                }}
+                              />
                             ) : null}
                             {bozza.allegati.length > 0 ? (
                               <ul className="space-y-1 text-xs text-slate-700">

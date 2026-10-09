@@ -25,10 +25,12 @@ import {
 import { PreventivoDestinatarioModal } from "@/components/amministrazione/PreventivoDestinatarioPicker";
 import { PreventivoEditModal } from "@/components/amministrazione/PreventivoEditModal";
 import { PreventivoFoglioA4 } from "@/components/amministrazione/PreventivoFoglioA4";
+import { TraduciIntercomunicazione } from "@/components/amministrazione/TraduciIntercomunicazione";
 import { ClearableNumberInput } from "@/components/ui/ClearableNumberInput";
 import { useProdottiPropri } from "@/hooks/useProdottiPropri";
 import {
   ORDINE_TIPI_PAGAMENTO,
+  labelTipoPagamento,
   type OrdineTipoPagamento,
 } from "@/lib/amministrazione/ordini";
 import {
@@ -972,6 +974,48 @@ export function PreventivoFormModal({ onClose, onSaved, preventivoId }: Props) {
         </p>
       ) : null}
 
+      {destinatario ? (
+        <div className="mx-auto mb-3 max-w-[210mm] print:hidden">
+          <TraduciIntercomunicazione
+            tipo={
+              destinatario.kind === "possibile" ? "cliente_possibile" : "cliente"
+            }
+            id={destinatario.id}
+            documento="preventivo"
+            testi={[
+              ...righe.flatMap((riga, index) => [
+                {
+                  key: `nome-${riga.key}`,
+                  etichetta: `Prodotto ${index + 1}`,
+                  text: riga.prodottoNome,
+                },
+                {
+                  key: `conf-${riga.key}`,
+                  etichetta: `Confezionamento ${index + 1}`,
+                  text: riga.confezionamento,
+                },
+                {
+                  key: `giust-${riga.key}`,
+                  etichetta: `Giustificazione ${index + 1}`,
+                  text: riga.accordoGiustificazione ?? "",
+                },
+              ]),
+              {
+                key: "consegna",
+                etichetta: "Consegna",
+                text: PREVENTIVO_CONSEGNA_LABEL[consegnaMetodo],
+              },
+              {
+                key: "pagamento",
+                etichetta: "Pagamento",
+                text: labelTipoPagamento(tipoPagamento),
+              },
+              { key: "note", etichetta: "Note", text: note },
+            ]}
+          />
+        </div>
+      ) : null}
+
       <form
         id="preventivo-a4-form"
         onSubmit={onSubmit}
@@ -1430,6 +1474,27 @@ export function PreventivoFormModal({ onClose, onSaved, preventivoId }: Props) {
               placeholder="email@cliente.it"
             />
           </label>
+          {destinatario ? (
+            <TraduciIntercomunicazione
+              tipo={
+                destinatario.kind === "possibile"
+                  ? "cliente_possibile"
+                  : "cliente"
+              }
+              id={destinatario.id}
+              documento="mail"
+              testi={[
+                { key: "oggetto", etichetta: "Oggetto", text: mailOggetto },
+                { key: "corpo", etichetta: "Testo", text: mailTesto },
+              ]}
+              onApplica={(items) => {
+                const oggetto = items.find((item) => item.key === "oggetto");
+                const corpo = items.find((item) => item.key === "corpo");
+                if (oggetto) setMailOggetto(oggetto.text);
+                if (corpo) setMailTesto(corpo.text);
+              }}
+            />
+          ) : null}
           <label className="block text-sm">
             <span className="mb-1 block font-medium">Oggetto</span>
             <input

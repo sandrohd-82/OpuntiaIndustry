@@ -128,6 +128,7 @@ export type ClientePossibile = {
   prodottiInteressati: string[];
   referente: string;
   noteInterne: string;
+  linguaIntercomunicazione?: string;
   stato: "da_valutare" | "in_contatto" | "convertito" | "scartato";
   trattativa: ClientePossibileTrattativa;
   clienteId: string | null;
@@ -334,6 +335,7 @@ export const createClientePossibileSchema = z.object({
   inviaCampionature: z.boolean().optional(),
   inviaProdotti: z.boolean().optional(),
   tipologiaRispettoMadre: z.string().trim().max(500).optional().default(""),
+  linguaIntercomunicazione: z.string().trim().max(8).optional().default("it"),
 });
 
 export function emptyClientePossibileSedi() {
@@ -376,6 +378,7 @@ export function clienteFromPossibile(lead: ClientePossibile): Cliente {
     inviaCampionature: lead.inviaCampionature,
     inviaProdotti: lead.inviaProdotti,
     tipologiaRispettoMadre: lead.tipologiaRispettoMadre,
+    linguaIntercomunicazione: lead.linguaIntercomunicazione ?? "it",
   };
 }
 

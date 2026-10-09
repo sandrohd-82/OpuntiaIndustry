@@ -49,6 +49,7 @@ import { ProdottiAcquistatiTags } from "@/components/amministrazione/ProdottiAcq
 import { ReferentiPickerField } from "@/components/amministrazione/ReferentiPickerField";
 import { CommercialeAssignField } from "@/components/amministrazione/CommercialeAssignField";
 import { ClienteCediAffiancaFields } from "@/components/amministrazione/ClienteCediAffiancaFields";
+import { LinguaIntercomunicazioneField } from "@/components/amministrazione/LinguaIntercomunicazioneField";
 import { AnagraficaContattiGenericiFields } from "@/components/amministrazione/AnagraficaContattiGenericiFields";
 import { CanaleInputRow } from "@/components/amministrazione/CanaleAttenzioneControls";
 import { BusySpinner } from "@/components/ui/BusyIndicator";
@@ -220,6 +221,9 @@ export function ClienteFormModal({
   const [archivioId, setArchivioId] = useState<string | null>(null);
   const [archivioHint, setArchivioHint] = useState<string | null>(null);
   const [email, setEmail] = useState(initial?.email ?? seme?.email ?? "");
+  const [lingua, setLingua] = useState(
+    initial?.linguaIntercomunicazione ?? seme?.linguaIntercomunicazione ?? "it"
+  );
   const [pec, setPec] = useState(initial?.pec ?? seme?.pec ?? "");
   const [sdiCode, setSdiCode] = useState(initial?.sdiCode ?? seme?.sdiCode ?? "");
   const [telefono, setTelefono] = useState(
@@ -379,6 +383,7 @@ export function ClienteFormModal({
         setPartitaIva(fonte.partitaIva);
         setCodiceFiscale(fonte.codiceFiscale);
         setEmail(fonte.email);
+        setLingua(fonte.linguaIntercomunicazione ?? "it");
         setPec(fonte.pec);
         setSdiCode(fonte.sdiCode);
         setTelefono(fonte.telefono);
@@ -497,6 +502,7 @@ export function ClienteFormModal({
       codiceFiscale: codiceFiscale.trim(),
       isPrivato,
       email: email.trim(),
+      linguaIntercomunicazione: lingua,
       pec: pec.trim(),
       sdiCode: sdiCode.trim(),
       telefono: telefono.trim(),
@@ -652,6 +658,7 @@ export function ClienteFormModal({
       codiceFiscale: values.codiceFiscale,
       isPrivato: values.isPrivato,
       email: values.email ?? "",
+      linguaIntercomunicazione: values.linguaIntercomunicazione ?? "it",
       pec: values.pec ?? "",
       sdiCode: values.sdiCode ?? "",
       telefono: values.telefono ?? "",
@@ -986,6 +993,7 @@ export function ClienteFormModal({
                 className="w-full rounded-lg border border-[var(--border)] px-3 py-2 outline-none focus:border-[var(--primary)]"
               />
             </label>
+            <LinguaIntercomunicazioneField value={lingua} onChange={setLingua} />
             {isEdit ? (
               <CommercialeAssignField
                 value={commercialeId}

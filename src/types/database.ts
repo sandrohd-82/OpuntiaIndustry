@@ -291,6 +291,7 @@ export interface ClienteRow {
   sdi_code: string;
   telefono: string;
   sito_web: string;
+  lingua_intercomunicazione?: string;
   /** Extra generici (non referenti). Presenti dopo 20260911170000. */
   telefoni_generici?: string[];
   email_generiche?: string[];
@@ -343,6 +344,7 @@ export interface ClienteInsert {
   sdi_code?: string;
   telefono?: string;
   sito_web?: string;
+  lingua_intercomunicazione?: string;
   telefoni_generici?: string[];
   email_generiche?: string[];
   siti_web_generici?: string[];

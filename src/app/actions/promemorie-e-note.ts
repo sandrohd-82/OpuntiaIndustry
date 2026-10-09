@@ -77,7 +77,7 @@ import type { ClienteConsegnaAltraAziendaRow } from "@/types/database";
 import { z } from "zod";
 
 const CLIENTI_POSSIBILI_SELECT =
-  "id, ragione_sociale, partita_iva, codice_fiscale, is_privato, email, pec, sdi_code, telefono, sito_web, telefoni_generici, email_generiche, siti_web_generici, sede_amm_nazione, sede_amm_provincia, sede_amm_citta, sede_amm_cap, sede_amm_indirizzo, sede_mag_nazione, sede_mag_provincia, sede_mag_citta, sede_mag_cap, sede_mag_indirizzo, prodotti_interessati, consegne_altra_azienda, referente, note_interne, stato, trattativa, cliente_id, created_by, created_at, updated_at, commerciale_id, affiancato_id, commerciale_persona_id, affiancato_persona_id, azienda_madre_id, invia_preventivi, fatturare, invia_campionature, invia_prodotti, tipologia_rispetto_madre";
+  "id, ragione_sociale, partita_iva, codice_fiscale, is_privato, email, pec, sdi_code, telefono, sito_web, lingua_intercomunicazione, telefoni_generici, email_generiche, siti_web_generici, sede_amm_nazione, sede_amm_provincia, sede_amm_citta, sede_amm_cap, sede_amm_indirizzo, sede_mag_nazione, sede_mag_provincia, sede_mag_citta, sede_mag_cap, sede_mag_indirizzo, prodotti_interessati, consegne_altra_azienda, referente, note_interne, stato, trattativa, cliente_id, created_by, created_at, updated_at, commerciale_id, affiancato_id, commerciale_persona_id, affiancato_persona_id, azienda_madre_id, invia_preventivi, fatturare, invia_campionature, invia_prodotti, tipologia_rispetto_madre";
 
 /** Elenco per i menu di scelta: niente note, consegne e testi lunghi. */
 const CLIENTI_POSSIBILI_SCELTA_SELECT =
@@ -169,6 +169,7 @@ function mapClientePossibileRow(r: Record<string, unknown>): ClientePossibile {
     prodottiInteressati: prodotti.map(String).filter(Boolean),
     referente: String(r.referente ?? ""),
     noteInterne: String(r.note_interne ?? ""),
+    linguaIntercomunicazione: String(r.lingua_intercomunicazione ?? "it"),
     stato: r.stato as ClientePossibile["stato"],
     trattativa: parseTrattativa(r.trattativa),
     clienteId: r.cliente_id ? String(r.cliente_id) : null,
@@ -1432,6 +1433,7 @@ export async function createClientePossibileAction(
       partitaIva: parsed.data.partitaIva ?? "",
       codiceFiscale: parsed.data.codiceFiscale ?? "",
       isPrivato: parsed.data.isPrivato ?? false,
+      linguaIntercomunicazione: parsed.data.linguaIntercomunicazione,
       email: parsed.data.email,
       pec: parsed.data.pec,
       sdiCode: parsed.data.sdiCode,
@@ -1505,6 +1507,7 @@ export async function createClientePossibileAction(
       sdi_code: normalized.sdiCode ?? "",
       telefono: normalized.telefono ?? "",
       sito_web: normalized.sitoWeb ?? "",
+      lingua_intercomunicazione: normalized.linguaIntercomunicazione ?? "it",
       telefoni_generici: normalized.telefoniGenerici ?? [],
       email_generiche: normalized.emailGeneriche ?? [],
       siti_web_generici: normalized.sitiWebGenerici ?? [],
@@ -1684,6 +1687,7 @@ export async function updateClientePossibileAction(
       partitaIva: parsed.data.partitaIva ?? "",
       codiceFiscale: parsed.data.codiceFiscale ?? "",
       isPrivato: false,
+      linguaIntercomunicazione: parsed.data.linguaIntercomunicazione,
       email: parsed.data.email,
       pec: parsed.data.pec,
       sdiCode: parsed.data.sdiCode,
@@ -1721,6 +1725,7 @@ export async function updateClientePossibileAction(
       sdi_code: normalized.sdiCode ?? "",
       telefono: normalized.telefono ?? "",
       sito_web: normalized.sitoWeb ?? "",
+      lingua_intercomunicazione: normalized.linguaIntercomunicazione ?? "it",
       telefoni_generici: normalized.telefoniGenerici ?? [],
       email_generiche: normalized.emailGeneriche ?? [],
       siti_web_generici: normalized.sitiWebGenerici ?? [],

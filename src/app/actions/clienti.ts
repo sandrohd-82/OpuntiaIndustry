@@ -302,6 +302,7 @@ export async function createClienteAction(
     sdi_code: normalized.sdiCode ?? "",
     telefono: normalized.telefono ?? "",
     sito_web: normalized.sitoWeb ?? "",
+    lingua_intercomunicazione: normalized.linguaIntercomunicazione ?? "it",
     telefoni_generici: normalized.telefoniGenerici ?? [],
     email_generiche: normalized.emailGeneriche ?? [],
     siti_web_generici: normalized.sitiWebGenerici ?? [],
@@ -382,6 +383,7 @@ export async function createClienteAction(
     payload: {
       codice_targa: row.codice_targa,
       ragione_sociale: row.ragione_sociale,
+      lingua_intercomunicazione: row.lingua_intercomunicazione ?? "it",
       azienda_madre_id: madreId,
       tipologia_rispetto_madre: tipologiaMadre,
     },
@@ -561,6 +563,7 @@ export async function updateClienteAction(
       sdi_code: normalized.sdiCode ?? "",
       telefono: normalized.telefono ?? "",
       sito_web: normalized.sitoWeb ?? "",
+      lingua_intercomunicazione: normalized.linguaIntercomunicazione ?? "it",
       telefoni_generici: normalized.telefoniGenerici ?? [],
       email_generiche: normalized.emailGeneriche ?? [],
       siti_web_generici: normalized.sitiWebGenerici ?? [],
@@ -625,6 +628,7 @@ export async function updateClienteAction(
     payload: {
       codice_targa: row.codice_targa,
       ragione_sociale: row.ragione_sociale,
+      lingua_intercomunicazione: row.lingua_intercomunicazione ?? "it",
       ...(inter.applica
         ? {
             intermediario_id: inter.intermediarioId,

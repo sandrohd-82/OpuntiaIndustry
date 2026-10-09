@@ -14,6 +14,7 @@ import {
   matchesCommercialeArea,
 } from "@/lib/auth/commerciale";
 import { normalizeContattiGenerici } from "@/lib/amministrazione/contatti-generici";
+import { isListinoLingua } from "@/lib/ecosystem/geo-nazioni";
 import {
   provinciaInRegione,
   regioneOfProvincia,
@@ -79,6 +80,8 @@ export type Cliente = {
   inviaCampionature: boolean;
   inviaProdotti: boolean;
   tipologiaRispettoMadre: string;
+  /** Codice ISO della lingua di intercomunicazione. Default italiano. */
+  linguaIntercomunicazione?: string;
 };
 
 export type ClienteInput = {
@@ -116,6 +119,7 @@ export type ClienteInput = {
   inviaCampionature?: boolean;
   inviaProdotti?: boolean;
   tipologiaRispettoMadre?: string;
+  linguaIntercomunicazione?: string;
 };
 
 export { emptySede, formatSedeBreve };
@@ -145,6 +149,11 @@ function isConsegnaComplete(item: ConsegnaAltraAzienda): boolean {
       item.cap.trim() &&
       item.indirizzo.trim()
   );
+}
+
+export function normalizzaLinguaIntercomunicazione(value: unknown): string {
+  const code = String(value ?? "").trim().toLowerCase();
+  return isListinoLingua(code) ? code : "it";
 }
 
 export function normalizeClienteInput(input: ClienteInput): ClienteInput {
@@ -188,6 +197,9 @@ export function normalizeClienteInput(input: ClienteInput): ClienteInput {
     inviaCampionature: input.inviaCampionature,
     inviaProdotti: input.inviaProdotti,
     tipologiaRispettoMadre: input.tipologiaRispettoMadre?.trim() ?? "",
+    linguaIntercomunicazione: normalizzaLinguaIntercomunicazione(
+      input.linguaIntercomunicazione
+    ),
   };
 }
 
@@ -335,6 +347,9 @@ export function mapClienteRow(
     inviaCampionature: row.invia_campionature !== false,
     inviaProdotti: row.invia_prodotti !== false,
     tipologiaRispettoMadre: row.tipologia_rispetto_madre ?? "",
+    linguaIntercomunicazione: normalizzaLinguaIntercomunicazione(
+      row.lingua_intercomunicazione
+    ),
   };
 }
 

@@ -16,6 +16,7 @@ import {
 } from "@/app/actions/impostazioni-sedi";
 import { labelSede, type ImpostazioniSede } from "@/lib/impostazioni/sedi";
 import { SpedizioneMailComposeModal } from "@/components/amministrazione/SpedizioneMailComposeModal";
+import { TraduciIntercomunicazione } from "@/components/amministrazione/TraduciIntercomunicazione";
 import {
   SpedizioneDestinatarioMailField,
   type SpedizioneAnagraficaMail,
@@ -644,6 +645,29 @@ export function SpedizioneMailPanel({
             emailPec={emailPec}
             emailGeneriche={emailGeneriche}
           />
+          {anagrafica?.id ? (
+            <TraduciIntercomunicazione
+              tipo={anagrafica.tipo}
+              id={anagrafica.id}
+              documento="mail"
+              testi={[
+                { key: "oggetto", etichetta: "Oggetto", text: mailOggetto },
+                { key: "corpo", etichetta: "Corpo", text: mailCorpo },
+              ]}
+              onApplica={(items) => {
+                const oggetto = items.find((item) => item.key === "oggetto");
+                const corpo = items.find((item) => item.key === "corpo");
+                if (oggetto) {
+                  oggettoToccato.current = true;
+                  setMailOggetto(oggetto.text);
+                }
+                if (corpo) {
+                  corpoToccato.current = true;
+                  setMailCorpo(corpo.text);
+                }
+              }}
+            />
+          ) : null}
           <label className="block text-sm">
             <span className="mb-1 block font-medium">Oggetto</span>
             <input
