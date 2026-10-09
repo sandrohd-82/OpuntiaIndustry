@@ -8,24 +8,12 @@ import {
   getCommercialistaPaperBatchAction,
   type CommercialistaPaperDoc,
 } from "@/app/actions/commercialista";
-import { formatEuro } from "@/lib/amministrazione/fatture";
+import { ElaborazioneRegistroTabella } from "@/components/amministrazione/ElaborazioneRegistroTabella";
 import {
-  buildElaborazioneFattureXlsx,
-  buildUscitaCartellaXlsx,
-} from "@/lib/amministrazione/elaborazione-fatture-xlsx";
-import {
-  righeCartellaUscita,
   righeElaborazioneFatture,
-  TITOLI_USCITA_EXCEL,
-  titoliElaborazioneExcel,
 } from "@/lib/amministrazione/elaborazione-fatture-excel";
-import {
-  buildFatturaClassicaPdf,
-  buildPaperFatturaPdf,
-  chiediCartellaScrittura,
-  nomiPdfUnivoci,
-  scriviFileInCartella,
-} from "@/lib/amministrazione/fattura-classica-pdf";
+import { scriviElaborazioneRegistro } from "@/lib/amministrazione/elaborazione-trimestre";
+import { chiediCartellaScrittura } from "@/lib/amministrazione/fattura-classica-pdf";
 import {
   etichettaRegistro,
   nomeFoglioRegistro,
@@ -59,11 +47,6 @@ export function CommercialistaElaboraFattureModal({
   const righe = useMemo(
     () => righeElaborazioneFatture(docs, kind),
     [docs, kind]
-  );
-  const titoli = titoliElaborazioneExcel(kind);
-  const righeUscita = useMemo(
-    () => (beneConsumo ? [] : righeCartellaUscita(docs, kind)),
-    [beneConsumo, docs, kind]
   );
 
   useEffect(() => {
@@ -103,51 +86,13 @@ export function CommercialistaElaboraFattureModal({
       const cartella = await scelta.getDirectoryHandle(nomeCartella, {
         create: true,
       });
-      const nomi = nomiPdfUnivoci(
-        docs.map((doc) => ({
-          numeroSequenza: doc.numeroSequenza,
-          numeroFattura:
-            doc.numeroDocumento ||
-            doc.classica?.numero ||
-            doc.model.numero ||
-            doc.numeroInterno,
-          data: doc.classica?.dataDocumento || doc.dataEmissione || doc.model.data || "",
-        })),
-        "entrata"
-      );
-      for (let i = 0; i < docs.length; i += 1) {
-        const doc = docs[i];
-        const fileName = nomi[i] ?? `documento_${i + 1}.pdf`;
-        const pdf = doc.classica
-          ? buildFatturaClassicaPdf({
-              model: doc.classica,
-              numeroSequenza: doc.numeroSequenza,
-              showSequenza: doc.numeroSequenza != null,
-              fileName,
-            })
-          : buildPaperFatturaPdf({
-              model: doc.model,
-              numeroSequenza: doc.numeroSequenza,
-              fileName,
-            });
-        await scriviFileInCartella(cartella, pdf.fileName, pdf.blob);
-      }
-      const excel = beneConsumo
-        ? await buildElaborazioneFattureXlsx({
-            kind,
-            anno,
-            trimestre,
-            docs,
-            collegaPdf: true,
-          })
-        : await buildUscitaCartellaXlsx({ kind, docs });
-      await scriviFileInCartella(
+      await scriviElaborazioneRegistro({
         cartella,
-        excel.filename,
-        new Blob([excel.bytes as BlobPart], {
-          type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        })
-      );
+        kind,
+        anno,
+        trimestre,
+        docs,
+      });
       await auditCommercialistaPaperAction({
         kind,
         anno,
@@ -238,184 +183,9 @@ export function CommercialistaElaboraFattureModal({
             <p className="text-center text-sm text-slate-600">
               Nessun documento nel periodo.
             </p>
-          ) : !beneConsumo ? (
-            <div className="mx-auto max-w-6xl overflow-hidden rounded-lg border border-slate-300 bg-white shadow-sm">
-              <table className="w-full border-collapse text-left text-sm">
-                <thead className="bg-slate-800 text-xs text-white">
-                  <tr>
-                    {TITOLI_USCITA_EXCEL.map((titolo) => (
-                      <th key={titolo} className="px-3 py-2 font-semibold whitespace-nowrap">
-                        {titolo}
-                      </th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {righeUscita.map((riga, index) =>
-                    riga.tipo === "documento" ? (
-                      <tr
-                        key={`${riga.nomeFile}-${index}`}
-                        className={
-                          riga.notaCredito
-                            ? "border-t border-red-100 bg-[#FEECEC]"
-                            : "border-t border-slate-200"
-                        }
-                      >
-                        <td className="px-3 py-1.5 tabular-nums">
-                          {riga.numeroProgressivo ?? "—"}
-                        </td>
-                        <td className="px-3 py-1.5 whitespace-nowrap">{riga.tipoDocumento}</td>
-                        <td className="px-3 py-1.5 whitespace-nowrap">{riga.numeroDocumento}</td>
-                        <td className="px-3 py-1.5 whitespace-nowrap">{riga.data}</td>
-                        <td className="px-3 py-1.5">{riga.intestazione}</td>
-                        <td className="px-3 py-1.5 text-right tabular-nums">
-                          {formatEuro(riga.imponibile)}
-                        </td>
-                        <td className="px-3 py-1.5 text-right tabular-nums">
-                          {formatEuro(riga.iva)}
-                        </td>
-                        <td className="px-3 py-1.5 text-right tabular-nums">
-                          {formatEuro(riga.totale)}
-                        </td>
-                        <td className="px-3 py-1.5 text-center">{riga.nazione}</td>
-                        <td className="px-3 py-1.5 text-center font-medium">
-                          {riga.beniStrumentali}
-                        </td>
-                      </tr>
-                    ) : (
-                      <tr
-                        key={`t-${index}`}
-                        className={
-                          riga.tipo === "trimestre"
-                            ? "border-t border-slate-800 bg-slate-900 font-semibold text-white"
-                            : "border-t border-amber-200 bg-amber-50 font-semibold text-slate-900"
-                        }
-                      >
-                        <td className="px-3 py-2" />
-                        <td className="px-3 py-2" />
-                        <td className="px-3 py-2" />
-                        <td className="px-3 py-2" />
-                        <td className="px-3 py-2">{riga.etichetta}</td>
-                        <td className="px-3 py-2 text-right tabular-nums">
-                          {formatEuro(riga.imponibile)}
-                        </td>
-                        <td className="px-3 py-2 text-right tabular-nums">
-                          {formatEuro(riga.iva)}
-                        </td>
-                        <td className="px-3 py-2 text-right tabular-nums">
-                          {formatEuro(riga.totale)}
-                        </td>
-                        <td className="px-3 py-2" />
-                        <td className="px-3 py-2" />
-                      </tr>
-                    )
-                  )}
-                </tbody>
-              </table>
-            </div>
           ) : (
-            <div className="mx-auto max-w-6xl overflow-hidden rounded-lg border border-slate-300 bg-white shadow-sm">
-              <table className="w-full border-collapse text-left text-sm">
-                <thead className="bg-slate-800 text-xs text-white">
-                  <tr>
-                    {titoli.map((titolo) => (
-                      <th
-                        key={titolo}
-                        className="px-3 py-2 font-semibold whitespace-nowrap"
-                      >
-                        {titolo}
-                      </th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {righe.map((riga, i) =>
-                    riga.tipo === "fattura" ? (
-                      <tr
-                        key={`f-${i}`}
-                        className={
-                          riga.notaCredito
-                            ? "border-t border-red-100 bg-[#FEECEC]"
-                            : "border-t border-slate-200"
-                        }
-                      >
-                        <td className="px-3 py-1.5 tabular-nums">
-                          {riga.numeroProvvisorio ?? "—"}
-                        </td>
-                        <td className="px-3 py-1.5 font-mono text-xs whitespace-nowrap">
-                          {riga.nomeFile}
-                        </td>
-                        {beneConsumo ? (
-                          <td className="px-3 py-1.5 whitespace-nowrap">
-                            {riga.numeroDocumento || "—"}
-                          </td>
-                        ) : null}
-                        <td className="px-3 py-1.5 whitespace-nowrap">
-                          {riga.data}
-                        </td>
-                        <td className="px-3 py-1.5">{riga.intestazione}</td>
-                        <td className="px-3 py-1.5 text-right tabular-nums">
-                          {formatEuro(riga.imponibile)}
-                        </td>
-                        <td className="px-3 py-1.5 text-right tabular-nums">
-                          {formatEuro(riga.iva)}
-                        </td>
-                        <td className="px-3 py-1.5 text-right tabular-nums">
-                          {formatEuro(riga.totale)}
-                        </td>
-                        <td
-                          className={`px-3 py-1.5 text-center ${
-                            beneConsumo ? "text-xl leading-none" : ""
-                          }`}
-                        >
-                          {riga.nazione}
-                        </td>
-                        {beneConsumo ? (
-                          <>
-                            <td className="px-3 py-1.5 text-center">
-                              {riga.origineDocumento || "—"}
-                            </td>
-                            <td className="px-3 py-1.5 text-center font-medium">
-                              {riga.beneAmmortizzabile ?? "—"}
-                            </td>
-                          </>
-                        ) : null}
-                      </tr>
-                    ) : (
-                      <tr
-                        key={`t-${i}`}
-                        className={
-                          riga.tipo === "generale"
-                            ? "border-t border-slate-800 bg-slate-900 font-semibold text-white"
-                            : "border-t border-amber-200 bg-amber-50 font-semibold text-slate-900"
-                        }
-                      >
-                        <td className="px-3 py-2" />
-                        <td className="px-3 py-2" />
-                        {beneConsumo ? <td className="px-3 py-2" /> : null}
-                        <td className="px-3 py-2" />
-                        <td className="px-3 py-2">{riga.etichetta}</td>
-                        <td className="px-3 py-2 text-right tabular-nums">
-                          {formatEuro(riga.imponibile)}
-                        </td>
-                        <td className="px-3 py-2 text-right tabular-nums">
-                          {formatEuro(riga.iva)}
-                        </td>
-                        <td className="px-3 py-2 text-right tabular-nums">
-                          {formatEuro(riga.totale)}
-                        </td>
-                        <td className="px-3 py-2" />
-                        {beneConsumo ? (
-                          <>
-                            <td className="px-3 py-2" />
-                            <td className="px-3 py-2" />
-                          </>
-                        ) : null}
-                      </tr>
-                    )
-                  )}
-                </tbody>
-              </table>
+            <div className="mx-auto max-w-6xl">
+              <ElaborazioneRegistroTabella docs={docs} kind={kind} />
             </div>
           )}
         </div>

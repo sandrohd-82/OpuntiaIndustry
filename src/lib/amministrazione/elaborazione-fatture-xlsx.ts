@@ -1,11 +1,15 @@
 import ExcelJS from "exceljs";
 import {
+  COLORI_TIPO_DOCUMENTO,
   righeCartellaUscita,
   righeElaborazioneFatture,
+  righeResocontoCompleto,
+  TITOLI_RESOCONTO_COMPLETO,
   TITOLI_USCITA_EXCEL,
   titoliElaborazioneExcel,
   type FatturaElaborazioneSorgente,
   type RigaElaborazioneExcel,
+  type VoceResocontoCompleto,
 } from "@/lib/amministrazione/elaborazione-fatture-excel";
 import {
   nomeFoglioRegistro,
@@ -274,4 +278,106 @@ export async function buildUscitaCartellaXlsx(input: {
   }
   const buffer = await wb.xlsx.writeBuffer();
   return { filename: "resoconto.xlsx", bytes: new Uint8Array(buffer) };
+}
+
+export const NOME_RESOCONTO_COMPLETO = "Resoconto completo.xlsx";
+
+/** Un solo foglio: tutti i tipi in ordine di data, con il link al PDF nella cartella del tipo. */
+export async function buildResocontoCompletoXlsx(
+  voci: VoceResocontoCompleto[]
+): Promise<{ filename: string; bytes: Uint8Array }> {
+  const righe = righeResocontoCompleto(voci);
+  const wb = new ExcelJS.Workbook();
+  wb.creator = "OpuntiaIndustry";
+  wb.created = new Date();
+  const ws = wb.addWorksheet("Resoconto completo", {
+    views: [{ state: "frozen", ySplit: 1 }],
+  });
+  const larghezze = [14, 28, 28, 42, 16, 14, 16];
+  ws.columns = TITOLI_RESOCONTO_COMPLETO.map((_, index) => ({
+    width: larghezze[index] ?? 18,
+  }));
+  const header = ws.addRow([...TITOLI_RESOCONTO_COMPLETO]);
+  header.font = { name: "Calibri", size: 11, bold: true, color: { argb: "FFFFFFFF" } };
+  header.eachCell((cell) => {
+    cell.fill = {
+      type: "pattern",
+      pattern: "solid",
+      fgColor: { argb: "FF1E293B" },
+    };
+    cell.alignment = { vertical: "middle" };
+  });
+  header.height = 22;
+
+  for (let i = 0; i < righe.length; i += 1) {
+    const riga = righe[i];
+    if (!riga) continue;
+    const documento = riga.tipo === "documento";
+    const excelRow = ws.addRow(
+      documento
+        ? [
+            riga.data,
+            riga.tipoDocumento,
+            riga.numeroDocumento,
+            riga.intestazione,
+            riga.imponibile,
+            riga.iva,
+            riga.totale,
+          ]
+        : [null, null, null, riga.etichetta, riga.imponibile, riga.iva, riga.totale]
+    );
+    excelRow.font = { name: "Calibri", size: 11 };
+    for (const col of [5, 6, 7]) {
+      excelRow.getCell(col).numFmt = "#,##0.00";
+      excelRow.getCell(col).alignment = { horizontal: "right" };
+    }
+    if (documento && riga.percorsoPdf) {
+      const cell = excelRow.getCell(3);
+      const testo = riga.numeroDocumento.trim() || riga.percorsoPdf;
+      cell.value = {
+        text: testo,
+        hyperlink: riga.percorsoPdf,
+        tooltip: "Apri il PDF",
+      };
+      cell.font = {
+        name: "Calibri",
+        size: 11,
+        color: { argb: "FF1D4ED8" },
+        underline: true,
+      };
+      const fondo = COLORI_TIPO_DOCUMENTO[riga.kind].fondo.replace("#", "");
+      excelRow.eachCell((cella) => {
+        cella.fill = {
+          type: "pattern",
+          pattern: "solid",
+          fgColor: { argb: `FF${fondo}` },
+        };
+      });
+    }
+    if (riga.tipo === "mese" || riga.tipo === "trimestre") {
+      const scuro = riga.tipo === "trimestre";
+      excelRow.font = {
+        name: "Calibri",
+        size: 11,
+        bold: true,
+        color: { argb: scuro ? "FFFFFFFF" : "FF1E293B" },
+      };
+      excelRow.eachCell((cell) => {
+        cell.fill = {
+          type: "pattern",
+          pattern: "solid",
+          fgColor: { argb: scuro ? "FF0F172A" : "FFFEF3C7" },
+        };
+      });
+    }
+    if (riga.tipo === "mese" && righe[i + 1]?.tipo === "documento") {
+      ws.addRow([]);
+    }
+  }
+
+  const buffer = await wb.xlsx.writeBuffer();
+  return {
+    filename: NOME_RESOCONTO_COMPLETO,
+    bytes: new Uint8Array(buffer),
+  };
 }

@@ -1740,6 +1740,41 @@ export async function auditCommercialistaPaperAction(input: {
   return { success: true };
 }
 
+export async function auditCommercialistaTrimestreAction(input: {
+  anno: number;
+  trimestre: TrimestreNumero;
+  documenti: number;
+  cartella: string;
+}): Promise<{ success: true } | { success: false; error: string }> {
+  const { auth } = await requireAreaAccess("area-fiscale");
+  const parsed = commercialistaSummarySchema.safeParse({
+    anno: input.anno,
+    trimestre: input.trimestre,
+  });
+  if (!parsed.success) {
+    return {
+      success: false,
+      error: parsed.error.issues[0]?.message ?? "Parametri non validi.",
+    };
+  }
+  const cartella = input.cartella.trim().slice(0, 120);
+  await writeAuditLog({
+    entity_type: "commercialista_stampa",
+    entity_id: `trimestre-${parsed.data.anno}-T${parsed.data.trimestre}`,
+    action: "export",
+    actor_id: auth.userId,
+    summary: `Commercialista salva trimestre ${cartella} (${input.documenti} doc)`,
+    payload: {
+      anno: parsed.data.anno,
+      trimestre: parsed.data.trimestre,
+      mode: "salva_trimestre",
+      documenti: input.documenti,
+      cartella,
+    },
+  });
+  return { success: true };
+}
+
 /** Excel dell'elaborazione: anteprima a parte, qui il file da scaricare. */
 export async function scaricaElaborazioneFattureExcelAction(input: {
   kind: CommercialistaRegistroKind;

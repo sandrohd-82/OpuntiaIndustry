@@ -443,3 +443,144 @@ export function righeElaborazioneFatture(
   });
   return out;
 }
+
+/** Colore di riga nel resoconto unico: un fondo per ogni tipo di documento. */
+export const COLORI_TIPO_DOCUMENTO: Record<
+  CommercialistaRegistroKind,
+  { fondo: string; etichetta: string }
+> = {
+  emessa: { fondo: "#D6E6F5", etichetta: "Fattura emessa" },
+  ricevuta: { fondo: "#D9F2D9", etichetta: "Fattura ricevuta" },
+  ddt_emesso: { fondo: "#FDE4C8", etichetta: "DDT emesso" },
+  ddt_ricevuto: { fondo: "#FFF4CC", etichetta: "DDT ricevuto" },
+  nota_emessa: { fondo: "#F8D0D0", etichetta: "Nota di credito emessa" },
+  nota_ricevuta: { fondo: "#E8D8F5", etichetta: "Nota di credito ricevuta" },
+};
+
+const ORDINE_TIPO_RESOCONTO: CommercialistaRegistroKind[] = [
+  "emessa",
+  "ricevuta",
+  "ddt_emesso",
+  "ddt_ricevuto",
+  "nota_emessa",
+  "nota_ricevuta",
+];
+
+export type VoceResocontoCompleto = {
+  kind: CommercialistaRegistroKind;
+  doc: FatturaElaborazioneSorgente;
+  percorsoPdf: string;
+};
+
+export type RigaResocontoCompleto =
+  | {
+      tipo: "documento";
+      kind: CommercialistaRegistroKind;
+      data: string;
+      tipoDocumento: string;
+      numeroDocumento: string;
+      intestazione: string;
+      imponibile: number;
+      iva: number;
+      totale: number;
+      percorsoPdf: string;
+    }
+  | {
+      tipo: "mese" | "trimestre";
+      etichetta: string;
+      imponibile: number;
+      iva: number;
+      totale: number;
+    };
+
+export const TITOLI_RESOCONTO_COMPLETO = [
+  "Data",
+  "Tipo",
+  "Numero documento",
+  "Intestazione",
+  "Imponibile",
+  "IVA",
+  "Totale",
+] as const;
+
+function giornoDocumento(doc: FatturaElaborazioneSorgente): string {
+  return (
+    isoGiorno(doc.classica?.dataDocumento || doc.dataEmissione || doc.model.data) ||
+    ""
+  );
+}
+
+/** Tutti i registri del trimestre, in ordine di data, con il totale di ogni mese. */
+export function righeResocontoCompleto(
+  voci: VoceResocontoCompleto[]
+): RigaResocontoCompleto[] {
+  const ordinate = [...voci].sort((a, b) => {
+    const da = giornoDocumento(a.doc) || "9999-99-99";
+    const db = giornoDocumento(b.doc) || "9999-99-99";
+    if (da !== db) return da < db ? -1 : 1;
+    const ka = ORDINE_TIPO_RESOCONTO.indexOf(a.kind);
+    const kb = ORDINE_TIPO_RESOCONTO.indexOf(b.kind);
+    if (ka !== kb) return ka - kb;
+    return (a.doc.numeroSequenza ?? 999999) - (b.doc.numeroSequenza ?? 999999);
+  });
+
+  const out: RigaResocontoCompleto[] = [];
+  let mese = "";
+  let impMese = 0;
+  let ivaMese = 0;
+  let totMese = 0;
+  let impTutte = 0;
+  let ivaTutte = 0;
+  let totTutte = 0;
+
+  function chiudiMese() {
+    if (!mese) return;
+    out.push({
+      tipo: "mese",
+      etichetta: etichettaMese(mese),
+      imponibile: roundMoney(impMese),
+      iva: roundMoney(ivaMese),
+      totale: roundMoney(totMese),
+    });
+    impMese = 0;
+    ivaMese = 0;
+    totMese = 0;
+  }
+
+  for (const voce of ordinate) {
+    const giorno = giornoDocumento(voce.doc);
+    const chiaveMese = giorno.slice(0, 7) || "senza-data";
+    if (mese && chiaveMese !== mese) chiudiMese();
+    mese = chiaveMese;
+    const importi = importiDi(voce.doc);
+    out.push({
+      tipo: "documento",
+      kind: voce.kind,
+      data: giorno ? dataIt(giorno) : "—",
+      tipoDocumento: COLORI_TIPO_DOCUMENTO[voce.kind].etichetta,
+      numeroDocumento: voce.doc.numeroDocumento || voce.doc.numeroInterno,
+      intestazione: intestazioneDi(voce.doc, voce.kind),
+      imponibile: importi.imponibile,
+      iva: importi.iva,
+      totale: importi.totale,
+      percorsoPdf: voce.percorsoPdf,
+    });
+    impMese += importi.imponibile;
+    ivaMese += importi.iva;
+    totMese += importi.totale;
+    impTutte += importi.imponibile;
+    ivaTutte += importi.iva;
+    totTutte += importi.totale;
+  }
+
+  if (out.length === 0) return out;
+  chiudiMese();
+  out.push({
+    tipo: "trimestre",
+    etichetta: "Totale trimestre",
+    imponibile: roundMoney(impTutte),
+    iva: roundMoney(ivaTutte),
+    totale: roundMoney(totTutte),
+  });
+  return out;
+}

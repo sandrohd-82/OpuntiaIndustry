@@ -18,6 +18,7 @@ import {
   type CommercialistaSummaryResult,
 } from "@/app/actions/commercialista";
 import { CommercialistaElaboraFattureModal } from "@/components/amministrazione/CommercialistaElaboraFattureModal";
+import { CommercialistaElaboraTrimestreModal } from "@/components/amministrazione/CommercialistaElaboraTrimestreModal";
 import { CommercialistaStampaFattureModal } from "@/components/amministrazione/CommercialistaStampaFattureModal";
 import type {
   CommercialistaColonnaTotali,
@@ -384,6 +385,8 @@ export function CommercialistaBoard() {
   const [exportMsg, setExportMsg] = useState<string | null>(null);
   const [savingPeriodo, startSavePeriodo] = useTransition();
   const [exporting, startExport] = useTransition();
+  const [trimestreOpen, setTrimestreOpen] = useState(false);
+  const { canElaboraContabilita } = useSensitiveAuth();
 
   const calendarDefault = useMemo(
     () => dateRangeForTrimestre(anno, trimestre),
@@ -577,6 +580,16 @@ export function CommercialistaBoard() {
           >
             Esporta elenco ricevuti
           </button>
+          {canElaboraContabilita ? (
+            <button
+              type="button"
+              disabled={!ready}
+              onClick={() => setTrimestreOpen(true)}
+              className="rounded-lg bg-[var(--primary)] px-3 py-2 text-sm font-medium text-white disabled:opacity-50"
+            >
+              Elabora trimestre
+            </button>
+          ) : null}
         </div>
         <p className="mt-1 text-[11px] text-[var(--muted)]">
           Default calendario: {formatDateIt(calendarDefault.dal)} –{" "}
@@ -682,6 +695,13 @@ export function CommercialistaBoard() {
             onSequenzaDone={() => void load()}
           />
         </div>
+      ) : null}
+      {trimestreOpen ? (
+        <CommercialistaElaboraTrimestreModal
+          anno={anno}
+          trimestre={trimestre}
+          onClose={() => setTrimestreOpen(false)}
+        />
       ) : null}
     </div>
   );
