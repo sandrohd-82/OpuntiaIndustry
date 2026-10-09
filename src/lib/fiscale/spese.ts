@@ -455,6 +455,29 @@ export type SoggettoPartecipanteOption = {
   etichetta: string;
 };
 
+export type OrigineFatturaProgetto = "emessa" | "ricevuta";
+
+export type FatturaProgettoView = {
+  id: string;
+  origine: OrigineFatturaProgetto;
+  fatturaId: string;
+  numero: string;
+  controparte: string;
+  dataDocumento: string;
+  totale: number;
+};
+
+export type FatturaCercataView = {
+  origine: OrigineFatturaProgetto;
+  fatturaId: string;
+  numero: string;
+  controparte: string;
+  dataDocumento: string;
+  totale: number;
+  giaCollegata: boolean;
+  stessoProgetto: boolean;
+};
+
 export type PartecipanteProgettoView = {
   id: string;
   soggettoTipo: TipoSoggettoPartecipante;

@@ -1,5 +1,6 @@
 "use server";
 
+import { z } from "zod";
 import { writeAuditLog } from "@/lib/audit";
 import { extractPdfText } from "@/lib/amministrazione/bank-pdf-parse";
 import { roundMoney } from "@/lib/amministrazione/fatture";
@@ -18,6 +19,9 @@ import {
   type AnteprimaSpesa,
   type CategoriaSpesa,
   type PagamentoSpesa,
+  type FatturaCercataView,
+  type FatturaProgettoView,
+  type OrigineFatturaProgetto,
   type PartecipanteProgettoView,
   type SoggettoPartecipanteOption,
   type SpesaDocumentoView,
@@ -1043,6 +1047,7 @@ export async function dettaglioProgettoSpesaAction(id: string): Promise<
       collegate: SpesaDocumentoView[];
       libere: SpesaDocumentoView[];
       partecipanti: PartecipanteProgettoView[];
+      fatture: FatturaProgettoView[];
       totaliCategoria: { categoria: CategoriaSpesa; totale: number }[];
     }
   | { success: false; error: string }
@@ -1087,6 +1092,7 @@ export async function dettaglioProgettoSpesaAction(id: string): Promise<
     success: true,
     collegate,
     partecipanti: await leggiPartecipanti(supabase, id),
+    fatture: await leggiFattureProgetto(supabase, id),
     libere: await attachRighe(
       supabase,
       ((libereRows ?? []) as DocRow[]).map((r) => vista(r, new Map()))
@@ -1530,7 +1536,10 @@ export async function contabilizzaSpesaAction(
 
 export async function contabilizzaProgettoSpesaAction(
   id: string
-): Promise<{ success: true; documenti: number } | { success: false; error: string }> {
+): Promise<
+  | { success: true; documenti: number; fattureLasciate: number }
+  | { success: false; error: string }
+> {
   const { auth } = await requireAreaAccess("area-fiscale");
   const supabase = await createClient();
   const { data: progetto } = await supabase
@@ -1552,7 +1561,11 @@ export async function contabilizzaProgettoSpesaAction(
   if (error) return { success: false, error: error.message };
   const aperti = docs ?? [];
   if (aperti.length === 0) {
-    return { success: false, error: "Non ci sono spese registrate da contabilizzare." };
+    return {
+      success: false,
+      error:
+        "Non ci sono spese registrate da contabilizzare. Le fatture collegate restano nello stato SDI.",
+    };
   }
   const nowIso = new Date().toISOString();
   for (const doc of aperti) {
@@ -1578,6 +1591,12 @@ export async function contabilizzaProgettoSpesaAction(
     })
     .eq("id", id);
   if (prErr) return { success: false, error: prErr.message };
+  const { data: fattureLink } = await supabase
+    .from("spese_progetti_fatture")
+    .select("id, origine, fattura_emessa_id, fattura_ricevuta_id")
+    .eq("progetto_id", id)
+    .is("deleted_at", null);
+  const fattureLasciate = fattureLink ?? [];
   await writeAuditLog({
     entity_type: "spese_progetti",
     entity_id: id,
@@ -1588,9 +1607,17 @@ export async function contabilizzaProgettoSpesaAction(
       documenti: aperti.map((d) => d.id),
       da: "approvato",
       a: "chiuso",
+      fatture_non_contabilizzate: fattureLasciate.map((row) => ({
+        origine: row.origine,
+        fattura_id: row.fattura_emessa_id ?? row.fattura_ricevuta_id,
+      })),
     },
   });
-  return { success: true, documenti: aperti.length };
+  return {
+    success: true,
+    documenti: aperti.length,
+    fattureLasciate: fattureLasciate.length,
+  };
 }
 
 export async function annullaSpesaAction(
@@ -1648,4 +1675,478 @@ export async function urlAllegatoSpesaAction(
     return { success: false, error: signed.error?.message ?? "Apertura file non riuscita." };
   }
   return { success: true, url: signed.data.signedUrl };
+}
+
+type DbSpese = Awaited<ReturnType<typeof createClient>>;
+
+function primoTesto(...values: unknown[]): string {
+  for (const value of values) {
+    const text = String(value ?? "").trim();
+    if (text) return text;
+  }
+  return "";
+}
+
+function euroFattura(value: unknown): number {
+  const amount = Number(value);
+  return Number.isFinite(amount) ? amount : 0;
+}
+
+function testoRicercaFatture(raw: string): string {
+  return raw
+    .replace(/[%_,()"\\]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 80);
+}
+
+function numeroEmessa(row: {
+  numero_fattura?: string | null;
+  numero_interno?: string | null;
+  numero_documento_esterno?: string | null;
+}): string {
+  return (
+    primoTesto(row.numero_fattura, row.numero_interno, row.numero_documento_esterno) ||
+    "Senza numero"
+  );
+}
+
+function numeroRicevuta(row: {
+  numero_interno?: string | null;
+  numero_documento_esterno?: string | null;
+}): string {
+  return primoTesto(row.numero_interno, row.numero_documento_esterno) || "Senza numero";
+}
+
+async function leggiFattureProgetto(
+  supabase: DbSpese,
+  progettoId: string
+): Promise<FatturaProgettoView[]> {
+  const { data, error } = await supabase
+    .from("spese_progetti_fatture")
+    .select(
+      "id, origine, fattura_emessa_id, fattura_ricevuta_id, numero, controparte, data_documento, totale"
+    )
+    .eq("progetto_id", progettoId)
+    .is("deleted_at", null)
+    .order("data_documento", { ascending: false });
+  if (error || !data) return [];
+  const emesseIds = data
+    .map((row) => row.fattura_emessa_id)
+    .filter((id): id is string => Boolean(id));
+  const ricevuteIds = data
+    .map((row) => row.fattura_ricevuta_id)
+    .filter((id): id is string => Boolean(id));
+  const [emesse, ricevute] = await Promise.all([
+    emesseIds.length > 0
+      ? supabase
+          .from("fatture_emesse")
+          .select(
+            "id, numero_fattura, numero_interno, numero_documento_esterno, cliente_ragione_sociale, data_emissione, totale"
+          )
+          .in("id", emesseIds)
+      : Promise.resolve({ data: [] as Array<Record<string, unknown>> }),
+    ricevuteIds.length > 0
+      ? supabase
+          .from("fatture_ricevute")
+          .select(
+            "id, numero_interno, numero_documento_esterno, fornitore_ragione_sociale, data_emissione, totale"
+          )
+          .in("id", ricevuteIds)
+      : Promise.resolve({ data: [] as Array<Record<string, unknown>> }),
+  ]);
+  const emessaById = new Map(
+    (emesse.data ?? []).map((row) => [String(row.id), row])
+  );
+  const ricevutaById = new Map(
+    (ricevute.data ?? []).map((row) => [String(row.id), row])
+  );
+  return data.map((row) => {
+    const emessa = row.fattura_emessa_id
+      ? emessaById.get(String(row.fattura_emessa_id))
+      : undefined;
+    const ricevuta = row.fattura_ricevuta_id
+      ? ricevutaById.get(String(row.fattura_ricevuta_id))
+      : undefined;
+    const origine = row.origine === "ricevuta" ? "ricevuta" : "emessa";
+    if (emessa) {
+      return {
+        id: String(row.id),
+        origine,
+        fatturaId: String(row.fattura_emessa_id),
+        numero: numeroEmessa(emessa),
+        controparte: primoTesto(emessa.cliente_ragione_sociale) || String(row.controparte ?? ""),
+        dataDocumento: String(emessa.data_emissione ?? row.data_documento ?? "").slice(0, 10),
+        totale: euroFattura(emessa.totale ?? row.totale),
+      };
+    }
+    if (ricevuta) {
+      return {
+        id: String(row.id),
+        origine,
+        fatturaId: String(row.fattura_ricevuta_id),
+        numero: numeroRicevuta(ricevuta),
+        controparte:
+          primoTesto(ricevuta.fornitore_ragione_sociale) || String(row.controparte ?? ""),
+        dataDocumento: String(ricevuta.data_emissione ?? row.data_documento ?? "").slice(0, 10),
+        totale: euroFattura(ricevuta.totale ?? row.totale),
+      };
+    }
+    return {
+      id: String(row.id),
+      origine,
+      fatturaId: String(row.fattura_emessa_id ?? row.fattura_ricevuta_id ?? ""),
+      numero: primoTesto(row.numero) || "Senza numero",
+      controparte: String(row.controparte ?? ""),
+      dataDocumento: row.data_documento ? String(row.data_documento).slice(0, 10) : "",
+      totale: euroFattura(row.totale),
+    };
+  });
+}
+
+const cercaFattureSchema = z.object({
+  progettoId: z.string().uuid(),
+  query: z.string().trim().max(80).optional().default(""),
+});
+
+const collegaFattureSchema = z.object({
+  progettoId: z.string().uuid(),
+  voci: z
+    .array(
+      z.object({
+        origine: z.enum(["emessa", "ricevuta"]),
+        fatturaId: z.string().uuid(),
+      })
+    )
+    .min(1)
+    .max(40),
+});
+
+export async function cercaFattureProgettoAction(raw: {
+  progettoId: string;
+  query?: string;
+}): Promise<
+  { success: true; fatture: FatturaCercataView[] } | { success: false; error: string }
+> {
+  await requireAreaAccess("area-fiscale");
+  const parsed = cercaFattureSchema.safeParse(raw);
+  if (!parsed.success) return { success: false, error: "Ricerca non valida." };
+  const supabase = await createClient();
+  const { data: progetto } = await supabase
+    .from("spese_progetti")
+    .select("id")
+    .eq("id", parsed.data.progettoId)
+    .is("deleted_at", null)
+    .maybeSingle();
+  if (!progetto) return { success: false, error: "Progetto non trovato." };
+  const testo = testoRicercaFatture(parsed.data.query);
+  const like = testo ? `"%${testo}%"` : "";
+  let emesseQuery = supabase
+    .from("fatture_emesse")
+    .select(
+      "id, numero_fattura, numero_interno, numero_documento_esterno, cliente_ragione_sociale, data_emissione, totale"
+    )
+    .eq("tipo_documento", "fattura")
+    .is("deleted_at", null)
+    .order("data_emissione", { ascending: false })
+    .limit(60);
+  let ricevuteQuery = supabase
+    .from("fatture_ricevute")
+    .select(
+      "id, numero_interno, numero_documento_esterno, fornitore_ragione_sociale, data_emissione, totale"
+    )
+    .is("deleted_at", null)
+    .order("data_emissione", { ascending: false })
+    .limit(60);
+  if (like) {
+    emesseQuery = emesseQuery.or(
+      `numero_fattura.ilike.${like},numero_interno.ilike.${like},numero_documento_esterno.ilike.${like},cliente_ragione_sociale.ilike.${like}`
+    );
+    ricevuteQuery = ricevuteQuery.or(
+      `numero_interno.ilike.${like},numero_documento_esterno.ilike.${like},fornitore_ragione_sociale.ilike.${like}`
+    );
+  }
+  const [emesse, ricevute] = await Promise.all([emesseQuery, ricevuteQuery]);
+  if (emesse.error) return { success: false, error: emesse.error.message };
+  if (ricevute.error) return { success: false, error: ricevute.error.message };
+  const emesseIds = (emesse.data ?? []).map((row) => String(row.id));
+  const ricevuteIds = (ricevute.data ?? []).map((row) => String(row.id));
+  const [linkEmesse, linkRicevute] = await Promise.all([
+    emesseIds.length > 0
+      ? supabase
+          .from("spese_progetti_fatture")
+          .select("progetto_id, fattura_emessa_id")
+          .in("fattura_emessa_id", emesseIds)
+          .is("deleted_at", null)
+      : Promise.resolve({ data: [] as Array<{ progetto_id: string; fattura_emessa_id: string }> }),
+    ricevuteIds.length > 0
+      ? supabase
+          .from("spese_progetti_fatture")
+          .select("progetto_id, fattura_ricevuta_id")
+          .in("fattura_ricevuta_id", ricevuteIds)
+          .is("deleted_at", null)
+      : Promise.resolve({
+          data: [] as Array<{ progetto_id: string; fattura_ricevuta_id: string }>,
+        }),
+  ]);
+  const progettoEmessa = new Map(
+    (linkEmesse.data ?? []).map((row) => [
+      String(row.fattura_emessa_id),
+      String(row.progetto_id),
+    ])
+  );
+  const progettoRicevuta = new Map(
+    (linkRicevute.data ?? []).map((row) => [
+      String(row.fattura_ricevuta_id),
+      String(row.progetto_id),
+    ])
+  );
+  const risultato: FatturaCercataView[] = [
+    ...(emesse.data ?? []).map((row) => {
+      const occupata = progettoEmessa.get(String(row.id));
+      return {
+        origine: "emessa" as const,
+        fatturaId: String(row.id),
+        numero: numeroEmessa(row),
+        controparte: primoTesto(row.cliente_ragione_sociale),
+        dataDocumento: String(row.data_emissione ?? "").slice(0, 10),
+        totale: euroFattura(row.totale),
+        giaCollegata: Boolean(occupata),
+        stessoProgetto: occupata === parsed.data.progettoId,
+      };
+    }),
+    ...(ricevute.data ?? []).map((row) => {
+      const occupata = progettoRicevuta.get(String(row.id));
+      return {
+        origine: "ricevuta" as const,
+        fatturaId: String(row.id),
+        numero: numeroRicevuta(row),
+        controparte: primoTesto(row.fornitore_ragione_sociale),
+        dataDocumento: String(row.data_emissione ?? "").slice(0, 10),
+        totale: euroFattura(row.totale),
+        giaCollegata: Boolean(occupata),
+        stessoProgetto: occupata === parsed.data.progettoId,
+      };
+    }),
+  ];
+  return { success: true, fatture: risultato };
+}
+
+export async function collegaFattureProgettoAction(raw: {
+  progettoId: string;
+  voci: { origine: OrigineFatturaProgetto; fatturaId: string }[];
+}): Promise<{ success: true; collegate: number } | { success: false; error: string }> {
+  const { auth } = await requireAreaAccess("area-fiscale");
+  const parsed = collegaFattureSchema.safeParse(raw);
+  if (!parsed.success) {
+    return { success: false, error: "Seleziona almeno una fattura." };
+  }
+  const supabase = await createClient();
+  const { data: progetto } = await supabase
+    .from("spese_progetti")
+    .select("id, titolo, documento_stato, versione")
+    .eq("id", parsed.data.progettoId)
+    .is("deleted_at", null)
+    .maybeSingle();
+  if (!progetto) return { success: false, error: "Progetto non trovato." };
+  if (progetto.documento_stato === "chiuso") {
+    return { success: false, error: "Il progetto è chiuso." };
+  }
+  const viste = new Map<string, { origine: OrigineFatturaProgetto; fatturaId: string }>();
+  for (const voce of parsed.data.voci) {
+    viste.set(`${voce.origine}:${voce.fatturaId}`, voce);
+  }
+  const daCollegare = [...viste.values()];
+  let collegate = 0;
+  const inserite: { origine: OrigineFatturaProgetto; fatturaId: string; numero: string }[] =
+    [];
+  for (const voce of daCollegare) {
+    const messa = await inserisciFatturaProgetto(supabase, auth.userId, String(progetto.id), voce);
+    if (!messa.success) return messa;
+    if (messa.inserita) {
+      collegate += 1;
+      inserite.push({
+        origine: voce.origine,
+        fatturaId: voce.fatturaId,
+        numero: messa.numero,
+      });
+    }
+  }
+  if (collegate > 0) {
+    await supabase
+      .from("spese_progetti")
+      .update({
+        versione: Number(progetto.versione) + 1,
+        updated_by: auth.userId,
+      })
+      .eq("id", progetto.id)
+      .neq("documento_stato", "chiuso");
+    await writeAuditLog({
+      entity_type: "spese_progetti",
+      entity_id: String(progetto.id),
+      action: "update",
+      actor_id: auth.userId,
+      summary: `Fatture collegate a ${progetto.titolo}`,
+      payload: { fatture: inserite },
+    });
+  }
+  return { success: true, collegate };
+}
+
+async function inserisciFatturaProgetto(
+  supabase: DbSpese,
+  userId: string,
+  progettoId: string,
+  voce: { origine: OrigineFatturaProgetto; fatturaId: string }
+): Promise<
+  | { success: true; inserita: boolean; numero: string }
+  | { success: false; error: string }
+> {
+  if (voce.origine === "emessa") {
+    const { data: fattura } = await supabase
+      .from("fatture_emesse")
+      .select(
+        "id, tipo_documento, numero_fattura, numero_interno, numero_documento_esterno, cliente_ragione_sociale, data_emissione, totale"
+      )
+      .eq("id", voce.fatturaId)
+      .is("deleted_at", null)
+      .maybeSingle();
+    if (!fattura || fattura.tipo_documento !== "fattura") {
+      return { success: false, error: "Fattura emessa non trovata." };
+    }
+    const { data: occupata } = await supabase
+      .from("spese_progetti_fatture")
+      .select("id, progetto_id")
+      .eq("fattura_emessa_id", voce.fatturaId)
+      .is("deleted_at", null)
+      .maybeSingle();
+    if (occupata) {
+      if (String(occupata.progetto_id) === progettoId) {
+        return { success: true, inserita: false, numero: numeroEmessa(fattura) };
+      }
+      return {
+        success: false,
+        error: `La fattura ${numeroEmessa(fattura)} è già collegata a un altro progetto.`,
+      };
+    }
+    const { error } = await supabase.from("spese_progetti_fatture").insert({
+      progetto_id: progettoId,
+      origine: "emessa",
+      fattura_emessa_id: voce.fatturaId,
+      numero: numeroEmessa(fattura),
+      controparte: primoTesto(fattura.cliente_ragione_sociale),
+      data_documento: fattura.data_emissione,
+      totale: euroFattura(fattura.totale),
+      created_by: userId,
+      updated_by: userId,
+    });
+    if (error) {
+      return { success: false, error: "Collegamento fattura non riuscito." };
+    }
+    return { success: true, inserita: true, numero: numeroEmessa(fattura) };
+  }
+  const { data: fattura } = await supabase
+    .from("fatture_ricevute")
+    .select(
+      "id, numero_interno, numero_documento_esterno, fornitore_ragione_sociale, data_emissione, totale"
+    )
+    .eq("id", voce.fatturaId)
+    .is("deleted_at", null)
+    .maybeSingle();
+  if (!fattura) return { success: false, error: "Fattura ricevuta non trovata." };
+  const { data: occupata } = await supabase
+    .from("spese_progetti_fatture")
+    .select("id, progetto_id")
+    .eq("fattura_ricevuta_id", voce.fatturaId)
+    .is("deleted_at", null)
+    .maybeSingle();
+  if (occupata) {
+    if (String(occupata.progetto_id) === progettoId) {
+      return { success: true, inserita: false, numero: numeroRicevuta(fattura) };
+    }
+    return {
+      success: false,
+      error: `La fattura ${numeroRicevuta(fattura)} è già collegata a un altro progetto.`,
+    };
+  }
+  const { error } = await supabase.from("spese_progetti_fatture").insert({
+    progetto_id: progettoId,
+    origine: "ricevuta",
+    fattura_ricevuta_id: voce.fatturaId,
+    numero: numeroRicevuta(fattura),
+    controparte: primoTesto(fattura.fornitore_ragione_sociale),
+    data_documento: fattura.data_emissione,
+    totale: euroFattura(fattura.totale),
+    created_by: userId,
+    updated_by: userId,
+  });
+  if (error) {
+    return { success: false, error: "Collegamento fattura non riuscito." };
+  }
+  return { success: true, inserita: true, numero: numeroRicevuta(fattura) };
+}
+
+export async function scollegaFatturaProgettoAction(input: {
+  progettoId: string;
+  collegamentoId: string;
+}): Promise<{ success: true } | { success: false; error: string }> {
+  const { auth } = await requireAreaAccess("area-fiscale");
+  const ids = z
+    .object({
+      progettoId: z.string().uuid(),
+      collegamentoId: z.string().uuid(),
+    })
+    .safeParse(input);
+  if (!ids.success) return { success: false, error: "Collegamento non valido." };
+  const supabase = await createClient();
+  const { data: progetto } = await supabase
+    .from("spese_progetti")
+    .select("id, titolo, documento_stato, versione")
+    .eq("id", ids.data.progettoId)
+    .is("deleted_at", null)
+    .maybeSingle();
+  if (!progetto) return { success: false, error: "Progetto non trovato." };
+  if (progetto.documento_stato === "chiuso") {
+    return { success: false, error: "Il progetto è chiuso." };
+  }
+  const { data: row } = await supabase
+    .from("spese_progetti_fatture")
+    .select("id, origine, numero, fattura_emessa_id, fattura_ricevuta_id")
+    .eq("id", ids.data.collegamentoId)
+    .eq("progetto_id", ids.data.progettoId)
+    .is("deleted_at", null)
+    .maybeSingle();
+  if (!row) return { success: false, error: "Fattura non collegata a questo progetto." };
+  const nowIso = new Date().toISOString();
+  const { error } = await supabase
+    .from("spese_progetti_fatture")
+    .update({
+      deleted_at: nowIso,
+      deleted_by: auth.userId,
+      updated_by: auth.userId,
+    })
+    .eq("id", row.id)
+    .is("deleted_at", null);
+  if (error) return { success: false, error: "Scollegamento non riuscito." };
+  await supabase
+    .from("spese_progetti")
+    .update({
+      versione: Number(progetto.versione) + 1,
+      updated_by: auth.userId,
+    })
+    .eq("id", progetto.id)
+    .neq("documento_stato", "chiuso");
+  await writeAuditLog({
+    entity_type: "spese_progetti",
+    entity_id: String(progetto.id),
+    action: "update",
+    actor_id: auth.userId,
+    summary: `Fattura scollegata da ${progetto.titolo}: ${row.numero}`,
+    payload: {
+      collegamento_id: row.id,
+      origine: row.origine,
+      fattura_id: row.fattura_emessa_id ?? row.fattura_ricevuta_id,
+    },
+  });
+  return { success: true };
 }

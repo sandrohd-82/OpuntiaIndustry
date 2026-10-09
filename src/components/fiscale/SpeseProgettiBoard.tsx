@@ -6,6 +6,7 @@ import {
   approvaProgettoSpesaAction,
   collegaSpeseProgettoAction,
   contabilizzaProgettoSpesaAction,
+  scollegaFatturaProgettoAction,
   creaProgettoSpesaAction,
   dettaglioProgettoSpesaAction,
   elencoSoggettiPartecipantiSpesaAction,
@@ -14,6 +15,7 @@ import {
   urlAllegatoSpesaAction,
 } from "@/app/actions/spese";
 import { formatDateIt, formatEuro } from "@/lib/amministrazione/fatture";
+import { CollegaFattureProgetto } from "@/components/fiscale/CollegaFattureProgetto";
 import {
   PartecipantiProgettoCampo,
   type VocePartecipante,
@@ -24,6 +26,7 @@ import {
   LABEL_TIPO_PROGETTO,
   errorePeriodoPartecipante,
   type SoggettoPartecipanteOption,
+  type FatturaProgettoView,
   type SpesaDocumentoView,
   type SpesaProgettoView,
   type TipoProgettoSpesa,
@@ -180,6 +183,8 @@ export function SpeseProgettiBoard() {
   const [libere, setLibere] = useState<SpesaDocumentoView[]>([]);
   const [totali, setTotali] = useState<{ categoria: string; totale: number }[]>([]);
   const [partecipanti, setPartecipanti] = useState<VocePartecipante[]>([]);
+  const [fatture, setFatture] = useState<FatturaProgettoView[]>([]);
+  const [fattureAperte, setFattureAperte] = useState(false);
   const [bozzaPartecipanti, setBozzaPartecipanti] = useState<VocePartecipante[]>([]);
   const [soggetti, setSoggetti] = useState<SoggettoPartecipanteOption[]>([]);
   const [selezionate, setSelezionate] = useState<string[]>([]);
@@ -217,6 +222,7 @@ export function SpeseProgettiBoard() {
     setCollegate(res.collegate);
     setLibere(res.libere);
     setTotali(res.totaliCategoria);
+    setFatture(res.fatture);
     setPartecipanti(
       res.partecipanti.map((persona) => ({
         chiave: persona.id,
@@ -325,7 +331,11 @@ export function SpeseProgettiBoard() {
         setErrore(res.error);
         return;
       }
-      setMsg(`Pacchetto contabilizzato: ${res.documenti} documenti.`);
+      setMsg(
+        res.fattureLasciate > 0
+          ? `Pacchetto contabilizzato: ${res.documenti} spese. ${res.fattureLasciate} fatture collegate restano nello stato SDI.`
+          : `Pacchetto contabilizzato: ${res.documenti} documenti.`
+      );
       const elenco = await listProgettiSpesaAction();
       if (elenco.success) setProgetti(elenco.progetti);
       await caricaDettaglio(scelto);
@@ -545,6 +555,68 @@ export function SpeseProgettiBoard() {
 
             <div className="rounded-xl border border-[var(--border)] bg-white p-4">
               <div className="flex items-center justify-between gap-2">
+                <h3 className="text-sm font-medium">Fatture collegate</h3>
+                {progetto.documentoStato !== "chiuso" ? (
+                  <button
+                    type="button"
+                    disabled={pending}
+                    onClick={() => setFattureAperte(true)}
+                    className="rounded bg-[var(--primary)] px-2 py-1 text-xs text-white disabled:opacity-40"
+                  >
+                    Collega fatture
+                  </button>
+                ) : null}
+              </div>
+              <p className="mt-1 text-xs text-slate-500">
+                Già registrate in area fiscale. L&apos;invio del pacchetto non le contabilizza.
+              </p>
+              {fatture.length === 0 ? (
+                <p className="mt-2 text-sm text-slate-500">Nessuna fattura collegata.</p>
+              ) : (
+                <ul className="mt-2 divide-y divide-slate-100 text-sm">
+                  {fatture.map((voce) => (
+                    <li key={voce.id} className="flex items-center gap-2 py-2">
+                      <span className="min-w-0 flex-1">
+                        {voce.origine === "emessa" ? "Emessa" : "Ricevuta"} · {voce.numero}
+                        <span className="block text-xs text-[var(--muted)]">
+                          {voce.controparte || "—"}
+                          {voce.dataDocumento ? ` · ${formatDateIt(voce.dataDocumento)}` : ""}
+                        </span>
+                      </span>
+                      <span className="tabular-nums">{formatEuro(voce.totale)}</span>
+                      {progetto.documentoStato !== "chiuso" ? (
+                        <button
+                          type="button"
+                          disabled={pending}
+                          onClick={() => {
+                            if (!scelto) return;
+                            setErrore(null);
+                            start(async () => {
+                              const res = await scollegaFatturaProgettoAction({
+                                progettoId: scelto,
+                                collegamentoId: voce.id,
+                              });
+                              if (!res.success) {
+                                setErrore(res.error);
+                                return;
+                              }
+                              setMsg("Fattura scollegata.");
+                              await caricaDettaglio(scelto);
+                            });
+                          }}
+                          className="rounded border border-slate-300 px-2 py-1 text-xs disabled:opacity-40"
+                        >
+                          Scollega
+                        </button>
+                      ) : null}
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+
+            <div className="rounded-xl border border-[var(--border)] bg-white p-4">
+              <div className="flex items-center justify-between gap-2">
                 <h3 className="text-sm font-medium">Spese del progetto</h3>
                 {progetto.documentoStato !== "chiuso" ? (
                   <button
@@ -613,6 +685,16 @@ export function SpeseProgettiBoard() {
           </>
         )}
       </section>
+      {fattureAperte && scelto ? (
+        <CollegaFattureProgetto
+          progettoId={scelto}
+          onClose={() => setFattureAperte(false)}
+          onCollegate={() => {
+            setMsg("Fatture collegate. Lo stato SDI non è stato modificato.");
+            void caricaDettaglio(scelto);
+          }}
+        />
+      ) : null}
     </div>
   );
 }
