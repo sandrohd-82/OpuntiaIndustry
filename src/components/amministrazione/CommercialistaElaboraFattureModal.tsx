@@ -251,37 +251,65 @@ export function CommercialistaElaboraFattureModal({
                   </tr>
                 </thead>
                 <tbody>
-                  {righeUscita.map((riga, index) => (
-                    <tr
-                      key={`${riga.nomeFile}-${index}`}
-                      className={
-                        riga.notaCredito
-                          ? "border-t border-red-100 bg-[#FEECEC]"
-                          : "border-t border-slate-200"
-                      }
-                    >
-                      <td className="px-3 py-1.5 tabular-nums">
-                        {riga.numeroProgressivo ?? "—"}
-                      </td>
-                      <td className="px-3 py-1.5 whitespace-nowrap">{riga.tipoDocumento}</td>
-                      <td className="px-3 py-1.5 whitespace-nowrap">{riga.numeroDocumento}</td>
-                      <td className="px-3 py-1.5 whitespace-nowrap">{riga.data}</td>
-                      <td className="px-3 py-1.5">{riga.intestazione}</td>
-                      <td className="px-3 py-1.5 text-right tabular-nums">
-                        {formatEuro(riga.imponibile)}
-                      </td>
-                      <td className="px-3 py-1.5 text-right tabular-nums">
-                        {formatEuro(riga.iva)}
-                      </td>
-                      <td className="px-3 py-1.5 text-right tabular-nums">
-                        {formatEuro(riga.totale)}
-                      </td>
-                      <td className="px-3 py-1.5 text-center">{riga.nazione}</td>
-                      <td className="px-3 py-1.5 text-center font-medium">
-                        {riga.beniStrumentali}
-                      </td>
-                    </tr>
-                  ))}
+                  {righeUscita.map((riga, index) =>
+                    riga.tipo === "documento" ? (
+                      <tr
+                        key={`${riga.nomeFile}-${index}`}
+                        className={
+                          riga.notaCredito
+                            ? "border-t border-red-100 bg-[#FEECEC]"
+                            : "border-t border-slate-200"
+                        }
+                      >
+                        <td className="px-3 py-1.5 tabular-nums">
+                          {riga.numeroProgressivo ?? "—"}
+                        </td>
+                        <td className="px-3 py-1.5 whitespace-nowrap">{riga.tipoDocumento}</td>
+                        <td className="px-3 py-1.5 whitespace-nowrap">{riga.numeroDocumento}</td>
+                        <td className="px-3 py-1.5 whitespace-nowrap">{riga.data}</td>
+                        <td className="px-3 py-1.5">{riga.intestazione}</td>
+                        <td className="px-3 py-1.5 text-right tabular-nums">
+                          {formatEuro(riga.imponibile)}
+                        </td>
+                        <td className="px-3 py-1.5 text-right tabular-nums">
+                          {formatEuro(riga.iva)}
+                        </td>
+                        <td className="px-3 py-1.5 text-right tabular-nums">
+                          {formatEuro(riga.totale)}
+                        </td>
+                        <td className="px-3 py-1.5 text-center">{riga.nazione}</td>
+                        <td className="px-3 py-1.5 text-center font-medium">
+                          {riga.beniStrumentali}
+                        </td>
+                      </tr>
+                    ) : (
+                      <tr
+                        key={`t-${index}`}
+                        className={
+                          riga.tipo === "trimestre"
+                            ? "border-t border-slate-800 bg-slate-900 font-semibold text-white"
+                            : "border-t border-amber-200 bg-amber-50 font-semibold text-slate-900"
+                        }
+                      >
+                        <td className="px-3 py-2" />
+                        <td className="px-3 py-2" />
+                        <td className="px-3 py-2" />
+                        <td className="px-3 py-2" />
+                        <td className="px-3 py-2">{riga.etichetta}</td>
+                        <td className="px-3 py-2 text-right tabular-nums">
+                          {formatEuro(riga.imponibile)}
+                        </td>
+                        <td className="px-3 py-2 text-right tabular-nums">
+                          {formatEuro(riga.iva)}
+                        </td>
+                        <td className="px-3 py-2 text-right tabular-nums">
+                          {formatEuro(riga.totale)}
+                        </td>
+                        <td className="px-3 py-2" />
+                        <td className="px-3 py-2" />
+                      </tr>
+                    )
+                  )}
                 </tbody>
               </table>
             </div>

@@ -198,18 +198,23 @@ export async function buildUscitaCartellaXlsx(input: {
   });
   header.height = 22;
   for (const riga of righe) {
-    const excelRow = ws.addRow([
-      riga.numeroProgressivo,
-      riga.tipoDocumento,
-      riga.numeroDocumento,
-      riga.data,
-      riga.intestazione,
-      riga.imponibile,
-      riga.iva,
-      riga.totale,
-      riga.nazione,
-      riga.beniStrumentali,
-    ]);
+    const documento = riga.tipo === "documento";
+    const excelRow = ws.addRow(
+      documento
+        ? [
+            riga.numeroProgressivo,
+            riga.tipoDocumento,
+            riga.numeroDocumento,
+            riga.data,
+            riga.intestazione,
+            riga.imponibile,
+            riga.iva,
+            riga.totale,
+            riga.nazione,
+            riga.beniStrumentali,
+          ]
+        : [null, null, null, null, riga.etichetta, riga.imponibile, riga.iva, riga.totale, null, null]
+    );
     excelRow.font = { name: "Calibri", size: 11 };
     for (const col of [6, 7, 8]) {
       excelRow.getCell(col).numFmt = "#,##0.00";
@@ -217,7 +222,7 @@ export async function buildUscitaCartellaXlsx(input: {
     }
     excelRow.getCell(9).alignment = { horizontal: "center" };
     excelRow.getCell(10).alignment = { horizontal: "center" };
-    if (riga.nomeFile && riga.numeroDocumento) {
+    if (documento && riga.nomeFile && riga.numeroDocumento) {
       const cell = excelRow.getCell(3);
       cell.value = {
         text: riga.numeroDocumento,
@@ -231,12 +236,28 @@ export async function buildUscitaCartellaXlsx(input: {
         underline: true,
       };
     }
-    if (riga.notaCredito) {
+    if (documento && riga.notaCredito) {
       excelRow.eachCell((cell) => {
         cell.fill = {
           type: "pattern",
           pattern: "solid",
           fgColor: { argb: "FFFEECEC" },
+        };
+      });
+    }
+    if (riga.tipo === "mese" || riga.tipo === "trimestre") {
+      const scuro = riga.tipo === "trimestre";
+      excelRow.font = {
+        name: "Calibri",
+        size: 11,
+        bold: true,
+        color: { argb: scuro ? "FFFFFFFF" : "FF1E293B" },
+      };
+      excelRow.eachCell((cell) => {
+        cell.fill = {
+          type: "pattern",
+          pattern: "solid",
+          fgColor: { argb: scuro ? "FF0F172A" : "FFFEF3C7" },
         };
       });
     }

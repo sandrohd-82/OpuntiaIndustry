@@ -111,20 +111,29 @@ export const TITOLI_USCITA_EXCEL = [
   "Beni strumentali",
 ] as const;
 
-export type RigaCartellaUscita = {
-  numeroProgressivo: number | null;
-  tipoDocumento: string;
-  nomeFile: string;
-  numeroDocumento: string;
-  data: string;
-  intestazione: string;
-  imponibile: number;
-  iva: number;
-  totale: number;
-  nazione: string;
-  beniStrumentali: "SI" | "NO";
-  notaCredito: boolean;
-};
+export type RigaCartellaUscita =
+  | {
+      tipo: "documento";
+      numeroProgressivo: number | null;
+      tipoDocumento: string;
+      nomeFile: string;
+      numeroDocumento: string;
+      data: string;
+      intestazione: string;
+      imponibile: number;
+      iva: number;
+      totale: number;
+      nazione: string;
+      beniStrumentali: "SI" | "NO";
+      notaCredito: boolean;
+    }
+  | {
+      tipo: "mese" | "trimestre";
+      etichetta: string;
+      imponibile: number;
+      iva: number;
+      totale: number;
+    };
 
 export type RigaElaborazioneExcel =
   | {
@@ -271,12 +280,40 @@ export function righeCartellaUscita(
     if (da !== db) return da < db ? -1 : 1;
     return (a.numeroProgressivoAnno ?? 999999) - (b.numeroProgressivoAnno ?? 999999);
   });
-  return ordinate.map((doc) => {
+
+  const out: RigaCartellaUscita[] = [];
+  let mese = "";
+  let impMese = 0;
+  let ivaMese = 0;
+  let totMese = 0;
+  let impTutte = 0;
+  let ivaTutte = 0;
+  let totTutte = 0;
+
+  function chiudiMese() {
+    if (!mese) return;
+    out.push({
+      tipo: "mese",
+      etichetta: etichettaMese(mese),
+      imponibile: roundMoney(impMese),
+      iva: roundMoney(ivaMese),
+      totale: roundMoney(totMese),
+    });
+    impMese = 0;
+    ivaMese = 0;
+    totMese = 0;
+  }
+
+  for (const doc of ordinate) {
     const giorno =
       isoGiorno(doc.classica?.dataDocumento || doc.dataEmissione || doc.model.data) ||
       "";
+    const chiaveMese = giorno.slice(0, 7) || "senza-data";
+    if (mese && chiaveMese !== mese) chiudiMese();
+    mese = chiaveMese;
     const importi = importiDi(doc);
-    return {
+    out.push({
+      tipo: "documento",
       numeroProgressivo: doc.numeroProgressivoAnno ?? null,
       tipoDocumento: tipoDocumentoUscita(doc, kind),
       nomeFile: nomePerDoc.get(doc) ?? "",
@@ -289,11 +326,28 @@ export function righeCartellaUscita(
       nazione: codiceDestinazione(doc, kind),
       beniStrumentali: doc.beneAmmortizzabile === "SI" ? "SI" : "NO",
       notaCredito: doc.notaCredito,
-    };
+    });
+    impMese += importi.imponibile;
+    ivaMese += importi.iva;
+    totMese += importi.totale;
+    impTutte += importi.imponibile;
+    ivaTutte += importi.iva;
+    totTutte += importi.totale;
+  }
+
+  if (out.length === 0) return out;
+  chiudiMese();
+  out.push({
+    tipo: "trimestre",
+    etichetta: "Totale trimestre",
+    imponibile: roundMoney(impTutte),
+    iva: roundMoney(ivaTutte),
+    totale: roundMoney(totTutte),
   });
+  return out;
 }
 
-/** Elenco ordinato per data, con il totale di ogni mese e il totale generale. */
+/** Elenco ordinato per data, con il totale di ogni mese e il totale del trimestre. */
 export function righeElaborazioneFatture(
   docs: FatturaElaborazioneSorgente[],
   kind: CommercialistaRegistroKind
@@ -382,7 +436,7 @@ export function righeElaborazioneFatture(
   chiudiMese();
   out.push({
     tipo: "generale",
-    etichetta: "Totale generale",
+    etichetta: "Totale trimestre",
     imponibile: roundMoney(impTutte),
     iva: roundMoney(ivaTutte),
     totale: roundMoney(totTutte),
