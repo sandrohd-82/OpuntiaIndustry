@@ -31,9 +31,8 @@ export function nomePdfFatturaCommercialista(input: {
 }
 
 /**
- * Entrata: n. provvisorio, data e numero dato dal cliente.
- * La barra non può stare nel nome su Windows: al suo posto c'è un trattino basso.
- * Esempio: 15_11-08-26_63-Abf.pdf
+ * Entrata: n. provvisorio, data fra parentesi, numero dato dal cliente.
+ * Esempio: 15(11-08-26)63-Abf.pdf
  */
 export function nomePdfEntrataCommercialista(input: {
   numeroSequenza: number | null;
@@ -43,7 +42,7 @@ export function nomePdfEntrataCommercialista(input: {
   const seq =
     input.numeroSequenza != null ? String(input.numeroSequenza) : "senza";
   const num = numeroFileFattura(input.numeroFattura);
-  return `${seq}_${dataFile(input.data)}_${num}.pdf`;
+  return `${seq}(${dataFile(input.data)})${num}.pdf`;
 }
 
 /** Stessi nomi del download PDF, con suffisso se due fatture coincidono. */
