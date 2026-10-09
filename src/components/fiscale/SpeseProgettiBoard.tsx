@@ -6,6 +6,8 @@ import {
   approvaProgettoSpesaAction,
   collegaSpeseProgettoAction,
   contabilizzaProgettoSpesaAction,
+  assegnaCategoriaFatturaProgettoAction,
+  intuisciCategoriaFatturaProgettoAction,
   scollegaFatturaProgettoAction,
   creaProgettoSpesaAction,
   dettaglioProgettoSpesaAction,
@@ -15,7 +17,10 @@ import {
   urlAllegatoSpesaAction,
 } from "@/app/actions/spese";
 import { formatDateIt, formatEuro } from "@/lib/amministrazione/fatture";
-import { CollegaFattureProgetto } from "@/components/fiscale/CollegaFattureProgetto";
+import {
+  CollegaFattureProgetto,
+  FinestraCategoriaFattura,
+} from "@/components/fiscale/CollegaFattureProgetto";
 import {
   PartecipantiProgettoCampo,
   type VocePartecipante,
@@ -24,6 +29,7 @@ import {
   LABEL_CATEGORIA_SPESA,
   LABEL_STATO_PROGETTO,
   LABEL_TIPO_PROGETTO,
+  type CategoriaSpesa,
   errorePeriodoPartecipante,
   type SoggettoPartecipanteOption,
   type FatturaProgettoView,
@@ -185,6 +191,7 @@ export function SpeseProgettiBoard() {
   const [partecipanti, setPartecipanti] = useState<VocePartecipante[]>([]);
   const [fatture, setFatture] = useState<FatturaProgettoView[]>([]);
   const [fattureAperte, setFattureAperte] = useState(false);
+  const [categoriaPer, setCategoriaPer] = useState<FatturaProgettoView | null>(null);
   const [bozzaPartecipanti, setBozzaPartecipanti] = useState<VocePartecipante[]>([]);
   const [soggetti, setSoggetti] = useState<SoggettoPartecipanteOption[]>([]);
   const [selezionate, setSelezionate] = useState<string[]>([]);
@@ -234,6 +241,40 @@ export function SpeseProgettiBoard() {
       }))
     );
     setSelezionate([]);
+  }
+
+  async function salvaCategoriaFattura(voce: FatturaProgettoView, categoria: CategoriaSpesa) {
+    if (!scelto) return;
+    const res = await assegnaCategoriaFatturaProgettoAction({
+      progettoId: scelto,
+      collegamentoId: voce.id,
+      categoria,
+    });
+    if (!res.success) {
+      setErrore(res.error);
+      return;
+    }
+    setCategoriaPer(null);
+    setMsg("Categoria assegnata. Il totale del progetto è aggiornato.");
+    await caricaDettaglio(scelto);
+    const elenco = await listProgettiSpesaAction();
+    if (elenco.success) setProgetti(elenco.progetti);
+  }
+
+  function chiediCategoria(voce: FatturaProgettoView) {
+    setErrore(null);
+    start(async () => {
+      const intuizione = await intuisciCategoriaFatturaProgettoAction(voce.fatturaId);
+      if (!intuizione.success) {
+        setErrore(intuizione.error);
+        return;
+      }
+      if (intuizione.categoria) {
+        await salvaCategoriaFattura(voce, intuizione.categoria);
+        return;
+      }
+      setCategoriaPer(voce);
+    });
   }
 
   useEffect(() => {
@@ -540,7 +581,11 @@ export function SpeseProgettiBoard() {
             <div className="rounded-xl border border-[var(--border)] bg-white p-4">
               <h3 className="text-sm font-medium">Totali per categoria</h3>
               {totali.length === 0 ? (
-                <p className="mt-2 text-sm text-slate-500">Nessuna spesa collegata.</p>
+                <p className="mt-2 text-sm text-slate-500">
+                  {fatture.some((voce) => !voce.categoria)
+                    ? "Assegna la categoria alle fatture per includerle nel totale."
+                    : "Nessuna spesa collegata."}
+                </p>
               ) : (
                 <ul className="mt-2 space-y-1 text-sm">
                   {totali.map((t) => (
@@ -582,9 +627,23 @@ export function SpeseProgettiBoard() {
                         <span className="block text-xs text-[var(--muted)]">
                           {voce.controparte || "—"}
                           {voce.dataDocumento ? ` · ${formatDateIt(voce.dataDocumento)}` : ""}
+                          {" · "}
+                          {voce.categoria
+                            ? LABEL_CATEGORIA_SPESA[voce.categoria]
+                            : "Categoria da assegnare"}
                         </span>
                       </span>
                       <span className="tabular-nums">{formatEuro(voce.totale)}</span>
+                      {progetto.documentoStato !== "chiuso" && !voce.categoria ? (
+                        <button
+                          type="button"
+                          disabled={pending}
+                          onClick={() => chiediCategoria(voce)}
+                          className="rounded border border-slate-300 px-2 py-1 text-xs disabled:opacity-40"
+                        >
+                          Assegna categoria
+                        </button>
+                      ) : null}
                       {progetto.documentoStato !== "chiuso" ? (
                         <button
                           type="button"
@@ -603,6 +662,8 @@ export function SpeseProgettiBoard() {
                               }
                               setMsg("Fattura scollegata.");
                               await caricaDettaglio(scelto);
+                              const elenco = await listProgettiSpesaAction();
+                              if (elenco.success) setProgetti(elenco.progetti);
                             });
                           }}
                           className="rounded border border-slate-300 px-2 py-1 text-xs disabled:opacity-40"
@@ -692,7 +753,25 @@ export function SpeseProgettiBoard() {
           onClose={() => setFattureAperte(false)}
           onCambiato={() => {
             setMsg("Fattura ricevuta collegata. Lo stato SDI non è stato modificato.");
-            void caricaDettaglio(scelto);
+            void (async () => {
+              await caricaDettaglio(scelto);
+              const elenco = await listProgettiSpesaAction();
+              if (elenco.success) setProgetti(elenco.progetti);
+            })();
+          }}
+        />
+      ) : null}
+      {categoriaPer ? (
+        <FinestraCategoriaFattura
+          numero={categoriaPer.numero}
+          pending={pending}
+          onChiudi={() => setCategoriaPer(null)}
+          onConferma={(categoria) => {
+            const voce = categoriaPer;
+            setErrore(null);
+            start(async () => {
+              await salvaCategoriaFattura(voce, categoria);
+            });
           }}
         />
       ) : null}

@@ -5,15 +5,19 @@ import { createPortal } from "react-dom";
 import {
   cercaFattureProgettoAction,
   collegaFattureProgettoAction,
+  intuisciCategoriaFatturaProgettoAction,
   leggiFatturaRicevutaControlloAction,
   ripristinaFatturaScartataAction,
   scartaFatturaProgettoAction,
 } from "@/app/actions/spese";
 import { formatDateIt, formatEuro } from "@/lib/amministrazione/fatture";
-import type {
-  FatturaCercataView,
-  FatturaProgettoView,
-  FatturaRicevutaControllo,
+import {
+  CATEGORIE_SPESA,
+  LABEL_CATEGORIA_SPESA,
+  type CategoriaSpesa,
+  type FatturaCercataView,
+  type FatturaProgettoView,
+  type FatturaRicevutaControllo,
 } from "@/lib/fiscale/spese";
 
 type Props = {
@@ -37,6 +41,7 @@ export function CollegaFattureProgetto({
   const [errore, setErrore] = useState<string | null>(null);
   const [controllo, setControllo] = useState<FatturaRicevutaControllo | null>(null);
   const [controlloErrore, setControlloErrore] = useState<string | null>(null);
+  const [inAttesa, setInAttesa] = useState<FatturaCercataView | null>(null);
   const [pending, start] = useTransition();
 
   function limitaMargine(giorni: number): number {
@@ -81,13 +86,15 @@ export function CollegaFattureProgetto({
     });
   }
 
-  function seleziona(voce: FatturaCercataView) {
+  function collegaConCategoria(voce: FatturaCercataView, categoria: CategoriaSpesa) {
     setErrore(null);
+    setInAttesa(null);
     start(async () => {
       const res = await collegaFattureProgettoAction({
         progettoId,
         giorniPrima,
         giorniDopo,
+        categoria,
         voci: [{ origine: "ricevuta", fatturaId: voce.fatturaId }],
       });
       if (!res.success) {
@@ -96,6 +103,34 @@ export function CollegaFattureProgetto({
       }
       onCambiato();
       carica(query);
+    });
+  }
+
+  function seleziona(voce: FatturaCercataView) {
+    setErrore(null);
+    start(async () => {
+      const intuizione = await intuisciCategoriaFatturaProgettoAction(voce.fatturaId);
+      if (!intuizione.success) {
+        setErrore(intuizione.error);
+        return;
+      }
+      if (intuizione.categoria) {
+        const res = await collegaFattureProgettoAction({
+          progettoId,
+          giorniPrima,
+          giorniDopo,
+          categoria: intuizione.categoria,
+          voci: [{ origine: "ricevuta", fatturaId: voce.fatturaId }],
+        });
+        if (!res.success) {
+          setErrore(res.error);
+          return;
+        }
+        onCambiato();
+        carica(query);
+        return;
+      }
+      setInAttesa(voce);
     });
   }
 
@@ -353,6 +388,80 @@ export function CollegaFattureProgetto({
           </div>
         </div>
       ) : null}
+      {inAttesa ? (
+        <FinestraCategoriaFattura
+          numero={inAttesa.numero}
+          pending={pending}
+          onChiudi={() => setInAttesa(null)}
+          onConferma={(categoria) => collegaConCategoria(inAttesa, categoria)}
+        />
+      ) : null}
+    </div>,
+    document.body
+  );
+}
+
+export function FinestraCategoriaFattura({
+  numero,
+  pending,
+  onChiudi,
+  onConferma,
+}: {
+  numero: string;
+  pending: boolean;
+  onChiudi: () => void;
+  onConferma: (categoria: CategoriaSpesa) => void;
+}) {
+  const [categoria, setCategoria] = useState<CategoriaSpesa>("vitto");
+  return createPortal(
+    <div
+      className="fixed inset-0 z-[95] flex items-start justify-center overflow-y-auto bg-slate-950/70 px-3 py-16"
+      role="presentation"
+    >
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="categoria-fattura-titolo"
+        className="w-full max-w-md rounded-xl border border-[var(--border)] bg-white p-4 shadow-xl"
+      >
+        <h2 id="categoria-fattura-titolo" className="text-lg font-semibold">
+          Categoria della spesa
+        </h2>
+        <p className="mt-1 text-sm text-slate-600">
+          La fattura {numero} non ha una categoria chiara. Sceglila per aggiornare il totale.
+        </p>
+        <label className="mt-4 block text-sm">
+          Categoria
+          <select
+            value={categoria}
+            onChange={(event) => setCategoria(event.target.value as CategoriaSpesa)}
+            className="mt-1 w-full rounded-lg border border-[var(--border)] px-3 py-2"
+          >
+            {CATEGORIE_SPESA.map((code) => (
+              <option key={code} value={code}>
+                {LABEL_CATEGORIA_SPESA[code]}
+              </option>
+            ))}
+          </select>
+        </label>
+        <div className="mt-4 flex justify-end gap-2">
+          <button
+            type="button"
+            onClick={onChiudi}
+            className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm"
+          >
+            Chiudi
+          </button>
+          <button
+            type="button"
+            disabled={pending}
+            onClick={() => onConferma(categoria)}
+            className="rounded-lg bg-[var(--primary)] px-3 py-1.5 text-sm text-white disabled:opacity-40"
+          >
+            Conferma
+          </button>
+        </div>
+      </div>
     </div>,
     document.body
   );

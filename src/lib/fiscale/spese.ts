@@ -61,6 +61,49 @@ export function categoriaRichiedeCausale(categoria: CategoriaSpesa): boolean {
   return CATEGORIE_CON_CAUSALE.has(categoria);
 }
 
+const INDIZI_CATEGORIA_SPESA: { categoria: CategoriaSpesa; pattern: RegExp }[] = [
+  {
+    categoria: "alloggio",
+    pattern:
+      /\b(hotel|albergo|alloggio|pernottament\w*|soggiorno|ostello|agriturismo|bed and breakfast)\b/i,
+  },
+  {
+    categoria: "vitto",
+    pattern:
+      /\b(ristorante|trattoria|pizzeria|osteria|bar|caff[eè]|pasto|pranzo|cena|colazione|alimentari|supermercato|men[uù])\b/i,
+  },
+  {
+    categoria: "carburante_impianti",
+    pattern: /\b(cisterna|gasolio agricolo|serbatoio impianto)\b/i,
+  },
+  {
+    categoria: "carburante_automezzi",
+    pattern: /\b(carburante|gasolio|benzina|diesel|rifornimento|gpl|metano)\b/i,
+  },
+  {
+    categoria: "trasporti",
+    pattern:
+      /\b(treno|ferrovia|trenitalia|italo|aereo|volo|taxi|autobus|pullman|pedaggio|autostrada|traghetto|noleggio|biglietto)\b/i,
+  },
+  {
+    categoria: "cancelleria",
+    pattern: /\b(cancelleria|toner|cartuccia|quadern\w*|penne)\b/i,
+  },
+  {
+    categoria: "ufficio",
+    pattern: /\b(ufficio|software|abbonamento|utenze|telefonia)\b/i,
+  },
+];
+
+/** Una sola categoria chiara. Se non c'è, o ce n'è più di una, l'operatore sceglie. */
+export function intuisciCategoriaSpesa(testo: string): CategoriaSpesa | null {
+  const trovate = INDIZI_CATEGORIA_SPESA.filter((regola) =>
+    regola.pattern.test(testo)
+  ).map((regola) => regola.categoria);
+  const uniche = [...new Set(trovate)];
+  return uniche.length === 1 ? uniche[0] : null;
+}
+
 export const LABEL_CATEGORIA_SPESA: Record<CategoriaSpesa, string> = {
   vitto: "Vitto",
   alloggio: "Alloggio",
@@ -465,6 +508,7 @@ export type FatturaProgettoView = {
   controparte: string;
   dataDocumento: string;
   totale: number;
+  categoria: CategoriaSpesa | null;
 };
 
 export type FatturaCercataView = {

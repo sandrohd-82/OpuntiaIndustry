@@ -8,9 +8,11 @@ import { requireAreaAccess } from "@/lib/areas/guard";
 import { leggiTestoSpesa, leggiXmlSpesa } from "@/lib/fiscale/spese-lettura";
 import { leggiScontrinoGemini, qualificaScontrino } from "@/lib/fiscale/spese-ocr";
 import {
+  CATEGORIE_SPESA,
   SPESE_BUCKET,
   SPESE_MAX_BYTES,
   calcolaRigheScontrino,
+  intuisciCategoriaSpesa,
   spesaRegistrazioneSchema,
   errorePeriodoPartecipante,
   partecipanteSpesaSchema,
@@ -1010,6 +1012,19 @@ export async function listProgettiSpesaAction(): Promise<
       cur.totale += num(d.totale as number | string);
       somme.set(id, cur);
     }
+    const { data: fatturePacchetto } = await supabase
+      .from("spese_progetti_fatture")
+      .select("progetto_id, totale, categoria")
+      .in("progetto_id", ids)
+      .eq("esito", "collegata")
+      .is("deleted_at", null);
+    for (const row of fatturePacchetto ?? []) {
+      const id = String(row.progetto_id ?? "");
+      const cur = somme.get(id) ?? { n: 0, totale: 0 };
+      cur.n += 1;
+      if (categoriaLink(row.categoria)) cur.totale += num(row.totale as number | string);
+      somme.set(id, cur);
+    }
     const { data: parti } = await supabase
       .from("spese_progetti_partecipanti")
       .select("progetto_id")
@@ -1084,16 +1099,24 @@ export async function dettaglioProgettoSpesaAction(id: string): Promise<
     supabase,
     ((collegateRows ?? []) as DocRow[]).map((r) => vista(r, titoli))
   );
+  const fattureCollegate = await leggiFattureProgetto(supabase, id);
   const acc = new Map<CategoriaSpesa, number>();
   for (const s of collegate) {
     if (s.stato === "annullato") continue;
     acc.set(s.categoria, (acc.get(s.categoria) ?? 0) + s.totale);
   }
+  for (const fattura of fattureCollegate) {
+    if (!fattura.categoria) continue;
+    acc.set(
+      fattura.categoria,
+      (acc.get(fattura.categoria) ?? 0) + fattura.totale
+    );
+  }
   return {
     success: true,
     collegate,
     partecipanti: await leggiPartecipanti(supabase, id),
-    fatture: await leggiFattureProgetto(supabase, id),
+    fatture: fattureCollegate,
     libere: await attachRighe(
       supabase,
       ((libereRows ?? []) as DocRow[]).map((r) => vista(r, new Map()))
@@ -1753,7 +1776,7 @@ async function leggiFattureProgetto(
   const { data, error } = await supabase
     .from("spese_progetti_fatture")
     .select(
-      "id, origine, fattura_emessa_id, fattura_ricevuta_id, numero, controparte, data_documento, totale"
+      "id, origine, fattura_emessa_id, fattura_ricevuta_id, numero, controparte, data_documento, totale, categoria"
     )
     .eq("progetto_id", progettoId)
     .eq("esito", "collegata")
@@ -1807,6 +1830,7 @@ async function leggiFattureProgetto(
         controparte: primoTesto(emessa.cliente_ragione_sociale) || String(row.controparte ?? ""),
         dataDocumento: String(emessa.data_emissione ?? row.data_documento ?? "").slice(0, 10),
         totale: euroFattura(emessa.totale ?? row.totale),
+        categoria: categoriaLink(row.categoria),
       };
     }
     if (ricevuta) {
@@ -1819,6 +1843,7 @@ async function leggiFattureProgetto(
           primoTesto(ricevuta.fornitore_ragione_sociale) || String(row.controparte ?? ""),
         dataDocumento: String(ricevuta.data_emissione ?? row.data_documento ?? "").slice(0, 10),
         totale: euroFattura(ricevuta.totale ?? row.totale),
+        categoria: categoriaLink(row.categoria),
       };
     }
     return {
@@ -1829,8 +1854,16 @@ async function leggiFattureProgetto(
       controparte: String(row.controparte ?? ""),
       dataDocumento: row.data_documento ? String(row.data_documento).slice(0, 10) : "",
       totale: euroFattura(row.totale),
+      categoria: categoriaLink(row.categoria),
     };
   });
+}
+
+function categoriaLink(value: unknown): CategoriaSpesa | null {
+  const code = String(value ?? "");
+  return (CATEGORIE_SPESA as readonly string[]).includes(code)
+    ? (code as CategoriaSpesa)
+    : null;
 }
 
 const margineFattureSchema = {
@@ -1856,6 +1889,7 @@ const collegaFattureSchema = z.object({
     )
     .min(1)
     .max(40),
+  categoria: z.enum(CATEGORIE_SPESA),
 });
 
 export async function cercaFattureProgettoAction(raw: {
@@ -1963,6 +1997,7 @@ export async function cercaFattureProgettoAction(raw: {
     controparte: String(row.controparte ?? ""),
     dataDocumento: row.data_documento ? String(row.data_documento).slice(0, 10) : "",
     totale: euroFattura(row.totale),
+    categoria: null,
   }));
   return { success: true, fatture, scartate, dal: periodo.dal, al: periodo.al };
 }
@@ -1971,6 +2006,7 @@ export async function collegaFattureProgettoAction(raw: {
   progettoId: string;
   giorniPrima?: number;
   giorniDopo?: number;
+  categoria: CategoriaSpesa;
   voci: { origine: OrigineFatturaProgetto; fatturaId: string }[];
 }): Promise<{ success: true; collegate: number } | { success: false; error: string }> {
   const { auth } = await requireAreaAccess("area-fiscale");
@@ -1995,7 +2031,12 @@ export async function collegaFattureProgettoAction(raw: {
   }
   const daCollegare = [...viste.values()];
   let collegate = 0;
-  const inserite: { origine: OrigineFatturaProgetto; fatturaId: string; numero: string }[] =
+  const inserite: {
+    origine: OrigineFatturaProgetto;
+    fatturaId: string;
+    numero: string;
+    categoria: CategoriaSpesa;
+  }[] =
     [];
   for (const voce of daCollegare) {
     const messa = await inserisciFatturaProgetto(
@@ -2004,7 +2045,8 @@ export async function collegaFattureProgettoAction(raw: {
       String(progetto.id),
       voce,
       parsed.data.giorniPrima,
-      parsed.data.giorniDopo
+      parsed.data.giorniDopo,
+      parsed.data.categoria
     );
     if (!messa.success) return messa;
     if (messa.inserita) {
@@ -2013,6 +2055,7 @@ export async function collegaFattureProgettoAction(raw: {
         origine: voce.origine,
         fatturaId: voce.fatturaId,
         numero: messa.numero,
+        categoria: parsed.data.categoria,
       });
     }
   }
@@ -2043,7 +2086,8 @@ async function inserisciFatturaProgetto(
   progettoId: string,
   voce: { origine: OrigineFatturaProgetto; fatturaId: string },
   giorniPrima = 7,
-  giorniDopo = 7
+  giorniDopo = 7,
+  categoria: CategoriaSpesa
 ): Promise<
   | { success: true; inserita: boolean; numero: string }
   | { success: false; error: string }
@@ -2119,6 +2163,7 @@ async function inserisciFatturaProgetto(
     controparte: primoTesto(fattura.fornitore_ragione_sociale),
     data_documento: fattura.data_emissione,
     totale: euroFattura(fattura.totale),
+    categoria,
     created_by: userId,
     updated_by: userId,
   });
@@ -2126,6 +2171,94 @@ async function inserisciFatturaProgetto(
     return { success: false, error: "Collegamento fattura non riuscito." };
   }
   return { success: true, inserita: true, numero: numeroRicevuta(fattura) };
+}
+
+export async function intuisciCategoriaFatturaProgettoAction(
+  fatturaId: string
+): Promise<
+  { success: true; categoria: CategoriaSpesa | null } | { success: false; error: string }
+> {
+  await requireAreaAccess("area-fiscale");
+  if (!z.string().uuid().safeParse(fatturaId).success) {
+    return { success: false, error: "Fattura non valida." };
+  }
+  const supabase = await createClient();
+  const { data: fattura } = await supabase
+    .from("fatture_ricevute")
+    .select("id, fornitore_ragione_sociale")
+    .eq("id", fatturaId)
+    .is("deleted_at", null)
+    .maybeSingle();
+  if (!fattura) return { success: false, error: "Fattura ricevuta non trovata." };
+  const { data: righe } = await supabase
+    .from("fatture_ricevute_righe")
+    .select("descrizione")
+    .eq("fattura_id", fatturaId);
+  const testo = [
+    primoTesto(fattura.fornitore_ragione_sociale),
+    ...(righe ?? []).map((riga) => primoTesto(riga.descrizione)),
+  ].join(" ");
+  return { success: true, categoria: intuisciCategoriaSpesa(testo) };
+}
+
+export async function assegnaCategoriaFatturaProgettoAction(input: {
+  progettoId: string;
+  collegamentoId: string;
+  categoria: CategoriaSpesa;
+}): Promise<{ success: true } | { success: false; error: string }> {
+  const { auth } = await requireAreaAccess("area-fiscale");
+  const parsed = z
+    .object({
+      progettoId: z.string().uuid(),
+      collegamentoId: z.string().uuid(),
+      categoria: z.enum(CATEGORIE_SPESA),
+    })
+    .safeParse(input);
+  if (!parsed.success) return { success: false, error: "Categoria non valida." };
+  const supabase = await createClient();
+  const { data: progetto } = await supabase
+    .from("spese_progetti")
+    .select("id, titolo, documento_stato, versione")
+    .eq("id", parsed.data.progettoId)
+    .is("deleted_at", null)
+    .maybeSingle();
+  if (!progetto) return { success: false, error: "Progetto non trovato." };
+  if (progetto.documento_stato === "chiuso") {
+    return { success: false, error: "Il progetto è chiuso." };
+  }
+  const { data: row } = await supabase
+    .from("spese_progetti_fatture")
+    .select("id, numero")
+    .eq("id", parsed.data.collegamentoId)
+    .eq("progetto_id", parsed.data.progettoId)
+    .eq("esito", "collegata")
+    .is("deleted_at", null)
+    .maybeSingle();
+  if (!row) return { success: false, error: "Fattura non collegata a questo progetto." };
+  const { error } = await supabase
+    .from("spese_progetti_fatture")
+    .update({
+      categoria: parsed.data.categoria,
+      updated_by: auth.userId,
+    })
+    .eq("id", row.id);
+  if (error) return { success: false, error: "Categoria non aggiornata." };
+  await supabase
+    .from("spese_progetti")
+    .update({
+      versione: Number(progetto.versione) + 1,
+      updated_by: auth.userId,
+    })
+    .eq("id", progetto.id);
+  await writeAuditLog({
+    entity_type: "spese_progetti",
+    entity_id: String(progetto.id),
+    action: "update",
+    actor_id: auth.userId,
+    summary: `Categoria spesa assegnata alla fattura ${primoTesto(row.numero)}`,
+    payload: { collegamentoId: String(row.id), categoria: parsed.data.categoria },
+  });
+  return { success: true };
 }
 
 export async function scollegaFatturaProgettoAction(input: {
