@@ -478,6 +478,25 @@ export type FatturaCercataView = {
   stessoProgetto: boolean;
 };
 
+export type FatturaRicevutaControllo = {
+  id: string;
+  numero: string;
+  fornitore: string;
+  dataDocumento: string;
+  numeroEsterno: string;
+  natura: string;
+  imponibile: number;
+  imposta: number;
+  totale: number;
+  statoPagamento: string;
+  note: string;
+  righe: {
+    descrizione: string;
+    quantita: number;
+    importo: number;
+  }[];
+};
+
 export type PartecipanteProgettoView = {
   id: string;
   soggettoTipo: TipoSoggettoPartecipante;

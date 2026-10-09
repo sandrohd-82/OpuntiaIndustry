@@ -568,7 +568,8 @@ export function SpeseProgettiBoard() {
                 ) : null}
               </div>
               <p className="mt-1 text-xs text-slate-500">
-                Già registrate in area fiscale. L&apos;invio del pacchetto non le contabilizza.
+                Solo fatture ricevute, da 7 giorni prima a 7 giorni dopo il periodo.
+                L&apos;invio del pacchetto non le contabilizza.
               </p>
               {fatture.length === 0 ? (
                 <p className="mt-2 text-sm text-slate-500">Nessuna fattura collegata.</p>
@@ -689,8 +690,8 @@ export function SpeseProgettiBoard() {
         <CollegaFattureProgetto
           progettoId={scelto}
           onClose={() => setFattureAperte(false)}
-          onCollegate={() => {
-            setMsg("Fatture collegate. Lo stato SDI non è stato modificato.");
+          onCambiato={() => {
+            setMsg("Fattura ricevuta collegata. Lo stato SDI non è stato modificato.");
             void caricaDettaglio(scelto);
           }}
         />

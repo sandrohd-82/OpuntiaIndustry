@@ -21,6 +21,7 @@ import {
   type PagamentoSpesa,
   type FatturaCercataView,
   type FatturaProgettoView,
+  type FatturaRicevutaControllo,
   type OrigineFatturaProgetto,
   type PartecipanteProgettoView,
   type SoggettoPartecipanteOption,
@@ -1692,6 +1693,26 @@ function euroFattura(value: unknown): number {
   return Number.isFinite(amount) ? amount : 0;
 }
 
+function spostaGiorniIso(iso: string, giorni: number): string {
+  const [anno, mese, giorno] = iso.slice(0, 10).split("-").map((part) => Number(part));
+  if (!anno || !mese || !giorno) return "";
+  const data = new Date(Date.UTC(anno, mese - 1, giorno));
+  data.setUTCDate(data.getUTCDate() + giorni);
+  return data.toISOString().slice(0, 10);
+}
+
+function periodoRicercaRicevute(
+  dataInizio: string,
+  dataFine: string | null
+): { dal: string; al: string } | null {
+  const inizio = dataInizio.slice(0, 10);
+  const fine = (dataFine || dataInizio).slice(0, 10);
+  const dal = spostaGiorniIso(inizio, -7);
+  const al = spostaGiorniIso(fine, 7);
+  if (!dal || !al) return null;
+  return { dal, al };
+}
+
 function testoRicercaFatture(raw: string): string {
   return raw
     .replace(/[%_,()"\\]/g, " ")
@@ -1728,6 +1749,7 @@ async function leggiFattureProgetto(
       "id, origine, fattura_emessa_id, fattura_ricevuta_id, numero, controparte, data_documento, totale"
     )
     .eq("progetto_id", progettoId)
+    .eq("esito", "collegata")
     .is("deleted_at", null)
     .order("data_documento", { ascending: false });
   if (error || !data) return [];
@@ -1826,7 +1848,14 @@ export async function cercaFattureProgettoAction(raw: {
   progettoId: string;
   query?: string;
 }): Promise<
-  { success: true; fatture: FatturaCercataView[] } | { success: false; error: string }
+  | {
+      success: true;
+      fatture: FatturaCercataView[];
+      scartate: FatturaProgettoView[];
+      dal: string;
+      al: string;
+    }
+  | { success: false; error: string }
 > {
   await requireAreaAccess("area-fiscale");
   const parsed = cercaFattureSchema.safeParse(raw);
@@ -1834,102 +1863,90 @@ export async function cercaFattureProgettoAction(raw: {
   const supabase = await createClient();
   const { data: progetto } = await supabase
     .from("spese_progetti")
-    .select("id")
+    .select("id, data_inizio, data_fine")
     .eq("id", parsed.data.progettoId)
     .is("deleted_at", null)
     .maybeSingle();
   if (!progetto) return { success: false, error: "Progetto non trovato." };
+  const periodo = periodoRicercaRicevute(
+    String(progetto.data_inizio ?? ""),
+    progetto.data_fine ? String(progetto.data_fine) : null
+  );
+  if (!periodo) return { success: false, error: "Periodo del progetto non valido." };
   const testo = testoRicercaFatture(parsed.data.query);
   const like = testo ? `"%${testo}%"` : "";
-  let emesseQuery = supabase
-    .from("fatture_emesse")
-    .select(
-      "id, numero_fattura, numero_interno, numero_documento_esterno, cliente_ragione_sociale, data_emissione, totale"
-    )
-    .eq("tipo_documento", "fattura")
-    .is("deleted_at", null)
-    .order("data_emissione", { ascending: false })
-    .limit(60);
   let ricevuteQuery = supabase
     .from("fatture_ricevute")
     .select(
       "id, numero_interno, numero_documento_esterno, fornitore_ragione_sociale, data_emissione, totale"
     )
     .is("deleted_at", null)
-    .order("data_emissione", { ascending: false })
-    .limit(60);
+    .gte("data_emissione", periodo.dal)
+    .lte("data_emissione", periodo.al)
+    .order("data_emissione", { ascending: true })
+    .limit(200);
   if (like) {
-    emesseQuery = emesseQuery.or(
-      `numero_fattura.ilike.${like},numero_interno.ilike.${like},numero_documento_esterno.ilike.${like},cliente_ragione_sociale.ilike.${like}`
-    );
     ricevuteQuery = ricevuteQuery.or(
       `numero_interno.ilike.${like},numero_documento_esterno.ilike.${like},fornitore_ragione_sociale.ilike.${like}`
     );
   }
-  const [emesse, ricevute] = await Promise.all([emesseQuery, ricevuteQuery]);
-  if (emesse.error) return { success: false, error: emesse.error.message };
+  const ricevute = await ricevuteQuery;
   if (ricevute.error) return { success: false, error: ricevute.error.message };
-  const emesseIds = (emesse.data ?? []).map((row) => String(row.id));
   const ricevuteIds = (ricevute.data ?? []).map((row) => String(row.id));
-  const [linkEmesse, linkRicevute] = await Promise.all([
-    emesseIds.length > 0
-      ? supabase
-          .from("spese_progetti_fatture")
-          .select("progetto_id, fattura_emessa_id")
-          .in("fattura_emessa_id", emesseIds)
-          .is("deleted_at", null)
-      : Promise.resolve({ data: [] as Array<{ progetto_id: string; fattura_emessa_id: string }> }),
+  const linkRicevute =
     ricevuteIds.length > 0
-      ? supabase
+      ? await supabase
           .from("spese_progetti_fatture")
-          .select("progetto_id, fattura_ricevuta_id")
+          .select("progetto_id, fattura_ricevuta_id, esito")
           .in("fattura_ricevuta_id", ricevuteIds)
           .is("deleted_at", null)
-      : Promise.resolve({
-          data: [] as Array<{ progetto_id: string; fattura_ricevuta_id: string }>,
-        }),
-  ]);
-  const progettoEmessa = new Map(
-    (linkEmesse.data ?? []).map((row) => [
-      String(row.fattura_emessa_id),
-      String(row.progetto_id),
-    ])
-  );
-  const progettoRicevuta = new Map(
-    (linkRicevute.data ?? []).map((row) => [
-      String(row.fattura_ricevuta_id),
-      String(row.progetto_id),
-    ])
-  );
-  const risultato: FatturaCercataView[] = [
-    ...(emesse.data ?? []).map((row) => {
-      const occupata = progettoEmessa.get(String(row.id));
-      return {
-        origine: "emessa" as const,
-        fatturaId: String(row.id),
-        numero: numeroEmessa(row),
-        controparte: primoTesto(row.cliente_ragione_sociale),
-        dataDocumento: String(row.data_emissione ?? "").slice(0, 10),
-        totale: euroFattura(row.totale),
-        giaCollegata: Boolean(occupata),
-        stessoProgetto: occupata === parsed.data.progettoId,
-      };
-    }),
-    ...(ricevute.data ?? []).map((row) => {
-      const occupata = progettoRicevuta.get(String(row.id));
-      return {
-        origine: "ricevuta" as const,
-        fatturaId: String(row.id),
-        numero: numeroRicevuta(row),
-        controparte: primoTesto(row.fornitore_ragione_sociale),
-        dataDocumento: String(row.data_emissione ?? "").slice(0, 10),
-        totale: euroFattura(row.totale),
-        giaCollegata: Boolean(occupata),
-        stessoProgetto: occupata === parsed.data.progettoId,
-      };
-    }),
-  ];
-  return { success: true, fatture: risultato };
+      : { data: [] as Array<{ progetto_id: string; fattura_ricevuta_id: string; esito: string }> };
+  const occupate = new Map<string, { progettoId: string; esito: string }>();
+  for (const row of linkRicevute.data ?? []) {
+    const id = String(row.fattura_ricevuta_id ?? "");
+    const esito = String(row.esito ?? "collegata");
+    const progettoId = String(row.progetto_id ?? "");
+    const gia = occupate.get(id);
+    if (esito === "collegata" || !gia) {
+      occupate.set(id, { progettoId, esito });
+    }
+  }
+  const fatture: FatturaCercataView[] = [];
+  for (const row of ricevute.data ?? []) {
+    const stato = occupate.get(String(row.id));
+    const collegataQui = stato?.esito === "collegata" && stato.progettoId === parsed.data.progettoId;
+    const collegataAltrove = stato?.esito === "collegata" && stato.progettoId !== parsed.data.progettoId;
+    const scartataQui = stato?.esito === "scartata" && stato.progettoId === parsed.data.progettoId;
+    if (collegataQui || collegataAltrove || scartataQui) continue;
+    fatture.push({
+      origine: "ricevuta",
+      fatturaId: String(row.id),
+      numero: numeroRicevuta(row),
+      controparte: primoTesto(row.fornitore_ragione_sociale),
+      dataDocumento: String(row.data_emissione ?? "").slice(0, 10),
+      totale: euroFattura(row.totale),
+      giaCollegata: false,
+      stessoProgetto: false,
+    });
+  }
+  const { data: scarti } = await supabase
+    .from("spese_progetti_fatture")
+    .select("id, fattura_ricevuta_id, numero, controparte, data_documento, totale")
+    .eq("progetto_id", parsed.data.progettoId)
+    .eq("origine", "ricevuta")
+    .eq("esito", "scartata")
+    .is("deleted_at", null)
+    .order("data_documento", { ascending: true });
+  const scartate: FatturaProgettoView[] = (scarti ?? []).map((row) => ({
+    id: String(row.id),
+    origine: "ricevuta" as const,
+    fatturaId: String(row.fattura_ricevuta_id ?? ""),
+    numero: primoTesto(row.numero) || "Senza numero",
+    controparte: String(row.controparte ?? ""),
+    dataDocumento: row.data_documento ? String(row.data_documento).slice(0, 10) : "",
+    totale: euroFattura(row.totale),
+  }));
+  return { success: true, fatture, scartate, dal: periodo.dal, al: periodo.al };
 }
 
 export async function collegaFattureProgettoAction(raw: {
@@ -2002,49 +2019,22 @@ async function inserisciFatturaProgetto(
   | { success: true; inserita: boolean; numero: string }
   | { success: false; error: string }
 > {
-  if (voce.origine === "emessa") {
-    const { data: fattura } = await supabase
-      .from("fatture_emesse")
-      .select(
-        "id, tipo_documento, numero_fattura, numero_interno, numero_documento_esterno, cliente_ragione_sociale, data_emissione, totale"
-      )
-      .eq("id", voce.fatturaId)
-      .is("deleted_at", null)
-      .maybeSingle();
-    if (!fattura || fattura.tipo_documento !== "fattura") {
-      return { success: false, error: "Fattura emessa non trovata." };
-    }
-    const { data: occupata } = await supabase
-      .from("spese_progetti_fatture")
-      .select("id, progetto_id")
-      .eq("fattura_emessa_id", voce.fatturaId)
-      .is("deleted_at", null)
-      .maybeSingle();
-    if (occupata) {
-      if (String(occupata.progetto_id) === progettoId) {
-        return { success: true, inserita: false, numero: numeroEmessa(fattura) };
-      }
-      return {
-        success: false,
-        error: `La fattura ${numeroEmessa(fattura)} è già collegata a un altro progetto.`,
-      };
-    }
-    const { error } = await supabase.from("spese_progetti_fatture").insert({
-      progetto_id: progettoId,
-      origine: "emessa",
-      fattura_emessa_id: voce.fatturaId,
-      numero: numeroEmessa(fattura),
-      controparte: primoTesto(fattura.cliente_ragione_sociale),
-      data_documento: fattura.data_emissione,
-      totale: euroFattura(fattura.totale),
-      created_by: userId,
-      updated_by: userId,
-    });
-    if (error) {
-      return { success: false, error: "Collegamento fattura non riuscito." };
-    }
-    return { success: true, inserita: true, numero: numeroEmessa(fattura) };
+  if (voce.origine !== "ricevuta") {
+    return { success: false, error: "Si collegano solo le fatture ricevute." };
   }
+  const { data: progettoDate } = await supabase
+    .from("spese_progetti")
+    .select("data_inizio, data_fine")
+    .eq("id", progettoId)
+    .is("deleted_at", null)
+    .maybeSingle();
+  const periodo = progettoDate
+    ? periodoRicercaRicevute(
+        String(progettoDate.data_inizio ?? ""),
+        progettoDate.data_fine ? String(progettoDate.data_fine) : null
+      )
+    : null;
+  if (!periodo) return { success: false, error: "Periodo del progetto non valido." };
   const { data: fattura } = await supabase
     .from("fatture_ricevute")
     .select(
@@ -2054,10 +2044,18 @@ async function inserisciFatturaProgetto(
     .is("deleted_at", null)
     .maybeSingle();
   if (!fattura) return { success: false, error: "Fattura ricevuta non trovata." };
+  const giorno = String(fattura.data_emissione ?? "").slice(0, 10);
+  if (giorno < periodo.dal || giorno > periodo.al) {
+    return {
+      success: false,
+      error: "La fattura è fuori dai 7 giorni prima e dopo il periodo del progetto.",
+    };
+  }
   const { data: occupata } = await supabase
     .from("spese_progetti_fatture")
     .select("id, progetto_id")
     .eq("fattura_ricevuta_id", voce.fatturaId)
+    .eq("esito", "collegata")
     .is("deleted_at", null)
     .maybeSingle();
   if (occupata) {
@@ -2069,9 +2067,22 @@ async function inserisciFatturaProgetto(
       error: `La fattura ${numeroRicevuta(fattura)} è già collegata a un altro progetto.`,
     };
   }
+  const nowIso = new Date().toISOString();
+  await supabase
+    .from("spese_progetti_fatture")
+    .update({
+      deleted_at: nowIso,
+      deleted_by: userId,
+      updated_by: userId,
+    })
+    .eq("progetto_id", progettoId)
+    .eq("fattura_ricevuta_id", voce.fatturaId)
+    .eq("esito", "scartata")
+    .is("deleted_at", null);
   const { error } = await supabase.from("spese_progetti_fatture").insert({
     progetto_id: progettoId,
     origine: "ricevuta",
+    esito: "collegata",
     fattura_ricevuta_id: voce.fatturaId,
     numero: numeroRicevuta(fattura),
     controparte: primoTesto(fattura.fornitore_ragione_sociale),
@@ -2114,6 +2125,7 @@ export async function scollegaFatturaProgettoAction(input: {
     .select("id, origine, numero, fattura_emessa_id, fattura_ricevuta_id")
     .eq("id", ids.data.collegamentoId)
     .eq("progetto_id", ids.data.progettoId)
+    .eq("esito", "collegata")
     .is("deleted_at", null)
     .maybeSingle();
   if (!row) return { success: false, error: "Fattura non collegata a questo progetto." };
@@ -2146,6 +2158,217 @@ export async function scollegaFatturaProgettoAction(input: {
       collegamento_id: row.id,
       origine: row.origine,
       fattura_id: row.fattura_emessa_id ?? row.fattura_ricevuta_id,
+    },
+  });
+  return { success: true };
+}
+
+export async function leggiFatturaRicevutaControlloAction(
+  fatturaId: string
+): Promise<
+  { success: true; fattura: FatturaRicevutaControllo } | { success: false; error: string }
+> {
+  await requireAreaAccess("area-fiscale");
+  if (!z.string().uuid().safeParse(fatturaId).success) {
+    return { success: false, error: "Fattura non valida." };
+  }
+  const supabase = await createClient();
+  const { data: fattura } = await supabase
+    .from("fatture_ricevute")
+    .select(
+      "id, numero_interno, numero_documento_esterno, fornitore_ragione_sociale, data_emissione, natura_documento, imponibile, imposta, totale, stato_pagamento, note"
+    )
+    .eq("id", fatturaId)
+    .is("deleted_at", null)
+    .maybeSingle();
+  if (!fattura) return { success: false, error: "Fattura ricevuta non trovata." };
+  const { data: righe } = await supabase
+    .from("fatture_ricevute_righe")
+    .select("descrizione, quantita, importo, sort_order")
+    .eq("fattura_id", fatturaId)
+    .order("sort_order", { ascending: true });
+  return {
+    success: true,
+    fattura: {
+      id: String(fattura.id),
+      numero: numeroRicevuta(fattura),
+      fornitore: primoTesto(fattura.fornitore_ragione_sociale),
+      dataDocumento: String(fattura.data_emissione ?? "").slice(0, 10),
+      numeroEsterno: primoTesto(fattura.numero_documento_esterno),
+      natura: fattura.natura_documento === "acconto" ? "Acconto" : "Saldo",
+      imponibile: euroFattura(fattura.imponibile),
+      imposta: euroFattura(fattura.imposta),
+      totale: euroFattura(fattura.totale),
+      statoPagamento: fattura.stato_pagamento === "pagato" ? "Pagato" : "Da pagare",
+      note: primoTesto(fattura.note),
+      righe: (righe ?? []).map((riga) => ({
+        descrizione: primoTesto(riga.descrizione) || "—",
+        quantita: euroFattura(riga.quantita),
+        importo: euroFattura(riga.importo),
+      })),
+    },
+  };
+}
+
+export async function scartaFatturaProgettoAction(input: {
+  progettoId: string;
+  fatturaId: string;
+}): Promise<{ success: true } | { success: false; error: string }> {
+  const { auth } = await requireAreaAccess("area-fiscale");
+  const parsed = z
+    .object({
+      progettoId: z.string().uuid(),
+      fatturaId: z.string().uuid(),
+    })
+    .safeParse(input);
+  if (!parsed.success) return { success: false, error: "Fattura non valida." };
+  const supabase = await createClient();
+  const { data: progetto } = await supabase
+    .from("spese_progetti")
+    .select("id, titolo, documento_stato, versione, data_inizio, data_fine")
+    .eq("id", parsed.data.progettoId)
+    .is("deleted_at", null)
+    .maybeSingle();
+  if (!progetto) return { success: false, error: "Progetto non trovato." };
+  if (progetto.documento_stato === "chiuso") {
+    return { success: false, error: "Il progetto è chiuso." };
+  }
+  const periodo = periodoRicercaRicevute(
+    String(progetto.data_inizio ?? ""),
+    progetto.data_fine ? String(progetto.data_fine) : null
+  );
+  if (!periodo) return { success: false, error: "Periodo del progetto non valido." };
+  const { data: fattura } = await supabase
+    .from("fatture_ricevute")
+    .select(
+      "id, numero_interno, numero_documento_esterno, fornitore_ragione_sociale, data_emissione, totale"
+    )
+    .eq("id", parsed.data.fatturaId)
+    .is("deleted_at", null)
+    .maybeSingle();
+  if (!fattura) return { success: false, error: "Fattura ricevuta non trovata." };
+  const giorno = String(fattura.data_emissione ?? "").slice(0, 10);
+  if (giorno < periodo.dal || giorno > periodo.al) {
+    return {
+      success: false,
+      error: "La fattura è fuori dai 7 giorni prima e dopo il periodo del progetto.",
+    };
+  }
+  const { data: collegata } = await supabase
+    .from("spese_progetti_fatture")
+    .select("id, progetto_id")
+    .eq("fattura_ricevuta_id", parsed.data.fatturaId)
+    .eq("esito", "collegata")
+    .is("deleted_at", null)
+    .maybeSingle();
+  if (collegata && String(collegata.progetto_id) === parsed.data.progettoId) {
+    return { success: false, error: "La fattura è già collegata. Scollegala prima di scartarla." };
+  }
+  const { data: giaScarto } = await supabase
+    .from("spese_progetti_fatture")
+    .select("id")
+    .eq("progetto_id", parsed.data.progettoId)
+    .eq("fattura_ricevuta_id", parsed.data.fatturaId)
+    .eq("esito", "scartata")
+    .is("deleted_at", null)
+    .maybeSingle();
+  if (giaScarto) return { success: true };
+  const { error } = await supabase.from("spese_progetti_fatture").insert({
+    progetto_id: parsed.data.progettoId,
+    origine: "ricevuta",
+    esito: "scartata",
+    fattura_ricevuta_id: parsed.data.fatturaId,
+    numero: numeroRicevuta(fattura),
+    controparte: primoTesto(fattura.fornitore_ragione_sociale),
+    data_documento: fattura.data_emissione,
+    totale: euroFattura(fattura.totale),
+    created_by: auth.userId,
+    updated_by: auth.userId,
+  });
+  if (error) return { success: false, error: "Scarto non riuscito." };
+  await supabase
+    .from("spese_progetti")
+    .update({
+      versione: Number(progetto.versione) + 1,
+      updated_by: auth.userId,
+    })
+    .eq("id", progetto.id)
+    .neq("documento_stato", "chiuso");
+  await writeAuditLog({
+    entity_type: "spese_progetti",
+    entity_id: String(progetto.id),
+    action: "update",
+    actor_id: auth.userId,
+    summary: `Fattura ricevuta scartata per ${progetto.titolo}: ${numeroRicevuta(fattura)}`,
+    payload: {
+      esito: "scartata",
+      fattura_id: parsed.data.fatturaId,
+    },
+  });
+  return { success: true };
+}
+
+export async function ripristinaFatturaScartataAction(input: {
+  progettoId: string;
+  collegamentoId: string;
+}): Promise<{ success: true } | { success: false; error: string }> {
+  const { auth } = await requireAreaAccess("area-fiscale");
+  const parsed = z
+    .object({
+      progettoId: z.string().uuid(),
+      collegamentoId: z.string().uuid(),
+    })
+    .safeParse(input);
+  if (!parsed.success) return { success: false, error: "Scarto non valido." };
+  const supabase = await createClient();
+  const { data: progetto } = await supabase
+    .from("spese_progetti")
+    .select("id, titolo, documento_stato, versione")
+    .eq("id", parsed.data.progettoId)
+    .is("deleted_at", null)
+    .maybeSingle();
+  if (!progetto) return { success: false, error: "Progetto non trovato." };
+  if (progetto.documento_stato === "chiuso") {
+    return { success: false, error: "Il progetto è chiuso." };
+  }
+  const { data: row } = await supabase
+    .from("spese_progetti_fatture")
+    .select("id, numero, fattura_ricevuta_id")
+    .eq("id", parsed.data.collegamentoId)
+    .eq("progetto_id", parsed.data.progettoId)
+    .eq("esito", "scartata")
+    .is("deleted_at", null)
+    .maybeSingle();
+  if (!row) return { success: false, error: "Fattura scartata non trovata." };
+  const nowIso = new Date().toISOString();
+  const { error } = await supabase
+    .from("spese_progetti_fatture")
+    .update({
+      deleted_at: nowIso,
+      deleted_by: auth.userId,
+      updated_by: auth.userId,
+    })
+    .eq("id", row.id)
+    .eq("esito", "scartata")
+    .is("deleted_at", null);
+  if (error) return { success: false, error: "Ripristino non riuscito." };
+  await supabase
+    .from("spese_progetti")
+    .update({
+      versione: Number(progetto.versione) + 1,
+      updated_by: auth.userId,
+    })
+    .eq("id", progetto.id)
+    .neq("documento_stato", "chiuso");
+  await writeAuditLog({
+    entity_type: "spese_progetti",
+    entity_id: String(progetto.id),
+    action: "update",
+    actor_id: auth.userId,
+    summary: `Fattura scartata rimessa in elenco per ${progetto.titolo}: ${row.numero}`,
+    payload: {
+      collegamento_id: row.id,
+      fattura_id: row.fattura_ricevuta_id,
     },
   });
   return { success: true };
