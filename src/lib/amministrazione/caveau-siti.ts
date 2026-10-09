@@ -146,6 +146,41 @@ export function registratoAtOrNull(
   return { ok: true, value: data.toISOString() };
 }
 
+export const CAVEAU_DOCUMENTO_BUCKET = "caveau-siti-documenti";
+export const CAVEAU_DOCUMENTO_MAX_BYTES = 15 * 1024 * 1024;
+
+const MIME_DA_ESTENSIONE: Record<string, string> = {
+  pdf: "application/pdf",
+  jpg: "image/jpeg",
+  jpeg: "image/jpeg",
+  png: "image/png",
+  webp: "image/webp",
+  doc: "application/msword",
+  docx: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  xls: "application/vnd.ms-excel",
+  xlsx: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+};
+
+export function mimeDocumentoCaveau(
+  fileName: string,
+  fileType: string
+): string | null {
+  const dichiarato = fileType.trim().toLowerCase();
+  const ext = fileName.split(".").pop()?.trim().toLowerCase() ?? "";
+  const daEstensione = MIME_DA_ESTENSIONE[ext] ?? "";
+  if (dichiarato && Object.values(MIME_DA_ESTENSIONE).includes(dichiarato)) {
+    return dichiarato;
+  }
+  return daEstensione || null;
+}
+
+export type CaveauAcquistoDocumento = {
+  id: string;
+  nome: string;
+  fileName: string;
+  fileSize: number;
+};
+
 export type CaveauAcquistoRiga = {
   id: string;
   sitoId: string;
@@ -156,6 +191,7 @@ export type CaveauAcquistoRiga = {
   unitaMisura: string;
   registratoAt: string | null;
   versione: number;
+  documenti: CaveauAcquistoDocumento[];
 };
 
 export type CaveauSitoRiga = {

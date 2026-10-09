@@ -1,6 +1,6 @@
 "use server";
 
-import { timingSafeEqual } from "crypto";
+import { randomUUID, timingSafeEqual } from "crypto";
 import { revalidatePath } from "next/cache";
 import { getAuthContext, getAuthUser } from "@/lib/auth/session";
 import { isSuperadminProfile } from "@/lib/auth/roles";
@@ -17,11 +17,14 @@ import {
   caveauAcquistoUpdateSchema,
   caveauEliminaSchema,
   caveauRivelaSchema,
+  CAVEAU_DOCUMENTO_BUCKET,
+  CAVEAU_DOCUMENTO_MAX_BYTES,
   CAVEAU_UNITA_BASE,
   caveauSitoSchema,
   caveauSitoUpdateSchema,
   caveauUnitaSchema,
   chiaveUrlCaveau,
+  mimeDocumentoCaveau,
   normalizzaUnita,
   prezzoAcquistoOrNull,
   urlCaveauAccettabile,
@@ -35,6 +38,7 @@ import { createServiceClient } from "@/lib/supabase/server";
 const PATH = "/app/amministrazione/caveau-siti";
 const ENTITY = "caveau_siti_aziendali";
 const ENTITY_ACQUISTO = "caveau_siti_acquisti";
+const ENTITY_DOCUMENTO = "caveau_siti_acquisto_documenti";
 const ENTITY_UNITA = "caveau_unita_misura";
 const FINESTRA_MS = 15 * 60 * 1000;
 const PAUSA_INVIO_MS = 30 * 1000;
@@ -150,8 +154,36 @@ export async function listCaveauSitiAction(): Promise<
         unitaMisura: String(row.unita_misura ?? ""),
         registratoAt: row.registrato_at ? String(row.registrato_at) : null,
         versione: Number(row.versione ?? 1),
+        documenti: [],
       });
       perSito.set(sitoId, lista);
+    }
+    const acquistoIds = [...perSito.values()].flat().map((voce) => voce.id);
+    if (acquistoIds.length > 0) {
+      const { data: documenti, error: docErr } = await db
+        .from("caveau_siti_acquisto_documenti")
+        .select("id, acquisto_id, nome, file_name, file_size")
+        .in("acquisto_id", acquistoIds)
+        .is("deleted_at", null)
+        .order("created_at", { ascending: true });
+      if (docErr) return { ok: false, error: "Impossibile leggere i documenti degli acquisti." };
+      const perAcquisto = new Map<string, CaveauSitoRiga["acquisti"][number]["documenti"]>();
+      for (const row of documenti ?? []) {
+        const acquistoId = String(row.acquisto_id);
+        const lista = perAcquisto.get(acquistoId) ?? [];
+        lista.push({
+          id: String(row.id),
+          nome: String(row.nome ?? ""),
+          fileName: String(row.file_name ?? ""),
+          fileSize: Number(row.file_size ?? 0),
+        });
+        perAcquisto.set(acquistoId, lista);
+      }
+      for (const lista of perSito.values()) {
+        for (const voce of lista) {
+          voce.documenti = perAcquisto.get(voce.id) ?? [];
+        }
+      }
     }
   }
   const righe: CaveauSitoRiga[] = siti.map((sito) => ({
@@ -285,6 +317,35 @@ export async function aggiornaCaveauSitoAction(
   return { ok: true };
 }
 
+async function archiviaDocumentiAcquisti(
+  db: ReturnType<typeof createServiceClient>,
+  actorId: string,
+  now: string,
+  acquistoIds: string[]
+): Promise<{ ok: true; n: number } | { ok: false; error: string }> {
+  if (acquistoIds.length === 0) return { ok: true, n: 0 };
+  const { data, error: readErr } = await db
+    .from("caveau_siti_acquisto_documenti")
+    .select("id")
+    .in("acquisto_id", acquistoIds)
+    .is("deleted_at", null);
+  if (readErr) return { ok: false, error: "Impossibile leggere i documenti dell'acquisto." };
+  const ids = (data ?? []).map((row) => String(row.id));
+  if (ids.length === 0) return { ok: true, n: 0 };
+  const { error } = await db
+    .from("caveau_siti_acquisto_documenti")
+    .update({
+      deleted_at: now,
+      deleted_by: actorId,
+      updated_by: actorId,
+      documento_stato: "archiviato",
+    })
+    .in("id", ids)
+    .is("deleted_at", null);
+  if (error) return { ok: false, error: "Documenti non archiviati." };
+  return { ok: true, n: ids.length };
+}
+
 export async function eliminaCaveauSitoAction(
   input: unknown
 ): Promise<{ ok: true } | { ok: false; error: string }> {
@@ -309,6 +370,16 @@ export async function eliminaCaveauSitoAction(
   }
 
   const now = new Date().toISOString();
+  const { data: acquistiVivi, error: lettiErr } = await db
+    .from("caveau_siti_acquisti")
+    .select("id")
+    .eq("sito_id", parsed.data.id)
+    .is("deleted_at", null);
+  if (lettiErr) return { ok: false, error: "Impossibile leggere gli acquisti del sito." };
+  const acquistoIds = (acquistiVivi ?? []).map((row) => String(row.id));
+  const documenti = await archiviaDocumentiAcquisti(db, g.actorId, now, acquistoIds);
+  if (!documenti.ok) return documenti;
+
   const { error } = await db
     .from("caveau_siti_aziendali")
     .update({
@@ -321,11 +392,6 @@ export async function eliminaCaveauSitoAction(
     .is("deleted_at", null);
   if (error) return { ok: false, error: "Eliminazione non riuscita." };
 
-  const { count: acquistiAperti } = await db
-    .from("caveau_siti_acquisti")
-    .select("id", { count: "exact", head: true })
-    .eq("sito_id", parsed.data.id)
-    .is("deleted_at", null);
   const { error: acqErr } = await db
     .from("caveau_siti_acquisti")
     .update({
@@ -342,7 +408,11 @@ export async function eliminaCaveauSitoAction(
     action: "soft_delete",
     actorId: g.actorId,
     summary: `Sito rimosso dall'elenco: ${nome}`,
-    payload: { nome, acquisti_archiviati: acquistiAperti ?? 0 },
+    payload: {
+      nome,
+      acquisti_archiviati: acquistoIds.length,
+      documenti_archiviati: documenti.n,
+    },
   });
   revalidatePath(PATH);
   return { ok: true };
@@ -614,7 +684,7 @@ async function sitoVivo(sitoId: string): Promise<boolean> {
 
 export async function creaCaveauAcquistoAction(
   input: unknown
-): Promise<{ ok: true } | { ok: false; error: string }> {
+): Promise<{ ok: true; id: string } | { ok: false; error: string }> {
   const g = await gate();
   if (!g.ok) return g;
 
@@ -669,12 +739,12 @@ export async function creaCaveauAcquistoAction(
     },
   });
   revalidatePath(PATH);
-  return { ok: true };
+  return { ok: true, id: String(data.id) };
 }
 
 export async function aggiornaCaveauAcquistoAction(
   input: unknown
-): Promise<{ ok: true } | { ok: false; error: string }> {
+): Promise<{ ok: true; id: string } | { ok: false; error: string }> {
   const g = await gate();
   if (!g.ok) return g;
 
@@ -737,7 +807,7 @@ export async function aggiornaCaveauAcquistoAction(
     },
   });
   revalidatePath(PATH);
-  return { ok: true };
+  return { ok: true, id: parsed.data.id };
 }
 
 export async function creaCaveauUnitaAction(
@@ -804,6 +874,8 @@ export async function eliminaCaveauAcquistoAction(
   }
 
   const now = new Date().toISOString();
+  const documenti = await archiviaDocumentiAcquisti(db, g.actorId, now, [parsed.data.id]);
+  if (!documenti.ok) return documenti;
   const { error } = await db
     .from("caveau_siti_acquisti")
     .update({
@@ -822,7 +894,172 @@ export async function eliminaCaveauAcquistoAction(
     action: "soft_delete",
     actorId: g.actorId,
     summary: `Acquisto rimosso: ${titolo}`,
-    payload: { titolo },
+    payload: { titolo, documenti_archiviati: documenti.n },
+  });
+  revalidatePath(PATH);
+  return { ok: true };
+}
+
+export async function caricaCaveauAcquistoDocumentoAction(
+  formData: FormData
+): Promise<{ ok: true; id: string } | { ok: false; error: string }> {
+  const g = await gate();
+  if (!g.ok) return g;
+  const acquistoId = String(formData.get("acquistoId") ?? "");
+  const nome = String(formData.get("nome") ?? "").trim().replace(/\s+/g, " ");
+  const file = formData.get("file");
+  if (!/^[0-9a-f-]{36}$/i.test(acquistoId)) {
+    return { ok: false, error: "Acquisto non valido." };
+  }
+  if (!nome || nome.length > 120) {
+    return { ok: false, error: "Indica il nome del documento, al massimo 120 caratteri." };
+  }
+  if (!(file instanceof File) || file.size <= 0) {
+    return { ok: false, error: "Scegli un file per il documento." };
+  }
+  if (file.size > CAVEAU_DOCUMENTO_MAX_BYTES) {
+    return { ok: false, error: "Il file supera 15 MB." };
+  }
+  const mime = mimeDocumentoCaveau(file.name, file.type);
+  if (!mime) {
+    return {
+      ok: false,
+      error: "Formato non ammesso. Usa PDF, immagine, Word o Excel.",
+    };
+  }
+  if (!(await sitoAcquistoVivo(acquistoId))) {
+    return { ok: false, error: "Acquisto non trovato." };
+  }
+  const ext = file.name.split(".").pop()?.replace(/[^\w]+/g, "").slice(0, 8) || "bin";
+  const fileName =
+    file.name.replace(/[^\w.\- ()àèéìòùÀÈÉÌÒÙ]+/g, "_").slice(0, 120) || "documento";
+  const path = `acquisti/${acquistoId}/${randomUUID()}.${ext}`;
+  const db = createServiceClient();
+  const bytes = Buffer.from(await file.arrayBuffer());
+  const { error: upErr } = await db.storage.from(CAVEAU_DOCUMENTO_BUCKET).upload(path, bytes, {
+    contentType: mime,
+    upsert: false,
+  });
+  if (upErr) return { ok: false, error: "Caricamento del file non riuscito." };
+  const { data, error } = await db
+    .from("caveau_siti_acquisto_documenti")
+    .insert({
+      acquisto_id: acquistoId,
+      nome,
+      storage_path: path,
+      file_name: fileName,
+      mime,
+      file_size: file.size,
+      documento_stato: "registrato",
+      created_by: g.actorId,
+      updated_by: g.actorId,
+    })
+    .select("id")
+    .single();
+  if (error || !data) {
+    await db.storage.from(CAVEAU_DOCUMENTO_BUCKET).remove([path]);
+    return { ok: false, error: "Il file è stato caricato ma non registrato. Riprova." };
+  }
+  await audita({
+    entityType: ENTITY_DOCUMENTO,
+    entityId: String(data.id),
+    action: "create",
+    actorId: g.actorId,
+    summary: `Documento acquisto registrato: ${nome}`,
+    payload: {
+      acquisto_id: acquistoId,
+      nome,
+      file_name: fileName,
+      mime,
+      file_size: file.size,
+    },
+  });
+  revalidatePath(PATH);
+  return { ok: true, id: String(data.id) };
+}
+
+async function sitoAcquistoVivo(acquistoId: string): Promise<boolean> {
+  const db = createServiceClient();
+  const { data, error } = await db
+    .from("caveau_siti_acquisti")
+    .select("id")
+    .eq("id", acquistoId)
+    .is("deleted_at", null)
+    .maybeSingle();
+  return !error && Boolean(data);
+}
+
+export async function apriCaveauAcquistoDocumentoAction(input: {
+  id: string;
+}): Promise<{ ok: true; url: string } | { ok: false; error: string }> {
+  const g = await gate();
+  if (!g.ok) return g;
+  const id = String(input?.id ?? "");
+  if (!/^[0-9a-f-]{36}$/i.test(id)) return { ok: false, error: "Documento non valido." };
+  const db = createServiceClient();
+  const { data, error } = await db
+    .from("caveau_siti_acquisto_documenti")
+    .select("id, nome, storage_path, acquisto_id")
+    .eq("id", id)
+    .is("deleted_at", null)
+    .maybeSingle();
+  if (error || !data) return { ok: false, error: "Documento non trovato." };
+  const path = String(data.storage_path ?? "");
+  const { data: signed, error: signErr } = await db.storage
+    .from(CAVEAU_DOCUMENTO_BUCKET)
+    .createSignedUrl(path, 120);
+  if (signErr || !signed?.signedUrl) {
+    return { ok: false, error: "Impossibile aprire il documento." };
+  }
+  await audita({
+    entityType: ENTITY_DOCUMENTO,
+    entityId: id,
+    action: "read",
+    actorId: g.actorId,
+    summary: `Documento acquisto aperto: ${String(data.nome ?? "")}`,
+    payload: { acquisto_id: String(data.acquisto_id ?? ""), nome: String(data.nome ?? "") },
+  });
+  return { ok: true, url: signed.signedUrl };
+}
+
+export async function eliminaCaveauAcquistoDocumentoAction(input: {
+  id: string;
+}): Promise<{ ok: true } | { ok: false; error: string }> {
+  const g = await gate();
+  if (!g.ok) return g;
+  const id = String(input?.id ?? "");
+  if (!/^[0-9a-f-]{36}$/i.test(id)) return { ok: false, error: "Documento non valido." };
+  const db = createServiceClient();
+  const { data, error: readErr } = await db
+    .from("caveau_siti_acquisto_documenti")
+    .select("id, nome, acquisto_id, versione")
+    .eq("id", id)
+    .is("deleted_at", null)
+    .maybeSingle();
+  if (readErr || !data) return { ok: false, error: "Documento non trovato." };
+  const now = new Date().toISOString();
+  const { error } = await db
+    .from("caveau_siti_acquisto_documenti")
+    .update({
+      deleted_at: now,
+      deleted_by: g.actorId,
+      updated_by: g.actorId,
+      documento_stato: "archiviato",
+      versione: Number(data.versione ?? 1) + 1,
+    })
+    .eq("id", id)
+    .is("deleted_at", null);
+  if (error) return { ok: false, error: "Rimozione del documento non riuscita." };
+  await audita({
+    entityType: ENTITY_DOCUMENTO,
+    entityId: id,
+    action: "soft_delete",
+    actorId: g.actorId,
+    summary: `Documento acquisto archiviato: ${String(data.nome ?? "")}`,
+    payload: {
+      acquisto_id: String(data.acquisto_id ?? ""),
+      nome: String(data.nome ?? ""),
+    },
   });
   revalidatePath(PATH);
   return { ok: true };

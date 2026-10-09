@@ -4,10 +4,13 @@ import { Fragment, useCallback, useEffect, useId, useMemo, useRef, useState } fr
 import {
   aggiornaCaveauAcquistoAction,
   aggiornaCaveauSitoAction,
+  apriCaveauAcquistoDocumentoAction,
+  caricaCaveauAcquistoDocumentoAction,
   creaCaveauAcquistoAction,
   creaCaveauSitoAction,
   creaCaveauUnitaAction,
   eliminaCaveauAcquistoAction,
+  eliminaCaveauAcquistoDocumentoAction,
   eliminaCaveauSitoAction,
   inviaCodiceCaveauAction,
   listCaveauSitiAction,
@@ -15,6 +18,7 @@ import {
 } from "@/app/actions/caveau-siti";
 import {
   CAVEAU_UNITA_BASE,
+  type CaveauAcquistoDocumento,
   type CaveauAcquistoRiga,
   type CaveauSitoRiga,
 } from "@/lib/amministrazione/caveau-siti";
@@ -53,6 +57,92 @@ function hrefEsterno(raw: string): string | null {
   } catch {
     return null;
   }
+}
+
+function formatPeso(byte: number): string {
+  if (byte < 1024) return `${byte} B`;
+  if (byte < 1024 * 1024) return `${Math.round(byte / 1024)} KB`;
+  return `${(byte / (1024 * 1024)).toLocaleString("it-IT", { maximumFractionDigits: 1 })} MB`;
+}
+
+type DocNuovo = { key: string; nome: string; file: File | null };
+
+function docVuoto(): DocNuovo {
+  return { key: crypto.randomUUID(), nome: "", file: null };
+}
+
+function RiquadroFile({
+  file,
+  onFile,
+}: {
+  file: File | null;
+  onFile: (file: File | null) => void;
+}) {
+  const inputId = useId();
+  const [sopra, setSopra] = useState(false);
+  return (
+    <div
+      onDragOver={(e) => {
+        e.preventDefault();
+        setSopra(true);
+      }}
+      onDragLeave={() => setSopra(false)}
+      onDrop={(e) => {
+        e.preventDefault();
+        setSopra(false);
+        const scelto = e.dataTransfer.files?.[0];
+        if (scelto) onFile(scelto);
+      }}
+      className={`rounded-xl border-2 border-dashed px-4 py-4 text-center ${
+        sopra ? "border-slate-900 bg-white" : "border-slate-300 bg-slate-50"
+      }`}
+    >
+      <svg
+        viewBox="0 0 24 24"
+        aria-hidden="true"
+        className="mx-auto h-8 w-8 text-slate-500"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.6"
+      >
+        <path d="M7 3.5h7l5 5V20a1.5 1.5 0 0 1-1.5 1.5h-10.5A1.5 1.5 0 0 1 5.5 20V5A1.5 1.5 0 0 1 7 3.5Z" />
+        <path d="M14 3.5V8.5H19" />
+        <path d="M12 17v-5" />
+        <path d="M9.5 13.5 12 11l2.5 2.5" />
+      </svg>
+      <p className="mt-2 text-sm font-medium text-slate-800">
+        {file ? file.name : "Trascina il file oppure scegli"}
+      </p>
+      <p className="mt-1 text-xs text-slate-500">
+        {file ? formatPeso(file.size) : "PDF, immagini, Word o Excel, fino a 15 MB"}
+      </p>
+      <label
+        htmlFor={inputId}
+        className="mt-3 inline-flex cursor-pointer rounded-lg bg-slate-900 px-3 py-2 text-xs font-medium text-white"
+      >
+        Scegli file
+      </label>
+      <input
+        id={inputId}
+        type="file"
+        className="sr-only"
+        onChange={(e) => {
+          const scelto = e.target.files?.[0];
+          if (scelto) onFile(scelto);
+          e.target.value = "";
+        }}
+      />
+      {file ? (
+        <button
+          type="button"
+          className="mt-2 text-xs text-slate-600 underline"
+          onClick={() => onFile(null)}
+        >
+          Togli file
+        </button>
+      ) : null}
+    </div>
+  );
 }
 
 function adessoLocale(): string {
@@ -215,6 +305,10 @@ export function CaveauSitiBoard() {
   const [passwordVista, setPasswordVista] = useState<string | null>(null);
   const [codiceInviatoA, setCodiceInviatoA] = useState<string | null>(null);
   const [acquisto, setAcquisto] = useState<AcquistoBozza | null>(null);
+  const [documentiNuovi, setDocumentiNuovi] = useState<DocNuovo[]>(() => [docVuoto()]);
+  const [documentiSalvati, setDocumentiSalvati] = useState<CaveauAcquistoDocumento[]>([]);
+  const [documentoDaRimuovere, setDocumentoDaRimuovere] =
+    useState<CaveauAcquistoDocumento | null>(null);
   const [eliminaAcquisto, setEliminaAcquisto] = useState<CaveauAcquistoRiga | null>(null);
   const [descrizioneAperta, setDescrizioneAperta] = useState<{
     titolo: string;
@@ -256,11 +350,12 @@ export function CaveauSitiBoard() {
     if (!res.ok) {
       setErrore(res.error);
       setRighe([]);
-      return;
+      return [];
     }
     setErrore(null);
     setRighe(res.righe);
     setUnitaExtra(res.unitaExtra);
+    return res.righe;
   }, []);
 
   useEffect(() => {
@@ -346,6 +441,8 @@ export function CaveauSitiBoard() {
 
   function nuovoAcquisto(sito: CaveauSitoRiga) {
     setErrore(null);
+    setDocumentiSalvati([]);
+    setDocumentiNuovi([docVuoto()]);
     setAcquisto({
       id: null,
       sitoId: sito.id,
@@ -359,8 +456,37 @@ export function CaveauSitiBoard() {
     });
   }
 
+  async function apriDocumento(id: string) {
+    const res = await apriCaveauAcquistoDocumentoAction({ id });
+    if (!res.ok) {
+      setErrore(res.error);
+      return;
+    }
+    window.open(res.url, "_blank", "noopener,noreferrer");
+  }
+
+  async function confermaRimuoviDocumento() {
+    if (!documentoDaRimuovere || busy) return;
+    setBusy(true);
+    setErrore(null);
+    const res = await eliminaCaveauAcquistoDocumentoAction({ id: documentoDaRimuovere.id });
+    setBusy(false);
+    if (!res.ok) {
+      setErrore(res.error);
+      return;
+    }
+    setDocumentiSalvati((prev) => prev.filter((voce) => voce.id !== documentoDaRimuovere.id));
+    setDocumentoDaRimuovere(null);
+    await load();
+  }
+
   async function salvaAcquisto() {
     if (!acquisto || busy) return;
+    const compilati = documentiNuovi.filter((doc) => doc.nome.trim() || doc.file);
+    if (compilati.some((doc) => !doc.nome.trim() || !doc.file)) {
+      setErrore("Ogni documento vuole un nome e un file.");
+      return;
+    }
     setBusy(true);
     setErrore(null);
     const payload = {
@@ -375,12 +501,45 @@ export function CaveauSitiBoard() {
     const res = acquisto.id
       ? await aggiornaCaveauAcquistoAction({ ...payload, id: acquisto.id })
       : await creaCaveauAcquistoAction(payload);
-    setBusy(false);
     if (!res.ok) {
+      setBusy(false);
       setErrore(res.error);
       return;
     }
+    const rimasti: DocNuovo[] = [];
+    let messaggio = "";
+    let interrotto = false;
+    for (const doc of compilati) {
+      if (interrotto || !doc.file) {
+        rimasti.push(doc);
+        continue;
+      }
+      const body = new FormData();
+      body.set("acquistoId", res.id);
+      body.set("nome", doc.nome.trim());
+      body.set("file", doc.file);
+      const caricato = await caricaCaveauAcquistoDocumentoAction(body);
+      if (!caricato.ok) {
+        rimasti.push(doc);
+        interrotto = true;
+        messaggio = `Acquisto salvato. «${doc.nome.trim()}» non è stato caricato: ${caricato.error}`;
+      }
+    }
+    setBusy(false);
+    if (interrotto) {
+      setAcquisto({ ...acquisto, id: res.id });
+      setDocumentiNuovi(rimasti.length > 0 ? rimasti : [docVuoto()]);
+      const aggiornate = await load();
+      const trovato = aggiornate
+        .flatMap((sito) => sito.acquisti)
+        .find((voce) => voce.id === res.id);
+      if (trovato) setDocumentiSalvati(trovato.documenti);
+      setErrore(messaggio);
+      return;
+    }
     setAcquisto(null);
+    setDocumentiSalvati([]);
+    setDocumentiNuovi([docVuoto()]);
     await load();
   }
 
@@ -628,6 +787,9 @@ export function CaveauSitiBoard() {
                                   </th>
                                 );
                               })}
+                              <th className="px-2 py-1 text-xs font-medium text-slate-500">
+                                Documenti
+                              </th>
                               <th className="px-2 py-1" />
                             </tr>
                           </thead>
@@ -685,12 +847,32 @@ export function CaveauSitiBoard() {
                                   {formatPrezzo(voce.prezzo, voce.unitaMisura)}
                                 </td>
                                 <td className="px-2 py-1">
+                                  {voce.documenti.length === 0 ? (
+                                    <span className="text-slate-500">—</span>
+                                  ) : (
+                                    <div className="flex flex-col items-start gap-1">
+                                      {voce.documenti.map((doc) => (
+                                        <button
+                                          key={doc.id}
+                                          type="button"
+                                          className="rounded-md border border-slate-300 bg-white px-2 py-1 text-left text-xs font-medium text-slate-800 hover:bg-slate-50"
+                                          onClick={() => void apriDocumento(doc.id)}
+                                        >
+                                          {doc.nome}
+                                        </button>
+                                      ))}
+                                    </div>
+                                  )}
+                                </td>
+                                <td className="px-2 py-1">
                                   <div className="flex gap-2">
                                     <button
                                       type="button"
                                       className="rounded-md border border-slate-300 bg-white px-2 py-1 text-xs"
                                       onClick={() => {
                                         setErrore(null);
+                                        setDocumentiSalvati(voce.documenti);
+                                        setDocumentiNuovi([docVuoto()]);
                                         setAcquisto({
                                           id: voce.id,
                                           sitoId: riga.id,
@@ -897,7 +1079,7 @@ export function CaveauSitiBoard() {
             role="dialog"
             aria-modal="true"
             aria-labelledby={acquistoTitleId}
-            className="w-full max-w-lg rounded-2xl border border-slate-200 bg-white p-5 shadow-xl"
+            className="max-h-[90vh] w-full max-w-xl overflow-y-auto rounded-2xl border border-slate-200 bg-white p-5 shadow-xl"
           >
             <h2 id={acquistoTitleId} className="text-lg font-semibold text-slate-900">
               {acquisto.id ? "Modifica acquisto" : "Nuovo acquisto"} — {acquisto.sitoNome}
@@ -993,6 +1175,94 @@ export function CaveauSitiBoard() {
                   />
                 </label>
               </div>
+              <div className="space-y-3">
+                <div className="flex items-center justify-between gap-2">
+                  <p className="text-sm font-medium text-slate-800">Documenti</p>
+                  <button
+                    type="button"
+                    className="rounded-lg border border-slate-300 bg-white px-2 py-1 text-xs font-medium"
+                    onClick={() => setDocumentiNuovi((prev) => [...prev, docVuoto()])}
+                  >
+                    Aggiungi documento
+                  </button>
+                </div>
+                <p className="text-xs text-slate-500">
+                  Facoltativi. Ogni documento ha un nome, per esempio Scheda tecnica, e un file.
+                </p>
+                {documentiSalvati.map((doc) => (
+                  <div
+                    key={doc.id}
+                    className="flex items-center justify-between gap-2 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2"
+                  >
+                    <div className="min-w-0">
+                      <p className="truncate text-sm font-medium text-slate-900">{doc.nome}</p>
+                      <p className="truncate text-xs text-slate-500">
+                        {doc.fileName} · {formatPeso(doc.fileSize)}
+                      </p>
+                    </div>
+                    <div className="flex shrink-0 gap-2">
+                      <button
+                        type="button"
+                        className="rounded-lg border border-slate-300 bg-white px-2 py-1 text-xs"
+                        onClick={() => void apriDocumento(doc.id)}
+                      >
+                        Apri
+                      </button>
+                      <button
+                        type="button"
+                        className="rounded-lg border border-red-200 bg-white px-2 py-1 text-xs text-red-700"
+                        onClick={() => setDocumentoDaRimuovere(doc)}
+                      >
+                        Rimuovi
+                      </button>
+                    </div>
+                  </div>
+                ))}
+                {documentiNuovi.map((doc, index) => (
+                  <div key={doc.key} className="space-y-2 rounded-xl border border-slate-200 p-3">
+                    <div className="flex items-center justify-between gap-2">
+                      <label className="block min-w-0 flex-1 text-sm">
+                        <span className="text-slate-600">Nome documento</span>
+                        <input
+                          className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2"
+                          placeholder="Es. Scheda tecnica"
+                          value={doc.nome}
+                          onChange={(e) =>
+                            setDocumentiNuovi((prev) =>
+                              prev.map((voce) =>
+                                voce.key === doc.key ? { ...voce, nome: e.target.value } : voce
+                              )
+                            )
+                          }
+                        />
+                      </label>
+                      {documentiNuovi.length > 1 || doc.nome || doc.file ? (
+                        <button
+                          type="button"
+                          className="mt-5 text-xs text-slate-600 underline"
+                          onClick={() =>
+                            setDocumentiNuovi((prev) => {
+                              const next = prev.filter((voce) => voce.key !== doc.key);
+                              return next.length > 0 ? next : [docVuoto()];
+                            })
+                          }
+                        >
+                          Togli
+                        </button>
+                      ) : null}
+                    </div>
+                    <RiquadroFile
+                      file={doc.file}
+                      onFile={(file) =>
+                        setDocumentiNuovi((prev) =>
+                          prev.map((voce) => (voce.key === doc.key ? { ...voce, file } : voce))
+                        )
+                      }
+                    />
+                    <span className="sr-only">Documento {index + 1}</span>
+                  </div>
+                ))}
+              </div>
             </div>
             <div className="mt-5 flex justify-end gap-2">
               <button
@@ -1010,6 +1280,41 @@ export function CaveauSitiBoard() {
                 disabled={busy}
               >
                 Salva
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {documentoDaRimuovere ? (
+        <div className="fixed inset-0 z-[96] flex items-center justify-center p-4">
+          <div
+            role="dialog"
+            aria-modal="true"
+            className="w-full max-w-md rounded-2xl border border-slate-200 bg-white p-5 shadow-xl"
+          >
+            <h2 className="text-lg font-semibold text-slate-900">
+              Rimuovi {documentoDaRimuovere.nome}
+            </h2>
+            <p className="mt-2 text-sm text-slate-600">
+              Il file resta in archivio e non compare più sull&apos;acquisto.
+            </p>
+            <div className="mt-5 flex justify-end gap-2">
+              <button
+                type="button"
+                className="rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                onClick={() => setDocumentoDaRimuovere(null)}
+                disabled={busy}
+              >
+                Chiudi
+              </button>
+              <button
+                type="button"
+                className="rounded-lg bg-red-700 px-3 py-2 text-sm text-white disabled:opacity-60"
+                onClick={() => void confermaRimuoviDocumento()}
+                disabled={busy}
+              >
+                Rimuovi
               </button>
             </div>
           </div>
