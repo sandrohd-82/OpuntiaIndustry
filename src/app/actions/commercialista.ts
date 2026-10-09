@@ -378,13 +378,31 @@ export async function getCommercialistaSummaryAction(
       numero: String(r.numero_interno ?? ""),
     }))
   );
-  const sequenzaRicevute = sequenzaCrescentePerData(
-    ricevuteOk.map((r) => ({
-      id: String(r.id),
-      data: String(r.data_emissione ?? ""),
-      numero: String(r.numero_interno ?? ""),
-    }))
+  const sequenzaRicevuteAnno = await mappaNumeroProvvisorioAnno(
+    supabase,
+    "ricevuta",
+    anno
   );
+  if (mappaOErrore(sequenzaRicevuteAnno)) {
+    return { success: false, error: sequenzaRicevuteAnno.error };
+  }
+  const sequenzaNoteRicevuteAnno = await mappaNumeroProvvisorioAnno(
+    supabase,
+    "nota_ricevuta",
+    anno
+  );
+  if (mappaOErrore(sequenzaNoteRicevuteAnno)) {
+    return { success: false, error: sequenzaNoteRicevuteAnno.error };
+  }
+  const sequenzaDdtRicevutiAnno = await mappaNumeroProvvisorioAnno(
+    supabase,
+    "ddt_ricevuto",
+    anno
+  );
+  if (mappaOErrore(sequenzaDdtRicevutiAnno)) {
+    return { success: false, error: sequenzaDdtRicevutiAnno.error };
+  }
+  const sequenzaRicevute = sequenzaRicevuteAnno;
 
   const emesseIvaById = new Map(
     emesseOk.map((r) => [
@@ -562,13 +580,7 @@ export async function getCommercialistaSummaryAction(
       noteRicevuteIds.has(String(r.fattura_id))
     ),
     numeroById: ricevuteNumeroById,
-    sequenzaById: sequenzaCrescentePerData(
-      noteRicevuteTestate.map((r) => ({
-        id: String(r.id),
-        data: String(r.data_emissione ?? ""),
-        numero: String(r.numero_interno ?? ""),
-      }))
-    ),
+    sequenzaById: sequenzaNoteRicevuteAnno,
     agg: aggregateRigheConIva(
       ricevuteRigheDb
         .filter((r) => noteRicevuteIds.has(String(r.fattura_id)))
@@ -580,7 +592,7 @@ export async function getCommercialistaSummaryAction(
     ),
   });
 
-  const ddt = await loadColonneDdt(supabase, dal, al);
+  const ddt = await loadColonneDdt(supabase, dal, al, sequenzaDdtRicevutiAnno);
   if (!ddt.ok) return { success: false, error: ddt.error };
 
   return {
@@ -637,7 +649,8 @@ function ivaRiga(
 async function loadColonneDdt(
   supabase: Awaited<ReturnType<typeof createClient>>,
   dal: string,
-  al: string
+  al: string,
+  sequenzaRicevutiAnno: Map<string, number>
 ): Promise<
   | { ok: true; emessi: CommercialistaColonnaTotali; ricevuti: CommercialistaColonnaTotali }
   | { ok: false; error: string }
@@ -700,13 +713,16 @@ async function loadColonneDdt(
         is_bene_ammortizzabile: false,
       })),
       numeroById,
-      sequenzaById: sequenzaCrescentePerData(
-        testate.map((d) => ({
-          id: String(d.id),
-          data: String(d.data_documento ?? ""),
-          numero: String(d.numero_interno ?? ""),
-        }))
-      ),
+      sequenzaById:
+        direzione === "ricevuto"
+          ? sequenzaRicevutiAnno
+          : sequenzaCrescentePerData(
+              testate.map((d) => ({
+                id: String(d.id),
+                data: String(d.data_documento ?? ""),
+                numero: String(d.numero_interno ?? ""),
+              }))
+            ),
       agg: aggregateRigheConIva(
         righeDir.map((r) => ({
           importo: Number(r.importo) || 0,
@@ -733,6 +749,62 @@ function sequenzaCrescentePerData(
     map.set(row.id, index + 1);
   });
   return map;
+}
+
+/**
+ * In entrata il n. 1 è il primo documento del 1° gennaio, non del trimestre.
+ * I trimestri successivi continuano la stessa sequenza.
+ */
+async function mappaNumeroProvvisorioAnno(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  kind: "ricevuta" | "nota_ricevuta" | "ddt_ricevuto",
+  anno: number
+): Promise<Map<string, number> | { error: string }> {
+  const dalAnno = `${anno}-01-01`;
+  const alAnno = `${anno}-12-31`;
+  if (kind === "ddt_ricevuto") {
+    const { data, error } = await supabase
+      .from("ddt_documenti")
+      .select("id, numero_interno, data_documento")
+      .eq("direzione", "ricevuto")
+      .is("deleted_at", null)
+      .neq("stato", "annullato")
+      .gte("data_documento", dalAnno)
+      .lte("data_documento", alAnno);
+    if (error) return { error: error.message };
+    return sequenzaCrescentePerData(
+      (data ?? []).map((row) => ({
+        id: String(row.id),
+        data: String(row.data_documento ?? ""),
+        numero: String(row.numero_interno ?? ""),
+      }))
+    );
+  }
+  const { data, error } = await supabase
+    .from("fatture_ricevute")
+    .select("id, numero_interno, data_emissione, totale")
+    .is("deleted_at", null)
+    .gte("data_emissione", dalAnno)
+    .lte("data_emissione", alAnno);
+  if (error) return { error: error.message };
+  const rows = (data ?? []).filter((row) =>
+    kind === "nota_ricevuta"
+      ? isNotaCreditoRicevuta(row.numero_interno, row.totale)
+      : true
+  );
+  return sequenzaCrescentePerData(
+    rows.map((row) => ({
+      id: String(row.id),
+      data: String(row.data_emissione ?? ""),
+      numero: String(row.numero_interno ?? ""),
+    }))
+  );
+}
+
+function mappaOErrore(
+  value: Map<string, number> | { error: string }
+): value is { error: string } {
+  return !(value instanceof Map);
 }
 
 function buildColonna(input: {
@@ -908,12 +980,26 @@ export async function applySequenzaCommercialistaAction(input: {
       .map((r) => String(r.id));
   }
 
-  const numbered = assignNumeriVignetta(
+  let numbered = assignNumeriVignetta(
     fatturaIds.map((fatturaId) => ({
       fatturaId,
       numeraConVignetta: true,
     }))
   );
+  if (
+    input.kind === "ricevuta" ||
+    input.kind === "nota_ricevuta" ||
+    input.kind === "ddt_ricevuto"
+  ) {
+    const mappa = await mappaNumeroProvvisorioAnno(supabase, input.kind, anno);
+    if (mappaOErrore(mappa)) return { success: false, error: mappa.error };
+    numbered = fatturaIds.map((fatturaId, index) => ({
+      fatturaId,
+      numeraConVignetta: true,
+      numeroVignetta: mappa.get(fatturaId) ?? null,
+      sortOrder: index,
+    }));
+  }
 
   const { data: existing, error: findErr } = await supabase
     .from("elaborazioni_contabili")
@@ -1243,11 +1329,18 @@ export async function getCommercialistaPaperBatchAction(input: {
   let testate: Testata[] = [];
 
   if (input.kind === "ddt_emesso" || input.kind === "ddt_ricevuto") {
+    let sequenzaAnno: Map<string, number> | null = null;
+    if (input.kind === "ddt_ricevuto") {
+      const mappa = await mappaNumeroProvvisorioAnno(supabase, input.kind, anno);
+      if (mappaOErrore(mappa)) return { success: false, error: mappa.error };
+      sequenzaAnno = mappa;
+    }
     const fogli = await loadDdtPaperDocs(
       supabase,
       input.kind,
       dal,
-      al
+      al,
+      sequenzaAnno
     );
     if (!fogli.ok) return { success: false, error: fogli.error };
     return {
@@ -1316,13 +1409,19 @@ export async function getCommercialistaPaperBatchAction(input: {
       }));
   }
 
-  const sequenza = sequenzaCrescentePerData(
+  const sequenzaPeriodo = sequenzaCrescentePerData(
     testate.map((t) => ({
       id: t.id,
       data: t.data_emissione,
       numero: t.numero_interno,
     }))
   );
+  let sequenza = sequenzaPeriodo;
+  if (input.kind === "ricevuta" || input.kind === "nota_ricevuta") {
+    const mappa = await mappaNumeroProvvisorioAnno(supabase, input.kind, anno);
+    if (mappaOErrore(mappa)) return { success: false, error: mappa.error };
+    sequenza = mappa;
+  }
 
   const docs: CommercialistaPaperDoc[] = [];
   const paperKind: ElaborazioneContabileKind =
@@ -1396,7 +1495,8 @@ async function loadDdtPaperDocs(
   supabase: Awaited<ReturnType<typeof createClient>>,
   kind: "ddt_emesso" | "ddt_ricevuto",
   dal: string,
-  al: string
+  al: string,
+  sequenzaAnno: Map<string, number> | null
 ): Promise<
   | { ok: true; docs: CommercialistaPaperDoc[] }
   | { ok: false; error: string }
@@ -1453,13 +1553,15 @@ async function loadDdtPaperDocs(
     }
   }
 
-  const sequenza = sequenzaCrescentePerData(
-    docsRaw.map((d) => ({
-      id: String(d.id),
-      data: String(d.data_documento ?? ""),
-      numero: String(d.numero_interno ?? ""),
-    }))
-  );
+  const sequenza =
+    sequenzaAnno ??
+    sequenzaCrescentePerData(
+      docsRaw.map((d) => ({
+        id: String(d.id),
+        data: String(d.data_documento ?? ""),
+        numero: String(d.numero_interno ?? ""),
+      }))
+    );
   const azienda = defaultDestinatarioCooperativa();
   const docs: CommercialistaPaperDoc[] = docsRaw.map((d) => {
     const id = String(d.id);
@@ -1550,7 +1652,8 @@ export async function auditCommercialistaPaperAction(input: {
     | "stampa_batch"
     | "stampa_singola"
     | "scarica_pdf"
-    | "scarica_excel";
+    | "scarica_excel"
+    | "salva_cartella";
   documenti: number;
   mostraSequenza: boolean;
   fatturaId?: string | null;

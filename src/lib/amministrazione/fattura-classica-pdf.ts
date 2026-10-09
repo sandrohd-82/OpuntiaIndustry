@@ -30,13 +30,33 @@ export function nomePdfFatturaCommercialista(input: {
   return `${seq}_${dataFile(input.data)}(${num}).pdf`;
 }
 
+/**
+ * Entrata: n. provvisorio, data e numero dato dal cliente.
+ * La barra non può stare nel nome su Windows: al suo posto c'è un trattino basso.
+ * Esempio: 15_11-08-26_63-Abf.pdf
+ */
+export function nomePdfEntrataCommercialista(input: {
+  numeroSequenza: number | null;
+  numeroFattura: string;
+  data: string;
+}): string {
+  const seq =
+    input.numeroSequenza != null ? String(input.numeroSequenza) : "senza";
+  const num = numeroFileFattura(input.numeroFattura);
+  return `${seq}_${dataFile(input.data)}_${num}.pdf`;
+}
+
 /** Stessi nomi del download PDF, con suffisso se due fatture coincidono. */
 export function nomiPdfUnivoci(
-  inputs: { numeroSequenza: number | null; numeroFattura: string; data: string }[]
+  inputs: { numeroSequenza: number | null; numeroFattura: string; data: string }[],
+  formato: "classico" | "entrata" = "classico"
 ): string[] {
   const usati = new Map<string, number>();
   return inputs.map((input) => {
-    let fileName = nomePdfFatturaCommercialista(input);
+    let fileName =
+      formato === "entrata"
+        ? nomePdfEntrataCommercialista(input)
+        : nomePdfFatturaCommercialista(input);
     const gia = usati.get(fileName) ?? 0;
     usati.set(fileName, gia + 1);
     if (gia > 0) fileName = fileName.replace(/\.pdf$/i, `_${gia + 1}.pdf`);
@@ -404,17 +424,54 @@ export function buildPaperFatturaPdf(input: {
   return { fileName: input.fileName, blob: doc.output("blob") };
 }
 
-type CartellaPdf = {
+type FileScrivibile = {
+  createWritable: () => Promise<{
+    write: (data: Blob) => Promise<void>;
+    close: () => Promise<void>;
+  }>;
+};
+
+export type CartellaPdf = {
+  getDirectoryHandle: (
+    name: string,
+    opts: { create: boolean }
+  ) => Promise<CartellaPdf>;
   getFileHandle: (
     name: string,
     opts: { create: boolean }
-  ) => Promise<{
-    createWritable: () => Promise<{
-      write: (data: Blob) => Promise<void>;
-      close: () => Promise<void>;
-    }>;
-  }>;
+  ) => Promise<FileScrivibile>;
 };
+
+/** Prima di scrivere: l'operatore sceglie la chiavetta o la cartella. Annullare non è un errore. */
+export async function chiediCartellaScrittura(): Promise<CartellaPdf | null> {
+  const picker = (
+    window as Window & {
+      showDirectoryPicker?: (opts: { mode: "readwrite" }) => Promise<CartellaPdf>;
+    }
+  ).showDirectoryPicker;
+  if (!picker) {
+    throw new Error(
+      "Per scegliere dove salvare serve Chrome o Edge."
+    );
+  }
+  try {
+    return await picker({ mode: "readwrite" });
+  } catch (err) {
+    if (err instanceof DOMException && err.name === "AbortError") return null;
+    throw err;
+  }
+}
+
+export async function scriviFileInCartella(
+  cartella: CartellaPdf,
+  nome: string,
+  contenuto: Blob
+): Promise<void> {
+  const handle = await cartella.getFileHandle(nome, { create: true });
+  const writable = await handle.createWritable();
+  await writable.write(contenuto);
+  await writable.close();
+}
 
 /** Un click: chiede la cartella e scrive un PDF per fattura. */
 export async function salvaPdfSeparati(files: FilePdf[]): Promise<number> {

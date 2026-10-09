@@ -191,7 +191,8 @@ export function righeElaborazioneFatture(
         doc.model.numero ||
         doc.numeroInterno,
       data: doc.classica?.dataDocumento || doc.dataEmissione || doc.model.data || "",
-    }))
+    })),
+    registroMostraBeneConsumo(kind) ? "entrata" : "classico"
   );
   const nomePerDoc = new Map(docs.map((doc, i) => [doc, nomi[i] ?? ""]));
   const ordinate = [...docs].sort((a, b) => {

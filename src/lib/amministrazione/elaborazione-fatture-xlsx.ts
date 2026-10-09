@@ -57,7 +57,9 @@ export async function buildElaborazioneFattureXlsx(input: {
   anno: number;
   trimestre: number;
   docs: FatturaElaborazioneSorgente[];
-}): Promise<{ filename: string; base64: string }> {
+  /** Il numero documento apre il PDF che sta nella stessa cartella. */
+  collegaPdf?: boolean;
+}): Promise<{ filename: string; base64: string; bytes: Uint8Array }> {
   const righe = righeElaborazioneFatture(input.docs, input.kind);
   const wb = new ExcelJS.Workbook();
   wb.creator = "OpuntiaIndustry";
@@ -103,6 +105,24 @@ export async function buildElaborazioneFattureXlsx(input: {
         horizontal: "center",
       };
     }
+    if (input.collegaPdf && riga.tipo === "fattura" && riga.nomeFile) {
+      const colNumero = titoli.indexOf("Numero documento") + 1;
+      if (colNumero > 0) {
+        const cell = excelRow.getCell(colNumero);
+        const testo = String(cell.value ?? "").trim() || riga.nomeFile;
+        cell.value = {
+          text: testo,
+          hyperlink: riga.nomeFile,
+          tooltip: "Apri il PDF",
+        };
+        cell.font = {
+          name: "Calibri",
+          size: 11,
+          color: { argb: "FF1D4ED8" },
+          underline: true,
+        };
+      }
+    }
     if (riga.tipo === "fattura" && riga.notaCredito) {
       excelRow.eachCell((cell) => {
         cell.fill = {
@@ -131,9 +151,13 @@ export async function buildElaborazioneFattureXlsx(input: {
   }
 
   const buffer = await wb.xlsx.writeBuffer();
-  const filename = `Elaborazione_${input.kind}_${input.anno}_T${input.trimestre}.xlsx`;
+  const bytes = new Uint8Array(buffer);
+  const filename = input.collegaPdf
+    ? "resoconto.xlsx"
+    : `Elaborazione_${input.kind}_${input.anno}_T${input.trimestre}.xlsx`;
   return {
     filename,
-    base64: Buffer.from(buffer).toString("base64"),
+    bytes,
+    base64: Buffer.from(bytes).toString("base64"),
   };
 }

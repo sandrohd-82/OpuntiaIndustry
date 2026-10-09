@@ -4,17 +4,27 @@ import { useEffect, useId, useMemo, useState, useTransition } from "react";
 import { createPortal } from "react-dom";
 import { FaDownload, FaXmark } from "react-icons/fa6";
 import {
+  auditCommercialistaPaperAction,
   getCommercialistaPaperBatchAction,
   scaricaElaborazioneFattureExcelAction,
   type CommercialistaPaperDoc,
 } from "@/app/actions/commercialista";
 import { formatEuro } from "@/lib/amministrazione/fatture";
+import { buildElaborazioneFattureXlsx } from "@/lib/amministrazione/elaborazione-fatture-xlsx";
 import {
   righeElaborazioneFatture,
   titoliElaborazioneExcel,
 } from "@/lib/amministrazione/elaborazione-fatture-excel";
 import {
+  buildFatturaClassicaPdf,
+  buildPaperFatturaPdf,
+  chiediCartellaScrittura,
+  nomiPdfUnivoci,
+  scriviFileInCartella,
+} from "@/lib/amministrazione/fattura-classica-pdf";
+import {
   etichettaRegistro,
+  nomeFoglioRegistro,
   registroMostraBeneConsumo,
   type CommercialistaRegistroKind,
 } from "@/lib/amministrazione/commercialista";
@@ -65,6 +75,88 @@ export function CommercialistaElaboraFattureModal({
       setLabelPeriodo(res.labelPeriodo);
     });
   }, [kind, anno, trimestre]);
+
+  async function salvaCartella() {
+    if (docs.length === 0 || scaricando) return;
+    setScaricaMsg(null);
+    let scelta: Awaited<ReturnType<typeof chiediCartellaScrittura>>;
+    try {
+      scelta = await chiediCartellaScrittura();
+    } catch (err) {
+      setScaricaMsg(
+        err instanceof Error ? err.message : "Non sono riuscito a chiedere la cartella."
+      );
+      return;
+    }
+    if (!scelta) return;
+    setScaricando(true);
+    try {
+      const nomeCartella = nomeFoglioRegistro(kind);
+      const cartella = await scelta.getDirectoryHandle(nomeCartella, {
+        create: true,
+      });
+      const nomi = nomiPdfUnivoci(
+        docs.map((doc) => ({
+          numeroSequenza: doc.numeroSequenza,
+          numeroFattura:
+            doc.numeroDocumento ||
+            doc.classica?.numero ||
+            doc.model.numero ||
+            doc.numeroInterno,
+          data: doc.classica?.dataDocumento || doc.dataEmissione || doc.model.data || "",
+        })),
+        "entrata"
+      );
+      for (let i = 0; i < docs.length; i += 1) {
+        const doc = docs[i];
+        const fileName = nomi[i] ?? `documento_${i + 1}.pdf`;
+        const pdf = doc.classica
+          ? buildFatturaClassicaPdf({
+              model: doc.classica,
+              numeroSequenza: doc.numeroSequenza,
+              showSequenza: doc.numeroSequenza != null,
+              fileName,
+            })
+          : buildPaperFatturaPdf({
+              model: doc.model,
+              numeroSequenza: doc.numeroSequenza,
+              fileName,
+            });
+        await scriviFileInCartella(cartella, pdf.fileName, pdf.blob);
+      }
+      const excel = await buildElaborazioneFattureXlsx({
+        kind,
+        anno,
+        trimestre,
+        docs,
+        collegaPdf: true,
+      });
+      await scriviFileInCartella(
+        cartella,
+        excel.filename,
+        new Blob([excel.bytes as BlobPart], {
+          type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        })
+      );
+      await auditCommercialistaPaperAction({
+        kind,
+        anno,
+        trimestre,
+        mode: "salva_cartella",
+        documenti: docs.length,
+        mostraSequenza: true,
+      });
+      setScaricaMsg(
+        `Cartella «${nomeCartella}» salvata: ${docs.length} PDF e il resoconto. Il numero documento apre il PDF.`
+      );
+    } catch (err) {
+      setScaricaMsg(
+        err instanceof Error ? err.message : "Non sono riuscito a salvare la cartella."
+      );
+    } finally {
+      setScaricando(false);
+    }
+  }
 
   async function scarica() {
     if (righe.length === 0 || scaricando) return;
@@ -126,16 +218,25 @@ export function CommercialistaElaboraFattureModal({
                 {labelPeriodo || `Anno ${anno} · T${trimestre}`}
                 {docs.length > 0 ? ` · ${docs.length} documenti` : null}
               </p>
+              {beneConsumo ? (
+                <p className="mt-1 max-w-xl text-xs text-slate-500">
+                  Il numero 1 è il primo documento del 1° gennaio. Salva cartella
+                  chiede dove scrivere: dentro trovi i PDF e il resoconto, e il
+                  numero documento apre il PDF.
+                </p>
+              ) : null}
             </div>
             <div className="flex flex-wrap items-center gap-2">
               <button
                 type="button"
                 disabled={righe.length === 0 || scaricando || pending}
-                onClick={() => void scarica()}
+                onClick={() => void (beneConsumo ? salvaCartella() : scarica())}
                 className="inline-flex items-center gap-1.5 rounded-lg bg-[var(--primary)] px-3 py-1.5 text-xs font-medium text-white disabled:opacity-40"
               >
                 <FaDownload size={12} />
-                {scaricando ? "Preparazione…" : "Scarica Excel"}
+                {scaricando
+                  ? "Preparazione…"
+                  : (beneConsumo ? "Salva cartella" : "Scarica Excel")}
               </button>
               <button
                 type="button"
