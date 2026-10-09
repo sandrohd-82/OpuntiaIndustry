@@ -46,6 +46,47 @@ function isAdminRiferimento(row: {
   );
 }
 
+type CasellaAziendale = { email: string; label: string };
+
+function soloLettere(value: string): string {
+  return value
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z]/g, "");
+}
+
+/** Casella aziendale del gestionale, dal nome e cognome in organigramma. */
+function mailCasellaAziendale(
+  nome: string,
+  cognome: string,
+  caselle: CasellaAziendale[]
+): string {
+  const n = soloLettere(nome);
+  const c = soloLettere(cognome);
+  if (!n || !c) return "";
+  const iniziale = n.slice(0, 1);
+  let scelta = "";
+  let punteggio = 0;
+  for (const casella of caselle) {
+    const locale = soloLettere(casella.email.split("@")[0] ?? "");
+    const etichetta = soloLettere(casella.label);
+    const dominio = casella.email.split("@")[1]?.toLowerCase() ?? "";
+    let punti = 0;
+    if (locale === `${iniziale}${c}`) punti = 100;
+    else if (locale === c) punti = 80;
+    else if (locale === `${n}${c}` || locale === n) punti = 60;
+    else if (etichetta.includes(`${iniziale}${c}`)) punti = 40;
+    if (!punti) continue;
+    if (dominio === "opuntiaitalia.com") punti += 5;
+    if (punti > punteggio) {
+      punteggio = punti;
+      scelta = casella.email.trim();
+    }
+  }
+  return scelta;
+}
+
 async function loadAuthPhones(
   ids: string[]
 ): Promise<Map<string, string>> {
@@ -82,6 +123,7 @@ export async function loadPreventivoCommercialiRiferimento(opts?: {
     { data: fromReparti },
     { data: persone },
     { data: reparti },
+    { data: caselleRaw },
   ] = await Promise.all([
     service
       .from("profiles")
@@ -104,7 +146,17 @@ export async function loadPreventivoCommercialiRiferimento(opts?: {
       .from("organigramma_reparti")
       .select("id, codice, nome")
       .is("deleted_at", null),
+    service
+      .from("webmail_accounts")
+      .select("label, email_address")
+      .is("deleted_at", null),
   ]);
+  const caselle: CasellaAziendale[] = (caselleRaw ?? [])
+    .map((row) => ({
+      label: String((row as { label?: string | null }).label ?? ""),
+      email: String((row as { email_address?: string | null }).email_address ?? "").trim(),
+    }))
+    .filter((row) => row.email.includes("@"));
 
   const commercialeRepartoIds = new Set(
     (reparti ?? [])
@@ -165,7 +217,11 @@ export async function loadPreventivoCommercialiRiferimento(opts?: {
     const id = String((row as { id: string }).id);
     if (!eligible.has(id)) continue;
     const persona = personaByUser.get(id);
-    const email = String((row as { email?: string | null }).email ?? "").trim();
+    const nome = persona?.nome || String((row as { first_name?: string | null }).first_name ?? "");
+    const cognome =
+      persona?.cognome || String((row as { last_name?: string | null }).last_name ?? "");
+    const emailProfilo = String((row as { email?: string | null }).email ?? "").trim();
+    const email = emailProfilo || mailCasellaAziendale(nome, cognome, caselle);
     items.push({
       id,
       nome: displayNome({
@@ -210,11 +266,13 @@ export async function loadPreventivoCommercialiRiferimento(opts?: {
       });
       if (!id || giaInElenco.has(nome.toLowerCase())) continue;
       giaInElenco.add(nome.toLowerCase());
+      const nomePersona = String(row.nome ?? "");
+      const cognomePersona = String(row.cognome ?? "");
       items.push({
         id,
         nome,
         telefono: String(row.cellulare ?? "").trim(),
-        email: "",
+        email: mailCasellaAziendale(nomePersona, cognomePersona, caselle),
         personaSenzaAccount: true,
       });
     }
