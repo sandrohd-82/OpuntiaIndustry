@@ -490,6 +490,20 @@ export type FatturaRicevutaControllo = {
   totale: number;
   statoPagamento: string;
   note: string;
+  emittente: {
+    ragioneSociale: string;
+    codiceTarga: string;
+    partitaIva: string;
+    codiceFiscale: string;
+    indirizzo: string;
+    cap: string;
+    citta: string;
+    provincia: string;
+    nazione: string;
+    telefono: string;
+    email: string;
+    pec: string;
+  };
   righe: {
     descrizione: string;
     quantita: number;

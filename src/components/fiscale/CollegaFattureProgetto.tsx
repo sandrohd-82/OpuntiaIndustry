@@ -27,6 +27,8 @@ export function CollegaFattureProgetto({
   onClose,
   onCambiato,
 }: Props) {
+  const [giorniPrima, setGiorniPrima] = useState(7);
+  const [giorniDopo, setGiorniDopo] = useState(7);
   const [query, setQuery] = useState("");
   const [fatture, setFatture] = useState<FatturaCercataView[]>([]);
   const [scartate, setScartate] = useState<FatturaProgettoView[]>([]);
@@ -37,12 +39,18 @@ export function CollegaFattureProgetto({
   const [controlloErrore, setControlloErrore] = useState<string | null>(null);
   const [pending, start] = useTransition();
 
-  function carica(testo: string) {
+  function limitaMargine(giorni: number): number {
+    return Math.min(180, Math.max(0, giorni));
+  }
+
+  function carica(testo: string, prima = giorniPrima, dopo = giorniDopo) {
     setErrore(null);
     start(async () => {
       const res = await cercaFattureProgettoAction({
         progettoId,
         query: testo,
+        giorniPrima: prima,
+        giorniDopo: dopo,
       });
       if (!res.success) {
         setErrore(res.error);
@@ -78,6 +86,8 @@ export function CollegaFattureProgetto({
     start(async () => {
       const res = await collegaFattureProgettoAction({
         progettoId,
+        giorniPrima,
+        giorniDopo,
         voci: [{ origine: "ricevuta", fatturaId: voce.fatturaId }],
       });
       if (!res.success) {
@@ -95,6 +105,8 @@ export function CollegaFattureProgetto({
       const res = await scartaFatturaProgettoAction({
         progettoId,
         fatturaId: voce.fatturaId,
+        giorniPrima,
+        giorniDopo,
       });
       if (!res.success) {
         setErrore(res.error);
@@ -137,8 +149,8 @@ export function CollegaFattureProgetto({
             </h2>
             <p className="mt-1 text-sm text-slate-600">
               {dal && al
-                ? `Dal ${formatDateIt(dal)} al ${formatDateIt(al)}: 7 giorni prima e 7 giorni dopo il periodo del progetto.`
-                : "Fatture ricevute nel periodo del progetto, con 7 giorni di margine."}
+                ? `Dal ${formatDateIt(dal)} al ${formatDateIt(al)}.`
+                : "Fatture ricevute intorno al periodo del progetto."}
               {" "}Lo stato SDI non viene modificato.
             </p>
           </div>
@@ -150,7 +162,29 @@ export function CollegaFattureProgetto({
             Chiudi
           </button>
         </div>
-        <div className="mt-4 flex gap-2">
+        <div className="mt-4 flex flex-wrap gap-2 text-sm">
+          <MargineFatture
+            etichetta="Prima del periodo"
+            giorni={giorniPrima}
+            pending={pending}
+            onCambia={(delta) => {
+              const next = limitaMargine(giorniPrima + delta);
+              setGiorniPrima(next);
+              carica(query, next, giorniDopo);
+            }}
+          />
+          <MargineFatture
+            etichetta="Dopo il periodo"
+            giorni={giorniDopo}
+            pending={pending}
+            onCambia={(delta) => {
+              const next = limitaMargine(giorniDopo + delta);
+              setGiorniDopo(next);
+              carica(query, giorniPrima, next);
+            }}
+          />
+        </div>
+        <div className="mt-3 flex gap-2">
           <input
             value={query}
             onChange={(event) => setQuery(event.target.value)}
@@ -280,10 +314,10 @@ export function CollegaFattureProgetto({
             ) : null}
             {controllo ? (
               <div className="mt-3 space-y-3 text-sm">
+                <IntestazioneEmittente emittente={controllo.emittente} />
                 <p>
-                  {controllo.fornitore || "—"}
                   {controllo.dataDocumento
-                    ? ` · ${formatDateIt(controllo.dataDocumento)}`
+                    ? formatDateIt(controllo.dataDocumento)
                     : ""}
                   {controllo.numeroEsterno ? ` · Doc. ${controllo.numeroEsterno}` : ""}
                 </p>
@@ -321,5 +355,78 @@ export function CollegaFattureProgetto({
       ) : null}
     </div>,
     document.body
+  );
+}
+
+function MargineFatture({
+  etichetta,
+  giorni,
+  pending,
+  onCambia,
+}: {
+  etichetta: string;
+  giorni: number;
+  pending: boolean;
+  onCambia: (delta: number) => void;
+}) {
+  return (
+    <div className="flex items-center gap-2 rounded-lg border border-slate-200 px-2 py-1.5">
+      <span>{etichetta}</span>
+      <button
+        type="button"
+        disabled={pending || giorni === 0}
+        onClick={() => onCambia(-7)}
+        className="rounded border border-slate-300 px-2 py-0.5 text-xs disabled:opacity-40"
+      >
+        −7
+      </button>
+      <span className="tabular-nums">{giorni} giorni</span>
+      <button
+        type="button"
+        disabled={pending || giorni >= 180}
+        onClick={() => onCambia(7)}
+        className="rounded border border-slate-300 px-2 py-0.5 text-xs disabled:opacity-40"
+      >
+        +7
+      </button>
+    </div>
+  );
+}
+
+function IntestazioneEmittente({
+  emittente,
+}: {
+  emittente: FatturaRicevutaControllo["emittente"];
+}) {
+  const luogo = [emittente.cap, emittente.citta, emittente.provincia]
+    .filter(Boolean)
+    .join(" ");
+  const recapiti = [emittente.telefono, emittente.email, emittente.pec].filter(Boolean);
+  const haSede = Boolean(emittente.indirizzo || luogo || emittente.nazione);
+  return (
+    <div className="rounded-lg border border-slate-200 bg-slate-50 p-3">
+      <p className="text-xs font-medium uppercase tracking-wide text-slate-500">
+        Azienda emittente
+      </p>
+      <p className="mt-1 font-medium">{emittente.ragioneSociale || "—"}</p>
+      {emittente.codiceTarga ? (
+        <p className="text-xs text-slate-600">Targa {emittente.codiceTarga}</p>
+      ) : null}
+      {emittente.partitaIva ? <p>P.IVA {emittente.partitaIva}</p> : null}
+      {emittente.codiceFiscale ? <p>C.F. {emittente.codiceFiscale}</p> : null}
+      {emittente.indirizzo ? <p>{emittente.indirizzo}</p> : null}
+      {luogo ? <p>{luogo}</p> : null}
+      {emittente.nazione ? <p>{emittente.nazione}</p> : null}
+      {recapiti.length > 0 ? <p>{recapiti.join(" · ")}</p> : null}
+      {haSede ? (
+        <p className="mt-1 text-xs text-slate-500">
+          Sede presa dall&apos;anagrafica del fornitore.
+        </p>
+      ) : (
+        <p className="mt-1 text-xs text-slate-500">
+          In anagrafica non risultano via o città.
+        </p>
+      )}
+    </div>
   );
 }

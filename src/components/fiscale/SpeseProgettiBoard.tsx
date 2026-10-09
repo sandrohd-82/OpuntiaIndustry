@@ -568,7 +568,7 @@ export function SpeseProgettiBoard() {
                 ) : null}
               </div>
               <p className="mt-1 text-xs text-slate-500">
-                Solo fatture ricevute, da 7 giorni prima a 7 giorni dopo il periodo.
+                Solo fatture ricevute, intorno al periodo del progetto. La finestra si può allargare.
                 L&apos;invio del pacchetto non le contabilizza.
               </p>
               {fatture.length === 0 ? (

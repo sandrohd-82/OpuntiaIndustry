@@ -1701,14 +1701,21 @@ function spostaGiorniIso(iso: string, giorni: number): string {
   return data.toISOString().slice(0, 10);
 }
 
+function margineGiorni(value: number): number {
+  if (!Number.isFinite(value)) return 7;
+  return Math.min(180, Math.max(0, Math.trunc(value)));
+}
+
 function periodoRicercaRicevute(
   dataInizio: string,
-  dataFine: string | null
+  dataFine: string | null,
+  giorniPrima = 7,
+  giorniDopo = 7
 ): { dal: string; al: string } | null {
   const inizio = dataInizio.slice(0, 10);
   const fine = (dataFine || dataInizio).slice(0, 10);
-  const dal = spostaGiorniIso(inizio, -7);
-  const al = spostaGiorniIso(fine, 7);
+  const dal = spostaGiorniIso(inizio, -margineGiorni(giorniPrima));
+  const al = spostaGiorniIso(fine, margineGiorni(giorniDopo));
   if (!dal || !al) return null;
   return { dal, al };
 }
@@ -1826,13 +1833,20 @@ async function leggiFattureProgetto(
   });
 }
 
+const margineFattureSchema = {
+  giorniPrima: z.number().int().min(0).max(180).optional().default(7),
+  giorniDopo: z.number().int().min(0).max(180).optional().default(7),
+};
+
 const cercaFattureSchema = z.object({
   progettoId: z.string().uuid(),
   query: z.string().trim().max(80).optional().default(""),
+  ...margineFattureSchema,
 });
 
 const collegaFattureSchema = z.object({
   progettoId: z.string().uuid(),
+  ...margineFattureSchema,
   voci: z
     .array(
       z.object({
@@ -1847,6 +1861,8 @@ const collegaFattureSchema = z.object({
 export async function cercaFattureProgettoAction(raw: {
   progettoId: string;
   query?: string;
+  giorniPrima?: number;
+  giorniDopo?: number;
 }): Promise<
   | {
       success: true;
@@ -1870,7 +1886,9 @@ export async function cercaFattureProgettoAction(raw: {
   if (!progetto) return { success: false, error: "Progetto non trovato." };
   const periodo = periodoRicercaRicevute(
     String(progetto.data_inizio ?? ""),
-    progetto.data_fine ? String(progetto.data_fine) : null
+    progetto.data_fine ? String(progetto.data_fine) : null,
+    parsed.data.giorniPrima,
+    parsed.data.giorniDopo
   );
   if (!periodo) return { success: false, error: "Periodo del progetto non valido." };
   const testo = testoRicercaFatture(parsed.data.query);
@@ -1951,6 +1969,8 @@ export async function cercaFattureProgettoAction(raw: {
 
 export async function collegaFattureProgettoAction(raw: {
   progettoId: string;
+  giorniPrima?: number;
+  giorniDopo?: number;
   voci: { origine: OrigineFatturaProgetto; fatturaId: string }[];
 }): Promise<{ success: true; collegate: number } | { success: false; error: string }> {
   const { auth } = await requireAreaAccess("area-fiscale");
@@ -1978,7 +1998,14 @@ export async function collegaFattureProgettoAction(raw: {
   const inserite: { origine: OrigineFatturaProgetto; fatturaId: string; numero: string }[] =
     [];
   for (const voce of daCollegare) {
-    const messa = await inserisciFatturaProgetto(supabase, auth.userId, String(progetto.id), voce);
+    const messa = await inserisciFatturaProgetto(
+      supabase,
+      auth.userId,
+      String(progetto.id),
+      voce,
+      parsed.data.giorniPrima,
+      parsed.data.giorniDopo
+    );
     if (!messa.success) return messa;
     if (messa.inserita) {
       collegate += 1;
@@ -2014,7 +2041,9 @@ async function inserisciFatturaProgetto(
   supabase: DbSpese,
   userId: string,
   progettoId: string,
-  voce: { origine: OrigineFatturaProgetto; fatturaId: string }
+  voce: { origine: OrigineFatturaProgetto; fatturaId: string },
+  giorniPrima = 7,
+  giorniDopo = 7
 ): Promise<
   | { success: true; inserita: boolean; numero: string }
   | { success: false; error: string }
@@ -2031,7 +2060,9 @@ async function inserisciFatturaProgetto(
   const periodo = progettoDate
     ? periodoRicercaRicevute(
         String(progettoDate.data_inizio ?? ""),
-        progettoDate.data_fine ? String(progettoDate.data_fine) : null
+        progettoDate.data_fine ? String(progettoDate.data_fine) : null,
+        giorniPrima,
+        giorniDopo
       )
     : null;
   if (!periodo) return { success: false, error: "Periodo del progetto non valido." };
@@ -2048,7 +2079,7 @@ async function inserisciFatturaProgetto(
   if (giorno < periodo.dal || giorno > periodo.al) {
     return {
       success: false,
-      error: "La fattura è fuori dai 7 giorni prima e dopo il periodo del progetto.",
+      error: "La fattura è fuori dalla finestra di date scelta per questo progetto.",
     };
   }
   const { data: occupata } = await supabase
@@ -2163,6 +2194,67 @@ export async function scollegaFatturaProgettoAction(input: {
   return { success: true };
 }
 
+async function intestazioneEmittente(
+  fornitoreId: string,
+  ragioneSociale: string,
+  codiceTarga: string
+): Promise<FatturaRicevutaControllo["emittente"]> {
+  const vuoto: FatturaRicevutaControllo["emittente"] = {
+    ragioneSociale,
+    codiceTarga,
+    partitaIva: "",
+    codiceFiscale: "",
+    indirizzo: "",
+    cap: "",
+    citta: "",
+    provincia: "",
+    nazione: "",
+    telefono: "",
+    email: "",
+    pec: "",
+  };
+  if (!fornitoreId) return vuoto;
+  const service = createServiceClient();
+  const { data } = await service
+    .from("fornitori")
+    .select(
+      "partita_iva, codice_fiscale, telefono, email, pec, sede_amm_nazione, sede_amm_provincia, sede_amm_citta, sede_amm_cap, sede_amm_indirizzo, sede_mag_nazione, sede_mag_provincia, sede_mag_citta, sede_mag_cap, sede_mag_indirizzo"
+    )
+    .eq("id", fornitoreId)
+    .is("deleted_at", null)
+    .maybeSingle();
+  if (!data) return vuoto;
+  const sedeAmministrativa = primoTesto(
+    data.sede_amm_indirizzo,
+    data.sede_amm_citta,
+    data.sede_amm_cap
+  );
+  const sede = sedeAmministrativa
+    ? {
+        indirizzo: primoTesto(data.sede_amm_indirizzo),
+        cap: primoTesto(data.sede_amm_cap),
+        citta: primoTesto(data.sede_amm_citta),
+        provincia: primoTesto(data.sede_amm_provincia),
+        nazione: primoTesto(data.sede_amm_nazione),
+      }
+    : {
+        indirizzo: primoTesto(data.sede_mag_indirizzo),
+        cap: primoTesto(data.sede_mag_cap),
+        citta: primoTesto(data.sede_mag_citta),
+        provincia: primoTesto(data.sede_mag_provincia),
+        nazione: primoTesto(data.sede_mag_nazione),
+      };
+  return {
+    ...vuoto,
+    partitaIva: primoTesto(data.partita_iva),
+    codiceFiscale: primoTesto(data.codice_fiscale),
+    telefono: primoTesto(data.telefono),
+    email: primoTesto(data.email),
+    pec: primoTesto(data.pec),
+    ...sede,
+  };
+}
+
 export async function leggiFatturaRicevutaControlloAction(
   fatturaId: string
 ): Promise<
@@ -2176,12 +2268,17 @@ export async function leggiFatturaRicevutaControlloAction(
   const { data: fattura } = await supabase
     .from("fatture_ricevute")
     .select(
-      "id, numero_interno, numero_documento_esterno, fornitore_ragione_sociale, data_emissione, natura_documento, imponibile, imposta, totale, stato_pagamento, note"
+      "id, fornitore_id, fornitore_codice_targa, numero_interno, numero_documento_esterno, fornitore_ragione_sociale, data_emissione, natura_documento, imponibile, imposta, totale, stato_pagamento, note"
     )
     .eq("id", fatturaId)
     .is("deleted_at", null)
     .maybeSingle();
   if (!fattura) return { success: false, error: "Fattura ricevuta non trovata." };
+  const emittente = await intestazioneEmittente(
+    String(fattura.fornitore_id ?? ""),
+    primoTesto(fattura.fornitore_ragione_sociale),
+    primoTesto(fattura.fornitore_codice_targa)
+  );
   const { data: righe } = await supabase
     .from("fatture_ricevute_righe")
     .select("descrizione, quantita, importo, sort_order")
@@ -2201,6 +2298,7 @@ export async function leggiFatturaRicevutaControlloAction(
       totale: euroFattura(fattura.totale),
       statoPagamento: fattura.stato_pagamento === "pagato" ? "Pagato" : "Da pagare",
       note: primoTesto(fattura.note),
+      emittente,
       righe: (righe ?? []).map((riga) => ({
         descrizione: primoTesto(riga.descrizione) || "—",
         quantita: euroFattura(riga.quantita),
@@ -2213,12 +2311,15 @@ export async function leggiFatturaRicevutaControlloAction(
 export async function scartaFatturaProgettoAction(input: {
   progettoId: string;
   fatturaId: string;
+  giorniPrima?: number;
+  giorniDopo?: number;
 }): Promise<{ success: true } | { success: false; error: string }> {
   const { auth } = await requireAreaAccess("area-fiscale");
   const parsed = z
     .object({
       progettoId: z.string().uuid(),
       fatturaId: z.string().uuid(),
+      ...margineFattureSchema,
     })
     .safeParse(input);
   if (!parsed.success) return { success: false, error: "Fattura non valida." };
@@ -2235,7 +2336,9 @@ export async function scartaFatturaProgettoAction(input: {
   }
   const periodo = periodoRicercaRicevute(
     String(progetto.data_inizio ?? ""),
-    progetto.data_fine ? String(progetto.data_fine) : null
+    progetto.data_fine ? String(progetto.data_fine) : null,
+    parsed.data.giorniPrima,
+    parsed.data.giorniDopo
   );
   if (!periodo) return { success: false, error: "Periodo del progetto non valido." };
   const { data: fattura } = await supabase
@@ -2251,7 +2354,7 @@ export async function scartaFatturaProgettoAction(input: {
   if (giorno < periodo.dal || giorno > periodo.al) {
     return {
       success: false,
-      error: "La fattura è fuori dai 7 giorni prima e dopo il periodo del progetto.",
+      error: "La fattura è fuori dalla finestra di date scelta per questo progetto.",
     };
   }
   const { data: collegata } = await supabase
