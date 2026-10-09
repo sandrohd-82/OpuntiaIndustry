@@ -2,13 +2,20 @@ import { z } from "zod";
 
 const nome = z.string().trim().min(1, "Indica il nome del sito.").max(160);
 const url = z.string().trim().min(1, "Indica l'URL.").max(500);
-const mail = z.string().trim().min(1, "Indica la mail di accesso.").max(200);
+const mail = z
+  .string()
+  .trim()
+  .max(200)
+  .refine(
+    (value) => value.length === 0 || /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value),
+    "La mail non è un indirizzo valido."
+  );
 
 export const caveauSitoSchema = z.object({
   nome,
   url,
   mail,
-  password: z.string().min(1, "Indica la password.").max(500),
+  password: z.string().max(500).optional().default(""),
 });
 
 export const caveauSitoUpdateSchema = z.object({
@@ -263,6 +270,7 @@ export type CaveauSitoRiga = {
   nome: string;
   url: string;
   mail: string;
+  haPassword: boolean;
   versione: number;
   updatedAt: string;
   acquisti: CaveauAcquistoRiga[];

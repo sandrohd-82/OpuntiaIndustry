@@ -1109,11 +1109,24 @@ export function labelNaturaDocumento(
  * - nota di credito di storno collegata a una fattura (evita doppio storno)
  * Il registro commercialista usa includeInRegistroCommercialista.
  */
+/** Fattura tenuta in memoria sull'ordine, senza numero e senza invio. */
+export function fatturaEmessaPrenotataNonInviata(row: {
+  numero_interno?: string | null;
+  numero_fattura?: string | null;
+}): boolean {
+  const interno = String(row.numero_interno ?? "").trim();
+  const pubblico = String(row.numero_fattura ?? "").trim();
+  return interno.startsWith("Pren-") || pubblico === "Prenotata";
+}
+
 export function includeInContabilitaFatturaEmessa(row: {
   tipo_documento?: string | null;
   stato_pagamento?: string | null;
   fattura_collegata_id?: string | null;
+  numero_interno?: string | null;
+  numero_fattura?: string | null;
 }): boolean {
+  if (fatturaEmessaPrenotataNonInviata(row)) return false;
   if (row.stato_pagamento === "annullata") return false;
   const isNc = row.tipo_documento === "nota_credito";
   if (isNc && row.fattura_collegata_id) return false;
@@ -1125,13 +1138,14 @@ export function includeInContabilitaFatturaEmessa(row: {
  * La fattura annullata e la nota di credito collegata restano entrambe visibili.
  * Gli importi della nota sono già negativi, quindi i totali del periodo si compensano.
  */
-export function includeInRegistroCommercialista(_row: {
+export function includeInRegistroCommercialista(row: {
   tipo_documento?: string | null;
   stato_pagamento?: string | null;
   fattura_collegata_id?: string | null;
   numero_interno?: string | null;
+  numero_fattura?: string | null;
 }): boolean {
-  return true;
+  return !fatturaEmessaPrenotataNonInviata(row);
 }
 
 export function emptyFatturaRigaNotaCredito(): FatturaRiga {

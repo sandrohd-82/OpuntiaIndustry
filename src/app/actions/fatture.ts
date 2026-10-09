@@ -6,6 +6,7 @@ import {
   bilancioDilazioni,
   buildNumeroInternoFattura,
   calcolaTotaliFattura,
+  fatturaEmessaPrenotataNonInviata,
   formatEuro,
   formatDateIt,
   mapFatturaEmessaRow,
@@ -916,7 +917,9 @@ export async function listFattureAction(
     const { data, error } = await q;
     if (error) return { success: false, error: error.message };
 
-    const rows = (data ?? []) as FatturaEmessaRow[];
+    const rows = ((data ?? []) as FatturaEmessaRow[]).filter(
+      (row) => !fatturaEmessaPrenotataNonInviata(row)
+    );
     const ids = rows.map((r) => r.id);
     const righeBy = new Map<string, FatturaEmessaRigaRow[]>();
     const dilBy = new Map<string, FatturaEmessaDilazioneRow[]>();

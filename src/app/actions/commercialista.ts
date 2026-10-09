@@ -33,6 +33,7 @@ import { fatturaClassicaDaXml } from "@/lib/amministrazione/fattura-pa-xml";
 import { nazioneEstera } from "@/lib/amministrazione/nazione-fattura";
 import { resolveFicDocumentXml } from "@/lib/amministrazione/fic-document-xml";
 import {
+  fatturaEmessaPrenotataNonInviata,
   includeInRegistroCommercialista,
   mapFatturaEmessaRow,
   mapFatturaRicevutaRow,
@@ -1860,7 +1861,10 @@ async function caricaElencoEmessi(
     .lte("data_emissione", al);
   if (error) return { ok: false, error: error.message };
 
-  const righe = (data ?? []).filter((r) => r.tipo_documento !== "proforma");
+  const righe = (data ?? []).filter(
+    (r) =>
+      r.tipo_documento !== "proforma" && !fatturaEmessaPrenotataNonInviata(r)
+  );
   const note = righe.filter((r) =>
     isNotaCreditoEmessa(r.tipo_documento, r.numero_interno)
   );

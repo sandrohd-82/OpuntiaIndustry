@@ -1,5 +1,6 @@
 import type { createClient } from "@/lib/supabase/server";
 import type { BankReconcileInvoiceKind } from "@/lib/amministrazione/bank-reconcile";
+import { fatturaEmessaPrenotataNonInviata } from "@/lib/amministrazione/fatture";
 
 type Supabase = Awaited<ReturnType<typeof createClient>>;
 
@@ -177,6 +178,7 @@ export async function loadAllFicInvoicesForReconcile(
       }
       const batch = data ?? [];
       for (const row of batch) {
+        if (fatturaEmessaPrenotataNonInviata(row)) continue;
         const id = String(row.id);
         emesseIds.push(id);
         emesseMeta.push({
@@ -326,6 +328,7 @@ export async function loadReconcileInvoiceGroups(
       ids
     );
     for (const row of data ?? []) {
+      if (fatturaEmessaPrenotataNonInviata(row)) continue;
       const id = String(row.id);
       const number =
         String(row.numero_fattura ?? "").trim() ||

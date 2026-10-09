@@ -83,7 +83,7 @@ export async function getDashboardFiscaleSummaryAction(input: {
   const { data: emesse, error: eErr } = await supabase
     .from("fatture_emesse")
     .select(
-      "id, imponibile, imposta, data_emissione, tipo_documento, stato_pagamento, fattura_collegata_id"
+      "id, imponibile, imposta, data_emissione, tipo_documento, stato_pagamento, fattura_collegata_id, numero_interno, numero_fattura"
     )
     .is("deleted_at", null)
     .gte("data_emissione", periodo.dal)

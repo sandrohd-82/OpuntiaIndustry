@@ -116,7 +116,7 @@ export async function listCaveauSitiAction(): Promise<
   const db = createServiceClient();
   const { data, error } = await db
     .from("caveau_siti_aziendali")
-    .select("id, nome, url, mail, versione, updated_at")
+    .select("id, nome, url, mail, password_cifrata, versione, updated_at")
     .is("deleted_at", null)
     .order("nome", { ascending: true });
   if (error) return { ok: false, error: "Impossibile leggere l'elenco dei siti." };
@@ -126,6 +126,7 @@ export async function listCaveauSitiAction(): Promise<
     nome: String(row.nome ?? ""),
     url: String(row.url ?? ""),
     mail: String(row.mail ?? ""),
+    haPassword: String(row.password_cifrata ?? "").trim().length > 0,
     versione: Number(row.versione ?? 1),
     updatedAt: String(row.updated_at ?? ""),
   }));
@@ -207,7 +208,6 @@ export async function creaCaveauSitoAction(
 ): Promise<{ ok: true } | { ok: false; error: string }> {
   const g = await gate();
   if (!g.ok) return g;
-  if (!caveauConfigurato()) return { ok: false, error: configError() };
 
   const parsed = caveauSitoSchema.safeParse(input);
   if (!parsed.success) {
@@ -218,11 +218,15 @@ export async function creaCaveauSitoAction(
   const gia = await urlGiaPresente({ chiave: url.chiave });
   if (!gia.ok) return gia;
 
-  let cifrata: string;
-  try {
-    cifrata = cifraPasswordCaveau(parsed.data.password);
-  } catch {
-    return { ok: false, error: configError() };
+  const password = parsed.data.password.trim();
+  let cifrata = "";
+  if (password) {
+    if (!caveauConfigurato()) return { ok: false, error: configError() };
+    try {
+      cifrata = cifraPasswordCaveau(password);
+    } catch {
+      return { ok: false, error: configError() };
+    }
   }
 
   const db = createServiceClient();
@@ -245,7 +249,12 @@ export async function creaCaveauSitoAction(
     action: "create",
     actorId: g.actorId,
     summary: `Sito registrato: ${parsed.data.nome}`,
-    payload: { nome: parsed.data.nome, url: url.url, mail: parsed.data.mail },
+    payload: {
+      nome: parsed.data.nome,
+      url: url.url,
+      mail: parsed.data.mail,
+      password_registrata: Boolean(password),
+    },
   });
   revalidatePath(PATH);
   return { ok: true };
@@ -256,7 +265,6 @@ export async function aggiornaCaveauSitoAction(
 ): Promise<{ ok: true } | { ok: false; error: string }> {
   const g = await gate();
   if (!g.ok) return g;
-  if (!caveauConfigurato()) return { ok: false, error: configError() };
 
   const parsed = caveauSitoUpdateSchema.safeParse(input);
   if (!parsed.success) {
@@ -282,6 +290,7 @@ export async function aggiornaCaveauSitoAction(
   const nuova = parsed.data.password?.trim() ?? "";
   let cifrata = String(current.password_cifrata ?? "");
   if (nuova) {
+    if (!caveauConfigurato()) return { ok: false, error: configError() };
     try {
       cifrata = cifraPasswordCaveau(nuova);
     } catch {
@@ -433,6 +442,17 @@ export async function rivelaPasswordCaveauAction(
   }
 
   const db = createServiceClient();
+  const { data: sito, error: sitoErr } = await db
+    .from("caveau_siti_aziendali")
+    .select("id, password_cifrata")
+    .eq("id", parsed.data.id)
+    .is("deleted_at", null)
+    .maybeSingle();
+  if (sitoErr || !sito) return { ok: false, error: "Scheda non trovata." };
+  if (!String(sito.password_cifrata ?? "").trim()) {
+    return { ok: false, error: "Password non ancora registrata." };
+  }
+
   const { data: sfida, error: sfidaErr } = await db
     .from("caveau_codici_email")
     .select("codice_hash, expires_at, attempts")

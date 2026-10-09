@@ -596,8 +596,10 @@ export function CaveauSitiBoard() {
     <div className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <p className="max-w-2xl text-sm text-slate-600">
-          Elenco dei siti a cui l&apos;azienda è registrata. La password resta cifrata e si
-          mostra solo con il codice inviato per email al Super Admin.
+          Elenco dei siti a cui l&apos;azienda è registrata. Mail e password si possono
+          lasciare vuote e completare dopo: gli acquisti si aggiungono comunque. La
+          password, se c&apos;è, resta cifrata e si mostra solo con il codice inviato per
+          email al Super Admin.
         </p>
         <button
           type="button"
@@ -692,8 +694,10 @@ export function CaveauSitiBoard() {
                         <span className="text-slate-700">{riga.url}</span>
                       )}
                     </td>
-                    <td className="px-3 py-2 text-slate-700">{riga.mail}</td>
-                    <td className="px-3 py-2 font-mono text-slate-400">••••••••</td>
+                    <td className="px-3 py-2 text-slate-700">{riga.mail || "—"}</td>
+                    <td className="px-3 py-2 font-mono text-slate-400">
+                      {riga.haPassword ? "••••••••" : "Da completare"}
+                    </td>
                     <td className="px-3 py-2 text-slate-600">{riga.versione}</td>
                     <td className="px-3 py-2">
                       <div className="flex flex-wrap gap-2">
@@ -702,6 +706,12 @@ export function CaveauSitiBoard() {
                           className="rounded-md border border-slate-300 px-2 py-1 text-xs"
                         onClick={() => {
                           setErrore(null);
+                          if (!riga.haPassword) {
+                            setErrore(
+                              "Password non ancora registrata. Si può aggiungere da Modifica."
+                            );
+                            return;
+                          }
                           setRivela(riga);
                           setCodice("");
                           setPasswordVista(null);
@@ -959,7 +969,7 @@ export function CaveauSitiBoard() {
                 />
               </label>
               <label className="block text-sm">
-                <span className="text-slate-600">Mail</span>
+                <span className="text-slate-600">Mail (facoltativa)</span>
                 <input
                   className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2"
                   autoComplete="off"
@@ -969,7 +979,10 @@ export function CaveauSitiBoard() {
               </label>
               <label className="block text-sm">
                 <span className="text-slate-600">
-                  Password{bozza.id ? " (vuota = resta quella già salvata)" : ""}
+                  Password
+                  {bozza.id
+                    ? " (facoltativa, vuota = resta quella già salvata)"
+                    : " (facoltativa, si può aggiungere dopo)"}
                 </span>
                 <input
                   type="password"

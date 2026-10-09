@@ -177,7 +177,7 @@ async function loadIncassiAnno(
     let q = supabase
       .from("fatture_emesse")
       .select(
-        "data_emissione, totale, cliente_id, tipo_documento, stato_pagamento, fattura_collegata_id, spedizione, spedizione_iva_applicata, spedizione_sottrai_incassi, iva_percentuale"
+        "data_emissione, totale, cliente_id, tipo_documento, stato_pagamento, fattura_collegata_id, numero_interno, numero_fattura, spedizione, spedizione_iva_applicata, spedizione_sottrai_incassi, iva_percentuale"
       )
       .is("deleted_at", null);
     q = applyDateRange(q, "data_emissione", range, floor);
@@ -264,7 +264,7 @@ async function loadIncassiDettaglioAnno(
     let q = supabase
       .from("fatture_emesse")
       .select(
-        "id, data_emissione, totale, cliente_id, cliente_ragione_sociale, cliente_codice_targa, tipo_documento, stato_pagamento, fattura_collegata_id"
+        "id, data_emissione, totale, cliente_id, cliente_ragione_sociale, cliente_codice_targa, tipo_documento, stato_pagamento, fattura_collegata_id, numero_interno, numero_fattura"
       )
       .is("deleted_at", null);
     q = applyDateRange(q, "data_emissione", range, floor);
@@ -1022,7 +1022,7 @@ async function loadProvvigioniDettaglioAnno(
   let q = service
     .from("fatture_emesse")
     .select(
-      "id, data_emissione, totale, imponibile, imposta, ordine_id, cliente_id, cliente_ragione_sociale, cliente_codice_targa, tipo_documento, stato_pagamento, fattura_collegata_id"
+      "id, data_emissione, totale, imponibile, imposta, ordine_id, cliente_id, cliente_ragione_sociale, cliente_codice_targa, tipo_documento, stato_pagamento, fattura_collegata_id, numero_interno, numero_fattura"
     )
     .is("deleted_at", null);
   q = applyDateRange(q, "data_emissione", range, null);
