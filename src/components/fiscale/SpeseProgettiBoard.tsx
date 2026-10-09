@@ -188,6 +188,9 @@ export function SpeseProgettiBoard() {
   const [collegate, setCollegate] = useState<SpesaDocumentoView[]>([]);
   const [libere, setLibere] = useState<SpesaDocumentoView[]>([]);
   const [totali, setTotali] = useState<{ categoria: string; totale: number }[]>([]);
+  const [totaleProgetto, setTotaleProgetto] = useState(0);
+  const [totaleAmmortabile, setTotaleAmmortabile] = useState(0);
+  const [totaleNonAmmortabile, setTotaleNonAmmortabile] = useState(0);
   const [partecipanti, setPartecipanti] = useState<VocePartecipante[]>([]);
   const [fatture, setFatture] = useState<FatturaProgettoView[]>([]);
   const [fattureAperte, setFattureAperte] = useState(false);
@@ -229,6 +232,9 @@ export function SpeseProgettiBoard() {
     setCollegate(res.collegate);
     setLibere(res.libere);
     setTotali(res.totaliCategoria);
+    setTotaleProgetto(res.totaleProgetto);
+    setTotaleAmmortabile(res.totaleAmmortabile);
+    setTotaleNonAmmortabile(res.totaleNonAmmortabile);
     setFatture(res.fatture);
     setPartecipanti(
       res.partecipanti.map((persona) => ({
@@ -596,6 +602,24 @@ export function SpeseProgettiBoard() {
                   ))}
                 </ul>
               )}
+              <ul className="mt-3 space-y-1 border-t border-slate-200 pt-2 text-sm">
+                <li className="flex justify-between gap-3 font-medium">
+                  <span>Totale progetto</span>
+                  <span className="tabular-nums">{formatEuro(totaleProgetto)}</span>
+                </li>
+                <li className="flex justify-between gap-3">
+                  <span>Totale ammortabile</span>
+                  <span className="tabular-nums">{formatEuro(totaleAmmortabile)}</span>
+                </li>
+                <li className="flex justify-between gap-3">
+                  <span>Totale non ammortabile</span>
+                  <span className="tabular-nums">{formatEuro(totaleNonAmmortabile)}</span>
+                </li>
+              </ul>
+              <p className="mt-2 text-xs text-slate-500">
+                Il totale ammortabile è la somma delle fatture passate da SDI. Le altre spese del
+                progetto restano non ammortabili.
+              </p>
             </div>
 
             <div className="rounded-xl border border-[var(--border)] bg-white p-4">

@@ -1065,6 +1065,9 @@ export async function dettaglioProgettoSpesaAction(id: string): Promise<
       partecipanti: PartecipanteProgettoView[];
       fatture: FatturaProgettoView[];
       totaliCategoria: { categoria: CategoriaSpesa; totale: number }[];
+      totaleProgetto: number;
+      totaleAmmortabile: number;
+      totaleNonAmmortabile: number;
     }
   | { success: false; error: string }
 > {
@@ -1101,17 +1104,23 @@ export async function dettaglioProgettoSpesaAction(id: string): Promise<
   );
   const fattureCollegate = await leggiFattureProgetto(supabase, id);
   const acc = new Map<CategoriaSpesa, number>();
+  let nonAmmortabile = 0;
   for (const s of collegate) {
     if (s.stato === "annullato") continue;
+    nonAmmortabile += s.totale;
     acc.set(s.categoria, (acc.get(s.categoria) ?? 0) + s.totale);
   }
+  let ammortabile = 0;
   for (const fattura of fattureCollegate) {
     if (!fattura.categoria) continue;
+    ammortabile += fattura.totale;
     acc.set(
       fattura.categoria,
       (acc.get(fattura.categoria) ?? 0) + fattura.totale
     );
   }
+  const totaleNonAmmortabile = roundMoney(nonAmmortabile);
+  const totaleAmmortabile = roundMoney(ammortabile);
   return {
     success: true,
     collegate,
@@ -1125,6 +1134,9 @@ export async function dettaglioProgettoSpesaAction(id: string): Promise<
       categoria,
       totale: roundMoney(totale),
     })),
+    totaleProgetto: roundMoney(totaleNonAmmortabile + totaleAmmortabile),
+    totaleAmmortabile,
+    totaleNonAmmortabile,
   };
 }
 
