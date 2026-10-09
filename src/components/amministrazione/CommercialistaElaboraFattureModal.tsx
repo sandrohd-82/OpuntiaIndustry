@@ -263,6 +263,7 @@ export function CommercialistaElaboraFattureModal({
                       <td className="px-3 py-1.5 tabular-nums">
                         {riga.numeroProgressivo ?? "—"}
                       </td>
+                      <td className="px-3 py-1.5 whitespace-nowrap">{riga.tipoDocumento}</td>
                       <td className="px-3 py-1.5 whitespace-nowrap">{riga.numeroDocumento}</td>
                       <td className="px-3 py-1.5 whitespace-nowrap">{riga.data}</td>
                       <td className="px-3 py-1.5">{riga.intestazione}</td>

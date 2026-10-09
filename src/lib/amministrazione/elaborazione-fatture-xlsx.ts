@@ -164,6 +164,13 @@ export async function buildElaborazioneFattureXlsx(input: {
   };
 }
 
+function larghezzaUscita(titolo: string): number {
+  if (titolo === "Intestazione" || titolo === "Numero documento") return 36;
+  if (titolo === "Tipo doc.") return 22;
+  if (titolo === "N. Prog") return 12;
+  return 18;
+}
+
 /** Excel delle inviate: il numero documento apre il PDF nella stessa cartella. */
 export async function buildUscitaCartellaXlsx(input: {
   kind: CommercialistaRegistroKind;
@@ -177,7 +184,7 @@ export async function buildUscitaCartellaXlsx(input: {
     views: [{ state: "frozen", ySplit: 1 }],
   });
   ws.columns = TITOLI_USCITA_EXCEL.map((titolo) => ({
-    width: titolo === "Intestazione" || titolo === "Numero documento" ? 36 : 18,
+    width: larghezzaUscita(titolo),
   }));
   const header = ws.addRow([...TITOLI_USCITA_EXCEL]);
   header.font = { name: "Calibri", size: 11, bold: true, color: { argb: "FFFFFFFF" } };
@@ -193,6 +200,7 @@ export async function buildUscitaCartellaXlsx(input: {
   for (const riga of righe) {
     const excelRow = ws.addRow([
       riga.numeroProgressivo,
+      riga.tipoDocumento,
       riga.numeroDocumento,
       riga.data,
       riga.intestazione,
@@ -203,14 +211,14 @@ export async function buildUscitaCartellaXlsx(input: {
       riga.beniStrumentali,
     ]);
     excelRow.font = { name: "Calibri", size: 11 };
-    for (const col of [5, 6, 7]) {
+    for (const col of [6, 7, 8]) {
       excelRow.getCell(col).numFmt = "#,##0.00";
       excelRow.getCell(col).alignment = { horizontal: "right" };
     }
-    excelRow.getCell(8).alignment = { horizontal: "center" };
     excelRow.getCell(9).alignment = { horizontal: "center" };
+    excelRow.getCell(10).alignment = { horizontal: "center" };
     if (riga.nomeFile && riga.numeroDocumento) {
-      const cell = excelRow.getCell(2);
+      const cell = excelRow.getCell(3);
       cell.value = {
         text: riga.numeroDocumento,
         hyperlink: riga.nomeFile,

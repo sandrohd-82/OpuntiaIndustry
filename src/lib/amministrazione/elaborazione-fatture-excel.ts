@@ -99,7 +99,8 @@ export type FatturaElaborazioneSorgente = {
 };
 
 export const TITOLI_USCITA_EXCEL = [
-  "Numero progressivo",
+  "N. Prog",
+  "Tipo doc.",
   "Numero documento",
   "Data documento",
   "Intestazione",
@@ -112,6 +113,7 @@ export const TITOLI_USCITA_EXCEL = [
 
 export type RigaCartellaUscita = {
   numeroProgressivo: number | null;
+  tipoDocumento: string;
   nomeFile: string;
   numeroDocumento: string;
   data: string;
@@ -206,6 +208,29 @@ function importiDi(doc: FatturaElaborazioneSorgente) {
   };
 }
 
+function tipoDocumentoUscita(
+  doc: FatturaElaborazioneSorgente,
+  kind: CommercialistaRegistroKind
+): string {
+  if (kind === "ddt_emesso" || kind === "ddt_ricevuto") return "DDT";
+  const interno = doc.numeroInterno.trim();
+  const numero = doc.numeroDocumento.trim();
+  const prenotata =
+    interno.startsWith("Pren-") ||
+    numero.startsWith("Pren-") ||
+    numero === "Prenotata";
+  const proforma = interno.startsWith("Pren-PR-") || /^PR-\d+\/20\d{2}$/.test(numero);
+  if (proforma) return "Proforma prenotata";
+  if (prenotata && (doc.notaCredito || kind === "nota_emessa" || kind === "nota_ricevuta")) {
+    return "Nota prenotata";
+  }
+  if (prenotata) return "Fattura prenotata";
+  if (doc.notaCredito || kind === "nota_emessa" || kind === "nota_ricevuta") {
+    return "Nota di credito";
+  }
+  return "Fattura";
+}
+
 function codiceDestinazione(
   doc: FatturaElaborazioneSorgente,
   kind: CommercialistaRegistroKind
@@ -253,6 +278,7 @@ export function righeCartellaUscita(
     const importi = importiDi(doc);
     return {
       numeroProgressivo: doc.numeroProgressivoAnno ?? null,
+      tipoDocumento: tipoDocumentoUscita(doc, kind),
       nomeFile: nomePerDoc.get(doc) ?? "",
       numeroDocumento: doc.numeroDocumento || doc.numeroInterno,
       data: giorno ? dataIt(giorno) : "—",
