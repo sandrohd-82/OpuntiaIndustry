@@ -54,6 +54,11 @@ import {
   type TrimestreNumero,
 } from "@/lib/amministrazione/trimestre-commerciale";
 import { requireAreaAccess } from "@/lib/areas/guard";
+import {
+  bloccaScritturaOspite,
+  requireCommercialistaLettura,
+} from "@/lib/amministrazione/commercialista-ospite-accesso";
+import { registraAuditOspite } from "@/lib/amministrazione/commercialista-ospite";
 import { assertElaboraContabilita } from "@/lib/auth/elabora-contabilita";
 import { createClient } from "@/lib/supabase/server";
 import type {
@@ -116,7 +121,7 @@ async function resolvePeriodoTrimestre(
   | { ok: false; error: string }
 > {
   const defaults = dateRangeForTrimestre(anno, trimestre);
-  const supabase = await createClient();
+  const { supabase } = await requireCommercialistaLettura();
   const { data, error } = await supabase
     .from("trimestri_commercialista")
     .select("*")
@@ -189,6 +194,7 @@ export async function upsertTrimestreCommercialistaAction(
   | { success: true; data: TrimestreCommercialistaResolved }
   | { success: false; error: string }
 > {
+  await bloccaScritturaOspite("salva_periodo");
   const { auth } = await requireAreaAccess("area-fiscale");
   const parsed = upsertTrimestreCommercialistaSchema.safeParse(raw);
   if (!parsed.success) {
@@ -273,6 +279,7 @@ export async function resetTrimestreCommercialistaAction(input: {
   | { success: true; data: TrimestreCommercialistaResolved }
   | { success: false; error: string }
 > {
+  await bloccaScritturaOspite("ripristina_periodo");
   const { auth } = await requireAreaAccess("area-fiscale");
   const parsed = commercialistaSummarySchema.safeParse(input);
   if (!parsed.success) {
@@ -322,7 +329,7 @@ export async function resetTrimestreCommercialistaAction(input: {
 export async function getCommercialistaSummaryAction(
   raw: unknown
 ): Promise<CommercialistaSummaryResult> {
-  await requireAreaAccess("area-fiscale");
+  const accesso = await requireCommercialistaLettura();
   const parsed = commercialistaSummarySchema.safeParse(raw);
   if (!parsed.success) {
     return {
@@ -335,7 +342,7 @@ export async function getCommercialistaSummaryAction(
   const periodoRes = await resolvePeriodoTrimestre(anno, trimestre);
   if (!periodoRes.ok) return { success: false, error: periodoRes.error };
   const { dal, al, labelTrimestre: label, personalizzato } = periodoRes.periodo;
-  const supabase = await createClient();
+  const supabase = accesso.supabase;
 
   const { data: emesseRows, error: emesseErr } = await supabase
     .from("fatture_emesse")
@@ -919,6 +926,7 @@ export async function applySequenzaCommercialistaAction(input: {
   | { success: true; assegnati: number }
   | { success: false; error: string }
 > {
+  await bloccaScritturaOspite("sequenza");
   const { auth } = await requireAreaAccess("area-fiscale");
   const elabGate = await assertElaboraContabilita();
   if (!elabGate.ok) return { success: false, error: elabGate.error };
@@ -1342,7 +1350,7 @@ export async function getCommercialistaPaperBatchAction(input: {
     }
   | { success: false; error: string }
 > {
-  await requireAreaAccess("area-fiscale");
+  const accesso = await requireCommercialistaLettura();
   const parsed = commercialistaSummarySchema.safeParse({
     anno: input.anno,
     trimestre: input.trimestre,
@@ -1357,7 +1365,7 @@ export async function getCommercialistaPaperBatchAction(input: {
   const periodoRes = await resolvePeriodoTrimestre(anno, trimestre);
   if (!periodoRes.ok) return { success: false, error: periodoRes.error };
   const { dal, al, labelTrimestre: label } = periodoRes.periodo;
-  const supabase = await createClient();
+  const supabase = accesso.supabase;
 
   type Testata = {
     id: string;
@@ -1720,12 +1728,28 @@ export async function auditCommercialistaPaperAction(input: {
   mostraSequenza: boolean;
   fatturaId?: string | null;
 }): Promise<{ success: true } | { success: false; error: string }> {
-  const { auth } = await requireAreaAccess("area-fiscale");
+  const accesso = await requireCommercialistaLettura();
+  if (accesso.ospite && accesso.linkId) {
+    await registraAuditOspite({
+      entityId: accesso.linkId,
+      action: "status_change",
+      summary: `Commercialista ${input.mode} ${input.kind} ${input.anno}-T${input.trimestre} (${input.documenti} doc)`,
+      payload: {
+        kind: input.kind,
+        anno: input.anno,
+        trimestre: input.trimestre,
+        mode: input.mode,
+        documenti: input.documenti,
+        mostra_sequenza: input.mostraSequenza,
+      },
+    });
+    return { success: true };
+  }
   await writeAuditLog({
     entity_type: "commercialista_stampa",
     entity_id: input.fatturaId ?? `${input.kind}-${input.anno}-T${input.trimestre}`,
     action: "export",
-    actor_id: auth.userId,
+    actor_id: accesso.userId,
     summary: `Commercialista ${input.mode} ${input.kind} ${input.anno}-T${input.trimestre} (${input.documenti} doc)`,
     payload: {
       kind: input.kind,
@@ -1746,7 +1770,7 @@ export async function auditCommercialistaTrimestreAction(input: {
   documenti: number;
   cartella: string;
 }): Promise<{ success: true } | { success: false; error: string }> {
-  const { auth } = await requireAreaAccess("area-fiscale");
+  const accesso = await requireCommercialistaLettura();
   const parsed = commercialistaSummarySchema.safeParse({
     anno: input.anno,
     trimestre: input.trimestre,
@@ -1758,11 +1782,26 @@ export async function auditCommercialistaTrimestreAction(input: {
     };
   }
   const cartella = input.cartella.trim().slice(0, 120);
+  if (accesso.ospite && accesso.linkId) {
+    await registraAuditOspite({
+      entityId: accesso.linkId,
+      action: "status_change",
+      summary: `Commercialista salva trimestre ${cartella} (${input.documenti} doc)`,
+      payload: {
+        anno: parsed.data.anno,
+        trimestre: parsed.data.trimestre,
+        mode: "salva_trimestre",
+        documenti: input.documenti,
+        cartella,
+      },
+    });
+    return { success: true };
+  }
   await writeAuditLog({
     entity_type: "commercialista_stampa",
     entity_id: `trimestre-${parsed.data.anno}-T${parsed.data.trimestre}`,
     action: "export",
-    actor_id: auth.userId,
+    actor_id: accesso.userId,
     summary: `Commercialista salva trimestre ${cartella} (${input.documenti} doc)`,
     payload: {
       anno: parsed.data.anno,
@@ -1816,7 +1855,7 @@ export async function scaricaElencoMistoAction(input: {
   | { success: true; filename: string; base64: string }
   | { success: false; error: string }
 > {
-  const { auth } = await requireAreaAccess("area-fiscale");
+  const accesso = await requireCommercialistaLettura();
   const parsed = commercialistaSummarySchema.safeParse({
     anno: input.anno,
     trimestre: input.trimestre,
@@ -1836,7 +1875,7 @@ export async function scaricaElencoMistoAction(input: {
   );
   if (!periodoRes.ok) return { success: false, error: periodoRes.error };
   const { dal, al } = periodoRes.periodo;
-  const supabase = await createClient();
+  const supabase = accesso.supabase;
 
   const caricati = await caricaDocumentiElenco(
     supabase,
@@ -1853,11 +1892,25 @@ export async function scaricaElencoMistoAction(input: {
     trimestre: parsed.data.trimestre,
     righe,
   });
+  if (accesso.ospite && accesso.linkId) {
+    await registraAuditOspite({
+      entityId: accesso.linkId,
+      action: "status_change",
+      summary: `Elenco ${input.lato} ${parsed.data.anno}-T${parsed.data.trimestre}: ${caricati.docs.length} documenti`,
+      payload: {
+        lato: input.lato,
+        anno: parsed.data.anno,
+        trimestre: parsed.data.trimestre,
+        documenti: caricati.docs.length,
+      },
+    });
+    return { success: true, filename: file.filename, base64: file.base64 };
+  }
   await writeAuditLog({
     entity_type: "commercialista_stampa",
     entity_id: `elenco-${input.lato}-${parsed.data.anno}-T${parsed.data.trimestre}`,
     action: "export",
-    actor_id: auth.userId,
+    actor_id: accesso.userId,
     summary: `Elenco ${input.lato} ${parsed.data.anno}-T${parsed.data.trimestre}: ${caricati.docs.length} documenti`,
     payload: {
       lato: input.lato,

@@ -12,6 +12,7 @@ type Props = {
 
 export default async function LoginPage({ searchParams }: Props) {
   const params = await searchParams;
+  const linkScaduto = params.motivo === "link";
   const motivo = params.motivo
     ? parseProfileStatoOperativo(params.motivo)
     : null;
@@ -27,6 +28,12 @@ export default async function LoginPage({ searchParams }: Props) {
         <p className="mt-1 text-sm text-[var(--muted)]">
           Dopo la password riceverai un codice via email (secondo fattore).
         </p>
+        {linkScaduto ? (
+          <p className="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-950">
+            Il link del commercialista non è valido, è scaduto oppure è stata
+            aperta un&apos;altra pagina. Serve un accesso oppure un link nuovo.
+          </p>
+        ) : null}
         {locked ? (
           <p className="mt-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">
             {locked}

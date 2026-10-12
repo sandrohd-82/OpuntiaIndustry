@@ -8,6 +8,8 @@ import {
 } from "@/lib/areas/area-fiscale";
 import { isNavBranch } from "@/lib/areas/nav-tree";
 import { requireAreaAccess } from "@/lib/areas/guard";
+import { getAuthContext } from "@/lib/auth/session";
+import { sessioneOspiteCommercialista } from "@/lib/amministrazione/commercialista-ospite-accesso";
 
 export const maxDuration = 300;
 
@@ -16,9 +18,15 @@ type Props = {
 };
 
 export default async function AreaFiscaleSectionPage({ params }: Props) {
-  await requireAreaAccess("area-fiscale");
-
   const { section } = await params;
+  const auth = await getAuthContext();
+  const ospite =
+    section === "commercialista" && !auth
+      ? await sessioneOspiteCommercialista()
+      : null;
+  if (!ospite) {
+    await requireAreaAccess("area-fiscale");
+  }
 
   // Legacy flat paths
   if (section === "dati-e-calcoli") {
@@ -46,9 +54,21 @@ export default async function AreaFiscaleSectionPage({ params }: Props) {
   if (section === "commercialista") {
     return (
       <>
-        <AppHeader title={page.label} subtitle={page.description} />
+        {ospite ? (
+          <header className="border-b border-[var(--border)] bg-[var(--card)] px-6 py-4">
+            <h1 className="text-xl font-semibold">{page.label}</h1>
+            {page.description ? (
+              <p className="text-sm text-[var(--muted)]">{page.description}</p>
+            ) : null}
+            <p className="mt-1 text-xs text-[var(--muted)]">
+              Accesso temporaneo, solo questa pagina.
+            </p>
+          </header>
+        ) : (
+          <AppHeader title={page.label} subtitle={page.description} />
+        )}
         <div className="p-6">
-          <CommercialistaBoard />
+          <CommercialistaBoard ospite={Boolean(ospite)} />
         </div>
       </>
     );

@@ -34,10 +34,13 @@ import { SensitiveAuthProvider } from "@/components/layout/SensitiveAuthProvider
 import { canElaboraContabilitaAccess } from "@/lib/auth/action-access";
 import {
   applySensitiveLocks,
+  EMPTY_AUTH_SETTINGS,
   isFiscalePath,
   isRicercaSviluppoPath,
   unrestrictedAuthSettings,
 } from "@/lib/auth/data-scope";
+import { sessioneOspiteCommercialista } from "@/lib/amministrazione/commercialista-ospite-accesso";
+import { PERCORSO_OSPITE_COMMERCIALISTA } from "@/lib/amministrazione/commercialista-ospite";
 import { loadProfileAuthBundle } from "@/lib/auth/data-scope-enforce";
 import {
   isNavPathVisible,
@@ -85,7 +88,23 @@ export default async function AppLayout({
 }: {
   children: React.ReactNode;
 }) {
+  const headerList = await headers();
+  const pathname = headerList.get("x-pathname") || "/app/dashboard";
   const auth = await getAuthContext();
+
+  if (!auth && pathname === PERCORSO_OSPITE_COMMERCIALISTA) {
+    const ospite = await sessioneOspiteCommercialista();
+    if (ospite) {
+      return (
+        <SensitiveAuthProvider
+          settings={EMPTY_AUTH_SETTINGS}
+          canElaboraContabilita
+        >
+          <div className="min-h-screen bg-[var(--background)]">{children}</div>
+        </SensitiveAuthProvider>
+      );
+    }
+  }
 
   if (!auth) {
     redirect("/login");
@@ -117,8 +136,6 @@ export default async function AppLayout({
     authSettings
   );
 
-  const headerList = await headers();
-  const pathname = headerList.get("x-pathname") || "/app/dashboard";
   const pageKey = resolvePageKey(pathname);
 
   if (isSharedInboxPath(pathname)) {

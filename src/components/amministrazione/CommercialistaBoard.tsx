@@ -33,6 +33,7 @@ import {
   type TrimestreNumero,
 } from "@/lib/amministrazione/trimestre-commerciale";
 import { useSensitiveAuth } from "@/components/layout/SensitiveAuthProvider";
+import { CommercialistaLinkOspite } from "@/components/amministrazione/CommercialistaLinkOspite";
 
 const TRIMESTRI: TrimestreNumero[] = [1, 2, 3, 4];
 
@@ -95,6 +96,7 @@ function ColonnaCommercialista({
   anno,
   trimestre,
   onSequenzaDone,
+  ospite = false,
 }: {
   kind: CommercialistaRegistroKind;
   titoloTotale: string;
@@ -105,6 +107,7 @@ function ColonnaCommercialista({
   anno: number;
   trimestre: TrimestreNumero;
   onSequenzaDone: () => void;
+  ospite?: boolean;
 }) {
   const [openResoconto, setOpenResoconto] = useState(false);
   const [openBeni, setOpenBeni] = useState(false);
@@ -177,7 +180,7 @@ function ColonnaCommercialista({
           />
         </div>
 
-        {canElaboraContabilita ? (
+        {canElaboraContabilita && !ospite ? (
           <button
             type="button"
             disabled={seqPending || colonna.conteggioDocumenti === 0}
@@ -371,7 +374,7 @@ function ColonnaCommercialista({
   );
 }
 
-export function CommercialistaBoard() {
+export function CommercialistaBoard({ ospite = false }: { ospite?: boolean }) {
   const now = useMemo(() => new Date(), []);
   const defaultTrim = (Math.floor(now.getMonth() / 3) + 1) as TrimestreNumero;
   const [anno, setAnno] = useState(now.getFullYear());
@@ -481,6 +484,7 @@ export function CommercialistaBoard() {
 
   return (
     <div className="space-y-5">
+      {ospite ? null : <CommercialistaLinkOspite />}
       <div className="flex flex-wrap items-end justify-between gap-3">
         <p className="max-w-2xl text-sm text-[var(--muted)]">
           Riepilogo trimestrale (IVA ordinario{" "}
@@ -534,6 +538,12 @@ export function CommercialistaBoard() {
           )}
         </p>
         <div className="mt-2 flex flex-wrap items-center gap-2">
+          {ospite ? (
+            <p className="text-sm text-slate-800">
+              {dalEdit || "—"} → {alEdit || "—"}
+            </p>
+          ) : (
+            <>
           <input
             type="date"
             value={dalEdit}
@@ -564,6 +574,8 @@ export function CommercialistaBoard() {
           >
             Ripristina calendario
           </button>
+            </>
+          )}
           <button
             type="button"
             disabled={exporting || !ready}
@@ -627,6 +639,7 @@ export function CommercialistaBoard() {
             colonna={data.emesse}
             anno={anno}
             trimestre={trimestre}
+            ospite={ospite}
             onSequenzaDone={() => void load()}
           />
           <ColonnaCommercialista
@@ -638,6 +651,7 @@ export function CommercialistaBoard() {
             colonna={data.ricevute}
             anno={anno}
             trimestre={trimestre}
+            ospite={ospite}
             onSequenzaDone={() => void load()}
           />
         </div>
@@ -654,6 +668,7 @@ export function CommercialistaBoard() {
             colonna={data.ddtEmessi}
             anno={anno}
             trimestre={trimestre}
+            ospite={ospite}
             onSequenzaDone={() => void load()}
           />
           <ColonnaCommercialista
@@ -665,6 +680,7 @@ export function CommercialistaBoard() {
             colonna={data.ddtRicevuti}
             anno={anno}
             trimestre={trimestre}
+            ospite={ospite}
             onSequenzaDone={() => void load()}
           />
         </div>
@@ -681,6 +697,7 @@ export function CommercialistaBoard() {
             colonna={data.noteEmesse}
             anno={anno}
             trimestre={trimestre}
+            ospite={ospite}
             onSequenzaDone={() => void load()}
           />
           <ColonnaCommercialista
@@ -692,6 +709,7 @@ export function CommercialistaBoard() {
             colonna={data.noteRicevute}
             anno={anno}
             trimestre={trimestre}
+            ospite={ospite}
             onSequenzaDone={() => void load()}
           />
         </div>
