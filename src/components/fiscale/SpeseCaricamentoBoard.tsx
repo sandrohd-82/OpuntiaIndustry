@@ -356,6 +356,7 @@ export function SpeseCaricamentoBoard() {
   const streamRef = useRef<MediaStream | null>(null);
   const urlRef = useRef<string | null>(null);
   const fileTenuto = useRef<File | null>(null);
+  const verificaRef = useRef<HTMLDivElement>(null);
   const [tipo, setTipo] = useState<TipoCaricamentoSpesa>("scontrino");
   const [fileScelto, setFileScelto] = useState<File | null>(null);
   const [anteprimaUrl, setAnteprimaUrl] = useState<string | null>(null);
@@ -440,6 +441,11 @@ export function SpeseCaricamentoBoard() {
   const inserimentoManuale = anteprima?.lettura === "manuale";
 
   useEffect(() => {
+    if (!anteprima || inserimentoManuale) return;
+    verificaRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }, [anteprima, inserimentoManuale]);
+
+  useEffect(() => {
     if (!inserimentoManuale) return;
     const prev = document.body.style.overflow;
     document.body.style.overflow = "hidden";
@@ -505,18 +511,25 @@ export function SpeseCaricamentoBoard() {
     body.set("file", file);
     body.set("tipoCaricamento", tipo);
     start(async () => {
-      const [res, elenco] = await Promise.all([
-        anteprimaSpesaAction(body),
-        listProgettiSpesaAction(),
-      ]);
+      try {
+      const res = await anteprimaSpesaAction(body);
       if (!res.success) {
-        setErrore(res.error);
+        setErrore(res.error || "Non sono riuscito a leggere il file.");
         return;
+      }
+      let progettiLetti: Awaited<ReturnType<typeof listProgettiSpesaAction>> | null =
+        null;
+      try {
+        progettiLetti = await listProgettiSpesaAction();
+      } catch {
+        progettiLetti = null;
       }
       fileTenuto.current = file;
       setAnteprima(res.anteprima);
-      if (elenco.success) {
-        setProgetti(elenco.progetti.filter((p) => p.documentoStato !== "chiuso"));
+      if (progettiLetti?.success) {
+        setProgetti(
+          progettiLetti.progetti.filter((p) => p.documentoStato !== "chiuso")
+        );
       }
       const a = res.anteprima;
       setForm({
@@ -549,6 +562,16 @@ export function SpeseCaricamentoBoard() {
             });
           });
         setRighe(lette.length ? lette : [rigaVuota()]);
+      }
+      if (res.anteprima.lettura !== "manuale") {
+        setMsg("Documento letto. Controlla i dati qui sotto e poi conferma.");
+      }
+      } catch (err) {
+        setErrore(
+          err instanceof Error && err.message
+            ? err.message
+            : "La lettura non è andata a buon fine. Riprova."
+        );
       }
     });
   }
@@ -780,64 +803,7 @@ export function SpeseCaricamentoBoard() {
         </p>
       ) : null}
 
-      <section className="rounded-xl border border-[var(--border)] bg-[var(--card)] p-4">
-        <h2 className="text-sm font-semibold text-slate-900">
-          Ricevute salvate negli ultimi 30 giorni
-        </h2>
-        <p className="mt-1 text-xs text-[var(--muted)]">
-          Le più recenti per prime, in base a quando sono state registrate.
-        </p>
-        {ricevuteErrore ? (
-          <p className="mt-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">
-            {ricevuteErrore}
-          </p>
-        ) : null}
-        {ricevute.length === 0 ? (
-          ricevuteErrore ? null : (
-            <p className="mt-3 text-sm text-slate-500">
-              Nessuna ricevuta salvata negli ultimi 30 giorni.
-            </p>
-          )
-        ) : (
-          <ul className="mt-3 divide-y divide-slate-100 rounded-lg border border-slate-200 bg-white">
-            {ricevute.map((voce) => (
-              <li key={voce.id} className="flex items-start justify-between gap-3 px-3 py-2">
-                <div className="min-w-0">
-                  <p className="text-sm font-medium text-slate-900">{voce.esercente}</p>
-                  <p className="text-xs text-[var(--muted)]">
-                    Salvata {formatSalvataggio(voce.salvataIl)}
-                    {" · "}
-                    documento {formatDateIt(voce.dataDocumento)}
-                    {" · "}
-                    {LABEL_TIPO_CARICAMENTO[voce.tipoCaricamento]}
-                    {voce.privaIva ? " · priva di IVA" : ""}
-                    {" · "}
-                    {LABEL_STATO_SPESA[voce.stato]}
-                  </p>
-                  {voce.giustificazione ? (
-                    <p className="mt-0.5 text-xs text-slate-700">{voce.giustificazione}</p>
-                  ) : null}
-                </div>
-                <div className="flex shrink-0 flex-col items-end gap-1">
-                  <p className="text-sm tabular-nums">
-                    {formatEuro(voce.totale)}
-                    {voce.valuta !== "EUR" ? (
-                      <span className="block text-xs text-[var(--muted)]">{voce.valuta}</span>
-                    ) : null}
-                  </p>
-                  <button
-                    type="button"
-                    className="rounded border border-slate-300 px-2 py-1 text-xs"
-                    onClick={() => void apriRicevuta(voce.id)}
-                  >
-                    Documento
-                  </button>
-                </div>
-              </li>
-            ))}
-          </ul>
-        )}
-      </section>
+      
 
       {(() => {
         const modulo = anteprima ? (
@@ -1246,6 +1212,7 @@ export function SpeseCaricamentoBoard() {
                       ? `Priva di IVA · Totale ${euro(calc.totale)}`
                       : `Imponibile ${euro(calc.imponibile)} · IVA ${euro(calc.imposta)} · Totale ${euro(calc.totale)}`;
                   })()}
+      
                 </p>
               </div>
             ) : (
@@ -1420,10 +1387,14 @@ export function SpeseCaricamentoBoard() {
               <header className="flex shrink-0 items-center justify-between gap-3 border-b border-slate-200 px-4 py-3">
                 <div>
                   <h2 id="scontrino-manuale-title" className="text-base font-semibold text-slate-900">
-                    Inserimento manuale dello scontrino
+                    {tipo === "fattura_estera"
+                      ? "Verifica della fattura estera"
+                      : tipo === "xml"
+                        ? "Verifica della fattura elettronica"
+                        : "Inserimento manuale dello scontrino"}
                   </h2>
                   <p className="text-xs text-slate-500">
-                    A sinistra il documento, a destra i dati da copiare e registrare.
+                    A sinistra il documento, a destra i dati da controllare e registrare.
                   </p>
                 </div>
                 <button
@@ -1458,8 +1429,70 @@ export function SpeseCaricamentoBoard() {
             document.body
           );
         }
-        return modulo;
+        return (
+          <div ref={verificaRef} className="scroll-mt-4">
+            {modulo}
+          </div>
+        );
       })()}
+      <section className="rounded-xl border border-[var(--border)] bg-[var(--card)] p-4">
+        <h2 className="text-sm font-semibold text-slate-900">
+          Ricevute salvate negli ultimi 30 giorni
+        </h2>
+        <p className="mt-1 text-xs text-[var(--muted)]">
+          Le più recenti per prime, in base a quando sono state registrate.
+        </p>
+        {ricevuteErrore ? (
+          <p className="mt-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">
+            {ricevuteErrore}
+          </p>
+        ) : null}
+        {ricevute.length === 0 ? (
+          ricevuteErrore ? null : (
+            <p className="mt-3 text-sm text-slate-500">
+              Nessuna ricevuta salvata negli ultimi 30 giorni.
+            </p>
+          )
+        ) : (
+          <ul className="mt-3 divide-y divide-slate-100 rounded-lg border border-slate-200 bg-white">
+            {ricevute.map((voce) => (
+              <li key={voce.id} className="flex items-start justify-between gap-3 px-3 py-2">
+                <div className="min-w-0">
+                  <p className="text-sm font-medium text-slate-900">{voce.esercente}</p>
+                  <p className="text-xs text-[var(--muted)]">
+                    Salvata {formatSalvataggio(voce.salvataIl)}
+                    {" · "}
+                    documento {formatDateIt(voce.dataDocumento)}
+                    {" · "}
+                    {LABEL_TIPO_CARICAMENTO[voce.tipoCaricamento]}
+                    {voce.privaIva ? " · priva di IVA" : ""}
+                    {" · "}
+                    {LABEL_STATO_SPESA[voce.stato]}
+                  </p>
+                  {voce.giustificazione ? (
+                    <p className="mt-0.5 text-xs text-slate-700">{voce.giustificazione}</p>
+                  ) : null}
+                </div>
+                <div className="flex shrink-0 flex-col items-end gap-1">
+                  <p className="text-sm tabular-nums">
+                    {formatEuro(voce.totale)}
+                    {voce.valuta !== "EUR" ? (
+                      <span className="block text-xs text-[var(--muted)]">{voce.valuta}</span>
+                    ) : null}
+                  </p>
+                  <button
+                    type="button"
+                    className="rounded border border-slate-300 px-2 py-1 text-xs"
+                    onClick={() => void apriRicevuta(voce.id)}
+                  >
+                    Documento
+                  </button>
+                </div>
+              </li>
+            ))}
+          </ul>
+        )}
+      </section>
       {causaliAperte ? (
         <CausaliUsateFinestra
           corrente={form.giustificazione}
