@@ -24,7 +24,6 @@ export default async function CommercialistaElaboraOspitePage() {
       <CommercialistaElaboraTrimestreModal
         anno={ospite.anno}
         trimestre={ospite.trimestre}
-        onClose={() => undefined}
         pagina
       />
     );
@@ -38,7 +37,6 @@ export default async function CommercialistaElaboraOspitePage() {
       kind={kind}
       anno={ospite.anno}
       trimestre={ospite.trimestre}
-      onClose={() => undefined}
       pagina
     />
   );

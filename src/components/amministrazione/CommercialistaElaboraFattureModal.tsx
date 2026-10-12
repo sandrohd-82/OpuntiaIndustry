@@ -27,7 +27,7 @@ type Props = {
   kind: CommercialistaRegistroKind;
   anno: number;
   trimestre: TrimestreNumero;
-  onClose: () => void;
+  onClose?: () => void;
   /** Pagina aperta dal link: niente chiusura verso il riepilogo. */
   pagina?: boolean;
 };
@@ -119,7 +119,7 @@ export function CommercialistaElaboraFattureModal({
     }
   }
 
-  return createPortal(
+  const corpo = (
     <div
       className="fixed inset-0 z-[80] flex flex-col bg-slate-950/70"
       role="presentation"
@@ -168,7 +168,7 @@ export function CommercialistaElaboraFattureModal({
               {pagina ? null : (
                 <button
                   type="button"
-                  onClick={onClose}
+                  onClick={() => onClose?.()}
                   className="rounded-lg border border-slate-300 p-1.5 text-slate-700 hover:bg-slate-50"
                   aria-label="Chiudi"
                 >
@@ -204,7 +204,10 @@ export function CommercialistaElaboraFattureModal({
           )}
         </div>
       </div>
-    </div>,
-    document.body
+    </div>
   );
+
+  if (pagina) return corpo;
+  if (typeof document === "undefined") return null;
+  return createPortal(corpo, document.body);
 }
