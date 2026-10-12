@@ -33,7 +33,6 @@ import {
   type TrimestreNumero,
 } from "@/lib/amministrazione/trimestre-commerciale";
 import { useSensitiveAuth } from "@/components/layout/SensitiveAuthProvider";
-import { CommercialistaLinkOspite } from "@/components/amministrazione/CommercialistaLinkOspite";
 
 const TRIMESTRI: TrimestreNumero[] = [1, 2, 3, 4];
 
@@ -484,7 +483,6 @@ export function CommercialistaBoard({ ospite = false }: { ospite?: boolean }) {
 
   return (
     <div className="space-y-5">
-      {ospite ? null : <CommercialistaLinkOspite />}
       <div className="flex flex-wrap items-end justify-between gap-3">
         <p className="max-w-2xl text-sm text-[var(--muted)]">
           Riepilogo trimestrale (IVA ordinario{" "}

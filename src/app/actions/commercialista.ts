@@ -56,6 +56,7 @@ import {
 import { requireAreaAccess } from "@/lib/areas/guard";
 import {
   bloccaScritturaOspite,
+  negaOspiteFuoriElaborazione,
   requireCommercialistaLettura,
 } from "@/lib/amministrazione/commercialista-ospite-accesso";
 import { registraAuditOspite } from "@/lib/amministrazione/commercialista-ospite";
@@ -330,6 +331,7 @@ export async function getCommercialistaSummaryAction(
   raw: unknown
 ): Promise<CommercialistaSummaryResult> {
   const accesso = await requireCommercialistaLettura();
+  await negaOspiteFuoriElaborazione({ operazione: "riepilogo" });
   const parsed = commercialistaSummarySchema.safeParse(raw);
   if (!parsed.success) {
     return {
@@ -1361,6 +1363,12 @@ export async function getCommercialistaPaperBatchAction(input: {
       error: parsed.error.issues[0]?.message ?? "Parametri non validi.",
     };
   }
+  await negaOspiteFuoriElaborazione({
+    kind: input.kind,
+    anno: parsed.data.anno,
+    trimestre: parsed.data.trimestre,
+    operazione: "elabora",
+  });
   const { anno, trimestre } = parsed.data;
   const periodoRes = await resolvePeriodoTrimestre(anno, trimestre);
   if (!periodoRes.ok) return { success: false, error: periodoRes.error };
@@ -1729,6 +1737,12 @@ export async function auditCommercialistaPaperAction(input: {
   fatturaId?: string | null;
 }): Promise<{ success: true } | { success: false; error: string }> {
   const accesso = await requireCommercialistaLettura();
+  await negaOspiteFuoriElaborazione({
+    kind: input.kind,
+    anno: input.anno,
+    trimestre: input.trimestre,
+    operazione: input.mode,
+  });
   if (accesso.ospite && accesso.linkId) {
     await registraAuditOspite({
       entityId: accesso.linkId,
@@ -1781,6 +1795,12 @@ export async function auditCommercialistaTrimestreAction(input: {
       error: parsed.error.issues[0]?.message ?? "Parametri non validi.",
     };
   }
+  await negaOspiteFuoriElaborazione({
+    anno: parsed.data.anno,
+    trimestre: parsed.data.trimestre,
+    operazione: "salva_trimestre",
+    soloTrimestre: true,
+  });
   const cartella = input.cartella.trim().slice(0, 120);
   if (accesso.ospite && accesso.linkId) {
     await registraAuditOspite({
@@ -1856,6 +1876,7 @@ export async function scaricaElencoMistoAction(input: {
   | { success: false; error: string }
 > {
   const accesso = await requireCommercialistaLettura();
+  await negaOspiteFuoriElaborazione({ operazione: "elenco" });
   const parsed = commercialistaSummarySchema.safeParse({
     anno: input.anno,
     trimestre: input.trimestre,

@@ -1,18 +1,34 @@
 /**
- * Link ospite della sola pagina Commercialista.
+ * Link ospite della sola elaborazione Commercialista (un registro o il trimestre).
  * Il codice in chiaro non viene salvato: in tabella resta l'impronta.
  * Questo file non importa next/headers, così il middleware può usarlo.
  */
 
 export const COOKIE_OSPITE_COMMERCIALISTA = "oi_commercialista_ospite";
 export const PERCORSO_OSPITE_COMMERCIALISTA =
-  "/app/area-fiscale/commercialista";
+  "/app/area-fiscale/commercialista/elabora";
 export const GIORNI_LINK_COMMERCIALISTA = 3;
 export const ENTITY_LINK_SCONOSCIUTO = "00000000-0000-0000-0000-000000000000";
+
+export const REGISTRI_LINK_OSPITE = [
+  "emessa",
+  "ricevuta",
+  "ddt_emesso",
+  "ddt_ricevuto",
+  "nota_emessa",
+  "nota_ricevuta",
+] as const;
+
+export type RegistroLinkOspite = (typeof REGISTRI_LINK_OSPITE)[number];
+export type AmbitoLinkOspite = "registro" | "trimestre";
 
 export type LinkOspiteRiga = {
   id: string;
   expires_at: string;
+  ambito: AmbitoLinkOspite;
+  registro: RegistroLinkOspite | null;
+  anno: number;
+  trimestre: number;
 };
 
 export function generaTokenOspite(): string {
@@ -67,7 +83,7 @@ export async function cercaLinkOspite(
   if (!env) return null;
   const hash = await hashTokenOspite(pulito);
   const res = await fetch(
-    `${env.url}/rest/v1/commercialista_link_ospite?token_hash=eq.${hash}&select=id,expires_at,revoked_at&limit=1`,
+    `${env.url}/rest/v1/commercialista_link_ospite?token_hash=eq.${hash}&select=id,expires_at,revoked_at,ambito,registro,anno,trimestre&limit=1`,
     {
       headers: {
         apikey: env.key,
@@ -81,11 +97,41 @@ export async function cercaLinkOspite(
     id?: string;
     expires_at?: string;
     revoked_at?: string | null;
+    ambito?: string | null;
+    registro?: string | null;
+    anno?: number | null;
+    trimestre?: number | null;
   }>;
   const row = rows[0];
   if (!row?.id || !row.expires_at || row.revoked_at) return null;
   if (new Date(row.expires_at).getTime() <= Date.now()) return null;
-  return { id: row.id, expires_at: row.expires_at };
+  const ambito = row.ambito === "registro" || row.ambito === "trimestre" ? row.ambito : null;
+  const anno = Number(row.anno);
+  const trimestre = Number(row.trimestre);
+  if (!ambito || !Number.isInteger(anno) || !Number.isInteger(trimestre)) return null;
+  if (trimestre < 1 || trimestre > 4) return null;
+  const registro = REGISTRI_LINK_OSPITE.find((kind) => kind === row.registro) ?? null;
+  if (ambito === "trimestre" && registro) return null;
+  if (ambito === "registro" && !registro) return null;
+  return {
+    id: row.id,
+    expires_at: row.expires_at,
+    ambito,
+    registro,
+    anno,
+    trimestre,
+  };
+}
+
+export function linkConsenteRegistro(
+  link: LinkOspiteRiga,
+  kind: string,
+  anno: number,
+  trimestre: number
+): boolean {
+  if (link.anno !== anno || link.trimestre !== trimestre) return false;
+  if (link.ambito === "trimestre") return true;
+  return link.registro === kind;
 }
 
 export async function registraAuditOspite(input: {

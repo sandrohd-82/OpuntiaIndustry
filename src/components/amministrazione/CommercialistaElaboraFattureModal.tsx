@@ -21,12 +21,15 @@ import {
   type CommercialistaRegistroKind,
 } from "@/lib/amministrazione/commercialista";
 import type { TrimestreNumero } from "@/lib/amministrazione/trimestre-commerciale";
+import { CommercialistaLinkOspite } from "@/components/amministrazione/CommercialistaLinkOspite";
 
 type Props = {
   kind: CommercialistaRegistroKind;
   anno: number;
   trimestre: TrimestreNumero;
   onClose: () => void;
+  /** Pagina aperta dal link: niente chiusura verso il riepilogo. */
+  pagina?: boolean;
 };
 
 export function CommercialistaElaboraFattureModal({
@@ -34,6 +37,7 @@ export function CommercialistaElaboraFattureModal({
   anno,
   trimestre,
   onClose,
+  pagina = false,
 }: Props) {
   const titleId = useId();
   const [docs, setDocs] = useState<CommercialistaPaperDoc[]>([]);
@@ -144,6 +148,14 @@ export function CommercialistaElaboraFattureModal({
               </p>
             </div>
             <div className="flex flex-wrap items-center gap-2">
+              {pagina ? null : (
+                <CommercialistaLinkOspite
+                  ambito="registro"
+                  registro={kind}
+                  anno={anno}
+                  trimestre={trimestre}
+                />
+              )}
               <button
                 type="button"
                 disabled={righe.length === 0 || scaricando || pending}
@@ -153,14 +165,16 @@ export function CommercialistaElaboraFattureModal({
                 <FaDownload size={12} />
                 {scaricando ? "Preparazione…" : "Salva cartella"}
               </button>
-              <button
-                type="button"
-                onClick={onClose}
-                className="rounded-lg border border-slate-300 p-1.5 text-slate-700 hover:bg-slate-50"
-                aria-label="Chiudi"
-              >
-                <FaXmark size={14} />
-              </button>
+              {pagina ? null : (
+                <button
+                  type="button"
+                  onClick={onClose}
+                  className="rounded-lg border border-slate-300 p-1.5 text-slate-700 hover:bg-slate-50"
+                  aria-label="Chiudi"
+                >
+                  <FaXmark size={14} />
+                </button>
+              )}
             </div>
           </div>
           {scaricaMsg ? (

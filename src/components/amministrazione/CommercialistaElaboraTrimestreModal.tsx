@@ -33,6 +33,7 @@ import {
   scriviFileInCartella,
 } from "@/lib/amministrazione/fattura-classica-pdf";
 import type { TrimestreNumero } from "@/lib/amministrazione/trimestre-commerciale";
+import { CommercialistaLinkOspite } from "@/components/amministrazione/CommercialistaLinkOspite";
 
 const KINDS: CommercialistaRegistroKind[] = [
   "emessa",
@@ -55,10 +56,13 @@ export function CommercialistaElaboraTrimestreModal({
   anno,
   trimestre,
   onClose,
+  pagina = false,
 }: {
   anno: number;
   trimestre: TrimestreNumero;
   onClose: () => void;
+  /** Pagina aperta dal link: niente chiusura verso il riepilogo. */
+  pagina?: boolean;
 }) {
   const titleId = useId();
   const [perKind, setPerKind] = useState<Partial<Record<CommercialistaRegistroKind, Carico>>>({});
@@ -233,6 +237,14 @@ export function CommercialistaElaboraTrimestreModal({
               </ul>
             </div>
             <div className="flex flex-wrap items-center gap-2">
+              {pagina ? null : (
+                <CommercialistaLinkOspite
+                  ambito="trimestre"
+                  registro={null}
+                  anno={anno}
+                  trimestre={trimestre}
+                />
+              )}
               <button
                 type="button"
                 disabled={pending || scrivendo}
@@ -242,14 +254,16 @@ export function CommercialistaElaboraTrimestreModal({
                 <FaDownload size={12} />
                 {scrivendo ? "Preparazione…" : "Esporta"}
               </button>
-              <button
-                type="button"
-                onClick={onClose}
-                className="rounded-lg border border-slate-300 p-1.5 text-slate-700 hover:bg-slate-50"
-                aria-label="Chiudi"
-              >
-                <FaXmark size={14} />
-              </button>
+              {pagina ? null : (
+                <button
+                  type="button"
+                  onClick={onClose}
+                  className="rounded-lg border border-slate-300 p-1.5 text-slate-700 hover:bg-slate-50"
+                  aria-label="Chiudi"
+                >
+                  <FaXmark size={14} />
+                </button>
+              )}
             </div>
           </div>
           {msg ? (
