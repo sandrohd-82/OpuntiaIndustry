@@ -131,7 +131,7 @@ export function CommercialistaElaboraFattureModal({
         className="flex h-full min-h-0 flex-col bg-slate-100 px-[3vw]"
         onClick={(e) => e.stopPropagation()}
       >
-        <header className="shrink-0 border-b border-slate-300 bg-white py-3 shadow-sm">
+        <header className="shrink-0 border-b border-slate-300 bg-white px-5 py-4 shadow-sm">
           <div className="flex w-full flex-wrap items-center justify-between gap-3">
             <div>
               <h2 id={titleId} className="text-sm font-semibold text-slate-900">

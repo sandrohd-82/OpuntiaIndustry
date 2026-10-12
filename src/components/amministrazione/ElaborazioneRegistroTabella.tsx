@@ -41,11 +41,11 @@ export function ElaborazioneRegistroTabella({
   if (!beneConsumo) {
     return (
       <div className="w-full overflow-x-auto rounded-lg border border-slate-300 bg-white shadow-sm">
-        <table className="w-full border-collapse text-left text-xs">
+        <table className="w-full border-collapse text-left text-xs [&_td]:border-l [&_td]:border-slate-300 [&_td:first-child]:border-l-0 [&_th]:border-l [&_th]:border-slate-500 [&_th]:text-center [&_th:first-child]:border-l-0">
           <thead className="bg-slate-800 text-xs text-white">
             <tr>
               {TITOLI_USCITA_EXCEL.map((titolo) => (
-                <th key={titolo} className="px-1.5 py-1 font-semibold whitespace-nowrap">
+                <th key={titolo} className="px-1.5 py-1 text-center font-semibold whitespace-nowrap">
                   {titolo}
                 </th>
               ))}
@@ -119,11 +119,11 @@ export function ElaborazioneRegistroTabella({
 
   return (
     <div className="w-full overflow-x-auto rounded-lg border border-slate-300 bg-white shadow-sm">
-      <table className="w-full border-collapse text-left text-xs">
+      <table className="w-full border-collapse text-left text-xs [&_td]:border-l [&_td]:border-slate-300 [&_td:first-child]:border-l-0 [&_th]:border-l [&_th]:border-slate-500 [&_th]:text-center [&_th:first-child]:border-l-0">
         <thead className="bg-slate-800 text-xs text-white">
           <tr>
             {titoli.map((titolo) => (
-              <th key={titolo} className="px-1.5 py-1 font-semibold whitespace-nowrap">
+              <th key={titolo} className="px-1.5 py-1 text-center font-semibold whitespace-nowrap">
                 {titolo}
               </th>
             ))}
