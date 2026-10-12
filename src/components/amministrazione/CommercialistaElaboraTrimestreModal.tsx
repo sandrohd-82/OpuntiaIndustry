@@ -9,7 +9,7 @@ import {
   type CommercialistaPaperDoc,
 } from "@/app/actions/commercialista";
 import { ElaborazioneRegistroTabella } from "@/components/amministrazione/ElaborazioneRegistroTabella";
-import { etichettaRegistro, type CommercialistaRegistroKind } from "@/lib/amministrazione/commercialista";
+import type { CommercialistaRegistroKind } from "@/lib/amministrazione/commercialista";
 import {
   COLORI_TIPO_DOCUMENTO,
   righeResocontoCompleto,
@@ -21,6 +21,7 @@ import {
 } from "@/lib/amministrazione/elaborazione-fatture-xlsx";
 import {
   gruppiElaborazioneTrimestre,
+  nomeCartellaConConteggio,
   nomeCartellaTrimestre,
   nomiFileElaborazione,
   percorsoPdfTrimestre,
@@ -86,7 +87,8 @@ export function CommercialistaElaboraTrimestreModal({
             percorsoPdf: percorsoPdfTrimestre(
               gruppo,
               registro,
-              nomi[index] ?? `documento_${index + 1}.pdf`
+              nomi[index] ?? `documento_${index + 1}.pdf`,
+              docs.length
             ),
           });
         });
@@ -137,16 +139,19 @@ export function CommercialistaElaboraTrimestreModal({
       const radice = await scelta.getDirectoryHandle(nomeCartella, { create: true });
       let documenti = 0;
       for (const gruppo of gruppi) {
-        const cartellaGruppo = await radice.getDirectoryHandle(gruppo.cartella, {
-          create: true,
-        });
+        const haSottocartelle = gruppo.registri.some((registro) => registro.sottocartella);
+        const cartellaGruppo = haSottocartelle
+          ? await radice.getDirectoryHandle(gruppo.cartella, { create: true })
+          : null;
         for (const registro of gruppo.registri) {
           const docs = perKind[registro.kind]?.docs ?? [];
-          const dest = registro.sottocartella
-            ? await cartellaGruppo.getDirectoryHandle(registro.sottocartella, {
-                create: true,
-              })
-            : cartellaGruppo;
+          const nomeFoglia = nomeCartellaConConteggio(
+            registro.sottocartella ?? gruppo.cartella,
+            docs.length
+          );
+          const dest = cartellaGruppo
+            ? await cartellaGruppo.getDirectoryHandle(nomeFoglia, { create: true })
+            : await radice.getDirectoryHandle(nomeFoglia, { create: true });
           await scriviElaborazioneRegistro({
             cartella: dest,
             kind: registro.kind,
@@ -157,12 +162,14 @@ export function CommercialistaElaboraTrimestreModal({
           documenti += docs.length;
         }
       }
-      const excel = await buildResocontoCompletoXlsx(voci);
-      await scriviFileInCartella(
-        radice,
-        excel.filename,
-        new Blob([excel.bytes as BlobPart], { type: MIME_XLSX })
-      );
+      if (documenti > 0) {
+        const excel = await buildResocontoCompletoXlsx(voci);
+        await scriviFileInCartella(
+          radice,
+          excel.filename,
+          new Blob([excel.bytes as BlobPart], { type: MIME_XLSX })
+        );
+      }
       await auditCommercialistaTrimestreAction({
         anno,
         trimestre,
@@ -170,7 +177,9 @@ export function CommercialistaElaboraTrimestreModal({
         cartella: nomeCartella,
       });
       setMsg(
-        `Cartella «${nomeCartella}» salvata: ${documenti} PDF, le quattro cartelle e ${NOME_RESOCONTO_COMPLETO}.`
+        documenti > 0
+          ? `Cartella «${nomeCartella}» salvata: ${documenti} PDF. Accanto al nome di ogni cartella di file c'è il numero dei documenti. ${NOME_RESOCONTO_COMPLETO} sta nella cartella principale.`
+          : `Cartella «${nomeCartella}» salvata. Nessun documento: le cartelle di file sono a (0) e non ho scritto i resoconti Excel.`
       );
     } catch (err) {
       setMsg(err instanceof Error ? err.message : "Non sono riuscito a salvare la cartella.");
@@ -199,11 +208,12 @@ export function CommercialistaElaboraTrimestreModal({
                 {voci.length > 0 ? ` · ${voci.length} documenti` : null}
               </p>
               <p className="mt-1 max-w-3xl text-xs text-slate-500">
-                Esporta chiede dove salvare e crea «{nomeCartella}». Dentro ci sono
-                Emesse, Ricevute, DDT e Note Cr, con gli stessi PDF e lo stesso
-                resoconto della singola elaborazione, più {NOME_RESOCONTO_COMPLETO}.
-                In DDT e Note Cr, emessi e ricevuti restano in due cartelle. Il
-                numero documento del resoconto completo apre il PDF.
+                Esporta chiede dove salvare e crea «{nomeCartella}». Le cartelle che
+                contengono i PDF portano accanto al nome il numero dei documenti, per
+                esempio Emesse III 2026 (4). DDT e Note Cr restano cartelle
+                contenitore; il numero sta su DDT emessi, DDT ricevuti, Note emesse e
+                Note ricevute. Se una cartella è a (0) non viene scritto il suo Excel.
+                Il resoconto non entra nel conteggio.
               </p>
               <ul className="mt-2 flex flex-wrap gap-2">
                 {KINDS.map((kind) => (
@@ -250,16 +260,31 @@ export function CommercialistaElaboraTrimestreModal({
             <p className="text-center text-sm text-slate-600">Preparazione elenco…</p>
           ) : (
             <div className="mx-auto flex max-w-6xl flex-col gap-8">
-              {gruppi.map((gruppo) => (
+              {gruppi.map((gruppo) => {
+                const haSottocartelle = gruppo.registri.some(
+                  (registro) => registro.sottocartella
+                );
+                const prima = gruppo.registri[0];
+                const titoloGruppo =
+                  haSottocartelle || !prima
+                    ? gruppo.cartella
+                    : nomeCartellaConConteggio(
+                        gruppo.cartella,
+                        perKind[prima.kind]?.docs.length ?? 0
+                      );
+                return (
                 <section key={gruppo.cartella} className="space-y-3">
-                  <h3 className="text-sm font-semibold text-slate-900">{gruppo.cartella}</h3>
+                  <h3 className="text-sm font-semibold text-slate-900">{titoloGruppo}</h3>
                   {gruppo.registri.map((registro) => {
                     const carico = perKind[registro.kind];
                     return (
                       <div key={registro.kind} className="space-y-2">
                         {registro.sottocartella ? (
                           <h4 className="text-xs font-medium uppercase tracking-wide text-slate-500">
-                            {etichettaRegistro(registro.kind)}
+                            {nomeCartellaConConteggio(
+                              registro.sottocartella,
+                              carico?.docs.length ?? 0
+                            )}
                           </h4>
                         ) : null}
                         {carico?.errore ? (
@@ -276,7 +301,8 @@ export function CommercialistaElaboraTrimestreModal({
                     );
                   })}
                 </section>
-              ))}
+                );
+              })}
 
               <section className="space-y-2">
                 <h3 className="text-sm font-semibold text-slate-900">{NOME_RESOCONTO_COMPLETO}</h3>

@@ -87,15 +87,25 @@ export function gruppiElaborazioneTrimestre(
   ];
 }
 
+/** Cartella di ultimo livello: il numero fra parentesi è solo dei PDF. */
+export function nomeCartellaConConteggio(nome: string, documenti: number): string {
+  return `${nome} (${documenti})`;
+}
+
 export function percorsoPdfTrimestre(
   gruppo: GruppoTrimestre,
   registro: RegistroTrimestre,
-  nomeFile: string
+  nomeFile: string,
+  documenti: number
 ): string {
+  const foglia = nomeCartellaConConteggio(
+    registro.sottocartella ?? gruppo.cartella,
+    documenti
+  );
   if (registro.sottocartella) {
-    return `${gruppo.cartella}/${registro.sottocartella}/${nomeFile}`;
+    return `${gruppo.cartella}/${foglia}/${nomeFile}`;
   }
-  return `${gruppo.cartella}/${nomeFile}`;
+  return `${foglia}/${nomeFile}`;
 }
 
 export function nomiFileElaborazione(
@@ -145,6 +155,7 @@ export async function scriviElaborazioneRegistro(input: {
         });
     await scriviFileInCartella(input.cartella, pdf.fileName, pdf.blob);
   }
+  if (input.docs.length === 0) return;
   const excel = registroMostraBeneConsumo(input.kind)
     ? await buildElaborazioneFattureXlsx({
         kind: input.kind,
