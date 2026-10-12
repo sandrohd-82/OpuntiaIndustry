@@ -342,6 +342,46 @@ function rigaVuota(partial?: {
   };
 }
 
+function anteprimaManualeVuota(): AnteprimaSpesa {
+  return {
+    esercente: "",
+    partitaIva: "",
+    partitaIvaAcquirente: "",
+    dataDocumento: "",
+    imponibile: null,
+    aliquotaIva: null,
+    imposta: null,
+    totale: null,
+    nazione: "",
+    valuta: "EUR",
+    righe: [],
+    lettura: "manuale",
+    letturaJson: null,
+    uscitaImporto: null,
+    ivaDetraibile: false,
+    valenzaFiscale: "commerciale",
+    avviso:
+      "Inserisci i dati guardando la fattura. Nulla viene salvato finché non confermi.",
+  };
+}
+
+function righeDaLettura(anteprima: AnteprimaSpesa, aliquotaBase = "22"): RigaForm[] {
+  return anteprima.righe
+    .filter((riga) => riga.descrizione || riga.imponibile != null || riga.totale != null)
+    .map((riga) => {
+      const numero = riga.quantita != null && riga.quantita > 0 ? riga.quantita : 1;
+      const importo = riga.imponibile ?? riga.totale;
+      const prezzo =
+        importo != null ? String(Math.round((importo / numero) * 100) / 100) : "";
+      return rigaVuota({
+        descrizione: riga.descrizione,
+        prezzo,
+        quantita: String(numero),
+        aliquotaIva: riga.aliquotaIva != null ? String(riga.aliquotaIva) : aliquotaBase,
+      });
+    });
+}
+
 function decimale(raw: string): number | null {
   const testo = raw.trim().replace(",", ".");
   if (!testo) return null;
@@ -377,7 +417,7 @@ export function SpeseCaricamentoBoard() {
   const [ricevute, setRicevute] = useState<RicevutaRecenteSpesa[]>([]);
   const [ricevuteErrore, setRicevuteErrore] = useState<string | null>(null);
   const [pending, start] = useTransition();
-  const [affianca, setAffianca] = useState(false);
+  const [manualeAperto, setManualeAperto] = useState(false);
 
   function patch(partial: Partial<typeof vuoto>) {
     setForm((prev) => ({ ...prev, ...partial }));
@@ -422,6 +462,7 @@ export function SpeseCaricamentoBoard() {
     fileTenuto.current = file;
     setFileScelto(file);
     setAnteprima(null);
+    setManualeAperto(false);
     setMsg(null);
     setErrore(null);
   }
@@ -440,33 +481,71 @@ export function SpeseCaricamentoBoard() {
   }, []);
 
   const inserimentoManuale = anteprima?.lettura === "manuale";
+  const schermoManuale =
+    inserimentoManuale || (tipo === "fattura_estera" && manualeAperto);
 
   useEffect(() => {
-    if (!anteprima) {
-      setAffianca(false);
-      return;
-    }
-    if (
-      tipo === "fattura_estera" &&
-      (vistaFile === "pdf" || vistaFile === "image")
-    ) {
-      setAffianca(true);
-    }
-  }, [anteprima, tipo, vistaFile]);
-
-  useEffect(() => {
-    if (!anteprima || inserimentoManuale || affianca) return;
+    if (!anteprima || schermoManuale) return;
     verificaRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
-  }, [anteprima, inserimentoManuale, affianca]);
+  }, [anteprima, schermoManuale]);
 
   useEffect(() => {
-    if (!inserimentoManuale) return;
+    if (!schermoManuale) return;
     const prev = document.body.style.overflow;
     document.body.style.overflow = "hidden";
     return () => {
       document.body.style.overflow = prev;
     };
-  }, [inserimentoManuale]);
+  }, [schermoManuale]);
+
+  function apriManuale() {
+    const file = fileTenuto.current;
+    if (!file) {
+      setErrore("Scatta una foto oppure carica un file.");
+      return;
+    }
+    setErrore(null);
+    setMsg(null);
+    if (!anteprima) {
+      setAnteprima(anteprimaManualeVuota());
+      setForm({ ...vuoto, aliquotaIva: "0" });
+      setRighe([rigaVuota({ aliquotaIva: "0" })]);
+      setPrivaIva(false);
+      setPrezziIvaCompresa(false);
+      setScelteCausale([]);
+    } else {
+      setRighe((correnti) => {
+        const compilate = correnti.some(
+          (riga) => riga.descrizione.trim() || riga.prezzo.trim()
+        );
+        if (compilate) return correnti;
+        const lette = righeDaLettura(anteprima, "0");
+        if (lette.length) return lette;
+        const base = anteprima.imponibile ?? anteprima.totale;
+        if (base == null) return [rigaVuota({ aliquotaIva: "0" })];
+        return [
+          rigaVuota({
+            descrizione: anteprima.esercente.trim() || "Importo fattura",
+            prezzo: String(base),
+            quantita: "1",
+            aliquotaIva:
+              anteprima.aliquotaIva != null ? String(anteprima.aliquotaIva) : "0",
+          }),
+        ];
+      });
+    }
+    setManualeAperto(true);
+    if (progetti.length === 0) {
+      void listProgettiSpesaAction()
+        .then((progettiLetti) => {
+          if (!progettiLetti.success) return;
+          setProgetti(
+            progettiLetti.progetti.filter((p) => p.documentoStato !== "chiuso")
+          );
+        })
+        .catch(() => undefined);
+    }
+  }
 
   async function apriCamera() {
     setErrore(null);
@@ -559,22 +638,7 @@ export function SpeseCaricamentoBoard() {
         valuta: a.valuta || "EUR",
       });
       if (tipo === "scontrino") {
-        const lette = a.righe
-          .filter((riga) => riga.descrizione || riga.imponibile != null || riga.totale != null)
-          .map((riga) => {
-            const numero =
-              riga.quantita != null && riga.quantita > 0 ? riga.quantita : 1;
-            const importo = riga.imponibile ?? riga.totale;
-            const prezzo =
-              importo != null ? String(Math.round((importo / numero) * 100) / 100) : "";
-            return rigaVuota({
-              descrizione: riga.descrizione,
-              prezzo,
-              quantita: String(numero),
-              aliquotaIva:
-                riga.aliquotaIva != null ? String(riga.aliquotaIva) : "22",
-            });
-          });
+        const lette = righeDaLettura(a);
         setRighe(lette.length ? lette : [rigaVuota()]);
       }
       if (res.anteprima.lettura !== "manuale") {
@@ -607,12 +671,15 @@ export function SpeseCaricamentoBoard() {
     body.set("partitaIva", form.partitaIva);
     body.set("dataDocumento", form.dataDocumento);
     body.set("giustificazione", form.giustificazione);
-    if (tipo === "scontrino") {
+    const conRighe =
+      tipo === "scontrino" || (tipo === "fattura_estera" && schermoManuale);
+    const senzaIva = tipo === "scontrino" && privaIva;
+    if (conRighe) {
       const input = [];
       for (const riga of righe) {
         const prezzoUnitario = decimale(riga.prezzo);
         const quantita = decimale(riga.quantita);
-        const aliquotaIva = privaIva ? 0 : decimale(riga.aliquotaIva);
+        const aliquotaIva = senzaIva ? 0 : decimale(riga.aliquotaIva);
         if (!riga.descrizione.trim()) {
           setErrore("Ogni riga ha una descrizione.");
           return;
@@ -625,7 +692,7 @@ export function SpeseCaricamentoBoard() {
           setErrore("Indica il numero di pezzi di ogni prodotto.");
           return;
         }
-        if (!privaIva && (aliquotaIva == null || aliquotaIva < 0 || aliquotaIva > 100)) {
+        if (!senzaIva && (aliquotaIva == null || aliquotaIva < 0 || aliquotaIva > 100)) {
           setErrore("L'aliquota IVA di ogni riga deve essere tra 0 e 100.");
           return;
         }
@@ -636,7 +703,7 @@ export function SpeseCaricamentoBoard() {
           aliquotaIva: aliquotaIva ?? 0,
         });
       }
-      const calc = calcolaRigheScontrino(input, privaIva ? false : prezziIvaCompresa);
+      const calc = calcolaRigheScontrino(input, senzaIva ? false : prezziIvaCompresa);
       if (calc.totale <= 0) {
         setErrore("Il totale calcolato deve essere maggiore di zero.");
         return;
@@ -645,8 +712,8 @@ export function SpeseCaricamentoBoard() {
       body.set("aliquotaIva", String(calc.aliquotaIva));
       body.set("imposta", String(calc.imposta));
       body.set("totale", String(calc.totale));
-      body.set("prezziIvaCompresa", !privaIva && prezziIvaCompresa ? "true" : "false");
-      body.set("privaIva", privaIva ? "true" : "false");
+      body.set("prezziIvaCompresa", !senzaIva && prezziIvaCompresa ? "true" : "false");
+      body.set("privaIva", senzaIva ? "true" : "false");
       body.set("righe", JSON.stringify(input));
     } else {
       body.set("imponibile", form.imponibile);
@@ -662,7 +729,10 @@ export function SpeseCaricamentoBoard() {
     body.set("tipoAutofattura", form.tipoAutofattura);
     body.set("progettoId", form.progettoId);
     body.set("note", form.note);
-    body.set("letturaAutomatica", anteprima?.lettura === "manuale" ? "false" : "true");
+    body.set(
+      "letturaAutomatica",
+      anteprima?.lettura === "manuale" || manualeAperto ? "false" : "true"
+    );
     if (anteprima?.letturaJson) {
       body.set("letturaJson", JSON.stringify(anteprima.letturaJson));
     }
@@ -675,6 +745,7 @@ export function SpeseCaricamentoBoard() {
       setMsg("Spesa registrata. La trovi in Area fiscale → Gestione Piccole Spese.");
       void caricaRicevute();
       setAnteprima(null);
+      setManualeAperto(false);
       setForm(vuoto);
       setScelteCausale([]);
       setPrivaIva(false);
@@ -796,22 +867,34 @@ export function SpeseCaricamentoBoard() {
             </p>
           </div>
         ) : null}
-        <button
-          type="button"
-          disabled={pending}
-          onClick={analizza}
-          className="mt-4 rounded-lg bg-[var(--primary)] px-3 py-2 text-sm font-medium text-white disabled:opacity-50"
-        >
-          {pending && !anteprima ? "Lettura…" : "Leggi e verifica"}
-        </button>
+        <div className="mt-4 flex flex-wrap gap-2">
+          <button
+            type="button"
+            disabled={pending}
+            onClick={analizza}
+            className="rounded-lg bg-[var(--primary)] px-3 py-2 text-sm font-medium text-white disabled:opacity-50"
+          >
+            {pending && !anteprima ? "Lettura…" : "Leggi e verifica"}
+          </button>
+          {tipo === "fattura_estera" ? (
+            <button
+              type="button"
+              disabled={pending || !fileScelto}
+              onClick={apriManuale}
+              className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-800 hover:bg-slate-50 disabled:opacity-50"
+            >
+              Carica manualmente i dati
+            </button>
+          ) : null}
+        </div>
       </section>
 
-      {!inserimentoManuale && errore ? (
+      {!schermoManuale && errore ? (
         <p className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">
           {errore}
         </p>
       ) : null}
-      {!inserimentoManuale && msg ? (
+      {!schermoManuale && msg ? (
         <p className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-900">
           {msg}
         </p>
@@ -820,34 +903,35 @@ export function SpeseCaricamentoBoard() {
       
 
       {(() => {
+        const editorRighe =
+          tipo === "scontrino" || (tipo === "fattura_estera" && schermoManuale);
+        const ricevutaPrivaIva = tipo === "scontrino" && privaIva;
         const modulo = anteprima ? (
         <section
           className={
-            inserimentoManuale
+            schermoManuale
               ? "space-y-4"
               : "space-y-4 rounded-xl border border-[var(--border)] bg-white p-4"
           }
         >
-          {inserimentoManuale && errore ? (
+          {schermoManuale && errore ? (
             <p className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">
               {errore}
             </p>
           ) : null}
-          {inserimentoManuale && msg ? (
+          {schermoManuale && msg ? (
             <p className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-900">
               {msg}
             </p>
           ) : null}
           <p className="text-sm text-slate-700">{anteprima.avviso}</p>
-          {tipo === "fattura_estera" &&
-          (vistaFile === "pdf" || vistaFile === "image") &&
-          !affianca ? (
+          {tipo === "fattura_estera" && !schermoManuale ? (
             <button
               type="button"
-              onClick={() => setAffianca(true)}
+              onClick={apriManuale}
               className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-800 hover:bg-slate-50"
             >
-              Affianca fattura e modulo
+              Carica manualmente i dati
             </button>
           ) : null}
           {anteprima.uscitaImporto != null ? (
@@ -858,7 +942,7 @@ export function SpeseCaricamentoBoard() {
                 : " · IVA dello scontrino inclusa nel costo, non detraibile."}
             </p>
           ) : null}
-          {tipo !== "scontrino" && anteprima.righe.length ? (
+          {!editorRighe && anteprima.righe.length ? (
             <ul className="space-y-1 text-sm text-slate-700">
               {anteprima.righe.map((riga, index) => (
                 <li key={`${riga.descrizione}-${index}`} className="flex justify-between gap-3">
@@ -1010,8 +1094,9 @@ export function SpeseCaricamentoBoard() {
                 onChange={(e) => patch({ giustificazione: e.target.value })}
               />
             </div>
-            {tipo === "scontrino" ? (
+            {editorRighe ? (
               <div className="space-y-2 sm:col-span-2">
+                {tipo === "scontrino" ? (
                 <label className="flex items-start gap-2 text-sm text-slate-800">
                   <input
                     type="checkbox"
@@ -1042,7 +1127,8 @@ export function SpeseCaricamentoBoard() {
                     obbligatoria.
                   </span>
                 </label>
-                {privaIva ? null : (
+                ) : null}
+                {privaIva && tipo === "scontrino" ? null : (
                 <label className="flex items-start gap-2 text-sm text-slate-800">
                   <input
                     type="checkbox"
@@ -1061,7 +1147,14 @@ export function SpeseCaricamentoBoard() {
                   <p className="text-sm font-medium text-slate-800">Righe</p>
                   <button
                     type="button"
-                    onClick={() => setRighe((prev) => [...prev, rigaVuota()])}
+                    onClick={() =>
+                      setRighe((prev) => [
+                        ...prev,
+                        rigaVuota(
+                          tipo === "fattura_estera" ? { aliquotaIva: "0" } : undefined
+                        ),
+                      ])
+                    }
                     className="rounded-lg border border-slate-300 bg-white px-2 py-1 text-xs font-medium text-slate-800 hover:bg-slate-50"
                   >
                     Aggiungi riga
@@ -1074,7 +1167,7 @@ export function SpeseCaricamentoBoard() {
                         <th className="px-2 py-2">Descrizione</th>
                         <th className="px-2 py-2">Prezzo</th>
                         <th className="px-2 py-2">Numero</th>
-                        {privaIva ? null : <th className="px-2 py-2">% IVA</th>}
+                        {ricevutaPrivaIva ? null : <th className="px-2 py-2">% IVA</th>}
                         {prezziIvaCompresa ? (
                           <>
                             <th className="px-2 py-2 text-right">Imponibile</th>
@@ -1153,7 +1246,7 @@ export function SpeseCaricamentoBoard() {
                                 }
                               />
                             </td>
-                            {privaIva ? null : (
+                            {ricevutaPrivaIva ? null : (
                             <td className="w-24 px-2 py-2">
                               <input
                                 className={field}
@@ -1214,11 +1307,14 @@ export function SpeseCaricamentoBoard() {
                   </table>
                 </div>
                 <p className="text-xs text-slate-500">
-                  {privaIva
+                  {ricevutaPrivaIva
                     ? "Il totale della riga è prezzo × numero e non contiene IVA."
                     : (prezziIvaCompresa
                       ? "Il totale inserito è IVA compresa: prezzo × numero. Nella riga compaiono imponibile, IVA e totale."
                       : "Il totale della riga è prezzo × numero. Esempio: 0,45 × 6 = 2,70. L'IVA si calcola su quell'importo.")}
+                  {tipo === "fattura_estera"
+                    ? " Gli importi delle righe sono in euro."
+                    : ""}
                 </p>
                 <p className="text-sm text-slate-800">
                   {(() => {
@@ -1227,13 +1323,13 @@ export function SpeseCaricamentoBoard() {
                         descrizione: riga.descrizione || "Voce",
                         prezzoUnitario: decimale(riga.prezzo) ?? 0,
                         quantita: decimale(riga.quantita) ?? 0,
-                        aliquotaIva: privaIva ? 0 : (decimale(riga.aliquotaIva) ?? 0),
+                        aliquotaIva: ricevutaPrivaIva ? 0 : (decimale(riga.aliquotaIva) ?? 0),
                       })),
-                      privaIva ? false : prezziIvaCompresa
+                      ricevutaPrivaIva ? false : prezziIvaCompresa
                     );
                     const euro = (n: number) =>
                       n.toLocaleString("it-IT", { style: "currency", currency: "EUR" });
-                    return privaIva
+                    return ricevutaPrivaIva
                       ? `Priva di IVA · Totale ${euro(calc.totale)}`
                       : `Imponibile ${euro(calc.imponibile)} · IVA ${euro(calc.imposta)} · Totale ${euro(calc.totale)}`;
                   })()}
@@ -1398,14 +1494,11 @@ export function SpeseCaricamentoBoard() {
         ) : null;
         const mostraAffiancata =
           Boolean(anteprima && modulo && typeof document !== "undefined") &&
-          (inserimentoManuale ||
-            (tipo === "fattura_estera" &&
-              affianca &&
-              (vistaFile === "pdf" || vistaFile === "image")));
+          schermoManuale;
         if (mostraAffiancata) {
           return createPortal(
             <div
-              className="fixed inset-0 z-[90] flex flex-col bg-white"
+              className="fixed inset-0 z-[90] flex h-[100dvh] w-screen flex-col bg-white"
               role="dialog"
               aria-modal="true"
               aria-labelledby="scontrino-manuale-title"
@@ -1414,14 +1507,14 @@ export function SpeseCaricamentoBoard() {
                 <div>
                   <h2 id="scontrino-manuale-title" className="text-base font-semibold text-slate-900">
                     {tipo === "fattura_estera"
-                      ? "Verifica della fattura estera"
-                      : tipo === "xml"
+                      ? "Inserimento manuale della fattura estera"
+                      : (tipo === "xml"
                         ? "Verifica della fattura elettronica"
-                        : "Inserimento manuale dello scontrino"}
+                        : "Inserimento manuale dello scontrino")}
                   </h2>
                   <p className="text-xs text-slate-500">
                     {tipo === "fattura_estera"
-                      ? "A sinistra la fattura, a destra i campi: se la lettura è sbagliata, correggili e registra."
+                      ? "A sinistra la fattura: ingrandiscila e spostala. A destra inserisci le righe e registra."
                       : "A sinistra il documento, a destra i dati da controllare e registrare."}
                   </p>
                 </div>
@@ -1429,16 +1522,15 @@ export function SpeseCaricamentoBoard() {
                   type="button"
                   onClick={() => {
                     if (tipo === "fattura_estera" && !inserimentoManuale) {
-                      setAffianca(false);
+                      setManualeAperto(false);
                       return;
                     }
+                    setManualeAperto(false);
                     setAnteprima(null);
                   }}
                   className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-800 hover:bg-slate-50"
                 >
-                  {tipo === "fattura_estera" && !inserimentoManuale
-                    ? "Chiudi affiancamento"
-                    : "Chiudi"}
+                  Chiudi
                 </button>
               </header>
               <div className="grid min-h-0 flex-1 grid-cols-3">

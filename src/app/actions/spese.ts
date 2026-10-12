@@ -300,13 +300,16 @@ export async function registraSpesaAction(
   let imposta = numero(form, "imposta");
   let totale = numero(form, "totale");
   let righe: unknown = [];
-  if (tipo === "scontrino") {
-    const rawRighe = campo(form, "righe");
+  const rawRigheCampo = campo(form, "righe");
+  const registraRighe =
+    tipo === "scontrino" || (tipo === "fattura_estera" && rawRigheCampo.length > 0);
+  if (registraRighe) {
+    const rawRighe = rawRigheCampo;
     let parsedRighe: unknown;
     try {
       parsedRighe = rawRighe ? JSON.parse(rawRighe) : [];
     } catch {
-      return { success: false, error: "Righe dello scontrino non valide." };
+      return { success: false, error: "Righe del documento non valide." };
     }
     if (!Array.isArray(parsedRighe) || parsedRighe.length === 0) {
       return {
@@ -314,7 +317,7 @@ export async function registraSpesaAction(
         error: "Aggiungi almeno una riga con descrizione, prezzo, numero e IVA.",
       };
     }
-    const privaIva = campo(form, "privaIva") === "true";
+    const privaIva = tipo === "scontrino" && campo(form, "privaIva") === "true";
     const bozza = parsedRighe.map((riga) => {
       const row = riga as {
         descrizione?: unknown;
@@ -479,7 +482,10 @@ export async function registraSpesaAction(
     return { success: false, error: error?.message ?? "Registrazione non riuscita." };
   }
 
-  if (input.tipoCaricamento === "scontrino") {
+  if (
+    (input.tipoCaricamento === "scontrino" || input.tipoCaricamento === "fattura_estera") &&
+    input.righe.length > 0
+  ) {
     const calc = calcolaRigheScontrino(input.righe, input.prezziIvaCompresa);
     const { error: righeErr } = await supabase.from("spese_documenti_righe").insert(
       calc.righe.map((riga, index) => ({
@@ -526,7 +532,7 @@ export async function registraSpesaAction(
       valenza_fiscale: valenzaFiscale,
       progetto_id: input.progettoId,
       stato: "registrato",
-      righe: input.tipoCaricamento === "scontrino" ? input.righe.length : 0,
+      righe: input.righe.length,
       prezzi_iva_compresa: input.prezziIvaCompresa,
       priva_iva: input.privaIva,
     },
