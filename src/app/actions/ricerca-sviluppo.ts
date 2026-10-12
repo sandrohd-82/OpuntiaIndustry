@@ -22,6 +22,52 @@ async function guard() {
   return requireAreaAccess("ricerca-sviluppo");
 }
 
+const RICERCA_COLS =
+  "id, tipo, titolo, descrizione, stato, versione, approved_at, approved_by, created_at, updated_at, created_by, tipo_voce_id, soggetto_modo, soggetto_libero, prodotto_proprio_id, data_inizio_presunta";
+
+type RicercaRow = Parameters<typeof mapRicerca>[0];
+
+async function arricchisciRicerche(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  rows: RicercaRow[]
+): Promise<RsRicerca[]> {
+  const tipoIds = [
+    ...new Set(rows.map((r) => r.tipo_voce_id).filter((id): id is string => Boolean(id))),
+  ];
+  const prodIds = [
+    ...new Set(
+      rows.map((r) => r.prodotto_proprio_id).filter((id): id is string => Boolean(id))
+    ),
+  ];
+  const tipi = new Map<string, string>();
+  const prodotti = new Map<string, string>();
+  if (tipoIds.length > 0) {
+    const { data } = await supabase
+      .from("rs_tipi_voce")
+      .select("id, nome")
+      .in("id", tipoIds);
+    for (const row of data ?? []) tipi.set(String(row.id), String(row.nome));
+  }
+  if (prodIds.length > 0) {
+    const { data } = await supabase
+      .from("prodotti_propri")
+      .select("id, codice, nome")
+      .in("id", prodIds)
+      .is("deleted_at", null);
+    for (const row of data ?? []) {
+      prodotti.set(String(row.id), `${row.codice} — ${row.nome}`);
+    }
+  }
+  return rows.map((row) =>
+    mapRicerca(row, {
+      tipoVoceNome: row.tipo_voce_id ? (tipi.get(row.tipo_voce_id) ?? null) : null,
+      prodottoEtichetta: row.prodotto_proprio_id
+        ? (prodotti.get(row.prodotto_proprio_id) ?? null)
+        : null,
+    })
+  );
+}
+
 export async function listRicercheAction(input: {
   /** Se omesso: entrambe le tipologie (archivio scientifico unificato). */
   tipo?: RsTipo | null;
@@ -33,9 +79,7 @@ export async function listRicercheAction(input: {
   const supabase = await createClient();
   let q = supabase
     .from("rs_ricerche")
-    .select(
-      "id, tipo, titolo, descrizione, stato, versione, approved_at, approved_by, created_at, updated_at, created_by"
-    )
+    .select(RICERCA_COLS)
     .is("deleted_at", null)
     .order("updated_at", { ascending: false });
 
@@ -51,18 +95,20 @@ export async function listRicercheAction(input: {
 
   const { data, error } = await q;
   if (error) return { success: false, error: error.message };
-  return {
-    success: true,
-    items: (data ?? []).map((r) =>
-      mapRicerca(r as Parameters<typeof mapRicerca>[0])
-    ),
-  };
+  const items = await arricchisciRicerche(supabase, (data ?? []) as RicercaRow[]);
+  return { success: true, items };
 }
 
 export async function createRicercaAction(input: {
   tipo: RsTipo;
+  tipoVoceId: string;
+  soggettoModo: "catalogo" | "libero" | "nuovo";
+  prodottoProprioId?: string | null;
+  soggettoLibero?: string;
   titolo: string;
   descrizione?: string;
+  versione: number;
+  dataInizioPresunta: string;
 }): Promise<
   { success: true; item: RsRicerca } | { success: false; error: string }
 > {
@@ -75,32 +121,72 @@ export async function createRicercaAction(input: {
     };
   }
   const supabase = await createClient();
+  const { data: tipoVoce, error: tipoErr } = await supabase
+    .from("rs_tipi_voce")
+    .select("id, nome, ambito")
+    .eq("id", parsed.data.tipoVoceId)
+    .eq("ambito", parsed.data.tipo)
+    .is("deleted_at", null)
+    .maybeSingle();
+  if (tipoErr) return { success: false, error: tipoErr.message };
+  if (!tipoVoce) {
+    return { success: false, error: "Tipo di ricerca non valido." };
+  }
+  let prodottoEtichetta: string | null = null;
+  if (parsed.data.soggettoModo === "catalogo") {
+    const { data: prodotto, error: prodErr } = await supabase
+      .from("prodotti_propri")
+      .select("id, codice, nome")
+      .eq("id", parsed.data.prodottoProprioId ?? "")
+      .is("deleted_at", null)
+      .maybeSingle();
+    if (prodErr) return { success: false, error: prodErr.message };
+    if (!prodotto) return { success: false, error: "Prodotto non trovato." };
+    prodottoEtichetta = `${prodotto.codice} — ${prodotto.nome}`;
+  }
   const { data, error } = await supabase
     .from("rs_ricerche")
     .insert({
       tipo: parsed.data.tipo,
+      tipo_voce_id: parsed.data.tipoVoceId,
+      soggetto_modo: parsed.data.soggettoModo,
+      soggetto_libero:
+        parsed.data.soggettoModo === "catalogo" ? "" : parsed.data.soggettoLibero,
+      prodotto_proprio_id:
+        parsed.data.soggettoModo === "catalogo"
+          ? parsed.data.prodottoProprioId
+          : null,
       titolo: parsed.data.titolo,
       descrizione: parsed.data.descrizione ?? "",
-      stato: "in_corso",
-      versione: 1,
+      stato: "bozza",
+      versione: parsed.data.versione,
+      data_inizio_presunta: parsed.data.dataInizioPresunta,
       created_by: auth.userId,
       updated_by: auth.userId,
     })
-    .select(
-      "id, tipo, titolo, descrizione, stato, versione, approved_at, approved_by, created_at, updated_at, created_by"
-    )
+    .select(RICERCA_COLS)
     .single();
   if (error || !data) {
     return { success: false, error: error?.message ?? "Creazione fallita" };
   }
-  const item = mapRicerca(data as Parameters<typeof mapRicerca>[0]);
+  const item = mapRicerca(data as RicercaRow, {
+    tipoVoceNome: String(tipoVoce.nome),
+    prodottoEtichetta,
+  });
   await writeAuditLog({
     entity_type: "rs_ricerche",
     entity_id: item.id,
     action: "create",
     actor_id: auth.userId,
     summary: `Nuova ricerca R&S: ${item.titolo}`,
-    payload: { tipo: item.tipo, stato: item.stato },
+    payload: {
+      tipo: item.tipo,
+      stato: item.stato,
+      tipo_voce: item.tipoVoceNome,
+      soggetto_modo: item.soggettoModo,
+      versione: item.versione,
+      data_inizio_presunta: item.dataInizioPresunta,
+    },
   });
   return { success: true, item };
 }
@@ -114,18 +200,15 @@ export async function getRicercaAction(
   const supabase = await createClient();
   const { data, error } = await supabase
     .from("rs_ricerche")
-    .select(
-      "id, tipo, titolo, descrizione, stato, versione, approved_at, approved_by, created_at, updated_at, created_by"
-    )
+    .select(RICERCA_COLS)
     .eq("id", id)
     .is("deleted_at", null)
     .maybeSingle();
   if (error) return { success: false, error: error.message };
   if (!data) return { success: false, error: "Ricerca non trovata" };
-  return {
-    success: true,
-    item: mapRicerca(data as Parameters<typeof mapRicerca>[0]),
-  };
+  const [item] = await arricchisciRicerche(supabase, [data as RicercaRow]);
+  if (!item) return { success: false, error: "Ricerca non trovata" };
+  return { success: true, item };
 }
 
 export async function archiveRicercaAction(

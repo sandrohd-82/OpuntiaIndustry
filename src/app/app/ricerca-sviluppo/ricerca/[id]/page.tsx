@@ -1,5 +1,6 @@
 import { redirect } from "next/navigation";
 import { AppHeader } from "@/components/layout/AppHeader";
+import { RsNoteTimeline } from "@/components/ricerca-sviluppo/RsNoteTimeline";
 import { RsTimelineBoard } from "@/components/ricerca-sviluppo/RsTimelineBoard";
 import { requireAreaAccess } from "@/lib/areas/guard";
 import { getAuthContext } from "@/lib/auth/session";
@@ -18,10 +19,18 @@ export default async function RicercaTimelinePage({ params }: Props) {
     <>
       <AppHeader
         title="Timeline ricerca"
-        subtitle="Report giornalieri, collegamenti e allegati"
+        subtitle="Note numerate, semaforo e report giornalieri"
       />
-      <div className="p-6">
-        <RsTimelineBoard ricercaId={id} userId={auth.userId} />
+      <div className="space-y-8 p-6">
+        <RsNoteTimeline ricercaId={id} />
+        <details className="rounded-xl border border-[var(--border)] bg-[var(--card)] p-4">
+          <summary className="cursor-pointer text-sm font-semibold">
+            Report giornalieri
+          </summary>
+          <div className="mt-4">
+            <RsTimelineBoard ricercaId={id} userId={auth.userId} />
+          </div>
+        </details>
       </div>
     </>
   );

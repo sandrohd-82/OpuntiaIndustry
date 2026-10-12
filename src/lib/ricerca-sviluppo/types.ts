@@ -14,15 +14,57 @@ export type RsStato = z.infer<typeof rsStatoSchema>;
 export const rsReportStatoSchema = z.enum(["bozza", "confermato", "chiuso"]);
 export type RsReportStato = z.infer<typeof rsReportStatoSchema>;
 
-export const createRicercaSchema = z.object({
-  tipo: rsTipoSchema,
-  titolo: z
-    .string()
-    .trim()
-    .min(1, "Titolo obbligatorio")
-    .max(200, "Max 200 caratteri"),
-  descrizione: z.string().trim().max(5000).optional().default(""),
-});
+export const soggettoModoSchema = z.enum([
+  "catalogo",
+  "libero",
+  "nuovo",
+  "nessuno",
+]);
+export type RsSoggettoModo = z.infer<typeof soggettoModoSchema>;
+
+export const rsColoreSchema = z.enum(["verde", "giallo", "rosso"]);
+export type RsColore = z.infer<typeof rsColoreSchema>;
+
+export const rsBersaglioSchema = z.enum(["nota", "voce", "testo"]);
+export type RsBersaglio = z.infer<typeof rsBersaglioSchema>;
+
+export const rsVoceTipoSchema = z.enum(["elenco", "checklist"]);
+export type RsVoceTipo = z.infer<typeof rsVoceTipoSchema>;
+
+export const createRicercaSchema = z
+  .object({
+    tipo: rsTipoSchema,
+    tipoVoceId: z.string().uuid("Scegli il tipo di ricerca"),
+    soggettoModo: z.enum(["catalogo", "libero", "nuovo"]),
+    prodottoProprioId: z.string().uuid().nullable().optional(),
+    soggettoLibero: z.string().trim().max(200).optional().default(""),
+    titolo: z
+      .string()
+      .trim()
+      .min(1, "Titolo obbligatorio")
+      .max(200, "Max 200 caratteri"),
+    descrizione: z.string().trim().max(5000).optional().default(""),
+    versione: z.number().int().min(1).max(999),
+    dataInizioPresunta: z
+      .string()
+      .regex(/^\d{4}-\d{2}-\d{2}$/, "Data presunta di inizio obbligatoria"),
+  })
+  .superRefine((val, ctx) => {
+    if (val.soggettoModo === "catalogo" && !val.prodottoProprioId) {
+      ctx.addIssue({
+        code: "custom",
+        message: "Scegli un prodotto dal catalogo.",
+        path: ["prodottoProprioId"],
+      });
+    }
+    if (val.soggettoModo !== "catalogo" && !val.soggettoLibero.trim()) {
+      ctx.addIssue({
+        code: "custom",
+        message: "Scrivi la voce del soggetto.",
+        path: ["soggettoLibero"],
+      });
+    }
+  });
 
 export type RsRicerca = {
   id: string;
@@ -36,7 +78,72 @@ export type RsRicerca = {
   createdAt: string;
   updatedAt: string;
   createdBy: string | null;
+  tipoVoceId: string | null;
+  tipoVoceNome: string | null;
+  soggettoModo: RsSoggettoModo;
+  soggettoLibero: string;
+  prodottoProprioId: string | null;
+  prodottoEtichetta: string | null;
+  dataInizioPresunta: string | null;
 };
+
+export type RsTipoVoce = {
+  id: string;
+  ambito: RsTipo;
+  nome: string;
+};
+
+export type RsProdottoScelta = {
+  id: string;
+  codice: string;
+  nome: string;
+};
+
+export type RsNotaVoce = {
+  id: string;
+  tipo: RsVoceTipo;
+  testo: string;
+  fatto: boolean;
+  sortOrder: number;
+};
+
+export type RsNotaEsito = {
+  id: string;
+  bersaglio: RsBersaglio;
+  voceId: string | null;
+  estrattoTesto: string;
+  colore: RsColore;
+  problema: string;
+  modificaPrevista: string;
+};
+
+export type RsTimelineNota = {
+  id: string;
+  occurredAt: string;
+  numero: number;
+  suffisso: string | null;
+  bodyText: string;
+  versione: number;
+  voci: RsNotaVoce[];
+  esiti: RsNotaEsito[];
+};
+
+export function etichettaSequenzaNota(
+  numero: number,
+  suffisso: string | null
+): string {
+  return suffisso ? `${numero}-${suffisso}` : String(numero);
+}
+
+export function confrontaNote(
+  a: { numero: number; suffisso: string | null },
+  b: { numero: number; suffisso: string | null }
+): number {
+  if (a.numero !== b.numero) return a.numero - b.numero;
+  if (!a.suffisso && b.suffisso) return -1;
+  if (a.suffisso && !b.suffisso) return 1;
+  return (a.suffisso ?? "").localeCompare(b.suffisso ?? "");
+}
 
 export type RsAllegatoKind =
   | "file"
@@ -96,19 +203,31 @@ export type RsReport = {
   allegati: RsAllegato[];
 };
 
-export function mapRicerca(row: {
-  id: string;
-  tipo: string;
-  titolo: string;
-  descrizione: string | null;
-  stato: string;
-  versione: number;
-  approved_at: string | null;
-  approved_by: string | null;
-  created_at: string;
-  updated_at: string;
-  created_by: string | null;
-}): RsRicerca {
+export function mapRicerca(
+  row: {
+    id: string;
+    tipo: string;
+    titolo: string;
+    descrizione: string | null;
+    stato: string;
+    versione: number;
+    approved_at: string | null;
+    approved_by: string | null;
+    created_at: string;
+    updated_at: string;
+    created_by: string | null;
+    tipo_voce_id?: string | null;
+    soggetto_modo?: string | null;
+    soggetto_libero?: string | null;
+    prodotto_proprio_id?: string | null;
+    data_inizio_presunta?: string | null;
+  },
+  nomi?: {
+    tipoVoceNome?: string | null;
+    prodottoEtichetta?: string | null;
+  }
+): RsRicerca {
+  const modo = row.soggetto_modo ?? "nessuno";
   return {
     id: row.id,
     tipo: row.tipo as RsTipo,
@@ -121,6 +240,15 @@ export function mapRicerca(row: {
     createdAt: row.created_at,
     updatedAt: row.updated_at,
     createdBy: row.created_by,
+    tipoVoceId: row.tipo_voce_id ?? null,
+    tipoVoceNome: nomi?.tipoVoceNome ?? null,
+    soggettoModo: soggettoModoSchema.safeParse(modo).success
+      ? (modo as RsSoggettoModo)
+      : "nessuno",
+    soggettoLibero: row.soggetto_libero ?? "",
+    prodottoProprioId: row.prodotto_proprio_id ?? null,
+    prodottoEtichetta: nomi?.prodottoEtichetta ?? null,
+    dataInizioPresunta: row.data_inizio_presunta ?? null,
   };
 }
 
