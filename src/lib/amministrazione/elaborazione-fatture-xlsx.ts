@@ -25,7 +25,7 @@ function larghezzaColonna(titolo: string): number {
   ) {
     return 42;
   }
-  if (titolo === "Numero documento") return 22;
+  if (titolo === "N. documento" || titolo === "N. Prog") return 14;
   return 18;
 }
 
@@ -97,7 +97,7 @@ export async function buildElaborazioneFattureXlsx(input: {
     const excelRow = ws.addRow(celle(riga, input.kind));
     excelRow.font = { name: "Calibri", size: 11 };
     const colImporto = (nome: string) => titoli.indexOf(nome) + 1;
-    for (const nome of ["Tot. Imponibile", "Tot. IVA", "Tot. Fattura"]) {
+    for (const nome of ["Imp.", "IVA", "Tot. Fattura"]) {
       const col = colImporto(nome);
       if (col <= 0) continue;
       excelRow.getCell(col).numFmt = "#,##0.00";
@@ -114,7 +114,7 @@ export async function buildElaborazioneFattureXlsx(input: {
       };
     }
     if (input.collegaPdf && riga.tipo === "fattura" && riga.nomeFile) {
-      const colNumero = titoli.indexOf("Numero documento") + 1;
+      const colNumero = titoli.indexOf("N. documento") + 1;
       if (colNumero > 0) {
         const cell = excelRow.getCell(colNumero);
         const testo = String(cell.value ?? "").trim() || riga.nomeFile;
@@ -174,7 +174,7 @@ export async function buildElaborazioneFattureXlsx(input: {
 }
 
 function larghezzaUscita(titolo: string): number {
-  if (titolo === "Intestazione" || titolo === "Numero documento") return 36;
+  if (titolo === "Intestazione" || titolo === "N. documento") return 36;
   if (titolo === "Tipo doc.") return 22;
   if (titolo === "N. Prog") return 12;
   return 18;

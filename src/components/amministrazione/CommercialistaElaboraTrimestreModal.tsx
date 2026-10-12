@@ -200,11 +200,11 @@ export function CommercialistaElaboraTrimestreModal({
         role="dialog"
         aria-modal="true"
         aria-labelledby={titleId}
-        className="flex h-full min-h-0 flex-col bg-slate-100"
+        className="flex h-full min-h-0 flex-col bg-slate-100 px-[3vw]"
         onClick={(e) => e.stopPropagation()}
       >
-        <header className="shrink-0 border-b border-slate-300 bg-white px-4 py-3 shadow-sm">
-          <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-3">
+        <header className="shrink-0 border-b border-slate-300 bg-white py-3 shadow-sm">
+          <div className="flex w-full flex-wrap items-center justify-between gap-3">
             <div>
               <h2 id={titleId} className="text-sm font-semibold text-slate-900">
                 Elabora trimestre
@@ -267,15 +267,15 @@ export function CommercialistaElaboraTrimestreModal({
             </div>
           </div>
           {msg ? (
-            <p className="mx-auto mt-2 max-w-6xl text-xs text-slate-700">{msg}</p>
+            <p className="mt-2 w-full text-xs text-slate-700">{msg}</p>
           ) : null}
         </header>
 
-        <div className="min-h-0 flex-1 overflow-auto px-4 py-6">
+        <div className="min-h-0 flex-1 overflow-auto py-6">
           {pending ? (
             <p className="text-center text-sm text-slate-600">Preparazione elenco…</p>
           ) : (
-            <div className="mx-auto flex max-w-6xl flex-col gap-8">
+            <div className="flex w-full flex-col gap-8">
               {gruppi.map((gruppo) => {
                 const haSottocartelle = gruppo.registri.some(
                   (registro) => registro.sottocartella
@@ -325,12 +325,12 @@ export function CommercialistaElaboraTrimestreModal({
                 {righeComplete.length === 0 ? (
                   <p className="text-sm text-slate-600">Nessun documento nel periodo.</p>
                 ) : (
-                  <div className="overflow-hidden rounded-lg border border-slate-300 bg-white shadow-sm">
-                    <table className="w-full border-collapse text-left text-sm">
+                  <div className="w-full overflow-x-auto rounded-lg border border-slate-300 bg-white shadow-sm">
+                    <table className="w-full border-collapse text-left text-xs">
                       <thead className="bg-slate-800 text-xs text-white">
                         <tr>
                           {TITOLI_RESOCONTO_COMPLETO.map((titolo) => (
-                            <th key={titolo} className="px-3 py-2 font-semibold whitespace-nowrap">
+                            <th key={titolo} className="px-1.5 py-1 font-semibold whitespace-nowrap">
                               {titolo}
                             </th>
                           ))}
@@ -344,19 +344,19 @@ export function CommercialistaElaboraTrimestreModal({
                               className="border-t border-slate-200"
                               style={{ backgroundColor: COLORI_TIPO_DOCUMENTO[riga.kind].fondo }}
                             >
-                              <td className="px-3 py-1.5 whitespace-nowrap">{riga.data}</td>
-                              <td className="px-3 py-1.5 whitespace-nowrap">{riga.tipoDocumento}</td>
-                              <td className="px-3 py-1.5 whitespace-nowrap text-blue-700 underline">
+                              <td className="px-1.5 py-1 whitespace-nowrap">{riga.data}</td>
+                              <td className="px-1.5 py-1 whitespace-nowrap">{riga.tipoDocumento}</td>
+                              <td className="px-1.5 py-1 whitespace-nowrap text-blue-700 underline">
                                 {riga.numeroDocumento || "—"}
                               </td>
-                              <td className="px-3 py-1.5">{riga.intestazione}</td>
-                              <td className="px-3 py-1.5 text-right tabular-nums">
+                              <td className="px-1.5 py-1">{riga.intestazione}</td>
+                              <td className="px-1.5 py-1 text-right tabular-nums">
                                 {formatEuro(riga.imponibile)}
                               </td>
-                              <td className="px-3 py-1.5 text-right tabular-nums">
+                              <td className="px-1.5 py-1 text-right tabular-nums">
                                 {formatEuro(riga.iva)}
                               </td>
-                              <td className="px-3 py-1.5 text-right tabular-nums">
+                              <td className="px-1.5 py-1 text-right tabular-nums">
                                 {formatEuro(riga.totale)}
                               </td>
                             </tr>
@@ -369,17 +369,17 @@ export function CommercialistaElaboraTrimestreModal({
                                   : "border-t border-amber-200 bg-amber-50 font-semibold text-slate-900"
                               }
                             >
-                              <td className="px-3 py-2" />
-                              <td className="px-3 py-2" />
-                              <td className="px-3 py-2" />
-                              <td className="px-3 py-2">{riga.etichetta}</td>
-                              <td className="px-3 py-2 text-right tabular-nums">
+                              <td className="px-1.5 py-1" />
+                              <td className="px-1.5 py-1" />
+                              <td className="px-1.5 py-1" />
+                              <td className="px-1.5 py-1">{riga.etichetta}</td>
+                              <td className="px-1.5 py-1 text-right tabular-nums">
                                 {formatEuro(riga.imponibile)}
                               </td>
-                              <td className="px-3 py-2 text-right tabular-nums">
+                              <td className="px-1.5 py-1 text-right tabular-nums">
                                 {formatEuro(riga.iva)}
                               </td>
-                              <td className="px-3 py-2 text-right tabular-nums">
+                              <td className="px-1.5 py-1 text-right tabular-nums">
                                 {formatEuro(riga.totale)}
                               </td>
                             </tr>

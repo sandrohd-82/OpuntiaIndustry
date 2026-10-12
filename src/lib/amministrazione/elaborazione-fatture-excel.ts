@@ -31,7 +31,7 @@ export function titoliElaborazioneExcel(
 ): readonly string[] {
   const base = [...titoliBaseExcel(kind)];
   if (!registroMostraBeneConsumo(kind)) return base;
-  base.splice(2, 0, "Numero documento");
+  base.splice(2, 0, "N. documento");
   base.push("Origine", "Bene ammortizzabile");
   return base;
 }
@@ -55,12 +55,12 @@ export function etichettaOrigineDocumento(input: {
 
 function titoliBaseExcel(kind: CommercialistaRegistroKind): readonly string[] {
   return [
-    "Numero Provvisorio",
+    "N. Prog",
     "Nome file",
     "Data",
     registroLatoEmesso(kind) ? "Intestazione Ricevente" : "Intestazione Emittente",
-    "Tot. Imponibile",
-    "Tot. IVA",
+    "Imp.",
+    "IVA",
     "Tot. Fattura",
     "Nazione",
   ];
@@ -101,10 +101,10 @@ export type FatturaElaborazioneSorgente = {
 export const TITOLI_USCITA_EXCEL = [
   "N. Prog",
   "Tipo doc.",
-  "Numero documento",
+  "N. documento",
   "Data documento",
   "Intestazione",
-  "Imponibile",
+  "Imp.",
   "IVA",
   "Totale",
   "Nazionalità",
@@ -496,9 +496,9 @@ export type RigaResocontoCompleto =
 export const TITOLI_RESOCONTO_COMPLETO = [
   "Data",
   "Tipo",
-  "Numero documento",
+  "N. documento",
   "Intestazione",
-  "Imponibile",
+  "Imp.",
   "IVA",
   "Totale",
 ] as const;

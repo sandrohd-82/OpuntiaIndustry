@@ -24,7 +24,7 @@ export default async function CommercialistaElaboraOspitePage() {
       <CommercialistaElaboraTrimestreModal
         anno={ospite.anno}
         trimestre={ospite.trimestre}
-        pagina
+        pagina={true}
       />
     );
   }
@@ -37,7 +37,7 @@ export default async function CommercialistaElaboraOspitePage() {
       kind={kind}
       anno={ospite.anno}
       trimestre={ospite.trimestre}
-      pagina
+      pagina={true}
     />
   );
 }

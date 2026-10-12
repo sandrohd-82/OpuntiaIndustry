@@ -40,12 +40,12 @@ export function ElaborazioneRegistroTabella({
 
   if (!beneConsumo) {
     return (
-      <div className="overflow-hidden rounded-lg border border-slate-300 bg-white shadow-sm">
-        <table className="w-full border-collapse text-left text-sm">
+      <div className="w-full overflow-x-auto rounded-lg border border-slate-300 bg-white shadow-sm">
+        <table className="w-full border-collapse text-left text-xs">
           <thead className="bg-slate-800 text-xs text-white">
             <tr>
               {TITOLI_USCITA_EXCEL.map((titolo) => (
-                <th key={titolo} className="px-3 py-2 font-semibold whitespace-nowrap">
+                <th key={titolo} className="px-1.5 py-1 font-semibold whitespace-nowrap">
                   {titolo}
                 </th>
               ))}
@@ -62,24 +62,24 @@ export function ElaborazioneRegistroTabella({
                       : "border-t border-slate-200"
                   }
                 >
-                  <td className="px-3 py-1.5 tabular-nums">
+                  <td className="px-1.5 py-1 tabular-nums">
                     {riga.numeroProgressivo ?? "—"}
                   </td>
-                  <td className="px-3 py-1.5 whitespace-nowrap">{riga.tipoDocumento}</td>
-                  <td className="px-3 py-1.5 whitespace-nowrap">{riga.numeroDocumento}</td>
-                  <td className="px-3 py-1.5 whitespace-nowrap">{riga.data}</td>
-                  <td className="px-3 py-1.5">{riga.intestazione}</td>
-                  <td className="px-3 py-1.5 text-right tabular-nums">
+                  <td className="px-1.5 py-1 whitespace-nowrap">{riga.tipoDocumento}</td>
+                  <td className="px-1.5 py-1 whitespace-nowrap">{riga.numeroDocumento}</td>
+                  <td className="px-1.5 py-1 whitespace-nowrap">{riga.data}</td>
+                  <td className="px-1.5 py-1">{riga.intestazione}</td>
+                  <td className="px-1.5 py-1 text-right tabular-nums">
                     {formatEuro(riga.imponibile)}
                   </td>
-                  <td className="px-3 py-1.5 text-right tabular-nums">
+                  <td className="px-1.5 py-1 text-right tabular-nums">
                     {formatEuro(riga.iva)}
                   </td>
-                  <td className="px-3 py-1.5 text-right tabular-nums">
+                  <td className="px-1.5 py-1 text-right tabular-nums">
                     {formatEuro(riga.totale)}
                   </td>
-                  <td className="px-3 py-1.5 text-center">{riga.nazione}</td>
-                  <td className="px-3 py-1.5 text-center font-medium">
+                  <td className="px-1.5 py-1 text-center">{riga.nazione}</td>
+                  <td className="px-1.5 py-1 text-center font-medium">
                     {riga.beniStrumentali}
                   </td>
                 </tr>
@@ -92,22 +92,22 @@ export function ElaborazioneRegistroTabella({
                       : "border-t border-amber-200 bg-amber-50 font-semibold text-slate-900"
                   }
                 >
-                  <td className="px-3 py-2" />
-                  <td className="px-3 py-2" />
-                  <td className="px-3 py-2" />
-                  <td className="px-3 py-2" />
-                  <td className="px-3 py-2">{riga.etichetta}</td>
-                  <td className="px-3 py-2 text-right tabular-nums">
+                  <td className="px-1.5 py-1" />
+                  <td className="px-1.5 py-1" />
+                  <td className="px-1.5 py-1" />
+                  <td className="px-1.5 py-1" />
+                  <td className="px-1.5 py-1">{riga.etichetta}</td>
+                  <td className="px-1.5 py-1 text-right tabular-nums">
                     {formatEuro(riga.imponibile)}
                   </td>
-                  <td className="px-3 py-2 text-right tabular-nums">
+                  <td className="px-1.5 py-1 text-right tabular-nums">
                     {formatEuro(riga.iva)}
                   </td>
-                  <td className="px-3 py-2 text-right tabular-nums">
+                  <td className="px-1.5 py-1 text-right tabular-nums">
                     {formatEuro(riga.totale)}
                   </td>
-                  <td className="px-3 py-2" />
-                  <td className="px-3 py-2" />
+                  <td className="px-1.5 py-1" />
+                  <td className="px-1.5 py-1" />
                 </tr>
               )
             )}
@@ -118,12 +118,12 @@ export function ElaborazioneRegistroTabella({
   }
 
   return (
-    <div className="overflow-hidden rounded-lg border border-slate-300 bg-white shadow-sm">
-      <table className="w-full border-collapse text-left text-sm">
+    <div className="w-full overflow-x-auto rounded-lg border border-slate-300 bg-white shadow-sm">
+      <table className="w-full border-collapse text-left text-xs">
         <thead className="bg-slate-800 text-xs text-white">
           <tr>
             {titoli.map((titolo) => (
-              <th key={titolo} className="px-3 py-2 font-semibold whitespace-nowrap">
+              <th key={titolo} className="px-1.5 py-1 font-semibold whitespace-nowrap">
                 {titolo}
               </th>
             ))}
@@ -140,33 +140,33 @@ export function ElaborazioneRegistroTabella({
                     : "border-t border-slate-200"
                 }
               >
-                <td className="px-3 py-1.5 tabular-nums">
+                <td className="px-1.5 py-1 tabular-nums">
                   {riga.numeroProvvisorio ?? "—"}
                 </td>
-                <td className="px-3 py-1.5 font-mono text-xs whitespace-nowrap">
+                <td className="px-1.5 py-1 font-mono text-xs whitespace-nowrap">
                   {riga.nomeFile}
                 </td>
-                <td className="px-3 py-1.5 whitespace-nowrap">
+                <td className="px-1.5 py-1 whitespace-nowrap">
                   {riga.numeroDocumento || "—"}
                 </td>
-                <td className="px-3 py-1.5 whitespace-nowrap">{riga.data}</td>
-                <td className="px-3 py-1.5">{riga.intestazione}</td>
-                <td className="px-3 py-1.5 text-right tabular-nums">
+                <td className="px-1.5 py-1 whitespace-nowrap">{riga.data}</td>
+                <td className="px-1.5 py-1">{riga.intestazione}</td>
+                <td className="px-1.5 py-1 text-right tabular-nums">
                   {formatEuro(riga.imponibile)}
                 </td>
-                <td className="px-3 py-1.5 text-right tabular-nums">
+                <td className="px-1.5 py-1 text-right tabular-nums">
                   {formatEuro(riga.iva)}
                 </td>
-                <td className="px-3 py-1.5 text-right tabular-nums">
+                <td className="px-1.5 py-1 text-right tabular-nums">
                   {formatEuro(riga.totale)}
                 </td>
-                <td className="px-3 py-1.5 text-center text-xl leading-none">
+                <td className="px-1.5 py-1 text-center text-xl leading-none">
                   {riga.nazione}
                 </td>
-                <td className="px-3 py-1.5 text-center">
+                <td className="px-1.5 py-1 text-center">
                   {riga.origineDocumento || "—"}
                 </td>
-                <td className="px-3 py-1.5 text-center font-medium">
+                <td className="px-1.5 py-1 text-center font-medium">
                   {riga.beneAmmortizzabile ?? "—"}
                 </td>
               </tr>
@@ -179,23 +179,23 @@ export function ElaborazioneRegistroTabella({
                     : "border-t border-amber-200 bg-amber-50 font-semibold text-slate-900"
                 }
               >
-                <td className="px-3 py-2" />
-                <td className="px-3 py-2" />
-                <td className="px-3 py-2" />
-                <td className="px-3 py-2" />
-                <td className="px-3 py-2">{riga.etichetta}</td>
-                <td className="px-3 py-2 text-right tabular-nums">
+                <td className="px-1.5 py-1" />
+                <td className="px-1.5 py-1" />
+                <td className="px-1.5 py-1" />
+                <td className="px-1.5 py-1" />
+                <td className="px-1.5 py-1">{riga.etichetta}</td>
+                <td className="px-1.5 py-1 text-right tabular-nums">
                   {formatEuro(riga.imponibile)}
                 </td>
-                <td className="px-3 py-2 text-right tabular-nums">
+                <td className="px-1.5 py-1 text-right tabular-nums">
                   {formatEuro(riga.iva)}
                 </td>
-                <td className="px-3 py-2 text-right tabular-nums">
+                <td className="px-1.5 py-1 text-right tabular-nums">
                   {formatEuro(riga.totale)}
                 </td>
-                <td className="px-3 py-2" />
-                <td className="px-3 py-2" />
-                <td className="px-3 py-2" />
+                <td className="px-1.5 py-1" />
+                <td className="px-1.5 py-1" />
+                <td className="px-1.5 py-1" />
               </tr>
             )
           )}
