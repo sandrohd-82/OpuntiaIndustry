@@ -62,7 +62,7 @@ export function ElaborazioneRegistroTabella({
                       : "border-t border-slate-200"
                   }
                 >
-                  <td className="px-1.5 py-1 tabular-nums">
+                  <td className="px-1.5 py-1 text-left tabular-nums">
                     {riga.numeroProgressivo ?? "—"}
                   </td>
                   <td className="px-1.5 py-1 whitespace-nowrap">{riga.tipoDocumento}</td>
@@ -140,7 +140,7 @@ export function ElaborazioneRegistroTabella({
                     : "border-t border-slate-200"
                 }
               >
-                <td className="px-1.5 py-1 tabular-nums">
+                <td className="px-1.5 py-1 text-left tabular-nums">
                   {riga.numeroProvvisorio ?? "—"}
                 </td>
                 <td className="px-1.5 py-1 font-mono text-xs whitespace-nowrap">

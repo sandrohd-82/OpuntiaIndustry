@@ -87,7 +87,7 @@ export async function buildElaborazioneFattureXlsx(input: {
       pattern: "solid",
       fgColor: { argb: "FF1E293B" },
     };
-    cell.alignment = { vertical: "middle" };
+    cell.alignment = { vertical: "middle", horizontal: "center" };
   });
   header.height = 22;
 
@@ -96,6 +96,7 @@ export async function buildElaborazioneFattureXlsx(input: {
     if (!riga) continue;
     const excelRow = ws.addRow(celle(riga, input.kind));
     excelRow.font = { name: "Calibri", size: 11 };
+    excelRow.getCell(1).alignment = { horizontal: "left", vertical: "middle" };
     const colImporto = (nome: string) => titoli.indexOf(nome) + 1;
     for (const nome of ["Imp.", "IVA", "Tot. Fattura"]) {
       const col = colImporto(nome);
@@ -107,7 +108,7 @@ export async function buildElaborazioneFattureXlsx(input: {
     nazione.alignment = { horizontal: "center" };
     if (riga.tipo === "fattura" && registroMostraBeneConsumo(input.kind)) {
       nazione.font = { name: "Segoe UI Emoji", size: 16 };
-      const bene = excelRow.getCell(colImporto("Bene ammortizzabile"));
+      const bene = excelRow.getCell(colImporto("Bene Amm."));
       bene.alignment = { horizontal: "center" };
       excelRow.getCell(colImporto("Origine")).alignment = {
         horizontal: "center",
@@ -203,7 +204,7 @@ export async function buildUscitaCartellaXlsx(input: {
       pattern: "solid",
       fgColor: { argb: "FF1E293B" },
     };
-    cell.alignment = { vertical: "middle" };
+    cell.alignment = { vertical: "middle", horizontal: "center" };
   });
   header.height = 22;
   for (let i = 0; i < righe.length; i += 1) {
@@ -227,6 +228,7 @@ export async function buildUscitaCartellaXlsx(input: {
         : [null, null, null, null, riga.etichetta, riga.imponibile, riga.iva, riga.totale, null, null]
     );
     excelRow.font = { name: "Calibri", size: 11 };
+    excelRow.getCell(1).alignment = { horizontal: "left", vertical: "middle" };
     for (const col of [6, 7, 8]) {
       excelRow.getCell(col).numFmt = "#,##0.00";
       excelRow.getCell(col).alignment = { horizontal: "right" };
@@ -305,7 +307,7 @@ export async function buildResocontoCompletoXlsx(
       pattern: "solid",
       fgColor: { argb: "FF1E293B" },
     };
-    cell.alignment = { vertical: "middle" };
+    cell.alignment = { vertical: "middle", horizontal: "center" };
   });
   header.height = 22;
 

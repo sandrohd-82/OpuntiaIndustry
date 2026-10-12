@@ -32,7 +32,7 @@ export function titoliElaborazioneExcel(
   const base = [...titoliBaseExcel(kind)];
   if (!registroMostraBeneConsumo(kind)) return base;
   base.splice(2, 0, "N. documento");
-  base.push("Origine", "Bene ammortizzabile");
+  base.push("Origine", "Bene Amm.");
   return base;
 }
 
