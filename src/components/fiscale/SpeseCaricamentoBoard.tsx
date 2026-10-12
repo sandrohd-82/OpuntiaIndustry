@@ -377,6 +377,7 @@ export function SpeseCaricamentoBoard() {
   const [ricevute, setRicevute] = useState<RicevutaRecenteSpesa[]>([]);
   const [ricevuteErrore, setRicevuteErrore] = useState<string | null>(null);
   const [pending, start] = useTransition();
+  const [affianca, setAffianca] = useState(false);
 
   function patch(partial: Partial<typeof vuoto>) {
     setForm((prev) => ({ ...prev, ...partial }));
@@ -441,9 +442,22 @@ export function SpeseCaricamentoBoard() {
   const inserimentoManuale = anteprima?.lettura === "manuale";
 
   useEffect(() => {
-    if (!anteprima || inserimentoManuale) return;
+    if (!anteprima) {
+      setAffianca(false);
+      return;
+    }
+    if (
+      tipo === "fattura_estera" &&
+      (vistaFile === "pdf" || vistaFile === "image")
+    ) {
+      setAffianca(true);
+    }
+  }, [anteprima, tipo, vistaFile]);
+
+  useEffect(() => {
+    if (!anteprima || inserimentoManuale || affianca) return;
     verificaRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
-  }, [anteprima, inserimentoManuale]);
+  }, [anteprima, inserimentoManuale, affianca]);
 
   useEffect(() => {
     if (!inserimentoManuale) return;
@@ -825,6 +839,17 @@ export function SpeseCaricamentoBoard() {
             </p>
           ) : null}
           <p className="text-sm text-slate-700">{anteprima.avviso}</p>
+          {tipo === "fattura_estera" &&
+          (vistaFile === "pdf" || vistaFile === "image") &&
+          !affianca ? (
+            <button
+              type="button"
+              onClick={() => setAffianca(true)}
+              className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-800 hover:bg-slate-50"
+            >
+              Affianca fattura e modulo
+            </button>
+          ) : null}
           {anteprima.uscitaImporto != null ? (
             <p className="text-sm font-medium text-slate-900">
               Uscita da registrare: {anteprima.uscitaImporto.toLocaleString("it-IT", { style: "currency", currency: "EUR" })}
@@ -1371,12 +1396,13 @@ export function SpeseCaricamentoBoard() {
           </button>
         </section>
         ) : null;
-        if (
-          inserimentoManuale &&
-          anteprima &&
-          modulo &&
-          typeof document !== "undefined"
-        ) {
+        const mostraAffiancata =
+          Boolean(anteprima && modulo && typeof document !== "undefined") &&
+          (inserimentoManuale ||
+            (tipo === "fattura_estera" &&
+              affianca &&
+              (vistaFile === "pdf" || vistaFile === "image")));
+        if (mostraAffiancata) {
           return createPortal(
             <div
               className="fixed inset-0 z-[90] flex flex-col bg-white"
@@ -1394,25 +1420,38 @@ export function SpeseCaricamentoBoard() {
                         : "Inserimento manuale dello scontrino"}
                   </h2>
                   <p className="text-xs text-slate-500">
-                    A sinistra il documento, a destra i dati da controllare e registrare.
+                    {tipo === "fattura_estera"
+                      ? "A sinistra la fattura, a destra i campi: se la lettura è sbagliata, correggili e registra."
+                      : "A sinistra il documento, a destra i dati da controllare e registrare."}
                   </p>
                 </div>
                 <button
                   type="button"
-                  onClick={() => setAnteprima(null)}
+                  onClick={() => {
+                    if (tipo === "fattura_estera" && !inserimentoManuale) {
+                      setAffianca(false);
+                      return;
+                    }
+                    setAnteprima(null);
+                  }}
                   className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-800 hover:bg-slate-50"
                 >
-                  Chiudi
+                  {tipo === "fattura_estera" && !inserimentoManuale
+                    ? "Chiudi affiancamento"
+                    : "Chiudi"}
                 </button>
               </header>
               <div className="grid min-h-0 flex-1 grid-cols-3">
                 <div className="relative col-span-1 min-h-0 border-r border-slate-200">
                   <div className="absolute inset-0">
                     {vistaFile === "image" && anteprimaUrl ? (
-                      <ScontrinoZoomPane src={anteprimaUrl} alt="Scontrino da compilare" />
+                      <ScontrinoZoomPane
+                        src={anteprimaUrl}
+                        alt={tipo === "fattura_estera" ? "Fattura da compilare" : "Scontrino da compilare"}
+                      />
                     ) : vistaFile === "pdf" && anteprimaUrl ? (
                       <iframe
-                        title="Scontrino"
+                        title={tipo === "fattura_estera" ? "Fattura" : "Scontrino"}
                         src={anteprimaUrl}
                         className="h-full w-full border-0 bg-white"
                       />
