@@ -64,7 +64,9 @@ export function CommercialistaElaboraTrimestreModal({
   const [perKind, setPerKind] = useState<Partial<Record<CommercialistaRegistroKind, Carico>>>({});
   const [pending, setPending] = useState(true);
   const [scrivendo, setScrivendo] = useState(false);
+  const [consigliAperti, setConsigliAperti] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
+  const consigliId = useId();
   const gruppi = useMemo(
     () => gruppiElaborazioneTrimestre(anno, trimestre),
     [anno, trimestre]
@@ -234,7 +236,7 @@ export function CommercialistaElaboraTrimestreModal({
               <button
                 type="button"
                 disabled={pending || scrivendo}
-                onClick={() => void esporta()}
+                onClick={() => setConsigliAperti(true)}
                 className="inline-flex items-center gap-1.5 rounded-lg bg-[var(--primary)] px-3 py-1.5 text-xs font-medium text-white disabled:opacity-40"
               >
                 <FaDownload size={12} />
@@ -378,6 +380,52 @@ export function CommercialistaElaboraTrimestreModal({
           )}
         </div>
       </div>
+      {consigliAperti ? (
+        <div className="fixed inset-0 z-[90] flex items-center justify-center bg-slate-950/50 p-4">
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby={consigliId}
+            className="w-full max-w-lg rounded-xl border border-slate-300 bg-white p-5 shadow-lg"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h3 id={consigliId} className="text-sm font-semibold text-slate-900">
+              Prima di scegliere la cartella
+            </h3>
+            <ol className="mt-3 list-decimal space-y-3 pl-5 text-sm text-slate-700">
+              <li>
+                Qualsiasi cartella si decide di usare, è utile crearne una nuova
+                prima del download e scaricare al suo interno.
+              </li>
+              <li>
+                Verrà chiesta l&apos;autorizzazione a modificare quella cartella.
+                Serve solo a generare le cartelle nuove, così il download resta
+                nell&apos;ordine giusto.
+              </li>
+            </ol>
+            <div className="mt-5 flex flex-wrap justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setConsigliAperti(false)}
+                className="rounded-lg border border-slate-300 px-3 py-1.5 text-xs font-medium text-slate-700"
+              >
+                Chiudi
+              </button>
+              <button
+                type="button"
+                disabled={scrivendo}
+                onClick={() => {
+                  setConsigliAperti(false);
+                  void esporta();
+                }}
+                className="rounded-lg bg-[var(--primary)] px-3 py-1.5 text-xs font-medium text-white disabled:opacity-40"
+              >
+                Scegli la cartella
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </div>,
     document.body
   );
