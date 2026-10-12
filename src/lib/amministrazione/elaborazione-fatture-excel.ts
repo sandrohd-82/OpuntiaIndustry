@@ -108,7 +108,7 @@ export const TITOLI_USCITA_EXCEL = [
   "IVA",
   "Totale",
   "Nazionalità",
-  "Beni strumentali",
+  "Bene Str.",
 ] as const;
 
 export type RigaCartellaUscita =
