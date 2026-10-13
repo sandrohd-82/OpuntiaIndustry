@@ -290,6 +290,11 @@ function EsercenteSpesaCampo({
   );
 }
 
+function urlPdfLeggibile(url: string): string {
+  const base = url.split("#")[0] ?? url;
+  return `${base}#navpanes=0&pagemode=none&view=FitH`;
+}
+
 function vistaDaFile(file: File): "image" | "pdf" | null {
   if (file.type.startsWith("image/")) return "image";
   if (file.type === "application/pdf" || file.name.toLowerCase().endsWith(".pdf")) {
@@ -1544,7 +1549,7 @@ export function SpeseCaricamentoBoard() {
                     ) : vistaFile === "pdf" && anteprimaUrl ? (
                       <iframe
                         title={tipo === "fattura_estera" ? "Fattura" : "Scontrino"}
-                        src={anteprimaUrl}
+                        src={urlPdfLeggibile(anteprimaUrl)}
                         className="h-full w-full border-0 bg-white"
                       />
                     ) : (
