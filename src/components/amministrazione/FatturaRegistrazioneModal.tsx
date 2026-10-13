@@ -2,6 +2,7 @@
 
 import { useEffect, useId, useMemo, useRef, useState, type FormEvent } from "react";
 import { createPortal } from "react-dom";
+import { ScontrinoZoomPane } from "@/components/fiscale/ScontrinoZoomPane";
 import { FaPen, FaPlus, FaTrash } from "react-icons/fa6";
 import {
   createFatturaAction,
@@ -196,6 +197,8 @@ type Props = {
   elevated?: boolean;
   /** Sopra un’altra modale fattura (es. registrazione fattura da NC). */
   stackTop?: boolean;
+  /** Documento a sinistra, stesso modulo a destra (caricamento fattura estera). */
+  affiancaDocumento?: { url: string; kind: "image" | "pdf" } | null;
 };
 
 /** Chiavi documenti per cui l’overlay iniziale è già stato chiuso (sopravvive ai remount). */
@@ -300,6 +303,7 @@ export function FatturaRegistrazioneModal({
   initial = null,
   elevated = false,
   stackTop = false,
+  affiancaDocumento = null,
 }: Props) {
   const titleId = useId();
   const { privilegedAllowed } = useActionAccess();
@@ -1843,12 +1847,18 @@ export function FatturaRegistrazioneModal({
         ? "Registrazione fattura emessa"
         : "Registrazione fattura ricevuta";
 
-  const zLayer = stackTop ? "z-[140]" : elevated ? "z-[80]" : "z-[60]";
+  const zLayer = affiancaDocumento
+    ? "z-[70]"
+    : (stackTop ? "z-[140]" : (elevated ? "z-[80]" : "z-[60]"));
 
   const dialog = (
     <div
       data-nested-modal={elevated || stackTop ? "fattura" : undefined}
-      className={`fixed inset-0 flex items-start justify-center overflow-y-auto bg-slate-950/60 px-4 py-8 sm:py-12 ${zLayer}`}
+      className={
+        affiancaDocumento
+          ? `fixed inset-0 flex h-[100dvh] w-screen flex-col bg-white ${zLayer}`
+          : `fixed inset-0 flex items-start justify-center overflow-y-auto bg-slate-950/60 px-4 py-8 sm:py-12 ${zLayer}`
+      }
       role="presentation"
       onClick={(e) => e.stopPropagation()}
     >
@@ -1875,9 +1885,29 @@ export function FatturaRegistrazioneModal({
         role="dialog"
         aria-modal="true"
         aria-labelledby={titleId}
-        className="w-[85vw] max-w-[85vw] rounded-xl border border-[var(--border)] bg-[var(--card)] p-5 shadow-xl"
+        className={
+          affiancaDocumento
+            ? "grid min-h-0 flex-1 grid-cols-3"
+            : "w-[85vw] max-w-[85vw] rounded-xl border border-[var(--border)] bg-[var(--card)] p-5 shadow-xl"
+        }
         onClick={(e) => e.stopPropagation()}
       >
+        {affiancaDocumento ? (
+          <div className="relative col-span-1 min-h-0 border-r border-slate-200">
+            <div className="absolute inset-0">
+              {affiancaDocumento.kind === "image" ? (
+                <ScontrinoZoomPane src={affiancaDocumento.url} alt="Fattura da registrare" />
+              ) : (
+                <iframe
+                  title="Fattura"
+                  src={`${(affiancaDocumento.url.split("#")[0] ?? affiancaDocumento.url)}#navpanes=0&pagemode=none&view=FitH`}
+                  className="h-full w-full border-0 bg-white"
+                />
+              )}
+            </div>
+          </div>
+        ) : null}
+        <div className={affiancaDocumento ? "col-span-2 min-h-0 overflow-y-auto p-5" : ""}>
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
             <h2 id={titleId} className="text-lg font-semibold">
@@ -3994,6 +4024,7 @@ export function FatturaRegistrazioneModal({
           }}
         />
       ) : null}
+        </div>
     </div>
   );
 

@@ -14,7 +14,23 @@ import {
   type RicevutaRecenteSpesa,
   type SuggerimentoEsercenteSpesa,
 } from "@/app/actions/spese";
-import { formatDateIt, formatEuro } from "@/lib/amministrazione/fatture";
+import {
+  createFornitoreAction,
+  findFornitoreByPartitaIvaAction,
+} from "@/app/actions/fornitori";
+import { FatturaRegistrazioneModal } from "@/components/amministrazione/FatturaRegistrazioneModal";
+import type { FatturaRegistrazionePrefill } from "@/components/amministrazione/FatturaRegistrazioneModal";
+import { FornitoreFormModal } from "@/components/amministrazione/FornitoreFormModal";
+import {
+  formatDateIt,
+  formatEuro,
+  type FatturaRiga,
+} from "@/lib/amministrazione/fatture";
+import { normalizeVatKey } from "@/lib/amministrazione/fic-anagrafiche";
+import {
+  emptySede,
+  type Fornitore,
+} from "@/lib/amministrazione/fornitori";
 import { ScontrinoZoomPane } from "@/components/fiscale/ScontrinoZoomPane";
 import {
   CATEGORIE_SPESA,
@@ -347,27 +363,73 @@ function rigaVuota(partial?: {
   };
 }
 
-function anteprimaManualeVuota(): AnteprimaSpesa {
+function bozzaFornitore(ragione: string, piva: string): Fornitore {
+  const sede = emptySede();
   return {
-    esercente: "",
-    partitaIva: "",
-    partitaIvaAcquirente: "",
-    dataDocumento: "",
-    imponibile: null,
-    aliquotaIva: null,
-    imposta: null,
-    totale: null,
-    nazione: "",
-    valuta: "EUR",
-    righe: [],
-    lettura: "manuale",
-    letturaJson: null,
-    uscitaImporto: null,
-    ivaDetraibile: false,
-    valenzaFiscale: "commerciale",
-    avviso:
-      "Inserisci i dati guardando la fattura. Nulla viene salvato finché non confermi.",
+    id: "",
+    codiceTarga: "",
+    ragioneSociale: ragione,
+    partitaIva: piva,
+    codiceFiscale: piva,
+    email: "",
+    pec: "",
+    sdiCode: "",
+    telefono: "",
+    sitoWeb: "",
+    tipologie: [],
+    serviziOfferti: [],
+    prodottiFornitore: [],
+    sedeAmministrativa: sede,
+    sedeMagazzino: { ...sede },
+    prodottiAcquistati: [],
+    contributiOfferti: [],
+    bioCertificatoPath: "",
+    bioCodice: "",
+    createdAt: "",
+    createdBy: null,
   };
+}
+
+function righeFatturaDaAnteprima(anteprima: AnteprimaSpesa | null): FatturaRiga[] {
+  if (!anteprima) return [];
+  const lette = anteprima.righe.filter(
+    (riga) => riga.descrizione || riga.imponibile != null || riga.totale != null
+  );
+  const voce = (
+    descrizione: string,
+    prezzo: number,
+    quantita: number,
+    iva: number,
+    importo: number
+  ): FatturaRiga => ({
+    prodottoId: null,
+    codice: "",
+    descrizione: descrizione || "Voce",
+    quantita,
+    prezzoUnitario: prezzo,
+    scontoPercentuale: 0,
+    ivaPercentuale: iva,
+    importo,
+  });
+  if (lette.length) {
+    return lette.map((riga) => {
+      const quantita = riga.quantita != null && riga.quantita > 0 ? riga.quantita : 1;
+      const importo = riga.totale ?? riga.imponibile ?? 0;
+      const prezzo = Math.round((importo / quantita) * 100) / 100;
+      return voce(riga.descrizione, prezzo, quantita, riga.aliquotaIva ?? 0, importo);
+    });
+  }
+  const base = anteprima.imponibile ?? anteprima.totale;
+  if (base == null) return [];
+  return [
+    voce(
+      anteprima.esercente.trim() || "Importo fattura",
+      base,
+      1,
+      anteprima.aliquotaIva ?? 0,
+      anteprima.totale ?? base
+    ),
+  ];
 }
 
 function righeDaLettura(anteprima: AnteprimaSpesa, aliquotaBase = "22"): RigaForm[] {
@@ -423,6 +485,17 @@ export function SpeseCaricamentoBoard() {
   const [ricevuteErrore, setRicevuteErrore] = useState<string | null>(null);
   const [pending, start] = useTransition();
   const [manualeAperto, setManualeAperto] = useState(false);
+  const [chiediFornitore, setChiediFornitore] = useState(false);
+  const [intestazioneCerca, setIntestazioneCerca] = useState("");
+  const [pivaCerca, setPivaCerca] = useState("");
+  const [cercaErrore, setCercaErrore] = useState<string | null>(null);
+  const [cercaPending, setCercaPending] = useState(false);
+  const [fornitoreNuovo, setFornitoreNuovo] = useState<{
+    ragione: string;
+    piva: string;
+  } | null>(null);
+  const [registrazioneFattura, setRegistrazioneFattura] =
+    useState<FatturaRegistrazionePrefill | null>(null);
 
   function patch(partial: Partial<typeof vuoto>) {
     setForm((prev) => ({ ...prev, ...partial }));
@@ -486,8 +559,7 @@ export function SpeseCaricamentoBoard() {
   }, []);
 
   const inserimentoManuale = anteprima?.lettura === "manuale";
-  const schermoManuale =
-    inserimentoManuale || (tipo === "fattura_estera" && manualeAperto);
+  const schermoManuale = tipo !== "fattura_estera" && inserimentoManuale;
 
   useEffect(() => {
     if (!anteprima || schermoManuale) return;
@@ -503,53 +575,74 @@ export function SpeseCaricamentoBoard() {
     };
   }, [schermoManuale]);
 
-  function apriManuale() {
-    const file = fileTenuto.current;
-    if (!file) {
+  function apriModuloFattura(fornitore: {
+    id: string;
+    ragioneSociale: string;
+    codiceTarga: string;
+  }) {
+    const documento = anteprima;
+    const data = (documento?.dataDocumento || form.dataDocumento || "").trim();
+    setRegistrazioneFattura({
+      anagraficaId: fornitore.id,
+      anagraficaRagioneSociale: fornitore.ragioneSociale,
+      anagraficaCodiceTarga: fornitore.codiceTarga,
+      dataEmissione: data || undefined,
+      ivaPercentuale: documento?.aliquotaIva ?? undefined,
+      note: "Fattura estera caricata dagli strumenti.",
+      righe: righeFatturaDaAnteprima(documento),
+    });
+  }
+
+  async function cercaFornitoreEApri(piva: string, nome: string) {
+    setCercaPending(true);
+    setCercaErrore(null);
+    try {
+      const res = await findFornitoreByPartitaIvaAction(piva, nome);
+      if (!res.success) {
+        setCercaErrore(res.error);
+        setChiediFornitore(true);
+        setPivaCerca(piva);
+        setIntestazioneCerca(nome);
+        return;
+      }
+      const cercata = normalizeVatKey(piva);
+      const trovata = res.fornitore
+        ? normalizeVatKey(res.fornitore.partitaIva)
+        : "";
+      const fiscale = res.fornitore
+        ? normalizeVatKey(res.fornitore.codiceFiscale)
+        : "";
+      const stessaPiva =
+        Boolean(res.fornitore) &&
+        Boolean(cercata) &&
+        (trovata === cercata || fiscale === cercata);
+      if (!res.fornitore || !stessaPiva) {
+        setFornitoreNuovo({ ragione: nome, piva });
+        setChiediFornitore(false);
+        return;
+      }
+      setChiediFornitore(false);
+      apriModuloFattura(res.fornitore);
+    } finally {
+      setCercaPending(false);
+    }
+  }
+
+  function avviaRegistrazioneFattura() {
+    if (!fileTenuto.current) {
       setErrore("Scatta una foto oppure carica un file.");
       return;
     }
-    setErrore(null);
-    setMsg(null);
-    if (!anteprima) {
-      setAnteprima(anteprimaManualeVuota());
-      setForm({ ...vuoto, aliquotaIva: "0" });
-      setRighe([rigaVuota({ aliquotaIva: "0" })]);
-      setPrivaIva(false);
-      setPrezziIvaCompresa(false);
-      setScelteCausale([]);
-    } else {
-      setRighe((correnti) => {
-        const compilate = correnti.some(
-          (riga) => riga.descrizione.trim() || riga.prezzo.trim()
-        );
-        if (compilate) return correnti;
-        const lette = righeDaLettura(anteprima, "0");
-        if (lette.length) return lette;
-        const base = anteprima.imponibile ?? anteprima.totale;
-        if (base == null) return [rigaVuota({ aliquotaIva: "0" })];
-        return [
-          rigaVuota({
-            descrizione: anteprima.esercente.trim() || "Importo fattura",
-            prezzo: String(base),
-            quantita: "1",
-            aliquotaIva:
-              anteprima.aliquotaIva != null ? String(anteprima.aliquotaIva) : "0",
-          }),
-        ];
-      });
+    const piva = (form.partitaIva || anteprima?.partitaIva || "").trim();
+    const nome = (form.esercente || anteprima?.esercente || "").trim();
+    setCercaErrore(null);
+    if (!piva) {
+      setIntestazioneCerca(nome);
+      setPivaCerca("");
+      setChiediFornitore(true);
+      return;
     }
-    setManualeAperto(true);
-    if (progetti.length === 0) {
-      void listProgettiSpesaAction()
-        .then((progettiLetti) => {
-          if (!progettiLetti.success) return;
-          setProgetti(
-            progettiLetti.progetti.filter((p) => p.documentoStato !== "chiuso")
-          );
-        })
-        .catch(() => undefined);
-    }
+    void cercaFornitoreEApri(piva, nome);
   }
 
   async function apriCamera() {
@@ -646,7 +739,21 @@ export function SpeseCaricamentoBoard() {
         const lette = righeDaLettura(a);
         setRighe(lette.length ? lette : [rigaVuota()]);
       }
-      if (res.anteprima.lettura !== "manuale") {
+      if (tipo === "fattura_estera") {
+        const piva = (a.partitaIva || "").trim();
+        const nome = (a.esercente || "").trim();
+        if (!piva) {
+          setIntestazioneCerca(nome);
+          setPivaCerca("");
+          setChiediFornitore(true);
+          setMsg(
+            "La partita IVA non è stata letta. Inserisci intestazione e P. IVA per cercare il fornitore."
+          );
+        } else {
+          setMsg("Documento letto. Cerco il fornitore con la partita IVA.");
+          void cercaFornitoreEApri(piva, nome);
+        }
+      } else if (res.anteprima.lettura !== "manuale") {
         setMsg("Documento letto. Controlla i dati qui sotto e poi conferma.");
       }
       } catch (err) {
@@ -885,7 +992,7 @@ export function SpeseCaricamentoBoard() {
             <button
               type="button"
               disabled={pending || !fileScelto}
-              onClick={apriManuale}
+              onClick={avviaRegistrazioneFattura}
               className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-800 hover:bg-slate-50 disabled:opacity-50"
             >
               Carica manualmente i dati
@@ -908,10 +1015,33 @@ export function SpeseCaricamentoBoard() {
       
 
       {(() => {
-        const editorRighe =
-          tipo === "scontrino" || (tipo === "fattura_estera" && schermoManuale);
+        const editorRighe = tipo === "scontrino";
         const ricevutaPrivaIva = tipo === "scontrino" && privaIva;
-        const modulo = anteprima ? (
+        const pannelloFattura =
+          tipo === "fattura_estera" && anteprima ? (
+            <section className="space-y-3 rounded-xl border border-[var(--border)] bg-white p-4">
+              <p className="text-sm text-slate-700">{anteprima.avviso}</p>
+              <p className="text-sm text-slate-600">
+                La fattura si registra come le fatture ricevute, senza categoria.
+                Il fornitore si cerca con la partita IVA. Se non è in anagrafica,
+                si registra prima la scheda.
+              </p>
+              {cercaErrore ? (
+                <p className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">
+                  {cercaErrore}
+                </p>
+              ) : null}
+              <button
+                type="button"
+                disabled={cercaPending}
+                onClick={avviaRegistrazioneFattura}
+                className="rounded-lg bg-[var(--primary)] px-3 py-2 text-sm font-medium text-white disabled:opacity-50"
+              >
+                {cercaPending ? "Ricerca fornitore…" : "Registra la fattura"}
+              </button>
+            </section>
+          ) : null;
+        const modulo = pannelloFattura ?? (anteprima ? (
         <section
           className={
             schermoManuale
@@ -930,15 +1060,6 @@ export function SpeseCaricamentoBoard() {
             </p>
           ) : null}
           <p className="text-sm text-slate-700">{anteprima.avviso}</p>
-          {tipo === "fattura_estera" && !schermoManuale ? (
-            <button
-              type="button"
-              onClick={apriManuale}
-              className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-800 hover:bg-slate-50"
-            >
-              Carica manualmente i dati
-            </button>
-          ) : null}
           {anteprima.uscitaImporto != null ? (
             <p className="text-sm font-medium text-slate-900">
               Uscita da registrare: {anteprima.uscitaImporto.toLocaleString("it-IT", { style: "currency", currency: "EUR" })}
@@ -1155,9 +1276,7 @@ export function SpeseCaricamentoBoard() {
                     onClick={() =>
                       setRighe((prev) => [
                         ...prev,
-                        rigaVuota(
-                          tipo === "fattura_estera" ? { aliquotaIva: "0" } : undefined
-                        ),
+                        rigaVuota(),
                       ])
                     }
                     className="rounded-lg border border-slate-300 bg-white px-2 py-1 text-xs font-medium text-slate-800 hover:bg-slate-50"
@@ -1317,9 +1436,6 @@ export function SpeseCaricamentoBoard() {
                     : (prezziIvaCompresa
                       ? "Il totale inserito è IVA compresa: prezzo × numero. Nella riga compaiono imponibile, IVA e totale."
                       : "Il totale della riga è prezzo × numero. Esempio: 0,45 × 6 = 2,70. L'IVA si calcola su quell'importo.")}
-                  {tipo === "fattura_estera"
-                    ? " Gli importi delle righe sono in euro."
-                    : ""}
                 </p>
                 <p className="text-sm text-slate-800">
                   {(() => {
@@ -1389,75 +1505,6 @@ export function SpeseCaricamentoBoard() {
             </label>
               </>
             )}
-            {tipo === "fattura_estera" ? (
-              <>
-                <label className="block text-sm">
-                  <span className="mb-1 block text-xs font-medium text-[var(--muted)]">
-                    Nazione fornitore
-                  </span>
-                  <input
-                    className={field}
-                    value={form.nazione}
-                    onChange={(e) => patch({ nazione: e.target.value })}
-                  />
-                </label>
-                <label className="block text-sm">
-                  <span className="mb-1 block text-xs font-medium text-[var(--muted)]">
-                    Valuta
-                  </span>
-                  <input
-                    className={field}
-                    maxLength={3}
-                    value={form.valuta}
-                    onChange={(e) => patch({ valuta: e.target.value.toUpperCase() })}
-                  />
-                </label>
-                <label className="block text-sm">
-                  <span className="mb-1 block text-xs font-medium text-[var(--muted)]">
-                    Importo in valuta
-                  </span>
-                  <input
-                    className={field}
-                    inputMode="decimal"
-                    value={form.importoValuta}
-                    onChange={(e) => patch({ importoValuta: e.target.value })}
-                  />
-                </label>
-                <label className="block text-sm">
-                  <span className="mb-1 block text-xs font-medium text-[var(--muted)]">
-                    Cambio (euro per 1 unità)
-                  </span>
-                  <input
-                    className={field}
-                    inputMode="decimal"
-                    value={form.cambio}
-                    onChange={(e) => patch({ cambio: e.target.value })}
-                  />
-                </label>
-                <label className="block text-sm">
-                  <span className="mb-1 block text-xs font-medium text-[var(--muted)]">
-                    Autofattura
-                  </span>
-                  <select
-                    className={field}
-                    value={form.tipoAutofattura}
-                    onChange={(e) => patch({ tipoAutofattura: e.target.value })}
-                  >
-                    <option value="">Nessuna</option>
-                    <option value="TD17">TD17 servizi estero</option>
-                    <option value="TD18">TD18 beni intracomunitari</option>
-                  </select>
-                </label>
-                <label className="flex items-center gap-2 text-sm sm:col-span-2">
-                  <input
-                    type="checkbox"
-                    checked={form.flagEsterometro}
-                    onChange={(e) => patch({ flagEsterometro: e.target.checked })}
-                  />
-                  Da gestire in Esterometro
-                </label>
-              </>
-            ) : null}
             <label className="block text-sm sm:col-span-2">
               <span className="mb-1 block text-xs font-medium text-[var(--muted)]">
                 Progetto o viaggio (facoltativo)
@@ -1496,7 +1543,7 @@ export function SpeseCaricamentoBoard() {
             {pending ? "Registrazione…" : "Conferma e registra"}
           </button>
         </section>
-        ) : null;
+        ) : null);
         const mostraAffiancata =
           Boolean(anteprima && modulo && typeof document !== "undefined") &&
           schermoManuale;
@@ -1511,25 +1558,17 @@ export function SpeseCaricamentoBoard() {
               <header className="flex shrink-0 items-center justify-between gap-3 border-b border-slate-200 px-4 py-3">
                 <div>
                   <h2 id="scontrino-manuale-title" className="text-base font-semibold text-slate-900">
-                    {tipo === "fattura_estera"
-                      ? "Inserimento manuale della fattura estera"
-                      : (tipo === "xml"
-                        ? "Verifica della fattura elettronica"
-                        : "Inserimento manuale dello scontrino")}
+                    {tipo === "xml"
+                      ? "Verifica della fattura elettronica"
+                      : "Inserimento manuale dello scontrino"}
                   </h2>
                   <p className="text-xs text-slate-500">
-                    {tipo === "fattura_estera"
-                      ? "A sinistra la fattura: ingrandiscila e spostala. A destra inserisci le righe e registra."
-                      : "A sinistra il documento, a destra i dati da controllare e registrare."}
+                    A sinistra il documento, a destra i dati da controllare e registrare.
                   </p>
                 </div>
                 <button
                   type="button"
                   onClick={() => {
-                    if (tipo === "fattura_estera" && !inserimentoManuale) {
-                      setManualeAperto(false);
-                      return;
-                    }
                     setManualeAperto(false);
                     setAnteprima(null);
                   }}
@@ -1544,11 +1583,11 @@ export function SpeseCaricamentoBoard() {
                     {vistaFile === "image" && anteprimaUrl ? (
                       <ScontrinoZoomPane
                         src={anteprimaUrl}
-                        alt={tipo === "fattura_estera" ? "Fattura da compilare" : "Scontrino da compilare"}
+                        alt="Scontrino da compilare"
                       />
                     ) : vistaFile === "pdf" && anteprimaUrl ? (
                       <iframe
-                        title={tipo === "fattura_estera" ? "Fattura" : "Scontrino"}
+                        title="Scontrino"
                         src={urlPdfLeggibile(anteprimaUrl)}
                         className="h-full w-full border-0 bg-white"
                       />
@@ -1629,6 +1668,120 @@ export function SpeseCaricamentoBoard() {
           </ul>
         )}
       </section>
+      {chiediFornitore ? (
+        <div className="fixed inset-0 z-[110] flex items-start justify-center bg-slate-950/50 px-4 py-16">
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="cerca-fornitore-titolo"
+            className="w-full max-w-lg rounded-2xl border border-slate-200 bg-white p-4 shadow-2xl"
+          >
+            <h3 id="cerca-fornitore-titolo" className="text-base font-semibold text-slate-900">
+              Cerca il fornitore
+            </h3>
+            <p className="mt-1 text-sm text-slate-600">
+              La partita IVA non è stata letta nel documento. Inserisci
+              l&apos;intestazione e la partita IVA per cercare il fornitore già
+              registrato.
+            </p>
+            {cercaErrore ? (
+              <p className="mt-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">
+                {cercaErrore}
+              </p>
+            ) : null}
+            <label className="mt-3 block text-sm">
+              <span className="mb-1 block text-xs font-medium text-[var(--muted)]">
+                Intestazione
+              </span>
+              <input
+                className={field}
+                value={intestazioneCerca}
+                onChange={(e) => setIntestazioneCerca(e.target.value)}
+              />
+            </label>
+            <label className="mt-3 block text-sm">
+              <span className="mb-1 block text-xs font-medium text-[var(--muted)]">
+                Partita IVA
+              </span>
+              <input
+                className={field}
+                value={pivaCerca}
+                onChange={(e) => setPivaCerca(e.target.value)}
+              />
+            </label>
+            <div className="mt-4 flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setChiediFornitore(false)}
+                className="rounded-lg border border-slate-300 px-3 py-2 text-sm font-medium"
+              >
+                Chiudi
+              </button>
+              <button
+                type="button"
+                disabled={cercaPending || !pivaCerca.trim()}
+                onClick={() =>
+                  void cercaFornitoreEApri(pivaCerca.trim(), intestazioneCerca.trim())
+                }
+                className="rounded-lg bg-[var(--primary)] px-3 py-2 text-sm font-medium text-white disabled:opacity-50"
+              >
+                {cercaPending ? "Ricerca…" : "Cerca"}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+      {fornitoreNuovo ? (
+        <FornitoreFormModal
+          mode="create"
+          stackTop
+          initial={bozzaFornitore(fornitoreNuovo.ragione, fornitoreNuovo.piva)}
+          onClose={() => setFornitoreNuovo(null)}
+          onSave={async (values, bioPdf) => {
+            const body = new FormData();
+            body.set("input", JSON.stringify(values));
+            if (bioPdf) body.set("bioPdf", bioPdf);
+            const created = await createFornitoreAction(body);
+            if (!created.success) return created.error;
+            setFornitoreNuovo(null);
+            apriModuloFattura(created.fornitore);
+            return { id: created.fornitore.id };
+          }}
+        />
+      ) : null}
+      {registrazioneFattura ? (
+        <FatturaRegistrazioneModal
+          kind="ricevuta"
+          elevated
+          prefill={registrazioneFattura}
+          affiancaDocumento={
+            anteprimaUrl && vistaFile
+              ? { url: anteprimaUrl, kind: vistaFile }
+              : null
+          }
+          onClose={() => setRegistrazioneFattura(null)}
+          onSaved={() => {
+            setRegistrazioneFattura(null);
+            setMsg("Fattura registrata nello storico delle fatture ricevute.");
+            setAnteprima(null);
+            setManualeAperto(false);
+            setForm(vuoto);
+            setScelteCausale([]);
+            setPrivaIva(false);
+            setPrezziIvaCompresa(false);
+            setRighe([rigaVuota()]);
+            fileTenuto.current = null;
+            setFileScelto(null);
+            if (urlRef.current) URL.revokeObjectURL(urlRef.current);
+            urlRef.current = null;
+            setAnteprimaUrl(null);
+            setVistaFile(null);
+            chiudiCamera();
+            if (fileRef.current) fileRef.current.value = "";
+            if (cameraFallbackRef.current) cameraFallbackRef.current.value = "";
+          }}
+        />
+      ) : null}
       {causaliAperte ? (
         <CausaliUsateFinestra
           corrente={form.giustificazione}
