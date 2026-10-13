@@ -6,6 +6,7 @@ import {
   previewNumeroInternoOrdineAction,
   updateOrdineAction,
 } from "@/app/actions/ordini";
+import { AziendaNoteBanner } from "@/components/amministrazione/AziendaNoteBanner";
 import { AziendaOrdineSelect } from "@/components/amministrazione/AziendaOrdineSelect";
 import { ClienteSelectField } from "@/components/amministrazione/ClienteSelectField";
 import type { AnagraficaOrdineFonte } from "@/lib/amministrazione/ordine-anagrafica";
@@ -292,6 +293,15 @@ export function OrdineFormModal({
       : stato === "storico"
         ? "Aggiungi ordine storico"
         : "Nuovo ordine ricevuto";
+  const allertaAziende: {
+    tipo: "cliente" | "cliente_possibile";
+    id: string;
+  }[] = [];
+  if (anagraficaFonte === "possibile" && possibileClienteId) {
+    allertaAziende.push({ tipo: "cliente_possibile", id: possibileClienteId });
+  } else if (clienteId) {
+    allertaAziende.push({ tipo: "cliente", id: clienteId });
+  }
 
   return (
     <div
@@ -486,6 +496,7 @@ export function OrdineFormModal({
           </div>
         </form>
       </div>
+      <AziendaNoteBanner aziende={allertaAziende} />
     </div>
   );
 }

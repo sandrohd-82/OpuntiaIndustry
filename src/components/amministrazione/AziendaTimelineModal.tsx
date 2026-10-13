@@ -9,6 +9,7 @@ import {
   useTransition,
 } from "react";
 import { createPortal } from "react-dom";
+import { AziendaNoteBanner } from "@/components/amministrazione/AziendaNoteBanner";
 import {
   collegaPnATimelineAction,
   linkWebmailToAziendaTimelineAction,
@@ -1749,6 +1750,7 @@ export function AziendaTimelineModal({
   return (
     <>
       {createPortal(dialog, document.body)}
+      <AziendaNoteBanner aziende={[{ tipo: aziendaTipo, id: aziendaId }]} />
       {cercaIoOpen ? (
         <WebmailScegliModal
           onClose={() => setCercaIoOpen(false)}

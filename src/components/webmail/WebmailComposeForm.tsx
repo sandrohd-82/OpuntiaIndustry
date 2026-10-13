@@ -6,6 +6,7 @@ import {
   sendWebmailNuovaMailAction,
   translateWebmailTextAction,
 } from "@/app/actions/webmail";
+import { AziendaNoteBanner } from "@/components/amministrazione/AziendaNoteBanner";
 import { CanaleAttenzioneBanners } from "@/components/amministrazione/CanaleAttenzioneControls";
 import { WEBMAIL_TRANSLATE_LANGS } from "@/lib/webmail/translate-langs";
 
@@ -117,6 +118,7 @@ export function WebmailComposeForm({
         />
       </label>
       <CanaleAttenzioneBanners emails={[to, cc]} />
+      <AziendaNoteBanner emails={[to, cc]} />
       <label className="block text-sm">
         <span className="mb-1 block font-medium">Cc</span>
         <input

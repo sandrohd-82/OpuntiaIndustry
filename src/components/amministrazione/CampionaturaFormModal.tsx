@@ -17,6 +17,7 @@ import {
 } from "@/app/actions/spedizione-mail";
 import { loadAnagraficaExtraAction } from "@/app/actions/anagrafica-extra";
 import { getClientePossibileAction } from "@/app/actions/promemorie-e-note";
+import { AziendaNoteBanner } from "@/components/amministrazione/AziendaNoteBanner";
 import { updateSedePartenzaAction } from "@/app/actions/impostazioni-sedi";
 import { SpedizioneMailComposeModal } from "@/components/amministrazione/SpedizioneMailComposeModal";
 import { SpedizioneMailPanel } from "@/components/amministrazione/SpedizioneMailPanel";
@@ -717,6 +718,16 @@ export function CampionaturaFormModal({
         ? "compila"
         : "prenota";
     await persistCampionatura(modo);
+  }
+
+  const allertaAziende: {
+    tipo: "cliente" | "cliente_possibile";
+    id: string;
+  }[] = [];
+  if (anagraficaFonte === "possibile" && possibileClienteId) {
+    allertaAziende.push({ tipo: "cliente_possibile", id: possibileClienteId });
+  } else if (cliente?.id) {
+    allertaAziende.push({ tipo: "cliente", id: cliente.id });
   }
 
   return (
@@ -1498,6 +1509,7 @@ export function CampionaturaFormModal({
           }}
         />
       ) : null}
+      <AziendaNoteBanner aziende={allertaAziende} />
     </div>
   );
 }

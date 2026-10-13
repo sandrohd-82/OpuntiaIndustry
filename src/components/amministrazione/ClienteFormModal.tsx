@@ -11,6 +11,7 @@ import type { AnagraficaDuplicatoHit } from "@/lib/amministrazione/anagrafica-du
 import { previewNextCodiceTargaClienteAction } from "@/app/actions/clienti";
 import { listIntermediariProfessionalAction } from "@/app/actions/provvigione-riparto";
 import { AddressSedeFields } from "@/components/amministrazione/AddressSedeFields";
+import { AziendaNoteBanner } from "@/components/amministrazione/AziendaNoteBanner";
 import {
   AnagraficaBrandEditor,
   brandsToInput,
@@ -1465,6 +1466,16 @@ export function ClienteFormModal({
         <AnagraficaDuplicatiBlockModal
           matches={duplicati}
           onClose={() => setDuplicati(null)}
+        />
+      ) : null}
+      {initial?.id ? (
+        <AziendaNoteBanner
+          aziende={[
+            {
+              tipo: isPossibile ? "cliente_possibile" : "cliente",
+              id: initial.id,
+            },
+          ]}
         />
       ) : null}
     </>

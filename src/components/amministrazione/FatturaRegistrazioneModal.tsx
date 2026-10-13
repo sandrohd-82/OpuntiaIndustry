@@ -21,6 +21,7 @@ import { CatalogoOffertaFormModal } from "@/components/amministrazione/CatalogoO
 import { CodificaArticoloRevisioneModal } from "@/components/amministrazione/CodificaArticoloRevisioneModal";
 import { CodiceRigaAcquistoSelect } from "@/components/amministrazione/CodiceRigaAcquistoSelect";
 import { CollegaArticoloModal } from "@/components/amministrazione/CollegaArticoloModal";
+import { AziendaNoteBanner } from "@/components/amministrazione/AziendaNoteBanner";
 import { ClienteSelectField } from "@/components/amministrazione/ClienteSelectField";
 import { FornitoreSelectField } from "@/components/amministrazione/FornitoreSelectField";
 import { MateriaPrimaFormModal } from "@/components/amministrazione/MateriaPrimaFormModal";
@@ -4054,5 +4055,21 @@ export function FatturaRegistrazioneModal({
   }
 
   if (typeof document === "undefined") return null;
-  return createPortal(dialog, document.body);
+  const allertaAziende: {
+    tipo: "cliente" | "fornitore";
+    id: string;
+  }[] = [];
+  if (anagraficaId) {
+    allertaAziende.push({
+      tipo: kind === "ricevuta" ? "fornitore" : "cliente",
+      id: anagraficaId,
+    });
+  }
+  return createPortal(
+    <>
+      {dialog}
+      <AziendaNoteBanner aziende={allertaAziende} />
+    </>,
+    document.body
+  );
 }

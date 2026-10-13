@@ -5,6 +5,7 @@ import { FaChevronDown, FaMagnifyingGlass } from "react-icons/fa6";
 import { lookupFornitoreEnrichmentAction } from "@/app/actions/fornitore-enrichment";
 import { previewNextCodiceTargaAction } from "@/app/actions/fornitori";
 import { AddressSedeFields } from "@/components/amministrazione/AddressSedeFields";
+import { AziendaNoteBanner } from "@/components/amministrazione/AziendaNoteBanner";
 import { LinguaIntercomunicazioneField } from "@/components/amministrazione/LinguaIntercomunicazioneField";
 import { ApriFatturaFicActions } from "@/components/amministrazione/ApriFatturaFicButton";
 import { BioCertificatoPdfField } from "@/components/amministrazione/BioCertificatoPdfField";
@@ -750,6 +751,9 @@ export function FornitoreFormModal({
           </div>
         </form>
       </div>
+      {initial?.id ? (
+        <AziendaNoteBanner aziende={[{ tipo: "fornitore", id: initial.id }]} />
+      ) : null}
     </div>
   );
 }

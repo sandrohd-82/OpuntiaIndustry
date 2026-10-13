@@ -8,6 +8,7 @@ import { listEntityReferentiAction } from "@/app/actions/rubrica";
 import { AnagraficaDuplicatiBlockModal } from "@/components/amministrazione/AnagraficaDuplicatiBlockModal";
 import type { AnagraficaDuplicatoHit } from "@/lib/amministrazione/anagrafica-duplicati";
 import { AddressSedeFields } from "@/components/amministrazione/AddressSedeFields";
+import { AziendaNoteBanner } from "@/components/amministrazione/AziendaNoteBanner";
 import {
   AnagraficaBrandEditor,
   brandsToInput,
@@ -572,6 +573,11 @@ export function PossibileClienteFormModal({
         <AnagraficaDuplicatiBlockModal
           matches={duplicati}
           onClose={() => setDuplicati(null)}
+        />
+      ) : null}
+      {initial?.id ? (
+        <AziendaNoteBanner
+          aziende={[{ tipo: "cliente_possibile", id: initial.id }]}
         />
       ) : null}
     </>

@@ -6,6 +6,7 @@ import {
   listCaselleSpedizioneMailAction,
   upsertPrenotazioneSpedizioneMailAction,
 } from "@/app/actions/spedizione-mail";
+import { AziendaNoteBanner } from "@/components/amministrazione/AziendaNoteBanner";
 import { SpedizioneDestinatarioMailField } from "@/components/amministrazione/SpedizioneDestinatarioMailField";
 import type { SpedizioneAnagraficaMail } from "@/components/amministrazione/SpedizioneDestinatarioMailField";
 import type { SpedizioneMailPrenotazione } from "@/lib/amministrazione/spedizione-mail";
@@ -249,6 +250,10 @@ export function SpedizioneMailComposeModal({
           </button>
         </div>
       </div>
+      <AziendaNoteBanner
+        aziende={anagrafica ? [anagrafica] : []}
+        emails={[to, emailAzienda, emailPec, ...emailGeneriche]}
+      />
     </div>
   );
 }

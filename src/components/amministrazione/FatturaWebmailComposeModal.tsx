@@ -7,6 +7,7 @@ import {
   inviaFatturaDaWebmailAction,
 } from "@/app/actions/fattura-mail";
 import { listCaselleSpedizioneMailAction } from "@/app/actions/spedizione-mail";
+import { AziendaNoteBanner } from "@/components/amministrazione/AziendaNoteBanner";
 import { CanaleAttenzioneBanners } from "@/components/amministrazione/CanaleAttenzioneControls";
 import { buildFatturaA4PdfBlob } from "@/lib/amministrazione/fattura-a4-pdf";
 import { totalsFromFatturaRighe } from "@/lib/amministrazione/fattura-a4-documento";
@@ -257,6 +258,7 @@ export function FatturaWebmailComposeModal({ draft, onClose }: Props) {
               />
             </label>
             <CanaleAttenzioneBanners emails={[to]} />
+            <AziendaNoteBanner emails={[to]} />
             <label className="mt-3 block text-sm">
               <span className="mb-1 block font-medium">Oggetto</span>
               <input

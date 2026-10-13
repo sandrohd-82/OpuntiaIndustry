@@ -18,6 +18,7 @@ import {
   savePreventivoAction,
   stimaSpedizionePreventivoAction,
 } from "@/app/actions/preventivi";
+import { AziendaNoteBanner } from "@/components/amministrazione/AziendaNoteBanner";
 import {
   PreventivoAggiungiProdottoModal,
   type PreventivoProdottoDraft,
@@ -904,6 +905,16 @@ export function PreventivoFormModal({ onClose, onSaved, preventivoId }: Props) {
     draftConsegna === "corriere_nostro" && draftNolo !== ""
       ? applicaMargineSpedizione(draftNolo)
       : 0;
+  const allertaAziende: {
+    tipo: "cliente" | "cliente_possibile";
+    id: string;
+  }[] = [];
+  if (destinatario?.id) {
+    allertaAziende.push({
+      tipo: destinatario.kind === "possibile" ? "cliente_possibile" : "cliente",
+      id: destinatario.id,
+    });
+  }
 
   return (
     <div
@@ -1539,6 +1550,10 @@ export function PreventivoFormModal({ onClose, onSaved, preventivoId }: Props) {
           </div>
         </PreventivoEditModal>
       ) : null}
+      <AziendaNoteBanner
+        aziende={allertaAziende}
+        emails={destinatario?.email ? [destinatario.email] : []}
+      />
     </div>
   );
 }

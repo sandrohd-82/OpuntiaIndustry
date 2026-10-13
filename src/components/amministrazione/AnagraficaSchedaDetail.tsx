@@ -8,6 +8,7 @@ import {
   type AziendaSchedaCardItem,
 } from "@/app/actions/schede-ordini";
 import { SchedaOrdineModal } from "@/components/produzione/SchedaOrdineModal";
+import { AziendaNoteBanner } from "@/components/amministrazione/AziendaNoteBanner";
 import { CanaleReadonlyActions } from "@/components/amministrazione/CanaleAttenzioneControls";
 import { AnagraficaReferentiSection } from "@/components/amministrazione/AnagraficaReferentiSection";
 import { ProdottoProprioProductTag } from "@/components/amministrazione/ProdottoProprioProductTag";
@@ -449,6 +450,7 @@ export function AnagraficaSchedaDetail({
           onClose={() => setSchedaApertaId(null)}
         />
       ) : null}
+      <AziendaNoteBanner aziende={[{ tipo: model.kind, id: model.id }]} />
     </div>
   );
 }

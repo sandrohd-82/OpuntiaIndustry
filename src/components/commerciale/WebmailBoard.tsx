@@ -58,6 +58,7 @@ import {
   WebmailSyncModal,
   type WebmailSyncChoice,
 } from "@/components/webmail/WebmailSyncModal";
+import { AziendaNoteBanner } from "@/components/amministrazione/AziendaNoteBanner";
 import { CanaleAttenzioneBanners } from "@/components/amministrazione/CanaleAttenzioneControls";
 import { BusyBanner, BusySpinner } from "@/components/ui/BusyIndicator";
 import { WithInfoNuvola } from "@/components/ui/InfoNuvola";
@@ -2427,6 +2428,7 @@ export function WebmailBoard({
                           />
                         </label>
                         <CanaleAttenzioneBanners emails={[replyTo]} />
+                        <AziendaNoteBanner emails={[replyTo]} />
                         <label className="block text-sm">
                           <span className="mb-1 block text-xs font-medium">
                             Oggetto
@@ -2487,6 +2489,9 @@ export function WebmailBoard({
                         ) : (
                           <>
                             <CanaleAttenzioneBanners
+                              emails={[selected?.fromAddress ?? ""]}
+                            />
+                            <AziendaNoteBanner
                               emails={[selected?.fromAddress ?? ""]}
                             />
                             <p className="text-xs text-[var(--muted)]">
