@@ -1335,7 +1335,9 @@ export type AnagraficaDocumentoResolved = {
   ragioneSociale: string;
   codiceTarga: string;
   commercialeId: string | null;
+  commercialePersonaId?: string | null;
   affiancatoId?: string | null;
+  affiancatoPersonaId?: string | null;
   createdBy: string | null;
 };
 
@@ -1362,7 +1364,9 @@ export async function resolveClientePerOrdineAction(input: {
     const supabase = await createClient();
     const { data: leadRow, error: leadErr } = await supabase
       .from("clienti_possibili")
-      .select("id, ragione_sociale, stato, cliente_id, commerciale_id, affiancato_id, created_by")
+      .select(
+        "id, ragione_sociale, stato, cliente_id, commerciale_id, commerciale_persona_id, affiancato_id, affiancato_persona_id, created_by"
+      )
       .eq("id", parsed.possibileClienteId)
       .is("deleted_at", null)
       .maybeSingle();
@@ -1391,7 +1395,9 @@ export async function resolveClientePerOrdineAction(input: {
           ragioneSociale: cliente.ragioneSociale,
           codiceTarga: cliente.codiceTarga,
           commercialeId: cliente.commercialeId,
+          commercialePersonaId: cliente.commercialePersonaId,
           affiancatoId: cliente.affiancatoId,
+          affiancatoPersonaId: cliente.affiancatoPersonaId,
           createdBy: cliente.createdBy,
         };
       }
@@ -1407,8 +1413,14 @@ export async function resolveClientePerOrdineAction(input: {
       commercialeId: leadRow.commerciale_id
         ? String(leadRow.commerciale_id)
         : null,
+      commercialePersonaId: leadRow.commerciale_persona_id
+        ? String(leadRow.commerciale_persona_id)
+        : null,
       affiancatoId: leadRow.affiancato_id
         ? String(leadRow.affiancato_id)
+        : null,
+      affiancatoPersonaId: leadRow.affiancato_persona_id
+        ? String(leadRow.affiancato_persona_id)
         : null,
       createdBy: leadRow.created_by ? String(leadRow.created_by) : null,
     };
@@ -1431,7 +1443,9 @@ export async function resolveClientePerOrdineAction(input: {
     ragioneSociale: cliente.ragioneSociale,
     codiceTarga: cliente.codiceTarga,
     commercialeId: cliente.commercialeId,
+    commercialePersonaId: cliente.commercialePersonaId,
     affiancatoId: cliente.affiancatoId,
+    affiancatoPersonaId: cliente.affiancatoPersonaId,
     createdBy: cliente.createdBy,
   };
 }

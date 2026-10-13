@@ -37,7 +37,10 @@ import { createClient, createServiceClient } from "@/lib/supabase/server";
 import { z } from "zod";
 import { resolveAnagraficaOwnerUserIds } from "@/lib/auth/anagrafica-visibility";
 import { loadOwnedAziendaIds } from "@/lib/auth/data-scope-enforce";
-import { loadCommercialLineageUserIds } from "@/lib/auth/commerciale-lineage";
+import {
+  loadCommercialLineagePersonaIds,
+  loadCommercialLineageUserIds,
+} from "@/lib/auth/commerciale-lineage";
 import { isCommercialOwnRecord } from "@/lib/auth/commerciale";
 import { anagraficaListOrClause } from "@/lib/auth/anagrafica-visibility";
 import { isSuperadminProfile } from "@/lib/auth/roles";
@@ -61,6 +64,32 @@ async function requireCampionaturaAccess(mode: "read" | "write") {
     return { ok: false as const, error: "Permesso negato" };
   }
   return { ok: true as const, auth };
+}
+
+/** Il superiore opera anche sulle aziende del sottoalbero, persone senza login comprese. */
+async function aziendaNelPerimetroCampionatura(opts: {
+  userId: string;
+  profile: Parameters<typeof isSuperadminProfile>[0];
+  createdBy: string | null;
+  commercialeId: string | null;
+  commercialePersonaId?: string | null;
+  affiancatoId?: string | null;
+  affiancatoPersonaId?: string | null;
+}): Promise<boolean> {
+  if (isSuperadminProfile(opts.profile)) return true;
+  const [userIds, personaIds] = await Promise.all([
+    loadCommercialLineageUserIds(opts.userId),
+    loadCommercialLineagePersonaIds(opts.userId),
+  ]);
+  return isCommercialOwnRecord({
+    userId: opts.userId,
+    createdBy: opts.createdBy,
+    commercialeId: opts.commercialeId,
+    commercialePersonaId: opts.commercialePersonaId,
+    affiancatoId: opts.affiancatoId,
+    affiancatoPersonaId: opts.affiancatoPersonaId,
+    lineageIds: [...userIds, ...personaIds],
+  });
 }
 
 function mapRiga(row: CampionaturaRigaRow): CampionaturaRiga {
@@ -638,33 +667,20 @@ async function createCampionaturaActionInner(
   const supabase = await createClient();
   const ownerIds = await resolveAnagraficaOwnerUserIds();
   if (ownerIds) {
-    if (resolved.mode === "cliente" && resolved.clienteId) {
-      const owned = await loadOwnedAziendaIds(
-        supabase,
-        gate.auth.userId,
-        "clienti"
-      );
-      if (!owned.includes(resolved.clienteId)) {
-        return {
-          success: false,
-          error: "Puoi inviare campionature solo alle aziende del tuo perimetro.",
-        };
-      }
-    } else {
-      const lineage = await loadCommercialLineageUserIds(gate.auth.userId);
-      const own = isCommercialOwnRecord({
-        userId: gate.auth.userId,
-        createdBy: resolved.createdBy,
-        commercialeId: resolved.commercialeId,
-        affiancatoId: resolved.affiancatoId,
-        lineageIds: lineage,
-      });
-      if (!own && !isSuperadminProfile(gate.auth.profile)) {
-        return {
-          success: false,
-          error: "Puoi inviare campionature solo alle aziende del tuo perimetro.",
-        };
-      }
+    const own = await aziendaNelPerimetroCampionatura({
+      userId: gate.auth.userId,
+      profile: gate.auth.profile,
+      createdBy: resolved.createdBy,
+      commercialeId: resolved.commercialeId,
+      commercialePersonaId: resolved.commercialePersonaId,
+      affiancatoId: resolved.affiancatoId,
+      affiancatoPersonaId: resolved.affiancatoPersonaId,
+    });
+    if (!own) {
+      return {
+        success: false,
+        error: "Puoi inviare campionature solo alle aziende del tuo perimetro.",
+      };
     }
   }
   const parsed = createCampionaturaSchema.safeParse({
@@ -1141,35 +1157,21 @@ export async function updateCampionaturaAction(
     const existing = existingRaw as CampionaturaRow;
     const ownerIds = await resolveAnagraficaOwnerUserIds();
     if (ownerIds) {
-      if (resolved.mode === "cliente" && resolved.clienteId) {
-        const owned = await loadOwnedAziendaIds(
-          supabase,
-          gate.auth.userId,
-          "clienti"
-        );
-        if (!owned.includes(resolved.clienteId)) {
-          return {
-            success: false,
-            error:
-              "Puoi modificare campionature solo delle aziende del tuo perimetro.",
-          };
-        }
-      } else {
-        const lineage = await loadCommercialLineageUserIds(gate.auth.userId);
-        const own = isCommercialOwnRecord({
-          userId: gate.auth.userId,
-          createdBy: resolved.createdBy,
-          commercialeId: resolved.commercialeId,
-          affiancatoId: resolved.affiancatoId,
-          lineageIds: lineage,
-        });
-        if (!own && !isSuperadminProfile(gate.auth.profile)) {
-          return {
-            success: false,
-            error:
-              "Puoi modificare campionature solo delle aziende del tuo perimetro.",
-          };
-        }
+      const own = await aziendaNelPerimetroCampionatura({
+        userId: gate.auth.userId,
+        profile: gate.auth.profile,
+        createdBy: resolved.createdBy,
+        commercialeId: resolved.commercialeId,
+        commercialePersonaId: resolved.commercialePersonaId,
+        affiancatoId: resolved.affiancatoId,
+        affiancatoPersonaId: resolved.affiancatoPersonaId,
+      });
+      if (!own) {
+        return {
+          success: false,
+          error:
+            "Puoi modificare campionature solo delle aziende del tuo perimetro.",
+        };
       }
     }
     const parsed = createCampionaturaSchema.safeParse({
