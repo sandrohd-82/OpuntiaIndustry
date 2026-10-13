@@ -24,6 +24,7 @@ type ExtraRowSede = {
   tipo: AnagraficaSede["tipo"];
   nazione: string;
   provincia: string;
+  localita?: string;
   citta: string;
   cap: string;
   indirizzo: string;
@@ -50,6 +51,7 @@ function mapSede(r: ExtraRowSede): AnagraficaSede {
     tipo: r.tipo,
     nazione: r.nazione ?? "",
     provincia: r.provincia ?? "",
+    localita: r.localita ?? "",
     citta: r.citta ?? "",
     cap: r.cap ?? "",
     indirizzo: r.indirizzo ?? "",
@@ -98,7 +100,7 @@ export async function loadAnagraficaExtraAction(input: {
     supabase
       .from("anagrafica_sedi")
       .select(
-        "id, tipo, nazione, provincia, citta, cap, indirizzo, sort_order, ricezione_campionature, ricezione_acquisti"
+        "id, tipo, nazione, provincia, localita, citta, cap, indirizzo, sort_order, ricezione_campionature, ricezione_acquisti"
       )
       .eq("owner_kind", input.ownerKind)
       .eq("owner_id", input.ownerId)
@@ -154,7 +156,7 @@ export async function loadIndirizzoRicezioneMerce(input: {
     const { data, error } = await supabase
       .from("anagrafica_sedi")
       .select(
-        "id, tipo, nazione, provincia, citta, cap, indirizzo, sort_order, ricezione_campionature, ricezione_acquisti"
+        "id, tipo, nazione, provincia, localita, citta, cap, indirizzo, sort_order, ricezione_campionature, ricezione_acquisti"
       )
       .eq("owner_kind", input.ownerKind)
       .eq("owner_id", input.ownerId)
@@ -235,6 +237,7 @@ export async function persistAnagraficaExtra(input: {
       tipo: s.tipo,
       nazione: s.nazione ?? "",
       provincia: s.provincia ?? "",
+      localita: s.localita ?? "",
       citta: s.citta ?? "",
       cap: s.cap ?? "",
       indirizzo: s.indirizzo ?? "",
@@ -392,6 +395,7 @@ export async function copyAnagraficaExtraAction(input: {
       tipo: s.tipo,
       nazione: s.nazione,
       provincia: s.provincia,
+      localita: s.localita,
       citta: s.citta,
       cap: s.cap,
       indirizzo: s.indirizzo,

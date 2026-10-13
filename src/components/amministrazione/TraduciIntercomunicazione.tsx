@@ -14,7 +14,7 @@ export type TestoTraducibile = {
 };
 
 type Props = {
-  tipo: "cliente" | "cliente_possibile";
+  tipo: "cliente" | "cliente_possibile" | "fornitore";
   id: string;
   documento: "preventivo" | "fattura" | "mail";
   testi: TestoTraducibile[];

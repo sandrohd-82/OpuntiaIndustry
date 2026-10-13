@@ -5,6 +5,7 @@ import { FaChevronDown, FaMagnifyingGlass } from "react-icons/fa6";
 import { lookupFornitoreEnrichmentAction } from "@/app/actions/fornitore-enrichment";
 import { previewNextCodiceTargaAction } from "@/app/actions/fornitori";
 import { AddressSedeFields } from "@/components/amministrazione/AddressSedeFields";
+import { LinguaIntercomunicazioneField } from "@/components/amministrazione/LinguaIntercomunicazioneField";
 import { ApriFatturaFicActions } from "@/components/amministrazione/ApriFatturaFicButton";
 import { BioCertificatoPdfField } from "@/components/amministrazione/BioCertificatoPdfField";
 import { CatalogoOffertaTags } from "@/components/amministrazione/CatalogoOffertaTags";
@@ -53,6 +54,7 @@ function sameSede(a: SedeFornitore, b: SedeFornitore) {
   return (
     a.nazione === b.nazione &&
     a.provincia === b.provincia &&
+    a.localita === b.localita &&
     a.citta === b.citta &&
     a.cap === b.cap &&
     a.indirizzo === b.indirizzo
@@ -63,6 +65,7 @@ function isSedeEmpty(sede: SedeFornitore): boolean {
   return !(
     sede.nazione.trim() ||
     sede.provincia.trim() ||
+    (sede.localita ?? "").trim() ||
     sede.citta.trim() ||
     sede.cap.trim() ||
     sede.indirizzo.trim()
@@ -102,6 +105,7 @@ export function FornitoreFormModal({
   const [sdiCode, setSdiCode] = useState(initial?.sdiCode ?? "");
   const [telefono, setTelefono] = useState(initial?.telefono ?? "");
   const [sitoWeb, setSitoWeb] = useState(initial?.sitoWeb ?? "");
+  const [lingua, setLingua] = useState(initial?.linguaIntercomunicazione ?? "it");
   const [tipologie, setTipologie] = useState<FornitoreTipologia[]>(
     initial?.tipologie ?? []
   );
@@ -279,6 +283,7 @@ export function FornitoreFormModal({
           sdiCode: sdiCode.trim(),
           telefono: telefono.trim(),
           sitoWeb: sitoWeb.trim(),
+          linguaIntercomunicazione: lingua,
           tipologie,
           serviziOfferti: tipologie.includes("servizio") ? servizi : [],
           prodottiFornitore: tipologie.includes("prodotto")
@@ -539,6 +544,7 @@ export function FornitoreFormModal({
                 className="w-full rounded-lg border border-[var(--border)] px-3 py-2 outline-none focus:border-[var(--primary)]"
               />
             </label>
+            <LinguaIntercomunicazioneField value={lingua} onChange={setLingua} />
             <label className="block text-sm sm:col-span-2">
               <span className="mb-1 block font-medium">Sito Web</span>
               <input

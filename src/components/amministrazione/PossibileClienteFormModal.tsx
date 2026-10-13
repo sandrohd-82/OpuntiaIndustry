@@ -27,6 +27,8 @@ import { loadAnagraficaExtraAction } from "@/app/actions/anagrafica-extra";
 import { AnagraficaSchedaSection } from "@/components/amministrazione/AnagraficaSchedaSection";
 import {
   firstSedeOfTipo,
+  isSedeAddressEmpty,
+  isSedeAddressFilled,
   primarySedeAddress,
 } from "@/lib/amministrazione/anagrafica-extra";
 import { ReferentiPickerField } from "@/components/amministrazione/ReferentiPickerField";
@@ -61,23 +63,11 @@ type Props = {
 };
 
 function isSedeFilled(sede: SedeCliente): boolean {
-  return Boolean(
-    sede.nazione.trim() &&
-      sede.provincia.trim() &&
-      sede.citta.trim() &&
-      sede.cap.trim() &&
-      sede.indirizzo.trim()
-  );
+  return isSedeAddressFilled(sede);
 }
 
 function isSedeEmpty(sede: SedeCliente): boolean {
-  return !(
-    sede.nazione.trim() ||
-    sede.provincia.trim() ||
-    sede.citta.trim() ||
-    sede.cap.trim() ||
-    sede.indirizzo.trim()
-  );
+  return isSedeAddressEmpty(sede);
 }
 
 function Collapsible({

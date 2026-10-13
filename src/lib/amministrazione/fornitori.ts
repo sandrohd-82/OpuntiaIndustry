@@ -2,6 +2,7 @@ import {
   labelFornitoreTipologia,
   normalizeTipologie,
 } from "@/lib/amministrazione/catalogo-offerta";
+import { isListinoLingua } from "@/lib/ecosystem/geo-nazioni";
 import type { FornitoreRow, FornitoreTipologia } from "@/types/database";
 
 export const FORNITORI_BIO_BUCKET = "fornitori-bio";
@@ -9,6 +10,8 @@ export const FORNITORI_BIO_BUCKET = "fornitori-bio";
 export type SedeFornitore = {
   nazione: string;
   provincia: string;
+  /** Distretto, quartiere, colonia: solo se il Paese lo prevede. */
+  localita?: string;
   citta: string;
   cap: string;
   indirizzo: string;
@@ -35,6 +38,8 @@ export type Fornitore = {
   /** Path Storage del PDF certificato bio. */
   bioCertificatoPath: string;
   bioCodice: string;
+  /** Lingua di conversazione con il fornitore. Default italiano. */
+  linguaIntercomunicazione?: string;
   createdAt: string;
   createdBy: string | null;
 };
@@ -59,6 +64,7 @@ export type FornitoreInput = {
   contributiOfferti?: string[];
   bioCertificatoPath?: string;
   bioCodice?: string;
+  linguaIntercomunicazione?: string;
   /** Se true, rimuove il PDF bio esistente (senza sostituirlo). */
   removeBioCertificato?: boolean;
   /** Se ripescata da archivio: id riga fornitori_archivio da chiudere al salvataggio. */
@@ -81,6 +87,7 @@ export function emptySede(): SedeFornitore {
   return {
     nazione: "",
     provincia: "",
+    localita: "",
     citta: "",
     cap: "",
     indirizzo: "",
@@ -91,6 +98,7 @@ export function normalizeSede(sede: SedeFornitore): SedeFornitore {
   return {
     nazione: sede.nazione.trim(),
     provincia: sede.provincia.trim(),
+    localita: (sede.localita ?? "").trim(),
     citta: sede.citta.trim(),
     cap: sede.cap.trim(),
     indirizzo: sede.indirizzo.trim(),
@@ -129,6 +137,11 @@ export function normalizeFornitoreInput(input: FornitoreInput): FornitoreInput {
       .filter(Boolean),
     bioCertificatoPath: input.bioCertificatoPath?.trim() ?? "",
     bioCodice: input.bioCodice?.trim() ?? "",
+    linguaIntercomunicazione: isListinoLingua(
+      (input.linguaIntercomunicazione ?? "it").trim().toLowerCase()
+    )
+      ? (input.linguaIntercomunicazione ?? "it").trim().toLowerCase()
+      : "it",
     removeBioCertificato: Boolean(input.removeBioCertificato),
     archivioId: input.archivioId ?? null,
     anagraficaFonte: input.anagraficaFonte ?? null,
@@ -177,6 +190,7 @@ export function mapFornitoreRow(row: FornitoreRow): Fornitore {
     sedeAmministrativa: {
       nazione: row.sede_amm_nazione,
       provincia: row.sede_amm_provincia,
+      localita: row.sede_amm_localita ?? "",
       citta: row.sede_amm_citta,
       cap: row.sede_amm_cap,
       indirizzo: row.sede_amm_indirizzo,
@@ -184,6 +198,7 @@ export function mapFornitoreRow(row: FornitoreRow): Fornitore {
     sedeMagazzino: {
       nazione: row.sede_mag_nazione,
       provincia: row.sede_mag_provincia,
+      localita: row.sede_mag_localita ?? "",
       citta: row.sede_mag_citta,
       cap: row.sede_mag_cap,
       indirizzo: row.sede_mag_indirizzo,
@@ -192,6 +207,11 @@ export function mapFornitoreRow(row: FornitoreRow): Fornitore {
     contributiOfferti: row.contributi_offerti ?? [],
     bioCertificatoPath: row.bio_certificato_path ?? "",
     bioCodice: row.bio_codice ?? "",
+    linguaIntercomunicazione: isListinoLingua(
+      (row.lingua_intercomunicazione ?? "it").trim().toLowerCase()
+    )
+      ? (row.lingua_intercomunicazione ?? "it").trim().toLowerCase()
+      : "it",
     createdAt: row.created_at,
     createdBy: row.created_by ?? null,
   };

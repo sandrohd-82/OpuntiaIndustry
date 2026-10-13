@@ -32,6 +32,7 @@ import { AnagraficaSchedaSection } from "@/components/amministrazione/Anagrafica
 import {
   firstSedeOfTipo,
   isSedeAddressEmpty,
+  isSedeAddressFilled,
   primarySedeAddress,
   sediFromLegacy,
   type AnagraficaBrand,
@@ -141,13 +142,7 @@ function clonaBrand(brand: AnagraficaBrand[]): AnagraficaBrandDraft[] {
 }
 
 function isSedeFilled(sede: SedeCliente): boolean {
-  return Boolean(
-    sede.nazione.trim() &&
-      sede.provincia.trim() &&
-      sede.citta.trim() &&
-      sede.cap.trim() &&
-      sede.indirizzo.trim()
-  );
+  return isSedeAddressFilled(sede);
 }
 
 export function ClienteFormModal({

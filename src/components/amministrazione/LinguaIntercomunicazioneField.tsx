@@ -14,7 +14,7 @@ export function LinguaIntercomunicazioneField({ value, onChange }: Props) {
   return (
     <label className="block text-sm sm:col-span-2">
       <span className="mb-1 block font-medium">
-        Lingua di intercomunicazione
+        Lingua di conversazione
       </span>
       <select
         value={value}

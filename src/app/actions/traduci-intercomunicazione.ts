@@ -8,13 +8,15 @@ import { labelLingua } from "@/lib/ecosystem/geo-nazioni";
 import { traduciTestiIntercomunicazione } from "@/lib/amministrazione/traduci-intercomunicazione";
 import { createClient } from "@/lib/supabase/server";
 
+const tipiScheda = ["cliente", "cliente_possibile", "fornitore"] as const;
+
 const leggiSchema = z.object({
-  tipo: z.enum(["cliente", "cliente_possibile"]),
+  tipo: z.enum(tipiScheda),
   id: z.string().uuid(),
 });
 
 const traduciSchema = z.object({
-  tipo: z.enum(["cliente", "cliente_possibile"]),
+  tipo: z.enum(tipiScheda),
   id: z.string().uuid(),
   documento: z.enum(["preventivo", "fattura", "mail"]),
   testi: z
@@ -38,11 +40,13 @@ async function richiediOperatore(): Promise<
 }
 
 async function linguaSalvata(input: {
-  tipo: "cliente" | "cliente_possibile";
+  tipo: "cliente" | "cliente_possibile" | "fornitore";
   id: string;
 }): Promise<{ ok: true; lingua: string } | { ok: false; error: string }> {
   const supabase = await createClient();
-  const table = input.tipo === "cliente" ? "clienti" : "clienti_possibili";
+  let table: "clienti" | "clienti_possibili" | "fornitori" = "clienti_possibili";
+  if (input.tipo === "cliente") table = "clienti";
+  else if (input.tipo === "fornitore") table = "fornitori";
   const { data, error } = await supabase
     .from(table)
     .select("lingua_intercomunicazione")
@@ -61,7 +65,7 @@ async function linguaSalvata(input: {
 }
 
 export async function leggiLinguaIntercomunicazioneAction(input: {
-  tipo: "cliente" | "cliente_possibile";
+  tipo: "cliente" | "cliente_possibile" | "fornitore";
   id: string;
 }): Promise<
   { success: true; lingua: string } | { success: false; error: string }
@@ -78,7 +82,7 @@ export async function leggiLinguaIntercomunicazioneAction(input: {
 }
 
 export async function traduciIntercomunicazioneAction(input: {
-  tipo: "cliente" | "cliente_possibile";
+  tipo: "cliente" | "cliente_possibile" | "fornitore";
   id: string;
   documento: "preventivo" | "fattura" | "mail";
   testi: Array<{ key: string; text: string }>;

@@ -2,6 +2,14 @@
 
 import { useEffect, useId, useRef, useState } from "react";
 import { FaChevronDown } from "react-icons/fa6";
+import { listNazioniIndirizzoAction } from "@/app/actions/nazioni-indirizzo";
+import type { NazioneIndirizzo } from "@/app/actions/nazioni-indirizzo";
+import {
+  campiIndirizzo,
+  isNazioneItalia,
+  sedeHaCampo,
+  type CampoSede,
+} from "@/lib/address/formato-nazione";
 import {
   joinStreetAndCivico,
   splitStreetAndCivico,
@@ -73,6 +81,7 @@ export function AddressSedeFields({
   const viaInputId = useId();
   const cittaListId = useId();
   const viaListId = useId();
+  const [nazioni, setNazioni] = useState<NazioneIndirizzo[]>([]);
   const [paesi, setPaesi] = useState<PaeseSuggestion[]>([]);
   const [showPaesi, setShowPaesi] = useState(false);
   const [paesiLoading, setPaesiLoading] = useState(false);
@@ -93,10 +102,45 @@ export function AddressSedeFields({
   }
 
   useEffect(() => {
+    let attivo = true;
+    void listNazioniIndirizzoAction().then((res) => {
+      if (attivo && res.success) setNazioni(res.nazioni);
+    });
+    return () => {
+      attivo = false;
+    };
+  }, []);
+
+  function cambiaNazione(nome: string) {
+    const next: SedeFornitore = { ...value, nazione: nome };
+    const campi: CampoSede[] = ["indirizzo", "localita", "citta", "provincia", "cap"];
+    if (!isNazioneItalia(nome)) {
+      for (const campo of campi) {
+        if (!sedeHaCampo(nome, campo)) next[campo] = "";
+      }
+    } else {
+      next.localita = "";
+    }
+    onChange(next);
+  }
+
+  const italia = isNazioneItalia(value.nazione);
+  const nazioneNota = value.nazione.trim();
+  const nazioneInElenco =
+    !nazioneNota || nazioni.some((nazione) => nazione.nome === value.nazione);
+
+  useEffect(() => {
     setCittaQuery(value.citta);
   }, [value.citta]);
 
   useEffect(() => {
+    if (!isNazioneItalia(value.nazione)) {
+      setPaesi([]);
+      setShowPaesi(false);
+      setPaesiLoading(false);
+      return;
+    }
+
     if (skipPaesiFetch.current) {
       skipPaesiFetch.current = false;
       setPaesi([]);
@@ -139,7 +183,7 @@ export function AddressSedeFields({
       window.clearTimeout(timer);
       paeseAbort.current?.abort();
     };
-  }, [cittaQuery]);
+  }, [cittaQuery, value.nazione]);
 
   function selectPaese(paese: PaeseSuggestion) {
     const caps = paese.caps?.length ? paese.caps : paese.cap ? [paese.cap] : [];
@@ -168,6 +212,13 @@ export function AddressSedeFields({
   }
 
   useEffect(() => {
+    if (!isNazioneItalia(value.nazione)) {
+      setStreets([]);
+      setShowStreets(false);
+      setStreetLoading(false);
+      return;
+    }
+
     if (skipStreetFetch.current) {
       skipStreetFetch.current = false;
       setStreets([]);
@@ -218,7 +269,7 @@ export function AddressSedeFields({
       window.clearTimeout(timer);
       streetAbort.current?.abort();
     };
-  }, [value.indirizzo, value.cap, value.citta]);
+  }, [value.indirizzo, value.cap, value.citta, value.nazione]);
 
   function selectStreet(street: StreetSuggestion) {
     const { civico } = splitStreetAndCivico(value.indirizzo);
@@ -238,10 +289,32 @@ export function AddressSedeFields({
   const fields = (
     <>
       <p className="text-xs text-[var(--muted)]">
-        Parti dal paese o dalla frazione: i suggerimenti compilano gli altri
-        campi, ma tutto resta modificabile.
+        {italia
+          ? "Parti dal paese o dalla frazione: i suggerimenti compilano gli altri campi, ma tutto resta modificabile."
+          : "I campi seguono la suddivisione territoriale della nazione scelta."}
       </p>
 
+      <label className="block text-sm">
+        <span className="mb-1 block font-medium">Nazione</span>
+        <select
+          value={value.nazione}
+          onChange={(e) => cambiaNazione(e.target.value)}
+          required={requiredFields}
+          className="w-full rounded-lg border border-[var(--border)] bg-white px-3 py-2 outline-none focus:border-[var(--primary)]"
+        >
+          <option value="">Scegli la nazione</option>
+          {!nazioneInElenco ? (
+            <option value={value.nazione}>{value.nazione}</option>
+          ) : null}
+          {nazioni.map((nazione) => (
+            <option key={nazione.iso2} value={nazione.nome}>
+              {nazione.nome}
+            </option>
+          ))}
+        </select>
+      </label>
+
+      {italia ? (
       <div className="grid gap-3 sm:grid-cols-2">
         <div className="relative sm:col-span-2">
           <label htmlFor={cittaInputId} className="mb-1 block text-sm font-medium">
@@ -291,16 +364,6 @@ export function AddressSedeFields({
           )}
         </div>
 
-        <label className="block text-sm">
-          <span className="mb-1 block font-medium">Nazione</span>
-          <input
-            value={value.nazione}
-            onChange={(e) => setField("nazione", e.target.value)}
-            required={requiredFields}
-            placeholder="Es. Italia"
-            className="w-full rounded-lg border border-[var(--border)] px-3 py-2 outline-none focus:border-[var(--primary)]"
-          />
-        </label>
         <label className="block text-sm">
           <span className="mb-1 block font-medium">Provincia</span>
           <input
@@ -433,6 +496,33 @@ export function AddressSedeFields({
             )}
         </div>
       </div>
+      ) : (
+        <div className="grid gap-3 sm:grid-cols-2">
+          {campiIndirizzo(value.nazione).map((campo) => (
+            <label
+              key={campo.campo}
+              className={`block text-sm ${campo.campo === "indirizzo" ? "sm:col-span-2" : ""}`}
+            >
+              <span className="mb-1 block font-medium">
+                {campo.etichetta}
+                {campo.obbligatorio ? "" : " (facoltativo)"}
+              </span>
+              <input
+                value={value[campo.campo]}
+                onChange={(e) =>
+                  setField(
+                    campo.campo,
+                    e.target.value.slice(0, campo.campo === "cap" ? 16 : 200)
+                  )
+                }
+                required={requiredFields && campo.obbligatorio}
+                placeholder={campo.placeholder}
+                className="w-full rounded-lg border border-[var(--border)] px-3 py-2 outline-none focus:border-[var(--primary)]"
+              />
+            </label>
+          ))}
+        </div>
+      )}
     </>
   );
 

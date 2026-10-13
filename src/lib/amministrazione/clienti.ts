@@ -14,6 +14,7 @@ import {
   matchesCommercialeArea,
 } from "@/lib/auth/commerciale";
 import { normalizeContattiGenerici } from "@/lib/amministrazione/contatti-generici";
+import { isSedeCompilata } from "@/lib/address/formato-nazione";
 import { isListinoLingua } from "@/lib/ecosystem/geo-nazioni";
 import {
   provinciaInRegione,
@@ -141,14 +142,7 @@ export function normalizeConsegnaAltraAzienda(
 }
 
 function isConsegnaComplete(item: ConsegnaAltraAzienda): boolean {
-  return Boolean(
-    item.ragioneSociale.trim() &&
-      item.nazione.trim() &&
-      item.provincia.trim() &&
-      item.citta.trim() &&
-      item.cap.trim() &&
-      item.indirizzo.trim()
-  );
+  return Boolean(item.ragioneSociale.trim() && isSedeCompilata(item));
 }
 
 export function normalizzaLinguaIntercomunicazione(value: unknown): string {
@@ -210,6 +204,7 @@ export function applySediToLegacy(input: ClienteInput): ClienteInput {
     tipo: s.tipo,
     nazione: s.nazione ?? "",
     provincia: s.provincia ?? "",
+    localita: s.localita ?? "",
     citta: s.citta ?? "",
     cap: s.cap ?? "",
     indirizzo: s.indirizzo ?? "",
@@ -250,6 +245,7 @@ export function consegneToDb(
     ragione_sociale: item.ragioneSociale,
     nazione: item.nazione,
     provincia: item.provincia,
+    localita: item.localita,
     citta: item.citta,
     cap: item.cap,
     indirizzo: item.indirizzo,
@@ -264,6 +260,7 @@ function mapConsegnaRow(
     ragioneSociale: String(r.ragione_sociale ?? ""),
     nazione: String(r.nazione ?? ""),
     provincia: String(r.provincia ?? ""),
+    localita: String(r.localita ?? ""),
     citta: String(r.citta ?? ""),
     cap: String(r.cap ?? ""),
     indirizzo: String(r.indirizzo ?? ""),
@@ -303,6 +300,7 @@ export function mapClienteRow(
     sedeAmministrativa: {
       nazione: row.sede_amm_nazione,
       provincia: row.sede_amm_provincia,
+      localita: row.sede_amm_localita ?? "",
       citta: row.sede_amm_citta,
       cap: row.sede_amm_cap,
       indirizzo: row.sede_amm_indirizzo,
@@ -310,6 +308,7 @@ export function mapClienteRow(
     sedeMagazzino: {
       nazione: row.sede_mag_nazione,
       provincia: row.sede_mag_provincia,
+      localita: row.sede_mag_localita ?? "",
       citta: row.sede_mag_citta,
       cap: row.sede_mag_cap,
       indirizzo: row.sede_mag_indirizzo,

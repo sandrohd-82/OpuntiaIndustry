@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { isSedeCompilata, isSedeVuota } from "@/lib/address/formato-nazione";
 import {
   emptySede,
   normalizeSede,
@@ -32,6 +33,7 @@ export type AnagraficaSede = {
   tipo: AnagraficaSedeTipo;
   nazione: string;
   provincia: string;
+  localita?: string;
   citta: string;
   cap: string;
   indirizzo: string;
@@ -58,6 +60,7 @@ export const anagraficaSedeInputSchema = z.object({
   tipo: z.enum(ANAGRAFICA_SEDE_TIPI),
   nazione: z.string().trim().max(80).optional().default(""),
   provincia: z.string().trim().max(80).optional().default(""),
+  localita: z.string().trim().max(120).optional(),
   citta: z.string().trim().max(120).optional().default(""),
   cap: z.string().trim().max(16).optional().default(""),
   indirizzo: z.string().trim().max(200).optional().default(""),
@@ -111,24 +114,12 @@ export function sedeFromAddress(
   };
 }
 
-export function isSedeAddressFilled(sede: Pick<AnagraficaSede, keyof SedeCliente>): boolean {
-  return Boolean(
-    sede.nazione.trim() &&
-      sede.provincia.trim() &&
-      sede.citta.trim() &&
-      sede.cap.trim() &&
-      sede.indirizzo.trim()
-  );
+export function isSedeAddressFilled(sede: SedeCliente): boolean {
+  return isSedeCompilata(normalizeSede(sede));
 }
 
-export function isSedeAddressEmpty(sede: Pick<AnagraficaSede, keyof SedeCliente>): boolean {
-  return !(
-    sede.nazione.trim() ||
-    sede.provincia.trim() ||
-    sede.citta.trim() ||
-    sede.cap.trim() ||
-    sede.indirizzo.trim()
-  );
+export function isSedeAddressEmpty(sede: SedeCliente): boolean {
+  return isSedeVuota(normalizeSede(sede));
 }
 
 export function firstSedeOfTipo(
@@ -140,6 +131,7 @@ export function firstSedeOfTipo(
   return normalizeSede({
     nazione: hit.nazione,
     provincia: hit.provincia,
+    localita: hit.localita,
     citta: hit.citta,
     cap: hit.cap,
     indirizzo: hit.indirizzo,
@@ -211,6 +203,7 @@ export function normalizeSedeInput(s: AnagraficaSedeInput): AnagraficaSedeInput 
     ...normalizeSede({
       nazione: s.nazione ?? "",
       provincia: s.provincia ?? "",
+      localita: s.localita ?? "",
       citta: s.citta ?? "",
       cap: s.cap ?? "",
       indirizzo: s.indirizzo ?? "",
@@ -255,9 +248,9 @@ export function sedeRicezioneMerce(
 }
 
 export function formatSedeIndirizzo(
-  sede: Pick<AnagraficaSede, "indirizzo" | "cap" | "citta" | "provincia" | "nazione">
+  sede: Pick<AnagraficaSede, "indirizzo" | "localita" | "cap" | "citta" | "provincia" | "nazione">
 ): string {
-  return [sede.indirizzo, sede.cap, sede.citta, sede.provincia, sede.nazione]
+  return [sede.indirizzo, sede.localita, sede.cap, sede.citta, sede.provincia, sede.nazione]
     .map((p) => (p ?? "").trim())
     .filter(Boolean)
     .join(", ");
