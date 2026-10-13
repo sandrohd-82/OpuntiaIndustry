@@ -1668,69 +1668,108 @@ export function SpeseCaricamentoBoard() {
           </ul>
         )}
       </section>
-      {chiediFornitore ? (
-        <div className="fixed inset-0 z-[110] flex items-start justify-center bg-slate-950/50 px-4 py-16">
-          <div
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="cerca-fornitore-titolo"
-            className="w-full max-w-lg rounded-2xl border border-slate-200 bg-white p-4 shadow-2xl"
-          >
-            <h3 id="cerca-fornitore-titolo" className="text-base font-semibold text-slate-900">
-              Cerca il fornitore
-            </h3>
-            <p className="mt-1 text-sm text-slate-600">
-              La partita IVA non è stata letta nel documento. Inserisci
-              l&apos;intestazione e la partita IVA per cercare il fornitore già
-              registrato.
-            </p>
-            {cercaErrore ? (
-              <p className="mt-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">
-                {cercaErrore}
-              </p>
-            ) : null}
-            <label className="mt-3 block text-sm">
-              <span className="mb-1 block text-xs font-medium text-[var(--muted)]">
-                Intestazione
-              </span>
-              <input
-                className={field}
-                value={intestazioneCerca}
-                onChange={(e) => setIntestazioneCerca(e.target.value)}
-              />
-            </label>
-            <label className="mt-3 block text-sm">
-              <span className="mb-1 block text-xs font-medium text-[var(--muted)]">
-                Partita IVA
-              </span>
-              <input
-                className={field}
-                value={pivaCerca}
-                onChange={(e) => setPivaCerca(e.target.value)}
-              />
-            </label>
-            <div className="mt-4 flex justify-end gap-2">
-              <button
-                type="button"
-                onClick={() => setChiediFornitore(false)}
-                className="rounded-lg border border-slate-300 px-3 py-2 text-sm font-medium"
+      {chiediFornitore
+        ? createPortal(
+            <div className="fixed inset-0 z-[110] flex h-[100dvh] w-screen flex-col bg-white">
+              <div
+                role="dialog"
+                aria-modal="true"
+                aria-labelledby="cerca-fornitore-titolo"
+                className="grid min-h-0 flex-1 grid-cols-3"
               >
-                Chiudi
-              </button>
-              <button
-                type="button"
-                disabled={cercaPending || !pivaCerca.trim()}
-                onClick={() =>
-                  void cercaFornitoreEApri(pivaCerca.trim(), intestazioneCerca.trim())
-                }
-                className="rounded-lg bg-[var(--primary)] px-3 py-2 text-sm font-medium text-white disabled:opacity-50"
-              >
-                {cercaPending ? "Ricerca…" : "Cerca"}
-              </button>
-            </div>
-          </div>
-        </div>
-      ) : null}
+                <div className="relative col-span-1 min-h-0 border-r border-slate-200 bg-slate-50">
+                  <div className="absolute inset-0">
+                    {vistaFile === "image" && anteprimaUrl ? (
+                      <ScontrinoZoomPane
+                        src={anteprimaUrl}
+                        alt="Fattura da cui copiare intestazione e partita IVA"
+                      />
+                    ) : vistaFile === "pdf" && anteprimaUrl ? (
+                      <object
+                        data={urlPdfLeggibile(anteprimaUrl)}
+                        type="application/pdf"
+                        aria-label="Fattura da cui copiare intestazione e partita IVA"
+                        className="h-full w-full bg-white"
+                      >
+                        <iframe
+                          title="Fattura da cui copiare intestazione e partita IVA"
+                          src={urlPdfLeggibile(anteprimaUrl)}
+                          className="h-full w-full border-0 bg-white"
+                        />
+                      </object>
+                    ) : (
+                      <p className="p-4 text-sm text-slate-600">
+                        Il file non ha un&apos;anteprima. Inserisci intestazione e
+                        partita IVA nel modulo a destra.
+                      </p>
+                    )}
+                  </div>
+                </div>
+                <div className="col-span-2 min-h-0 overflow-y-auto p-6">
+                  <h3
+                    id="cerca-fornitore-titolo"
+                    className="text-base font-semibold text-slate-900"
+                  >
+                    Cerca il fornitore
+                  </h3>
+                  <p className="mt-1 max-w-xl text-sm text-slate-600">
+                    La partita IVA non è stata letta nel documento. Il file è a
+                    sinistra: nel PDF puoi selezionare il testo e copiarlo nei
+                    campi. Poi cerca il fornitore già registrato.
+                  </p>
+                  {cercaErrore ? (
+                    <p className="mt-3 max-w-xl rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">
+                      {cercaErrore}
+                    </p>
+                  ) : null}
+                  <label className="mt-4 block max-w-xl text-sm">
+                    <span className="mb-1 block text-xs font-medium text-[var(--muted)]">
+                      Intestazione
+                    </span>
+                    <input
+                      className={field}
+                      value={intestazioneCerca}
+                      onChange={(e) => setIntestazioneCerca(e.target.value)}
+                    />
+                  </label>
+                  <label className="mt-3 block max-w-xl text-sm">
+                    <span className="mb-1 block text-xs font-medium text-[var(--muted)]">
+                      Partita IVA
+                    </span>
+                    <input
+                      className={field}
+                      value={pivaCerca}
+                      onChange={(e) => setPivaCerca(e.target.value)}
+                    />
+                  </label>
+                  <div className="mt-4 flex gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setChiediFornitore(false)}
+                      className="rounded-lg border border-slate-300 px-3 py-2 text-sm font-medium"
+                    >
+                      Chiudi
+                    </button>
+                    <button
+                      type="button"
+                      disabled={cercaPending || !pivaCerca.trim()}
+                      onClick={() =>
+                        void cercaFornitoreEApri(
+                          pivaCerca.trim(),
+                          intestazioneCerca.trim()
+                        )
+                      }
+                      className="rounded-lg bg-[var(--primary)] px-3 py-2 text-sm font-medium text-white disabled:opacity-50"
+                    >
+                      {cercaPending ? "Ricerca…" : "Cerca"}
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>,
+            document.body
+          )
+        : null}
       {fornitoreNuovo ? (
         <FornitoreFormModal
           mode="create"
