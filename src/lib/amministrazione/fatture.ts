@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { importoFiscaleEuro } from "@/lib/services/currency-exchange";
 import type {
   FatturaDocumentoStato,
   FatturaEmessaDilazioneRow,
@@ -147,6 +148,12 @@ export type Fattura = {
   totaleFic?: number | null;
   /** Solo ricevute: totale documento − totale FiC. */
   totaleScarto?: number | null;
+  valuta?: string;
+  importoValuta?: number | null;
+  tassoCambio?: number | null;
+  tassoCambioData?: string | null;
+  importoFiscaleEur?: number | null;
+  tassoCambioFonte?: "AUTO_ECB" | "MANUAL_OPERATOR" | null;
   statoIncassoNc: FatturaStatoIncassoNc | null;
   rimborsoNecessario: boolean | null;
   rimborsoMezzo: FatturaRimborsoMezzo | null;
@@ -221,6 +228,19 @@ export type FatturaInput = {
   dilazioni?: FatturaDilazione[];
   /** Solo ricevute. */
   contributiCassa?: FatturaContributoCassa[];
+  /** ISO 4217. EUR se il documento è già in euro. */
+  valuta?: string;
+  /** Totale nella valuta estera, prima della conversione. */
+  importoValuta?: number | null;
+  /** Unità di valuta estera per 1 euro. */
+  tassoCambio?: number | null;
+  /** Giorno del listino BCE applicato. */
+  tassoCambioData?: string | null;
+  /** importoValuta / tassoCambio. */
+  importoFiscaleEur?: number | null;
+  tassoCambioFonte?: "AUTO_ECB" | "MANUAL_OPERATOR" | null;
+  /** true solo alla prima registrazione: le righe sono ancora in valuta estera. */
+  applicaCambioRighe?: boolean;
 };
 
 export type FatturaCollegabileOption = {
@@ -628,6 +648,17 @@ const fatturaInputObjectSchema = z.object({
   dilazioniAnnullateIds: z.array(z.string().uuid()).optional(),
   collegaComeCompensativaNcId: z.string().uuid().nullable().optional(),
   note: z.string().optional(),
+  valuta: z.string().trim().max(3).optional(),
+  importoValuta: z.number().positive().nullable().optional(),
+  tassoCambio: z.number().positive().nullable().optional(),
+  tassoCambioData: z
+    .string()
+    .regex(/^\d{4}-\d{2}-\d{2}$/)
+    .nullable()
+    .optional(),
+  importoFiscaleEur: z.number().min(0).nullable().optional(),
+  tassoCambioFonte: z.enum(["AUTO_ECB", "MANUAL_OPERATOR"]).nullable().optional(),
+  applicaCambioRighe: z.boolean().optional(),
   fatturaCollegataId: z.string().uuid().nullable().optional(),
   riferimentoFatturaEsterno: z.string().optional(),
   righe: z.array(rigaSchemaBase).min(1, "Aggiungi almeno un prodotto"),
@@ -642,6 +673,45 @@ function transformFatturaInput(
   const today = todayIsoDate();
   const isNc = kind === "nota_credito";
   const isRicevuta = kind === "ricevuta";
+  const valuta = (v.valuta ?? "EUR").trim().toUpperCase() || "EUR";
+  const cambioRichiesto = isRicevuta && valuta !== "EUR";
+  let fattoreCambio = 1;
+  let fiscaleCambio: number | null = null;
+  if (cambioRichiesto) {
+    if (
+      v.importoValuta == null ||
+      !(v.importoValuta > 0) ||
+      v.tassoCambio == null ||
+      !(v.tassoCambio > 0) ||
+      !v.tassoCambioData ||
+      v.importoFiscaleEur == null ||
+      !v.tassoCambioFonte
+    ) {
+      throw new Error(
+        "Per la fattura in valuta estera serve il tasso di cambio della data di emissione."
+      );
+    }
+    if (v.tassoCambioData > v.dataEmissione) {
+      throw new Error(
+        "La data del cambio non può essere successiva alla data della fattura."
+      );
+    }
+    fiscaleCambio = importoFiscaleEuro(v.importoValuta, v.tassoCambio);
+    if (Math.abs(fiscaleCambio - v.importoFiscaleEur) > 0.02) {
+      throw new Error(
+        "L'importo fiscale non coincide con l'importo in valuta diviso il tasso di cambio."
+      );
+    }
+    if (v.applicaCambioRighe) {
+      const lordo = v.righe.reduce((somma, riga) => {
+        const quantita = Math.abs(Number(riga.quantita) || 0);
+        const prezzo = Math.abs(Number(riga.prezzoUnitario) || 0);
+        return somma + quantita * prezzo * (1 - (Number(riga.scontoPercentuale) || 0) / 100);
+      }, 0) + Math.abs(Number(v.spedizione) || 0);
+      const quota = lordo > 0 ? v.importoValuta / lordo : 1;
+      fattoreCambio = quota / v.tassoCambio;
+    }
+  }
   const righe = v.righe.map((r) => {
     const scontoPercentuale = clampSconto(r.scontoPercentuale ?? 0);
     const quantita = isNc
@@ -659,6 +729,10 @@ function transformFatturaInput(
         : isRicevuta
           ? 0
           : undefined;
+    const prezzoUnitario =
+      Math.round(
+        (Math.abs(r.prezzoUnitario) * fattoreCambio + Number.EPSILON) * 10000
+      ) / 10000;
     return {
       id: r.id,
       prodottoId: r.prodottoId ?? null,
@@ -666,13 +740,13 @@ function transformFatturaInput(
       descrizione: r.descrizione.trim(),
       quantita,
       unitaMisura: (r.unitaMisura ?? "NR").trim() || "NR",
-      prezzoUnitario: Math.abs(r.prezzoUnitario),
+      prezzoUnitario,
       scontoPercentuale,
       ivaPercentuale: ivaRiga,
-      importo: importoRiga(quantita, Math.abs(r.prezzoUnitario), scontoPercentuale),
+      importo: importoRiga(quantita, prezzoUnitario, scontoPercentuale),
       isBeneAmmortizzabile:
         !isNc &&
-        canFlagBeneAmmortizzabile(Math.abs(r.prezzoUnitario)) &&
+        canFlagBeneAmmortizzabile(prezzoUnitario) &&
         Boolean(r.isBeneAmmortizzabile),
       aiMatchData: r.aiMatchData ?? null,
       verificationStatus: r.verificationStatus ?? null,
@@ -764,7 +838,7 @@ function transformFatturaInput(
 
   const totalsPreview = calcolaTotaliFattura({
     righe,
-    spedizione: Math.abs(Number(v.spedizione) || 0),
+    spedizione: roundMoney(Math.abs(Number(v.spedizione) || 0) * fattoreCambio),
     spedizioneIvaApplicata: Boolean(v.spedizioneIvaApplicata),
     spedizioneIvaPercentuale:
       v.spedizioneIvaPercentuale != null
@@ -777,9 +851,13 @@ function transformFatturaInput(
     contributiCassa: isRicevuta ? contributiCassa : [],
   });
 
-  const totaleManuale = isRicevuta && Boolean(v.totaleManuale);
+  const totaleManuale =
+    (isRicevuta && Boolean(v.totaleManuale)) ||
+    (fiscaleCambio != null && Boolean(v.applicaCambioRighe));
   let totaleOverride: number | null = null;
-  if (totaleManuale) {
+  if (fiscaleCambio != null && v.applicaCambioRighe) {
+    totaleOverride = fiscaleCambio;
+  } else if (totaleManuale) {
     const raw = v.totaleOverride;
     if (raw == null || !Number.isFinite(Number(raw))) {
       throw new Error("Totale manuale: inserisci un importo valido.");
@@ -801,7 +879,14 @@ function transformFatturaInput(
     fatturaCollegataId: v.fatturaCollegataId ?? null,
     riferimentoFatturaEsterno: (v.riferimentoFatturaEsterno ?? "").trim(),
     ficId: v.ficId ?? null,
-    spedizione: Math.abs(Number(v.spedizione) || 0),
+    valuta: cambioRichiesto ? valuta : "EUR",
+    importoValuta: cambioRichiesto ? v.importoValuta ?? null : null,
+    tassoCambio: cambioRichiesto ? v.tassoCambio ?? null : null,
+    tassoCambioData: cambioRichiesto ? v.tassoCambioData ?? null : null,
+    importoFiscaleEur: cambioRichiesto ? fiscaleCambio : null,
+    tassoCambioFonte: cambioRichiesto ? v.tassoCambioFonte ?? null : null,
+    applicaCambioRighe: false,
+    spedizione: roundMoney(Math.abs(Number(v.spedizione) || 0) * fattoreCambio),
     spedizioneIvaApplicata: Boolean(v.spedizioneIvaApplicata),
     spedizioneIvaPercentuale: Math.min(
       100,
@@ -1036,6 +1121,13 @@ export function mapFatturaRicevutaRow(
     totaleManuale: Boolean(
       (row as { totale_manuale?: boolean }).totale_manuale
     ),
+    valuta: row.valuta ?? "EUR",
+    importoValuta: row.importo_valuta != null ? Number(row.importo_valuta) : null,
+    tassoCambio: row.tasso_cambio != null ? Number(row.tasso_cambio) : null,
+    tassoCambioData: row.tasso_cambio_data,
+    importoFiscaleEur:
+      row.importo_fiscale_eur != null ? Number(row.importo_fiscale_eur) : null,
+    tassoCambioFonte: row.tasso_cambio_fonte,
     totaleFic:
       totaleFicRaw != null && Number.isFinite(Number(totaleFicRaw))
         ? Number(totaleFicRaw)

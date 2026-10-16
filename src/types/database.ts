@@ -1996,6 +1996,12 @@ export interface FatturaRicevutaRow {
   versione: number;
   documento_stato: FatturaDocumentoStato;
   note: string;
+  valuta: string;
+  importo_valuta: number | null;
+  tasso_cambio: number | null;
+  tasso_cambio_data: string | null;
+  importo_fiscale_eur: number | null;
+  tasso_cambio_fonte: "AUTO_ECB" | "MANUAL_OPERATOR" | null;
   richiede_aggiornamento_catalogo: boolean;
   codice_catalogo_pending: string | null;
   totale_manuale: boolean;
@@ -2034,6 +2040,12 @@ export type FatturaRicevutaInsert = {
   versione?: number;
   documento_stato?: FatturaDocumentoStato;
   note?: string;
+  valuta?: string;
+  importo_valuta?: number | null;
+  tasso_cambio?: number | null;
+  tasso_cambio_data?: string | null;
+  importo_fiscale_eur?: number | null;
+  tasso_cambio_fonte?: "AUTO_ECB" | "MANUAL_OPERATOR" | null;
   totale_manuale?: boolean;
   totale_forzato_at?: string | null;
   totale_forzato_by?: string | null;

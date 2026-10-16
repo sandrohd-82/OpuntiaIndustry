@@ -49,7 +49,14 @@ import {
   InvoiceAIMatchModal,
   InvoiceAiMatchBadge,
 } from "@/components/amministrazione/InvoiceAIMatchModal";
+import { ManualExchangeRateModal } from "@/components/amministrazione/ManualExchangeRateModal";
 import { ModificaArticoloRigaModal } from "@/components/amministrazione/ModificaArticoloRigaModal";
+import { tassoCambioFiscaleAction } from "@/app/actions/cambio-valuta";
+import {
+  importoFiscaleEuro,
+  VALUTE_FATTURA_ESTERA,
+  type FonteTassoCambio,
+} from "@/lib/services/currency-exchange";
 import { useActionAccess } from "@/components/layout/ActionAccessProvider";
 import { AZ } from "@/lib/auth/action-access";
 import {
@@ -169,6 +176,23 @@ function applicaNomeGiaInCatalogo(
   return { ...riga, codice: esistente.codice };
 }
 
+function normalizzaValutaFattura(codice: string | undefined): string {
+  const valore = (codice || "USD").trim().toUpperCase();
+  if (valore === "EUR") return "EUR";
+  if ((VALUTE_FATTURA_ESTERA as readonly string[]).includes(valore)) return valore;
+  return "USD";
+}
+
+function testoValoreFiscale(importoTesto: string, tasso: number): string {
+  const importo = Number(importoTesto.replace(",", "."));
+  if (!(importo > 0) || !(tasso > 0)) return "";
+  const euro = importoFiscaleEuro(importo, tasso).toLocaleString("it-IT", {
+    style: "currency",
+    currency: "EUR",
+  });
+  return ` · valore fiscale ${euro}`;
+}
+
 function codiceArticoloGiaPresente(error: string): string | null {
   const come = error.match(/esiste già come\s+([A-Za-z0-9][A-Za-z0-9\-_]*)/i);
   if (come?.[1]) return come[1];
@@ -219,6 +243,10 @@ export type FatturaRegistrazionePrefill = {
   righe?: FatturaRiga[];
   contributiCassa?: FatturaContributoCassa[];
   lockAnagrafica?: boolean;
+  /** Caricamento da strumenti: applica il cambio BCE della data fattura. */
+  fatturaEstera?: boolean;
+  valuta?: string;
+  importoValuta?: number | null;
 };
 
 type Props = {
@@ -506,6 +534,40 @@ export function FatturaRegistrazioneModal({
     seed.dilazioniAnnullateIds ?? []
   );
   const [note, setNote] = useState(seed.note ?? "");
+  const fatturaEstera = Boolean(
+    seed.fatturaEstera || (initial?.valuta && initial.valuta !== "EUR")
+  );
+  const [valuta, setValuta] = useState(
+    normalizzaValutaFattura(seed.valuta || initial?.valuta)
+  );
+  const [importoValutaTesto, setImportoValutaTesto] = useState(
+    seed.importoValuta != null
+      ? String(seed.importoValuta)
+      : initial?.importoValuta != null
+        ? String(initial.importoValuta)
+        : ""
+  );
+  const cambioManualeTenuto = useRef(false);
+  const importoValutaToccato = useRef(
+    seed.importoValuta != null || initial?.importoValuta != null
+  );
+  const [cambio, setCambio] = useState<{
+    tasso: number;
+    dataCambio: string;
+    fonte: FonteTassoCambio;
+  } | null>(
+    initial?.tassoCambio && initial.tassoCambioData && initial.tassoCambioFonte
+      ? {
+          tasso: initial.tassoCambio,
+          dataCambio: initial.tassoCambioData,
+          fonte: initial.tassoCambioFonte,
+        }
+      : null
+  );
+  const [cambioStato, setCambioStato] = useState<"ok" | "carico" | "errore">(
+    cambio ? "ok" : "ok"
+  );
+  const [cambioManuale, setCambioManuale] = useState(false);
   const [righe, setRighe] = useState<EditableRiga[]>(() =>
     toEditableRighe(seed.righe, kind)
   );
@@ -592,6 +654,43 @@ export function FatturaRegistrazioneModal({
       contributiCassa,
     ]
   );
+
+  useEffect(() => {
+    if (!fatturaEstera || importoValutaToccato.current) return;
+    if (totals.totale > 0) {
+      setImportoValutaTesto(String(Math.round(totals.totale * 100) / 100));
+    }
+  }, [fatturaEstera, totals.totale]);
+
+  useEffect(() => {
+    if (!fatturaEstera || isEdit || valuta === "EUR") return;
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(dataEmissione)) return;
+    let attivo = true;
+    cambioManualeTenuto.current = false;
+    setCambioStato("carico");
+    void tassoCambioFiscaleAction({
+      dataFattura: dataEmissione,
+      valuta,
+    }).then((res) => {
+      if (!attivo || cambioManualeTenuto.current) return;
+      if (!res.success) {
+        setCambio(null);
+        setCambioStato("errore");
+        setCambioManuale(true);
+        return;
+      }
+      setCambio({
+        tasso: res.tasso,
+        dataCambio: res.dataCambio,
+        fonte: "AUTO_ECB",
+      });
+      setCambioStato("ok");
+      setCambioManuale(false);
+    });
+    return () => {
+      attivo = false;
+    };
+  }, [fatturaEstera, isEdit, valuta, dataEmissione]);
 
   const totaleEffettivo = useMemo(() => {
     if (
@@ -1702,6 +1801,30 @@ export function FatturaRegistrazioneModal({
       return;
     }
 
+    const importoValuta = Number(importoValutaTesto.replace(",", "."));
+    const fiscalePronto =
+      fatturaEstera &&
+      valuta !== "EUR" &&
+      cambio &&
+      cambio.tasso > 0 &&
+      Number.isFinite(importoValuta) &&
+      importoValuta > 0
+        ? importoFiscaleEuro(importoValuta, cambio.tasso)
+        : null;
+    if (fatturaEstera && !isEdit && valuta !== "EUR") {
+      if (!Number.isFinite(importoValuta) || importoValuta <= 0) {
+        setFormError("Inserisci l'importo in valuta estera.");
+        return;
+      }
+      if (!cambio || cambio.tasso <= 0 || fiscalePronto == null) {
+        setCambioManuale(true);
+        setFormError(
+          "Serve il tasso di cambio ufficiale della data di emissione prima di salvare."
+        );
+        return;
+      }
+    }
+
     setSaving(true);
     setFormError(null);
     try {
@@ -1796,6 +1919,16 @@ export function FatturaRegistrazioneModal({
             });
       if (righeSalvate !== righe) setRighe(righeSalvate);
 
+      let totaleOverrideInvio: number | null = null;
+      if (isRicevuta && fiscalePronto != null) {
+        totaleOverrideInvio = fiscalePronto;
+      } else if (isRicevuta && totaleManuale) {
+        totaleOverrideInvio = numberOrZero(totaleOverride);
+      }
+      const cambioEstero = fatturaEstera && valuta !== "EUR";
+      const tassoInvio = cambioEstero && cambio ? cambio.tasso : null;
+      const dataCambioInvio = cambioEstero && cambio ? cambio.dataCambio : null;
+      const fonteInvio = cambioEstero && cambio ? cambio.fonte : null;
       const fd = new FormData();
       const righePayload: FatturaRiga[] = righeSalvate.map((r) => {
         const scontoPercentuale = numberOrZero(r.scontoPercentuale);
@@ -1835,11 +1968,15 @@ export function FatturaRegistrazioneModal({
           ivaPercentuale: isRicevuta
             ? totals.ivaPercentualePrevalente
             : numberOrZero(ivaPercentuale),
-          totaleManuale: isRicevuta ? totaleManuale : false,
-          totaleOverride:
-            isRicevuta && totaleManuale
-              ? numberOrZero(totaleOverride)
-              : null,
+          totaleManuale: isRicevuta && (totaleManuale || fiscalePronto != null),
+          totaleOverride: totaleOverrideInvio,
+          valuta: fatturaEstera ? valuta : "EUR",
+          importoValuta: cambioEstero ? importoValuta : null,
+          tassoCambio: tassoInvio,
+          tassoCambioData: dataCambioInvio,
+          importoFiscaleEur: fiscalePronto,
+          tassoCambioFonte: fonteInvio,
+          applicaCambioRighe: Boolean(cambioEstero && !isEdit),
           totaleFic: isRicevuta ? totaleFic : null,
           confermaScartoFic: isRicevuta ? confermaScartoFic : false,
           statoPagamento: isSostituzione
@@ -2097,6 +2234,86 @@ export function FatturaRegistrazioneModal({
                 className="w-full rounded-lg border border-[var(--border)] bg-slate-50 px-3 py-2 font-mono text-sm"
               />
             </div>
+            {fatturaEstera ? (
+              <div className="sm:col-span-2 rounded-lg border border-slate-200 bg-slate-50 p-3">
+                <p className="text-xs font-semibold uppercase tracking-wide text-slate-700">
+                  Valuta e cambio fiscale
+                </p>
+                <p className="mt-1 text-xs text-slate-600">
+                  Il valore in euro usa il cambio BCE della data di emissione:
+                  quante unità di valuta estera per 1 euro. Se quel giorno è
+                  festivo, si usa il giorno lavorativo precedente.
+                </p>
+                <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                  <label className="block text-sm">
+                    <span className="mb-1 block text-xs font-medium text-[var(--muted)]">
+                      Valuta
+                    </span>
+                    <select
+                      value={valuta}
+                      onChange={(e) => setValuta(e.target.value)}
+                      className="w-full rounded-lg border border-[var(--border)] bg-white px-3 py-2"
+                    >
+                      <option value="EUR">EUR — già in euro</option>
+                      {VALUTE_FATTURA_ESTERA.map((codice) => (
+                        <option key={codice} value={codice}>
+                          {codice}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <label className="block text-sm">
+                    <span className="mb-1 block text-xs font-medium text-[var(--muted)]">
+                      Importo in valuta
+                    </span>
+                    <input
+                      inputMode="decimal"
+                      value={importoValutaTesto}
+                      onChange={(e) => {
+                        importoValutaToccato.current = true;
+                        setImportoValutaTesto(e.target.value);
+                      }}
+                      className="w-full rounded-lg border border-[var(--border)] bg-white px-3 py-2 font-mono"
+                    />
+                  </label>
+                </div>
+                {valuta !== "EUR" ? (
+                  <div className="mt-3 text-sm text-slate-800">
+                    {cambioStato === "carico" ? (
+                      <p>Lettura del cambio BCE…</p>
+                    ) : null}
+                    {cambio && cambioStato === "ok" ? (
+                      <p>
+                        1 EUR = {cambio.tasso} {valuta}
+                        {" · "}
+                        listino {cambio.dataCambio}
+                        {" · "}
+                        {cambio.fonte === "MANUAL_OPERATOR"
+                          ? "inserito dall'operatore"
+                          : "BCE"}
+                        {testoValoreFiscale(importoValutaTesto, cambio.tasso)}
+                      </p>
+                    ) : null}
+                    {cambioStato === "errore" && !cambio ? (
+                      <p className="text-amber-900">
+                        Cambio non reperibile. Inseriscilo a mano per poter salvare.
+                      </p>
+                    ) : null}
+                    <button
+                      type="button"
+                      className="mt-2 rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-medium"
+                      onClick={() => setCambioManuale(true)}
+                    >
+                      Inserisci il tasso a mano
+                    </button>
+                  </div>
+                ) : (
+                  <p className="mt-3 text-xs text-slate-600">
+                    Documento già in euro: non serve il cambio.
+                  </p>
+                )}
+              </div>
+            ) : null}
             {isNc ? (
               <div className="sm:col-span-2 space-y-3">
                 <div>
@@ -2214,7 +2431,7 @@ export function FatturaRegistrazioneModal({
             ) : null}
             <div>
               <label className="mb-1 block text-xs font-medium uppercase tracking-wide text-[var(--muted)]">
-                N. documento esterno (FiC / fornitore)
+                {fatturaEstera ? "Numero fattura" : "N. documento esterno (FiC / fornitore)"}
               </label>
               <input
                 type="text"
@@ -3884,6 +4101,26 @@ export function FatturaRegistrazioneModal({
           }}
           onAssociaManualmente={() => {
             setCollegaRigaIndex(aiMatchModalIndex);
+          }}
+        />
+      ) : null}
+
+      {cambioManuale && fatturaEstera && valuta !== "EUR" ? (
+        <ManualExchangeRateModal
+          dataFattura={dataEmissione}
+          valuta={valuta}
+          importoValuta={Number(importoValutaTesto.replace(",", ".")) || 0}
+          onClose={() => setCambioManuale(false)}
+          onApply={(tasso) => {
+            cambioManualeTenuto.current = true;
+            setCambio({
+              tasso,
+              dataCambio: dataEmissione,
+              fonte: "MANUAL_OPERATOR",
+            });
+            setCambioStato("ok");
+            setCambioManuale(false);
+            setFormError(null);
           }}
         />
       ) : null}

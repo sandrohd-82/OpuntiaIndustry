@@ -589,6 +589,9 @@ export function SpeseCaricamentoBoard() {
       dataEmissione: data || undefined,
       ivaPercentuale: documento?.aliquotaIva ?? undefined,
       note: "Fattura estera caricata dagli strumenti.",
+      fatturaEstera: true,
+      valuta: (documento?.valuta || form.valuta || "USD").toUpperCase(),
+      importoValuta: documento?.totale ?? null,
       righe: righeFatturaDaAnteprima(documento),
     });
   }
