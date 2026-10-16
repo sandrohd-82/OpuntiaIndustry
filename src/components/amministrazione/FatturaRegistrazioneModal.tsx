@@ -58,6 +58,7 @@ import {
   prepareFatturaSyncStructural,
   type NuovoArticoloSyncDraft,
 } from "@/lib/amministrazione/fattura-sync-prep";
+import { normalizeNomeCatalogo } from "@/lib/amministrazione/catalogo-offerta";
 import type { CatalogoAcquistoKind } from "@/lib/sku-generator";
 import {
   listCollegamentiByCodiciAction,
@@ -140,6 +141,40 @@ type VoceAcquisto = {
   codice: string;
   nome: string;
 };
+
+function voceConNomeEsatto(
+  testo: string,
+  voci: VoceAcquisto[]
+): VoceAcquisto | undefined {
+  const target = normalizeNomeCatalogo(testo);
+  if (target.length < 2) return undefined;
+  return voci.find((voce) => normalizeNomeCatalogo(voce.nome) === target);
+}
+
+/** Se la descrizione è già un articolo, usa la sua targa invece di proporne una nuova. */
+function applicaNomeGiaInCatalogo(
+  riga: EditableRiga,
+  voci: VoceAcquisto[]
+): EditableRiga {
+  const code = (riga.codice ?? "").trim();
+  if (
+    code &&
+    code !== "—" &&
+    voci.some((voce) => voce.codice.trim().toLowerCase() === code.toLowerCase())
+  ) {
+    return riga;
+  }
+  const esistente = voceConNomeEsatto(riga.descrizione ?? "", voci);
+  if (!esistente) return riga;
+  return { ...riga, codice: esistente.codice };
+}
+
+function codiceArticoloGiaPresente(error: string): string | null {
+  const come = error.match(/esiste già come\s+([A-Za-z0-9][A-Za-z0-9\-_]*)/i);
+  if (come?.[1]) return come[1];
+  const materia = error.match(/stesso nome\s+\(([^)—]+)/);
+  return materia?.[1]?.trim() || null;
+}
 
 type EditableDilazione = Omit<FatturaDilazione, "importo"> & {
   importo: number | "";
@@ -1020,7 +1055,9 @@ export function FatturaRegistrazioneModal({
               // Coda nuovi articoli (non in catalogo) → modale 1/N obbligatoria
               const drafts: NuovoArticoloSyncDraft[] = [];
               next.forEach((r, index) => {
-                const code = (r.codice ?? "").trim();
+                const collegata = applicaNomeGiaInCatalogo(r, vociAcquisto);
+                if (collegata !== r) next[index] = collegata;
+                const code = (next[index]?.codice ?? "").trim();
                 if (code && code !== "—" && catalogCodes.has(code.toLowerCase())) {
                   return;
                 }
@@ -1062,7 +1099,11 @@ export function FatturaRegistrazioneModal({
               vociAcquisto.map((v) => v.codice.trim().toLowerCase())
             );
             const drafts: NuovoArticoloSyncDraft[] = [];
-            updatedRighe.forEach((r, index) => {
+            const collegatiPerNome = updatedRighe.map((r) =>
+              applicaNomeGiaInCatalogo(r, vociAcquisto)
+            );
+            setRighe(collegatiPerNome);
+            collegatiPerNome.forEach((r, index) => {
               const code = (r.codice ?? "").trim();
               if (code && code !== "—" && catalogCodes.has(code.toLowerCase())) {
                 return;
@@ -1092,7 +1133,11 @@ export function FatturaRegistrazioneModal({
           vociAcquisto.map((v) => v.codice.trim().toLowerCase())
         );
         const drafts: NuovoArticoloSyncDraft[] = [];
-        updatedRighe.forEach((r, index) => {
+        const collegatiPerNome = updatedRighe.map((r) =>
+          applicaNomeGiaInCatalogo(r, vociAcquisto)
+        );
+        setRighe(collegatiPerNome);
+        collegatiPerNome.forEach((r, index) => {
           const code = (r.codice ?? "").trim();
           if (code && code !== "—" && catalogCodes.has(code.toLowerCase())) {
             return;
@@ -1660,7 +1705,9 @@ export function FatturaRegistrazioneModal({
     setSaving(true);
     setFormError(null);
     try {
-      // Persistenza unica: crea in catalogo i nuovi codici tenuti in memoria
+      const codiceGiaUsato = new Map<string, string>();
+      // Persistenza unica: crea in catalogo i nuovi codici tenuti in memoria.
+      // Se il nome è già un articolo, la riga usa quella targa e non ne nasce un'altra.
       if (isRicevuta && Object.keys(pendingNuoviByKey).length > 0) {
         const byCodice = new Map<string, NuovoArticoloSyncDraft>();
         for (const d of Object.values(pendingNuoviByKey)) {
@@ -1669,10 +1716,19 @@ export function FatturaRegistrazioneModal({
           byCodice.set(c.toLowerCase(), d);
         }
         for (const d of byCodice.values()) {
+          const chiave = d.codice.trim().toLowerCase();
           const already = vociAcquisto.some(
-            (v) => v.codice.trim().toLowerCase() === d.codice.trim().toLowerCase()
+            (v) => v.codice.trim().toLowerCase() === chiave
           );
           if (already) continue;
+
+          const esistente =
+            voceConNomeEsatto(d.nome, vociAcquisto) ??
+            voceConNomeEsatto(d.descrizione, vociAcquisto);
+          if (esistente) {
+            codiceGiaUsato.set(chiave, esistente.codice);
+            continue;
+          }
 
           if (d.kind === "materia") {
             const mp = await createMateriaPrimaAction({
@@ -1681,6 +1737,11 @@ export function FatturaRegistrazioneModal({
               note: `Da sync fattura: ${d.descrizione}`,
             });
             if (!mp.success) {
+              const riuso = codiceArticoloGiaPresente(mp.error);
+              if (riuso) {
+                codiceGiaUsato.set(chiave, riuso);
+                continue;
+              }
               setFormError(`Nuovo articolo ${d.codice}: ${mp.error}`);
               setSaving(false);
               return;
@@ -1704,6 +1765,11 @@ export function FatturaRegistrazioneModal({
               note: `Da sync fattura: ${d.descrizione}`,
             });
             if (!res.success) {
+              const riuso = codiceArticoloGiaPresente(res.error);
+              if (riuso) {
+                codiceGiaUsato.set(chiave, riuso);
+                continue;
+              }
               setFormError(`Nuovo articolo ${d.codice}: ${res.error}`);
               setSaving(false);
               return;
@@ -1719,8 +1785,19 @@ export function FatturaRegistrazioneModal({
         setPendingNuoviByKey({});
       }
 
+      const righeSalvate =
+        codiceGiaUsato.size === 0
+          ? righe
+          : righe.map((riga) => {
+              const riuso = codiceGiaUsato.get(
+                (riga.codice ?? "").trim().toLowerCase()
+              );
+              return riuso ? { ...riga, codice: riuso } : riga;
+            });
+      if (righeSalvate !== righe) setRighe(righeSalvate);
+
       const fd = new FormData();
-      const righePayload: FatturaRiga[] = righe.map((r) => {
+      const righePayload: FatturaRiga[] = righeSalvate.map((r) => {
         const scontoPercentuale = numberOrZero(r.scontoPercentuale);
         const quantita = isNc
           ? normalizeQuantitaNotaCredito(numberOrZero(r.quantita))
