@@ -28,9 +28,9 @@ function modelChain(): string[] {
     .map((s) => s.trim())
     .filter(Boolean);
   const defaults = [
-    "gemini-2.5-flash",
-    "gemini-2.0-flash",
-    "gemini-flash-latest",
+    "gemini-3.6-flash",
+    "gemini-3.5-flash-lite",
+    "gemini-3.1-flash-lite",
   ];
   return [
     ...new Set(
@@ -41,20 +41,29 @@ function modelChain(): string[] {
   ];
 }
 
-function isGeminiBusyError(e: unknown): boolean {
-  const msg = e instanceof Error ? e.message : String(e);
-  return /503|429|404|high demand|unavailable|overloaded|try again later|resource.?exhausted|not found|not supported/i.test(
-    msg
+function messaggioErrore(e: unknown): string {
+  return e instanceof Error ? e.message : String(e);
+}
+
+function modelloAssente(e: unknown): boolean {
+  return /404|not found|no longer available|is not supported|not supported/i.test(
+    messaggioErrore(e)
   );
 }
 
-function friendlyGeminiError(e: unknown): Error {
-  if (isGeminiBusyError(e)) {
-    return new Error(
-      "Il servizio di traduzione è momentaneamente saturo. Riprova tra poco."
-    );
-  }
-  return e instanceof Error ? e : new Error("Traduzione non riuscita.");
+function servizioSaturo(e: unknown): boolean {
+  return /503|429|high demand|overloaded|try again later|resource.?exhausted/i.test(
+    messaggioErrore(e)
+  );
+}
+
+function erroreRipetibile(e: unknown): boolean {
+  const msg = messaggioErrore(e);
+  return (
+    servizioSaturo(e) ||
+    modelloAssente(e) ||
+    /Risposta di traduzione non valida|Traduzione incompleta/.test(msg)
+  );
 }
 
 function extractJsonText(raw: string): string {
@@ -108,13 +117,12 @@ TESTI:
 ${JSON.stringify({ items: payload })}`;
 
   const models = modelChain();
-  let lastBusy: unknown = null;
+  let lastError: unknown = null;
   for (const modelName of models) {
     try {
       const model = genAI.getGenerativeModel({
         model: modelName,
         generationConfig: {
-          temperature: 0.1,
           responseMimeType: "application/json",
         },
       });
@@ -143,12 +151,29 @@ ${JSON.stringify({ items: payload })}`;
         text: byKey.get(item.key) ?? item.text,
       }));
     } catch (e) {
-      if (isGeminiBusyError(e)) {
-        lastBusy = e;
+      console.error(
+        "[traduci-intercomunicazione]",
+        modelName,
+        messaggioErrore(e)
+      );
+      if (erroreRipetibile(e)) {
+        lastError = e;
         continue;
       }
-      throw friendlyGeminiError(e);
+      throw e instanceof Error ? e : new Error("Traduzione non riuscita.");
     }
   }
-  throw friendlyGeminiError(lastBusy);
+  if (lastError && servizioSaturo(lastError)) {
+    throw new Error(
+      "Il servizio di traduzione è momentaneamente saturo. Riprova tra poco."
+    );
+  }
+  if (lastError && modelloAssente(lastError)) {
+    throw new Error(
+      "Il modello di traduzione non è raggiungibile. Riprova tra poco."
+    );
+  }
+  throw lastError instanceof Error
+    ? lastError
+    : new Error("Traduzione non riuscita.");
 }
