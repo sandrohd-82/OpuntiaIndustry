@@ -1612,10 +1612,11 @@ export function SpeseCaricamentoBoard() {
       })()}
       <section className="rounded-xl border border-[var(--border)] bg-[var(--card)] p-4">
         <h2 className="text-sm font-semibold text-slate-900">
-          Ricevute salvate negli ultimi 30 giorni
+          Documenti salvati negli ultimi 30 giorni
         </h2>
         <p className="mt-1 text-xs text-[var(--muted)]">
-          Le più recenti per prime, in base a quando sono state registrate.
+          Scontrini e fatture estere, i più recenti per primi, in base a quando
+          sono stati registrati.
         </p>
         {ricevuteErrore ? (
           <p className="mt-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">
@@ -1625,13 +1626,13 @@ export function SpeseCaricamentoBoard() {
         {ricevute.length === 0 ? (
           ricevuteErrore ? null : (
             <p className="mt-3 text-sm text-slate-500">
-              Nessuna ricevuta salvata negli ultimi 30 giorni.
+              Nessun documento salvato negli ultimi 30 giorni.
             </p>
           )
         ) : (
           <ul className="mt-3 divide-y divide-slate-100 rounded-lg border border-slate-200 bg-white">
             {ricevute.map((voce) => (
-              <li key={voce.id} className="flex items-start justify-between gap-3 px-3 py-2">
+              <li key={`${voce.fonte}-${voce.id}`} className="flex items-start justify-between gap-3 px-3 py-2">
                 <div className="min-w-0">
                   <p className="text-sm font-medium text-slate-900">{voce.esercente}</p>
                   <p className="text-xs text-[var(--muted)]">
@@ -1658,9 +1659,15 @@ export function SpeseCaricamentoBoard() {
                   <button
                     type="button"
                     className="rounded border border-slate-300 px-2 py-1 text-xs"
-                    onClick={() => void apriRicevuta(voce.id)}
+                    onClick={() => {
+                      if (voce.schedaHref) {
+                        window.open(voce.schedaHref, "_blank", "noopener,noreferrer");
+                        return;
+                      }
+                      void apriRicevuta(voce.id);
+                    }}
                   >
-                    Documento
+                    {voce.fonte === "fattura" ? "Scheda" : "Documento"}
                   </button>
                 </div>
               </li>
@@ -1802,6 +1809,7 @@ export function SpeseCaricamentoBoard() {
           onSaved={() => {
             setRegistrazioneFattura(null);
             setMsg("Fattura registrata nello storico delle fatture ricevute.");
+            void caricaRicevute();
             setAnteprima(null);
             setManualeAperto(false);
             setForm(vuoto);

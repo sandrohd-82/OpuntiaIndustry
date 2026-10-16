@@ -4,6 +4,7 @@ import { z } from "zod";
 import { writeAuditLog } from "@/lib/audit";
 import { extractPdfText } from "@/lib/amministrazione/bank-pdf-parse";
 import { roundMoney } from "@/lib/amministrazione/fatture";
+import { isNazioneItalia } from "@/lib/address/formato-nazione";
 import { requireAreaAccess } from "@/lib/areas/guard";
 import { leggiTestoSpesa, leggiXmlSpesa } from "@/lib/fiscale/spese-lettura";
 import { leggiScontrinoGemini, qualificaScontrino } from "@/lib/fiscale/spese-ocr";
@@ -588,6 +589,7 @@ export async function listSpeseAction(raw: {
 
 export type RicevutaRecenteSpesa = {
   id: string;
+  fonte: "spesa" | "fattura";
   salvataIl: string;
   dataDocumento: string;
   esercente: string;
@@ -597,6 +599,8 @@ export type RicevutaRecenteSpesa = {
   valuta: string;
   stato: StatoSpesa;
   privaIva: boolean;
+  /** Scheda della fattura ricevuta, quando la riga non è uno scontrino. */
+  schedaHref: string | null;
 };
 
 /** Ricevute registrate negli ultimi 30 giorni, le più recenti per prime. */
@@ -619,6 +623,7 @@ export async function listRicevuteRecentiSpesaAction(): Promise<
   if (error) return { success: false, error: error.message };
   const ricevute: RicevutaRecenteSpesa[] = (data ?? []).map((row) => ({
     id: String(row.id),
+    fonte: "spesa" as const,
     salvataIl: String(row.created_at ?? ""),
     dataDocumento: String(row.data_documento ?? "").slice(0, 10),
     esercente: String(row.esercente ?? ""),
@@ -628,8 +633,69 @@ export async function listRicevuteRecentiSpesaAction(): Promise<
     valuta: String(row.valuta ?? "EUR"),
     stato: row.stato as StatoSpesa,
     privaIva: Boolean(row.priva_iva),
+    schedaHref: null,
   }));
-  return { success: true, ricevute };
+
+  const estere = await supabase
+    .from("fatture_ricevute")
+    .select(
+      "id, created_at, data_emissione, fornitore_id, fornitore_ragione_sociale, numero_interno, numero_documento_esterno, totale, note, fornitori(sede_amm_nazione)"
+    )
+    .is("deleted_at", null)
+    .is("fic_id", null)
+    .gte("created_at", dal)
+    .order("created_at", { ascending: false })
+    .limit(200);
+  const estereRighe = estere.error
+    ? (
+        await supabase
+          .from("fatture_ricevute")
+          .select(
+            "id, created_at, data_emissione, fornitore_ragione_sociale, numero_interno, numero_documento_esterno, totale, note"
+          )
+          .is("deleted_at", null)
+          .is("fic_id", null)
+          .ilike("note", "%Fattura estera caricata dagli strumenti%")
+          .gte("created_at", dal)
+          .order("created_at", { ascending: false })
+          .limit(200)
+      ).data
+    : estere.data;
+  if (estereRighe) {
+    for (const row of estereRighe) {
+      const fornitore = (
+        "fornitori" in row ? row.fornitori : null
+      ) as
+        | { sede_amm_nazione?: string | null }
+        | { sede_amm_nazione?: string | null }[]
+        | null;
+      const nazione = Array.isArray(fornitore)
+        ? String(fornitore[0]?.sede_amm_nazione ?? "")
+        : String(fornitore?.sede_amm_nazione ?? "");
+      const note = String(row.note ?? "");
+      const segnataQui = note.includes("Fattura estera caricata dagli strumenti");
+      if (!segnataQui && isNazioneItalia(nazione)) continue;
+      const numero = String(row.numero_interno ?? "").trim();
+      const esterno = String(row.numero_documento_esterno ?? "").trim();
+      ricevute.push({
+        id: String(row.id),
+        fonte: "fattura",
+        salvataIl: String(row.created_at ?? ""),
+        dataDocumento: String(row.data_emissione ?? "").slice(0, 10),
+        esercente: String(row.fornitore_ragione_sociale ?? ""),
+        giustificazione: [numero, esterno].filter(Boolean).join(" · "),
+        tipoCaricamento: "fattura_estera",
+        totale: num(row.totale),
+        valuta: "EUR",
+        stato: "registrato",
+        privaIva: false,
+        schedaHref: `/app/amministrazione/fatture/ricevute/${row.id}`,
+      });
+    }
+  }
+
+  ricevute.sort((a, b) => (a.salvataIl < b.salvataIl ? 1 : -1));
+  return { success: true, ricevute: ricevute.slice(0, 200) };
 }
 
 export type CausaleSpesaUsata = {
