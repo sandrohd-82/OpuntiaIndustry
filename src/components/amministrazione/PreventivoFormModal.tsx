@@ -10,6 +10,7 @@ import {
   type FormEvent,
   type ReactNode,
 } from "react";
+import { leggiLinguaIntercomunicazioneAction } from "@/app/actions/traduci-intercomunicazione";
 import {
   createPreventivoAction,
   getPreventivoPerModificaAction,
@@ -47,6 +48,7 @@ import {
   PREVENTIVO_NOTE_DEFAULT,
   PREVENTIVO_VALIDITA_GIORNI,
   labelModalitaPagamentoPreventivo,
+  normalizzaVoceSpedizioneMail,
   testoSpedizionePreventivo,
   voceSpedizionePreventivo,
   type Preventivo,
@@ -209,6 +211,8 @@ function CoppiaCentrata({
 export function PreventivoFormModal({ onClose, onSaved, preventivoId }: Props) {
   const titleId = useId();
   const foglioRef = useRef<HTMLDivElement>(null);
+  const foglioStampaItRef = useRef<HTMLDivElement>(null);
+  const foglioTradottoRef = useRef<HTMLDivElement>(null);
   const { prodotti, ready } = useProdottiPropri();
   const [destinatario, setDestinatario] =
     useState<DestinatarioPreventivo | null>(null);
@@ -280,6 +284,7 @@ export function PreventivoFormModal({ onClose, onSaved, preventivoId }: Props) {
   const [nomeLinguaTradotta, setNomeLinguaTradotta] = useState<string | null>(
     null
   );
+  const [linguaTradotta, setLinguaTradotta] = useState<string | null>(null);
   const [catturaNaturale, setCatturaNaturale] = useState(false);
 
   const editing = editKey
@@ -423,6 +428,7 @@ export function PreventivoFormModal({ onClose, onSaved, preventivoId }: Props) {
     setCopiaTradotta(null);
     setFirmaTradotta(null);
     setNomeLinguaTradotta(null);
+    setLinguaTradotta(null);
   }, [destinatario?.id]);
 
   useEffect(() => {
@@ -952,22 +958,12 @@ export function PreventivoFormModal({ onClose, onSaved, preventivoId }: Props) {
         `Preventivo n. ${numeroPreview} del ${dataPreventivo.split("-").reverse().join("/")}`
       );
     }
-    if (!mailTesto.trim()) {
-      const voce =
-        prezzoAcquirenteModo === "in_fattura"
-          ? `\n${voceSpedizionePreventivo(consegnaMetodo)}.`
-          : "";
-      setMailTesto(
-        `In allegato il preventivo n. ${numeroPreview}.\nValidità ${validitaGiorni} giorni.${voce}`
-      );
-    } else if (
-      prezzoAcquirenteModo === "in_fattura" &&
-      !mailTesto.includes(voceSpedizionePreventivo(consegnaMetodo))
-    ) {
-      setMailTesto(
-        `${mailTesto.trim()}\n${voceSpedizionePreventivo(consegnaMetodo)}.`
-      );
-    }
+    const baseMail = mailTesto.trim()
+      ? mailTesto
+      : `In allegato il preventivo n. ${numeroPreview}.\nValidità ${validitaGiorni} giorni.`;
+    setMailTesto(
+      normalizzaVoceSpedizioneMail(baseMail, consegnaMetodo, prezzoAcquirenteModo)
+    );
     setMailError(null);
     void listCasellePreventivoMailAction().then((res) => {
       if (!res.success) {
@@ -1094,10 +1090,33 @@ export function PreventivoFormModal({ onClose, onSaved, preventivoId }: Props) {
       );
       return;
     }
+    if (destinatario) {
+      const lingua = await leggiLinguaIntercomunicazioneAction({
+        tipo:
+          destinatario.kind === "possibile" ? "cliente_possibile" : "cliente",
+        id: destinatario.id,
+      });
+      if (lingua.success && lingua.lingua !== "it" && !copiaTradotta) {
+        setMailError(
+          "Traduci il preventivo prima dell'invio: in allegato deve andare la copia tradotta."
+        );
+        return;
+      }
+      if (lingua.success && lingua.lingua !== "it" && traduzioneObsoleta) {
+        setMailError(
+          "Aggiorna la traduzione prima dell'invio, così l'allegato è allineato al foglio."
+        );
+        return;
+      }
+    }
     const item = await persist("salvato");
     if (!item) return;
-    const node = foglioRef.current;
-    if (!node) {
+    const nodeIt = foglioStampaItRef.current;
+    const nodeTradotto =
+      copiaTradotta && linguaTradotta && linguaTradotta !== "it"
+        ? foglioTradottoRef.current
+        : null;
+    if (!nodeIt || (copiaTradotta && linguaTradotta && linguaTradotta !== "it" && !nodeTradotto)) {
       setMailError(
         "Preventivo salvato in archivio. La scheda non è pronta per l'allegato."
       );
@@ -1105,21 +1124,20 @@ export function PreventivoFormModal({ onClose, onSaved, preventivoId }: Props) {
     }
     setSaving(true);
     setMailError(null);
-    setCatturaNaturale(true);
-    await new Promise<void>((resolve) => {
-      requestAnimationFrame(() => {
-        requestAnimationFrame(() => resolve());
-      });
-    });
     try {
-      const pdfBase64 = await foglioPreventivoToPdfBase64(node);
+      const pdfItaliano = await foglioPreventivoToPdfBase64(nodeIt);
+      const pdfAllegato = nodeTradotto
+        ? await foglioPreventivoToPdfBase64(nodeTradotto)
+        : pdfItaliano;
       const res = await inviaPreventivoMailAction({
         preventivoId: item.id,
         mailAccountId,
         mailTo: mailTo.trim(),
         mailOggetto: mailOggetto.trim(),
         mailTesto: mailTesto.trim(),
-        pdfBase64,
+        pdfBase64: pdfAllegato,
+        pdfArchivioBase64: nodeTradotto ? pdfItaliano : undefined,
+        linguaAllegato: nodeTradotto && linguaTradotta ? linguaTradotta : "it",
       });
       setSaving(false);
       if (!res.success) {
@@ -1162,7 +1180,11 @@ export function PreventivoFormModal({ onClose, onSaved, preventivoId }: Props) {
     ? "mx-auto w-[98vw] max-w-[98vw]"
     : "mx-auto max-w-[210mm]";
 
-  function schedaPreventivo(tradotto: boolean) {
+  function schedaPreventivo(
+    tradotto: boolean,
+    cattura: "schermo" | "pdf" = "schermo"
+  ) {
+    const solaLettura = tradotto || cattura === "pdf";
     const copia = tradotto ? copiaTradotta : null;
     const righeVista = righe.map((riga) => {
       if (!copia) return riga;
@@ -1183,10 +1205,16 @@ export function PreventivoFormModal({ onClose, onSaved, preventivoId }: Props) {
       const giorniTradotti = copia.giorniTesto?.trim();
       if (giorniTradotti) giorniVista = giorniTradotti;
     }
+    let foglioCapture: typeof foglioRef | undefined;
+    if (cattura === "pdf") {
+      foglioCapture = tradotto ? foglioTradottoRef : foglioStampaItRef;
+    } else if (!tradotto) {
+      foglioCapture = foglioRef;
+    }
     return (
       <PreventivoFoglioA4
-        ref={tradotto ? undefined : foglioRef}
-        titleId={tradotto ? undefined : titleId}
+        ref={foglioCapture}
+        titleId={solaLettura ? undefined : titleId}
         numero={numeroPreview}
         dataPreventivo={dataPreventivo}
         commerciale={commerciale}
@@ -1217,26 +1245,26 @@ export function PreventivoFormModal({ onClose, onSaved, preventivoId }: Props) {
         tipoPagamento={tipoPagamento}
         ivaPercentuale={ivaDocumento}
         validitaGiorni={validitaGiorni}
-        stampa={tradotto}
-        onEditData={tradotto ? undefined : () => openEdit("data")}
-        onEditCommerciale={tradotto ? undefined : () => openEdit("commerciale")}
+        stampa={solaLettura}
+        onEditData={solaLettura ? undefined : () => openEdit("data")}
+        onEditCommerciale={solaLettura ? undefined : () => openEdit("commerciale")}
         onEditDestinatario={
-          tradotto ? undefined : () => openEdit("destinatario")
+          solaLettura ? undefined : () => openEdit("destinatario")
         }
         onEditProdotto={
-          tradotto ? undefined : (key) => openEdit("prodotto", key ?? null)
+          solaLettura ? undefined : (key) => openEdit("prodotto", key ?? null)
         }
         onRemoveRiga={
-          tradotto
+          solaLettura
             ? undefined
             : (key) => setRighe((prev) => prev.filter((r) => r.key !== key))
         }
-        onAddRiga={tradotto ? undefined : () => openEdit("prodotto")}
-        onEditNote={tradotto ? undefined : () => openEdit("note")}
-        onEditSpedizione={tradotto ? undefined : () => openEdit("spedizione")}
-        onEditGiorni={tradotto ? undefined : () => openEdit("giorni")}
-        onEditPagamento={tradotto ? undefined : () => openEdit("pagamento")}
-        onEditTotali={tradotto ? undefined : () => openEdit("totali")}
+        onAddRiga={solaLettura ? undefined : () => openEdit("prodotto")}
+        onEditNote={solaLettura ? undefined : () => openEdit("note")}
+        onEditSpedizione={solaLettura ? undefined : () => openEdit("spedizione")}
+        onEditGiorni={solaLettura ? undefined : () => openEdit("giorni")}
+        onEditPagamento={solaLettura ? undefined : () => openEdit("pagamento")}
+        onEditTotali={solaLettura ? undefined : () => openEdit("totali")}
       />
     );
   }
@@ -1327,10 +1355,19 @@ export function PreventivoFormModal({ onClose, onSaved, preventivoId }: Props) {
               );
               setFirmaTradotta(firmaCorrente);
               setNomeLinguaTradotta(meta.nomeLingua);
+              setLinguaTradotta(meta.lingua);
             }}
           />
         </div>
       ) : null}
+
+      <div
+        className="pointer-events-none fixed left-[-200vw] top-0 w-[210mm]"
+        aria-hidden
+      >
+        {schedaPreventivo(false, "pdf")}
+        {copiaTradotta ? schedaPreventivo(true, "pdf") : null}
+      </div>
 
       <form
         id="preventivo-a4-form"

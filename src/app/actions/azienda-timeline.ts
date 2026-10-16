@@ -155,6 +155,58 @@ async function loadAccountEmailsById(
   );
 }
 
+async function pdfPreventiviPerMessaggio(
+  service: ReturnType<typeof createServiceClient>,
+  aziende: Array<{ tipo: string; id: string }>
+): Promise<Map<string, NonNullable<AziendaTimelineItem["notaAllegati"]>>> {
+  const map = new Map<string, NonNullable<AziendaTimelineItem["notaAllegati"]>>();
+  const clienteIds = aziende
+    .filter((item) => item.tipo === "cliente")
+    .map((item) => item.id);
+  const possibileIds = aziende
+    .filter((item) => item.tipo === "cliente_possibile")
+    .map((item) => item.id);
+  if (!clienteIds.length && !possibileIds.length) return map;
+  let query = service.from("preventivi").select("id").is("deleted_at", null);
+  if (clienteIds.length && possibileIds.length) {
+    query = query.or(
+      `cliente_id.in.(${clienteIds.join(",")}),cliente_possibile_id.in.(${possibileIds.join(",")})`
+    );
+  } else if (clienteIds.length) {
+    query = query.in("cliente_id", clienteIds);
+  } else {
+    query = query.in("cliente_possibile_id", possibileIds);
+  }
+  const { data: preventivi } = await query.limit(200);
+  const ids = (preventivi ?? []).map((row) => String(row.id));
+  if (!ids.length) return map;
+  const { data: documenti } = await service
+    .from("preventivi_documenti_emessi")
+    .select("id, filename, lingua, allegato_inviato, mail_message_id")
+    .in("preventivo_id", ids)
+    .eq("stato", "inviato")
+    .is("deleted_at", null);
+  for (const doc of documenti ?? []) {
+    const messaggio = String(doc.mail_message_id ?? "").trim();
+    if (!messaggio) continue;
+    const inviato = doc.allegato_inviato !== false;
+    const lingua = String(doc.lingua ?? "it");
+    const lista = map.get(messaggio) ?? [];
+    lista.push({
+      id: String(doc.id),
+      kind: inviato ? "inviato" : "archivio",
+      label: inviato
+        ? lingua === "it"
+          ? "File inviato"
+          : "File inviato (tradotto)"
+        : "PDF italiano",
+      url: "",
+    });
+    map.set(messaggio, lista);
+  }
+  return map;
+}
+
 function mailOccurredAt(row: {
   direction?: string | null;
   sent_at?: string | null;
@@ -422,6 +474,7 @@ export async function listAziendaTimelineAction(raw: unknown): Promise<
       service,
       mailRows.map((r) => r.accountId)
     );
+    const pdfPerMessaggio = await pdfPreventiviPerMessaggio(service, aziendaKeys);
     for (const group of groupMailCopies(mailRows)) {
       const primary = group[0];
       const fromName = preferLongerName(
@@ -444,6 +497,9 @@ export async function listAziendaTimelineAction(raw: unknown): Promise<
         mailCaselleNote: caselleNote ?? undefined,
         sourceId: primary.id,
         href: "/app/webmail/caselle",
+        notaAllegati: primary.messageIdHeader
+          ? pdfPerMessaggio.get(primary.messageIdHeader)
+          : undefined,
       });
     }
   }

@@ -103,6 +103,37 @@ export function voceSpedizionePreventivo(metodo: PreventivoConsegna): string {
   return "Ritiro in sede";
 }
 
+const VOCI_SPEDIZIONE_MAIL = PREVENTIVO_CONSEGNA.map((metodo) =>
+  voceSpedizionePreventivo(metodo)
+);
+
+function rigaEVoceSpedizione(riga: string): boolean {
+  const pulita = riga.trim().replace(/\.+$/, "");
+  return VOCI_SPEDIZIONE_MAIL.includes(pulita);
+}
+
+/**
+ * Una sola voce di spedizione, quella del metodo scelto.
+ * Se il costo è in fattura e il testo è ancora il modello italiano, la aggiunge.
+ * Un testo già tradotto non riceve di nuovo la frase italiana.
+ */
+export function normalizzaVoceSpedizioneMail(
+  testo: string,
+  metodo: PreventivoConsegna,
+  modalita: string
+): string {
+  const base = testo
+    .split("\n")
+    .filter((riga) => !rigaEVoceSpedizione(riga))
+    .join("\n")
+    .trim();
+  if (modalita !== "in_fattura") return base;
+  const avevaVoce = testo.split("\n").some((riga) => rigaEVoceSpedizione(riga));
+  const modelloItaliano = /In allegato il preventivo/i.test(testo);
+  if (!avevaVoce && !modelloItaliano) return base;
+  return `${base}\n${voceSpedizionePreventivo(metodo)}.`.trim();
+}
+
 export function testoSpedizionePreventivo(input: {
   consegnaMetodo: PreventivoConsegna;
   modalita: PreventivoModalitaSpedizione;
@@ -278,7 +309,17 @@ export type PreventivoPdfEmesso = {
   filename: string;
   inviatoAt: string;
   mailTo: string;
+  lingua: string;
+  allegatoInviato: boolean;
 };
+
+export function etichettaPdfEmesso(
+  doc: PreventivoPdfEmesso,
+  quanti: number
+): string {
+  if (quanti <= 1 || doc.allegatoInviato) return "PDF inviato";
+  return "PDF italiano";
+}
 
 /** Dati per riaprire la modale di creazione su un preventivo già in archivio. */
 export type PreventivoModificaFoglio = {
@@ -464,6 +505,12 @@ export const inviaPreventivoMailSchema = z
     mailOggetto: z.string().trim().min(1).max(300),
     mailTesto: z.string().trim().min(1).max(8000),
     pdfBase64: z.string().min(1),
+    pdfArchivioBase64: z.string().min(1).optional(),
+    linguaAllegato: z
+      .string()
+      .trim()
+      .regex(/^[a-z]{2}$/)
+      .optional(),
   })
   .refine((d) => d.mailTo.includes("@"), {
     message: "Indirizzo destinatario non valido.",

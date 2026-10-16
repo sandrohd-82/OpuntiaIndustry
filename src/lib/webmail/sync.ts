@@ -2820,6 +2820,9 @@ export async function registraCopiaMailInviata(input: {
   html?: string;
   messageId: string | null;
   userId?: string | null;
+  aziendaTipo?: "cliente" | "fornitore" | "cliente_possibile" | null;
+  aziendaId?: string | null;
+  aziendaLabel?: string | null;
   attachments?: Array<{
     filename: string;
     content: Buffer;
@@ -2856,6 +2859,10 @@ export async function registraCopiaMailInviata(input: {
       received_at: nowIso,
       sent_at: nowIso,
       is_seen: true,
+      azienda_tipo: input.aziendaTipo ?? null,
+      azienda_id: input.aziendaId ?? null,
+      azienda_label: input.aziendaLabel ?? "",
+      link_stato: input.aziendaId ? "collegata" : "bozza",
       created_by: input.userId ?? null,
       updated_by: input.userId ?? null,
     })

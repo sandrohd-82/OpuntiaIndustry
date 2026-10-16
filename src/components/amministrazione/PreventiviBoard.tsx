@@ -22,6 +22,7 @@ import {
   PREVENTIVO_RACCOLTA_LABEL,
   PREVENTIVO_RACCOLTE,
   PREVENTIVO_STATO_LABEL,
+  etichettaPdfEmesso,
   notifyPreventiviSpedizioneNav,
   type Preventivo,
   type PreventivoRaccolta,
@@ -293,11 +294,13 @@ export function PreventiviBoard({
                               window.open(res.url, "_blank", "noopener,noreferrer");
                             });
                           }}
-                          className="rounded-lg border border-[var(--border)] px-2 py-1 text-xs font-medium"
+                          className={
+                            doc.allegatoInviato
+                              ? "rounded-lg bg-emerald-700 px-2 py-1 text-xs font-semibold text-white"
+                              : "rounded-lg border border-[var(--border)] px-2 py-1 text-xs font-medium"
+                          }
                         >
-                          {item.pdfEmessi.length > 1
-                            ? `PDF v${doc.versione}`
-                            : "PDF inviato"}
+                          {etichettaPdfEmesso(doc, item.pdfEmessi.length)}
                         </button>
                       ))}
                       <ActionGate actionKey={AZ.creaPreventivo}>

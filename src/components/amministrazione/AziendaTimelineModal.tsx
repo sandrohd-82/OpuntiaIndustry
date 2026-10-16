@@ -40,6 +40,7 @@ import {
   TimelineVisualizzaModal,
   type TimelineVisualizzaTarget,
 } from "@/components/amministrazione/TimelineVisualizzaModal";
+import { apriPdfPreventivoEmessoAction } from "@/app/actions/preventivi";
 import {
   applyPlaceholderValues,
   richToPlain,
@@ -282,6 +283,31 @@ function TimelineCard({
               {item.mailCaselleNote}
             </p>
           ) : null}
+        </div>
+      ) : null}
+      {item.kind === "webmail" && item.notaAllegati?.length ? (
+        <div
+          className={`mt-2 flex flex-wrap gap-1 ${align === "left" ? "md:justify-end" : ""}`}
+        >
+          {item.notaAllegati.map((allegato) => (
+            <button
+              key={allegato.id}
+              type="button"
+              onClick={() => {
+                void apriPdfPreventivoEmessoAction(allegato.id).then((res) => {
+                  if (!res.success) return;
+                  window.open(res.url, "_blank", "noopener,noreferrer");
+                });
+              }}
+              className={
+                allegato.kind === "inviato"
+                  ? "rounded-lg bg-emerald-700 px-2.5 py-1 text-[11px] font-semibold text-white"
+                  : "rounded-lg border border-slate-300 bg-white px-2.5 py-1 text-[11px] font-medium text-slate-800"
+              }
+            >
+              {allegato.label}
+            </button>
+          ))}
         </div>
       ) : null}
       {canVisualizza(item) && onVisualizza && !isScheda ? (

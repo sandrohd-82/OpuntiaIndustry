@@ -23,6 +23,7 @@ import {
 import {
   PREVENTIVO_CONSEGNA_LABEL,
   PREVENTIVO_IVA_DEFAULT,
+  etichettaPdfEmesso,
   type Preventivo,
 } from "@/lib/amministrazione/preventivi";
 
@@ -162,9 +163,13 @@ export function PreventivoCalcoloSpedizioneSheet({
                   window.open(res.url, "_blank", "noopener,noreferrer");
                 });
               }}
-              className="rounded-lg border border-white/20 bg-white/10 px-3 py-1.5 text-sm text-white"
+              className={
+                doc.allegatoInviato
+                  ? "rounded-lg bg-emerald-600 px-3 py-1.5 text-sm font-semibold text-white"
+                  : "rounded-lg border border-white/20 bg-white/10 px-3 py-1.5 text-sm text-white"
+              }
             >
-              {item.pdfEmessi.length > 1 ? `PDF v${doc.versione}` : "PDF inviato"}
+              {etichettaPdfEmesso(doc, item.pdfEmessi.length)}
             </button>
           ))}
           <button

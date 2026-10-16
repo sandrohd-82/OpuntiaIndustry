@@ -1671,6 +1671,8 @@ export interface PreventivoDocumentoEmessoRow {
   mail_to: string;
   mail_oggetto: string;
   mail_message_id: string;
+  lingua: string;
+  allegato_inviato: boolean;
   inviato_at: string | null;
   inviato_by: string | null;
   created_at: string;
