@@ -9,6 +9,7 @@ import {
   PreventivoDocField,
   PreventivoDocQa,
 } from "@/components/amministrazione/PreventivoDocPencil";
+import { etichettaPreventivo } from "@/lib/amministrazione/preventivo-etichette";
 
 type Props = {
   numero: string;
@@ -21,6 +22,7 @@ type Props = {
   stampa?: boolean;
   /** Stampa commercialista: stessa intestazione, senza logo. */
   nascondiLogo?: boolean;
+  etichette?: Record<string, string>;
 };
 
 export function PreventivoA4Letterhead({
@@ -32,6 +34,7 @@ export function PreventivoA4Letterhead({
   documentoLabel = "PREVENTIVO",
   stampa = false,
   nascondiLogo = false,
+  etichette,
 }: Props) {
   const ph = !commerciale && !stampa;
   const nomeComm = commerciale?.nome || (stampa ? "—" : "Nome Cognome");
@@ -56,7 +59,9 @@ export function PreventivoA4Letterhead({
           </p>
           <p>{AGRINSICILIA_LETTERHEAD.indirizzo}</p>
           <p>
-            P.iva {AGRINSICILIA_LETTERHEAD.partitaIva} - C.F.{" "}
+            {etichettaPreventivo(etichette, "piva", "P.iva")}{" "}
+            {AGRINSICILIA_LETTERHEAD.partitaIva} -{" "}
+            {etichettaPreventivo(etichette, "cf", "C.F.")}{" "}
             {AGRINSICILIA_LETTERHEAD.codiceFiscale}
           </p>
           <PreventivoDocField
@@ -67,7 +72,10 @@ export function PreventivoA4Letterhead({
             stampa={stampa}
           >
             <p className="text-[12px] font-bold tracking-wide">
-              {documentoLabel} nr. {numero} del {formatPreventivoDataIt(dataPreventivo)}
+              {etichettaPreventivo(etichette, "documento", documentoLabel)}{" "}
+              {etichettaPreventivo(etichette, "nr", "nr.")} {numero}{" "}
+              {etichettaPreventivo(etichette, "del", "del")}{" "}
+              {formatPreventivoDataIt(dataPreventivo)}
             </p>
           </PreventivoDocField>
           <PreventivoDocField
@@ -77,16 +85,22 @@ export function PreventivoA4Letterhead({
             pencilRight
             stampa={stampa}
           >
-            <p className="font-semibold">Commerciale di riferimento</p>
+            <p className="font-semibold">
+              {etichettaPreventivo(
+                etichette,
+                "commerciale",
+                "Commerciale di riferimento"
+              )}
+            </p>
             <p className={ph ? "text-slate-400" : undefined}>{nomeComm}</p>
             <PreventivoDocQa
               className={ph ? "text-slate-400" : undefined}
-              domanda="Telefono"
+              domanda={etichettaPreventivo(etichette, "telefono", "Telefono")}
               risposta={commerciale?.telefono || "—"}
             />
             <PreventivoDocQa
               className={ph ? "text-slate-400" : undefined}
-              domanda="Email"
+              domanda={etichettaPreventivo(etichette, "email", "Email")}
               risposta={commerciale?.email || "—"}
             />
           </PreventivoDocField>

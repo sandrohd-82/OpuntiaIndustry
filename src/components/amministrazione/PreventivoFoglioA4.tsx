@@ -18,6 +18,10 @@ import {
   type PreventivoConsegna,
   type PreventivoModalitaSpedizione,
 } from "@/lib/amministrazione/preventivi";
+import {
+  etichettaPreventivo,
+  notaScontoRigaPreventivo,
+} from "@/lib/amministrazione/preventivo-etichette";
 
 export type PreventivoFoglioDestinatario = {
   ragioneSociale: string;
@@ -63,6 +67,8 @@ type Props = {
   testoSpedizione?: string;
   /** Testo già tradotto della modalità di pagamento. */
   testoPagamento?: string;
+  /** Etichette e frasi già tradotte del foglio. */
+  etichette?: Record<string, string>;
   onEditData?: () => void;
   onEditCommerciale?: () => void;
   onEditDestinatario?: () => void;
@@ -104,6 +110,7 @@ export const PreventivoFoglioA4 = forwardRef<HTMLDivElement, Props>(
       stampa = false,
       testoSpedizione,
       testoPagamento,
+      etichette,
       onEditData,
       onEditCommerciale,
       onEditDestinatario,
@@ -171,6 +178,7 @@ export const PreventivoFoglioA4 = forwardRef<HTMLDivElement, Props>(
             commerciale={commerciale}
             onEditCommerciale={onEditCommerciale}
             stampa={stampa}
+            etichette={etichette}
           />
 
           <section className="mt-5">
@@ -183,7 +191,7 @@ export const PreventivoFoglioA4 = forwardRef<HTMLDivElement, Props>(
               <div className="grid grid-cols-2 gap-6 text-[12px] leading-[1.45] text-slate-900">
                 <div>
                   <p className="text-[10px] font-bold uppercase tracking-[0.14em]">
-                    Destinatario
+                    {etichettaPreventivo(etichette, "destinatario", "Destinatario")}
                   </p>
                   <p
                     className={`mt-1 font-semibold uppercase ${
@@ -194,12 +202,12 @@ export const PreventivoFoglioA4 = forwardRef<HTMLDivElement, Props>(
                   </p>
                   <PreventivoDocQa
                     className={ph ? "text-slate-400" : undefined}
-                    domanda="P.IVA"
+                    domanda={etichettaPreventivo(etichette, "pivaCliente", "P.IVA")}
                     risposta={destinatario?.partitaIva || "—"}
                   />
                   <PreventivoDocQa
                     className={ph ? "text-slate-400" : undefined}
-                    domanda="CF"
+                    domanda={etichettaPreventivo(etichette, "cfCliente", "CF")}
                     risposta={destinatario?.codiceFiscale || "—"}
                   />
                 </div>
@@ -228,12 +236,24 @@ export const PreventivoFoglioA4 = forwardRef<HTMLDivElement, Props>(
               <table className="w-full text-left text-[11px]">
                 <thead className="border-b border-slate-300 text-slate-600">
                   <tr>
-                    <th className="py-1.5 pr-2 font-medium">Codice</th>
-                    <th className="py-1.5 pr-2 font-medium">Nome prodotto</th>
-                    <th className="py-1.5 pr-2 font-medium">Prezzo U</th>
-                    <th className="py-1.5 pr-2 font-medium">Qty</th>
-                    <th className="py-1.5 pr-2 font-medium">Sconto</th>
-                    <th className="py-1.5 pr-2 font-medium">Totale</th>
+                    <th className="py-1.5 pr-2 font-medium">
+                      {etichettaPreventivo(etichette, "codice", "Codice")}
+                    </th>
+                    <th className="py-1.5 pr-2 font-medium">
+                      {etichettaPreventivo(etichette, "nomeProdotto", "Nome prodotto")}
+                    </th>
+                    <th className="py-1.5 pr-2 font-medium">
+                      {etichettaPreventivo(etichette, "prezzoU", "Prezzo U")}
+                    </th>
+                    <th className="py-1.5 pr-2 font-medium">
+                      {etichettaPreventivo(etichette, "qty", "Qty")}
+                    </th>
+                    <th className="py-1.5 pr-2 font-medium">
+                      {etichettaPreventivo(etichette, "sconto", "Sconto")}
+                    </th>
+                    <th className="py-1.5 pr-2 font-medium">
+                      {etichettaPreventivo(etichette, "totale", "Totale")}
+                    </th>
                     {stampa ? null : <th className="py-1.5 font-medium" />}
                   </tr>
                 </thead>
@@ -241,7 +261,11 @@ export const PreventivoFoglioA4 = forwardRef<HTMLDivElement, Props>(
                   {righe.length === 0 ? (
                     <tr>
                       <td colSpan={stampa ? 6 : 7} className="py-2 text-slate-400 italic">
-                        Codice, nome, prezzo, quantità, sconto e totale…
+                        {etichettaPreventivo(
+                          etichette,
+                          "vuotoRighe",
+                          "Codice, nome, prezzo, quantità, sconto e totale…"
+                        )}
                       </td>
                     </tr>
                   ) : (
@@ -253,8 +277,6 @@ export const PreventivoFoglioA4 = forwardRef<HTMLDivElement, Props>(
                       );
                       const totaleRiga = roundEuro(netto * riga.quantita);
                       const applicatoListino = riga.scontoListinoPct ?? 0;
-                      const standard =
-                        riga.scontoListinoStandardPct ?? applicatoListino;
                       const scontoParti: string[] = [];
                       if (applicatoListino > 0) {
                         scontoParti.push(
@@ -263,18 +285,20 @@ export const PreventivoFoglioA4 = forwardRef<HTMLDivElement, Props>(
                       }
                       if (riga.scontoExtraPct > 0) {
                         scontoParti.push(
-                          `extra ${riga.scontoExtraPct.toLocaleString("it-IT")}%`
+                          `${etichettaPreventivo(etichette, "extra", "extra")} ${riga.scontoExtraPct.toLocaleString("it-IT")}%`
                         );
                       }
                       const dettaglio =
                         riga.confezionamento.trim() ||
-                        "Nessun dettaglio di confezionamento";
-                      const notaSconto =
-                        applicatoListino + 0.0001 < standard
-                          ? applicatoListino > 0
-                            ? `Sconto standard ridotto al ${applicatoListino.toLocaleString("it-IT")}% (listino ${standard.toLocaleString("it-IT")}%). `
-                            : "Sconto standard annullato. "
-                          : "Sconto applicato a proposta di confezionamento. ";
+                        etichettaPreventivo(
+                          etichette,
+                          "nessunConf",
+                          "Nessun dettaglio di confezionamento"
+                        );
+                      const notaTradotta = etichette?.[`sconto-${riga.key}`]?.trim();
+                      const notaSconto = notaTradotta
+                        ? `${notaTradotta} `
+                        : `${notaScontoRigaPreventivo(riga)} `;
                       return (
                         <Fragment key={riga.key}>
                           <tr className="border-t border-slate-300">
@@ -332,7 +356,13 @@ export const PreventivoFoglioA4 = forwardRef<HTMLDivElement, Props>(
                   modalitaSpedizione !== "in_fattura" ? (
                     <tr className="border-t border-slate-300">
                       <td className="py-1.5 pr-2 font-medium">—</td>
-                      <td className="py-1.5 pr-2">Contributo spese di spedizione</td>
+                      <td className="py-1.5 pr-2">
+                        {etichettaPreventivo(
+                          etichette,
+                          "contributo",
+                          "Contributo spese di spedizione"
+                        )}
+                      </td>
                       <td className="py-1.5 pr-2 tabular-nums">
                         {spedizioneNota ? `${euro(spedizioneImporto)} €` : "—"}
                       </td>
@@ -343,7 +373,11 @@ export const PreventivoFoglioA4 = forwardRef<HTMLDivElement, Props>(
                       <td className="py-1.5 pr-2 font-medium">
                         {spedizioneNota
                           ? `${euro(spedizioneImporto)} €`
-                          : "Totale da calcolare"}
+                          : etichettaPreventivo(
+                              etichette,
+                              "totaleCalcolare",
+                              "Totale da calcolare"
+                            )}
                       </td>
                       {stampa ? null : <td />}
                     </tr>
@@ -380,7 +414,11 @@ export const PreventivoFoglioA4 = forwardRef<HTMLDivElement, Props>(
                 stampa={stampa}
               >
                 <PreventivoDocQa
-                  domanda="Spedizione e consegna"
+                  domanda={etichettaPreventivo(
+                    etichette,
+                    "spedizione",
+                    "Spedizione e consegna"
+                  )}
                   risposta={spedizioneTesto}
                 />
               </PreventivoDocField>
@@ -390,7 +428,11 @@ export const PreventivoFoglioA4 = forwardRef<HTMLDivElement, Props>(
                 stampa={stampa}
               >
                 <PreventivoDocQa
-                  domanda="Giorni di consegna"
+                  domanda={etichettaPreventivo(
+                    etichette,
+                    "giorni",
+                    "Giorni di consegna"
+                  )}
                   risposta={giorniConsegna}
                 />
               </PreventivoDocField>
@@ -408,6 +450,7 @@ export const PreventivoFoglioA4 = forwardRef<HTMLDivElement, Props>(
             onEditTotali={onEditTotali}
             stampa={stampa}
             testoPagamento={testoPagamento}
+            etichette={etichette}
             imponibile={impR}
             totaleIva={ivaR}
             totalePreventivo={totale}

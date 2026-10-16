@@ -68,6 +68,12 @@ import {
   type DestinatarioPreventivo,
 } from "@/lib/amministrazione/preventivo-letterhead";
 import { campiAccordoRiga } from "@/lib/amministrazione/accordi-prezzo";
+import {
+  fraseCausalePreventivo,
+  fraseValiditaPreventivo,
+  notaScontoRigaPreventivo,
+  vociEtichetteFissePreventivo,
+} from "@/lib/amministrazione/preventivo-etichette";
 import { foglioPreventivoToPdfBase64 } from "@/lib/amministrazione/preventivo-foglio-cattura";
 import { LISTINO_CONTRATTO_MSG } from "@/lib/ecosystem/listino-vigente";
 import {
@@ -128,46 +134,67 @@ function newKey() {
   return crypto.randomUUID();
 }
 
-function FoglioInScala({
+function CoppiaCentrata({
   naturale,
   children,
 }: {
   naturale?: boolean;
   children: ReactNode;
 }) {
-  const boxRef = useRef<HTMLDivElement>(null);
-  const sheetRef = useRef<HTMLDivElement>(null);
-  const [misura, setMisura] = useState<{ scale: number; height: number } | null>(
-    null
-  );
+  const outerRef = useRef<HTMLDivElement>(null);
+  const rowRef = useRef<HTMLDivElement>(null);
+  const [misura, setMisura] = useState<{
+    scale: number;
+    width: number;
+    height: number;
+  } | null>(null);
 
   useLayoutEffect(() => {
-    const box = boxRef.current;
-    const sheet = sheetRef.current;
-    if (!box || !sheet || naturale) return;
+    const outer = outerRef.current;
+    const row = rowRef.current;
+    if (!outer || !row || naturale) return;
     const misuraOra = () => {
-      const available = box.clientWidth;
-      const natural = sheet.offsetWidth;
-      const scale = natural > 0 ? Math.min(1, available / natural) : 1;
-      setMisura({ scale, height: sheet.offsetHeight * scale });
+      const available = outer.clientWidth;
+      const naturalW = row.offsetWidth;
+      const naturalH = row.offsetHeight;
+      const scale = naturalW > 0 ? Math.min(1, available / naturalW) : 1;
+      const width = naturalW * scale;
+      const height = naturalH * scale;
+      setMisura((prev) => {
+        if (
+          prev &&
+          prev.scale === scale &&
+          prev.width === width &&
+          prev.height === height
+        ) {
+          return prev;
+        }
+        return { scale, width, height };
+      });
     };
     misuraOra();
     const osservatore = new ResizeObserver(misuraOra);
-    osservatore.observe(box);
-    osservatore.observe(sheet);
+    osservatore.observe(outer);
+    osservatore.observe(row);
     return () => osservatore.disconnect();
   }, [naturale]);
 
   const scale = naturale ? 1 : (misura?.scale ?? 1);
-  const height = naturale ? undefined : misura?.height;
 
   return (
-    <div ref={boxRef} className="min-w-0 w-full">
-      <div style={{ height, overflow: height ? "hidden" : "visible" }}>
+    <div ref={outerRef} className="mx-auto w-full">
+      <div
+        className="mx-auto"
+        style={{
+          width: naturale ? undefined : misura?.width,
+          height: naturale ? undefined : misura?.height,
+          overflow: misura && !naturale ? "hidden" : "visible",
+        }}
+      >
         <div
-          ref={sheetRef}
+          ref={rowRef}
+          className="mx-auto flex w-max items-start justify-center gap-[12mm]"
           style={{
-            width: "210mm",
             transform: `scale(${scale})`,
             transformOrigin: "top left",
           }}
@@ -317,6 +344,27 @@ export function PreventivoFormModal({ onClose, onSaved, preventivoId }: Props) {
         text: labelModalitaPagamentoPreventivo(tipoPagamento),
       },
       { key: "note", etichetta: "Note", text: note },
+      {
+        key: "giorniTesto",
+        etichetta: "Giorni di consegna",
+        text: giorniConsegna,
+      },
+      {
+        key: "causaleFrase",
+        etichetta: "Causale",
+        text: fraseCausalePreventivo(numeroPreview, dataPreventivo),
+      },
+      {
+        key: "validitaFrase",
+        etichetta: "Validità",
+        text: fraseValiditaPreventivo(validitaGiorni),
+      },
+      ...righe.map((riga, index) => ({
+        key: `sconto-${riga.key}`,
+        etichetta: `Sconto riga ${index + 1}`,
+        text: notaScontoRigaPreventivo(riga),
+      })),
+      ...vociEtichetteFissePreventivo(),
     ];
   }, [
     righe,
@@ -325,6 +373,10 @@ export function PreventivoFormModal({ onClose, onSaved, preventivoId }: Props) {
     spedizioneImporto,
     tipoPagamento,
     note,
+    giorniConsegna,
+    numeroPreview,
+    dataPreventivo,
+    validitaGiorni,
   ]);
   const firmaCorrente = useMemo(
     () =>
@@ -1124,9 +1176,12 @@ export function PreventivoFormModal({ onClose, onSaved, preventivoId }: Props) {
       };
     });
     let noteVista = note;
+    let giorniVista = giorniConsegna;
     if (copia) {
       const tradotta = copia.note?.trim();
       if (tradotta) noteVista = tradotta;
+      const giorniTradotti = copia.giorniTesto?.trim();
+      if (giorniTradotti) giorniVista = giorniTradotti;
     }
     return (
       <PreventivoFoglioA4
@@ -1157,7 +1212,8 @@ export function PreventivoFormModal({ onClose, onSaved, preventivoId }: Props) {
         note={noteVista}
         testoSpedizione={copia?.consegna}
         testoPagamento={copia?.pagamento}
-        giorniConsegna={giorniConsegna}
+        etichette={copia ?? undefined}
+        giorniConsegna={giorniVista}
         tipoPagamento={tipoPagamento}
         ivaPercentuale={ivaDocumento}
         validitaGiorni={validitaGiorni}
@@ -1283,22 +1339,20 @@ export function PreventivoFormModal({ onClose, onSaved, preventivoId }: Props) {
         className={affiancato ? fascia : undefined}
       >
         {affiancato ? (
-          <div className="grid grid-cols-2 items-start gap-3">
-            <div className="min-w-0">
+          <CoppiaCentrata naturale={catturaNaturale}>
+            <div className="w-[210mm] shrink-0">
               <p className="mb-2 text-center text-xs font-semibold uppercase tracking-[0.16em] text-white">
                 Italiano
               </p>
-              <FoglioInScala naturale={catturaNaturale}>
-                {schedaPreventivo(false)}
-              </FoglioInScala>
+              {schedaPreventivo(false)}
             </div>
-            <div className="min-w-0">
+            <div className="w-[210mm] shrink-0">
               <p className="mb-2 text-center text-xs font-semibold uppercase tracking-[0.16em] text-white">
                 {nomeLinguaTradotta ?? "Traduzione"}
               </p>
-              <FoglioInScala>{schedaPreventivo(true)}</FoglioInScala>
+              {schedaPreventivo(true)}
             </div>
-          </div>
+          </CoppiaCentrata>
         ) : (
           schedaPreventivo(false)
         )}

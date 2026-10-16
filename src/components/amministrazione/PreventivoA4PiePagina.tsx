@@ -4,7 +4,6 @@ import {
   AGRINSICILIA_COORDINATE,
   AGRINSICILIA_LETTERHEAD,
   OPUNTIA_ITALIA_LOGO,
-  formatPreventivoDataIt,
 } from "@/lib/amministrazione/preventivo-letterhead";
 import {
   PREVENTIVO_IVA_DEFAULT,
@@ -17,6 +16,11 @@ import {
   PreventivoDocField,
   PreventivoDocQa,
 } from "@/components/amministrazione/PreventivoDocPencil";
+import {
+  etichettaPreventivo,
+  fraseCausalePreventivo,
+  fraseValiditaPreventivo,
+} from "@/lib/amministrazione/preventivo-etichette";
 
 type Props = {
   tipoPagamento: OrdineTipoPagamento;
@@ -28,6 +32,7 @@ type Props = {
   onEditTotali?: () => void;
   stampa?: boolean;
   testoPagamento?: string;
+  etichette?: Record<string, string>;
   imponibile: number;
   totaleIva: number;
   totalePreventivo: number;
@@ -71,6 +76,7 @@ export function PreventivoA4PiePagina({
   onEditTotali,
   stampa = false,
   testoPagamento,
+  etichette,
   imponibile,
   totaleIva,
   totalePreventivo,
@@ -85,31 +91,36 @@ export function PreventivoA4PiePagina({
             onEdit={onEditPagamento}
             stampa={stampa}
           >
-            <p className="text-[12px] font-bold">Modalità di Pagamento</p>
+            <p className="text-[12px] font-bold">
+              {etichettaPreventivo(etichette, "modalita", "Modalità di Pagamento")}
+            </p>
             <p className="mt-0.5">
               {testoPagamento?.trim() ||
                 labelModalitaPagamentoPreventivo(tipoPagamento)}
             </p>
             <div className="mt-2 space-y-0.5">
               <PreventivoDocQa
-                domanda="Banca"
+                domanda={etichettaPreventivo(etichette, "banca", "Banca")}
                 risposta={AGRINSICILIA_COORDINATE.banca}
               />
               <PreventivoDocQa
-                domanda="IBAN"
+                domanda={etichettaPreventivo(etichette, "iban", "IBAN")}
                 risposta={formatIbanDisplay(AGRINSICILIA_COORDINATE.iban)}
               />
               <PreventivoDocQa
-                domanda="BIC"
+                domanda={etichettaPreventivo(etichette, "bic", "BIC")}
                 risposta={AGRINSICILIA_COORDINATE.bic}
               />
               <PreventivoDocQa
-                domanda="Importo"
+                domanda={etichettaPreventivo(etichette, "importo", "Importo")}
                 risposta={`${euro(totalePreventivo)} €`}
               />
               <PreventivoDocQa
-                domanda="Causale"
-                risposta={`Pagamento Preventivo n. ${numero} del ${formatPreventivoDataIt(dataPreventivo)}.`}
+                domanda={etichettaPreventivo(etichette, "causale", "Causale")}
+                risposta={
+                  etichette?.causaleFrase?.trim() ||
+                  fraseCausalePreventivo(numero, dataPreventivo)
+                }
               />
             </div>
           </PreventivoDocField>
@@ -122,18 +133,31 @@ export function PreventivoA4PiePagina({
             pencilRight
             stampa={stampa}
           >
-            <p className="text-[12px] font-bold">Totali</p>
+            <p className="text-[12px] font-bold">
+              {etichettaPreventivo(etichette, "totali", "Totali")}
+            </p>
             <div className="my-1 flex justify-center">
               <div className="-rotate-6 border-[2.5px] border-double border-red-700 px-3 py-1.5 text-center text-[10px] font-bold uppercase tracking-[0.14em] text-red-700">
-                Validità preventivo {validitaGiorni} gg.
+                {etichette?.validitaFrase?.trim() ||
+                  fraseValiditaPreventivo(validitaGiorni)}
               </div>
             </div>
             <div className="space-y-1">
-              <TotaleRiga label="Imponibile" value={imponibile} />
-              <TotaleRiga label={`Totale IVA ${ivaPercentuale}%`} value={totaleIva} />
+              <TotaleRiga
+                label={etichettaPreventivo(etichette, "imponibile", "Imponibile")}
+                value={imponibile}
+              />
+              <TotaleRiga
+                label={`${etichettaPreventivo(etichette, "totaleIva", "Totale IVA")} ${ivaPercentuale}%`}
+                value={totaleIva}
+              />
               <div className="border-t border-slate-800 pt-1">
                 <TotaleRiga
-                  label="Totale Preventivo"
+                  label={etichettaPreventivo(
+                    etichette,
+                    "totalePreventivo",
+                    "Totale Preventivo"
+                  )}
                   value={totalePreventivo}
                   strong
                 />
@@ -166,7 +190,8 @@ export function PreventivoA4PiePagina({
           {AGRINSICILIA_LETTERHEAD.sito} - {AGRINSICILIA_LETTERHEAD.email}
         </p>
         <p className="text-[10px] leading-[1.4] text-slate-700">
-          cell: {AGRINSICILIA_LETTERHEAD.cell}
+          {etichettaPreventivo(etichette, "cell", "cell")}:{" "}
+          {AGRINSICILIA_LETTERHEAD.cell}
         </p>
       </footer>
     </div>

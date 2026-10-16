@@ -26,7 +26,7 @@ const traduciSchema = z.object({
         text: z.string().max(8000),
       })
     )
-    .max(40),
+    .max(200),
 });
 
 async function richiediOperatore(): Promise<
