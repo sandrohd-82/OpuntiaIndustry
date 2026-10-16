@@ -20,6 +20,13 @@ type Props = {
   testi: TestoTraducibile[];
   /** In mail scrive la traduzione nella bozza. Senza callback la mostra soltanto. */
   onApplica?: (testi: Array<{ key: string; text: string }>) => void;
+  /** Copia affiancata: il documento italiano resta com'è. */
+  onCopia?: (
+    testi: Array<{ key: string; text: string }>,
+    meta: { lingua: string; nomeLingua: string }
+  ) => void;
+  traduzionePronta?: boolean;
+  daAggiornare?: boolean;
 };
 
 export function TraduciIntercomunicazione({
@@ -28,6 +35,9 @@ export function TraduciIntercomunicazione({
   documento,
   testi,
   onApplica,
+  onCopia,
+  traduzionePronta = false,
+  daAggiornare = false,
 }: Props) {
   const [lingua, setLingua] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
@@ -57,7 +67,8 @@ export function TraduciIntercomunicazione({
 
   if (!lingua || lingua === "it") return null;
 
-  const nomeLingua = labelLingua(lingua);
+  const linguaCodice = lingua;
+  const nomeLingua = labelLingua(linguaCodice);
 
   async function traduci() {
     setPending(true);
@@ -73,6 +84,12 @@ export function TraduciIntercomunicazione({
     setPending(false);
     if (!res.success) {
       setError(res.error);
+      return;
+    }
+    if (onCopia) {
+      onCopia(res.testi, { lingua: linguaCodice, nomeLingua });
+      setCopia(null);
+      setInfo(null);
       return;
     }
     if (onApplica) {
@@ -94,15 +111,29 @@ export function TraduciIntercomunicazione({
     setInfo(null);
   }
 
+  const acceso = traduzionePronta && daAggiornare && !pending;
+  let etichetta = `Traduci in ${nomeLingua}`;
+  if (pending) etichetta = "Traduzione…";
+  else if (traduzionePronta) etichetta = "Aggiorna traduzione";
+  let bottoneClass =
+    "rounded-lg border border-sky-300 bg-sky-50 px-3 py-1.5 text-sm font-medium text-sky-950 disabled:opacity-50";
+  if (acceso) {
+    bottoneClass =
+      "rounded-lg bg-amber-400 px-3 py-1.5 text-sm font-semibold text-amber-950 ring-2 ring-amber-200 shadow-lg shadow-amber-500/40";
+  } else if (traduzionePronta) {
+    bottoneClass =
+      "rounded-lg border border-slate-400 bg-slate-200 px-3 py-1.5 text-sm text-slate-500";
+  }
+
   return (
     <div className="print:hidden">
       <button
         type="button"
-        disabled={pending}
+        disabled={pending || (traduzionePronta && !daAggiornare)}
         onClick={() => void traduci()}
-        className="rounded-lg border border-sky-300 bg-sky-50 px-3 py-1.5 text-sm font-medium text-sky-950 disabled:opacity-50"
+        className={bottoneClass}
       >
-        {pending ? "Traduzione…" : `Traduci in ${nomeLingua}`}
+        {etichetta}
       </button>
       {error ? (
         <p className="mt-2 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">

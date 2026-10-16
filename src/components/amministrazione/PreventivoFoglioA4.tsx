@@ -59,6 +59,10 @@ type Props = {
   validitaGiorni: number;
   /** Foglio da allegare: stessa grafica, senza matite. */
   stampa?: boolean;
+  /** Testo già tradotto: sostituisce la frase di spedizione calcolata. */
+  testoSpedizione?: string;
+  /** Testo già tradotto della modalità di pagamento. */
+  testoPagamento?: string;
   onEditData?: () => void;
   onEditCommerciale?: () => void;
   onEditDestinatario?: () => void;
@@ -98,6 +102,8 @@ export const PreventivoFoglioA4 = forwardRef<HTMLDivElement, Props>(
       ivaPercentuale = PREVENTIVO_IVA_DEFAULT,
       validitaGiorni,
       stampa = false,
+      testoSpedizione,
+      testoPagamento,
       onEditData,
       onEditCommerciale,
       onEditDestinatario,
@@ -137,11 +143,13 @@ export const PreventivoFoglioA4 = forwardRef<HTMLDivElement, Props>(
     const modalitaSpedizione: PreventivoModalitaSpedizione =
       spedizioneModalita ??
       (spedizioneDaCalcolare ? "richiesto" : "inserito");
-    const spedizioneTesto = testoSpedizionePreventivo({
-      consegnaMetodo,
-      modalita: modalitaSpedizione,
-      importo: spedizioneImporto,
-    });
+    const spedizioneTesto =
+      testoSpedizione?.trim() ||
+      testoSpedizionePreventivo({
+        consegnaMetodo,
+        modalita: modalitaSpedizione,
+        importo: spedizioneImporto,
+      });
     const spedizioneNota =
       spedizioneImporto > 0 && modalitaSpedizione !== "in_fattura";
 
@@ -399,6 +407,7 @@ export const PreventivoFoglioA4 = forwardRef<HTMLDivElement, Props>(
             validitaGiorni={validitaGiorni}
             onEditTotali={onEditTotali}
             stampa={stampa}
+            testoPagamento={testoPagamento}
             imponibile={impR}
             totaleIva={ivaR}
             totalePreventivo={totale}

@@ -3,10 +3,12 @@
 import {
   useEffect,
   useId,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
   type FormEvent,
+  type ReactNode,
 } from "react";
 import {
   createPreventivoAction,
@@ -26,12 +28,14 @@ import {
 import { PreventivoDestinatarioModal } from "@/components/amministrazione/PreventivoDestinatarioPicker";
 import { PreventivoEditModal } from "@/components/amministrazione/PreventivoEditModal";
 import { PreventivoFoglioA4 } from "@/components/amministrazione/PreventivoFoglioA4";
-import { TraduciIntercomunicazione } from "@/components/amministrazione/TraduciIntercomunicazione";
+import {
+  TraduciIntercomunicazione,
+  type TestoTraducibile,
+} from "@/components/amministrazione/TraduciIntercomunicazione";
 import { ClearableNumberInput } from "@/components/ui/ClearableNumberInput";
 import { useProdottiPropri } from "@/hooks/useProdottiPropri";
 import {
   ORDINE_TIPI_PAGAMENTO,
-  labelTipoPagamento,
   type OrdineTipoPagamento,
 } from "@/lib/amministrazione/ordini";
 import {
@@ -42,6 +46,7 @@ import {
   PREVENTIVO_IVA_DEFAULT,
   PREVENTIVO_NOTE_DEFAULT,
   PREVENTIVO_VALIDITA_GIORNI,
+  labelModalitaPagamentoPreventivo,
   testoSpedizionePreventivo,
   voceSpedizionePreventivo,
   type Preventivo,
@@ -123,6 +128,57 @@ function newKey() {
   return crypto.randomUUID();
 }
 
+function FoglioInScala({
+  naturale,
+  children,
+}: {
+  naturale?: boolean;
+  children: ReactNode;
+}) {
+  const boxRef = useRef<HTMLDivElement>(null);
+  const sheetRef = useRef<HTMLDivElement>(null);
+  const [misura, setMisura] = useState<{ scale: number; height: number } | null>(
+    null
+  );
+
+  useLayoutEffect(() => {
+    const box = boxRef.current;
+    const sheet = sheetRef.current;
+    if (!box || !sheet || naturale) return;
+    const misuraOra = () => {
+      const available = box.clientWidth;
+      const natural = sheet.offsetWidth;
+      const scale = natural > 0 ? Math.min(1, available / natural) : 1;
+      setMisura({ scale, height: sheet.offsetHeight * scale });
+    };
+    misuraOra();
+    const osservatore = new ResizeObserver(misuraOra);
+    osservatore.observe(box);
+    osservatore.observe(sheet);
+    return () => osservatore.disconnect();
+  }, [naturale]);
+
+  const scale = naturale ? 1 : (misura?.scale ?? 1);
+  const height = naturale ? undefined : misura?.height;
+
+  return (
+    <div ref={boxRef} className="min-w-0 w-full">
+      <div style={{ height, overflow: height ? "hidden" : "visible" }}>
+        <div
+          ref={sheetRef}
+          style={{
+            width: "210mm",
+            transform: `scale(${scale})`,
+            transformOrigin: "top left",
+          }}
+        >
+          {children}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export function PreventivoFormModal({ onClose, onSaved, preventivoId }: Props) {
   const titleId = useId();
   const foglioRef = useRef<HTMLDivElement>(null);
@@ -190,6 +246,14 @@ export function PreventivoFormModal({ onClose, onSaved, preventivoId }: Props) {
     useState<ModoPrezzoSpedizione>("in_fattura");
   const [mailError, setMailError] = useState<string | null>(null);
   const [foglioPronto, setFoglioPronto] = useState(!preventivoId);
+  const [copiaTradotta, setCopiaTradotta] = useState<Record<string, string> | null>(
+    null
+  );
+  const [firmaTradotta, setFirmaTradotta] = useState<string | null>(null);
+  const [nomeLinguaTradotta, setNomeLinguaTradotta] = useState<string | null>(
+    null
+  );
+  const [catturaNaturale, setCatturaNaturale] = useState(false);
 
   const editing = editKey
     ? (righe.find((r) => r.key === editKey) ?? null)
@@ -216,6 +280,98 @@ export function PreventivoFormModal({ onClose, onSaved, preventivoId }: Props) {
         ? applicaMargineSpedizione(spedizioneBase)
         : Number(spedizioneBase);
   }
+
+  const testiTraducibili = useMemo<TestoTraducibile[]>(() => {
+    const modalita =
+      consegnaMetodo === "ritiro" ? "non_applicabile" : prezzoAcquirenteModo;
+    return [
+      ...righe.flatMap((riga, index) => [
+        {
+          key: `nome-${riga.key}`,
+          etichetta: `Prodotto ${index + 1}`,
+          text: riga.prodottoNome,
+        },
+        {
+          key: `conf-${riga.key}`,
+          etichetta: `Confezionamento ${index + 1}`,
+          text: riga.confezionamento,
+        },
+        {
+          key: `giust-${riga.key}`,
+          etichetta: `Giustificazione ${index + 1}`,
+          text: riga.accordoGiustificazione ?? "",
+        },
+      ]),
+      {
+        key: "consegna",
+        etichetta: "Consegna",
+        text: testoSpedizionePreventivo({
+          consegnaMetodo,
+          modalita,
+          importo: spedizioneImporto,
+        }),
+      },
+      {
+        key: "pagamento",
+        etichetta: "Pagamento",
+        text: labelModalitaPagamentoPreventivo(tipoPagamento),
+      },
+      { key: "note", etichetta: "Note", text: note },
+    ];
+  }, [
+    righe,
+    consegnaMetodo,
+    prezzoAcquirenteModo,
+    spedizioneImporto,
+    tipoPagamento,
+    note,
+  ]);
+  const firmaCorrente = useMemo(
+    () =>
+      JSON.stringify({
+        testi: testiTraducibili.map((item) => [item.key, item.text]),
+        dataPreventivo,
+        commercialeId: commerciale?.id ?? "",
+        destinatarioId: destinatario?.id ?? "",
+        indirizzo: destinatario
+          ? formatDestinatarioIndirizzo(destinatario.sede)
+          : null,
+        righe: righe.map((riga) => ({
+          key: riga.key,
+          codice: riga.prodottoCodice,
+          quantita: riga.quantita,
+          unita: riga.unitaMisura,
+          prezzo: riga.prezzoUnitario,
+          iva: riga.ivaPercentuale,
+          scontoExtra: riga.scontoExtraPct,
+          scontoListino: riga.scontoListinoPct ?? 0,
+          scontoStandard: riga.scontoListinoStandardPct ?? 0,
+        })),
+        giorniConsegna,
+        ivaDocumento,
+        validitaGiorni,
+        numeroPreview,
+      }),
+    [
+      testiTraducibili,
+      dataPreventivo,
+      commerciale?.id,
+      destinatario,
+      righe,
+      giorniConsegna,
+      ivaDocumento,
+      validitaGiorni,
+      numeroPreview,
+    ]
+  );
+  const traduzioneObsoleta =
+    copiaTradotta != null && firmaTradotta !== firmaCorrente;
+
+  useEffect(() => {
+    setCopiaTradotta(null);
+    setFirmaTradotta(null);
+    setNomeLinguaTradotta(null);
+  }, [destinatario?.id]);
 
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
@@ -897,6 +1053,12 @@ export function PreventivoFormModal({ onClose, onSaved, preventivoId }: Props) {
     }
     setSaving(true);
     setMailError(null);
+    setCatturaNaturale(true);
+    await new Promise<void>((resolve) => {
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => resolve());
+      });
+    });
     try {
       const pdfBase64 = await foglioPreventivoToPdfBase64(node);
       const res = await inviaPreventivoMailAction({
@@ -923,6 +1085,8 @@ export function PreventivoFormModal({ onClose, onSaved, preventivoId }: Props) {
           ? `Preventivo salvato in archivio. Invio mail non riuscito: ${e.message}`
           : "Preventivo salvato in archivio. Invio mail non riuscito."
       );
+    } finally {
+      setCatturaNaturale(false);
     }
   }
 
@@ -941,12 +1105,92 @@ export function PreventivoFormModal({ onClose, onSaved, preventivoId }: Props) {
     });
   }
 
+  const affiancato = copiaTradotta != null;
+  const fascia = affiancato
+    ? "mx-auto w-[98vw] max-w-[98vw]"
+    : "mx-auto max-w-[210mm]";
+
+  function schedaPreventivo(tradotto: boolean) {
+    const copia = tradotto ? copiaTradotta : null;
+    const righeVista = righe.map((riga) => {
+      if (!copia) return riga;
+      const conf = copia[`conf-${riga.key}`]?.trim() || riga.confezionamento;
+      const giust = copia[`giust-${riga.key}`]?.trim();
+      const confezionamento = giust ? `${conf}\n${giust}` : conf;
+      return {
+        ...riga,
+        prodottoNome: copia[`nome-${riga.key}`]?.trim() || riga.prodottoNome,
+        confezionamento,
+      };
+    });
+    let noteVista = note;
+    if (copia) {
+      const tradotta = copia.note?.trim();
+      if (tradotta) noteVista = tradotta;
+    }
+    return (
+      <PreventivoFoglioA4
+        ref={tradotto ? undefined : foglioRef}
+        titleId={tradotto ? undefined : titleId}
+        numero={numeroPreview}
+        dataPreventivo={dataPreventivo}
+        commerciale={commerciale}
+        destinatario={
+          destinatario
+            ? {
+                ragioneSociale: destinatario.ragioneSociale,
+                partitaIva: destinatario.partitaIva,
+                codiceFiscale: destinatario.codiceFiscale,
+                via: formatDestinatarioIndirizzo(destinatario.sede).via,
+                capCitta: formatDestinatarioIndirizzo(destinatario.sede)
+                  .capCitta,
+              }
+            : null
+        }
+        righe={righeVista}
+        consegnaMetodo={consegnaMetodo}
+        spedizioneImporto={spedizioneImporto}
+        spedizioneDaCalcolare={prezzoAcquirenteModo === "richiesto"}
+        spedizioneModalita={
+          consegnaMetodo === "ritiro" ? "non_applicabile" : prezzoAcquirenteModo
+        }
+        note={noteVista}
+        testoSpedizione={copia?.consegna}
+        testoPagamento={copia?.pagamento}
+        giorniConsegna={giorniConsegna}
+        tipoPagamento={tipoPagamento}
+        ivaPercentuale={ivaDocumento}
+        validitaGiorni={validitaGiorni}
+        stampa={tradotto}
+        onEditData={tradotto ? undefined : () => openEdit("data")}
+        onEditCommerciale={tradotto ? undefined : () => openEdit("commerciale")}
+        onEditDestinatario={
+          tradotto ? undefined : () => openEdit("destinatario")
+        }
+        onEditProdotto={
+          tradotto ? undefined : (key) => openEdit("prodotto", key ?? null)
+        }
+        onRemoveRiga={
+          tradotto
+            ? undefined
+            : (key) => setRighe((prev) => prev.filter((r) => r.key !== key))
+        }
+        onAddRiga={tradotto ? undefined : () => openEdit("prodotto")}
+        onEditNote={tradotto ? undefined : () => openEdit("note")}
+        onEditSpedizione={tradotto ? undefined : () => openEdit("spedizione")}
+        onEditGiorni={tradotto ? undefined : () => openEdit("giorni")}
+        onEditPagamento={tradotto ? undefined : () => openEdit("pagamento")}
+        onEditTotali={tradotto ? undefined : () => openEdit("totali")}
+      />
+    );
+  }
+
   return (
     <div
-      className="fixed inset-0 z-[60] overflow-y-auto bg-slate-950/65 px-3 py-6 sm:px-6"
+      className={`fixed inset-0 z-[60] overflow-y-auto bg-slate-950/65 py-6 ${affiancato ? "px-[1vw]" : "px-3 sm:px-6"}`}
       role="presentation"
     >
-      <div className="mx-auto mb-4 flex max-w-[210mm] items-center justify-between gap-3 print:hidden">
+      <div className={`${fascia} mb-4 flex items-center justify-between gap-3 print:hidden`}>
         <h2 id={titleId} className="text-sm font-semibold text-white">
           {preventivoId
             ? `Modifica preventivo ${numeroPreview}`
@@ -988,73 +1232,46 @@ export function PreventivoFormModal({ onClose, onSaved, preventivoId }: Props) {
       </div>
 
       {PREVENTIVI_SESSIONE_PROVA && !preventivoId ? (
-        <p className="mx-auto mb-3 max-w-[210mm] rounded border border-amber-300 bg-amber-100 px-3 py-2 text-sm font-medium text-amber-950 print:hidden">
+        <p className={`${fascia} mb-3 rounded border border-amber-300 bg-amber-100 px-3 py-2 text-sm font-medium text-amber-950 print:hidden`}>
           {PREVENTIVI_SESSIONE_PROVA_MSG}
         </p>
       ) : null}
       {sessioneMsg ? (
-        <p className="mx-auto mb-3 max-w-[210mm] rounded border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900 print:hidden">
+        <p className={`${fascia} mb-3 rounded border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900 print:hidden`}>
           {sessioneMsg}
         </p>
       ) : null}
 
       {preventivoId && !foglioPronto ? (
-        <p className="mx-auto mb-3 max-w-[210mm] rounded border border-white/20 bg-white px-3 py-2 text-sm text-slate-700 print:hidden">
+        <p className={`${fascia} mb-3 rounded border border-white/20 bg-white px-3 py-2 text-sm text-slate-700 print:hidden`}>
           Caricamento del preventivo e della mail…
         </p>
       ) : null}
 
       {formError ? (
-        <p className="mx-auto mb-3 max-w-[210mm] rounded border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700 print:hidden">
+        <p className={`${fascia} mb-3 rounded border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700 print:hidden`}>
           {formError}
         </p>
       ) : null}
 
       {destinatario ? (
-        <div className="mx-auto mb-3 max-w-[210mm] print:hidden">
+        <div className={`${fascia} mb-3 print:hidden`}>
           <TraduciIntercomunicazione
             tipo={
               destinatario.kind === "possibile" ? "cliente_possibile" : "cliente"
             }
             id={destinatario.id}
             documento="preventivo"
-            testi={[
-              ...righe.flatMap((riga, index) => [
-                {
-                  key: `nome-${riga.key}`,
-                  etichetta: `Prodotto ${index + 1}`,
-                  text: riga.prodottoNome,
-                },
-                {
-                  key: `conf-${riga.key}`,
-                  etichetta: `Confezionamento ${index + 1}`,
-                  text: riga.confezionamento,
-                },
-                {
-                  key: `giust-${riga.key}`,
-                  etichetta: `Giustificazione ${index + 1}`,
-                  text: riga.accordoGiustificazione ?? "",
-                },
-              ]),
-              {
-                key: "consegna",
-                etichetta: "Consegna",
-                text: testoSpedizionePreventivo({
-                  consegnaMetodo,
-                  modalita:
-                    consegnaMetodo === "ritiro"
-                      ? "non_applicabile"
-                      : prezzoAcquirenteModo,
-                  importo: spedizioneImporto,
-                }),
-              },
-              {
-                key: "pagamento",
-                etichetta: "Pagamento",
-                text: labelTipoPagamento(tipoPagamento),
-              },
-              { key: "note", etichetta: "Note", text: note },
-            ]}
+            testi={testiTraducibili}
+            traduzionePronta={affiancato}
+            daAggiornare={traduzioneObsoleta}
+            onCopia={(items, meta) => {
+              setCopiaTradotta(
+                Object.fromEntries(items.map((item) => [item.key, item.text]))
+              );
+              setFirmaTradotta(firmaCorrente);
+              setNomeLinguaTradotta(meta.nomeLingua);
+            }}
           />
         </div>
       ) : null}
@@ -1063,50 +1280,28 @@ export function PreventivoFormModal({ onClose, onSaved, preventivoId }: Props) {
         id="preventivo-a4-form"
         onSubmit={onSubmit}
         aria-labelledby={titleId}
+        className={affiancato ? fascia : undefined}
       >
-        <PreventivoFoglioA4
-          ref={foglioRef}
-          titleId={titleId}
-          numero={numeroPreview}
-          dataPreventivo={dataPreventivo}
-          commerciale={commerciale}
-          destinatario={
-            destinatario
-              ? {
-                  ragioneSociale: destinatario.ragioneSociale,
-                  partitaIva: destinatario.partitaIva,
-                  codiceFiscale: destinatario.codiceFiscale,
-                  via: formatDestinatarioIndirizzo(destinatario.sede).via,
-                  capCitta: formatDestinatarioIndirizzo(destinatario.sede).capCitta,
-                }
-              : null
-          }
-          righe={righe}
-          consegnaMetodo={consegnaMetodo}
-          spedizioneImporto={spedizioneImporto}
-          spedizioneDaCalcolare={prezzoAcquirenteModo === "richiesto"}
-          spedizioneModalita={
-            consegnaMetodo === "ritiro" ? "non_applicabile" : prezzoAcquirenteModo
-          }
-          note={note}
-          giorniConsegna={giorniConsegna}
-          tipoPagamento={tipoPagamento}
-          ivaPercentuale={ivaDocumento}
-          validitaGiorni={validitaGiorni}
-          onEditData={() => openEdit("data")}
-          onEditCommerciale={() => openEdit("commerciale")}
-          onEditDestinatario={() => openEdit("destinatario")}
-          onEditProdotto={(key) => openEdit("prodotto", key ?? null)}
-          onRemoveRiga={(key) =>
-            setRighe((prev) => prev.filter((r) => r.key !== key))
-          }
-          onAddRiga={() => openEdit("prodotto")}
-          onEditNote={() => openEdit("note")}
-          onEditSpedizione={() => openEdit("spedizione")}
-          onEditGiorni={() => openEdit("giorni")}
-          onEditPagamento={() => openEdit("pagamento")}
-          onEditTotali={() => openEdit("totali")}
-        />
+        {affiancato ? (
+          <div className="grid grid-cols-2 items-start gap-3">
+            <div className="min-w-0">
+              <p className="mb-2 text-center text-xs font-semibold uppercase tracking-[0.16em] text-white">
+                Italiano
+              </p>
+              <FoglioInScala naturale={catturaNaturale}>
+                {schedaPreventivo(false)}
+              </FoglioInScala>
+            </div>
+            <div className="min-w-0">
+              <p className="mb-2 text-center text-xs font-semibold uppercase tracking-[0.16em] text-white">
+                {nomeLinguaTradotta ?? "Traduzione"}
+              </p>
+              <FoglioInScala>{schedaPreventivo(true)}</FoglioInScala>
+            </div>
+          </div>
+        ) : (
+          schedaPreventivo(false)
+        )}
       </form>
 
       {editKind === "commerciale" ? (

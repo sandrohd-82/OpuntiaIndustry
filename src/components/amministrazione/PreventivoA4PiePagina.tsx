@@ -27,6 +27,7 @@ type Props = {
   validitaGiorni?: number;
   onEditTotali?: () => void;
   stampa?: boolean;
+  testoPagamento?: string;
   imponibile: number;
   totaleIva: number;
   totalePreventivo: number;
@@ -69,6 +70,7 @@ export function PreventivoA4PiePagina({
   validitaGiorni = PREVENTIVO_VALIDITA_GIORNI,
   onEditTotali,
   stampa = false,
+  testoPagamento,
   imponibile,
   totaleIva,
   totalePreventivo,
@@ -84,7 +86,10 @@ export function PreventivoA4PiePagina({
             stampa={stampa}
           >
             <p className="text-[12px] font-bold">Modalità di Pagamento</p>
-            <p className="mt-0.5">{labelModalitaPagamentoPreventivo(tipoPagamento)}</p>
+            <p className="mt-0.5">
+              {testoPagamento?.trim() ||
+                labelModalitaPagamentoPreventivo(tipoPagamento)}
+            </p>
             <div className="mt-2 space-y-0.5">
               <PreventivoDocQa
                 domanda="Banca"
