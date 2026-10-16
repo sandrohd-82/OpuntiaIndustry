@@ -3,6 +3,7 @@
 import { useId, useState } from "react";
 import { FaChevronDown, FaPlus, FaTrash } from "react-icons/fa6";
 import { AddressSedeFields } from "@/components/amministrazione/AddressSedeFields";
+import { applicaNazioneSede } from "@/lib/address/formato-nazione";
 import {
   ANAGRAFICA_SEDE_LABEL,
   ANAGRAFICA_SEDE_TIPI,
@@ -30,6 +31,24 @@ export function draftsFromSedi(sedi: AnagraficaSede[]): AnagraficaSedeDraft[] {
     ...s,
     open: s.tipo === "legale" || !isSedeAddressEmpty(s),
   }));
+}
+
+export function nazioneAppartenenzaDaSedi(sedi: AnagraficaSedeDraft[]): string {
+  const legale = sedi.find((sede) => sede.tipo === "legale") ?? sedi[0];
+  return legale?.nazione ?? "";
+}
+
+export function applicaNazioneAppartenenzaSedi(
+  sedi: AnagraficaSedeDraft[],
+  nome: string
+): AnagraficaSedeDraft[] {
+  const base = sedi.length
+    ? [...sedi]
+    : [{ ...emptyAnagraficaSede("legale", 0), open: true }];
+  const index = base.findIndex((sede) => sede.tipo === "legale");
+  const i = index >= 0 ? index : 0;
+  base[i] = applicaNazioneSede(base[i], nome);
+  return base;
 }
 
 export function draftsFromLegacy(

@@ -1,4 +1,8 @@
 import {
+  validaCodiceFiscaleNazione,
+  validaPartitaIvaNazione,
+} from "@/lib/address/identita-fiscale-nazione";
+import {
   labelFornitoreTipologia,
   normalizeTipologie,
 } from "@/lib/amministrazione/catalogo-offerta";
@@ -150,23 +154,19 @@ export function normalizeFornitoreInput(input: FornitoreInput): FornitoreInput {
   };
 }
 
-/** Validazione business scheda fornitore (opzione A: P.IVA + CF obbligatori). */
+/** P.IVA e codice fiscale seguono la nazione della sede amministrativa. */
 export function validateFornitoreAnagrafica(
-  input: Pick<FornitoreInput, "ragioneSociale" | "partitaIva" | "codiceFiscale">
+  input: Pick<FornitoreInput, "ragioneSociale" | "partitaIva" | "codiceFiscale"> & {
+    sedeAmministrativa?: Pick<SedeFornitore, "nazione"> | null;
+  }
 ): string | null {
   if (!input.ragioneSociale.trim() || input.ragioneSociale.trim().length < 2) {
     return "La ragione sociale è obbligatoria.";
   }
-  const vat = input.partitaIva.trim().toUpperCase().replace(/[\s.\-\/]/g, "");
-  const vatKey = vat.startsWith("IT") ? vat.slice(2) : vat;
-  if (!/^\d{11}$/.test(vatKey)) {
-    return "La partita IVA è obbligatoria (11 cifre).";
-  }
-  const cf = input.codiceFiscale.trim().toUpperCase().replace(/[\s.\-\/]/g, "");
-  if (!/^[A-Z0-9]{11,16}$/.test(cf)) {
-    return "Il codice fiscale è obbligatorio (11–16 caratteri).";
-  }
-  return null;
+  const nazione = input.sedeAmministrativa?.nazione ?? "";
+  const iva = validaPartitaIvaNazione(nazione, input.partitaIva);
+  if (iva) return iva;
+  return validaCodiceFiscaleNazione(nazione, input.codiceFiscale);
 }
 
 export function mapFornitoreRow(row: FornitoreRow): Fornitore {

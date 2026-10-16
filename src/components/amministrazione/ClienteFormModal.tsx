@@ -21,13 +21,22 @@ import {
 } from "@/components/amministrazione/AnagraficaBrandEditor";
 import {
   AnagraficaSediEditor,
+  applicaNazioneAppartenenzaSedi,
   applyLegacySedeToDrafts,
   draftsFromLegacy,
   draftsFromSedi,
+  nazioneAppartenenzaDaSedi,
   sediToInput,
   validateSediDrafts,
   type AnagraficaSedeDraft,
 } from "@/components/amministrazione/AnagraficaSediEditor";
+import { NazioneAppartenenzaField } from "@/components/amministrazione/NazioneAppartenenzaField";
+import { isNazioneItalia } from "@/lib/address/formato-nazione";
+import {
+  profiloFiscaleNazione,
+  validaCodiceFiscaleNazione,
+  validaPartitaIvaNazione,
+} from "@/lib/address/identita-fiscale-nazione";
 import { loadAnagraficaExtraAction } from "@/app/actions/anagrafica-extra";
 import { AnagraficaSchedaSection } from "@/components/amministrazione/AnagraficaSchedaSection";
 import {
@@ -429,21 +438,18 @@ export function ClienteFormModal({
       );
       return null;
     }
-    if (!isPrivato && !partitaIva.trim()) {
-      setFormError(
-        madre
-          ? "Conferma la partita IVA oppure scrivila."
-          : "La partita IVA è obbligatoria per i clienti azienda."
-      );
-      return null;
-    }
-    if (!isPrivato && !codiceFiscale.trim()) {
-      setFormError(
-        madre
-          ? "Conferma il codice fiscale oppure scrivilo."
-          : "Il codice fiscale è obbligatorio per i clienti azienda."
-      );
-      return null;
+    if (!isPrivato) {
+      const nazione = nazioneAppartenenzaDaSedi(sedi);
+      const ivaErr = validaPartitaIvaNazione(nazione, partitaIva);
+      if (ivaErr) {
+        setFormError(ivaErr);
+        return null;
+      }
+      const cfErr = validaCodiceFiscaleNazione(nazione, codiceFiscale);
+      if (cfErr) {
+        setFormError(cfErr);
+        return null;
+      }
     }
     const sediErr = validateSediDrafts(sedi, {
       requireLegale: !isPossibile,
@@ -538,7 +544,12 @@ export function ClienteFormModal({
   }
 
   async function checkArchivioByVat(vat: string) {
-    if (isEdit || isPossibile || !vat.trim()) {
+    if (
+      isEdit ||
+      isPossibile ||
+      !vat.trim() ||
+      !isNazioneItalia(nazioneAppartenenzaDaSedi(sedi))
+    ) {
       setArchivioId(null);
       setArchivioHint(null);
       return;
@@ -806,6 +817,8 @@ export function ClienteFormModal({
     onCollega(schedaDaForm(savedId, values));
   }
 
+  const nazioneAppartenenza = nazioneAppartenenzaDaSedi(sedi);
+  const profiloFiscale = profiloFiscaleNazione(nazioneAppartenenza);
   const puoCollegare =
     Boolean(onCollega) && !collega && !isPrivato && !initial?.aziendaMadreId;
 
@@ -989,6 +1002,12 @@ export function ClienteFormModal({
                 className="w-full rounded-lg border border-[var(--border)] px-3 py-2 outline-none focus:border-[var(--primary)]"
               />
             </label>
+            <NazioneAppartenenzaField
+              value={nazioneAppartenenza}
+              onChange={(nome) =>
+                setSedi((prev) => applicaNazioneAppartenenzaSedi(prev, nome))
+              }
+            />
             <LinguaIntercomunicazioneField value={lingua} onChange={setLingua} />
             {isEdit ? (
               <CommercialeAssignField
@@ -1073,7 +1092,8 @@ export function ClienteFormModal({
             </label>
             <label className="block text-sm sm:col-span-2">
               <span className="mb-1 block font-medium">
-                P. IVA{isPrivato ? "" : " *"}
+                {profiloFiscale.etichettaIva}
+                {isPrivato ? "" : " *"}
               </span>
               <input
                 value={partitaIva}
@@ -1086,7 +1106,9 @@ export function ClienteFormModal({
                 required={!isPrivato}
                 disabled={isPrivato}
                 placeholder={
-                  isPrivato ? "Non applicabile al cliente privato" : undefined
+                  isPrivato
+                    ? "Non applicabile al cliente privato"
+                    : profiloFiscale.placeholderIva
                 }
                 className="w-full rounded-lg border border-[var(--border)] px-3 py-2 outline-none focus:border-[var(--primary)] disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-[var(--muted)]"
               />
@@ -1099,16 +1121,22 @@ export function ClienteFormModal({
             <div className="space-y-2 sm:col-span-2">
               <label className="block text-sm">
                 <span className="mb-1 block font-medium">
-                  Codice fiscale{isPrivato ? " (facoltativo)" : " *"}
+                  {profiloFiscale.etichettaCodice}
+                  {isPrivato || !profiloFiscale.codiceObbligatorio
+                    ? " (facoltativo)"
+                    : " *"}
                 </span>
                 <input
                   value={codiceFiscale}
                   onChange={(e) => setCodiceFiscale(e.target.value)}
-                  required={!isPrivato}
+                  required={!isPrivato && profiloFiscale.codiceObbligatorio}
+                  placeholder={
+                    isPrivato ? undefined : profiloFiscale.placeholderCodice
+                  }
                   className="w-full rounded-lg border border-[var(--border)] px-3 py-2 outline-none focus:border-[var(--primary)]"
                 />
               </label>
-              {!isPrivato ? (
+              {!isPrivato && profiloFiscale.italia ? (
                 <button
                   type="button"
                   onClick={() => {

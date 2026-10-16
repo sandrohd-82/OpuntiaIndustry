@@ -5,10 +5,9 @@ import { FaChevronDown } from "react-icons/fa6";
 import { listNazioniIndirizzoAction } from "@/app/actions/nazioni-indirizzo";
 import type { NazioneIndirizzo } from "@/app/actions/nazioni-indirizzo";
 import {
+  applicaNazioneSede,
   campiIndirizzo,
   isNazioneItalia,
-  sedeHaCampo,
-  type CampoSede,
 } from "@/lib/address/formato-nazione";
 import {
   joinStreetAndCivico,
@@ -112,16 +111,7 @@ export function AddressSedeFields({
   }, []);
 
   function cambiaNazione(nome: string) {
-    const next: SedeFornitore = { ...value, nazione: nome };
-    const campi: CampoSede[] = ["indirizzo", "localita", "citta", "provincia", "cap"];
-    if (!isNazioneItalia(nome)) {
-      for (const campo of campi) {
-        if (!sedeHaCampo(nome, campo)) next[campo] = "";
-      }
-    } else {
-      next.localita = "";
-    }
-    onChange(next);
+    onChange(applicaNazioneSede(value, nome));
   }
 
   const italia = isNazioneItalia(value.nazione);

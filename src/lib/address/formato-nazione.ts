@@ -268,6 +268,29 @@ export function sedeHaCampo(nazione: string, campo: CampoSede): boolean {
   return campiIndirizzo(nazione).some((voce) => voce.campo === campo);
 }
 
+/** Cambia la nazione e svuota i campi che il nuovo formato non usa. */
+export function applicaNazioneSede<T extends SedeFornitore>(
+  sede: T,
+  nome: string
+): T {
+  const next: T = { ...sede, nazione: nome };
+  const campi: CampoSede[] = [
+    "indirizzo",
+    "localita",
+    "citta",
+    "provincia",
+    "cap",
+  ];
+  if (!isNazioneItalia(nome)) {
+    for (const campo of campi) {
+      if (!sedeHaCampo(nome, campo)) next[campo] = "";
+    }
+  } else {
+    next.localita = "";
+  }
+  return next;
+}
+
 export function sedeCampiObbligatori(nazione: string): CampoSede[] {
   if (isNazioneItalia(nazione)) return ["indirizzo", "citta", "provincia", "cap"];
   return campiIndirizzo(nazione)

@@ -1,3 +1,7 @@
+import {
+  validaCodiceFiscaleNazione,
+  validaPartitaIvaNazione,
+} from "@/lib/address/identita-fiscale-nazione";
 import type {
   ClienteConsegnaAltraAziendaRow,
   ClienteRow,
@@ -219,9 +223,14 @@ export function applySediToLegacy(input: ClienteInput): ClienteInput {
   };
 }
 
-/** Validazione business: azienda → P.IVA+CF obbligatori; privato → CF facoltativo. */
+/** Azienda: P.IVA e codice seguono la nazione della sede legale. Privato: CF facoltativo. */
 export function validateClienteFiscali(
-  input: Pick<ClienteInput, "ragioneSociale" | "partitaIva" | "codiceFiscale" | "isPrivato">
+  input: Pick<
+    ClienteInput,
+    "ragioneSociale" | "partitaIva" | "codiceFiscale" | "isPrivato"
+  > & {
+    sedeAmministrativa?: Pick<SedeFornitore, "nazione"> | null;
+  }
 ): string | null {
   if (!input.ragioneSociale.trim()) {
     return "La ragione sociale è obbligatoria.";
@@ -229,13 +238,10 @@ export function validateClienteFiscali(
   if (input.isPrivato) {
     return null;
   }
-  if (!input.partitaIva.trim()) {
-    return "La partita IVA è obbligatoria per i clienti azienda.";
-  }
-  if (!input.codiceFiscale.trim()) {
-    return "Il codice fiscale è obbligatorio per i clienti azienda.";
-  }
-  return null;
+  const nazione = input.sedeAmministrativa?.nazione ?? "";
+  const iva = validaPartitaIvaNazione(nazione, input.partitaIva);
+  if (iva) return iva;
+  return validaCodiceFiscaleNazione(nazione, input.codiceFiscale);
 }
 
 export function consegneToDb(

@@ -9,6 +9,12 @@ import {
   lookupWebmailAnagraficaByEmailAction,
   type WebmailAnagraficaHit,
 } from "@/app/actions/webmail";
+import { NazioneAppartenenzaField } from "@/components/amministrazione/NazioneAppartenenzaField";
+import {
+  profiloFiscaleNazione,
+  validaCodiceFiscaleNazione,
+  validaPartitaIvaNazione,
+} from "@/lib/address/identita-fiscale-nazione";
 import { validateClienteFiscali } from "@/lib/amministrazione/clienti";
 import type { WebmailAnagraficaExtract } from "@/lib/webmail/ai";
 import type { WebmailMessaggio } from "@/lib/webmail/types";
@@ -20,7 +26,7 @@ type CreateField = "ragioneSociale" | "partitaIva" | "codiceFiscale";
 function createFieldErrors(
   form: Pick<
     WebmailAnagraficaExtract,
-    "ragioneSociale" | "partitaIva" | "codiceFiscale" | "isPrivato"
+    "ragioneSociale" | "partitaIva" | "codiceFiscale" | "isPrivato" | "nazione"
   >
 ): Partial<Record<CreateField, string>> {
   const errors: Partial<Record<CreateField, string>> = {};
@@ -28,12 +34,10 @@ function createFieldErrors(
     errors.ragioneSociale = "Obbligatoria.";
   }
   if (!form.isPrivato) {
-    if (!form.partitaIva.trim()) {
-      errors.partitaIva = "Obbligatoria per un’azienda.";
-    }
-    if (!form.codiceFiscale.trim()) {
-      errors.codiceFiscale = "Obbligatorio per un’azienda.";
-    }
+    const iva = validaPartitaIvaNazione(form.nazione, form.partitaIva);
+    if (iva) errors.partitaIva = iva;
+    const cf = validaCodiceFiscaleNazione(form.nazione, form.codiceFiscale);
+    if (cf) errors.codiceFiscale = cf;
   }
   return errors;
 }
@@ -140,6 +144,8 @@ export function WebmailCollegaAziendaFlow({
 
   if (!open) return null;
 
+  const profiloFiscale = profiloFiscaleNazione(form.nazione);
+
   function patch<K extends keyof WebmailAnagraficaExtract>(
     key: K,
     value: WebmailAnagraficaExtract[K]
@@ -175,6 +181,7 @@ export function WebmailCollegaAziendaFlow({
       partitaIva: form.partitaIva,
       codiceFiscale: form.codiceFiscale,
       isPrivato: form.isPrivato,
+      sedeAmministrativa: { nazione: form.nazione },
     });
     const next = createFieldErrors(form);
     setFieldErrors(next);
@@ -516,13 +523,19 @@ export function WebmailCollegaAziendaFlow({
                       </p>
                     ) : null}
                   </div>
+                  <NazioneAppartenenzaField
+                    value={form.nazione}
+                    onChange={(nome) => patch("nazione", nome)}
+                  />
                   <div className="grid gap-2 sm:grid-cols-2">
                     <div>
                       <input
                         value={form.partitaIva}
                         onChange={(e) => patch("partitaIva", e.target.value)}
                         placeholder={
-                          form.isPrivato ? "Partita IVA" : "Partita IVA *"
+                          form.isPrivato
+                            ? profiloFiscale.etichettaIva
+                            : `${profiloFiscale.etichettaIva} * — ${profiloFiscale.placeholderIva}`
                         }
                         aria-invalid={Boolean(fieldErrors.partitaIva)}
                         className={fieldClass(Boolean(fieldErrors.partitaIva))}
@@ -540,9 +553,9 @@ export function WebmailCollegaAziendaFlow({
                           patch("codiceFiscale", e.target.value)
                         }
                         placeholder={
-                          form.isPrivato
-                            ? "Codice fiscale"
-                            : "Codice fiscale *"
+                          form.isPrivato || !profiloFiscale.codiceObbligatorio
+                            ? `${profiloFiscale.etichettaCodice} (facoltativo)`
+                            : `${profiloFiscale.etichettaCodice} *`
                         }
                         aria-invalid={Boolean(fieldErrors.codiceFiscale)}
                         className={fieldClass(
@@ -607,12 +620,6 @@ export function WebmailCollegaAziendaFlow({
                       value={form.provincia}
                       onChange={(e) => patch("provincia", e.target.value)}
                       placeholder="Provincia"
-                      className={fieldClass(false)}
-                    />
-                    <input
-                      value={form.nazione}
-                      onChange={(e) => patch("nazione", e.target.value)}
-                      placeholder="Nazione"
                       className={fieldClass(false)}
                     />
                   </div>

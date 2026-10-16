@@ -4,8 +4,15 @@ import { useEffect, useId, useState, type FormEvent } from "react";
 import { FaChevronDown, FaMagnifyingGlass } from "react-icons/fa6";
 import { lookupFornitoreEnrichmentAction } from "@/app/actions/fornitore-enrichment";
 import { previewNextCodiceTargaAction } from "@/app/actions/fornitori";
+import { applicaNazioneSede, isNazioneItalia } from "@/lib/address/formato-nazione";
+import {
+  profiloFiscaleNazione,
+  validaCodiceFiscaleNazione,
+  validaPartitaIvaNazione,
+} from "@/lib/address/identita-fiscale-nazione";
 import { AddressSedeFields } from "@/components/amministrazione/AddressSedeFields";
 import { AziendaNoteBanner } from "@/components/amministrazione/AziendaNoteBanner";
+import { NazioneAppartenenzaField } from "@/components/amministrazione/NazioneAppartenenzaField";
 import { LinguaIntercomunicazioneField } from "@/components/amministrazione/LinguaIntercomunicazioneField";
 import { ApriFatturaFicActions } from "@/components/amministrazione/ApriFatturaFicButton";
 import { BioCertificatoPdfField } from "@/components/amministrazione/BioCertificatoPdfField";
@@ -193,7 +200,7 @@ export function FornitoreFormModal({
   }, [isEdit, initial?.codiceTarga]);
 
   async function runEnrichmentLookup(vat: string) {
-    if (isEdit || !vat.trim()) {
+    if (isEdit || !vat.trim() || !isNazioneItalia(sedeAmministrativa.nazione)) {
       setArchivioId(null);
       setEnrichmentHit(null);
       setEnrichmentError(null);
@@ -249,10 +256,19 @@ export function FornitoreFormModal({
     e.preventDefault();
     e.stopPropagation();
     const codice = codiceTarga.trim().toUpperCase();
-    if (!ragioneSociale.trim() || !partitaIva.trim() || !codiceFiscale.trim()) {
-      setFormError(
-        "Ragione sociale, P. IVA e Codice Fiscale sono obbligatori."
-      );
+    const nazione = sedeAmministrativa.nazione;
+    if (!ragioneSociale.trim()) {
+      setFormError("La ragione sociale è obbligatoria.");
+      return;
+    }
+    const ivaErr = validaPartitaIvaNazione(nazione, partitaIva);
+    if (ivaErr) {
+      setFormError(ivaErr);
+      return;
+    }
+    const cfErr = validaCodiceFiscaleNazione(nazione, codiceFiscale);
+    if (cfErr) {
+      setFormError(cfErr);
       return;
     }
     if (saving || codiceLoading) return;
@@ -355,6 +371,8 @@ export function FornitoreFormModal({
     );
   }
 
+  const profiloFiscale = profiloFiscaleNazione(sedeAmministrativa.nazione);
+
   return (
     <div
       data-nested-modal={elevated || stackTop ? "fornitore" : undefined}
@@ -422,8 +440,22 @@ export function FornitoreFormModal({
                 className="w-full rounded-lg border border-[var(--border)] px-3 py-2 outline-none focus:border-[var(--primary)]"
               />
             </label>
+            <NazioneAppartenenzaField
+              value={sedeAmministrativa.nazione}
+              onChange={(nome) => {
+                setSedeAmministrativa((prev) => {
+                  const next = applicaNazioneSede(prev, nome);
+                  if (stessaSede) setSedeMagazzino(next);
+                  return next;
+                });
+                setEnrichmentHit(null);
+                setEnrichmentError(null);
+              }}
+            />
             <label className="block text-sm">
-              <span className="mb-1 block font-medium">P. IVA</span>
+              <span className="mb-1 block font-medium">
+                {profiloFiscale.etichettaIva}
+              </span>
               <div className="flex flex-wrap gap-2">
                 <input
                   value={partitaIva}
@@ -438,10 +470,10 @@ export function FornitoreFormModal({
                   onBlur={() => void runEnrichmentLookup(partitaIva)}
                   required
                   spellCheck={false}
-                  placeholder="11 cifre"
+                  placeholder={profiloFiscale.placeholderIva}
                   className="min-w-0 flex-1 rounded-lg border border-[var(--border)] px-3 py-2 font-mono outline-none focus:border-[var(--primary)]"
                 />
-                {!isEdit ? (
+                {!isEdit && profiloFiscale.italia ? (
                   <button
                     type="button"
                     disabled={enrichmentLoading || !partitaIva.trim()}
@@ -455,7 +487,10 @@ export function FornitoreFormModal({
               </div>
             </label>
             <label className="block text-sm">
-              <span className="mb-1 block font-medium">Codice Fiscale</span>
+              <span className="mb-1 block font-medium">
+                {profiloFiscale.etichettaCodice}
+                {profiloFiscale.codiceObbligatorio ? "" : " (facoltativo)"}
+              </span>
               <input
                 value={codiceFiscale}
                 onChange={(e) => {
@@ -463,13 +498,17 @@ export function FornitoreFormModal({
                   setFormError(null);
                 }}
                 onBlur={() => {
-                  if (!partitaIva.trim() && codiceFiscale.trim()) {
+                  if (
+                    profiloFiscale.italia &&
+                    !partitaIva.trim() &&
+                    codiceFiscale.trim()
+                  ) {
                     void runEnrichmentLookup(codiceFiscale);
                   }
                 }}
-                required
+                required={profiloFiscale.codiceObbligatorio}
                 spellCheck={false}
-                placeholder="11–16 caratteri"
+                placeholder={profiloFiscale.placeholderCodice}
                 className="w-full rounded-lg border border-[var(--border)] px-3 py-2 font-mono outline-none focus:border-[var(--primary)]"
               />
             </label>

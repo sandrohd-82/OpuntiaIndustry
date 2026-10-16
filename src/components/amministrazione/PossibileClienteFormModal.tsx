@@ -18,12 +18,20 @@ import {
 } from "@/components/amministrazione/AnagraficaBrandEditor";
 import {
   AnagraficaSediEditor,
+  applicaNazioneAppartenenzaSedi,
   draftsFromLegacy,
   draftsFromSedi,
+  nazioneAppartenenzaDaSedi,
   sediToInput,
   validateSediDrafts,
   type AnagraficaSedeDraft,
 } from "@/components/amministrazione/AnagraficaSediEditor";
+import { NazioneAppartenenzaField } from "@/components/amministrazione/NazioneAppartenenzaField";
+import {
+  profiloFiscaleNazione,
+  validaCodiceFiscaleNazione,
+  validaPartitaIvaNazione,
+} from "@/lib/address/identita-fiscale-nazione";
 import { loadAnagraficaExtraAction } from "@/app/actions/anagrafica-extra";
 import { AnagraficaSchedaSection } from "@/components/amministrazione/AnagraficaSchedaSection";
 import {
@@ -189,12 +197,15 @@ export function PossibileClienteFormModal({
       setFormError("Compila la ragione sociale.");
       return null;
     }
-    if (!partitaIva.trim()) {
-      setFormError("La partita IVA è obbligatoria.");
+    const nazione = nazioneAppartenenzaDaSedi(sedi);
+    const ivaErr = validaPartitaIvaNazione(nazione, partitaIva);
+    if (ivaErr) {
+      setFormError(ivaErr);
       return null;
     }
-    if (!codiceFiscale.trim()) {
-      setFormError("Il codice fiscale è obbligatorio.");
+    const cfErr = validaCodiceFiscaleNazione(nazione, codiceFiscale);
+    if (cfErr) {
+      setFormError(cfErr);
       return null;
     }
     const sediErr = validateSediDrafts(sedi, { requireLegale: false });
@@ -291,6 +302,9 @@ export function PossibileClienteFormModal({
     }
   }
 
+  const nazioneAppartenenza = nazioneAppartenenzaDaSedi(sedi);
+  const profiloFiscale = profiloFiscaleNazione(nazioneAppartenenza);
+
   const dialog = (
     <div
       data-cliente-modal-root="true"
@@ -341,6 +355,12 @@ export function PossibileClienteFormModal({
                 className="w-full rounded-lg border border-[var(--border)] px-3 py-2 outline-none focus:border-[var(--primary)]"
               />
             </label>
+            <NazioneAppartenenzaField
+              value={nazioneAppartenenza}
+              onChange={(nome) =>
+                setSedi((prev) => applicaNazioneAppartenenzaSedi(prev, nome))
+              }
+            />
             <LinguaIntercomunicazioneField value={lingua} onChange={setLingua} />
             {isEdit ? (
               <CommercialeAssignField
@@ -357,31 +377,40 @@ export function PossibileClienteFormModal({
               Cliente privato: <strong>NO</strong>
             </p>
             <label className="block text-sm sm:col-span-2">
-              <span className="mb-1 block font-medium">P. IVA *</span>
+              <span className="mb-1 block font-medium">
+                {profiloFiscale.etichettaIva} *
+              </span>
               <input
                 value={partitaIva}
                 onChange={(e) => setPartitaIva(e.target.value)}
                 required
+                placeholder={profiloFiscale.placeholderIva}
                 className="w-full rounded-lg border border-[var(--border)] px-3 py-2"
               />
             </label>
             <div className="sm:col-span-2 space-y-1">
               <label className="block text-sm">
-                <span className="mb-1 block font-medium">Codice fiscale *</span>
+                <span className="mb-1 block font-medium">
+                  {profiloFiscale.etichettaCodice}
+                  {profiloFiscale.codiceObbligatorio ? " *" : " (facoltativo)"}
+                </span>
                 <input
                   value={codiceFiscale}
                   onChange={(e) => setCodiceFiscale(e.target.value)}
-                  required
+                  required={profiloFiscale.codiceObbligatorio}
+                  placeholder={profiloFiscale.placeholderCodice}
                   className="w-full rounded-lg border border-[var(--border)] px-3 py-2"
                 />
               </label>
-              <button
-                type="button"
-                onClick={() => setCodiceFiscale(partitaIva.trim())}
-                className="text-sm font-medium text-[var(--primary)] hover:underline"
-              >
-                Copia P.IVA in Codice Fiscale
-              </button>
+              {profiloFiscale.italia ? (
+                <button
+                  type="button"
+                  onClick={() => setCodiceFiscale(partitaIva.trim())}
+                  className="text-sm font-medium text-[var(--primary)] hover:underline"
+                >
+                  Copia P.IVA in Codice Fiscale
+                </button>
+              ) : null}
             </div>
             <AnagraficaContattiGenericiFields
               email={email}
