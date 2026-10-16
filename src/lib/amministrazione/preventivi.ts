@@ -80,10 +80,47 @@ export type PreventivoConsegna = (typeof PREVENTIVO_CONSEGNA)[number];
 
 export const PREVENTIVO_CONSEGNA_LABEL: Record<PreventivoConsegna, string> = {
   da_concordare: "Da concordare",
-  corriere_cliente: "A carico dell'acquirente",
-  corriere_nostro: "A carico Agrinsicilia",
+  corriere_cliente: "A carico del cliente",
+  corriere_nostro: "A carico di Agrinsicilia",
   ritiro: "Ritiro in sede",
 };
+
+export const PREVENTIVO_MODALITA_SPEDIZIONE = [
+  "non_applicabile",
+  "inserito",
+  "richiesto",
+  "in_fattura",
+] as const;
+
+export type PreventivoModalitaSpedizione =
+  (typeof PREVENTIVO_MODALITA_SPEDIZIONE)[number];
+
+/** Voce senza cifra: preventivo e mail quando il costo si calcola in fattura. */
+export function voceSpedizionePreventivo(metodo: PreventivoConsegna): string {
+  if (metodo === "corriere_cliente") return "Spedizione a carico del cliente";
+  if (metodo === "corriere_nostro") return "Spedizione a carico di Agrinsicilia";
+  if (metodo === "da_concordare") return "Spedizione da concordare";
+  return "Ritiro in sede";
+}
+
+export function testoSpedizionePreventivo(input: {
+  consegnaMetodo: PreventivoConsegna;
+  modalita: PreventivoModalitaSpedizione;
+  importo: number;
+}): string {
+  if (input.consegnaMetodo === "ritiro") return "Ritiro in sede";
+  const voce = voceSpedizionePreventivo(input.consegnaMetodo);
+  if (input.modalita === "in_fattura") return voce;
+  if (input.modalita === "richiesto") return `${voce} · prezzo da calcolare`;
+  if (input.importo > 0) {
+    const cifra = input.importo.toLocaleString("it-IT", {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    });
+    return `${voce} · ${cifra} €`;
+  }
+  return voce;
+}
 
 export const CONFEZIONE_STANDARD = "standard";
 
@@ -256,7 +293,7 @@ export type PreventivoModificaFoglio = {
   consegnaMetodo: PreventivoConsegna;
   spedizioneACarico: "cliente" | "agrinsicilia" | "diviso";
   spedizioneFonte: PreventivoSpedizioneFonte;
-  prezzoAcquirenteModo: "inserito" | "richiesto";
+  prezzoAcquirenteModo: "inserito" | "richiesto" | "in_fattura";
   spedizioneBase: number | null;
   ivaDocumento: number;
   destinatario: DestinatarioPreventivo | null;
@@ -397,7 +434,7 @@ export const createPreventivoSchema = z
       .default(PREVENTIVO_NOTE_DEFAULT),
     righe: z.array(preventivoRigaSchema).min(1, "Aggiungi almeno un prodotto"),
     modalitaSpedizionePrezzo: z
-      .enum(["non_applicabile", "inserito", "richiesto"])
+      .enum(PREVENTIVO_MODALITA_SPEDIZIONE)
       .optional()
       .default("non_applicabile"),
     mailAccountId: z.string().uuid().optional(),
@@ -411,7 +448,7 @@ export const createPreventivoSchema = z
   .refine(
     (d) =>
       d.modalitaSpedizionePrezzo !== "richiesto" ||
-      (d.consegnaMetodo === "corriere_cliente" &&
+      (d.consegnaMetodo !== "ritiro" &&
         Boolean(d.mailAccountId) &&
         d.mailTo.includes("@") &&
         d.mailOggetto.length > 0 &&

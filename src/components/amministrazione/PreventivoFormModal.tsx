@@ -37,12 +37,13 @@ import {
 import {
   CONFEZIONE_STANDARD,
   GIORNI_CONSEGNA_DEFAULT,
-  PREVENTIVO_CONSEGNA,
   PREVENTIVO_CONSEGNA_LABEL,
   nomeFilePreventivoPdf,
   PREVENTIVO_IVA_DEFAULT,
   PREVENTIVO_NOTE_DEFAULT,
   PREVENTIVO_VALIDITA_GIORNI,
+  testoSpedizionePreventivo,
+  voceSpedizionePreventivo,
   type Preventivo,
   type PreventivoConsegna,
 } from "@/lib/amministrazione/preventivi";
@@ -79,6 +80,14 @@ type DraftRiga = PreventivoProdottoDraft & {
   prodottoCodice: string;
   prodottoNome: string;
 };
+
+type ModoPrezzoSpedizione = "inserito" | "richiesto" | "in_fattura";
+
+const MODI_PREZZO_SPEDIZIONE: { id: ModoPrezzoSpedizione; label: string }[] = [
+  { id: "inserito", label: "Inserisci importo" },
+  { id: "richiesto", label: "Prenota il calcolo" },
+  { id: "in_fattura", label: "Costo calcolato in fattura" },
+];
 
 type EditKind =
   | null
@@ -168,9 +177,8 @@ export function PreventivoFormModal({ onClose, onSaved, preventivoId }: Props) {
   const [invioOggetto, setInvioOggetto] = useState("");
   const [invioMessaggio, setInvioMessaggio] = useState("");
   const [sessioneMsg, setSessioneMsg] = useState<string | null>(null);
-  const [prezzoAcquirenteModo, setPrezzoAcquirenteModo] = useState<
-    "inserito" | "richiesto"
-  >("inserito");
+  const [prezzoAcquirenteModo, setPrezzoAcquirenteModo] =
+    useState<ModoPrezzoSpedizione>("in_fattura");
   const [mailAccountId, setMailAccountId] = useState("");
   const [mailTo, setMailTo] = useState("");
   const [mailOggetto, setMailOggetto] = useState("");
@@ -178,9 +186,8 @@ export function PreventivoFormModal({ onClose, onSaved, preventivoId }: Props) {
   const [caselle, setCaselle] = useState<Array<{ id: string; label: string; email: string }>>(
     []
   );
-  const [draftPrezzoModo, setDraftPrezzoModo] = useState<"inserito" | "richiesto">(
-    "inserito"
-  );
+  const [draftPrezzoModo, setDraftPrezzoModo] =
+    useState<ModoPrezzoSpedizione>("in_fattura");
   const [mailError, setMailError] = useState<string | null>(null);
   const [foglioPronto, setFoglioPronto] = useState(!preventivoId);
 
@@ -198,14 +205,17 @@ export function PreventivoFormModal({ onClose, onSaved, preventivoId }: Props) {
     [righe]
   );
 
-  const spedizioneImporto =
-    consegnaMetodo === "corriere_nostro" && spedizioneBase !== ""
-      ? applicaMargineSpedizione(spedizioneBase)
-      : consegnaMetodo === "corriere_cliente" &&
-          prezzoAcquirenteModo === "inserito" &&
-          spedizioneBase !== ""
-        ? Number(spedizioneBase)
-        : 0;
+  let spedizioneImporto = 0;
+  if (
+    prezzoAcquirenteModo === "inserito" &&
+    spedizioneBase !== "" &&
+    consegnaMetodo !== "ritiro"
+  ) {
+    spedizioneImporto =
+      consegnaMetodo === "corriere_nostro"
+        ? applicaMargineSpedizione(spedizioneBase)
+        : Number(spedizioneBase);
+  }
 
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
@@ -342,7 +352,7 @@ export function PreventivoFormModal({ onClose, onSaved, preventivoId }: Props) {
   }, [dataPreventivo, savedId]);
 
   useEffect(() => {
-    if (consegnaMetodo !== "corriere_nostro") {
+    if (consegnaMetodo !== "corriere_nostro" || prezzoAcquirenteModo !== "inserito") {
       setSpedizioneMsg(null);
       return;
     }
@@ -366,37 +376,33 @@ export function PreventivoFormModal({ onClose, onSaved, preventivoId }: Props) {
     return () => {
       cancelled = true;
     };
-  }, [consegnaMetodo, destinatario, pesoKg, spedizioneBase]);
+  }, [consegnaMetodo, destinatario, pesoKg, spedizioneBase, prezzoAcquirenteModo]);
 
   function applyConsegna(
     next: PreventivoConsegna,
     nolo: number | "",
-    modo: "inserito" | "richiesto"
+    modo: ModoPrezzoSpedizione
   ) {
     setConsegnaMetodo(next);
     setSpedizioneACarico(caricoDefaultDaConsegna(next));
-    if (next === "corriere_nostro") {
-      setSpedizioneFonte(fonteDefaultDaConsegna(next));
-      setSpedizioneBase(nolo);
-      setPrezzoAcquirenteModo("inserito");
+    if (next === "ritiro") {
+      setSpedizioneFonte("ritiro");
+      setSpedizioneBase("");
+      setSpedizioneMsg(null);
+      setPrezzoAcquirenteModo("in_fattura");
       return;
     }
-    if (next === "corriere_cliente") {
-      setPrezzoAcquirenteModo(modo);
-      if (modo === "inserito") {
-        setSpedizioneFonte("manuale");
-        setSpedizioneBase(nolo);
-      } else {
-        setSpedizioneFonte("a_carico_acquirente");
-        setSpedizioneBase("");
-        setSpedizioneMsg(null);
-      }
+    setPrezzoAcquirenteModo(modo);
+    if (modo === "inserito") {
+      setSpedizioneFonte(
+        next === "da_concordare" ? "da_concordare" : "manuale"
+      );
+      setSpedizioneBase(nolo);
       return;
     }
     setSpedizioneFonte(fonteDefaultDaConsegna(next));
     setSpedizioneBase("");
     setSpedizioneMsg(null);
-    setPrezzoAcquirenteModo("inserito");
   }
 
   function openEdit(kind: Exclude<EditKind, null>, rowKey: string | null = null) {
@@ -571,15 +577,15 @@ export function PreventivoFormModal({ onClose, onSaved, preventivoId }: Props) {
       ...campiAccordoRiga(r),
     }));
     const base =
+      prezzoAcquirenteModo === "inserito" &&
       spedizioneBase !== "" &&
-      (consegnaMetodo === "corriere_nostro" ||
-        (consegnaMetodo === "corriere_cliente" && prezzoAcquirenteModo === "inserito"))
+      consegnaMetodo !== "ritiro"
         ? spedizioneBase
         : 0;
     setSaving(true);
     setFormError(null);
     const modalitaSpedizionePrezzo =
-      consegnaMetodo === "corriere_cliente" ? prezzoAcquirenteModo : "non_applicabile";
+      consegnaMetodo === "ritiro" ? "non_applicabile" : prezzoAcquirenteModo;
     if (PREVENTIVI_SESSIONE_PROVA && !preventivoId) {
       const id = savedId ?? `prova-${crypto.randomUUID()}`;
       const numero =
@@ -721,6 +727,14 @@ export function PreventivoFormModal({ onClose, onSaved, preventivoId }: Props) {
       setFormError(LISTINO_CONTRATTO_MSG.senza_prezzo);
       return;
     }
+    if (
+      consegnaMetodo !== "ritiro" &&
+      prezzoAcquirenteModo === "inserito" &&
+      spedizioneImporto <= 0
+    ) {
+      setFormError("Inserisci l'importo della spedizione.");
+      return;
+    }
     setFormError(null);
     if (!mailTo.trim()) {
       setMailTo(invioEmail.trim() || destinatario.email || "");
@@ -731,8 +745,19 @@ export function PreventivoFormModal({ onClose, onSaved, preventivoId }: Props) {
       );
     }
     if (!mailTesto.trim()) {
+      const voce =
+        prezzoAcquirenteModo === "in_fattura"
+          ? `\n${voceSpedizionePreventivo(consegnaMetodo)}.`
+          : "";
       setMailTesto(
-        `In allegato il preventivo n. ${numeroPreview}.\nValidità ${validitaGiorni} giorni.`
+        `In allegato il preventivo n. ${numeroPreview}.\nValidità ${validitaGiorni} giorni.${voce}`
+      );
+    } else if (
+      prezzoAcquirenteModo === "in_fattura" &&
+      !mailTesto.includes(voceSpedizionePreventivo(consegnaMetodo))
+    ) {
+      setMailTesto(
+        `${mailTesto.trim()}\n${voceSpedizionePreventivo(consegnaMetodo)}.`
       );
     }
     setMailError(null);
@@ -805,12 +830,12 @@ export function PreventivoFormModal({ onClose, onSaved, preventivoId }: Props) {
       cliente: destinatario.ragioneSociale,
       codiceTargaCliente: destinatario.codiceTarga || "PC",
       dataPreventivo,
-      consegnaMetodo: "corriere_cliente",
-      spedizioneACarico: "cliente",
+      consegnaMetodo,
+      spedizioneACarico,
       spedizioneImporto: 0,
       spedizioneImportoBase: 0,
       spedizioneMarkupPct: 0,
-      spedizioneFonte: "a_carico_acquirente",
+      spedizioneFonte: fonteDefaultDaConsegna(consegnaMetodo),
       tipoPagamento,
       giorniConsegna: giorniConsegna.trim() || GIORNI_CONSEGNA_DEFAULT,
       includeCoordinateBancarie: true,
@@ -1014,7 +1039,14 @@ export function PreventivoFormModal({ onClose, onSaved, preventivoId }: Props) {
               {
                 key: "consegna",
                 etichetta: "Consegna",
-                text: PREVENTIVO_CONSEGNA_LABEL[consegnaMetodo],
+                text: testoSpedizionePreventivo({
+                  consegnaMetodo,
+                  modalita:
+                    consegnaMetodo === "ritiro"
+                      ? "non_applicabile"
+                      : prezzoAcquirenteModo,
+                  importo: spedizioneImporto,
+                }),
               },
               {
                 key: "pagamento",
@@ -1052,9 +1084,9 @@ export function PreventivoFormModal({ onClose, onSaved, preventivoId }: Props) {
           righe={righe}
           consegnaMetodo={consegnaMetodo}
           spedizioneImporto={spedizioneImporto}
-          spedizioneDaCalcolare={
-            consegnaMetodo === "corriere_cliente" &&
-            prezzoAcquirenteModo === "richiesto"
+          spedizioneDaCalcolare={prezzoAcquirenteModo === "richiesto"}
+          spedizioneModalita={
+            consegnaMetodo === "ritiro" ? "non_applicabile" : prezzoAcquirenteModo
           }
           note={note}
           giorniConsegna={giorniConsegna}
@@ -1215,11 +1247,11 @@ export function PreventivoFormModal({ onClose, onSaved, preventivoId }: Props) {
           onClose={closeEdit}
           onConfirm={() => {
             if (
-              draftConsegna === "corriere_cliente" &&
+              draftConsegna !== "ritiro" &&
               draftPrezzoModo === "inserito" &&
               (draftNolo === "" || Number(draftNolo) <= 0)
             ) {
-              setFormError("Inserisci il prezzo della spedizione.");
+              setFormError("Inserisci l'importo della spedizione.");
               return;
             }
             setFormError(null);
@@ -1227,54 +1259,45 @@ export function PreventivoFormModal({ onClose, onSaved, preventivoId }: Props) {
             closeEdit();
           }}
         >
-          <label className="block text-sm">
-            <span className="mb-1 block font-medium">Modalità</span>
-            <select
-              value={draftConsegna}
-              onChange={(e) =>
-                setDraftConsegna(e.target.value as PreventivoConsegna)
-              }
-              className="w-full rounded border border-slate-300 px-3 py-2 text-sm"
-            >
-              {PREVENTIVO_CONSEGNA.map((c) => (
-                <option key={c} value={c}>
-                  {PREVENTIVO_CONSEGNA_LABEL[c]}
-                </option>
-              ))}
-            </select>
-          </label>
-          {draftConsegna === "corriere_nostro" ? (
-            <>
-              <label className="block text-sm">
-                <span className="mb-1 block font-medium">Nolo corriere (€)</span>
-                <ClearableNumberInput
-                  min={0}
-                  value={draftNolo}
-                  onValueChange={setDraftNolo}
-                  className="w-full rounded border border-slate-300 px-3 py-2 text-sm"
-                />
-              </label>
-              <p className="text-xs text-slate-500">
-                In preventivo (+{SPEDIZIONE_MARKUP_SICUREZZA_PCT}%):{" "}
-                {draftNoloImporto ? `${euro(draftNoloImporto)} €` : "—"}
-                {spedizioneMsg ? ` · ${spedizioneMsg}` : ""}
-              </p>
-            </>
-          ) : null}
-          {draftConsegna === "corriere_cliente" ? (
-            <fieldset className="space-y-3 text-sm">
-              <legend className="font-medium">Prezzo a carico dell&apos;acquirente</legend>
-              <label className="flex items-center gap-2">
+          <fieldset className="space-y-2 text-sm">
+            <legend className="mb-1 font-medium">Spedizione</legend>
+            {(
+              [
+                "corriere_cliente",
+                "corriere_nostro",
+                "da_concordare",
+                ...(draftConsegna === "ritiro" || consegnaMetodo === "ritiro"
+                  ? (["ritiro"] as const)
+                  : []),
+              ] as const
+            ).map((c) => (
+              <label key={c} className="flex items-center gap-2">
                 <input
                   type="radio"
-                  name="prezzo-acquirente"
-                  checked={draftPrezzoModo === "inserito"}
-                  onChange={() => setDraftPrezzoModo("inserito")}
+                  name="consegna-preventivo"
+                  checked={draftConsegna === c}
+                  onChange={() => setDraftConsegna(c)}
                 />
-                Inserisci il prezzo ora
+                {PREVENTIVO_CONSEGNA_LABEL[c]}
               </label>
+            ))}
+          </fieldset>
+          {draftConsegna !== "ritiro" ? (
+            <fieldset className="space-y-2 text-sm">
+              <legend className="mb-1 font-medium">Importo</legend>
+              {MODI_PREZZO_SPEDIZIONE.map((modo) => (
+                <label key={modo.id} className="flex items-center gap-2">
+                  <input
+                    type="radio"
+                    name="modo-prezzo-spedizione"
+                    checked={draftPrezzoModo === modo.id}
+                    onChange={() => setDraftPrezzoModo(modo.id)}
+                  />
+                  {modo.label}
+                </label>
+              ))}
               {draftPrezzoModo === "inserito" ? (
-                <label className="block">
+                <label className="block pt-1">
                   <span className="mb-1 block font-medium">Importo spedizione (€)</span>
                   <ClearableNumberInput
                     min={0}
@@ -1282,24 +1305,28 @@ export function PreventivoFormModal({ onClose, onSaved, preventivoId }: Props) {
                     onValueChange={setDraftNolo}
                     className="w-full rounded border border-slate-300 px-3 py-2 text-sm"
                   />
-                  <span className="mt-1 block text-xs text-slate-500">
-                    Questo importo entra come riga nel totale, senza maggiorazione.
-                  </span>
+                  {draftConsegna === "corriere_nostro" ? (
+                    <span className="mt-1 block text-xs text-slate-500">
+                      In preventivo (+{SPEDIZIONE_MARKUP_SICUREZZA_PCT}%):{" "}
+                      {draftNoloImporto ? `${euro(draftNoloImporto)} €` : "—"}
+                    </span>
+                  ) : (
+                    <span className="mt-1 block text-xs text-slate-500">
+                      L&apos;importo entra nel totale, senza maggiorazione.
+                    </span>
+                  )}
                 </label>
               ) : null}
-              <label className="flex items-center gap-2">
-                <input
-                  type="radio"
-                  name="prezzo-acquirente"
-                  checked={draftPrezzoModo === "richiesto"}
-                  onChange={() => setDraftPrezzoModo("richiesto")}
-                />
-                Richiedi l&apos;inserimento del prezzo
-              </label>
               {draftPrezzoModo === "richiesto" ? (
                 <p className="text-xs text-slate-600">
-                  Il prezzo non si inserisce ora. Con Fase 2 Mail prepari la mail
-                  e prenoti l&apos;invio.
+                  Il preventivo si salva e passa a chi calcola il prezzo. La mail
+                  parte solo dopo quel calcolo.
+                </p>
+              ) : null}
+              {draftPrezzoModo === "in_fattura" ? (
+                <p className="text-xs text-slate-600">
+                  Nessuna cifra nel preventivo. In scheda e nella mail compare solo «
+                  {voceSpedizionePreventivo(draftConsegna)}».
                 </p>
               ) : null}
             </fieldset>
@@ -1420,25 +1447,20 @@ export function PreventivoFormModal({ onClose, onSaved, preventivoId }: Props) {
           confirmLabel={
             saving
               ? "Salvataggio…"
-              : consegnaMetodo === "corriere_cliente" &&
-                  prezzoAcquirenteModo === "richiesto"
+              : prezzoAcquirenteModo === "richiesto"
                 ? "Salva e prenota invio"
                 : "Salva e invia"
           }
           confirmDisabled={saving}
           onConfirm={() => {
-            if (
-              consegnaMetodo === "corriere_cliente" &&
-              prezzoAcquirenteModo === "richiesto"
-            ) {
+            if (prezzoAcquirenteModo === "richiesto") {
               void onSalvaRichiestaCalcolo();
               return;
             }
             void onConfermaInvioProva();
           }}
         >
-          {consegnaMetodo === "corriere_cliente" &&
-          prezzoAcquirenteModo === "richiesto" ? (
+          {prezzoAcquirenteModo === "richiesto" ? (
             <p className="text-sm text-slate-600">
               La mail resta pronta. Parte solo quando chi calcola la spedizione
               inserisce l&apos;importo e completa.

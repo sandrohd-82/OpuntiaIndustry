@@ -11,11 +11,12 @@ import {
 import type { OrdineTipoPagamento } from "@/lib/amministrazione/ordini";
 import type { PreventivoCommercialeRiferimento } from "@/lib/amministrazione/preventivo-commerciale-riferimento";
 import {
-  PREVENTIVO_CONSEGNA_LABEL,
   PREVENTIVO_IVA_DEFAULT,
   prezzoNettoRigaPreventivo,
   roundEuro,
+  testoSpedizionePreventivo,
   type PreventivoConsegna,
+  type PreventivoModalitaSpedizione,
 } from "@/lib/amministrazione/preventivi";
 
 export type PreventivoFoglioDestinatario = {
@@ -50,6 +51,7 @@ type Props = {
   consegnaMetodo: PreventivoConsegna;
   spedizioneImporto: number;
   spedizioneDaCalcolare: boolean;
+  spedizioneModalita?: PreventivoModalitaSpedizione;
   note: string;
   giorniConsegna: string;
   tipoPagamento: OrdineTipoPagamento;
@@ -89,6 +91,7 @@ export const PreventivoFoglioA4 = forwardRef<HTMLDivElement, Props>(
       consegnaMetodo,
       spedizioneImporto,
       spedizioneDaCalcolare,
+      spedizioneModalita,
       note,
       giorniConsegna,
       tipoPagamento,
@@ -131,14 +134,16 @@ export const PreventivoFoglioA4 = forwardRef<HTMLDivElement, Props>(
     const impR = roundEuro(imponibile);
     const ivaR = roundEuro(iva);
     const totale = roundEuro(impR + ivaR);
-    const spedizioneTesto =
-      consegnaMetodo === "corriere_cliente" && spedizioneDaCalcolare
-        ? "A carico dell'acquirente · prezzo da calcolare"
-        : spedizioneImporto > 0
-          ? `${PREVENTIVO_CONSEGNA_LABEL[consegnaMetodo]} · ${euro(spedizioneImporto)} €`
-          : PREVENTIVO_CONSEGNA_LABEL[consegnaMetodo];
+    const modalitaSpedizione: PreventivoModalitaSpedizione =
+      spedizioneModalita ??
+      (spedizioneDaCalcolare ? "richiesto" : "inserito");
+    const spedizioneTesto = testoSpedizionePreventivo({
+      consegnaMetodo,
+      modalita: modalitaSpedizione,
+      importo: spedizioneImporto,
+    });
     const spedizioneNota =
-      spedizioneImporto > 0 && !spedizioneDaCalcolare;
+      spedizioneImporto > 0 && modalitaSpedizione !== "in_fattura";
 
     return (
       <article
@@ -315,7 +320,8 @@ export const PreventivoFoglioA4 = forwardRef<HTMLDivElement, Props>(
                       );
                     })
                   )}
-                  {consegnaMetodo === "corriere_cliente" ? (
+                  {consegnaMetodo === "corriere_cliente" &&
+                  modalitaSpedizione !== "in_fattura" ? (
                     <tr className="border-t border-slate-300">
                       <td className="py-1.5 pr-2 font-medium">—</td>
                       <td className="py-1.5 pr-2">Contributo spese di spedizione</td>

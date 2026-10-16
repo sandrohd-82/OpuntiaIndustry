@@ -1589,7 +1589,11 @@ export interface PreventivoRow {
   commerciale_riferimento_telefono: string;
   commerciale_riferimento_email: string;
   note: string;
-  modalita_spedizione_prezzo: "non_applicabile" | "inserito" | "richiesto";
+  modalita_spedizione_prezzo:
+    | "non_applicabile"
+    | "inserito"
+    | "richiesto"
+    | "in_fattura";
   mail_bozza_account_id: string | null;
   mail_bozza_to: string;
   mail_bozza_oggetto: string;

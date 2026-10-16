@@ -53,6 +53,7 @@ import {
   type PreventivoRiga,
   type PreventivoScontisticaRiga,
   type PreventivoStato,
+  voceSpedizionePreventivo,
 } from "@/lib/amministrazione/preventivi";
 import { CONFEZIONE_SISTEMA } from "@/lib/amministrazione/preventivo-confezionamento";
 import {
@@ -585,13 +586,20 @@ export async function getPreventivoPerModificaAction(
   const righe = (righeMap.get(row.id) ?? [])
     .slice()
     .sort((a, b) => a.sort_order - b.sort_order);
-  const richiesto = row.modalita_spedizione_prezzo === "richiesto";
+  const modalita = row.modalita_spedizione_prezzo;
+  const prezzoAcquirenteModo =
+    modalita === "richiesto" || modalita === "in_fattura" || modalita === "inserito"
+      ? modalita
+      : Number(row.spedizione_importo ?? 0) > 0 ||
+          Number(row.spedizione_importo_base ?? 0) > 0
+        ? "inserito"
+        : "in_fattura";
   const base =
-    row.consegna_metodo === "corriere_nostro"
-      ? Number(row.spedizione_importo_base ?? 0)
-      : row.consegna_metodo === "corriere_cliente" && !richiesto
-        ? Number(row.spedizione_importo ?? 0)
-        : 0;
+    prezzoAcquirenteModo !== "inserito"
+      ? 0
+      : row.consegna_metodo === "corriere_nostro"
+        ? Number(row.spedizione_importo_base ?? 0)
+        : Number(row.spedizione_importo ?? 0);
   const destinatario = await destinatarioPerModifica(
     row.cliente_id,
     row.cliente_ragione_sociale,
@@ -624,8 +632,8 @@ export async function getPreventivoPerModificaAction(
       consegnaMetodo: row.consegna_metodo,
       spedizioneACarico: row.spedizione_a_carico,
       spedizioneFonte: row.spedizione_fonte ?? "da_concordare",
-      prezzoAcquirenteModo: richiesto ? "richiesto" : "inserito",
-      spedizioneBase: richiesto || base <= 0 ? null : base,
+      prezzoAcquirenteModo,
+      spedizioneBase: prezzoAcquirenteModo !== "inserito" || base <= 0 ? null : base,
       ivaDocumento: Number(righe[0]?.iva_percentuale ?? 22),
       destinatario,
       commerciale: row.commerciale_riferimento_id
@@ -939,6 +947,8 @@ export async function createPreventivoAction(
   }
   const intenzione = input.intenzione ?? "bozza";
   const isRichiestaPrezzo = input.modalitaSpedizionePrezzo === "richiesto";
+  const senzaImporto =
+    isRichiestaPrezzo || input.modalitaSpedizionePrezzo === "in_fattura";
   if (isRichiestaPrezzo && input.mailAccountId) {
     const casella = await assertWebmailAccountAccess(gate.auth, input.mailAccountId);
     if (!casella.ok) return { success: false, error: casella.error };
@@ -1007,8 +1017,8 @@ export async function createPreventivoAction(
       sent_by: intenzione === "inviato" ? gate.auth.userId : null,
       consegna_metodo: input.consegnaMetodo,
       spedizione_a_carico: input.spedizioneACarico,
-      spedizione_importo: isRichiestaPrezzo ? 0 : (input.spedizioneImporto ?? 0),
-      spedizione_importo_base: input.spedizioneImportoBase ?? 0,
+      spedizione_importo: senzaImporto ? 0 : (input.spedizioneImporto ?? 0),
+      spedizione_importo_base: senzaImporto ? 0 : (input.spedizioneImportoBase ?? 0),
       spedizione_markup_pct: input.spedizioneMarkupPct ?? 30,
       spedizione_fonte:
         input.spedizioneFonte ?? fonteDefaultDaConsegna(input.consegnaMetodo),
@@ -1208,6 +1218,8 @@ export async function savePreventivoAction(
   }
   const intenzione = input.intenzione ?? "bozza";
   const isRichiestaPrezzo = input.modalitaSpedizionePrezzo === "richiesto";
+  const senzaImporto =
+    isRichiestaPrezzo || input.modalitaSpedizionePrezzo === "in_fattura";
   if (isRichiestaPrezzo && input.mailAccountId) {
     const casella = await assertWebmailAccountAccess(gate.auth, input.mailAccountId);
     if (!casella.ok) return { success: false, error: casella.error };
@@ -1289,8 +1301,8 @@ export async function savePreventivoAction(
     mail_bozza_testo: input.mailTesto ?? "",
     consegna_metodo: input.consegnaMetodo,
     spedizione_a_carico: input.spedizioneACarico,
-    spedizione_importo: isRichiestaPrezzo ? 0 : (input.spedizioneImporto ?? 0),
-    spedizione_importo_base: input.spedizioneImportoBase ?? 0,
+    spedizione_importo: senzaImporto ? 0 : (input.spedizioneImporto ?? 0),
+    spedizione_importo_base: senzaImporto ? 0 : (input.spedizioneImportoBase ?? 0),
     spedizione_markup_pct: input.spedizioneMarkupPct ?? 30,
     spedizione_fonte:
       input.spedizioneFonte ?? fonteDefaultDaConsegna(input.consegnaMetodo),
@@ -1955,6 +1967,7 @@ function motivoBloccoInvioPreventivo(row: {
   ) {
     return "La mail parte solo dopo che l'operatore del calcolo spedizione inserisce il prezzo e conferma l'invio.";
   }
+  if (row.modalita_spedizione_prezzo === "in_fattura") return null;
   const consegna = String(row.consegna_metodo ?? "");
   const importo = Number(row.spedizione_importo ?? 0);
   if (
@@ -2249,8 +2262,22 @@ export async function inviaPreventivoMailAction(
     username: string;
     password_encrypted: string;
   };
-  const mailTestoFirmato = testoMailPreventivoConFirma(input.mailTesto);
-  const mailHtmlFirmato = htmlMailPreventivoConFirma(input.mailTesto);
+  let corpoMail = input.mailTesto;
+  if (prev.modalita_spedizione_prezzo === "in_fattura") {
+    const metodo = prev.consegna_metodo;
+    const voce =
+      metodo === "corriere_cliente" ||
+      metodo === "corriere_nostro" ||
+      metodo === "da_concordare" ||
+      metodo === "ritiro"
+        ? voceSpedizionePreventivo(metodo)
+        : voceSpedizionePreventivo("corriere_cliente");
+    if (!corpoMail.includes(voce)) {
+      corpoMail = `${corpoMail.trim()}\n${voce}.`;
+    }
+  }
+  const mailTestoFirmato = testoMailPreventivoConFirma(corpoMail);
+  const mailHtmlFirmato = htmlMailPreventivoConFirma(corpoMail);
   const archivio = await preparaPdfPreventivoEmesso({
     preventivoId: prev.id,
     numero: prev.numero_interno,
