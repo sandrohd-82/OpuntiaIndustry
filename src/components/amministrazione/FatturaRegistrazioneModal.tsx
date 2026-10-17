@@ -92,6 +92,7 @@ import {
   emptyFatturaRigaStorno,
   formatDateIt,
   formatEuro,
+  formatImportoValuta,
   importoRiga,
   isDilazioneFutura,
   isRigaStornoQuantita,
@@ -540,17 +541,7 @@ export function FatturaRegistrazioneModal({
   const [valuta, setValuta] = useState(
     normalizzaValutaFattura(seed.valuta || initial?.valuta)
   );
-  const [importoValutaTesto, setImportoValutaTesto] = useState(
-    seed.importoValuta != null
-      ? String(seed.importoValuta)
-      : initial?.importoValuta != null
-        ? String(initial.importoValuta)
-        : ""
-  );
   const cambioManualeTenuto = useRef(false);
-  const importoValutaToccato = useRef(
-    seed.importoValuta != null || initial?.importoValuta != null
-  );
   const [cambio, setCambio] = useState<{
     tasso: number;
     dataCambio: string;
@@ -656,13 +647,6 @@ export function FatturaRegistrazioneModal({
   );
 
   useEffect(() => {
-    if (!fatturaEstera || importoValutaToccato.current) return;
-    if (totals.totale > 0) {
-      setImportoValutaTesto(String(Math.round(totals.totale * 100) / 100));
-    }
-  }, [fatturaEstera, totals.totale]);
-
-  useEffect(() => {
     if (!fatturaEstera || isEdit || valuta === "EUR") return;
     if (!/^\d{4}-\d{2}-\d{2}$/.test(dataEmissione)) return;
     let attivo = true;
@@ -691,6 +675,15 @@ export function FatturaRegistrazioneModal({
       attivo = false;
     };
   }, [fatturaEstera, isEdit, valuta, dataEmissione]);
+
+  const righeInValutaEstera = fatturaEstera && !isEdit && valuta !== "EUR";
+  const lordoInValuta = Math.round(totals.totale * 100) / 100;
+  const totaleFiscaleEuro =
+    righeInValutaEstera && cambio && cambio.tasso > 0 && lordoInValuta > 0
+      ? importoFiscaleEuro(lordoInValuta, cambio.tasso)
+      : null;
+  const cifraDocumento = (value: number) =>
+    righeInValutaEstera ? formatImportoValuta(value, valuta) : formatEuro(value);
 
   const totaleEffettivo = useMemo(() => {
     if (
@@ -1771,11 +1764,11 @@ export function FatturaRegistrazioneModal({
     ) {
       if (dilazioniBilancio.mancante > 0) {
         setFormError(
-          `Dilazioni incomplete: manca ${formatEuro(dilazioniBilancio.mancante)} rispetto al totale fattura (${formatEuro(dilazioniBilancio.totaleFattura)}).`
+          `Dilazioni incomplete: manca ${cifraDocumento(dilazioniBilancio.mancante)} rispetto al totale fattura (${cifraDocumento(dilazioniBilancio.totaleFattura)}).`
         );
       } else {
         setFormError(
-          `Dilazioni in esubero di ${formatEuro(dilazioniBilancio.esubero)} rispetto al totale fattura (${formatEuro(dilazioniBilancio.totaleFattura)}).`
+          `Dilazioni in esubero di ${cifraDocumento(dilazioniBilancio.esubero)} rispetto al totale fattura (${cifraDocumento(dilazioniBilancio.totaleFattura)}).`
         );
       }
       return;
@@ -1801,19 +1794,10 @@ export function FatturaRegistrazioneModal({
       return;
     }
 
-    const importoValuta = Number(importoValutaTesto.replace(",", "."));
-    const fiscalePronto =
-      fatturaEstera &&
-      valuta !== "EUR" &&
-      cambio &&
-      cambio.tasso > 0 &&
-      Number.isFinite(importoValuta) &&
-      importoValuta > 0
-        ? importoFiscaleEuro(importoValuta, cambio.tasso)
-        : null;
-    if (fatturaEstera && !isEdit && valuta !== "EUR") {
-      if (!Number.isFinite(importoValuta) || importoValuta <= 0) {
-        setFormError("Inserisci l'importo in valuta estera.");
+    const fiscalePronto = totaleFiscaleEuro;
+    if (righeInValutaEstera) {
+      if (!(lordoInValuta > 0)) {
+        setFormError(`Inserisci gli importi delle righe in ${valuta}.`);
         return;
       }
       if (!cambio || cambio.tasso <= 0 || fiscalePronto == null) {
@@ -1925,6 +1909,16 @@ export function FatturaRegistrazioneModal({
       } else if (isRicevuta && totaleManuale) {
         totaleOverrideInvio = numberOrZero(totaleOverride);
       }
+      const importoValutaInvio = righeInValutaEstera
+        ? lordoInValuta
+        : (fatturaEstera && valuta !== "EUR"
+            ? (initial?.importoValuta ?? null)
+            : null);
+      const fiscaleInvio = righeInValutaEstera
+        ? fiscalePronto
+        : (fatturaEstera && valuta !== "EUR"
+            ? (initial?.importoFiscaleEur ?? null)
+            : null);
       const cambioEstero = fatturaEstera && valuta !== "EUR";
       const tassoInvio = cambioEstero && cambio ? cambio.tasso : null;
       const dataCambioInvio = cambioEstero && cambio ? cambio.dataCambio : null;
@@ -1971,10 +1965,10 @@ export function FatturaRegistrazioneModal({
           totaleManuale: isRicevuta && (totaleManuale || fiscalePronto != null),
           totaleOverride: totaleOverrideInvio,
           valuta: fatturaEstera ? valuta : "EUR",
-          importoValuta: cambioEstero ? importoValuta : null,
+          importoValuta: importoValutaInvio,
           tassoCambio: tassoInvio,
           tassoCambioData: dataCambioInvio,
-          importoFiscaleEur: fiscalePronto,
+          importoFiscaleEur: fiscaleInvio,
           tassoCambioFonte: fonteInvio,
           applicaCambioRighe: Boolean(cambioEstero && !isEdit),
           totaleFic: isRicevuta ? totaleFic : null,
@@ -2247,14 +2241,14 @@ export function FatturaRegistrazioneModal({
                 <div className="mt-3 grid gap-3 sm:grid-cols-2">
                   <label className="block text-sm">
                     <span className="mb-1 block text-xs font-medium text-[var(--muted)]">
-                      Valuta
+                      Valuta delle righe
                     </span>
                     <select
                       value={valuta}
-                      onChange={(e) => setValuta(e.target.value)}
+                      onChange={(e) => setValuta(normalizzaValutaFattura(e.target.value))}
                       className="w-full rounded-lg border border-[var(--border)] bg-white px-3 py-2"
                     >
-                      <option value="EUR">EUR — già in euro</option>
+                      <option value="EUR">EUR — euro</option>
                       {VALUTE_FATTURA_ESTERA.map((codice) => (
                         <option key={codice} value={codice}>
                           {codice}
@@ -2262,20 +2256,11 @@ export function FatturaRegistrazioneModal({
                       ))}
                     </select>
                   </label>
-                  <label className="block text-sm">
-                    <span className="mb-1 block text-xs font-medium text-[var(--muted)]">
-                      Importo in valuta
-                    </span>
-                    <input
-                      inputMode="decimal"
-                      value={importoValutaTesto}
-                      onChange={(e) => {
-                        importoValutaToccato.current = true;
-                        setImportoValutaTesto(e.target.value);
-                      }}
-                      className="w-full rounded-lg border border-[var(--border)] bg-white px-3 py-2 font-mono"
-                    />
-                  </label>
+                  <p className="self-end text-sm text-slate-700">
+                    {valuta === "EUR"
+                      ? "Le righe si compilano in euro."
+                      : `Prezzi e importi di riga restano in ${valuta}. Il totale in euro è in fondo al documento.`}
+                  </p>
                 </div>
                 {valuta !== "EUR" ? (
                   <div className="mt-3 text-sm text-slate-800">
@@ -2291,7 +2276,9 @@ export function FatturaRegistrazioneModal({
                         {cambio.fonte === "MANUAL_OPERATOR"
                           ? "inserito dall'operatore"
                           : "BCE"}
-                        {testoValoreFiscale(importoValutaTesto, cambio.tasso)}
+                        {lordoInValuta > 0
+                          ? testoValoreFiscale(String(lordoInValuta), cambio.tasso)
+                          : ""}
                       </p>
                     ) : null}
                     {cambioStato === "errore" && !cambio ? (
@@ -2588,12 +2575,16 @@ export function FatturaRegistrazioneModal({
                     {isRicevuta ? (
                       <th className="px-2 py-2">Unità</th>
                     ) : null}
-                    <th className="px-2 py-2">Prezzo u.</th>
+                    <th className="px-2 py-2">
+                      {righeInValutaEstera ? `Prezzo u. (${valuta})` : "Prezzo u."}
+                    </th>
                     <th className="px-2 py-2">Sconto %</th>
                     {isRicevuta ? (
                       <th className="px-2 py-2">IVA %</th>
                     ) : null}
-                    <th className="px-2 py-2">Importo</th>
+                    <th className="px-2 py-2">
+                      {righeInValutaEstera ? `Importo (${valuta})` : "Importo"}
+                    </th>
                     {!isNc ? (
                       <th
                         className="px-2 py-2"
@@ -2917,10 +2908,10 @@ export function FatturaRegistrazioneModal({
                           {hasSconto ? (
                             <div className="mt-1 space-y-0.5 text-xs leading-tight">
                               <p className="text-[var(--muted)] line-through tabular-nums">
-                                {formatEuro(listino)}
+                                {cifraDocumento(listino)}
                               </p>
                               <p className="font-medium tabular-nums text-emerald-800">
-                                {formatEuro(scontato)}
+                                {cifraDocumento(scontato)}
                               </p>
                             </div>
                           ) : null}
@@ -2951,7 +2942,7 @@ export function FatturaRegistrazioneModal({
                           </td>
                         ) : null}
                         <td className="px-2 py-2 tabular-nums">
-                          {formatEuro(riga.importo)}
+                          {cifraDocumento(riga.importo)}
                         </td>
                         {!isNc ? (
                           <td className="px-2 py-2 align-middle">
@@ -3010,7 +3001,7 @@ export function FatturaRegistrazioneModal({
             <div className="min-w-0 w-full space-y-3 sm:max-w-[70%]">
               <div>
                 <p className="mb-1 text-xs font-medium uppercase tracking-wide text-[var(--muted)]">
-                  Spedizione
+                  Spedizione{righeInValutaEstera ? ` (${valuta})` : ""}
                 </p>
                 <div className="flex flex-wrap items-center gap-2">
                   <label
@@ -3161,7 +3152,7 @@ export function FatturaRegistrazioneModal({
                       <span className="ml-auto text-[11px] text-[var(--muted)]">
                         Tot.{" "}
                         <span className="font-semibold tabular-nums text-slate-800">
-                          {formatEuro(totals.contributiImporto)}
+                          {cifraDocumento(totals.contributiImporto)}
                         </span>
                       </span>
                     ) : null}
@@ -3292,17 +3283,17 @@ export function FatturaRegistrazioneModal({
             <div className="w-full shrink-0 space-y-3 sm:w-64 sm:max-w-[30%] sm:self-start">
               <div>
                 <label className="mb-1 block text-xs font-medium uppercase tracking-wide text-[var(--muted)]">
-                  Tot. imponibile
+                  {righeInValutaEstera ? `Imponibile (${valuta})` : "Tot. imponibile"}
                 </label>
                 <input
                   readOnly
-                  value={formatEuro(totals.imponibile)}
+                  value={cifraDocumento(totals.imponibile)}
                   className="w-full rounded-lg border border-[var(--border)] bg-slate-50 px-3 py-2 text-right tabular-nums"
                 />
               </div>
               <div>
                 <label className="mb-1 block text-xs font-medium uppercase tracking-wide text-[var(--muted)]">
-                  Imposta IVA
+                  {righeInValutaEstera ? `Imposta IVA (${valuta})` : "Imposta IVA"}
                 </label>
                 {!isRicevuta ? (
                   <div className="mb-1.5 flex items-center gap-2">
@@ -3321,7 +3312,7 @@ export function FatturaRegistrazioneModal({
                 ) : null}
                 <input
                   readOnly
-                  value={formatEuro(totals.imposta)}
+                  value={cifraDocumento(totals.imposta)}
                   className="w-full rounded-lg border border-[var(--border)] bg-slate-50 px-3 py-2 text-right tabular-nums"
                 />
                 {isRicevuta ? (
@@ -3330,7 +3321,7 @@ export function FatturaRegistrazioneModal({
                   </p>
                 ) : (
                   <p className="mt-1 text-[11px] text-[var(--muted)]">
-                    Base IVA: {formatEuro(totals.baseIva)}
+                    Base IVA: {cifraDocumento(totals.baseIva)}
                   </p>
                 )}
               </div>
@@ -3346,9 +3337,9 @@ export function FatturaRegistrazioneModal({
                 ) : null}
                 <div className="mb-1 flex items-center gap-2">
                   <label className="block text-xs font-medium uppercase tracking-wide text-[var(--muted)]">
-                    Totale
+                    {righeInValutaEstera ? `Totale (${valuta})` : "Totale"}
                   </label>
-                  {isRicevuta ? (
+                  {isRicevuta && !righeInValutaEstera ? (
                     <button
                       type="button"
                       onClick={() => {
@@ -3385,7 +3376,7 @@ export function FatturaRegistrazioneModal({
                     />
                     <div className="mt-1 flex flex-wrap items-center justify-between gap-2">
                       <p className="text-xs text-amber-900">
-                        Calcolato dalle righe: {formatEuro(totals.totale)}
+                        Calcolato dalle righe: {cifraDocumento(totals.totale)}
                       </p>
                       <button
                         type="button"
@@ -3403,10 +3394,35 @@ export function FatturaRegistrazioneModal({
                 ) : (
                   <input
                     readOnly
-                    value={formatEuro(totaleEffettivo)}
+                    value={
+                      righeInValutaEstera
+                        ? cifraDocumento(totals.totale)
+                        : formatEuro(totaleEffettivo)
+                    }
                     className="w-full rounded-lg border border-[var(--border)] bg-slate-50 px-3 py-2 text-right font-semibold tabular-nums"
                   />
                 )}
+                {righeInValutaEstera ? (
+                  <div className="mt-3">
+                    <label className="mb-1 block text-xs font-medium uppercase tracking-wide text-[var(--muted)]">
+                      Totale fiscale (EUR)
+                    </label>
+                    <input
+                      readOnly
+                      value={
+                        totaleFiscaleEuro != null
+                          ? formatEuro(totaleFiscaleEuro)
+                          : "In attesa del cambio"
+                      }
+                      className="w-full rounded-lg border border-emerald-300 bg-emerald-50 px-3 py-2 text-right font-semibold tabular-nums"
+                    />
+                    <p className="mt-1 text-[11px] text-slate-600">
+                      {cambio && cambio.tasso > 0
+                        ? `1 EUR = ${cambio.tasso} ${valuta}. Al salvataggio la contabilità registra questo importo in euro.`
+                        : "Il cambio della data di emissione serve per calcolare gli euro."}
+                    </p>
+                  </div>
+                ) : null}
                 {isRicevuta && confrontoFic.haRiferimento ? (
                   <div
                     className={`mt-2 rounded-lg border px-2.5 py-2 text-xs ${
@@ -3703,8 +3719,8 @@ export function FatturaRegistrazioneModal({
               >
                 <p className="font-medium">
                   Controllo dilazioni · Somma rate{" "}
-                  {formatEuro(dilazioniBilancio.sommaDilazioni)} su totale{" "}
-                  {formatEuro(dilazioniBilancio.totaleFattura)}
+                  {cifraDocumento(dilazioniBilancio.sommaDilazioni)} su totale{" "}
+                  {cifraDocumento(dilazioniBilancio.totaleFattura)}
                 </p>
                 {dilazioniBilancio.equilibrato ? (
                   <p className="mt-0.5">
@@ -3712,12 +3728,12 @@ export function FatturaRegistrazioneModal({
                   </p>
                 ) : dilazioniBilancio.mancante > 0 ? (
                   <p className="mt-0.5">
-                    Mancano {formatEuro(dilazioniBilancio.mancante)} da
+                    Mancano {cifraDocumento(dilazioniBilancio.mancante)} da
                     assegnare alle dilazioni.
                   </p>
                 ) : (
                   <p className="mt-0.5">
-                    Esubero di {formatEuro(dilazioniBilancio.esubero)} rispetto
+                    Esubero di {cifraDocumento(dilazioniBilancio.esubero)} rispetto
                     al totale fattura.
                   </p>
                 )}
@@ -4109,7 +4125,7 @@ export function FatturaRegistrazioneModal({
         <ManualExchangeRateModal
           dataFattura={dataEmissione}
           valuta={valuta}
-          importoValuta={Number(importoValutaTesto.replace(",", ".")) || 0}
+          importoValuta={lordoInValuta}
           onClose={() => setCambioManuale(false)}
           onApply={(tasso) => {
             cambioManualeTenuto.current = true;

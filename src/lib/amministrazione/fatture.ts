@@ -703,13 +703,7 @@ function transformFatturaInput(
       );
     }
     if (v.applicaCambioRighe) {
-      const lordo = v.righe.reduce((somma, riga) => {
-        const quantita = Math.abs(Number(riga.quantita) || 0);
-        const prezzo = Math.abs(Number(riga.prezzoUnitario) || 0);
-        return somma + quantita * prezzo * (1 - (Number(riga.scontoPercentuale) || 0) / 100);
-      }, 0) + Math.abs(Number(v.spedizione) || 0);
-      const quota = lordo > 0 ? v.importoValuta / lordo : 1;
-      fattoreCambio = quota / v.tassoCambio;
+      fattoreCambio = 1 / v.tassoCambio;
     }
   }
   const righe = v.righe.map((r) => {
@@ -757,7 +751,7 @@ function transformFatturaInput(
     : (v.dilazioni ?? []).map((d) => ({
         id: d.id,
         dataScadenza: d.dataScadenza,
-        importo: roundMoney(d.importo),
+        importo: roundMoney(d.importo * fattoreCambio),
         statoPagamento: normalizeDilazioneStato(
           d.dataScadenza,
           d.statoPagamento,
@@ -771,8 +765,8 @@ function transformFatturaInput(
         id: c.id,
         codice: c.codice.trim(),
         percentuale: Math.min(100, Math.max(0, Number(c.percentuale) || 0)),
-        baseImporto: roundMoney(Math.abs(Number(c.baseImporto) || 0)),
-        importo: roundMoney(Math.abs(Number(c.importo) || 0)),
+        baseImporto: roundMoney(Math.abs(Number(c.baseImporto) || 0) * fattoreCambio),
+        importo: roundMoney(Math.abs(Number(c.importo) || 0) * fattoreCambio),
         note: (c.note ?? "").trim(),
       }))
     : [];
@@ -1276,6 +1270,21 @@ export function formatEuro(value: number): string {
     style: "currency",
     currency: "EUR",
   });
+}
+
+export function formatImportoValuta(value: number, valuta: string): string {
+  const codice = valuta.trim().toUpperCase() || "EUR";
+  try {
+    return value.toLocaleString("it-IT", {
+      style: "currency",
+      currency: codice,
+    });
+  } catch {
+    return `${value.toLocaleString("it-IT", {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    })} ${codice}`;
+  }
 }
 
 export function formatDateIt(isoDate: string | null | undefined): string {
