@@ -1808,6 +1808,7 @@ export function SpeseCaricamentoBoard() {
               ? { url: anteprimaUrl, kind: vistaFile }
               : null
           }
+          documentoOriginaleFile={fileTenuto.current}
           onClose={() => setRegistrazioneFattura(null)}
           onSaved={() => {
             setRegistrazioneFattura(null);

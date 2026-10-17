@@ -264,6 +264,8 @@ type Props = {
   stackTop?: boolean;
   /** Documento a sinistra, stesso modulo a destra (caricamento fattura estera). */
   affiancaDocumento?: { url: string; kind: "image" | "pdf" } | null;
+  /** File già scelto in caricamento spese: si archivia con la fattura. */
+  documentoOriginaleFile?: File | null;
 };
 
 /** Chiavi documenti per cui l’overlay iniziale è già stato chiuso (sopravvive ai remount). */
@@ -369,6 +371,7 @@ export function FatturaRegistrazioneModal({
   elevated = false,
   stackTop = false,
   affiancaDocumento = null,
+  documentoOriginaleFile = null,
 }: Props) {
   const titleId = useId();
   const { privilegedAllowed } = useActionAccess();
@@ -2030,6 +2033,9 @@ export function FatturaRegistrazioneModal({
         })
       );
       if (ricevuta) fd.set("ricevuta", ricevuta);
+      if (!isEdit && documentoOriginaleFile && documentoOriginaleFile.size > 0) {
+        fd.set("documentoOriginale", documentoOriginaleFile);
+      }
       const result =
         isEdit && initial?.id
           ? await updateFatturaAction(kind, initial.id, fd)

@@ -1,5 +1,6 @@
 "use client";
 
+import type { ReactNode } from "react";
 import { ApriFatturaFicButton } from "@/components/amministrazione/ApriFatturaFicButton";
 import {
   formatDateIt,
@@ -24,6 +25,7 @@ type Props = {
   onInviaFic?: () => void;
   inviaLabel?: string;
   inviaBusy?: boolean;
+  extraActions?: ReactNode;
 };
 
 export function FatturaDettaglioView({
@@ -35,6 +37,7 @@ export function FatturaDettaglioView({
   onInviaFic,
   inviaLabel,
   inviaBusy,
+  extraActions,
 }: Props) {
   const isPreview = variant === "preview";
   const listHref =
@@ -80,6 +83,7 @@ export function FatturaDettaglioView({
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
+          {extraActions}
           {onInviaFic && !isPreview && fattura.kind === "emessa" && !fattura.ficId ? (
             <button
               type="button"

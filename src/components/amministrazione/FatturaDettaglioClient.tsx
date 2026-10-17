@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { inviaFatturaSalvataAction } from "@/app/actions/fattura-da-ordine";
 import { getFatturaByIdAction } from "@/app/actions/fatture";
 import { FatturaDettaglioView } from "@/components/amministrazione/FatturaDettaglioView";
+import { DocumentoOriginaleFattura } from "@/components/amministrazione/DocumentoOriginaleFattura";
 import { FatturaRegistrazioneModal } from "@/components/amministrazione/FatturaRegistrazioneModal";
 import { useActionAccess } from "@/components/layout/ActionAccessProvider";
 import { PaperInvoiceViewer } from "@/components/PaperInvoiceViewer";
@@ -168,6 +169,17 @@ export function FatturaDettaglioClient({ initial }: Props) {
                 })();
               }
             : undefined
+        }
+        extraActions={
+          fattura.kind === "ricevuta" ? (
+            <DocumentoOriginaleFattura
+              fatturaId={fattura.id}
+              allegato={fattura.documentoOriginale}
+              onChanged={(allegato) =>
+                setFattura((prev) => ({ ...prev, documentoOriginale: allegato }))
+              }
+            />
+          ) : null
         }
       />
 

@@ -441,6 +441,139 @@ export async function previewNumeroInternoFatturaAction(input: {
   }
 }
 
+const DOCUMENTO_ORIGINALE_MIME = new Set([
+  "application/pdf",
+  "image/jpeg",
+  "image/png",
+  "image/webp",
+]);
+const DOCUMENTO_ORIGINALE_MAX = 15 * 1024 * 1024;
+
+function mimeDocumentoOriginale(file: File): string | null {
+  const type = (file.type || "").toLowerCase();
+  if (DOCUMENTO_ORIGINALE_MIME.has(type)) return type;
+  const name = file.name.toLowerCase();
+  if (name.endsWith(".pdf")) return "application/pdf";
+  if (name.endsWith(".png")) return "image/png";
+  if (name.endsWith(".webp")) return "image/webp";
+  if (name.endsWith(".jpg") || name.endsWith(".jpeg")) return "image/jpeg";
+  return null;
+}
+
+async function uploadDocumentoOriginale(
+  fatturaId: string,
+  file: File
+): Promise<{ path: string; name: string } | { error: string }> {
+  if (file.size <= 0) return { error: "Il file è vuoto." };
+  if (file.size > DOCUMENTO_ORIGINALE_MAX) {
+    return { error: "Il documento originale supera i 15 MB." };
+  }
+  const mime = mimeDocumentoOriginale(file);
+  if (!mime) {
+    return {
+      error: "Il documento originale deve essere un PDF oppure un'immagine JPEG, PNG o WebP.",
+    };
+  }
+  const supabase = await createClient();
+  const safeName = (file.name || "documento-originale")
+    .replace(/[^\w.\-]+/g, "_")
+    .slice(0, 120);
+  const path = `${fatturaId}/originale-${Date.now()}-${safeName}`;
+  const buffer = Buffer.from(await file.arrayBuffer());
+  const { error } = await supabase.storage.from(RICEVUTA_BUCKET).upload(path, buffer, {
+    contentType: mime,
+    upsert: false,
+  });
+  if (error) return { error: error.message };
+  return { path, name: file.name || "documento-originale" };
+}
+
+export async function caricaDocumentoOriginaleFatturaAction(
+  fatturaId: string,
+  formData: FormData
+): Promise<
+  | { success: true; fileName: string; storagePath: string }
+  | { success: false; error: string }
+> {
+  const { auth } = await requireAreaAccess("amministrazione");
+  const id = fatturaId.trim();
+  if (!id) return { success: false, error: "Fattura non indicata." };
+  const file = formData.get("file");
+  if (!(file instanceof File) || file.size <= 0) {
+    return { success: false, error: "Seleziona il documento originale." };
+  }
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from("fatture_ricevute")
+    .select("id, numero_interno, documento_originale_storage_path")
+    .eq("id", id)
+    .is("deleted_at", null)
+    .maybeSingle();
+  if (error || !data) {
+    return { success: false, error: error?.message ?? "Fattura non trovata." };
+  }
+  const precedente = String(data.documento_originale_storage_path ?? "");
+  const up = await uploadDocumentoOriginale(id, file);
+  if ("error" in up) return { success: false, error: up.error };
+  const { error: updErr } = await supabase
+    .from("fatture_ricevute")
+    .update({
+      documento_originale_storage_path: up.path,
+      documento_originale_file_name: up.name,
+      updated_by: auth.userId,
+    })
+    .eq("id", id)
+    .is("deleted_at", null);
+  if (updErr) return { success: false, error: updErr.message };
+  const numero = String(data.numero_interno ?? "");
+  await writeAuditLog({
+    entity_type: "fatture_ricevute",
+    entity_id: id,
+    action: "attachment_upload",
+    actor_id: auth.userId,
+    summary: precedente
+      ? `Documento originale sostituito su ${numero}`
+      : `Documento originale caricato su ${numero}`,
+    payload: {
+      file_name: up.name,
+      storage_path: up.path,
+      precedente_storage_path: precedente,
+    },
+  });
+  return { success: true, fileName: up.name, storagePath: up.path };
+}
+
+export async function apriDocumentoOriginaleFatturaAction(
+  fatturaId: string
+): Promise<{ success: true; url: string } | { success: false; error: string }> {
+  await requireAreaAccess("amministrazione");
+  const id = fatturaId.trim();
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from("fatture_ricevute")
+    .select("documento_originale_storage_path")
+    .eq("id", id)
+    .is("deleted_at", null)
+    .maybeSingle();
+  const path = String(data?.documento_originale_storage_path ?? "");
+  if (error || !path) {
+    return {
+      success: false,
+      error: error?.message ?? "Documento originale non presente.",
+    };
+  }
+  const signed = await supabase.storage
+    .from(RICEVUTA_BUCKET)
+    .createSignedUrl(path, 600);
+  if (signed.error || !signed.data?.signedUrl) {
+    return {
+      success: false,
+      error: signed.error?.message ?? "Apertura del documento non riuscita.",
+    };
+  }
+  return { success: true, url: signed.data.signedUrl };
+}
+
 async function uploadRicevuta(
   fatturaId: string,
   file: File
@@ -1477,6 +1610,43 @@ export async function createFatturaAction(
       row.ricevuta_file_name = up.name;
     }
 
+    let documentoOriginaleNome: string | null = null;
+    const originaleFile = formData.get("documentoOriginale");
+    if (originaleFile instanceof File && originaleFile.size > 0) {
+      const up = await uploadDocumentoOriginale(row.id, originaleFile);
+      if ("error" in up) {
+        console.error("[documento-originale]", up.error);
+      } else {
+        const { error: origErr } = await supabase
+          .from("fatture_ricevute")
+          .update({
+            documento_originale_storage_path: up.path,
+            documento_originale_file_name: up.name,
+            updated_by: auth.userId,
+          })
+          .eq("id", row.id);
+        if (origErr) {
+          console.error("[documento-originale]", origErr.message);
+        } else {
+          row.documento_originale_storage_path = up.path;
+          row.documento_originale_file_name = up.name;
+          documentoOriginaleNome = up.name;
+          await writeAuditLog({
+            entity_type: "fatture_ricevute",
+            entity_id: row.id,
+            action: "attachment_upload",
+            actor_id: auth.userId,
+            summary: `Documento originale allegato a ${numeroInterno}`,
+            payload: {
+              file_name: up.name,
+              storage_path: up.path,
+              precedente_storage_path: "",
+            },
+          });
+        }
+      }
+    }
+
     // prodotto_id su ricevute → FK prodotti_propri: per acquisti usare solo `codice` catalogo
     const righeInsert: FatturaRicevutaRigaInsert[] = input.righe.map(
       (r, i) => ({
@@ -1600,6 +1770,7 @@ export async function createFatturaAction(
         tasso_cambio_data: input.tassoCambioData ?? null,
         importo_fiscale_eur: input.importoFiscaleEur ?? null,
         tasso_cambio_fonte: input.tassoCambioFonte ?? null,
+        documento_originale_file_name: documentoOriginaleNome,
         prodotti_aggiunti_scheda: prodottiAggiuntiScheda,
       },
     });

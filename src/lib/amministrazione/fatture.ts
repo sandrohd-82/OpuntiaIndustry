@@ -168,6 +168,8 @@ export type Fattura = {
   annullataDaNcId?: string | null;
   annullataDaNcNumeroInterno?: string | null;
   ricevuta: FatturaAllegatoMeta | null;
+  /** PDF o foto del documento fornitore. Null se non ancora caricato. */
+  documentoOriginale?: FatturaAllegatoMeta | null;
   versione: number;
   documentoStato: FatturaDocumentoStato;
   note: string;
@@ -1140,6 +1142,12 @@ export function mapFatturaRicevutaRow(
       ? {
           storagePath: row.ricevuta_storage_path,
           fileName: row.ricevuta_file_name || "ricevuta",
+        }
+      : null,
+    documentoOriginale: row.documento_originale_storage_path
+      ? {
+          storagePath: row.documento_originale_storage_path,
+          fileName: row.documento_originale_file_name || "documento-originale",
         }
       : null,
     versione: row.versione,

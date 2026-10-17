@@ -1993,6 +1993,8 @@ export interface FatturaRicevutaRow {
   natura_documento: FatturaNaturaDocumento;
   ricevuta_storage_path: string;
   ricevuta_file_name: string;
+  documento_originale_storage_path: string;
+  documento_originale_file_name: string;
   versione: number;
   documento_stato: FatturaDocumentoStato;
   note: string;
@@ -2037,6 +2039,8 @@ export type FatturaRicevutaInsert = {
   natura_documento?: FatturaNaturaDocumento;
   ricevuta_storage_path?: string;
   ricevuta_file_name?: string;
+  documento_originale_storage_path?: string;
+  documento_originale_file_name?: string;
   versione?: number;
   documento_stato?: FatturaDocumentoStato;
   note?: string;
