@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   leggiLinguaIntercomunicazioneAction,
   traduciIntercomunicazioneAction,
@@ -22,7 +22,10 @@ type Props = {
   documento: "preventivo" | "fattura" | "mail";
   testi: TestoTraducibile[];
   /** In mail scrive la traduzione nella bozza. Senza callback la mostra soltanto. */
-  onApplica?: (testi: Array<{ key: string; text: string }>) => void;
+  onApplica?: (
+    testi: Array<{ key: string; text: string }>,
+    meta?: { lingua: string; modello: string }
+  ) => void;
   /** Copia affiancata: il documento italiano resta com'è. */
   onCopia?: (
     testi: Array<{ key: string; text: string }>,
@@ -59,9 +62,13 @@ export function TraduciIntercomunicazione({
   const [origine, setOrigine] = useState<Array<{ key: string; text: string }> | null>(
     null
   );
+  const linguaEsternaRef = useRef(linguaEsterna);
+  linguaEsternaRef.current = linguaEsterna;
+  const sceltaManualeRef = useRef(false);
 
   useEffect(() => {
     let cancelled = false;
+    sceltaManualeRef.current = false;
     setLinguaScheda(null);
     setCopia(null);
     setOrigine(null);
@@ -71,10 +78,14 @@ export function TraduciIntercomunicazione({
       const res = await leggiLinguaIntercomunicazioneAction({ tipo, id });
       if (cancelled || !res.success) return;
       setLinguaScheda(res.lingua);
-      if (!linguaEsterna) {
-        setLingua(res.lingua);
-        onLinguaChange?.(res.lingua);
+      if (sceltaManualeRef.current) return;
+      const giaScelta = linguaEsternaRef.current;
+      if (giaScelta) {
+        setLingua(giaScelta);
+        return;
       }
+      setLingua(res.lingua);
+      onLinguaChange?.(res.lingua);
     })();
     return () => {
       cancelled = true;
@@ -94,6 +105,7 @@ export function TraduciIntercomunicazione({
   const senzaTraduzione = linguaCodice === "it";
 
   function cambiaLingua(codice: string) {
+    sceltaManualeRef.current = true;
     setLingua(codice);
     setError(null);
     setInfo(
@@ -135,7 +147,7 @@ export function TraduciIntercomunicazione({
     }
     if (onApplica) {
       setOrigine(utili.map((item) => ({ key: item.key, text: item.text })));
-      onApplica(res.testi);
+      onApplica(res.testi, { lingua: res.lingua, modello: res.modello });
       setCopia(null);
       setInfo(
         `Testo scritto nella bozza in ${labelLingua(res.lingua)}. Il documento italiano non è stato sostituito.`

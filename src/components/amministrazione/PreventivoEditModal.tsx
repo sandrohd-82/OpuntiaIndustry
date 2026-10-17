@@ -28,26 +28,26 @@ export function PreventivoEditModal({
 
   return createPortal(
     <div
-      className="fixed inset-0 z-[200] flex items-start justify-center overflow-y-auto bg-slate-950/55 px-4 py-10"
+      className="fixed inset-0 z-[200] flex items-center justify-center overflow-y-auto bg-slate-950/55 p-6 sm:p-10"
       role="presentation"
     >
       <div
         role="dialog"
         aria-modal="true"
         aria-labelledby={titleId}
-        className="my-auto w-full max-w-lg rounded-xl border border-slate-200 bg-white p-5 shadow-2xl"
+        className="my-auto flex max-h-[calc(100vh-4.5rem)] w-full max-w-lg flex-col rounded-xl border border-slate-200 bg-white p-5 shadow-2xl"
         onClick={(e) => e.stopPropagation()}
       >
-        <h2 id={titleId} className="text-lg font-semibold text-slate-900">
+        <h2 id={titleId} className="shrink-0 text-lg font-semibold text-slate-900">
           {title}
         </h2>
-        <div className="mt-4 space-y-3">{children}</div>
+        <div className="mt-4 min-h-0 flex-1 space-y-3 overflow-y-auto">{children}</div>
         {notice ? (
-          <p className="mt-4 rounded border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+          <p className="mt-4 shrink-0 rounded border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
             {notice}
           </p>
         ) : null}
-        <div className="mt-5 flex justify-end gap-2">
+        <div className="mt-4 flex shrink-0 justify-end gap-2 border-t border-slate-200 bg-white pt-3">
           <button
             type="button"
             onClick={onClose}

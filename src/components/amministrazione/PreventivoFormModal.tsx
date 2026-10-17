@@ -21,6 +21,7 @@ import {
   savePreventivoAction,
   stimaSpedizionePreventivoAction,
 } from "@/app/actions/preventivi";
+import { traduciIntercomunicazioneAction } from "@/app/actions/traduci-intercomunicazione";
 import { AziendaNoteBanner } from "@/components/amministrazione/AziendaNoteBanner";
 import { dicituraTradottoConAi } from "@/lib/amministrazione/dicitura-traduzione-ai";
 import {
@@ -78,6 +79,7 @@ import {
   vociEtichetteFissePreventivo,
 } from "@/lib/amministrazione/preventivo-etichette";
 import { foglioPreventivoToPdfBase64 } from "@/lib/amministrazione/preventivo-foglio-cattura";
+import { labelLingua } from "@/lib/ecosystem/geo-nazioni";
 import { LISTINO_CONTRATTO_MSG } from "@/lib/ecosystem/listino-vigente";
 import {
   clearPreventivoSessione,
@@ -277,6 +279,13 @@ export function PreventivoFormModal({ onClose, onSaved, preventivoId }: Props) {
   const [draftPrezzoModo, setDraftPrezzoModo] =
     useState<ModoPrezzoSpedizione>("in_fattura");
   const [mailError, setMailError] = useState<string | null>(null);
+  const [mailLinguaApplicata, setMailLinguaApplicata] = useState<string | null>(
+    null
+  );
+  const [preparazioneInvio, setPreparazioneInvio] = useState<
+    "lingua" | "invio" | null
+  >(null);
+  const bozzaMailItRef = useRef({ oggetto: "", testo: "" });
   const [foglioPronto, setFoglioPronto] = useState(!preventivoId);
   const [copiaTradotta, setCopiaTradotta] = useState<Record<string, string> | null>(
     null
@@ -435,7 +444,14 @@ export function PreventivoFormModal({ onClose, onSaved, preventivoId }: Props) {
     setLinguaTradotta(null);
     setModelloAi(null);
     setLinguaScelta(null);
+    setMailLinguaApplicata(null);
+    bozzaMailItRef.current = { oggetto: "", testo: "" };
   }, [destinatario?.id]);
+
+  useEffect(() => {
+    if (!formError) return;
+    erroreRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
+  }, [formError]);
 
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
@@ -926,6 +942,99 @@ export function PreventivoFormModal({ onClose, onSaved, preventivoId }: Props) {
     }
   }
 
+  async function mailNellaLinguaSelezionata(): Promise<
+    | {
+        ok: true;
+        lingua: string;
+        oggetto: string;
+        testo: string;
+        modello: string | null;
+      }
+    | { ok: false; error: string }
+  > {
+    const lingua = (linguaScelta ?? "").trim().toLowerCase();
+    if (!/^[a-z]{2}$/.test(lingua)) {
+      return {
+        ok: false,
+        error: "Seleziona la lingua di traduzione del preventivo.",
+      };
+    }
+    const oggettoCorrente = mailOggetto.trim();
+    const testoCorrente = mailTesto.trim();
+    if (lingua === "it") {
+      const ancoraTradotta =
+        mailLinguaApplicata != null &&
+        mailLinguaApplicata !== "it" &&
+        Boolean(
+          bozzaMailItRef.current.testo.trim() ||
+            bozzaMailItRef.current.oggetto.trim()
+        );
+      const oggetto = ancoraTradotta
+        ? bozzaMailItRef.current.oggetto.trim() || oggettoCorrente
+        : oggettoCorrente;
+      const testo = ancoraTradotta
+        ? bozzaMailItRef.current.testo.trim() || testoCorrente
+        : testoCorrente;
+      return { ok: true, lingua, oggetto, testo, modello: null };
+    }
+    if (!copiaTradotta || linguaTradotta !== lingua) {
+      return {
+        ok: false,
+        error:
+          "Traduci il preventivo nella lingua scelta, oppure imposta «Non tradurre · italiano».",
+      };
+    }
+    if (traduzioneObsoleta) {
+      return {
+        ok: false,
+        error:
+          "Aggiorna la traduzione prima dell'invio, così l'allegato è allineato al foglio.",
+      };
+    }
+    if (mailLinguaApplicata === lingua) {
+      return {
+        ok: true,
+        lingua,
+        oggetto: oggettoCorrente,
+        testo: testoCorrente,
+        modello: modelloAi,
+      };
+    }
+    if (!destinatario) {
+      return { ok: false, error: "Seleziona un destinatario." };
+    }
+    const fonte = bozzaMailItRef.current.testo.trim()
+      ? bozzaMailItRef.current
+      : { oggetto: oggettoCorrente, testo: testoCorrente };
+    const res = await traduciIntercomunicazioneAction({
+      tipo: destinatario.kind === "possibile" ? "cliente_possibile" : "cliente",
+      id: destinatario.id,
+      documento: "mail",
+      lingua,
+      testi: [
+        { key: "oggetto", text: fonte.oggetto },
+        { key: "corpo", text: fonte.testo },
+      ],
+    });
+    if (!res.success) return { ok: false, error: res.error };
+    const oggetto =
+      res.testi.find((item) => item.key === "oggetto")?.text.trim() ||
+      fonte.oggetto;
+    const testo =
+      res.testi.find((item) => item.key === "corpo")?.text.trim() ||
+      fonte.testo;
+    setMailOggetto(oggetto);
+    setMailTesto(testo);
+    setMailLinguaApplicata(res.lingua);
+    return {
+      ok: true,
+      lingua: res.lingua,
+      oggetto,
+      testo,
+      modello: modelloAi || res.modello,
+    };
+  }
+
   function onFase2Mail() {
     if (!destinatario) {
       setFormError("Seleziona un destinatario.");
@@ -960,17 +1069,27 @@ export function PreventivoFormModal({ onClose, onSaved, preventivoId }: Props) {
     if (!mailTo.trim()) {
       setMailTo(invioEmail.trim() || destinatario.email || "");
     }
-    if (!mailOggetto.trim()) {
-      setMailOggetto(
-        `Preventivo n. ${numeroPreview} del ${dataPreventivo.split("-").reverse().join("/")}`
-      );
-    }
+    const oggettoBase =
+      mailOggetto.trim() ||
+      `Preventivo n. ${numeroPreview} del ${dataPreventivo.split("-").reverse().join("/")}`;
     const baseMail = mailTesto.trim()
       ? mailTesto
       : `In allegato il preventivo n. ${numeroPreview}.\nValidità ${validitaGiorni} giorni.`;
-    setMailTesto(
-      normalizzaVoceSpedizioneMail(baseMail, consegnaMetodo, prezzoAcquirenteModo)
+    const testoBase = normalizzaVoceSpedizioneMail(
+      baseMail,
+      consegnaMetodo,
+      prezzoAcquirenteModo
     );
+    const mailGiaTradotta = Boolean(
+      mailLinguaApplicata && mailLinguaApplicata !== "it"
+    );
+    if (!mailGiaTradotta) {
+      setMailOggetto(oggettoBase);
+      setMailTesto(testoBase);
+      bozzaMailItRef.current = { oggetto: oggettoBase, testo: testoBase };
+    } else if (!bozzaMailItRef.current.testo.trim()) {
+      bozzaMailItRef.current = { oggetto: oggettoBase, testo: testoBase };
+    }
     setMailError(null);
     void listCasellePreventivoMailAction().then((res) => {
       if (!res.success) {
@@ -1009,6 +1128,15 @@ export function PreventivoFormModal({ onClose, onSaved, preventivoId }: Props) {
       );
       return;
     }
+    setMailError(null);
+    setPreparazioneInvio("lingua");
+    const preparata = await mailNellaLinguaSelezionata();
+    if (!preparata.ok) {
+      setPreparazioneInvio(null);
+      setMailError(preparata.error);
+      return;
+    }
+    setPreparazioneInvio(null);
     const mapped = righe.map((r) => ({
       prodottoId: r.prodottoId,
       prodottoCodice: r.prodottoCodice,
@@ -1060,8 +1188,8 @@ export function PreventivoFormModal({ onClose, onSaved, preventivoId }: Props) {
       modalitaSpedizionePrezzo: "richiesto",
       mailAccountId,
       mailTo: mailTo.trim(),
-      mailOggetto: mailOggetto.trim(),
-      mailTesto: mailTesto.trim(),
+      mailOggetto: preparata.oggetto,
+      mailTesto: preparata.testo,
     };
     const result = preventivoId
       ? await savePreventivoAction({ ...payload, id: preventivoId })
@@ -1083,22 +1211,29 @@ export function PreventivoFormModal({ onClose, onSaved, preventivoId }: Props) {
       setMailError("Compila casella, destinatario, oggetto e testo della mail.");
       return;
     }
-    setInvioEmail(mailTo.trim());
-    setInvioOggetto(mailOggetto.trim());
-    setInvioMessaggio(mailTesto.trim());
-    if (linguaScelta && linguaScelta !== "it" && !copiaTradotta) {
-      setMailError(
-        "Traduci il preventivo nella lingua scelta, oppure imposta «Non tradurre · italiano»."
-      );
+    setMailError(null);
+    setPreparazioneInvio("lingua");
+    const preparata = await mailNellaLinguaSelezionata();
+    if (!preparata.ok) {
+      setPreparazioneInvio(null);
+      setMailError(preparata.error);
       return;
     }
-    if (linguaScelta && linguaScelta !== "it" && traduzioneObsoleta) {
+    setInvioEmail(mailTo.trim());
+    setInvioOggetto(preparata.oggetto);
+    setInvioMessaggio(preparata.testo);
+    const nodeIt = foglioStampaItRef.current;
+    const inviaTradotto = preparata.lingua !== "it";
+    const nodeTradotto = inviaTradotto ? foglioTradottoRef.current : null;
+    if (!nodeIt || (inviaTradotto && !nodeTradotto)) {
+      setPreparazioneInvio(null);
       setMailError(
-        "Aggiorna la traduzione prima dell'invio, così l'allegato è allineato al foglio."
+        "La scheda non è pronta per l'allegato. Resta sul preventivo e riprova l'invio."
       );
       return;
     }
     if (PREVENTIVI_SESSIONE_PROVA) {
+      setPreparazioneInvio(null);
       const item = await persist("inviato");
       if (!item) return;
       setInviaOpen(false);
@@ -1109,17 +1244,10 @@ export function PreventivoFormModal({ onClose, onSaved, preventivoId }: Props) {
       );
       return;
     }
+    setPreparazioneInvio("invio");
     const item = await persist("salvato");
-    if (!item) return;
-    const nodeIt = foglioStampaItRef.current;
-    const nodeTradotto =
-      copiaTradotta && linguaTradotta && linguaTradotta !== "it"
-        ? foglioTradottoRef.current
-        : null;
-    if (!nodeIt || (copiaTradotta && linguaTradotta && linguaTradotta !== "it" && !nodeTradotto)) {
-      setMailError(
-        "Preventivo salvato in archivio. La scheda non è pronta per l'allegato."
-      );
+    if (!item) {
+      setPreparazioneInvio(null);
       return;
     }
     setSaving(true);
@@ -1133,15 +1261,13 @@ export function PreventivoFormModal({ onClose, onSaved, preventivoId }: Props) {
         preventivoId: item.id,
         mailAccountId,
         mailTo: mailTo.trim(),
-        mailOggetto: mailOggetto.trim(),
-        mailTesto: mailTesto.trim(),
+        mailOggetto: preparata.oggetto,
+        mailTesto: preparata.testo,
         pdfBase64: pdfAllegato,
         pdfArchivioBase64: nodeTradotto ? pdfItaliano : undefined,
-        linguaAllegato: nodeTradotto && linguaTradotta ? linguaTradotta : "it",
-        modelloTraduzione:
-          nodeTradotto && modelloAi ? modelloAi : undefined,
+        linguaAllegato: preparata.lingua,
+        modelloTraduzione: preparata.modello || undefined,
       });
-      setSaving(false);
       if (!res.success) {
         setMailError(res.error);
         return;
@@ -1151,13 +1277,14 @@ export function PreventivoFormModal({ onClose, onSaved, preventivoId }: Props) {
       onSaved(res.item);
       onClose();
     } catch (e) {
-      setSaving(false);
       setMailError(
         e instanceof Error
           ? `Preventivo salvato in archivio. Invio mail non riuscito: ${e.message}`
           : "Preventivo salvato in archivio. Invio mail non riuscito."
       );
     } finally {
+      setSaving(false);
+      setPreparazioneInvio(null);
       setCatturaNaturale(false);
     }
   }
@@ -1178,6 +1305,13 @@ export function PreventivoFormModal({ onClose, onSaved, preventivoId }: Props) {
   }
 
   const affiancato = copiaTradotta != null;
+
+  function etichettaConfermaMail() {
+    if (preparazioneInvio === "lingua") return "Preparazione lingua…";
+    if (saving || preparazioneInvio === "invio") return "Salvataggio…";
+    if (prezzoAcquirenteModo === "richiesto") return "Salva e prenota invio";
+    return "Salva e invia";
+  }
   const fascia = affiancato
     ? "mx-auto w-[98vw] max-w-[98vw]"
     : "mx-auto max-w-[210mm]";
@@ -1367,6 +1501,16 @@ export function PreventivoFormModal({ onClose, onSaved, preventivoId }: Props) {
             lingua={linguaScelta}
             onLinguaChange={(codice) => {
               setLinguaScelta(codice);
+              if (mailLinguaApplicata && mailLinguaApplicata !== codice) {
+                const it = bozzaMailItRef.current;
+                if (it.oggetto || it.testo) {
+                  setMailOggetto(it.oggetto);
+                  setMailTesto(it.testo);
+                }
+                setMailLinguaApplicata(codice === "it" ? "it" : null);
+              } else if (codice === "it") {
+                setMailLinguaApplicata("it");
+              }
               if (codice === linguaTradotta) return;
               setCopiaTradotta(null);
               setFirmaTradotta(null);
@@ -1414,7 +1558,7 @@ export function PreventivoFormModal({ onClose, onSaved, preventivoId }: Props) {
 
       {typeof document !== "undefined" && !inviaOpen
         ? createPortal(
-            <div className="fixed bottom-4 right-4 z-[175] print:hidden">
+            <div className="fixed bottom-12 right-12 z-[175] print:hidden">
               <button
                 type="button"
                 onClick={onFase2Mail}
@@ -1763,14 +1907,8 @@ export function PreventivoFormModal({ onClose, onSaved, preventivoId }: Props) {
         <PreventivoEditModal
           title="Mail del preventivo"
           onClose={() => setInviaOpen(false)}
-          confirmLabel={
-            saving
-              ? "Salvataggio…"
-              : prezzoAcquirenteModo === "richiesto"
-                ? "Salva e prenota invio"
-                : "Salva e invia"
-          }
-          confirmDisabled={saving}
+          confirmLabel={etichettaConfermaMail()}
+          confirmDisabled={saving || preparazioneInvio != null}
           notice={mailError}
           onConfirm={() => {
             if (prezzoAcquirenteModo === "richiesto") {
@@ -1780,6 +1918,11 @@ export function PreventivoFormModal({ onClose, onSaved, preventivoId }: Props) {
             void onConfermaInvioProva();
           }}
         >
+          <p className="text-sm font-medium text-slate-800">
+            {linguaScelta && linguaScelta !== "it"
+              ? `Invio in ${labelLingua(linguaScelta)}: la mail e il PDF partono in questa lingua.`
+              : "Invio in italiano: la mail e il PDF restano il testo originale."}
+          </p>
           {prezzoAcquirenteModo === "richiesto" ? (
             <p className="text-sm text-slate-600">
               La mail resta pronta. Parte solo quando chi calcola la spedizione
@@ -1789,7 +1932,7 @@ export function PreventivoFormModal({ onClose, onSaved, preventivoId }: Props) {
             <p className="text-sm text-slate-600">
               {PREVENTIVI_SESSIONE_PROVA
                 ? "Conferma l'invio in sessione di prova: nessuna email reale parte."
-                : "Conferma l'invio del preventivo con la mail compilata."}
+                : "Salva e invia chiude la mail e il preventivo."}
             </p>
           )}
           <label className="block text-sm">
@@ -1837,11 +1980,25 @@ export function PreventivoFormModal({ onClose, onSaved, preventivoId }: Props) {
                 { key: "oggetto", etichetta: "Oggetto", text: mailOggetto },
                 { key: "corpo", etichetta: "Testo", text: mailTesto },
               ]}
-              onApplica={(items) => {
+              onApplica={(items, meta) => {
                 const oggetto = items.find((item) => item.key === "oggetto");
                 const corpo = items.find((item) => item.key === "corpo");
+                const nextOggetto = oggetto?.text ?? mailOggetto;
+                const nextTesto = corpo?.text ?? mailTesto;
                 if (oggetto) setMailOggetto(oggetto.text);
                 if (corpo) setMailTesto(corpo.text);
+                if (meta?.lingua && meta.lingua !== "it") {
+                  setMailLinguaApplicata(meta.lingua);
+                  if (meta.modello) {
+                    setModelloAi((current) => current ?? meta.modello);
+                  }
+                } else {
+                  setMailLinguaApplicata("it");
+                  bozzaMailItRef.current = {
+                    oggetto: nextOggetto,
+                    testo: nextTesto,
+                  };
+                }
               }}
             />
           ) : null}
@@ -1849,7 +2006,16 @@ export function PreventivoFormModal({ onClose, onSaved, preventivoId }: Props) {
             <span className="mb-1 block font-medium">Oggetto</span>
             <input
               value={mailOggetto}
-              onChange={(e) => setMailOggetto(e.target.value)}
+              onChange={(e) => {
+                const value = e.target.value;
+                setMailOggetto(value);
+                if (!mailLinguaApplicata || mailLinguaApplicata === "it") {
+                  bozzaMailItRef.current = {
+                    ...bozzaMailItRef.current,
+                    oggetto: value,
+                  };
+                }
+              }}
               className="w-full rounded border border-slate-300 px-3 py-2 text-sm"
             />
           </label>
@@ -1857,7 +2023,16 @@ export function PreventivoFormModal({ onClose, onSaved, preventivoId }: Props) {
             <span className="mb-1 block font-medium">Testo</span>
             <textarea
               value={mailTesto}
-              onChange={(e) => setMailTesto(e.target.value)}
+              onChange={(e) => {
+                const value = e.target.value;
+                setMailTesto(value);
+                if (!mailLinguaApplicata || mailLinguaApplicata === "it") {
+                  bozzaMailItRef.current = {
+                    ...bozzaMailItRef.current,
+                    testo: value,
+                  };
+                }
+              }}
               rows={5}
               className="w-full rounded border border-slate-300 px-3 py-2 text-sm"
             />
@@ -1888,7 +2063,9 @@ export function PreventivoFormModal({ onClose, onSaved, preventivoId }: Props) {
               <span className="block text-xs text-slate-500">
                 {PREVENTIVI_SESSIONE_PROVA
                   ? "Promemoria allegato. Il file non è ancora generato."
-                  : "All'invio la scheda a video viene allegata in PDF."}
+                  : (linguaScelta && linguaScelta !== "it"
+                      ? `All'invio si allega il PDF in ${labelLingua(linguaScelta)}.`
+                      : "All'invio si allega il PDF in italiano.")}
               </span>
             </span>
           </div>
