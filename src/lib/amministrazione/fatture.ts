@@ -589,7 +589,7 @@ const rigaSchemaBase = z.object({
   prodottoId: z.string().uuid().nullable().optional(),
   codice: z.string().trim().min(1, "Codice prodotto obbligatorio"),
   descrizione: z.string().trim().min(1, "Descrizione obbligatoria"),
-  quantita: z.number().refine((n) => n !== 0, "Quantità non valida"),
+  quantita: z.number().refine((n) => Number.isFinite(n), "Quantità non valida"),
   unitaMisura: z.string().trim().max(16).optional(),
   prezzoUnitario: z.number().min(0, "Prezzo non valido"),
   scontoPercentuale: z.number().min(0).max(100).optional(),
@@ -710,15 +710,18 @@ function transformFatturaInput(
   }
   const righe = v.righe.map((r) => {
     const scontoPercentuale = clampSconto(r.scontoPercentuale ?? 0);
-    const quantita = isNc
-      ? normalizeQuantitaNotaCredito(r.quantita)
-      : r.quantita;
-    // Fattura: qty > 0 normale, qty < 0 storno/annullamento voce. NC: sempre < 0.
-    if (!Number.isFinite(quantita) || quantita === 0) {
+    if (!Number.isFinite(r.quantita)) {
+      throw new Error("Quantità non valida.");
+    }
+    if (isNc && r.quantita === 0) {
       throw new Error(
         "Quantità non valida: usa un valore diverso da zero (negativo = storno)."
       );
     }
+    const quantita = isNc
+      ? normalizeQuantitaNotaCredito(r.quantita)
+      : r.quantita;
+    // Fattura: 0 resta 0 (voce riportata ma fuori dal calcolo), > 0 normale, < 0 storno.
     const ivaRiga =
       r.ivaPercentuale != null && Number.isFinite(r.ivaPercentuale)
         ? Math.min(100, Math.max(0, r.ivaPercentuale))

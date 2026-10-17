@@ -2878,7 +2878,7 @@ export function FatturaRegistrazioneModal({
                             title={
                               isNc || isStorno
                                 ? "Quantità negativa (storno)"
-                                : "Quantità (usa «Storno» o valore negativo per annullare)"
+                                : "Quantità. 0 se la fattura la riporta a zero; negativo o Storno per annullare"
                             }
                           />
                         </td>
