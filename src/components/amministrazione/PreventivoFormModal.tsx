@@ -1413,7 +1413,7 @@ export function PreventivoFormModal({ onClose, onSaved, preventivoId }: Props) {
       className={`fixed inset-0 z-[60] overflow-y-auto bg-slate-950/65 py-6 ${affiancato ? "px-[1vw]" : "px-3 sm:px-6"}`}
       role="presentation"
     >
-      <div className={`${fascia} sticky top-0 z-40 mb-4 flex items-center justify-between gap-3 bg-slate-950/95 py-2 print:hidden`}>
+      <div className={`${fascia} sticky top-0 z-40 mb-4 flex items-center justify-between gap-3 bg-slate-950/95 px-6 py-3 print:hidden`}>
         <h2 id={titleId} className="text-sm font-semibold text-white">
           {preventivoId
             ? `Modifica preventivo ${numeroPreview}`
