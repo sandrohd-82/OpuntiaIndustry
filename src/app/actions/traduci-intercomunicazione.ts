@@ -4,7 +4,7 @@ import { z } from "zod";
 import { writeAuditLog } from "@/lib/audit";
 import { getAuthContext } from "@/lib/auth/session";
 import { normalizzaLinguaIntercomunicazione } from "@/lib/amministrazione/clienti";
-import { labelLingua } from "@/lib/ecosystem/geo-nazioni";
+import { isListinoLingua, labelLingua } from "@/lib/ecosystem/geo-nazioni";
 import { traduciTestiIntercomunicazione } from "@/lib/amministrazione/traduci-intercomunicazione";
 import { createClient } from "@/lib/supabase/server";
 
@@ -19,6 +19,12 @@ const traduciSchema = z.object({
   tipo: z.enum(tipiScheda),
   id: z.string().uuid(),
   documento: z.enum(["preventivo", "fattura", "mail"]),
+  lingua: z
+    .string()
+    .trim()
+    .toLowerCase()
+    .regex(/^[a-z]{2}$/)
+    .optional(),
   testi: z
     .array(
       z.object({
@@ -85,9 +91,15 @@ export async function traduciIntercomunicazioneAction(input: {
   tipo: "cliente" | "cliente_possibile" | "fornitore";
   id: string;
   documento: "preventivo" | "fattura" | "mail";
+  lingua?: string;
   testi: Array<{ key: string; text: string }>;
 }): Promise<
-  | { success: true; lingua: string; testi: Array<{ key: string; text: string }> }
+  | {
+      success: true;
+      lingua: string;
+      modello: string;
+      testi: Array<{ key: string; text: string }>;
+    }
   | { success: false; error: string }
 > {
   const gate = await richiediOperatore();
@@ -96,12 +108,15 @@ export async function traduciIntercomunicazioneAction(input: {
   if (!parsed.success) {
     return { success: false, error: "Testo da tradurre non valido." };
   }
-  const lingua = await linguaSalvata(parsed.data);
-  if (!lingua.ok) return { success: false, error: lingua.error };
-  if (lingua.lingua === "it") {
+  const salvata = await linguaSalvata(parsed.data);
+  if (!salvata.ok) return { success: false, error: salvata.error };
+  const richiesta = parsed.data.lingua?.trim().toLowerCase();
+  const lingua =
+    richiesta && isListinoLingua(richiesta) ? richiesta : salvata.lingua;
+  if (lingua === "it") {
     return {
       success: false,
-      error: "La lingua di intercomunicazione è italiano.",
+      error: "Con l'italiano il documento resta quello originale, senza traduzione.",
     };
   }
   const utili = parsed.data.testi.filter((item) => item.text.trim());
@@ -110,7 +125,7 @@ export async function traduciIntercomunicazioneAction(input: {
   }
   try {
     const tradotti = await traduciTestiIntercomunicazione({
-      lingua: lingua.lingua,
+      lingua,
       testi: utili,
     });
     await writeAuditLog({
@@ -119,14 +134,20 @@ export async function traduciIntercomunicazioneAction(input: {
       entity_id: parsed.data.id,
       action: "traduci_intercomunicazione",
       actor_id: gate.userId,
-      summary: `Traduzione in ${labelLingua(lingua.lingua)} per ${parsed.data.documento} (${tradotti.length} testi). Il testo tradotto non è archiviato.`,
+      summary: `Traduzione in ${labelLingua(lingua)} per ${parsed.data.documento} (${tradotti.testi.length} testi). Il testo tradotto non è archiviato.`,
       payload: {
-        lingua: lingua.lingua,
+        lingua,
+        modello: tradotti.modello,
         documento: parsed.data.documento,
-        n_testi: tradotti.length,
+        n_testi: tradotti.testi.length,
       },
     });
-    return { success: true, lingua: lingua.lingua, testi: tradotti };
+    return {
+      success: true,
+      lingua,
+      modello: tradotti.modello,
+      testi: tradotti.testi,
+    };
   } catch (e) {
     return {
       success: false,

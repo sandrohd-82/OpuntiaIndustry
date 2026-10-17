@@ -10,7 +10,7 @@ import {
   type FormEvent,
   type ReactNode,
 } from "react";
-import { leggiLinguaIntercomunicazioneAction } from "@/app/actions/traduci-intercomunicazione";
+import { createPortal } from "react-dom";
 import {
   createPreventivoAction,
   getPreventivoPerModificaAction,
@@ -22,6 +22,7 @@ import {
   stimaSpedizionePreventivoAction,
 } from "@/app/actions/preventivi";
 import { AziendaNoteBanner } from "@/components/amministrazione/AziendaNoteBanner";
+import { dicituraTradottoConAi } from "@/lib/amministrazione/dicitura-traduzione-ai";
 import {
   PreventivoAggiungiProdottoModal,
   type PreventivoProdottoDraft,
@@ -285,6 +286,9 @@ export function PreventivoFormModal({ onClose, onSaved, preventivoId }: Props) {
     null
   );
   const [linguaTradotta, setLinguaTradotta] = useState<string | null>(null);
+  const [linguaScelta, setLinguaScelta] = useState<string | null>(null);
+  const [modelloAi, setModelloAi] = useState<string | null>(null);
+  const erroreRef = useRef<HTMLParagraphElement>(null);
   const [catturaNaturale, setCatturaNaturale] = useState(false);
 
   const editing = editKey
@@ -429,6 +433,8 @@ export function PreventivoFormModal({ onClose, onSaved, preventivoId }: Props) {
     setFirmaTradotta(null);
     setNomeLinguaTradotta(null);
     setLinguaTradotta(null);
+    setModelloAi(null);
+    setLinguaScelta(null);
   }, [destinatario?.id]);
 
   useEffect(() => {
@@ -890,6 +896,7 @@ export function PreventivoFormModal({ onClose, onSaved, preventivoId }: Props) {
     setSaving(false);
     if (!result.success) {
       setFormError(result.error);
+      if (inviaOpen) setMailError(result.error);
       return null;
     }
     setSavedId(result.item.id);
@@ -1079,6 +1086,18 @@ export function PreventivoFormModal({ onClose, onSaved, preventivoId }: Props) {
     setInvioEmail(mailTo.trim());
     setInvioOggetto(mailOggetto.trim());
     setInvioMessaggio(mailTesto.trim());
+    if (linguaScelta && linguaScelta !== "it" && !copiaTradotta) {
+      setMailError(
+        "Traduci il preventivo nella lingua scelta, oppure imposta «Non tradurre · italiano»."
+      );
+      return;
+    }
+    if (linguaScelta && linguaScelta !== "it" && traduzioneObsoleta) {
+      setMailError(
+        "Aggiorna la traduzione prima dell'invio, così l'allegato è allineato al foglio."
+      );
+      return;
+    }
     if (PREVENTIVI_SESSIONE_PROVA) {
       const item = await persist("inviato");
       if (!item) return;
@@ -1089,25 +1108,6 @@ export function PreventivoFormModal({ onClose, onSaved, preventivoId }: Props) {
           : `Invio di prova registrato per ${mailTo.trim()}. Nessuna email reale è partita.`
       );
       return;
-    }
-    if (destinatario) {
-      const lingua = await leggiLinguaIntercomunicazioneAction({
-        tipo:
-          destinatario.kind === "possibile" ? "cliente_possibile" : "cliente",
-        id: destinatario.id,
-      });
-      if (lingua.success && lingua.lingua !== "it" && !copiaTradotta) {
-        setMailError(
-          "Traduci il preventivo prima dell'invio: in allegato deve andare la copia tradotta."
-        );
-        return;
-      }
-      if (lingua.success && lingua.lingua !== "it" && traduzioneObsoleta) {
-        setMailError(
-          "Aggiorna la traduzione prima dell'invio, così l'allegato è allineato al foglio."
-        );
-        return;
-      }
     }
     const item = await persist("salvato");
     if (!item) return;
@@ -1138,6 +1138,8 @@ export function PreventivoFormModal({ onClose, onSaved, preventivoId }: Props) {
         pdfBase64: pdfAllegato,
         pdfArchivioBase64: nodeTradotto ? pdfItaliano : undefined,
         linguaAllegato: nodeTradotto && linguaTradotta ? linguaTradotta : "it",
+        modelloTraduzione:
+          nodeTradotto && modelloAi ? modelloAi : undefined,
       });
       setSaving(false);
       if (!res.success) {
@@ -1265,6 +1267,9 @@ export function PreventivoFormModal({ onClose, onSaved, preventivoId }: Props) {
         onEditGiorni={solaLettura ? undefined : () => openEdit("giorni")}
         onEditPagamento={solaLettura ? undefined : () => openEdit("pagamento")}
         onEditTotali={solaLettura ? undefined : () => openEdit("totali")}
+        dicituraAi={
+          tradotto && modelloAi ? dicituraTradottoConAi(modelloAi) : undefined
+        }
       />
     );
   }
@@ -1274,7 +1279,7 @@ export function PreventivoFormModal({ onClose, onSaved, preventivoId }: Props) {
       className={`fixed inset-0 z-[60] overflow-y-auto bg-slate-950/65 py-6 ${affiancato ? "px-[1vw]" : "px-3 sm:px-6"}`}
       role="presentation"
     >
-      <div className={`${fascia} mb-4 flex items-center justify-between gap-3 print:hidden`}>
+      <div className={`${fascia} sticky top-0 z-40 mb-4 flex items-center justify-between gap-3 bg-slate-950/95 py-2 print:hidden`}>
         <h2 id={titleId} className="text-sm font-semibold text-white">
           {preventivoId
             ? `Modifica preventivo ${numeroPreview}`
@@ -1333,7 +1338,7 @@ export function PreventivoFormModal({ onClose, onSaved, preventivoId }: Props) {
       ) : null}
 
       {formError ? (
-        <p className={`${fascia} mb-3 rounded border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700 print:hidden`}>
+        <p ref={erroreRef} className={`${fascia} mb-3 rounded border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700 print:hidden`}>
           {formError}
         </p>
       ) : null}
@@ -1356,6 +1361,18 @@ export function PreventivoFormModal({ onClose, onSaved, preventivoId }: Props) {
               setFirmaTradotta(firmaCorrente);
               setNomeLinguaTradotta(meta.nomeLingua);
               setLinguaTradotta(meta.lingua);
+              setLinguaScelta(meta.lingua);
+              setModelloAi(meta.modello);
+            }}
+            lingua={linguaScelta}
+            onLinguaChange={(codice) => {
+              setLinguaScelta(codice);
+              if (codice === linguaTradotta) return;
+              setCopiaTradotta(null);
+              setFirmaTradotta(null);
+              setNomeLinguaTradotta(null);
+              setLinguaTradotta(null);
+              setModelloAi(null);
             }}
           />
         </div>
@@ -1394,6 +1411,22 @@ export function PreventivoFormModal({ onClose, onSaved, preventivoId }: Props) {
           schedaPreventivo(false)
         )}
       </form>
+
+      {typeof document !== "undefined" && !inviaOpen
+        ? createPortal(
+            <div className="fixed bottom-4 right-4 z-[175] print:hidden">
+              <button
+                type="button"
+                onClick={onFase2Mail}
+                disabled={saving || !foglioPronto}
+                className="rounded-lg bg-[var(--primary)] px-4 py-2 text-sm font-medium text-white shadow-lg disabled:opacity-50"
+              >
+                Avanti
+              </button>
+            </div>,
+            document.body
+          )
+        : null}
 
       {editKind === "commerciale" ? (
         <PreventivoEditModal
@@ -1738,6 +1771,7 @@ export function PreventivoFormModal({ onClose, onSaved, preventivoId }: Props) {
                 : "Salva e invia"
           }
           confirmDisabled={saving}
+          notice={mailError}
           onConfirm={() => {
             if (prezzoAcquirenteModo === "richiesto") {
               void onSalvaRichiestaCalcolo();
@@ -1758,11 +1792,6 @@ export function PreventivoFormModal({ onClose, onSaved, preventivoId }: Props) {
                 : "Conferma l'invio del preventivo con la mail compilata."}
             </p>
           )}
-          {mailError ? (
-            <p className="rounded border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
-              {mailError}
-            </p>
-          ) : null}
           <label className="block text-sm">
             <span className="mb-1 block font-medium">Casella</span>
             <select
@@ -1802,6 +1831,8 @@ export function PreventivoFormModal({ onClose, onSaved, preventivoId }: Props) {
               }
               id={destinatario.id}
               documento="mail"
+              lingua={linguaScelta}
+              nascondiSelettore
               testi={[
                 { key: "oggetto", etichetta: "Oggetto", text: mailOggetto },
                 { key: "corpo", etichetta: "Testo", text: mailTesto },
@@ -1831,6 +1862,11 @@ export function PreventivoFormModal({ onClose, onSaved, preventivoId }: Props) {
               className="w-full rounded border border-slate-300 px-3 py-2 text-sm"
             />
           </label>
+          {modelloAi && linguaScelta && linguaScelta !== "it" ? (
+            <p className="text-xs text-slate-600">
+              In calce alla mail e sul PDF tradotto: {dicituraTradottoConAi(modelloAi)}
+            </p>
+          ) : null}
           <div className="border-t border-slate-200 pt-3">
             <img
               src={AGRINSICILIA_LETTERHEAD.logoSrc}

@@ -6,6 +6,7 @@ import {
   PREVENTIVI_SESSIONE_PROVA,
   PREVENTIVI_SESSIONE_PROVA_MSG,
 } from "@/lib/amministrazione/preventivo-sessione";
+import { applicaDicituraTraduzioneAi } from "@/lib/amministrazione/dicitura-traduzione-ai";
 import { dispatchNotifiche } from "@/lib/notifiche/dispatch";
 import {
   accettazioneSeniorBloccaInvio,
@@ -2294,9 +2295,13 @@ export async function inviaPreventivoMailAction(
     metodoSpedizione,
     prev.modalita_spedizione_prezzo ?? ""
   );
-  const mailTestoFirmato = testoMailPreventivoConFirma(corpoMail);
-  const mailHtmlFirmato = htmlMailPreventivoConFirma(corpoMail);
   const linguaAllegato = input.linguaAllegato?.trim() || "it";
+  const corpoConDicitura =
+    linguaAllegato !== "it"
+      ? applicaDicituraTraduzioneAi(corpoMail, input.modelloTraduzione)
+      : corpoMail;
+  const mailTestoFirmato = testoMailPreventivoConFirma(corpoConDicitura);
+  const mailHtmlFirmato = htmlMailPreventivoConFirma(corpoConDicitura);
   const pdfArchivio = input.pdfArchivioBase64
     ? bufferPdfPreventivo(input.pdfArchivioBase64)
     : null;

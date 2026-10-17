@@ -93,7 +93,7 @@ const resultSchema = z.object({
 export async function traduciTestiIntercomunicazione(input: {
   lingua: string;
   testi: TestoIntercomunicazione[];
-}): Promise<TestoIntercomunicazione[]> {
+}): Promise<{ testi: TestoIntercomunicazione[]; modello: string }> {
   const daTradurre = input.testi.filter((item) => item.text.trim());
   if (daTradurre.length === 0) {
     throw new Error("Non c'è testo da tradurre.");
@@ -146,10 +146,13 @@ ${JSON.stringify({ items: payload })}`;
       if (mancanti.length > 0) {
         throw new Error("Traduzione incompleta.");
       }
-      return daTradurre.map((item) => ({
-        key: item.key,
-        text: byKey.get(item.key) ?? item.text,
-      }));
+      return {
+        testi: daTradurre.map((item) => ({
+          key: item.key,
+          text: byKey.get(item.key) ?? item.text,
+        })),
+        modello: modelName,
+      };
     } catch (e) {
       console.error(
         "[traduci-intercomunicazione]",

@@ -69,6 +69,8 @@ type Props = {
   testoPagamento?: string;
   /** Etichette e frasi già tradotte del foglio. */
   etichette?: Record<string, string>;
+  /** Riga in calce quando il foglio è la copia tradotta. */
+  dicituraAi?: string;
   onEditData?: () => void;
   onEditCommerciale?: () => void;
   onEditDestinatario?: () => void;
@@ -111,6 +113,7 @@ export const PreventivoFoglioA4 = forwardRef<HTMLDivElement, Props>(
       testoSpedizione,
       testoPagamento,
       etichette,
+      dicituraAi,
       onEditData,
       onEditCommerciale,
       onEditDestinatario,
@@ -162,8 +165,6 @@ export const PreventivoFoglioA4 = forwardRef<HTMLDivElement, Props>(
 
     return (
       <article
-        role={titleId ? "dialog" : undefined}
-        aria-modal={titleId ? true : undefined}
         aria-labelledby={titleId}
         className="paper-invoice-sheet mx-auto w-[210mm] max-w-[210mm] bg-white text-slate-900 shadow-[0_8px_30px_rgba(15,23,42,0.18)] ring-1 ring-slate-200"
       >
@@ -455,6 +456,11 @@ export const PreventivoFoglioA4 = forwardRef<HTMLDivElement, Props>(
             totaleIva={ivaR}
             totalePreventivo={totale}
           />
+          {dicituraAi ? (
+            <p className="mt-4 text-[10px] leading-snug text-slate-600">
+              {dicituraAi}
+            </p>
+          ) : null}
         </div>
       </article>
     );

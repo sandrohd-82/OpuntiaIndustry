@@ -511,6 +511,7 @@ export const inviaPreventivoMailSchema = z
       .trim()
       .regex(/^[a-z]{2}$/)
       .optional(),
+    modelloTraduzione: z.string().trim().max(80).optional(),
   })
   .refine((d) => d.mailTo.includes("@"), {
     message: "Indirizzo destinatario non valido.",
