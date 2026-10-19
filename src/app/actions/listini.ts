@@ -2478,9 +2478,10 @@ export async function logListinoExportAction(input: {
     return { success: false, error: "Puoi consultare solo il listino in carica." };
   }
 
+  const mailLavoro = String(auth.profile.email_professionale ?? "").trim();
   const actor =
-    [auth.profile.full_name, auth.email].filter(Boolean).join(" · ") ||
-    auth.email;
+    [auth.profile.full_name, mailLavoro].filter(Boolean).join(" · ") ||
+    "Operatore";
 
   await writeAuditLog({
     entity_type: "listini",

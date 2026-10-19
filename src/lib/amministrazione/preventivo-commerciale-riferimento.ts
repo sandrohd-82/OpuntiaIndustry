@@ -128,7 +128,7 @@ export async function loadPreventivoCommercialiRiferimento(opts?: {
     service
       .from("profiles")
       .select(
-        "id, email, full_name, first_name, last_name, gerarchia, potere, commerciale_grado, is_active, app_roles(code)"
+        "id, email, email_professionale, full_name, first_name, last_name, gerarchia, potere, commerciale_grado, is_active, app_roles(code)"
       )
       .eq("is_active", true),
     service
@@ -220,8 +220,9 @@ export async function loadPreventivoCommercialiRiferimento(opts?: {
     const nome = persona?.nome || String((row as { first_name?: string | null }).first_name ?? "");
     const cognome =
       persona?.cognome || String((row as { last_name?: string | null }).last_name ?? "");
-    const emailProfilo = String((row as { email?: string | null }).email ?? "").trim();
-    const email = emailProfilo || mailCasellaAziendale(nome, cognome, caselle);
+    const email = String(
+      (row as { email_professionale?: string | null }).email_professionale ?? ""
+    ).trim();
     items.push({
       id,
       nome: displayNome({
@@ -280,6 +281,46 @@ export async function loadPreventivoCommercialiRiferimento(opts?: {
   items.sort((a, b) => a.nome.localeCompare(b.nome, "it"));
   return items;
 }
+
+/** Mail da stampare: solo quella professionale. Se manca, la mail di accesso non compare. */
+export function emailReferenteDaProfilo(opts: {
+  salvata: string;
+  accesso: string;
+  professionale: string;
+}): string {
+  const professionale = opts.professionale.trim();
+  if (professionale) return professionale;
+  const accesso = opts.accesso.trim().toLowerCase();
+  if (accesso && opts.salvata.trim().toLowerCase() === accesso) return "";
+  return opts.salvata;
+}
+
+export async function caricaMailProfili(
+  ids: string[]
+): Promise<Map<string, { accesso: string; professionale: string }>> {
+  const unici = [...new Set(ids.map((id) => id.trim()).filter(Boolean))];
+  const out = new Map<string, { accesso: string; professionale: string }>();
+  if (!unici.length) return out;
+  const service = createServiceClient();
+  const { data } = await service
+    .from("profiles")
+    .select("id, email, email_professionale")
+    .in("id", unici);
+  for (const row of data ?? []) {
+    const id = String((row as { id?: string }).id ?? "");
+    if (!id) continue;
+    out.set(id, {
+      accesso: String((row as { email?: string | null }).email ?? ""),
+      professionale: String(
+        (row as { email_professionale?: string | null }).email_professionale ?? ""
+      ),
+    });
+  }
+  return out;
+}
+
+export const MAIL_PROFESSIONALE_MANCANTE =
+  "Il referente non ha una mail professionale. Va scelta tra le mail a cui ha accesso, prima di salvare il documento.";
 
 export async function resolvePreventivoCommercialeRiferimento(
   id: string

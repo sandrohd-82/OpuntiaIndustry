@@ -22,6 +22,8 @@ import { CodificaArticoloRevisioneModal } from "@/components/amministrazione/Cod
 import { CodiceRigaAcquistoSelect } from "@/components/amministrazione/CodiceRigaAcquistoSelect";
 import { CollegaArticoloModal } from "@/components/amministrazione/CollegaArticoloModal";
 import { AziendaNoteBanner } from "@/components/amministrazione/AziendaNoteBanner";
+import { MailProfessionaleModal } from "@/components/amministrazione/MailProfessionaleModal";
+import { opzioniMailProfessionaleAction } from "@/app/actions/mail-professionale";
 import { ClienteSelectField } from "@/components/amministrazione/ClienteSelectField";
 import { FornitoreSelectField } from "@/components/amministrazione/FornitoreSelectField";
 import { MateriaPrimaFormModal } from "@/components/amministrazione/MateriaPrimaFormModal";
@@ -376,9 +378,21 @@ export function FatturaRegistrazioneModal({
   const titleId = useId();
   const { privilegedAllowed } = useActionAccess();
   const isEdit = Boolean(initial?.id);
+  const [mailProfessionaleAperta, setMailProfessionaleAperta] = useState(false);
   const seed = seedFromInitialOrPrefill(initial, prefill);
   const { prodotti, addProdotto, refresh } = useProdottiPropri();
   const isRicevuta = kind === "ricevuta";
+  useEffect(() => {
+    if (isEdit || isRicevuta) return;
+    let cancelled = false;
+    void opzioniMailProfessionaleAction().then((res) => {
+      if (cancelled || !res.success) return;
+      if (!res.impostata) setMailProfessionaleAperta(true);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [isEdit, isRicevuta]);
   const [vociAcquisto, setVociAcquisto] = useState<VoceAcquisto[]>([]);
   // catalogRevision rimosso: non deve rieseguire N RPC dropdown dopo ogni create
 
@@ -2077,6 +2091,12 @@ export function FatturaRegistrazioneModal({
       role="presentation"
       onClick={(e) => e.stopPropagation()}
     >
+      {mailProfessionaleAperta ? (
+        <MailProfessionaleModal
+          onAnnulla={onClose}
+          onConfermata={() => setMailProfessionaleAperta(false)}
+        />
+      ) : null}
       {matchScanPending ? (
         <div
           className="fixed inset-0 z-[110] flex items-center justify-center bg-slate-950/55 px-4"

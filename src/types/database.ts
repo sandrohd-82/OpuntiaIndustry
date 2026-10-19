@@ -47,6 +47,8 @@ export interface Area {
 export interface Profile {
   id: string;
   email: string;
+  /** Mail lavorativa. Vuota finché l'operatore non la sceglie. */
+  email_professionale?: string | null;
   full_name: string | null;
   first_name?: string;
   last_name?: string;

@@ -10,6 +10,8 @@ import {
 } from "@/app/actions/fattura-da-ordine";
 import { FatturaA4PiePagina } from "@/components/amministrazione/FatturaA4PiePagina";
 import { OrdinePagamentoPianoFields } from "@/components/amministrazione/OrdinePagamentoPianoFields";
+import { MailProfessionaleModal } from "@/components/amministrazione/MailProfessionaleModal";
+import { opzioniMailProfessionaleAction } from "@/app/actions/mail-professionale";
 import { PreventivoA4Letterhead } from "@/components/amministrazione/PreventivoA4Letterhead";
 import {
   PreventivoDestinatarioModal,
@@ -136,6 +138,7 @@ export function FatturaA4Modal({
   >(null);
   const [commerciale, setCommerciale] =
     useState<PreventivoCommercialeRiferimento | null>(null);
+  const [mailProfessionaleAperta, setMailProfessionaleAperta] = useState(false);
   const [commerciali, setCommerciali] = useState<
     PreventivoCommercialeRiferimento[]
   >([]);
@@ -174,6 +177,10 @@ export function FatturaA4Modal({
       if (comm.success) {
         setCommerciali(comm.items);
         setCommerciale(comm.defaultItem ?? null);
+      }
+      const mail = await opzioniMailProfessionaleAction();
+      if (!cancelled && mail.success && !mail.impostata) {
+        setMailProfessionaleAperta(true);
       }
       if (soloSessione) {
         const prev = loadOrdineSessione()?.fattura;
@@ -507,6 +514,19 @@ export function FatturaA4Modal({
     );
   }
 
+  function ricaricaMailReferente() {
+    void listPreventivoCommercialiRiferimentoAction({
+      includiSenzaAccount: true,
+    }).then((comm) => {
+      if (!comm.success) return;
+      setCommerciali(comm.items);
+      setCommerciale((prev) => {
+        if (!prev) return comm.defaultItem ?? null;
+        return comm.items.find((item) => item.id === prev.id) ?? prev;
+      });
+    });
+  }
+
   function openEdit(kind: EditKind, rigaIndex?: number) {
     setError(null);
     if (kind === "data") setDraftData(dataDocumento);
@@ -545,6 +565,15 @@ export function FatturaA4Modal({
       className="fixed inset-0 z-[80] overflow-y-auto bg-slate-950/65 px-3 py-6 sm:px-6"
       role="presentation"
     >
+      {mailProfessionaleAperta ? (
+        <MailProfessionaleModal
+          onAnnulla={onClose}
+          onConfermata={() => {
+            setMailProfessionaleAperta(false);
+            ricaricaMailReferente();
+          }}
+        />
+      ) : null}
       <div className="mx-auto mb-4 flex max-w-[210mm] items-center justify-between gap-3 print:hidden">
         <h2 id={titleId} className="text-sm font-semibold text-white">
           {vista === "proforma" ? "Proforma da ordine" : "Fattura da ordine"}

@@ -79,7 +79,10 @@ import type {
   ListinoRigaCondizioneRow,
 } from "@/types/database";
 import {
+  caricaMailProfili,
+  emailReferenteDaProfilo,
   loadPreventivoCommercialiRiferimento,
+  MAIL_PROFESSIONALE_MANCANTE,
   resolvePreventivoCommercialeRiferimento,
   type PreventivoCommercialeRiferimento,
 } from "@/lib/amministrazione/preventivo-commerciale-riferimento";
@@ -214,6 +217,28 @@ function mapRiga(row: PreventivoRigaRow): PreventivoRiga {
     accordoGiustificazione: row.accordo_giustificazione ?? "",
     accordoForzato: Boolean(row.accordo_forzato),
   };
+}
+
+async function conMailProfessionale(items: Preventivo[]): Promise<Preventivo[]> {
+  const mail = await caricaMailProfili(
+    items
+      .map((item) => item.commercialeRiferimentoId)
+      .filter((id): id is string => Boolean(id))
+  );
+  return items.map((item) => {
+    const id = item.commercialeRiferimentoId;
+    if (!id) return item;
+    const info = mail.get(id);
+    if (!info) return item;
+    return {
+      ...item,
+      commercialeRiferimentoEmail: emailReferenteDaProfilo({
+        salvata: item.commercialeRiferimentoEmail,
+        accesso: info.accesso,
+        professionale: info.professionale,
+      }),
+    };
+  });
 }
 
 function mapPreventivo(
@@ -475,9 +500,8 @@ export async function listPreventiviAction(input?: {
     const counted = await countQuery;
     conteggi[nome] = counted.count ?? 0;
   }
-  return {
-    success: true,
-    items: rows.map((r) =>
+  const items = await conMailProfessionale(
+    rows.map((r) =>
       mapPreventivo(
         r,
         righe.get(r.id) ?? [],
@@ -486,7 +510,11 @@ export async function listPreventiviAction(input?: {
         isSuperadminProfile(gate.auth.profile),
         pdfEmessi.get(r.id) ?? []
       )
-    ),
+    )
+  );
+  return {
+    success: true,
+    items,
     conteggi,
   };
 }
@@ -623,6 +651,16 @@ export async function getPreventivoPerModificaAction(
       (casella as { email_address?: string } | null)?.email_address ?? ""
     );
   }
+  const mailProfilo = row.commerciale_riferimento_id
+    ? (await caricaMailProfili([row.commerciale_riferimento_id])).get(
+        row.commerciale_riferimento_id
+      )
+    : undefined;
+  const emailReferente = emailReferenteDaProfilo({
+    salvata: row.commerciale_riferimento_email ?? "",
+    accesso: mailProfilo?.accesso ?? "",
+    professionale: mailProfilo?.professionale ?? "",
+  });
   return {
     success: true,
     foglio: {
@@ -648,7 +686,7 @@ export async function getPreventivoPerModificaAction(
             id: row.commerciale_riferimento_id,
             nome: row.commerciale_riferimento_nome ?? "",
             telefono: row.commerciale_riferimento_telefono ?? "",
-            email: row.commerciale_riferimento_email ?? "",
+            email: emailReferente,
           }
         : null,
       mailAccountId: row.mail_bozza_account_id ?? "",
@@ -886,7 +924,7 @@ export async function listPreventiviAccettatiAction(input: {
         p.righe.some((r) => r.prodottoId === input.prodottoId)
     );
   }
-  return { success: true, items };
+  return { success: true, items: await conMailProfessionale(items) };
 }
 
 /** Ricerca preventivi per collegarli a un ordine. Rispetta il perimetro commerciale. */
@@ -940,8 +978,10 @@ export async function cercaPreventiviPerOrdineAction(raw: {
   return {
     success: true,
     truncated: (data ?? []).length >= limite,
-    items: rows.map((r) =>
-      mapPreventivo(r, righe.get(r.id) ?? [], "", "", false, pdfEmessi.get(r.id) ?? [])
+    items: await conMailProfessionale(
+      rows.map((r) =>
+        mapPreventivo(r, righe.get(r.id) ?? [], "", "", false, pdfEmessi.get(r.id) ?? [])
+      )
     ),
   };
 }
@@ -1035,6 +1075,9 @@ export async function createPreventivoAction(
       success: false,
       error: "Seleziona un commerciale o un admin di riferimento.",
     };
+  }
+  if (!riferimento.personaSenzaAccount && !riferimento.email.includes("@")) {
+    return { success: false, error: MAIL_PROFESSIONALE_MANCANTE };
   }
   const intenzione = input.intenzione ?? "bozza";
   const bozza = intenzione === "bozza";
@@ -1315,6 +1358,9 @@ export async function savePreventivoAction(
       success: false,
       error: "Seleziona un commerciale o un admin di riferimento.",
     };
+  }
+  if (!riferimento.personaSenzaAccount && !riferimento.email.includes("@")) {
+    return { success: false, error: MAIL_PROFESSIONALE_MANCANTE };
   }
   const intenzione = input.intenzione ?? "bozza";
   const bozza = intenzione === "bozza";

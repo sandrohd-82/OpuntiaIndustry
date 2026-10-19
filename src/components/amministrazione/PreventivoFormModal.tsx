@@ -25,6 +25,8 @@ import {
 } from "@/app/actions/preventivi";
 import { traduciIntercomunicazioneAction } from "@/app/actions/traduci-intercomunicazione";
 import { AziendaNoteBanner } from "@/components/amministrazione/AziendaNoteBanner";
+import { MailProfessionaleModal } from "@/components/amministrazione/MailProfessionaleModal";
+import { opzioniMailProfessionaleAction } from "@/app/actions/mail-professionale";
 import { dicituraTradottoConAi } from "@/lib/amministrazione/dicitura-traduzione-ai";
 import {
   PreventivoAggiungiProdottoModal,
@@ -231,6 +233,7 @@ export function PreventivoFormModal({
     useState<DestinatarioPreventivo | null>(null);
   const [commerciale, setCommerciale] =
     useState<PreventivoCommercialeRiferimento | null>(null);
+  const [mailProfessionaleAperta, setMailProfessionaleAperta] = useState(false);
   const [commercialiOpts, setCommercialiOpts] = useState<
     PreventivoCommercialeRiferimento[]
   >([]);
@@ -587,10 +590,25 @@ export function PreventivoFormModal({
       setCommercialiOpts(res.items);
       setCommerciale((prev) => prev ?? res.defaultItem);
     });
+    void opzioniMailProfessionaleAction().then((res) => {
+      if (cancelled || !res.success) return;
+      if (!res.impostata) setMailProfessionaleAperta(true);
+    });
     return () => {
       cancelled = true;
     };
   }, []);
+
+  function ricaricaMailReferente() {
+    void listPreventivoCommercialiRiferimentoAction().then((res) => {
+      if (!res.success) return;
+      setCommercialiOpts(res.items);
+      setCommerciale((prev) => {
+        if (!prev) return res.defaultItem;
+        return res.items.find((item) => item.id === prev.id) ?? prev;
+      });
+    });
+  }
 
   useEffect(() => {
     if (savedId) return;
@@ -1563,6 +1581,15 @@ export function PreventivoFormModal({
       className={`fixed inset-0 z-[60] overflow-y-auto bg-slate-950/65 py-6 ${affiancato ? "px-[1vw]" : "px-3 sm:px-6"}`}
       role="presentation"
     >
+      {mailProfessionaleAperta ? (
+        <MailProfessionaleModal
+          onAnnulla={onClose}
+          onConfermata={() => {
+            setMailProfessionaleAperta(false);
+            ricaricaMailReferente();
+          }}
+        />
+      ) : null}
       <div className={`${fascia} sticky top-0 z-40 mb-4 flex items-center justify-between gap-3 bg-slate-950/95 px-6 py-3 print:hidden`}>
         <h2 id={titleId} className="text-sm font-semibold text-white">
           {preventivoId
