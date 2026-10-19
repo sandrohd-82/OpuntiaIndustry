@@ -1,10 +1,11 @@
 "use server";
 
 import { z } from "zod";
+import { writeAuditLog } from "@/lib/audit";
 import { getAuthContext, getAuthUser } from "@/lib/auth/session";
 import { hrefAreaNotifica, NOTIFICA_TIPI } from "@/lib/notifiche/types";
 import { getVapidPublicKey } from "@/lib/notifiche/vapid-env";
-import { createClient } from "@/lib/supabase/server";
+import { createClient, createServiceClient } from "@/lib/supabase/server";
 
 const subscriptionSchema = z.object({
   endpoint: z.string().url().max(2000),
@@ -145,9 +146,28 @@ export async function deleteNotificaAction(
   }
   const parsed = z.string().uuid().safeParse(id);
   if (!parsed.success) return { success: false, error: "Notifica non valida." };
-  const supabase = await createClient();
+  const real = await getAuthUser();
+  const destinatari = new Set(
+    [auth.userId, real?.id].filter((value): value is string => Boolean(value))
+  );
+  let service;
+  try {
+    service = createServiceClient();
+  } catch {
+    return { success: false, error: "Eliminazione non disponibile." };
+  }
+  const { data: row, error: readErr } = await service
+    .from("app_notifiche")
+    .select("id, recipient_id")
+    .eq("id", parsed.data)
+    .is("deleted_at", null)
+    .maybeSingle();
+  if (readErr) return { success: false, error: readErr.message };
+  if (!row || !destinatari.has(String(row.recipient_id))) {
+    return { success: false, error: "Notifica non trovata." };
+  }
   const now = new Date().toISOString();
-  const { error } = await supabase
+  const { error } = await service
     .from("app_notifiche")
     .update({
       deleted_at: now,
@@ -155,9 +175,17 @@ export async function deleteNotificaAction(
       updated_by: auth.userId,
     })
     .eq("id", parsed.data)
-    .eq("recipient_id", auth.userId)
+    .eq("recipient_id", row.recipient_id)
     .is("deleted_at", null);
   if (error) return { success: false, error: error.message };
+  await writeAuditLog({
+    entity_type: "app_notifiche",
+    entity_id: parsed.data,
+    action: "soft_delete",
+    actor_id: auth.userId,
+    summary: "Notifica eliminata",
+    payload: { recipient_id: String(row.recipient_id) },
+  });
   return { success: true };
 }
 
