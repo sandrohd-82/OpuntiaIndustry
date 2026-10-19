@@ -15,6 +15,7 @@ import type {
   KbStoricoRiga,
 } from "@/lib/kanban/types";
 import { dispatchNotifiche } from "@/lib/notifiche/dispatch";
+import { notificaSchedaRilevata } from "@/lib/kanban/notifica-scheda";
 import { createClient, createServiceClient } from "@/lib/supabase/server";
 
 const BUCKET = "kb-bacheche";
@@ -785,6 +786,19 @@ export async function creaSchedaAction(listaId: string, titolo: string): Promise
   });
   if (inserted.error) return { success: false, error: inserted.error.message };
   await storico(String(lista.bacheca_id), id, auth.userId, `${nomeDi(auth.profile)} ha creato «${nome}»`, "create");
+  const { data: bacheca } = await supabase
+    .from("kb_bacheche")
+    .select("titolo")
+    .eq("id", lista.bacheca_id)
+    .maybeSingle();
+  await notificaSchedaRilevata({
+    userId: auth.userId,
+    bacheca: String((bacheca as { titolo?: string } | null)?.titolo ?? "Bacheca"),
+    titolo: nome,
+    href: `/app/promemorie-e-note/bacheche/${lista.bacheca_id}?scheda=${id}`,
+    entityId: id,
+    suTrello: false,
+  });
   return { success: true, id };
 }
 

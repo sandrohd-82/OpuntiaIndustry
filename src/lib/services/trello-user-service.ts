@@ -1,5 +1,6 @@
 import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { writeAuditLog } from "@/lib/audit";
+import { notificaSchedaRilevata } from "@/lib/kanban/notifica-scheda";
 import {
   caveauConfigurato,
   cifraPasswordCaveau,
@@ -565,6 +566,98 @@ export async function importBoard(
     payload: { trello_board_id: boardId, schede: schede.length, liste: liste.length },
   });
   return { ok: true, valore: { id: bachecaId, schede: schede.length } };
+}
+
+export async function rilevaSchedeTrelloNuove(userId: string): Promise<number> {
+  const service = createServiceClient();
+  const { data } = await service
+    .from("user_trello_credentials")
+    .select("trello_scansione_at, deleted_at")
+    .eq("user_id", userId)
+    .maybeSingle();
+  const riga = data as {
+    trello_scansione_at?: string | null;
+    deleted_at?: string | null;
+  } | null;
+  if (!riga || riga.deleted_at) return 0;
+  const precedente = riga.trello_scansione_at ?? null;
+  const adesso = new Date();
+  if (precedente && adesso.getTime() - new Date(precedente).getTime() < 20_000) return 0;
+  if (!precedente) {
+    await service
+      .from("user_trello_credentials")
+      .update({ trello_scansione_at: adesso.toISOString() })
+      .eq("user_id", userId)
+      .is("trello_scansione_at", null);
+    return 0;
+  }
+  const claim = await service
+    .from("user_trello_credentials")
+    .update({ trello_scansione_at: adesso.toISOString() })
+    .eq("user_id", userId)
+    .eq("trello_scansione_at", precedente)
+    .select("user_id");
+  if (claim.error || !(claim.data ?? []).length) return 0;
+
+  const token = await tokenDi(userId);
+  if (!token) {
+    await service
+      .from("user_trello_credentials")
+      .update({ trello_scansione_at: precedente })
+      .eq("user_id", userId);
+    return 0;
+  }
+
+  const { data: collegamenti } = await service
+    .from("kb_trello_collegamenti")
+    .select("trello_id, entita_id")
+    .eq("user_id", userId)
+    .eq("entita", "bacheca")
+    .is("deleted_at", null);
+  const bacheche = (collegamenti ?? []) as { trello_id: string; entita_id: string }[];
+  const viste = new Set<string>();
+  let nuove = 0;
+
+  async function leggi(path: string, href: string) {
+    const res = await chiama(token as string, "GET", path, {
+      filter: "createCard",
+      since: precedente as string,
+      limit: "30",
+    });
+    if (!res.ok || !Array.isArray(res.valore)) return;
+    for (const row of res.valore) {
+      const dati = (
+        row as {
+          data?: { card?: { id?: string; name?: string }; board?: { name?: string } };
+        }
+      ).data;
+      const cardId = String(dati?.card?.id ?? "");
+      const titolo = String(dati?.card?.name ?? "").trim();
+      if (!cardId || !titolo || viste.has(cardId)) continue;
+      viste.add(cardId);
+      await notificaSchedaRilevata({
+        userId,
+        bacheca: String(dati?.board?.name ?? "Bacheca"),
+        titolo,
+        href,
+        suTrello: true,
+      });
+      nuove += 1;
+    }
+  }
+
+  if (bacheche.length) {
+    for (const bacheca of bacheche.slice(0, 20)) {
+      if (!idTrello(bacheca.trello_id)) continue;
+      await leggi(
+        `/boards/${bacheca.trello_id}/actions`,
+        `/app/promemorie-e-note/bacheche/${bacheca.entita_id}`
+      );
+    }
+  } else {
+    await leggi("/members/me/actions", "/app/promemorie-e-note/bacheche");
+  }
+  return nuove;
 }
 
 export async function syncUserCard(

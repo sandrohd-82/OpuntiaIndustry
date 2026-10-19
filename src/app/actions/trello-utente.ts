@@ -5,12 +5,14 @@ import { cookies } from "next/headers";
 import { writeAuditLog } from "@/lib/audit";
 import { requireAreaAccess } from "@/lib/areas/guard";
 import { getPublicAppUrl } from "@/lib/auth/app-url";
+import { getAuthContext } from "@/lib/auth/session";
 import { caveauConfigurato, cifraPasswordCaveau } from "@/lib/amministrazione/caveau-siti-crypto";
 import {
   credenzialiOAuth,
   getUserBoards,
   importBoard,
   listeBachecaTrello,
+  rilevaSchedeTrelloNuove,
   profiloTrello,
   scambiaCodiceTrello,
   sfidaPkce,
@@ -192,6 +194,19 @@ export async function scollegaTrelloAction(): Promise<
     summary: "Scollegato account Trello",
   });
   return { success: true };
+}
+
+export async function rilevaSchedeTrelloAction(): Promise<
+  { success: true; nuove: number } | { success: false; error: string }
+> {
+  const auth = await getAuthContext();
+  if (!auth?.isSecondFactorVerified) return { success: true, nuove: 0 };
+  try {
+    const nuove = await rilevaSchedeTrelloNuove(auth.userId);
+    return { success: true, nuove };
+  } catch {
+    return { success: true, nuove: 0 };
+  }
 }
 
 export async function bachecheTrelloAction(): Promise<

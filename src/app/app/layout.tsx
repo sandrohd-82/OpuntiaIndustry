@@ -8,6 +8,7 @@ import {
 } from "@/lib/auth/roles";
 import { AppSidebar } from "@/components/layout/AppSidebar";
 import { InstantNavOverlay } from "@/components/layout/InstantNavOverlay";
+import { TrelloSchedeSentinella } from "@/components/kanban/TrelloSchedeSentinella";
 import { PageAccessToggle } from "@/components/layout/PageAccessToggle";
 import { WelcomeModal } from "@/components/layout/WelcomeModal";
 import { FattureMailCandidatiModal } from "@/components/amministrazione/FattureMailCandidatiModal";
@@ -232,6 +233,7 @@ export default async function AppLayout({
 
       <div className="relative flex min-w-0 flex-1 flex-col">
         <InstantNavOverlay />
+        <TrelloSchedeSentinella />
         <NotificationConsentBanner />
         <ActionAccessProvider
           actionAccess={actionAccess}
