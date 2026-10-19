@@ -2,6 +2,7 @@
 
 import { createHash, randomUUID } from "node:crypto";
 import { writeAuditLog } from "@/lib/audit";
+import { fraseConfermaSoftDelete } from "@/lib/soft-delete";
 import {
   PREVENTIVI_SESSIONE_PROVA,
   PREVENTIVI_SESSIONE_PROVA_MSG,
@@ -288,8 +289,7 @@ async function nextSeqAnno(dataPreventivo: string): Promise<number> {
   const supabase = await createClient();
   const { data, error } = await supabase
     .from("preventivi")
-    .select("numero_interno")
-    .is("deleted_at", null);
+    .select("numero_interno");
   if (error) throw new Error(error.message);
   let max = 0;
   for (const row of data ?? []) {
@@ -370,7 +370,8 @@ async function attachRighe(
   const { data } = await supabase
     .from("preventivi_righe")
     .select("*")
-    .in("preventivo_id", ids);
+    .in("preventivo_id", ids)
+    .is("deleted_at", null);
   for (const r of (data ?? []) as PreventivoRigaRow[]) {
     const list = map.get(r.preventivo_id) ?? [];
     list.push(r);
@@ -628,6 +629,8 @@ export async function getPreventivoPerModificaAction(
       id: row.id,
       numeroInterno: row.numero_interno,
       stato: row.stato,
+      documentoStato: row.documento_stato,
+      sentAt: row.sent_at,
       dataPreventivo: row.data_preventivo,
       note: row.note,
       giorniConsegna: row.giorni_consegna || "da concordare",
@@ -686,6 +689,89 @@ export async function getPreventivoPerModificaAction(
       })),
     },
   };
+}
+
+export async function eliminaPreventivoBozzaAction(input: {
+  id: string;
+  conferma: string;
+}): Promise<{ success: true } | { success: false; error: string }> {
+  const gate = await requirePreventiviAccess();
+  if (!gate.ok) return { success: false, error: gate.error };
+  if (!/^[0-9a-f-]{36}$/i.test(input.id)) {
+    return { success: false, error: "Preventivo non valido." };
+  }
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from("preventivi")
+    .select(
+      "id, numero_interno, stato, documento_stato, sent_at, versione, cliente_id, cliente_possibile_id, created_by, commerciale_riferimento_id"
+    )
+    .eq("id", input.id)
+    .is("deleted_at", null)
+    .maybeSingle();
+  if (error || !data) {
+    return { success: false, error: error?.message ?? "Preventivo non trovato." };
+  }
+  const row = data as PreventivoRow;
+  const perimetro = await resolvePerimetroDocumenti();
+  if (!rigaNelPerimetro(row, perimetro, { riferimento: true })) {
+    return { success: false, error: "Preventivo non trovato." };
+  }
+  if (row.documento_stato !== "bozza" || row.sent_at) {
+    return {
+      success: false,
+      error: "Si può eliminare solo un preventivo ancora in bozza e non inviato.",
+    };
+  }
+  const attesa = fraseConfermaSoftDelete(row.numero_interno);
+  if (input.conferma.trim() !== attesa) {
+    return { success: false, error: `Per eliminare scrivi: ${attesa}` };
+  }
+  const now = new Date().toISOString();
+  const marca = {
+    deleted_at: now,
+    deleted_by: gate.auth.userId,
+    updated_by: gate.auth.userId,
+  };
+  const righe = await supabase
+    .from("preventivi_righe")
+    .update(marca)
+    .eq("preventivo_id", row.id)
+    .is("deleted_at", null);
+  if (righe.error) return { success: false, error: righe.error.message };
+  const allegati = await supabase
+    .from("preventivi_allegati_invio")
+    .update(marca)
+    .eq("preventivo_id", row.id)
+    .is("deleted_at", null);
+  if (allegati.error) return { success: false, error: allegati.error.message };
+  const pdf = await supabase
+    .from("preventivi_documenti_emessi")
+    .update(marca)
+    .eq("preventivo_id", row.id)
+    .is("deleted_at", null);
+  if (pdf.error) return { success: false, error: pdf.error.message };
+  const header = await supabase
+    .from("preventivi")
+    .update(marca)
+    .eq("id", row.id)
+    .eq("documento_stato", "bozza")
+    .is("sent_at", null)
+    .is("deleted_at", null)
+    .select("id");
+  if (header.error) return { success: false, error: header.error.message };
+  if (!header.data?.length) {
+    return { success: false, error: "La bozza non è più eliminabile." };
+  }
+  await writeAuditLog({
+    entity_type: "preventivi",
+    entity_id: row.id,
+    action: "soft_delete",
+    actor_id: gate.auth.userId,
+    summary: `Preventivo ${row.numero_interno} eliminato da bozza. Il numero non viene riusato.`,
+    payload: { numero: row.numero_interno, versione: row.versione },
+  });
+  return { success: true };
 }
 
 async function destinatarioPerModifica(

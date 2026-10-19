@@ -13,6 +13,7 @@ import {
 import { createPortal } from "react-dom";
 import {
   createPreventivoAction,
+  eliminaPreventivoBozzaAction,
   getPreventivoPerModificaAction,
   inviaPreventivoMailAction,
   listCasellePreventivoMailAction,
@@ -31,6 +32,7 @@ import {
 } from "@/components/amministrazione/PreventivoAggiungiProdottoModal";
 import { PreventivoDestinatarioModal } from "@/components/amministrazione/PreventivoDestinatarioPicker";
 import { PreventivoEditModal } from "@/components/amministrazione/PreventivoEditModal";
+import { SoftDeleteConfirmModal } from "@/components/amministrazione/SoftDeleteConfirmModal";
 import { PreventivoFoglioA4 } from "@/components/amministrazione/PreventivoFoglioA4";
 import {
   TraduciIntercomunicazione,
@@ -122,6 +124,7 @@ type EditKind =
 type Props = {
   onClose: () => void;
   onSaved: (item: Preventivo) => void;
+  onDeleted?: () => void;
   /** Preventivo già in archivio: la modale si apre compilata, numero invariato. */
   preventivoId?: string;
 };
@@ -213,7 +216,12 @@ function CoppiaCentrata({
   );
 }
 
-export function PreventivoFormModal({ onClose, onSaved, preventivoId }: Props) {
+export function PreventivoFormModal({
+  onClose,
+  onSaved,
+  onDeleted,
+  preventivoId,
+}: Props) {
   const titleId = useId();
   const foglioRef = useRef<HTMLDivElement>(null);
   const foglioStampaItRef = useRef<HTMLDivElement>(null);
@@ -289,6 +297,8 @@ export function PreventivoFormModal({ onClose, onSaved, preventivoId }: Props) {
   >(null);
   const [allegatiMail, setAllegatiMail] = useState<File[]>([]);
   const [scaricaAvviso, setScaricaAvviso] = useState(false);
+  const [bozzaEliminabile, setBozzaEliminabile] = useState(false);
+  const [eliminaAperta, setEliminaAperta] = useState(false);
   const bozzaMailItRef = useRef({ oggetto: "", testo: "" });
   const [foglioPronto, setFoglioPronto] = useState(!preventivoId);
   const [copiaTradotta, setCopiaTradotta] = useState<Record<string, string> | null>(
@@ -483,6 +493,9 @@ export function PreventivoFormModal({ onClose, onSaved, preventivoId }: Props) {
         }
         const foglio = res.foglio;
         setNumeroPreview(foglio.numeroInterno);
+        setBozzaEliminabile(
+          foglio.documentoStato === "bozza" && !foglio.sentAt
+        );
         setDataPreventivo(foglio.dataPreventivo);
         setNote(foglio.note);
         setGiorniConsegna(foglio.giorniConsegna);
@@ -1564,6 +1577,16 @@ export function PreventivoFormModal({ onClose, onSaved, preventivoId }: Props) {
           </span>
         </h2>
         <div className="flex flex-wrap justify-end gap-2">
+          {preventivoId && bozzaEliminabile ? (
+            <button
+              type="button"
+              onClick={() => setEliminaAperta(true)}
+              disabled={saving || preparazioneInvio != null || !foglioPronto}
+              className="rounded-lg border border-red-300/80 bg-red-950/40 px-3 py-1.5 text-sm text-red-100 hover:bg-red-900/60 disabled:opacity-50"
+            >
+              Elimina preventivo
+            </button>
+          ) : null}
           <button
             type="button"
             onClick={onClose}
@@ -2259,6 +2282,27 @@ export function PreventivoFormModal({ onClose, onSaved, preventivoId }: Props) {
             ) : null}
           </div>
         </PreventivoEditModal>
+      ) : null}
+      {eliminaAperta && preventivoId && bozzaEliminabile ? (
+        <SoftDeleteConfirmModal
+          sopra
+          entityLabel="preventivo"
+          confirmCode={numeroPreview}
+          title="Elimina preventivo"
+          confirmLabel="Elimina preventivo"
+          description="La bozza esce dall'elenco. Resta in archivio con il suo numero, che non viene riassegnato."
+          onClose={() => setEliminaAperta(false)}
+          onConfirm={async (conferma) => {
+            const res = await eliminaPreventivoBozzaAction({
+              id: preventivoId,
+              conferma,
+            });
+            if (!res.success) throw new Error(res.error);
+            setEliminaAperta(false);
+            onDeleted?.();
+            onClose();
+          }}
+        />
       ) : null}
       {scaricaAvviso ? (
         <PreventivoEditModal

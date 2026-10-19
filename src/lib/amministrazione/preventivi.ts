@@ -341,6 +341,8 @@ export type PreventivoModificaFoglio = {
   id: string;
   numeroInterno: string;
   stato: PreventivoStato;
+  documentoStato: "bozza" | "approvato" | "chiuso";
+  sentAt: string | null;
   dataPreventivo: string;
   note: string;
   giorniConsegna: string;

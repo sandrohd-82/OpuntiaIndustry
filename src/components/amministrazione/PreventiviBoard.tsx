@@ -442,6 +442,11 @@ export function PreventiviBoard({
         <PreventivoFormModal
           preventivoId={editingId}
           onClose={() => setEditingId(null)}
+          onDeleted={() => {
+            setEditingId(null);
+            setNotice("Preventivo eliminato. Il numero non viene riusato.");
+            void reload();
+          }}
           onSaved={(item) => {
             if (item.documentoStato === "bozza") {
               setRaccolta("da_completare");
