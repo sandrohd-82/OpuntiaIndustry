@@ -59,6 +59,12 @@ export const PROMEMORIE_E_NOTE_SECTIONS: readonly NavItem[] = [
     "Note tipo post-it collegabili alle anagrafiche",
     "+ Nuova Note"
   ),
+  {
+    slug: "bacheche",
+    label: "Bacheche",
+    description: "Flussi di lavoro a colonne, con schede, scadenze e modelli.",
+    path: "/app/promemorie-e-note/bacheche",
+  },
 ] as const;
 
 export function getFirstPromemorieENotePath(): string {

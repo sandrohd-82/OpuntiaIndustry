@@ -1,11 +1,12 @@
 import { NextResponse } from "next/server";
+import { fireDueKanbanPromemoria } from "@/lib/kanban/promemoria-fire";
 import { fireDuePnAvvisi } from "@/lib/promemorie-e-note/avvisi-fire";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
 
 /**
- * Cron Vercel: sveglie attività/promemoria scadute.
+ * Cron Vercel: sveglie attività, promemoria e bacheche.
  * Header: Authorization: Bearer $CRON_SECRET
  */
 export async function GET(request: Request) {
@@ -22,7 +23,8 @@ export async function GET(request: Request) {
   }
   try {
     const result = await fireDuePnAvvisi({ actorId: null, limit: 80 });
-    return NextResponse.json({ ok: true, ...result });
+    const kanban = await fireDueKanbanPromemoria({ actorId: null, limit: 80 });
+    return NextResponse.json({ ok: true, ...result, kanban });
   } catch (e) {
     console.error("[cron pn-avvisi]", e);
     return NextResponse.json(
