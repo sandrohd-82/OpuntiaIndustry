@@ -253,6 +253,9 @@ export const PreventivoFoglioA4 = forwardRef<HTMLDivElement, Props>(
                       {etichettaPreventivo(etichette, "sconto", "Sconto")}
                     </th>
                     <th className="py-1.5 pr-2 font-medium">
+                      {etichettaPreventivo(etichette, "prezzoScontato", "U. scontato")}
+                    </th>
+                    <th className="py-1.5 pr-2 font-medium">
                       {etichettaPreventivo(etichette, "totale", "Totale")}
                     </th>
                     {stampa ? null : <th className="py-1.5 font-medium" />}
@@ -261,7 +264,7 @@ export const PreventivoFoglioA4 = forwardRef<HTMLDivElement, Props>(
                 <tbody>
                   {righe.length === 0 ? (
                     <tr>
-                      <td colSpan={stampa ? 6 : 7} className="py-2 text-slate-400 italic">
+                      <td colSpan={stampa ? 7 : 8} className="py-2 text-slate-400 italic">
                         {etichettaPreventivo(
                           etichette,
                           "vuotoRighe",
@@ -277,6 +280,8 @@ export const PreventivoFoglioA4 = forwardRef<HTMLDivElement, Props>(
                         riga.scontoListinoPct ?? 0
                       );
                       const totaleRiga = roundEuro(netto * riga.quantita);
+                      const totalePieno = roundEuro(riga.prezzoUnitario * riga.quantita);
+                      const mostraPieno = totalePieno - totaleRiga > 0.004;
                       const applicatoListino = riga.scontoListinoPct ?? 0;
                       const scontoParti: string[] = [];
                       if (applicatoListino > 0) {
@@ -316,8 +321,16 @@ export const PreventivoFoglioA4 = forwardRef<HTMLDivElement, Props>(
                             <td className="py-1.5 pr-2 tabular-nums">
                               {scontoParti.length ? scontoParti.join(" + ") : "—"}
                             </td>
+                            <td className="py-1.5 pr-2 tabular-nums">
+                              {euro(netto)} €
+                            </td>
                             <td className="py-1.5 pr-2 tabular-nums font-medium">
-                              {euro(totaleRiga)} €
+                              {mostraPieno ? (
+                                <span className="block font-normal text-slate-400 line-through">
+                                  {euro(totalePieno)} €
+                                </span>
+                              ) : null}
+                              <span className="block">{euro(totaleRiga)} €</span>
                             </td>
                             {stampa ? null : (
                               <td className="py-1.5 text-right">
@@ -342,7 +355,7 @@ export const PreventivoFoglioA4 = forwardRef<HTMLDivElement, Props>(
                             )}
                           </tr>
                           <tr className="border-b border-slate-200">
-                            <td colSpan={stampa ? 6 : 7} className="px-0 pb-2 pt-0">
+                            <td colSpan={stampa ? 7 : 8} className="px-0 pb-2 pt-0">
                               <p className="ml-6 max-w-[78%] text-[9px] leading-tight text-slate-500">
                                 {notaSconto}
                                 {dettaglio}
@@ -370,6 +383,7 @@ export const PreventivoFoglioA4 = forwardRef<HTMLDivElement, Props>(
                       <td className="py-1.5 pr-2 tabular-nums">
                         {spedizioneNota ? "1" : "—"}
                       </td>
+                      <td className="py-1.5 pr-2">—</td>
                       <td className="py-1.5 pr-2">—</td>
                       <td className="py-1.5 pr-2 font-medium">
                         {spedizioneNota

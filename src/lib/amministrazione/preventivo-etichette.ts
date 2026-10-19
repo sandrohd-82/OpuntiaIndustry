@@ -25,6 +25,7 @@ export const ETICHETTE_PREVENTIVO: Array<{ key: string; text: string }> = [
   { key: "prezzoU", text: "Prezzo U" },
   { key: "qty", text: "Qty" },
   { key: "sconto", text: "Sconto" },
+  { key: "prezzoScontato", text: "U. scontato" },
   { key: "totale", text: "Totale" },
   { key: "extra", text: "extra" },
   { key: "nessunConf", text: "Nessun dettaglio di confezionamento" },

@@ -13,6 +13,7 @@ import { ClearableNumberInput } from "@/components/ui/ClearableNumberInput";
 import {
   CONFEZIONE_STANDARD,
   prezzoNettoRigaPreventivo,
+  roundEuro,
   type PreventivoConfezioneOption,
   type PreventivoScontisticaRiga,
 } from "@/lib/amministrazione/preventivi";
@@ -638,20 +639,37 @@ export function PreventivoAggiungiProdottoModal({
                 setScontoQuotaCommerciale(next.quotaCommerciale);
               }}
             />
-            {netto != null && prezzo != null ? (
-              <p className="mt-1 text-xs text-slate-500">
-                Prezzo netto riga: {euro(netto)} € / {um}
+          </label>
+          {netto != null && prezzo != null ? (
+            <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-800">
+              <p>
+                Prezzo unitario con sconto:{" "}
+                <span className="font-semibold">
+                  {euro(netto)} € / {um}
+                </span>
+              </p>
+              <p className="mt-1 text-xs text-slate-600">
                 {scontoStandardApplicato > 0
-                  ? ` · sconto standard ${scontoStandardApplicato.toLocaleString("it-IT")}%`
-                  : scontoStandardOrigine > 0
-                    ? " · sconto standard annullato"
-                    : ""}
+                  ? `Sconto di listino ${scontoStandardApplicato.toLocaleString("it-IT")}%`
+                  : "Nessuno sconto di listino"}
                 {extraNum > 0
-                  ? ` · sconto extra ${extraNum.toLocaleString("it-IT")}%`
+                  ? ` + sconto extra ${extraNum.toLocaleString("it-IT")}%`
                   : ""}
               </p>
-            ) : null}
-          </label>
+              <p className="mt-2">
+                Totale senza sconto:{" "}
+                <span className="tabular-nums">
+                  {euro(roundEuro(prezzo * qtyNum))} €
+                </span>
+              </p>
+              <p>
+                Totale con sconto:{" "}
+                <span className="font-semibold tabular-nums">
+                  {euro(roundEuro(netto * qtyNum))} €
+                </span>
+              </p>
+            </div>
+          ) : null}
 
           <label className="block text-sm">
             <span className="mb-1 block font-medium">Confezionamento</span>
