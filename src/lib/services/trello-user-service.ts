@@ -126,6 +126,20 @@ const COLORI: Record<string, string> = {
 export type TrelloBachecaRemota = { id: string; nome: string };
 export type TrelloListaRemota = { id: string; nome: string };
 
+async function inserisciABlocchi(
+  client: { from: (table: string) => { insert: (rows: Record<string, unknown>[]) => PromiseLike<{ error: { message: string } | null }> } },
+  tabella: string,
+  righe: Record<string, unknown>[]
+): Promise<string | null> {
+  for (let i = 0; i < righe.length; i += 200) {
+    const blocco = righe.slice(i, i + 200);
+    if (!blocco.length) continue;
+    const scritto = await client.from(tabella).insert(blocco);
+    if (scritto.error) return scritto.error.message;
+  }
+  return null;
+}
+
 function idTrello(value: string): boolean {
   return /^[a-f0-9]{24}$/i.test(value);
 }
@@ -360,9 +374,6 @@ export async function importBoard(
   const schede = (board.cards ?? [])
     .filter((card) => !card.closed && listaIds.has(String(card.idList ?? "")) && idTrello(String(card.id ?? "")))
     .sort((a, b) => Number(a.pos ?? 0) - Number(b.pos ?? 0));
-  if (schede.length > 400) {
-    return { ok: false, error: "La selezione supera 400 schede. Importa meno liste." };
-  }
 
   const supabase = await createClient();
   const bachecaId = randomUUID();
@@ -436,13 +447,10 @@ export async function importBoard(
       ...nowUser,
     };
   });
-  if (righeSchede.length) {
-    const schedeIns = await supabase.from("kb_schede").insert(righeSchede);
-    if (schedeIns.error) return { ok: false, error: schedeIns.error.message };
-  }
-  if (pontiEtichette.length) {
-    await supabase.from("kb_scheda_etichette").insert(pontiEtichette);
-  }
+  const erroreSchede = await inserisciABlocchi(supabase, "kb_schede", righeSchede);
+  if (erroreSchede) return { ok: false, error: erroreSchede };
+  const errorePonti = await inserisciABlocchi(supabase, "kb_scheda_etichette", pontiEtichette);
+  if (errorePonti) return { ok: false, error: errorePonti };
 
   const collegamenti: {
     user_id: string;
@@ -497,29 +505,31 @@ export async function importBoard(
     });
   }
 
+  const righeChecklist: Record<string, unknown>[] = [];
+  const righeVoci: Record<string, unknown>[] = [];
   for (const checklist of board.checklists ?? []) {
     const schedaId = mappaSchede.get(String(checklist.idCard ?? ""));
     if (!schedaId) continue;
     const checklistId = randomUUID();
-    const ins = await supabase.from("kb_checklist").insert({
+    righeChecklist.push({
       id: checklistId,
       scheda_id: schedaId,
       titolo: taglia(checklist.name, 160, "Checklist"),
       sort_order: 0,
       ...nowUser,
     });
-    if (ins.error) continue;
-    const voci = (checklist.checkItems ?? [])
-      .filter((voce) => String(voce.name ?? "").trim())
+    for (const [index, voce] of (checklist.checkItems ?? [])
+      .filter((item) => String(item.name ?? "").trim())
       .sort((a, b) => Number(a.pos ?? 0) - Number(b.pos ?? 0))
-      .map((voce, index) => ({
+      .entries()) {
+      righeVoci.push({
         checklist_id: checklistId,
         testo: taglia(voce.name, 400, "Voce"),
         fatto: voce.state === "complete",
         sort_order: index,
         ...nowUser,
-      }));
-    if (voci.length) await supabase.from("kb_checklist_voci").insert(voci);
+      });
+    }
     if (idTrello(String(checklist.id ?? ""))) {
       collegamenti.push({
         user_id: userId,
@@ -532,9 +542,13 @@ export async function importBoard(
       });
     }
   }
+  const erroreChecklist = await inserisciABlocchi(supabase, "kb_checklist", righeChecklist);
+  if (erroreChecklist) return { ok: false, error: erroreChecklist };
+  const erroreVoci = await inserisciABlocchi(supabase, "kb_checklist_voci", righeVoci);
+  if (erroreVoci) return { ok: false, error: erroreVoci };
 
-  const linkIns = await service.from("kb_trello_collegamenti").insert(collegamenti);
-  if (linkIns.error) return { ok: false, error: linkIns.error.message };
+  const erroreLink = await inserisciABlocchi(service, "kb_trello_collegamenti", collegamenti);
+  if (erroreLink) return { ok: false, error: erroreLink };
 
   const titolo = taglia(board.name, 160, "Bacheca Trello");
   await supabase.from("kb_storico").insert({

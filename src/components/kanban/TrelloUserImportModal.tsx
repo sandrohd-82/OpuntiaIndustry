@@ -63,13 +63,18 @@ export function TrelloUserImportModal({ onClose }: { onClose: () => void }) {
     if (!boardId || invio) return;
     setInvio(true);
     setErrore(null);
-    const res = await importaBachecaTrelloAction(boardId, scelte);
-    setInvio(false);
-    if (!res.success) {
-      setErrore(res.error);
-      return;
+    try {
+      const res = await importaBachecaTrelloAction(boardId, scelte);
+      if (!res.success) {
+        setErrore(res.error);
+        return;
+      }
+      router.push(`/app/promemorie-e-note/bacheche/${res.id}`);
+    } catch {
+      setErrore("Importazione interrotta. Riprova.");
+    } finally {
+      setInvio(false);
     }
-    router.push(`/app/promemorie-e-note/bacheche/${res.id}`);
   }
 
   if (typeof document === "undefined") return null;
@@ -139,8 +144,7 @@ export function TrelloUserImportModal({ onClose }: { onClose: () => void }) {
           <button
             type="button"
             onClick={onClose}
-            disabled={invio}
-            className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm disabled:opacity-50"
+            className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm"
           >
             Chiudi
           </button>
@@ -151,7 +155,7 @@ export function TrelloUserImportModal({ onClose }: { onClose: () => void }) {
               disabled={invio || !boardId || scelte.length === 0}
               className="rounded-lg bg-[var(--primary)] px-3 py-1.5 text-sm font-medium text-white disabled:opacity-50"
             >
-              {invio ? "Importazione…" : "Importa"}
+              {invio ? "Importazione in corso…" : "Importa"}
             </button>
           ) : null}
         </div>
