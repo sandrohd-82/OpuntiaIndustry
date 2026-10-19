@@ -7,6 +7,8 @@ import {
   creaBachecaAction,
   listBachecheAction,
 } from "@/app/actions/kanban";
+import { TrelloConnectCard } from "@/components/kanban/TrelloConnectCard";
+import { TrelloUserImportModal } from "@/components/kanban/TrelloUserImportModal";
 
 export function BachecheHome() {
   const router = useRouter();
@@ -15,6 +17,7 @@ export function BachecheHome() {
   const [titolo, setTitolo] = useState("");
   const [errore, setErrore] = useState<string | null>(null);
   const [archivio, setArchivio] = useState(false);
+  const [importaAperto, setImportaAperto] = useState(false);
 
   async function ricarica() {
     const res = await listBachecheAction();
@@ -35,6 +38,7 @@ export function BachecheHome() {
       {errore ? (
         <p className="rounded border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{errore}</p>
       ) : null}
+      <TrelloConnectCard />
       <form
         className="flex flex-wrap gap-2"
         onSubmit={(e) => {
@@ -57,7 +61,15 @@ export function BachecheHome() {
         <button type="submit" className="rounded-lg bg-[var(--primary)] px-4 py-2 text-sm font-medium text-white">
           Crea bacheca
         </button>
+        <button
+          type="button"
+          onClick={() => setImportaAperto(true)}
+          className="rounded-lg border border-[var(--primary)] px-4 py-2 text-sm font-medium text-[var(--primary)]"
+        >
+          Importa da Trello
+        </button>
       </form>
+      {importaAperto ? <TrelloUserImportModal onClose={() => setImportaAperto(false)} /> : null}
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
         {aperte.map((board) => (
           <button

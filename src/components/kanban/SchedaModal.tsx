@@ -20,6 +20,7 @@ import {
   toggleMembroAction,
   toggleSeguiAction,
 } from "@/app/actions/kanban";
+import { syncSchedaTrelloAction } from "@/app/actions/trello-utente";
 import {
   KB_ANTICIPI,
   KB_COLORI,
@@ -98,6 +99,8 @@ export function SchedaModal({
   const [commento, setCommento] = useState("");
   const [menzioni, setMenzioni] = useState<string[]>([]);
   const [errore, setErrore] = useState<string | null>(null);
+  const [notaTrello, setNotaTrello] = useState<string | null>(null);
+  const [invioTrello, setInvioTrello] = useState(false);
   const [nuovaEtichetta, setNuovaEtichetta] = useState("");
   const [colore, setColore] = useState("rosso");
 
@@ -160,6 +163,7 @@ export function SchedaModal({
             </button>
           </div>
           {errore ? <p className="text-sm text-red-700">{errore}</p> : null}
+          {notaTrello ? <p className="text-sm text-emerald-700">{notaTrello}</p> : null}
           <div className="flex flex-wrap gap-2 text-sm">
             <label>
               Lista
@@ -189,6 +193,26 @@ export function SchedaModal({
               }}
             >
               {scheda.isTemplate ? "Modello attivo" : "Rendi modello"}
+            </button>
+            <button
+              type="button"
+              disabled={invioTrello}
+              className="rounded border border-slate-300 px-2 py-1 disabled:opacity-50"
+              onClick={() => {
+                setInvioTrello(true);
+                setNotaTrello(null);
+                void syncSchedaTrelloAction(scheda.id).then((res) => {
+                  setInvioTrello(false);
+                  if (!res.success) {
+                    setErrore(res.error);
+                    return;
+                  }
+                  setErrore(null);
+                  setNotaTrello(res.creata ? "Scheda creata su Trello." : "Scheda aggiornata su Trello.");
+                });
+              }}
+            >
+              {invioTrello ? "Invio a Trello…" : "Aggiorna su Trello"}
             </button>
             <button
               type="button"
