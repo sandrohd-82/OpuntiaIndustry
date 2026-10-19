@@ -1,16 +1,25 @@
 "use server";
 
+import { randomBytes } from "node:crypto";
+import { cookies } from "next/headers";
 import { writeAuditLog } from "@/lib/audit";
 import { requireAreaAccess } from "@/lib/areas/guard";
 import { getPublicAppUrl } from "@/lib/auth/app-url";
 import { caveauConfigurato, cifraPasswordCaveau } from "@/lib/amministrazione/caveau-siti-crypto";
 import {
+  credenzialiOAuth,
   getUserBoards,
   importBoard,
   listeBachecaTrello,
+  profiloTrello,
+  scambiaCodiceTrello,
+  sfidaPkce,
   syncUserCard,
+  urlAutorizzazioneTrello,
 } from "@/lib/services/trello-user-service";
 import { createServiceClient } from "@/lib/supabase/server";
+
+const COOKIE_PKCE = "trello_oauth_pkce";
 
 const ORIGINI = new Set([
   "http://localhost:3000",
@@ -62,70 +71,83 @@ export async function urlCollegamentoTrelloAction(
   origine: string
 ): Promise<{ success: true; url: string } | { success: false; error: string }> {
   await gate();
-  const key = process.env.TRELLO_API_KEY?.trim() ?? "";
-  if (!key) return { success: false, error: "Manca TRELLO_API_KEY sul server." };
+  const cred = credenzialiOAuth();
+  if (!cred) {
+    return { success: false, error: "Mancano TRELLO_CLIENT_ID o TRELLO_CLIENT_SECRET sul server." };
+  }
   if (!caveauConfigurato()) {
     return { success: false, error: "Manca CREDENTIALS_VAULT_KEY sul server." };
   }
   const base = origineConsentita(origine);
   if (!base) return { success: false, error: "Origine non consentita per il ritorno da Trello." };
-  const url = new URL("https://trello.com/1/authorize");
-  url.searchParams.set("expiration", "never");
-  url.searchParams.set("name", "OpuntiaIndustry");
-  url.searchParams.set("scope", "read,write");
-  url.searchParams.set("callback_method", "fragment");
-  url.searchParams.set("return_url", `${base}/trello/collega`);
-  url.searchParams.set("key", key);
-  return { success: true, url: url.toString() };
+  const { verifier, challenge } = sfidaPkce();
+  const state = randomBytes(16).toString("hex");
+  const jar = await cookies();
+  const redirectUri = `${base}/trello/collega`;
+  jar.set(COOKIE_PKCE, JSON.stringify({ state, verifier, redirectUri }), {
+    httpOnly: true,
+    sameSite: "lax",
+    secure: process.env.NODE_ENV === "production",
+    path: "/",
+    maxAge: 600,
+  });
+  return {
+    success: true,
+    url: urlAutorizzazioneTrello({
+      clientId: cred.clientId,
+      redirectUri,
+      challenge,
+      state,
+    }),
+  };
 }
 
-export async function salvaTokenTrelloAction(
-  token: string
+export async function completaCollegamentoTrelloAction(
+  code: string,
+  state: string
 ): Promise<{ success: true; username: string } | { success: false; error: string }> {
   const auth = await gate();
-  const valore = token.trim();
-  if (!/^[A-Za-z0-9_-]{16,256}$/.test(valore)) {
-    return { success: false, error: "Token Trello non valido." };
-  }
   if (!caveauConfigurato()) {
     return { success: false, error: "Manca CREDENTIALS_VAULT_KEY sul server." };
   }
-  const key = process.env.TRELLO_API_KEY?.trim() ?? "";
-  if (!key) return { success: false, error: "Manca TRELLO_API_KEY sul server." };
-
-  const profiloUrl = new URL("https://api.trello.com/1/members/me");
-  profiloUrl.searchParams.set("key", key);
-  profiloUrl.searchParams.set("token", valore);
-  profiloUrl.searchParams.set("fields", "username,avatarUrl,avatarHash");
-  let response: Response;
+  const jar = await cookies();
+  const grezzo = jar.get(COOKIE_PKCE)?.value ?? "";
+  jar.delete(COOKIE_PKCE);
+  let atteso: { state?: string; verifier?: string; redirectUri?: string } = {};
   try {
-    response = await fetch(profiloUrl, { cache: "no-store" });
+    atteso = JSON.parse(grezzo) as { state?: string; verifier?: string; redirectUri?: string };
   } catch {
-    return { success: false, error: "Trello non risponde." };
+    atteso = {};
   }
-  if (!response.ok) return { success: false, error: "Trello ha rifiutato il collegamento." };
-  const profilo = (await response.json()) as {
-    username?: string;
-    avatarUrl?: string | null;
-    avatarHash?: string | null;
-    id?: string;
-  };
-  const username = String(profilo.username ?? "").trim().slice(0, 80);
-  if (!username) return { success: false, error: "Profilo Trello senza username." };
-  let avatar = String(profilo.avatarUrl ?? "").trim();
-  if (!avatar.startsWith("https://") && profilo.avatarHash && profilo.id) {
-    avatar = `https://trello-members.s3.amazonaws.com/${profilo.id}/${profilo.avatarHash}/170.png`;
+  const redirectOk = origineConsentita(
+    String(atteso.redirectUri ?? "").replace(/\/trello\/collega$/, "")
+  );
+  if (!state || state !== atteso.state || !atteso.verifier || !redirectOk) {
+    return { success: false, error: "Collegamento Trello scaduto. Riprova." };
   }
-  if (!avatar.startsWith("https://")) avatar = "";
+  const codice = code.trim();
+  if (codice.length < 8 || codice.length > 2048 || /\s/.test(codice)) {
+    return { success: false, error: "Autorizzazione Trello non valida." };
+  }
+  const scambio = await scambiaCodiceTrello({
+    code: codice,
+    verifier: atteso.verifier,
+    redirectUri: `${redirectOk}/trello/collega`,
+  });
+  if (!scambio.ok) return { success: false, error: scambio.error };
+  const profilo = await profiloTrello(scambio.valore.accessToken);
+  if (!profilo.ok) return { success: false, error: profilo.error };
 
   const service = createServiceClient();
-  const cifrato = cifraPasswordCaveau(valore);
   const now = new Date().toISOString();
+  const expires = new Date(Date.now() + scambio.valore.expiresIn * 1000).toISOString();
   const salvato = await service.from("user_trello_credentials").upsert({
     user_id: auth.userId,
-    trello_token: cifrato,
-    trello_username: username,
-    trello_avatar_url: avatar,
+    trello_token: cifraPasswordCaveau(scambio.valore.accessToken),
+    trello_refresh_token: cifraPasswordCaveau(scambio.valore.refreshToken),
+    trello_access_expires_at: expires,
+    trello_username: profilo.valore.username,
+    trello_avatar_url: profilo.valore.avatarUrl,
     connected_at: now,
     created_by: auth.userId,
     updated_by: auth.userId,
@@ -138,10 +160,10 @@ export async function salvaTokenTrelloAction(
     entity_id: auth.userId,
     action: "update",
     actor_id: auth.actorUserId,
-    summary: `Collegato account Trello @${username}`,
-    payload: { username },
+    summary: `Collegato account Trello @${profilo.valore.username}`,
+    payload: { username: profilo.valore.username },
   });
-  return { success: true, username };
+  return { success: true, username: profilo.valore.username };
 }
 
 export async function scollegaTrelloAction(): Promise<
@@ -154,6 +176,8 @@ export async function scollegaTrelloAction(): Promise<
     .from("user_trello_credentials")
     .update({
       trello_token: "",
+      trello_refresh_token: "",
+      trello_access_expires_at: null,
       deleted_at: now,
       deleted_by: auth.userId,
       updated_by: auth.userId,

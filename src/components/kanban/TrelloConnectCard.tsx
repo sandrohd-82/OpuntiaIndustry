@@ -2,7 +2,6 @@
 
 import { useEffect, useState } from "react";
 import {
-  salvaTokenTrelloAction,
   scollegaTrelloAction,
   statoTrelloAction,
   urlCollegamentoTrelloAction,
@@ -37,21 +36,15 @@ export function TrelloConnectCard({ onChanged }: { onChanged?: () => void }) {
     if (!attesa) return;
     function onMessage(event: MessageEvent) {
       if (event.origin !== window.location.origin) return;
-      const data = event.data as { tipo?: string; token?: string; errore?: string };
-      if (!data || data.tipo !== "trello-token") return;
+      const data = event.data as { tipo?: string; errore?: string };
+      if (!data || data.tipo !== "trello-collegato") return;
       setAttesa(false);
-      if (data.errore || !data.token) {
-        setErrore("Autorizzazione Trello annullata.");
+      if (data.errore) {
+        setErrore(data.errore);
         return;
       }
-      void salvaTokenTrelloAction(data.token).then((res) => {
-        if (!res.success) {
-          setErrore(res.error);
-          return;
-        }
-        setErrore(null);
-        void ricarica();
-      });
+      setErrore(null);
+      void ricarica();
     }
     window.addEventListener("message", onMessage);
     return () => window.removeEventListener("message", onMessage);

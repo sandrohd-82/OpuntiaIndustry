@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { writeAuditLog } from "@/lib/audit";
 import {
   caveauConfigurato,
@@ -8,6 +8,108 @@ import {
 import { createClient, createServiceClient } from "@/lib/supabase/server";
 
 const API = "https://api.trello.com/1";
+const TOKEN_URL = "https://auth.atlassian.com/oauth/token";
+export const TRELLO_OAUTH_SCOPES =
+  "read:board:trello write:board:trello read:member:trello offline_access";
+
+export type TokenOAuth = {
+  accessToken: string;
+  refreshToken: string;
+  expiresIn: number;
+};
+
+type Esito<T> = { ok: true; valore: T } | { ok: false; error: string };
+
+function base64Url(value: Buffer): string {
+  return value.toString("base64").replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+}
+
+export function credenzialiOAuth():
+  | { clientId: string; clientSecret: string }
+  | null {
+  const clientId = process.env.TRELLO_CLIENT_ID?.trim() ?? "";
+  const clientSecret = process.env.TRELLO_CLIENT_SECRET?.trim() ?? "";
+  if (!clientId || !clientSecret) return null;
+  return { clientId, clientSecret };
+}
+
+export function sfidaPkce(): { verifier: string; challenge: string } {
+  const verifier = base64Url(randomBytes(32));
+  const challenge = base64Url(createHash("sha256").update(verifier).digest());
+  return { verifier, challenge };
+}
+
+export function urlAutorizzazioneTrello(input: {
+  clientId: string;
+  redirectUri: string;
+  challenge: string;
+  state: string;
+}): string {
+  const url = new URL("https://auth.atlassian.com/authorize");
+  url.searchParams.set("client_id", input.clientId);
+  url.searchParams.set("scope", TRELLO_OAUTH_SCOPES);
+  url.searchParams.set("redirect_uri", input.redirectUri);
+  url.searchParams.set("response_type", "code");
+  url.searchParams.set("prompt", "consent");
+  url.searchParams.set("state", input.state);
+  url.searchParams.set("code_challenge", input.challenge);
+  url.searchParams.set("code_challenge_method", "S256");
+  return url.toString();
+}
+
+async function scambia(
+  corpo: Record<string, string>
+): Promise<Esito<TokenOAuth>> {
+  const cred = credenzialiOAuth();
+  if (!cred) {
+    return { ok: false, error: "Mancano TRELLO_CLIENT_ID o TRELLO_CLIENT_SECRET sul server." };
+  }
+  let response: Response;
+  try {
+    response = await fetch(TOKEN_URL, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ client_id: cred.clientId, client_secret: cred.clientSecret, ...corpo }),
+      cache: "no-store",
+    });
+  } catch {
+    return { ok: false, error: "Trello non risponde." };
+  }
+  if (!response.ok) return { ok: false, error: "Trello ha rifiutato il collegamento." };
+  const json = (await response.json()) as {
+    access_token?: string;
+    refresh_token?: string;
+    expires_in?: number;
+  };
+  if (!json.access_token || !json.refresh_token) {
+    return { ok: false, error: "Trello non ha restituito i token." };
+  }
+  return {
+    ok: true,
+    valore: {
+      accessToken: json.access_token,
+      refreshToken: json.refresh_token,
+      expiresIn: Number(json.expires_in ?? 3600),
+    },
+  };
+}
+
+export function scambiaCodiceTrello(input: {
+  code: string;
+  verifier: string;
+  redirectUri: string;
+}): Promise<Esito<TokenOAuth>> {
+  return scambia({
+    grant_type: "authorization_code",
+    code: input.code,
+    code_verifier: input.verifier,
+    redirect_uri: input.redirectUri,
+  });
+}
+
+function rinnovaToken(refreshToken: string): Promise<Esito<TokenOAuth>> {
+  return scambia({ grant_type: "refresh_token", refresh_token: refreshToken });
+}
 const COLORI: Record<string, string> = {
   green: "verde",
   yellow: "giallo",
@@ -24,8 +126,6 @@ const COLORI: Record<string, string> = {
 export type TrelloBachecaRemota = { id: string; nome: string };
 export type TrelloListaRemota = { id: string; nome: string };
 
-type Esito<T> = { ok: true; valore: T } | { ok: false; error: string };
-
 function idTrello(value: string): boolean {
   return /^[a-f0-9]{24}$/i.test(value);
 }
@@ -36,9 +136,19 @@ function taglia(value: unknown, max: number, fallback: string): string {
   return usato.slice(0, max);
 }
 
-function chiaveApi(): string | null {
-  const key = process.env.TRELLO_API_KEY?.trim() ?? "";
-  return key || null;
+async function salvaToken(userId: string, token: TokenOAuth): Promise<void> {
+  const service = createServiceClient();
+  const expires = new Date(Date.now() + token.expiresIn * 1000).toISOString();
+  await service
+    .from("user_trello_credentials")
+    .update({
+      trello_token: cifraPasswordCaveau(token.accessToken),
+      trello_refresh_token: cifraPasswordCaveau(token.refreshToken),
+      trello_access_expires_at: expires,
+      updated_by: userId,
+    })
+    .eq("user_id", userId)
+    .is("deleted_at", null);
 }
 
 async function tokenDi(userId: string): Promise<string | null> {
@@ -46,16 +156,37 @@ async function tokenDi(userId: string): Promise<string | null> {
   const service = createServiceClient();
   const { data } = await service
     .from("user_trello_credentials")
-    .select("trello_token, deleted_at")
+    .select("trello_token, trello_refresh_token, trello_access_expires_at, deleted_at")
     .eq("user_id", userId)
     .maybeSingle();
-  const row = data as { trello_token?: string; deleted_at?: string | null } | null;
+  const row = data as {
+    trello_token?: string;
+    trello_refresh_token?: string;
+    trello_access_expires_at?: string | null;
+    deleted_at?: string | null;
+  } | null;
   if (!row || row.deleted_at || !row.trello_token) return null;
+  let access: string;
   try {
-    return decifraPasswordCaveau(row.trello_token);
+    access = decifraPasswordCaveau(row.trello_token);
   } catch {
     return null;
   }
+  const scadenza = row.trello_access_expires_at
+    ? new Date(row.trello_access_expires_at).getTime()
+    : 0;
+  if (scadenza - Date.now() > 120_000) return access;
+  if (!row.trello_refresh_token) return null;
+  let refresh: string;
+  try {
+    refresh = decifraPasswordCaveau(row.trello_refresh_token);
+  } catch {
+    return null;
+  }
+  const rinnovato = await rinnovaToken(refresh);
+  if (!rinnovato.ok) return null;
+  await salvaToken(userId, rinnovato.valore);
+  return rinnovato.valore.accessToken;
 }
 
 async function chiama(
@@ -64,17 +195,17 @@ async function chiama(
   path: string,
   parametri: Record<string, string>
 ): Promise<Esito<unknown>> {
-  const key = chiaveApi();
-  if (!key) return { ok: false, error: "Manca TRELLO_API_KEY sul server." };
   const url = new URL(`${API}${path}`);
-  url.searchParams.set("key", key);
-  url.searchParams.set("token", token);
   for (const [nome, valore] of Object.entries(parametri)) {
-    url.searchParams.set(nome, valore);
+    if (valore) url.searchParams.set(nome, valore);
   }
   let response: Response;
   try {
-    response = await fetch(url, { method, cache: "no-store" });
+    response = await fetch(url, {
+      method,
+      headers: { Authorization: `Bearer ${token}` },
+      cache: "no-store",
+    });
   } catch {
     return { ok: false, error: "Trello non risponde." };
   }
@@ -82,6 +213,29 @@ async function chiama(
     return { ok: false, error: `Trello ha risposto ${response.status}.` };
   }
   return { ok: true, valore: await response.json() };
+}
+
+export async function profiloTrello(
+  accessToken: string
+): Promise<Esito<{ username: string; avatarUrl: string }>> {
+  const res = await chiama(accessToken, "GET", "/members/me", {
+    fields: "username,avatarUrl,avatarHash",
+  });
+  if (!res.ok) return res;
+  const profilo = res.valore as {
+    id?: string;
+    username?: string;
+    avatarUrl?: string | null;
+    avatarHash?: string | null;
+  };
+  const username = String(profilo.username ?? "").trim().slice(0, 80);
+  if (!username) return { ok: false, error: "Profilo Trello senza username." };
+  let avatar = String(profilo.avatarUrl ?? "").trim();
+  if (!avatar.startsWith("https://") && profilo.avatarHash && profilo.id) {
+    avatar = `https://trello-members.s3.amazonaws.com/${profilo.id}/${profilo.avatarHash}/170.png`;
+  }
+  if (!avatar.startsWith("https://")) avatar = "";
+  return { ok: true, valore: { username, avatarUrl: avatar } };
 }
 
 export async function getUserBoards(userId: string): Promise<Esito<TrelloBachecaRemota[]>> {
