@@ -12,6 +12,8 @@ type Props = {
   confirmDisabled?: boolean;
   /** Errore o avviso subito sopra il pulsante di conferma. */
   notice?: string | null;
+  /** Resta sopra un'altra finestra già aperta. */
+  sopra?: boolean;
 };
 
 export function PreventivoEditModal({
@@ -22,13 +24,14 @@ export function PreventivoEditModal({
   confirmLabel = "Conferma",
   confirmDisabled = false,
   notice = null,
+  sopra = false,
 }: Props) {
   const titleId = useId();
   if (typeof document === "undefined") return null;
 
   return createPortal(
     <div
-      className="fixed inset-0 z-[200] flex items-center justify-center overflow-y-auto bg-slate-950/55 p-6 sm:p-10"
+      className={`fixed inset-0 flex items-center justify-center overflow-y-auto bg-slate-950/55 p-6 sm:p-10 ${sopra ? "z-[220]" : "z-[200]"}`}
       role="presentation"
     >
       <div

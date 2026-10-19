@@ -15,7 +15,7 @@ export const PREVENTIVI_SESSIONE_PROVA = false;
 export const PREVENTIVI_SESSIONE_PROVA_MSG =
   "Sessione di prova: il preventivo resta solo in questo browser. Non viene scritto in archivio e non parte nessuna email.";
 
-export type PreventivoIntenzione = "bozza" | "salvato" | "inviato";
+export type PreventivoIntenzione = "bozza" | "salvato" | "inviato" | "da_inviare";
 
 export type PreventivoSessioneRiga = {
   key: string;

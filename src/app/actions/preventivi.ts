@@ -38,10 +38,12 @@ import {
 } from "@/lib/webmail/sync";
 import {
   CONFEZIONE_STANDARD,
+  conteggiPreventiviVuoti,
   createPreventivoSchema,
   inviaPreventivoMailSchema,
   formatNumeroPreventivo,
   PREVENTIVI_RACCOLTA_GIORNI,
+  PREVENTIVO_RACCOLTE,
   spedizioneLockAttivo,
   statiPreventivoRaccolta,
   type PreventivoModificaFoglio,
@@ -258,6 +260,7 @@ function mapPreventivo(
     commercialeRiferimentoEmail: row.commerciale_riferimento_email ?? "",
     note: row.note,
     webmailAccettazioneId: row.webmail_accettazione_id,
+    webmailInvioId: row.webmail_invio_id ?? null,
     referenteAccettazioneId: row.referente_accettazione_id,
     referenteAccettazioneLabel: referenteLabel,
     archiviatoAt: row.archiviato_at,
@@ -438,7 +441,7 @@ export async function listPreventiviAction(input?: {
     return {
       success: true,
       items: [],
-      conteggi: { da_completare: 0, inviati: 0, accettati: 0 },
+      conteggi: conteggiPreventiviVuoti(),
     };
   }
   let query = supabase
@@ -457,12 +460,8 @@ export async function listPreventiviAction(input?: {
   const rows = (data ?? []) as PreventivoRow[];
   const righe = await attachRighe(rows.map((r) => r.id));
   const pdfEmessi = await attachPdfEmessi(rows.map((r) => r.id));
-  const conteggi = {
-    da_completare: 0,
-    inviati: 0,
-    accettati: 0,
-  };
-  for (const nome of ["da_completare", "inviati", "accettati"] as const) {
+  const conteggi = conteggiPreventiviVuoti();
+  for (const nome of PREVENTIVO_RACCOLTE) {
     let countQuery = supabase
       .from("preventivi")
       .select("id", { count: "exact", head: true })
@@ -864,6 +863,7 @@ export async function cercaPreventiviPerOrdineAction(raw: {
 const PREVENTIVO_STATI_CERCA: PreventivoStato[] = [
   "creato",
   "in_attesa_spedizione",
+  "creato_da_inviare",
   "inviato",
   "accettato",
   "respinto",
@@ -952,13 +952,15 @@ export async function createPreventivoAction(
   }
   const intenzione = input.intenzione ?? "bozza";
   const isRichiestaPrezzo = input.modalitaSpedizionePrezzo === "richiesto";
+  const daInviare = intenzione === "da_inviare";
   const senzaImporto =
-    isRichiestaPrezzo || input.modalitaSpedizionePrezzo === "in_fattura";
-  if (isRichiestaPrezzo && input.mailAccountId) {
+    !daInviare &&
+    (isRichiestaPrezzo || input.modalitaSpedizionePrezzo === "in_fattura");
+  if (isRichiestaPrezzo && !daInviare && input.mailAccountId) {
     const casella = await assertWebmailAccountAccess(gate.auth, input.mailAccountId);
     if (!casella.ok) return { success: false, error: casella.error };
   }
-  if (isRichiestaPrezzo) {
+  if (isRichiestaPrezzo && !daInviare) {
     const incaricati = await profiliCalcoloSpedizioni();
     if (!incaricati.length) {
       return {
@@ -985,12 +987,14 @@ export async function createPreventivoAction(
         "Questa azienda è affiancata: salva il preventivo come bozza. L'invio si sblocca quando il senior accetta.",
     };
   }
-  const stato = isRichiestaPrezzo
-    ? ("in_attesa_spedizione" as const)
-    : intenzione === "inviato"
-      ? ("inviato" as const)
-      : ("creato" as const);
-  const documentoStato = isRichiestaPrezzo
+  const stato = daInviare
+    ? ("creato_da_inviare" as const)
+    : isRichiestaPrezzo
+      ? ("in_attesa_spedizione" as const)
+      : intenzione === "inviato"
+        ? ("inviato" as const)
+        : ("creato" as const);
+  const documentoStato = daInviare || isRichiestaPrezzo
     ? ("approvato" as const)
     : intenzione === "bozza"
       ? ("bozza" as const)
@@ -1223,9 +1227,12 @@ export async function savePreventivoAction(
   }
   const intenzione = input.intenzione ?? "bozza";
   const isRichiestaPrezzo = input.modalitaSpedizionePrezzo === "richiesto";
+  const daInviare =
+    intenzione === "da_inviare" && !PREVENTIVI_SESSIONE_PROVA;
   const senzaImporto =
-    isRichiestaPrezzo || input.modalitaSpedizionePrezzo === "in_fattura";
-  if (isRichiestaPrezzo && input.mailAccountId) {
+    !daInviare &&
+    (isRichiestaPrezzo || input.modalitaSpedizionePrezzo === "in_fattura");
+  if (isRichiestaPrezzo && !daInviare && input.mailAccountId) {
     const casella = await assertWebmailAccountAccess(gate.auth, input.mailAccountId);
     if (!casella.ok) return { success: false, error: casella.error };
   }
@@ -1259,7 +1266,7 @@ export async function savePreventivoAction(
         "Questa azienda è affiancata: il senior deve accettare il preventivo prima dell'invio.",
     };
   }
-  if (current.sent_at && isRichiestaPrezzo) {
+  if (current.sent_at && (isRichiestaPrezzo || daInviare)) {
     return {
       success: false,
       error:
@@ -1267,7 +1274,7 @@ export async function savePreventivoAction(
     };
   }
   const entraInAttesa =
-    isRichiestaPrezzo && current.stato !== "in_attesa_spedizione";
+    isRichiestaPrezzo && !daInviare && current.stato !== "in_attesa_spedizione";
   if (entraInAttesa) {
     const incaricati = await profiliCalcoloSpedizioni();
     if (!incaricati.length) {
@@ -1278,12 +1285,14 @@ export async function savePreventivoAction(
       };
     }
   }
-  const stato = isRichiestaPrezzo
-    ? ("in_attesa_spedizione" as const)
-    : !PREVENTIVI_SESSIONE_PROVA && intenzione === "inviato"
-      ? ("inviato" as const)
-      : current.stato;
-  const documentoStato = isRichiestaPrezzo
+  const stato = daInviare
+    ? ("creato_da_inviare" as const)
+    : isRichiestaPrezzo
+      ? ("in_attesa_spedizione" as const)
+      : !PREVENTIVI_SESSIONE_PROVA && intenzione === "inviato"
+        ? ("inviato" as const)
+        : current.stato;
+  const documentoStato = daInviare || isRichiestaPrezzo
     ? ("approvato" as const)
     : !PREVENTIVI_SESSIONE_PROVA && intenzione === "inviato"
       ? ("approvato" as const)
@@ -1468,16 +1477,27 @@ export async function setPreventivoStatoAction(input: {
   if (input.stato === "inviato" || input.stato === "accettato") {
     const { data: attuale } = await supabase
       .from("preventivi")
-      .select("accettazione_senior_stato")
+      .select("accettazione_senior_stato, stato")
       .eq("id", input.id)
       .is("deleted_at", null)
       .maybeSingle();
+    const attualeRiga = attuale as {
+      accettazione_senior_stato?: string | null;
+      stato?: string | null;
+    } | null;
+    if (
+      input.stato === "inviato" &&
+      attualeRiga?.stato === "creato_da_inviare"
+    ) {
+      return {
+        success: false,
+        error:
+          "Collega la mail già inviata dal pulsante Preventivo inviato.",
+      };
+    }
     if (
       accettazioneSeniorBloccaInvio(
-        parseAccettazioneSeniorStato(
-          (attuale as { accettazione_senior_stato?: string | null } | null)
-            ?.accettazione_senior_stato
-        )
+        parseAccettazioneSeniorStato(attualeRiga?.accettazione_senior_stato)
       )
     ) {
       return {
@@ -2004,6 +2024,75 @@ function htmlMailPreventivoConFirma(testo: string): string {
 }
 
 const PREVENTIVI_PDF_BUCKET = "preventivi-pdf";
+const PREVENTIVI_ALLEGATI_BUCKET = "preventivi-allegati";
+const ALLEGATI_INVIO_MAX = 8;
+const ALLEGATI_INVIO_BYTES = 15 * 1024 * 1024;
+const ALLEGATI_INVIO_MIME: Record<string, string> = {
+  "application/pdf": "pdf",
+  "image/jpeg": "jpg",
+  "image/png": "png",
+  "image/webp": "webp",
+};
+
+function mimeAllegatoInvio(file: File): string | null {
+  const type = file.type.toLowerCase();
+  if (ALLEGATI_INVIO_MIME[type]) return type;
+  const ext = file.name.split(".").pop()?.toLowerCase();
+  if (ext === "pdf") return "application/pdf";
+  if (ext === "jpg" || ext === "jpeg") return "image/jpeg";
+  if (ext === "png") return "image/png";
+  if (ext === "webp") return "image/webp";
+  return null;
+}
+
+async function leggiAllegatiInvioPreventivo(preventivoId: string): Promise<
+  | {
+      ok: true;
+      files: Array<{ filename: string; content: Buffer; contentType: string }>;
+    }
+  | { ok: false; error: string }
+> {
+  const service = createServiceClient();
+  const { data, error } = await service
+    .from("preventivi_allegati_invio")
+    .select("storage_path, file_name, content_type")
+    .eq("preventivo_id", preventivoId)
+    .is("deleted_at", null)
+    .order("created_at", { ascending: true });
+  if (error) {
+    return {
+      ok: false,
+      error: `Allegati non letti, la mail non è partita: ${error.message}`,
+    };
+  }
+  const files: Array<{ filename: string; content: Buffer; contentType: string }> =
+    [];
+  for (const row of data ?? []) {
+    const nome = String(row.file_name || "allegato");
+    const scaricato = await service.storage
+      .from(PREVENTIVI_ALLEGATI_BUCKET)
+      .download(String(row.storage_path));
+    if (scaricato.error || !scaricato.data) {
+      return {
+        ok: false,
+        error: `Manca l'allegato «${nome}». La mail non è partita.`,
+      };
+    }
+    const content = Buffer.from(await scaricato.data.arrayBuffer());
+    if (content.length < 1) {
+      return {
+        ok: false,
+        error: `L'allegato «${nome}» è vuoto. La mail non è partita.`,
+      };
+    }
+    files.push({
+      filename: nome,
+      content,
+      contentType: String(row.content_type || "application/octet-stream"),
+    });
+  }
+  return { ok: true, files };
+}
 
 function nomePdfEmesso(numero: string, versione: number, lingua: string): string {
   const base = nomeFilePreventivoPdf(numero).replace(/\.pdf$/i, "");
@@ -2340,6 +2429,21 @@ export async function inviaPreventivoMailAction(
   });
   if (!archivio.ok) return { success: false, error: archivio.error };
   const pdfNome = archivio.filename;
+  const extraAllegati = await leggiAllegatiInvioPreventivo(prev.id);
+  if (!extraAllegati.ok) {
+    return {
+      success: false,
+      error: `Preventivo salvato in archivio. ${extraAllegati.error}`,
+    };
+  }
+  const allegatiMail = [
+    {
+      filename: pdfNome,
+      content: pdfBuffer,
+      contentType: "application/pdf",
+    },
+    ...extraAllegati.files,
+  ];
   let smtpMessageId: string | null = null;
   try {
     const sent = await sendMailViaAccount({
@@ -2348,13 +2452,7 @@ export async function inviaPreventivoMailAction(
       subject: input.mailOggetto,
       text: mailTestoFirmato,
       html: mailHtmlFirmato,
-      attachments: [
-        {
-          filename: pdfNome,
-          content: pdfBuffer,
-          contentType: "application/pdf",
-        },
-      ],
+      attachments: allegatiMail,
     });
     smtpMessageId = sent.messageId;
   } catch (e) {
@@ -2398,13 +2496,7 @@ export async function inviaPreventivoMailAction(
     aziendaTipo,
     aziendaId,
     aziendaLabel: prev.cliente_ragione_sociale ?? "",
-    attachments: [
-      {
-        filename: pdfNome,
-        content: pdfBuffer,
-        contentType: "application/pdf",
-      },
-    ],
+    attachments: allegatiMail,
   });
   const { data: updated, error: sentErr } = await supabase
     .from("preventivi")
@@ -2663,6 +2755,18 @@ export async function completaCalcoloSpedizionePreventivoAction(input: {
   };
   const mailTestoFirmato = testoMailPreventivoConFirma(prev.mail_bozza_testo);
   const mailHtmlFirmato = htmlMailPreventivoConFirma(prev.mail_bozza_testo);
+  const extraAllegati = await leggiAllegatiInvioPreventivo(prev.id);
+  if (!extraAllegati.ok) {
+    return { success: false, error: `Importo salvato. ${extraAllegati.error}` };
+  }
+  const allegatiMail = [
+    {
+      filename: pdf.fileName,
+      content: pdf.buffer,
+      contentType: "application/pdf",
+    },
+    ...extraAllegati.files,
+  ];
   let smtpMessageId: string | null = null;
   try {
     const sent = await sendMailViaAccount({
@@ -2671,13 +2775,7 @@ export async function completaCalcoloSpedizionePreventivoAction(input: {
       subject: prev.mail_bozza_oggetto,
       text: mailTestoFirmato,
       html: mailHtmlFirmato,
-      attachments: [
-        {
-          filename: pdf.fileName,
-          content: pdf.buffer,
-          contentType: "application/pdf",
-        },
-      ],
+      attachments: allegatiMail,
     });
     smtpMessageId = sent.messageId;
   } catch (e) {
@@ -2704,13 +2802,7 @@ export async function completaCalcoloSpedizionePreventivoAction(input: {
     html: mailHtmlFirmato,
     messageId: smtpMessageId,
     userId: auth.userId,
-    attachments: [
-      {
-        filename: pdf.fileName,
-        content: pdf.buffer,
-        contentType: "application/pdf",
-      },
-    ],
+    attachments: allegatiMail,
   });
   const { error: sentErr } = await service
     .from("preventivi")
@@ -2839,5 +2931,300 @@ export async function apriPdfPreventivoEmessoAction(
     success: true,
     url: signed.data.signedUrl,
     filename: String(data.filename ?? "preventivo.pdf"),
+  };
+}
+
+export async function sostituisciAllegatiInvioPreventivoAction(
+  formData: FormData
+): Promise<{ success: true; count: number } | { success: false; error: string }> {
+  const gate = await requirePreventiviAccess();
+  if (!gate.ok) return { success: false, error: gate.error };
+  const preventivoId = String(formData.get("preventivoId") ?? "");
+  if (!/^[0-9a-f-]{36}$/i.test(preventivoId)) {
+    return { success: false, error: "Preventivo non valido." };
+  }
+  const files = formData
+    .getAll("file")
+    .filter((item): item is File => item instanceof File && item.size > 0);
+  if (files.length > ALLEGATI_INVIO_MAX) {
+    return { success: false, error: "Puoi allegare al massimo 8 file." };
+  }
+  for (const file of files) {
+    if (!mimeAllegatoInvio(file)) {
+      return {
+        success: false,
+        error: `Tipo non ammesso per «${file.name}». Usa PDF, JPEG, PNG o WebP.`,
+      };
+    }
+    if (file.size > ALLEGATI_INVIO_BYTES) {
+      return { success: false, error: `«${file.name}» supera 15 MB.` };
+    }
+  }
+  const service = createServiceClient();
+  const { data: prev, error: prevErr } = await service
+    .from("preventivi")
+    .select("id, stato, sent_at, numero_interno")
+    .eq("id", preventivoId)
+    .is("deleted_at", null)
+    .maybeSingle();
+  if (prevErr || !prev) {
+    return { success: false, error: prevErr?.message ?? "Preventivo non trovato." };
+  }
+  if (prev.sent_at || prev.stato === "inviato") {
+    return {
+      success: false,
+      error: "Il preventivo è già stato inviato: gli allegati non si sostituiscono.",
+    };
+  }
+  const nuovi: string[] = [];
+  const now = new Date().toISOString();
+  try {
+    for (const file of files) {
+      const mime = mimeAllegatoInvio(file);
+      if (!mime) throw new Error(`Tipo non ammesso per «${file.name}».`);
+      const id = randomUUID();
+      const safe = file.name.replace(/[^\w.\- ()àèéìòù]+/gi, "_").slice(0, 80);
+      const path = `${preventivoId}/${id}-${safe || "allegato"}`;
+      const bytes = Buffer.from(await file.arrayBuffer());
+      const uploaded = await service.storage
+        .from(PREVENTIVI_ALLEGATI_BUCKET)
+        .upload(path, bytes, { contentType: mime, upsert: false });
+      if (uploaded.error) throw new Error(uploaded.error.message);
+      const inserted = await service.from("preventivi_allegati_invio").insert({
+        id,
+        preventivo_id: preventivoId,
+        storage_path: path,
+        file_name: file.name.slice(0, 180),
+        content_type: mime,
+        byte_size: bytes.length,
+        created_by: gate.auth.userId,
+        updated_by: gate.auth.userId,
+      });
+      if (inserted.error) throw new Error(inserted.error.message);
+      nuovi.push(id);
+    }
+  } catch (e) {
+    if (nuovi.length) {
+      await service
+        .from("preventivi_allegati_invio")
+        .update({
+          deleted_at: now,
+          deleted_by: gate.auth.userId,
+          updated_by: gate.auth.userId,
+        })
+        .in("id", nuovi);
+    }
+    return {
+      success: false,
+      error: e instanceof Error ? e.message : "Allegati non salvati.",
+    };
+  }
+  const { data: vivi, error: viviErr } = await service
+    .from("preventivi_allegati_invio")
+    .select("id")
+    .eq("preventivo_id", preventivoId)
+    .is("deleted_at", null);
+  if (viviErr) return { success: false, error: viviErr.message };
+  const vecchi = (vivi ?? [])
+    .map((row) => String(row.id))
+    .filter((id) => !nuovi.includes(id));
+  if (vecchi.length) {
+    const rimossi = await service
+      .from("preventivi_allegati_invio")
+      .update({
+        deleted_at: now,
+        deleted_by: gate.auth.userId,
+        updated_by: gate.auth.userId,
+        updated_at: now,
+      })
+      .in("id", vecchi);
+    if (rimossi.error) return { success: false, error: rimossi.error.message };
+  }
+  await writeAuditLog({
+    entity_type: "preventivi",
+    entity_id: preventivoId,
+    action: files.length ? "attachment_upload" : "attachment_remove",
+    actor_id: gate.auth.userId,
+    summary: files.length
+      ? `Allegati del preventivo ${prev.numero_interno}: ${files.length} file`
+      : `Allegati del preventivo ${prev.numero_interno} rimossi`,
+    payload: { nomi: files.map((file) => file.name) },
+  });
+  return { success: true, count: files.length };
+}
+
+export type MailInviataCollegabile = {
+  id: string;
+  oggetto: string;
+  destinatario: string;
+  inviataIl: string;
+  mittente: string;
+};
+
+function testoIndirizzi(value: unknown): string {
+  if (Array.isArray(value)) return value.map((item) => String(item)).join(", ");
+  return String(value ?? "");
+}
+
+export async function listMailInviatePerPreventivoAction(
+  preventivoId: string
+): Promise<
+  | { success: true; messaggi: MailInviataCollegabile[]; verso: string }
+  | { success: false; error: string }
+> {
+  const gate = await requirePreventiviAccess();
+  if (!gate.ok) return { success: false, error: gate.error };
+  if (!/^[0-9a-f-]{36}$/i.test(preventivoId)) {
+    return { success: false, error: "Preventivo non valido." };
+  }
+  const service = createServiceClient();
+  const { data: prev, error: prevErr } = await service
+    .from("preventivi")
+    .select("id, mail_bozza_to, cliente_id, cliente_possibile_id, stato")
+    .eq("id", preventivoId)
+    .is("deleted_at", null)
+    .maybeSingle();
+  if (prevErr || !prev) {
+    return { success: false, error: prevErr?.message ?? "Preventivo non trovato." };
+  }
+  if (prev.stato !== "creato_da_inviare") {
+    return { success: false, error: "Questo preventivo non è in Creato da inviare." };
+  }
+  let verso = String(prev.mail_bozza_to ?? "").trim().toLowerCase();
+  if (!verso.includes("@") && prev.cliente_id) {
+    const { data } = await service
+      .from("clienti")
+      .select("email")
+      .eq("id", prev.cliente_id)
+      .maybeSingle();
+    verso = String(data?.email ?? "").trim().toLowerCase();
+  }
+  if (!verso.includes("@") && prev.cliente_possibile_id) {
+    const { data } = await service
+      .from("clienti_possibili")
+      .select("email")
+      .eq("id", prev.cliente_possibile_id)
+      .maybeSingle();
+    verso = String(data?.email ?? "").trim().toLowerCase();
+  }
+  const vis = await resolveWebmailAccountVisibility(gate.auth);
+  if (vis.mode === "granted" && vis.ids.length === 0) {
+    return { success: true, messaggi: [], verso };
+  }
+  const dal = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
+  let query = service
+    .from("webmail_messaggi")
+    .select("id, subject, to_addresses, from_address, sent_at, created_at")
+    .eq("direction", "outbound")
+    .is("deleted_at", null)
+    .gte("created_at", dal)
+    .order("created_at", { ascending: false })
+    .limit(100);
+  if (vis.mode === "granted") query = query.in("account_id", vis.ids);
+  const { data, error } = await query;
+  if (error) return { success: false, error: error.message };
+  const tutte = (data ?? []).map((row) => ({
+    id: String(row.id),
+    oggetto: String(row.subject ?? "") || "(senza oggetto)",
+    destinatario: testoIndirizzi(row.to_addresses),
+    inviataIl: String(row.sent_at || row.created_at || ""),
+    mittente: String(row.from_address ?? ""),
+  }));
+  const mirate = verso.includes("@")
+    ? tutte.filter((row) => row.destinatario.toLowerCase().includes(verso))
+    : [];
+  return {
+    success: true,
+    messaggi: mirate.length ? mirate : tutte,
+    verso,
+  };
+}
+
+export async function collegaInvioManualePreventivoAction(input: {
+  preventivoId: string;
+  messaggioId: string;
+}): Promise<{ success: true; item: Preventivo } | { success: false; error: string }> {
+  const gate = await requirePreventiviAccess();
+  if (!gate.ok) return { success: false, error: gate.error };
+  if (
+    !/^[0-9a-f-]{36}$/i.test(input.preventivoId) ||
+    !/^[0-9a-f-]{36}$/i.test(input.messaggioId)
+  ) {
+    return { success: false, error: "Dati non validi." };
+  }
+  const service = createServiceClient();
+  const { data: prev, error: prevErr } = await service
+    .from("preventivi")
+    .select("id, stato, numero_interno, sent_at, accettazione_senior_stato")
+    .eq("id", input.preventivoId)
+    .is("deleted_at", null)
+    .maybeSingle();
+  if (prevErr || !prev) {
+    return { success: false, error: prevErr?.message ?? "Preventivo non trovato." };
+  }
+  if (prev.stato !== "creato_da_inviare" || prev.sent_at) {
+    return { success: false, error: "Questo preventivo non è in attesa di conferma invio." };
+  }
+  if (
+    accettazioneSeniorBloccaInvio(
+      parseAccettazioneSeniorStato(prev.accettazione_senior_stato)
+    )
+  ) {
+    return {
+      success: false,
+      error: "Il senior deve accettare questo preventivo prima di segnarlo inviato.",
+    };
+  }
+  const vis = await resolveWebmailAccountVisibility(gate.auth);
+  let mailQuery = service
+    .from("webmail_messaggi")
+    .select("id, subject, account_id")
+    .eq("id", input.messaggioId)
+    .eq("direction", "outbound")
+    .is("deleted_at", null);
+  if (vis.mode === "granted") mailQuery = mailQuery.in("account_id", vis.ids);
+  const { data: mail, error: mailErr } = await mailQuery.maybeSingle();
+  if (mailErr || !mail) {
+    return { success: false, error: "Mail inviata non trovata nella tua casella." };
+  }
+  const now = new Date().toISOString();
+  const { data: updated, error: upErr } = await service
+    .from("preventivi")
+    .update({
+      stato: "inviato",
+      documento_stato: "approvato",
+      sent_at: now,
+      sent_by: gate.auth.userId,
+      webmail_invio_id: mail.id,
+      updated_by: gate.auth.userId,
+    })
+    .eq("id", prev.id)
+    .eq("stato", "creato_da_inviare")
+    .is("deleted_at", null)
+    .select("*")
+    .single();
+  if (upErr || !updated) {
+    return { success: false, error: upErr?.message ?? "Stato non aggiornato." };
+  }
+  await writeAuditLog({
+    entity_type: "preventivi",
+    entity_id: prev.id,
+    action: "status_change",
+    actor_id: gate.auth.userId,
+    summary: `Preventivo ${prev.numero_interno} segnato inviato e collegato alla mail «${mail.subject ?? ""}»`,
+    payload: { webmailInvioId: mail.id, oggetto: mail.subject ?? "" },
+  });
+  const righe = await attachRighe([prev.id]);
+  const pdfEmessi = await attachPdfEmessi([prev.id]);
+  return {
+    success: true,
+    item: mapPreventivo(
+      updated as PreventivoRow,
+      righe.get(prev.id) ?? [],
+      "",
+      gate.auth.userId,
+      isSuperadminProfile(gate.auth.profile),
+      pdfEmessi.get(prev.id) ?? []
+    ),
   };
 }

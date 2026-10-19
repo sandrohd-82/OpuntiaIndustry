@@ -1546,6 +1546,7 @@ export interface CampionaturaRigaRow {
 export type PreventivoStatoDb =
   | "creato"
   | "in_attesa_spedizione"
+  | "creato_da_inviare"
   | "inviato"
   | "accettato"
   | "respinto";
@@ -1603,6 +1604,7 @@ export interface PreventivoRow {
   spedizione_lock_by: string | null;
   spedizione_lock_at: string | null;
   webmail_accettazione_id: string | null;
+  webmail_invio_id?: string | null;
   referente_accettazione_id: string | null;
   sent_at: string | null;
   sent_by: string | null;

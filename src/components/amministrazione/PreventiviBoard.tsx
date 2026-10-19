@@ -15,6 +15,7 @@ import { createClient } from "@/lib/supabase/client";
 import { PreventivoCalcoloSpedizioneSheet } from "@/components/amministrazione/PreventivoCalcoloSpedizioneSheet";
 import { OrdiniAttesaCalcoloSpedizione } from "@/components/amministrazione/OrdineCalcoloSpedizioneSheet";
 import { PreventivoFormModal } from "@/components/amministrazione/PreventivoFormModal";
+import { PreventivoInvioManualeModal } from "@/components/amministrazione/PreventivoInvioManualeModal";
 import { AccettazioneSeniorBar } from "@/components/amministrazione/AccettazioneSeniorBar";
 import { accettazioneSeniorBloccaInvio } from "@/lib/amministrazione/accettazione-senior";
 import {
@@ -22,6 +23,7 @@ import {
   PREVENTIVO_RACCOLTA_LABEL,
   PREVENTIVO_RACCOLTE,
   PREVENTIVO_STATO_LABEL,
+  conteggiPreventiviVuoti,
   etichettaPdfEmesso,
   notifyPreventiviSpedizioneNav,
   type Preventivo,
@@ -38,10 +40,27 @@ function formatDate(iso: string) {
   }
 }
 
+function testoRaccolta(archivio: boolean, raccolta: PreventivoRaccolta) {
+  if (archivio) {
+    return "Preventivi creati da più di 30 giorni. Da completare, Creato da inviare, Inviati e Accettati sono raccolte di questa pagina.";
+  }
+  if (raccolta === "da_completare") {
+    return "Bozze e preventivi in attesa del costo spedizione. Gli ordini diretti in attesa dello stesso calcolo sono nel riquadro sopra. Restano qui 30 giorni dalla creazione, poi passano in Archivio.";
+  }
+  if (raccolta === "creato_da_inviare") {
+    return "Preventivi salvati con numero e scaricati per l'invio manuale. Quando la mail è partita, clicca Preventivo inviato e collega il messaggio. Restano qui 30 giorni dalla creazione, poi passano in Archivio.";
+  }
+  if (raccolta === "inviati") {
+    return "Preventivi inviati o respinti. Restano qui 30 giorni dalla creazione, poi passano in Archivio.";
+  }
+  return "Preventivi accettati. Restano qui 30 giorni dalla creazione, poi passano in Archivio.";
+}
+
 function statoClass(stato: PreventivoStato) {
   if (stato === "accettato") return "bg-emerald-50 text-emerald-800";
   if (stato === "inviato") return "bg-sky-50 text-sky-800";
   if (stato === "in_attesa_spedizione") return "bg-amber-50 text-amber-900";
+  if (stato === "creato_da_inviare") return "bg-violet-50 text-violet-900";
   if (stato === "respinto") return "bg-red-50 text-red-700";
   return "bg-slate-100 text-slate-700";
 }
@@ -54,11 +73,9 @@ export function PreventiviBoard({
   archivio?: boolean;
 } = {}) {
   const [items, setItems] = useState<Preventivo[]>([]);
-  const [conteggi, setConteggi] = useState<Record<PreventivoRaccolta, number>>({
-    da_completare: 0,
-    inviati: 0,
-    accettati: 0,
-  });
+  const [conteggi, setConteggi] = useState<Record<PreventivoRaccolta, number>>(
+    conteggiPreventiviVuoti()
+  );
   const [raccolta, setRaccolta] = useState<PreventivoRaccolta>(
     raccoltaFissa ?? "da_completare"
   );
@@ -68,6 +85,7 @@ export function PreventiviBoard({
   const [creating, setCreating] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [completaItem, setCompletaItem] = useState<Preventivo | null>(null);
+  const [invioManuale, setInvioManuale] = useState<Preventivo | null>(null);
   const [dettaglioItem, setDettaglioItem] = useState<Preventivo | null>(null);
 
   async function reload(next = raccolta) {
@@ -146,13 +164,7 @@ export function PreventiviBoard({
 
       <div className="flex flex-wrap items-center justify-between gap-3">
         <p className="text-sm text-[var(--muted)]">
-          {archivio
-            ? "Preventivi creati da più di 30 giorni. Da completare, Inviati e Accettati sono raccolte di questa pagina."
-            : raccolta === "da_completare"
-              ? "Bozze e preventivi in attesa del costo spedizione. Gli ordini diretti in attesa dello stesso calcolo sono nel riquadro sopra. Restano qui 30 giorni dalla creazione, poi passano in Archivio."
-              : raccolta === "inviati"
-                ? "Preventivi inviati o respinti. Restano qui 30 giorni dalla creazione, poi passano in Archivio."
-                : "Preventivi accettati. Restano qui 30 giorni dalla creazione, poi passano in Archivio."}
+          {testoRaccolta(archivio, raccolta)}
         </p>
         {archivio ? null : (
         <ActionGate actionKey={AZ.creaPreventivo}>
@@ -356,6 +368,19 @@ export function PreventiviBoard({
                           </button>
                         )
                       ) : null}
+                      {item.stato === "creato_da_inviare" &&
+                      !accettazioneSeniorBloccaInvio(item.accettazioneSeniorStato) ? (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setInvioManuale(item);
+                            setError(null);
+                          }}
+                          className="rounded-lg bg-violet-800 px-2 py-1 text-xs text-white"
+                        >
+                          Preventivo inviato
+                        </button>
+                      ) : null}
                       {item.stato === "creato" &&
                       !accettazioneSeniorBloccaInvio(item.accettazioneSeniorStato) ? (
                         <button
@@ -421,7 +446,31 @@ export function PreventiviBoard({
             if (item.stato === "in_attesa_spedizione") {
               notifyPreventiviSpedizioneNav();
             }
+            if (item.stato === "creato_da_inviare") {
+              setRaccolta("creato_da_inviare");
+              setNotice(
+                `${item.numeroInterno} è in Creato da inviare. Quando lo hai mandato, clicca Preventivo inviato e collega la mail.`
+              );
+              void reload("creato_da_inviare");
+              return;
+            }
             void reload();
+          }}
+        />
+      ) : null}
+
+      {invioManuale ? (
+        <PreventivoInvioManualeModal
+          preventivoId={invioManuale.id}
+          numero={invioManuale.numeroInterno}
+          onClose={() => setInvioManuale(null)}
+          onSaved={() => {
+            setNotice(
+              `${invioManuale.numeroInterno} segnato inviato e collegato alla mail.`
+            );
+            setInvioManuale(null);
+            setRaccolta("inviati");
+            void reload("inviati");
           }}
         />
       ) : null}
@@ -437,9 +486,16 @@ export function PreventiviBoard({
               );
               notifyPreventiviSpedizioneNav();
             }
-            void reload(
-              item.stato === "in_attesa_spedizione" ? "da_completare" : raccolta
-            );
+            if (item.stato === "creato_da_inviare") {
+              setRaccolta("creato_da_inviare");
+              setNotice(
+                `${item.numeroInterno} è in Creato da inviare. Quando lo hai mandato, clicca Preventivo inviato e collega la mail.`
+              );
+            }
+            let raccoltaSalvata = raccolta;
+            if (item.stato === "in_attesa_spedizione") raccoltaSalvata = "da_completare";
+            if (item.stato === "creato_da_inviare") raccoltaSalvata = "creato_da_inviare";
+            void reload(raccoltaSalvata);
           }}
         />
       ) : null}

@@ -23,6 +23,7 @@ export const PREVENTIVI_LOCK_MS = 15 * 60 * 1000;
 
 export const PREVENTIVO_RACCOLTE = [
   "da_completare",
+  "creato_da_inviare",
   "inviati",
   "accettati",
 ] as const;
@@ -30,14 +31,25 @@ export type PreventivoRaccolta = (typeof PREVENTIVO_RACCOLTE)[number];
 
 export const PREVENTIVO_RACCOLTA_LABEL: Record<PreventivoRaccolta, string> = {
   da_completare: "Da completare",
+  creato_da_inviare: "Creato da inviare",
   inviati: "Inviati",
   accettati: "Accettati",
 };
+
+export function conteggiPreventiviVuoti(): Record<PreventivoRaccolta, number> {
+  return {
+    da_completare: 0,
+    creato_da_inviare: 0,
+    inviati: 0,
+    accettati: 0,
+  };
+}
 
 export function statiPreventivoRaccolta(
   raccolta: PreventivoRaccolta
 ): PreventivoStato[] {
   if (raccolta === "da_completare") return ["creato", "in_attesa_spedizione"];
+  if (raccolta === "creato_da_inviare") return ["creato_da_inviare"];
   if (raccolta === "inviati") return ["inviato", "respinto"];
   return ["accettato"];
 }
@@ -54,6 +66,7 @@ export function spedizioneLockAttivo(
 export const PREVENTIVO_STATI = [
   "creato",
   "in_attesa_spedizione",
+  "creato_da_inviare",
   "inviato",
   "accettato",
   "respinto",
@@ -64,6 +77,7 @@ export type PreventivoStato = (typeof PREVENTIVO_STATI)[number];
 export const PREVENTIVO_STATO_LABEL: Record<PreventivoStato, string> = {
   creato: "Creato (non inviato)",
   in_attesa_spedizione: "In attesa spedizione",
+  creato_da_inviare: "Creato da inviare",
   inviato: "Inviato",
   accettato: "Accettato",
   respinto: "Respinto",
@@ -289,6 +303,7 @@ export type Preventivo = {
   commercialeRiferimentoEmail: string;
   note: string;
   webmailAccettazioneId: string | null;
+  webmailInvioId: string | null;
   referenteAccettazioneId: string | null;
   referenteAccettazioneLabel: string;
   archiviatoAt: string | null;
@@ -464,7 +479,7 @@ export const createPreventivoSchema = z
       .uuid("Seleziona il commerciale di riferimento"),
     id: z.string().uuid().optional(),
     intenzione: z
-      .enum(["bozza", "salvato", "inviato"])
+      .enum(["bozza", "salvato", "inviato", "da_inviare"])
       .optional()
       .default("bozza"),
     note: z

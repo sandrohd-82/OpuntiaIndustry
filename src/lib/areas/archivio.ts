@@ -48,7 +48,7 @@ export const ARCHIVIO_SECTIONS: readonly NavItem[] = [
         slug: "preventivi",
         label: "Preventivi",
         description:
-          "Da completare, Inviati e Accettati nella stessa pagina, dopo 30 giorni dalla creazione",
+          "Da completare, Creato da inviare, Inviati e Accettati nella stessa pagina, dopo 30 giorni dalla creazione",
         path: "/app/archivio/commerciale/preventivi",
       },
     ],

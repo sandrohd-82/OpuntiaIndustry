@@ -26,6 +26,7 @@ export type StoricoScontoVoce = {
 const STATO_PREVENTIVO: Record<string, string> = {
   creato: "Bozza",
   in_attesa_spedizione: "In attesa spedizione",
+  creato_da_inviare: "Creato da inviare",
   inviato: "Inviato",
   accettato: "Accettato",
   respinto: "Respinto",

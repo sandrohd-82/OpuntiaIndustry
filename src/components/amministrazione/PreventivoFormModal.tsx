@@ -19,6 +19,7 @@ import {
   listPreventivoCommercialiRiferimentoAction,
   peekNextNumeroPreventivoAction,
   savePreventivoAction,
+  sostituisciAllegatiInvioPreventivoAction,
   stimaSpedizionePreventivoAction,
 } from "@/app/actions/preventivi";
 import { traduciIntercomunicazioneAction } from "@/app/actions/traduci-intercomunicazione";
@@ -79,6 +80,7 @@ import {
   vociEtichetteFissePreventivo,
 } from "@/lib/amministrazione/preventivo-etichette";
 import { foglioPreventivoToPdfBase64 } from "@/lib/amministrazione/preventivo-foglio-cattura";
+import { scaricaBlob, zipNonCompresso } from "@/lib/amministrazione/zip-store";
 import { labelLingua } from "@/lib/ecosystem/geo-nazioni";
 import { LISTINO_CONTRATTO_MSG } from "@/lib/ecosystem/listino-vigente";
 import {
@@ -285,6 +287,8 @@ export function PreventivoFormModal({ onClose, onSaved, preventivoId }: Props) {
   const [preparazioneInvio, setPreparazioneInvio] = useState<
     "lingua" | "invio" | null
   >(null);
+  const [allegatiMail, setAllegatiMail] = useState<File[]>([]);
+  const [scaricaAvviso, setScaricaAvviso] = useState(false);
   const bozzaMailItRef = useRef({ oggetto: "", testo: "" });
   const [foglioPronto, setFoglioPronto] = useState(!preventivoId);
   const [copiaTradotta, setCopiaTradotta] = useState<Record<string, string> | null>(
@@ -865,6 +869,7 @@ export function PreventivoFormModal({ onClose, onSaved, preventivoId }: Props) {
         commercialeRiferimentoEmail: commerciale.email,
         note: note.trim() || PREVENTIVO_NOTE_DEFAULT,
         webmailAccettazioneId: null,
+        webmailInvioId: null,
         referenteAccettazioneId: null,
         referenteAccettazioneLabel: "",
         archiviatoAt: null,
@@ -1104,6 +1109,55 @@ export function PreventivoFormModal({ onClose, onSaved, preventivoId }: Props) {
     setInviaOpen(true);
   }
 
+  async function memorizzaAllegati(id: string) {
+    if (id.startsWith("prova-")) return { success: true as const, count: 0 };
+    const body = new FormData();
+    body.set("preventivoId", id);
+    for (const file of allegatiMail) body.append("file", file);
+    const res = await sostituisciAllegatiInvioPreventivoAction(body);
+    if (!res.success) return res;
+    if (res.count !== allegatiMail.length) {
+      return {
+        success: false as const,
+        error:
+          "Gli allegati salvati non coincidono con quelli scelti. La mail non è partita.",
+      };
+    }
+    return res;
+  }
+
+  function aggiungiAllegatiMail(lista: FileList | null) {
+    const scelti = Array.from(lista ?? []);
+    if (!scelti.length) return;
+    const ammessi = ["application/pdf", "image/jpeg", "image/png", "image/webp"];
+    const next = [...allegatiMail];
+    for (const file of scelti) {
+      const ext = file.name.split(".").pop()?.toLowerCase();
+      const mimeOk =
+        ammessi.includes(file.type) ||
+        ext === "pdf" ||
+        ext === "jpg" ||
+        ext === "jpeg" ||
+        ext === "png" ||
+        ext === "webp";
+      if (!mimeOk) {
+        setMailError(`Tipo non ammesso per «${file.name}». Usa PDF, JPEG, PNG o WebP.`);
+        return;
+      }
+      if (file.size > 15 * 1024 * 1024) {
+        setMailError(`«${file.name}» supera 15 MB.`);
+        return;
+      }
+      if (next.length >= 8) {
+        setMailError("Puoi allegare al massimo 8 file.");
+        return;
+      }
+      next.push(file);
+    }
+    setAllegatiMail(next);
+    setMailError(null);
+  }
+
   async function onSalvaRichiestaCalcolo() {
     if (!destinatario) {
       setFormError("Seleziona un destinatario.");
@@ -1200,6 +1254,12 @@ export function PreventivoFormModal({ onClose, onSaved, preventivoId }: Props) {
       setFormError(result.error);
       return;
     }
+    const allegati = await memorizzaAllegati(result.item.id);
+    if (!allegati.success) {
+      setMailError(allegati.error);
+      setFormError(allegati.error);
+      return;
+    }
     setInviaOpen(false);
     closeEdit();
     onSaved(result.item);
@@ -1248,6 +1308,12 @@ export function PreventivoFormModal({ onClose, onSaved, preventivoId }: Props) {
     const item = await persist("salvato");
     if (!item) {
       setPreparazioneInvio(null);
+      return;
+    }
+    const allegati = await memorizzaAllegati(item.id);
+    if (!allegati.success) {
+      setPreparazioneInvio(null);
+      setMailError(allegati.error);
       return;
     }
     setSaving(true);
@@ -1305,6 +1371,82 @@ export function PreventivoFormModal({ onClose, onSaved, preventivoId }: Props) {
   }
 
   const affiancato = copiaTradotta != null;
+
+  async function onConfermaScarica() {
+    setScaricaAvviso(false);
+    setMailError(null);
+    const lingua = (linguaScelta ?? "").trim().toLowerCase();
+    if (!/^[a-z]{2}$/.test(lingua)) {
+      setMailError("Seleziona la lingua di traduzione del preventivo.");
+      return;
+    }
+    if (lingua !== "it" && (!copiaTradotta || linguaTradotta !== lingua)) {
+      setMailError(
+        "Traduci il preventivo nella lingua scelta, oppure imposta «Non tradurre · italiano»."
+      );
+      return;
+    }
+    if (lingua !== "it" && traduzioneObsoleta) {
+      setMailError(
+        "Aggiorna la traduzione prima del salvataggio, così il PDF è allineato al foglio."
+      );
+      return;
+    }
+    const nodeIt = foglioStampaItRef.current;
+    const nodeTradotto = lingua !== "it" ? foglioTradottoRef.current : null;
+    if (!nodeIt || (lingua !== "it" && !nodeTradotto)) {
+      setMailError("La scheda non è pronta per il PDF. Resta sul preventivo e riprova.");
+      return;
+    }
+    setPreparazioneInvio("invio");
+    const item = await persist("da_inviare");
+    if (!item) {
+      setPreparazioneInvio(null);
+      return;
+    }
+    const allegati = await memorizzaAllegati(item.id);
+    if (!allegati.success) {
+      setPreparazioneInvio(null);
+      setMailError(allegati.error);
+      return;
+    }
+    try {
+      const pdfItaliano = await foglioPreventivoToPdfBase64(nodeIt);
+      const pdfScelto = nodeTradotto
+        ? await foglioPreventivoToPdfBase64(nodeTradotto)
+        : pdfItaliano;
+      const bin = atob(pdfScelto);
+      const pdfBytes = new Uint8Array(bin.length);
+      for (let i = 0; i < bin.length; i += 1) pdfBytes[i] = bin.charCodeAt(i);
+      const nomePdf = nomeFilePreventivoPdf(item.numeroInterno);
+      if (allegatiMail.length === 0) {
+        scaricaBlob(new Blob([pdfBytes], { type: "application/pdf" }), nomePdf);
+      } else {
+        const extra = await Promise.all(
+          allegatiMail.map(async (file) => ({
+            name: file.name,
+            bytes: new Uint8Array(await file.arrayBuffer()),
+          }))
+        );
+        scaricaBlob(
+          zipNonCompresso([{ name: nomePdf, bytes: pdfBytes }, ...extra]),
+          nomePdf.replace(/\.pdf$/i, "") + ".zip"
+        );
+      }
+    } catch (e) {
+      setPreparazioneInvio(null);
+      setMailError(
+        e instanceof Error
+          ? `Preventivo salvato. Download non riuscito: ${e.message}`
+          : "Preventivo salvato. Download non riuscito."
+      );
+      return;
+    }
+    setPreparazioneInvio(null);
+    setInviaOpen(false);
+    onSaved(item);
+    onClose();
+  }
 
   function etichettaConfermaMail() {
     if (preparazioneInvio === "lingua") return "Preparazione lingua…";
@@ -2069,6 +2211,74 @@ export function PreventivoFormModal({ onClose, onSaved, preventivoId }: Props) {
               </span>
             </span>
           </div>
+          <div className="rounded border border-slate-200 px-3 py-2">
+            <p className="text-sm font-medium text-slate-900">Altri allegati</p>
+            <p className="mt-1 text-xs text-slate-500">
+              PDF o immagini, massimo 8 file da 15 MB. Partono insieme al
+              preventivo, anche se l&apos;invio aspetta il costo di spedizione.
+            </p>
+            <input
+              type="file"
+              multiple
+              accept="application/pdf,image/jpeg,image/png,image/webp,.pdf,.jpg,.jpeg,.png,.webp"
+              disabled={saving || preparazioneInvio != null}
+              onChange={(e) => {
+                aggiungiAllegatiMail(e.target.files);
+                e.target.value = "";
+              }}
+              className="mt-2 block w-full text-sm"
+            />
+            {allegatiMail.length ? (
+              <ul className="mt-2 space-y-1">
+                {allegatiMail.map((file, index) => (
+                  <li
+                    key={`${file.name}-${file.size}-${index}`}
+                    className="flex items-center justify-between gap-2 text-sm"
+                  >
+                    <span className="min-w-0 truncate">{file.name}</span>
+                    <button
+                      type="button"
+                      className="shrink-0 text-xs text-red-700 underline"
+                      onClick={() =>
+                        setAllegatiMail((prev) =>
+                          prev.filter((_, i) => i !== index)
+                        )
+                      }
+                    >
+                      Togli
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            ) : null}
+          </div>
+          <button
+            type="button"
+            disabled={saving || preparazioneInvio != null}
+            onClick={() => setScaricaAvviso(true)}
+            className="rounded-lg border border-slate-300 px-3 py-2 text-sm font-medium text-slate-800 hover:bg-slate-50 disabled:opacity-50"
+          >
+            Salva e scarica preventivo
+          </button>
+        </PreventivoEditModal>
+      ) : null}
+      {scaricaAvviso ? (
+        <PreventivoEditModal
+          sopra
+          title="Salva e scarica preventivo"
+          confirmLabel="Conferma"
+          confirmDisabled={saving || preparazioneInvio != null}
+          onClose={() => setScaricaAvviso(false)}
+          onConfirm={() => {
+            void onConfermaScarica();
+          }}
+        >
+          <p className="text-sm text-slate-800">
+            Il preventivo verrà salvato come creato e sarà un preventivo a
+            tutti gli effetti e con numero sequenziale, ti caricherai tu la
+            responsabilità di inviarlo e di cliccare su preventivo inviato non
+            appena lo avrai fatto.
+          </p>
         </PreventivoEditModal>
       ) : null}
       <AziendaNoteBanner
