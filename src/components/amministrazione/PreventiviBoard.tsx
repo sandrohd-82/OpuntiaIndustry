@@ -443,6 +443,11 @@ export function PreventiviBoard({
           preventivoId={editingId}
           onClose={() => setEditingId(null)}
           onSaved={(item) => {
+            if (item.documentoStato === "bozza") {
+              setRaccolta("da_completare");
+              void reload("da_completare");
+              return;
+            }
             if (item.stato === "in_attesa_spedizione") {
               notifyPreventiviSpedizioneNav();
             }
@@ -479,6 +484,11 @@ export function PreventiviBoard({
         <PreventivoFormModal
           onClose={() => setCreating(false)}
           onSaved={(item) => {
+            if (item.documentoStato === "bozza") {
+              setRaccolta("da_completare");
+              void reload("da_completare");
+              return;
+            }
             if (item.stato === "in_attesa_spedizione") {
               setRaccolta("da_completare");
               setNotice(

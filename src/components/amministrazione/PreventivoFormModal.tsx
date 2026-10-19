@@ -936,15 +936,8 @@ export function PreventivoFormModal({ onClose, onSaved, preventivoId }: Props) {
 
   async function onSalvaBozza() {
     const item = await persist("bozza");
-    if (item) {
-      setSessioneMsg(
-        preventivoId
-          ? "Preventivo aggiornato. Il numero resta quello già assegnato."
-          : PREVENTIVI_SESSIONE_PROVA
-            ? "Bozza tenuta in sessione di prova. Il foglio resta aperto e l’archivio non è stato toccato."
-            : "Bozza salvata in archivio. Il numero resta quello assegnato."
-      );
-    }
+    if (!item) return;
+    onClose();
   }
 
   async function mailNellaLinguaSelezionata(): Promise<

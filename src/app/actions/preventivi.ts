@@ -951,16 +951,17 @@ export async function createPreventivoAction(
     };
   }
   const intenzione = input.intenzione ?? "bozza";
+  const bozza = intenzione === "bozza";
   const isRichiestaPrezzo = input.modalitaSpedizionePrezzo === "richiesto";
   const daInviare = intenzione === "da_inviare";
   const senzaImporto =
     !daInviare &&
     (isRichiestaPrezzo || input.modalitaSpedizionePrezzo === "in_fattura");
-  if (isRichiestaPrezzo && !daInviare && input.mailAccountId) {
+  if (!bozza && isRichiestaPrezzo && !daInviare && input.mailAccountId) {
     const casella = await assertWebmailAccountAccess(gate.auth, input.mailAccountId);
     if (!casella.ok) return { success: false, error: casella.error };
   }
-  if (isRichiestaPrezzo && !daInviare) {
+  if (!bozza && isRichiestaPrezzo && !daInviare) {
     const incaricati = await profiliCalcoloSpedizioni();
     if (!incaricati.length) {
       return {
@@ -987,18 +988,22 @@ export async function createPreventivoAction(
         "Questa azienda è affiancata: salva il preventivo come bozza. L'invio si sblocca quando il senior accetta.",
     };
   }
-  const stato = daInviare
-    ? ("creato_da_inviare" as const)
-    : isRichiestaPrezzo
-      ? ("in_attesa_spedizione" as const)
-      : intenzione === "inviato"
-        ? ("inviato" as const)
-        : ("creato" as const);
-  const documentoStato = daInviare || isRichiestaPrezzo
-    ? ("approvato" as const)
-    : intenzione === "bozza"
-      ? ("bozza" as const)
-      : ("approvato" as const);
+  let stato: "creato" | "inviato" | "in_attesa_spedizione" | "creato_da_inviare" =
+    "creato";
+  let documentoStato: "bozza" | "approvato" = "approvato";
+  if (bozza) {
+    stato = "creato";
+    documentoStato = "bozza";
+  } else if (daInviare) {
+    stato = "creato_da_inviare";
+    documentoStato = "approvato";
+  } else if (isRichiestaPrezzo) {
+    stato = "in_attesa_spedizione";
+    documentoStato = "approvato";
+  } else if (intenzione === "inviato") {
+    stato = "inviato";
+    documentoStato = "approvato";
+  }
   const now = new Date().toISOString();
   const seq = await nextSeqAnno(input.dataPreventivo);
   const numero = formatNumeroPreventivo(
@@ -1226,13 +1231,14 @@ export async function savePreventivoAction(
     };
   }
   const intenzione = input.intenzione ?? "bozza";
+  const bozza = intenzione === "bozza";
   const isRichiestaPrezzo = input.modalitaSpedizionePrezzo === "richiesto";
   const daInviare =
     intenzione === "da_inviare" && !PREVENTIVI_SESSIONE_PROVA;
   const senzaImporto =
     !daInviare &&
     (isRichiestaPrezzo || input.modalitaSpedizionePrezzo === "in_fattura");
-  if (isRichiestaPrezzo && !daInviare && input.mailAccountId) {
+  if (!bozza && isRichiestaPrezzo && !daInviare && input.mailAccountId) {
     const casella = await assertWebmailAccountAccess(gate.auth, input.mailAccountId);
     if (!casella.ok) return { success: false, error: casella.error };
   }
@@ -1274,7 +1280,10 @@ export async function savePreventivoAction(
     };
   }
   const entraInAttesa =
-    isRichiestaPrezzo && !daInviare && current.stato !== "in_attesa_spedizione";
+    !bozza &&
+    isRichiestaPrezzo &&
+    !daInviare &&
+    current.stato !== "in_attesa_spedizione";
   if (entraInAttesa) {
     const incaricati = await profiliCalcoloSpedizioni();
     if (!incaricati.length) {
@@ -1285,18 +1294,21 @@ export async function savePreventivoAction(
       };
     }
   }
-  const stato = daInviare
-    ? ("creato_da_inviare" as const)
-    : isRichiestaPrezzo
-      ? ("in_attesa_spedizione" as const)
-      : !PREVENTIVI_SESSIONE_PROVA && intenzione === "inviato"
-        ? ("inviato" as const)
-        : current.stato;
-  const documentoStato = daInviare || isRichiestaPrezzo
-    ? ("approvato" as const)
-    : !PREVENTIVI_SESSIONE_PROVA && intenzione === "inviato"
-      ? ("approvato" as const)
-      : current.documento_stato;
+  let stato = current.stato;
+  let documentoStato = current.documento_stato;
+  if (bozza && !current.sent_at) {
+    stato = "creato";
+    documentoStato = "bozza";
+  } else if (daInviare) {
+    stato = "creato_da_inviare";
+    documentoStato = "approvato";
+  } else if (isRichiestaPrezzo) {
+    stato = "in_attesa_spedizione";
+    documentoStato = "approvato";
+  } else if (!PREVENTIVI_SESSIONE_PROVA && intenzione === "inviato") {
+    stato = "inviato";
+    documentoStato = "approvato";
+  }
   const nextVersione = current.versione + 1;
   const patch: Record<string, unknown> = {
     cliente_id: input.clienteId ?? null,
