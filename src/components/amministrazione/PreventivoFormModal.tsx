@@ -1367,20 +1367,20 @@ export function PreventivoFormModal({ onClose, onSaved, preventivoId }: Props) {
 
   async function onConfermaScarica() {
     setScaricaAvviso(false);
-    setMailError(null);
-    const lingua = (linguaScelta ?? "").trim().toLowerCase();
+    setFormError(null);
+    const lingua = (linguaScelta ?? "it").trim().toLowerCase();
     if (!/^[a-z]{2}$/.test(lingua)) {
-      setMailError("Seleziona la lingua di traduzione del preventivo.");
+      setFormError("Seleziona la lingua di traduzione del preventivo.");
       return;
     }
     if (lingua !== "it" && (!copiaTradotta || linguaTradotta !== lingua)) {
-      setMailError(
+      setFormError(
         "Traduci il preventivo nella lingua scelta, oppure imposta «Non tradurre · italiano»."
       );
       return;
     }
     if (lingua !== "it" && traduzioneObsoleta) {
-      setMailError(
+      setFormError(
         "Aggiorna la traduzione prima del salvataggio, così il PDF è allineato al foglio."
       );
       return;
@@ -1388,7 +1388,7 @@ export function PreventivoFormModal({ onClose, onSaved, preventivoId }: Props) {
     const nodeIt = foglioStampaItRef.current;
     const nodeTradotto = lingua !== "it" ? foglioTradottoRef.current : null;
     if (!nodeIt || (lingua !== "it" && !nodeTradotto)) {
-      setMailError("La scheda non è pronta per il PDF. Resta sul preventivo e riprova.");
+      setFormError("La scheda non è pronta per il PDF. Resta sul preventivo e riprova.");
       return;
     }
     setPreparazioneInvio("invio");
@@ -1397,11 +1397,13 @@ export function PreventivoFormModal({ onClose, onSaved, preventivoId }: Props) {
       setPreparazioneInvio(null);
       return;
     }
-    const allegati = await memorizzaAllegati(item.id);
-    if (!allegati.success) {
-      setPreparazioneInvio(null);
-      setMailError(allegati.error);
-      return;
+    if (allegatiMail.length) {
+      const allegati = await memorizzaAllegati(item.id);
+      if (!allegati.success) {
+        setPreparazioneInvio(null);
+        setFormError(allegati.error);
+        return;
+      }
     }
     try {
       const pdfItaliano = await foglioPreventivoToPdfBase64(nodeIt);
@@ -1428,7 +1430,7 @@ export function PreventivoFormModal({ onClose, onSaved, preventivoId }: Props) {
       }
     } catch (e) {
       setPreparazioneInvio(null);
-      setMailError(
+      setFormError(
         e instanceof Error
           ? `Preventivo salvato. Download non riuscito: ${e.message}`
           : "Preventivo salvato. Download non riuscito."
@@ -1577,6 +1579,17 @@ export function PreventivoFormModal({ onClose, onSaved, preventivoId }: Props) {
             className="rounded-lg border border-white/30 bg-white/10 px-3 py-1.5 text-sm text-white hover:bg-white/20 disabled:opacity-50"
           >
             Salva bozza
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              setFormError(null);
+              setScaricaAvviso(true);
+            }}
+            disabled={saving || preparazioneInvio != null || !foglioPronto}
+            className="rounded-lg border border-white/30 bg-white/10 px-3 py-1.5 text-sm text-white hover:bg-white/20 disabled:opacity-50"
+          >
+            Salva e scarica preventivo
           </button>
           <button
             type="button"
@@ -2245,14 +2258,6 @@ export function PreventivoFormModal({ onClose, onSaved, preventivoId }: Props) {
               </ul>
             ) : null}
           </div>
-          <button
-            type="button"
-            disabled={saving || preparazioneInvio != null}
-            onClick={() => setScaricaAvviso(true)}
-            className="rounded-lg border border-slate-300 px-3 py-2 text-sm font-medium text-slate-800 hover:bg-slate-50 disabled:opacity-50"
-          >
-            Salva e scarica preventivo
-          </button>
         </PreventivoEditModal>
       ) : null}
       {scaricaAvviso ? (
