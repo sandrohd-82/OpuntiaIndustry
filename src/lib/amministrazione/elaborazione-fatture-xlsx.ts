@@ -17,6 +17,20 @@ import {
   type CommercialistaRegistroKind,
 } from "@/lib/amministrazione/commercialista";
 
+/** Vale nel browser, dove l'esportazione della cartella non ha Buffer. */
+function bytesInBase64(bytes: Uint8Array): string {
+  if (typeof window === "undefined") {
+    return Buffer.from(bytes).toString("base64");
+  }
+  const chunk = 0x8000;
+  let binary = "";
+  for (let i = 0; i < bytes.length; i += chunk) {
+    const slice = bytes.subarray(i, Math.min(i + chunk, bytes.length));
+    binary += String.fromCharCode.apply(null, Array.from(slice));
+  }
+  return btoa(binary);
+}
+
 /** Percorso relativo al foglio, senza protocollo file://. */
 function destinazionePdf(cartella: string | undefined, nomeFile: string): string {
   const raw = cartella ? `${cartella}/${nomeFile}` : nomeFile;
@@ -193,7 +207,7 @@ export async function buildElaborazioneFattureXlsx(input: {
   return {
     filename,
     bytes,
-    base64: Buffer.from(bytes).toString("base64"),
+    base64: bytesInBase64(bytes),
   };
 }
 

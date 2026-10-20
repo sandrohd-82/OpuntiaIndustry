@@ -153,6 +153,22 @@ export async function scriviElaborazioneRegistro(input: {
   const nomi = nomiFileElaborazione(input.docs);
   const comeInviata = input.kind === "emessa" || input.kind === "nota_emessa";
   const logo = comeInviata ? await caricaLogoIntestazione() : null;
+  if (input.docs.length > 0) {
+    const excel = registroMostraBeneConsumo(input.kind)
+      ? await buildElaborazioneFattureXlsx({
+          kind: input.kind,
+          anno: input.anno,
+          trimestre: input.trimestre,
+          docs: input.docs,
+          collegaPdf: true,
+        })
+      : await buildUscitaCartellaXlsx({ kind: input.kind, docs: input.docs });
+    await scriviFileInCartella(
+      input.cartella,
+      excel.filename,
+      new Blob([excel.bytes as BlobPart], { type: MIME_XLSX })
+    );
+  }
   for (let i = 0; i < input.docs.length; i += 1) {
     const doc = input.docs[i];
     if (!doc) continue;
@@ -175,19 +191,4 @@ export async function scriviElaborazioneRegistro(input: {
         });
     await scriviFileInCartella(input.cartella, pdf.fileName, pdf.blob);
   }
-  if (input.docs.length === 0) return;
-  const excel = registroMostraBeneConsumo(input.kind)
-    ? await buildElaborazioneFattureXlsx({
-        kind: input.kind,
-        anno: input.anno,
-        trimestre: input.trimestre,
-        docs: input.docs,
-        collegaPdf: true,
-      })
-    : await buildUscitaCartellaXlsx({ kind: input.kind, docs: input.docs });
-  await scriviFileInCartella(
-    input.cartella,
-    excel.filename,
-    new Blob([excel.bytes as BlobPart], { type: MIME_XLSX })
-  );
 }
