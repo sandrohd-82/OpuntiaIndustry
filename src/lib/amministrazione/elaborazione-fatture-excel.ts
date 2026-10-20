@@ -1,3 +1,4 @@
+import { iso2DaNazione } from "@/lib/address/formato-nazione";
 import { nomiPdfUnivoci } from "@/lib/amministrazione/fattura-classica-pdf";
 import { roundMoney } from "@/lib/amministrazione/fatture";
 import {
@@ -95,6 +96,11 @@ export type FatturaElaborazioneSorgente = {
   beneAmmortizzabile: "SI" | "NO" | null;
   /** Matita dal 1° gennaio. Il file PDF delle inviate non la usa. */
   numeroProgressivoAnno?: number | null;
+  /**
+   * Nazione dell'azienda collegata: il fornitore emittente sulle ricevute,
+   * il cliente sulle emesse. Nome anagrafica (es. Francia) o codice ISO.
+   */
+  nazioneAzienda?: string | null;
   notaCredito: boolean;
 };
 
@@ -193,14 +199,26 @@ function intestazioneDi(
   return doc.anagraficaRagioneSociale.trim() || "—";
 }
 
+/** ISO2 dell'anagrafica o del testo già in codice (Francia → FR). */
+function codiceIso(raw: string | null | undefined): string {
+  return iso2DaNazione(raw ?? "") || codiceNazione(raw);
+}
+
 function nazioneDi(
   doc: FatturaElaborazioneSorgente,
   kind: CommercialistaRegistroKind
 ): string {
+  const dallAzienda = codiceIso(doc.nazioneAzienda);
   if (registroLatoEmesso(kind)) {
+    if (dallAzienda) return nomeNazione(dallAzienda) || dallAzienda;
     return nomeNazione(doc.classica?.destinatario.nazione) || "—";
   }
-  return bandieraNazione(doc.classica?.emittente.nazione) || "—";
+  if (dallAzienda) return dallAzienda;
+  return (
+    bandieraNazione(doc.classica?.emittente.nazione) ||
+    codiceIso(doc.classica?.emittente.nazione) ||
+    "—"
+  );
 }
 
 function importiDi(doc: FatturaElaborazioneSorgente) {
@@ -244,11 +262,14 @@ function codiceDestinazione(
   doc: FatturaElaborazioneSorgente,
   kind: CommercialistaRegistroKind
 ): string {
+  const dallAzienda = codiceIso(doc.nazioneAzienda);
+  if (dallAzienda) return dallAzienda;
   const raw = registroLatoEmesso(kind)
     ? (doc.classica?.destinatario.nazione ?? "")
-    : "";
-  const codice = codiceNazione(raw);
+    : (doc.classica?.emittente.nazione ?? "");
+  const codice = codiceIso(raw);
   if (codice) return codice;
+  if (!registroLatoEmesso(kind)) return "—";
   return raw.trim() ? "—" : "IT";
 }
 

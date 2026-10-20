@@ -61,7 +61,7 @@ import {
 } from "@/lib/amministrazione/commercialista-ospite-accesso";
 import { registraAuditOspite } from "@/lib/amministrazione/commercialista-ospite";
 import { assertElaboraContabilita } from "@/lib/auth/elabora-contabilita";
-import { createClient } from "@/lib/supabase/server";
+import { createClient, createServiceClient } from "@/lib/supabase/server";
 import type {
   ElaborazioneContabileInsert,
   ElaborazioneContabileKind,
@@ -1169,8 +1169,35 @@ export type CommercialistaPaperDoc = {
   model: PaperInvoiceModel;
   /** Stesso foglio della fattura classica, dati SDI. Ricevute senza piè di pagina. */
   classica: FatturaClassicaStampaModel | null;
+  /** Nazione dell'azienda collegata (fornitore emittente o cliente). */
+  nazioneAzienda: string;
   sdiAssente: boolean;
 };
+
+/** Sede dell'azienda collegata. Il service role serve perché l'area fiscale non legge l'anagrafica. */
+async function nazioniAnagraficheCollegate(
+  tabella: "clienti" | "fornitori",
+  ids: string[]
+): Promise<Map<string, string>> {
+  const unici = [...new Set(ids.map((id) => id.trim()).filter(Boolean))];
+  const out = new Map<string, string>();
+  if (unici.length === 0) return out;
+  const service = createServiceClient();
+  const { data, error } = await service
+    .from(tabella)
+    .select("id, sede_amm_nazione, sede_mag_nazione")
+    .in("id", unici);
+  if (error) {
+    console.error("[commercialista nazione]", error.message);
+    return out;
+  }
+  for (const row of data ?? []) {
+    const amm = String(row.sede_amm_nazione ?? "").trim();
+    const mag = String(row.sede_mag_nazione ?? "").trim();
+    out.set(String(row.id), amm || mag);
+  }
+  return out;
+}
 
 async function classicaDaSdi(
   supabase: Awaited<ReturnType<typeof createClient>>,
@@ -1380,6 +1407,7 @@ export async function getCommercialistaPaperBatchAction(input: {
     numero_interno: string;
     data_emissione: string;
     ragione: string;
+    anagraficaId: string;
   };
   let testate: Testata[] = [];
 
@@ -1417,7 +1445,7 @@ export async function getCommercialistaPaperBatchAction(input: {
     const { data, error } = await supabase
       .from("fatture_emesse")
       .select(
-        "id, numero_interno, data_emissione, cliente_ragione_sociale, tipo_documento, stato_pagamento, fattura_collegata_id"
+        "id, numero_interno, data_emissione, cliente_id, cliente_ragione_sociale, tipo_documento, stato_pagamento, fattura_collegata_id"
       )
       .is("deleted_at", null)
       .gte("data_emissione", dal)
@@ -1444,12 +1472,13 @@ export async function getCommercialistaPaperBatchAction(input: {
         numero_interno: String(r.numero_interno ?? ""),
         data_emissione: String(r.data_emissione ?? ""),
         ragione: String(r.cliente_ragione_sociale ?? ""),
+        anagraficaId: String(r.cliente_id ?? ""),
       }));
   } else {
     const { data, error } = await supabase
       .from("fatture_ricevute")
       .select(
-        "id, numero_interno, data_emissione, fornitore_ragione_sociale, totale"
+        "id, numero_interno, data_emissione, fornitore_id, fornitore_ragione_sociale, totale"
       )
       .is("deleted_at", null)
       .gte("data_emissione", dal)
@@ -1468,8 +1497,16 @@ export async function getCommercialistaPaperBatchAction(input: {
         numero_interno: String(r.numero_interno ?? ""),
         data_emissione: String(r.data_emissione ?? ""),
         ragione: String(r.fornitore_ragione_sociale ?? ""),
+        anagraficaId: String(r.fornitore_id ?? ""),
       }));
   }
+
+  const nazioniAzienda = await nazioniAnagraficheCollegate(
+    input.kind === "emessa" || input.kind === "nota_emessa"
+      ? "clienti"
+      : "fornitori",
+    testate.map((t) => t.anagraficaId)
+  );
 
   const sequenzaPeriodo = sequenzaCrescentePerData(
     testate.map((t) => ({
@@ -1539,6 +1576,7 @@ export async function getCommercialistaPaperBatchAction(input: {
       numeroProgressivoAnno: progressivoAnno?.get(t.id) ?? null,
       model,
       classica,
+      nazioneAzienda: nazioniAzienda.get(t.anagraficaId) ?? "",
       sdiAssente: !classica,
     });
   }
@@ -1715,6 +1753,7 @@ async function loadDdtPaperDocs(
       numeroProgressivoAnno: progressivoAnno?.get(id) ?? null,
       model,
       classica: null,
+      nazioneAzienda: "",
       sdiAssente: false,
     };
   });

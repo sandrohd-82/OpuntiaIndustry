@@ -160,7 +160,13 @@ export function ElaborazioneRegistroTabella({
                 <td className="px-1.5 py-1 text-right tabular-nums">
                   {formatEuro(riga.totale)}
                 </td>
-                <td className="px-1.5 py-1 text-center text-xl leading-none">
+                <td
+                  className={
+                    riga.nazione.length <= 2
+                      ? "px-1.5 py-1 text-center font-semibold tracking-wide"
+                      : "px-1.5 py-1 text-center text-xl leading-none"
+                  }
+                >
                   {riga.nazione}
                 </td>
                 <td className="px-1.5 py-1 text-center">

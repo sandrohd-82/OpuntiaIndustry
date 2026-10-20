@@ -106,7 +106,11 @@ export async function buildElaborazioneFattureXlsx(input: {
     }
     const nazione = excelRow.getCell(colImporto("Nazione"));
     nazione.alignment = { horizontal: "center" };
-    if (riga.tipo === "fattura" && registroMostraBeneConsumo(input.kind)) {
+    if (
+      riga.tipo === "fattura" &&
+      registroMostraBeneConsumo(input.kind) &&
+      riga.nazione.length > 2
+    ) {
       nazione.font = { name: "Segoe UI Emoji", size: 16 };
       const bene = excelRow.getCell(colImporto("Bene Amm."));
       bene.alignment = { horizontal: "center" };
