@@ -480,12 +480,16 @@ export function FatturaRegistrazioneModal({
   );
   const [spedizioneIvaPercentuale, setSpedizioneIvaPercentuale] = useState<
     number | ""
-  >(seed.spedizioneIvaPercentuale ?? 22);
+  >(
+    seed.spedizioneIvaPercentuale ??
+      (seed.fatturaEstera || (initial?.valuta && initial.valuta !== "EUR") ? 0 : 22)
+  );
   const [spedizioneSottraiIncassi, setSpedizioneSottraiIncassi] = useState(
     seed.spedizioneSottraiIncassi ?? true
   );
   const [ivaPercentuale, setIvaPercentuale] = useState<number | "">(
-    seed.ivaPercentuale ?? 22
+    seed.ivaPercentuale ??
+      (seed.fatturaEstera || (initial?.valuta && initial.valuta !== "EUR") ? 0 : 22)
   );
   const isNc = kind === "nota_credito";
   const [statoIncassoNc, setStatoIncassoNc] = useState<FatturaStatoIncassoNc>(
@@ -637,7 +641,9 @@ export function FatturaRegistrazioneModal({
         })),
         spedizione: numberOrZero(spedizione),
         spedizioneIvaApplicata,
-        spedizioneIvaPercentuale: numberOrZero(spedizioneIvaPercentuale || 22),
+        spedizioneIvaPercentuale: numberOrZero(
+          spedizioneIvaPercentuale === "" ? 22 : spedizioneIvaPercentuale
+        ),
         spedizioneSottraiIncassi: isNc ? spedizioneSottraiIncassi : true,
         notaCredito: isNc,
         ivaPercentuale: isRicevuta ? 0 : numberOrZero(ivaPercentuale),
@@ -1974,7 +1980,9 @@ export function FatturaRegistrazioneModal({
           ficId: editSnapshot?.ficId ?? seed.ficId ?? prefill?.ficId ?? null,
           spedizione: Math.abs(numberOrZero(spedizione)),
           spedizioneIvaApplicata,
-          spedizioneIvaPercentuale: numberOrZero(spedizioneIvaPercentuale || 22),
+          spedizioneIvaPercentuale: numberOrZero(
+            spedizioneIvaPercentuale === "" ? 22 : spedizioneIvaPercentuale
+          ),
           spedizioneSottraiIncassi: isNc ? spedizioneSottraiIncassi : true,
           ivaPercentuale: isRicevuta
             ? totals.ivaPercentualePrevalente
@@ -2530,11 +2538,12 @@ export function FatturaRegistrazioneModal({
                   onClick={() =>
                     setRighe((prev) => [
                       ...prev,
-                      asEditableRiga(
-                        isNc
+                      asEditableRiga({
+                        ...(isNc
                           ? emptyFatturaRigaNotaCredito()
-                          : emptyFatturaRiga()
-                      ),
+                          : emptyFatturaRiga()),
+                        ivaPercentuale: fatturaEstera ? 0 : 22,
+                      }),
                     ])
                   }
                   className="inline-flex items-center gap-1.5 rounded-lg border border-[var(--border)] px-2.5 py-1.5 text-xs font-medium hover:bg-slate-50"
@@ -2548,7 +2557,10 @@ export function FatturaRegistrazioneModal({
                     onClick={() =>
                       setRighe((prev) => [
                         ...prev,
-                        asEditableRiga(emptyFatturaRigaStorno()),
+                        asEditableRiga({
+                          ...emptyFatturaRigaStorno(),
+                          ivaPercentuale: fatturaEstera ? 0 : 22,
+                        }),
                       ])
                     }
                     className="inline-flex items-center gap-1.5 rounded-lg border border-amber-300 bg-amber-50 px-2.5 py-1.5 text-xs font-medium text-amber-950 hover:bg-amber-100"

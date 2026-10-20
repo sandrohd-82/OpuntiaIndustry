@@ -271,6 +271,12 @@ export function prezzoScontatoUnitario(
   return roundMoney(prezzoUnitario * (1 - sconto / 100));
 }
 
+function aliquotaO(value: unknown, seManca: number): number {
+  if (value == null || value === "") return seManca;
+  const n = Number(value);
+  return Number.isFinite(n) ? n : seManca;
+}
+
 export function importoRiga(
   quantita: number,
   prezzoUnitario: number,
@@ -845,7 +851,7 @@ function transformFatturaInput(
         : 22,
     spedizioneSottraiIncassi: isNc ? v.spedizioneSottraiIncassi !== false : true,
     notaCredito: isNc,
-    ivaPercentuale: Number(v.ivaPercentuale) || 22,
+    ivaPercentuale: aliquotaO(v.ivaPercentuale, isRicevuta ? 0 : 22),
     ivaPerRiga: isRicevuta,
     contributiCassa: isRicevuta ? contributiCassa : [],
   });
@@ -969,7 +975,7 @@ function mapRighe(
         scontoPercentuale: Number(r.sconto_percentuale) || 0,
         ivaPercentuale:
           "iva_percentuale" in ricevuta
-            ? Number(ricevuta.iva_percentuale) || 22
+            ? aliquotaO(ricevuta.iva_percentuale, 0)
             : undefined,
         importo: Number(r.importo) || 0,
         isBeneAmmortizzabile: Boolean(r.is_bene_ammortizzabile),
@@ -1041,11 +1047,10 @@ export function mapFatturaEmessaRow(
     ficId: row.fic_id,
     spedizione: Number(row.spedizione) || 0,
     spedizioneIvaApplicata: Boolean(row.spedizione_iva_applicata),
-    spedizioneIvaPercentuale:
-      Number(
-        (row as { spedizione_iva_percentuale?: number })
-          .spedizione_iva_percentuale
-      ) || 22,
+    spedizioneIvaPercentuale: aliquotaO(
+      (row as { spedizione_iva_percentuale?: number }).spedizione_iva_percentuale,
+      22
+    ),
     spedizioneSottraiIncassi: row.spedizione_sottrai_incassi !== false,
     imponibile: Number(row.imponibile) || 0,
     ivaPercentuale: Number(row.iva_percentuale) || 0,
@@ -1104,11 +1109,10 @@ export function mapFatturaRicevutaRow(
     ficId: row.fic_id,
     spedizione: Number(row.spedizione) || 0,
     spedizioneIvaApplicata: Boolean(row.spedizione_iva_applicata),
-    spedizioneIvaPercentuale:
-      Number(
-        (row as { spedizione_iva_percentuale?: number })
-          .spedizione_iva_percentuale
-      ) || 22,
+    spedizioneIvaPercentuale: aliquotaO(
+      (row as { spedizione_iva_percentuale?: number }).spedizione_iva_percentuale,
+      22
+    ),
     spedizioneSottraiIncassi: true,
     imponibile: Number(row.imponibile) || 0,
     ivaPercentuale: Number(row.iva_percentuale) || 0,
