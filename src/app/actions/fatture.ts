@@ -1613,6 +1613,16 @@ export async function createFatturaAction(
     let documentoOriginaleNome: string | null = null;
     const originaleFile = formData.get("documentoOriginale");
     if (originaleFile instanceof File && originaleFile.size > 0) {
+      const nomeAtteso = originaleFile.name || "documento-originale";
+      await supabase
+        .from("fatture_ricevute")
+        .update({
+          documento_originale_file_name: nomeAtteso,
+          updated_by: auth.userId,
+        })
+        .eq("id", row.id);
+      row.documento_originale_file_name = nomeAtteso;
+      documentoOriginaleNome = nomeAtteso;
       const up = await uploadDocumentoOriginale(row.id, originaleFile);
       if ("error" in up) {
         console.error("[documento-originale]", up.error);

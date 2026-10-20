@@ -169,6 +169,8 @@ function vista(row: DocRow, titoli: Map<string, string>): SpesaDocumentoView {
     stato: row.stato,
     versione: row.versione,
     fileName: row.file_name,
+    documentoCaricato: Boolean(String(row.storage_path ?? "").trim()),
+    nomeDocumento: String(row.file_name ?? "").trim(),
     letturaAutomatica: Boolean(row.lettura_automatica),
     privaIva: Boolean(row.priva_iva),
     note: row.note ?? "",
@@ -618,7 +620,7 @@ async function leggiFattureManualiRegistro(
   let q = supabase
     .from("fatture_ricevute")
     .select(
-      "id, data_emissione, fornitore_ragione_sociale, numero_interno, numero_documento_esterno, imponibile, iva_percentuale, imposta, totale, note, valuta, importo_valuta, tasso_cambio, documento_originale_file_name, versione, fornitori(sede_amm_nazione)"
+      "id, data_emissione, fornitore_ragione_sociale, numero_interno, numero_documento_esterno, imponibile, iva_percentuale, imposta, totale, note, valuta, importo_valuta, tasso_cambio, documento_originale_storage_path, documento_originale_file_name, versione, fornitori(sede_amm_nazione)"
     )
     .is("deleted_at", null)
     .ilike("note", `%${NOTA_FATTURA_STRUMENTI}%`)
@@ -632,7 +634,7 @@ async function leggiFattureManualiRegistro(
   let senzaFornitore = supabase
     .from("fatture_ricevute")
     .select(
-      "id, data_emissione, fornitore_ragione_sociale, numero_interno, numero_documento_esterno, imponibile, iva_percentuale, imposta, totale, note, valuta, importo_valuta, tasso_cambio, documento_originale_file_name, versione"
+      "id, data_emissione, fornitore_ragione_sociale, numero_interno, numero_documento_esterno, imponibile, iva_percentuale, imposta, totale, note, valuta, importo_valuta, tasso_cambio, documento_originale_storage_path, documento_originale_file_name, versione"
     )
     .is("deleted_at", null)
     .ilike("note", `%${NOTA_FATTURA_STRUMENTI}%`)
@@ -695,6 +697,8 @@ async function leggiFattureManualiRegistro(
       stato: "registrato",
       versione: Number(row.versione) || 1,
       fileName: String(row.documento_originale_file_name ?? ""),
+      documentoCaricato: Boolean(String(row.documento_originale_storage_path ?? "").trim()),
+      nomeDocumento: String(row.documento_originale_file_name ?? "").trim(),
       letturaAutomatica: false,
       note,
       contabilizzatoAt: null,
@@ -1902,6 +1906,204 @@ export async function urlAllegatoSpesaAction(
     return { success: false, error: signed.error?.message ?? "Apertura file non riuscita." };
   }
   return { success: true, url: signed.data.signedUrl };
+}
+
+const FATTURE_ORIGINALI_BUCKET = "fatture-ricevute-pagamenti";
+const FATTURE_ORIGINALI_MAX = 15 * 1024 * 1024;
+
+function mimeDocumentoRegistro(file: File): string | null {
+  const type = (file.type || "").toLowerCase();
+  if (
+    type === "application/pdf" ||
+    type === "image/jpeg" ||
+    type === "image/png" ||
+    type === "image/webp"
+  ) {
+    return type;
+  }
+  const name = file.name.toLowerCase();
+  if (name.endsWith(".pdf")) return "application/pdf";
+  if (name.endsWith(".png")) return "image/png";
+  if (name.endsWith(".webp")) return "image/webp";
+  if (name.endsWith(".jpg") || name.endsWith(".jpeg")) return "image/jpeg";
+  return null;
+}
+
+export async function apriAllegatoRegistroAction(input: {
+  id: string;
+  fonte: "spesa" | "fattura";
+}): Promise<{ success: true; url: string } | { success: false; error: string }> {
+  if (input.fonte === "spesa") return urlAllegatoSpesaAction(input.id);
+  await requireAreaAccess("area-fiscale");
+  const id = z.string().uuid().safeParse(input.id);
+  if (!id.success) return { success: false, error: "Fattura non valida." };
+  const admin = createServiceClient();
+  const { data, error } = await admin
+    .from("fatture_ricevute")
+    .select("documento_originale_storage_path, note")
+    .eq("id", id.data)
+    .is("deleted_at", null)
+    .maybeSingle();
+  const path = String(data?.documento_originale_storage_path ?? "").trim();
+  const note = String(data?.note ?? "");
+  if (error || !data || !note.includes(NOTA_FATTURA_STRUMENTI) || !path) {
+    return {
+      success: false,
+      error: error?.message ?? "Documento originale non presente.",
+    };
+  }
+  const signed = await admin.storage
+    .from(FATTURE_ORIGINALI_BUCKET)
+    .createSignedUrl(path, 600);
+  if (signed.error || !signed.data?.signedUrl) {
+    return {
+      success: false,
+      error: signed.error?.message ?? "Apertura del documento non riuscita.",
+    };
+  }
+  return { success: true, url: signed.data.signedUrl };
+}
+
+export async function caricaAllegatoRegistroAction(
+  formData: FormData
+): Promise<
+  | { success: true; fileName: string }
+  | { success: false; error: string }
+> {
+  const { auth } = await requireAreaAccess("area-fiscale");
+  const id = z.string().uuid().safeParse(String(formData.get("id") ?? ""));
+  const fonte = z
+    .enum(["spesa", "fattura"])
+    .safeParse(String(formData.get("fonte") ?? ""));
+  if (!id.success || !fonte.success) {
+    return { success: false, error: "Documento non valido." };
+  }
+  const file = formData.get("file");
+  if (!(file instanceof File) || file.size <= 0) {
+    return { success: false, error: "Seleziona il documento." };
+  }
+  const admin = createServiceClient();
+  if (fonte.data === "spesa") {
+    if (file.size > SPESE_MAX_BYTES) {
+      return { success: false, error: "Il file supera gli 8 MB." };
+    }
+    const { data, error } = await admin
+      .from("spese_documenti")
+      .select("id, storage_path, esercente")
+      .eq("id", id.data)
+      .is("deleted_at", null)
+      .maybeSingle();
+    if (error || !data) {
+      return { success: false, error: error?.message ?? "Spesa non trovata." };
+    }
+    if (String(data.storage_path ?? "").trim()) {
+      return { success: false, error: "Il documento è già caricato." };
+    }
+    const ext = extDaNome(file.name);
+    const path = `${auth.userId}/${crypto.randomUUID()}${ext}`;
+    const bytes = Buffer.from(await file.arrayBuffer());
+    const mime = mimeDi(file);
+    const upload = await admin.storage.from(SPESE_BUCKET).upload(path, bytes, {
+      contentType: mime,
+      upsert: false,
+    });
+    if (upload.error) {
+      return { success: false, error: `Caricamento file: ${upload.error.message}` };
+    }
+    const nome = file.name || `spesa${ext}`;
+    const { error: updErr } = await admin
+      .from("spese_documenti")
+      .update({
+        storage_path: path,
+        file_name: nome,
+        mime,
+        updated_by: auth.userId,
+      })
+      .eq("id", id.data)
+      .is("deleted_at", null);
+    if (updErr) return { success: false, error: updErr.message };
+    await writeAuditLog({
+      entity_type: "spese_documenti",
+      entity_id: id.data,
+      action: "attachment_upload",
+      actor_id: auth.userId,
+      summary: `Documento allegato alla spesa ${String(data.esercente ?? "")}`,
+      payload: { file_name: nome, storage_path: path },
+    });
+    return { success: true, fileName: nome };
+  }
+  if (file.size > FATTURE_ORIGINALI_MAX) {
+    return { success: false, error: "Il documento originale supera i 15 MB." };
+  }
+  const mime = mimeDocumentoRegistro(file);
+  if (!mime) {
+    return {
+      success: false,
+      error: "Il documento deve essere un PDF oppure un'immagine JPEG, PNG o WebP.",
+    };
+  }
+  const { data, error } = await admin
+    .from("fatture_ricevute")
+    .select(
+      "id, numero_interno, note, documento_originale_storage_path, documento_originale_file_name"
+    )
+    .eq("id", id.data)
+    .is("deleted_at", null)
+    .maybeSingle();
+  if (error || !data || !String(data.note ?? "").includes(NOTA_FATTURA_STRUMENTI)) {
+    return { success: false, error: error?.message ?? "Fattura non trovata." };
+  }
+  if (String(data.documento_originale_storage_path ?? "").trim()) {
+    return { success: false, error: "Il documento è già caricato." };
+  }
+  const safeName = (file.name || "documento-originale")
+    .replace(/[^\w.\-]+/g, "_")
+    .slice(0, 120);
+  const path = `${id.data}/originale-${Date.now()}-${safeName}`;
+  const bytes = Buffer.from(await file.arrayBuffer());
+  const upload = await admin.storage.from(FATTURE_ORIGINALI_BUCKET).upload(path, bytes, {
+    contentType: mime,
+    upsert: false,
+  });
+  if (upload.error) {
+    const nomeAtteso = file.name || String(data.documento_originale_file_name ?? "");
+    if (nomeAtteso) {
+      await admin
+        .from("fatture_ricevute")
+        .update({
+          documento_originale_file_name: nomeAtteso,
+          updated_by: auth.userId,
+        })
+        .eq("id", id.data)
+        .is("deleted_at", null);
+    }
+    return { success: false, error: upload.error.message };
+  }
+  const nome = file.name || "documento-originale";
+  const { error: updErr } = await admin
+    .from("fatture_ricevute")
+    .update({
+      documento_originale_storage_path: path,
+      documento_originale_file_name: nome,
+      updated_by: auth.userId,
+    })
+    .eq("id", id.data)
+    .is("deleted_at", null);
+  if (updErr) return { success: false, error: updErr.message };
+  await writeAuditLog({
+    entity_type: "fatture_ricevute",
+    entity_id: id.data,
+    action: "attachment_upload",
+    actor_id: auth.userId,
+    summary: `Documento originale caricato su ${String(data.numero_interno ?? "")}`,
+    payload: {
+      file_name: nome,
+      storage_path: path,
+      precedente_storage_path: "",
+      nome_atteso: String(data.documento_originale_file_name ?? ""),
+    },
+  });
+  return { success: true, fileName: nome };
 }
 
 type DbSpese = Awaited<ReturnType<typeof createClient>>;

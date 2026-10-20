@@ -392,6 +392,8 @@ export type SpesaDocumentoView = {
   stato: StatoSpesa;
   versione: number;
   fileName: string;
+  documentoCaricato: boolean;
+  nomeDocumento: string;
   letturaAutomatica: boolean;
   note: string;
   contabilizzatoAt: string | null;

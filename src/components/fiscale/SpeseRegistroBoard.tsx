@@ -1,12 +1,15 @@
 "use client";
 
 import { Fragment, useEffect, useState, useTransition, type ReactNode } from "react";
+import { createPortal } from "react-dom";
 import Link from "next/link";
+import { FaCircleCheck, FaCircleXmark } from "react-icons/fa6";
 import {
   annullaSpesaAction,
+  apriAllegatoRegistroAction,
+  caricaAllegatoRegistroAction,
   contabilizzaSpesaAction,
   listSpeseAction,
-  urlAllegatoSpesaAction,
 } from "@/app/actions/spese";
 import { formatDateIt, formatEuro } from "@/lib/amministrazione/fatture";
 import {
@@ -24,6 +27,173 @@ import {
 
 const field =
   "rounded-lg border border-[var(--border)] bg-white px-3 py-2 text-sm";
+
+function nomeFileBase(value: string): string {
+  const base = value.trim().split(/[/\\]/).pop() ?? "";
+  return base.toLocaleLowerCase("it-IT");
+}
+
+function testoDocumento(spesa: SpesaDocumentoView, modo: "title" | "aria"): string {
+  if (spesa.documentoCaricato) {
+    if (modo === "aria") {
+      return spesa.nomeDocumento
+        ? `Apri documento ${spesa.nomeDocumento}`
+        : "Apri documento";
+    }
+    return spesa.nomeDocumento || "Documento caricato";
+  }
+  if (spesa.nomeDocumento) {
+    return modo === "aria"
+      ? `Carica il documento ${spesa.nomeDocumento}`
+      : `Manca ${spesa.nomeDocumento}`;
+  }
+  return modo === "aria" ? "Carica il documento" : "Documento non caricato";
+}
+
+function stessoDocumento(atteso: string, scelto: string): boolean {
+  const left = nomeFileBase(atteso);
+  const right = nomeFileBase(scelto);
+  if (!left || !right) return true;
+  return left === right;
+}
+
+function CaricaDocumentoRegistro({
+  spesa,
+  onClose,
+  onCaricato,
+}: {
+  spesa: SpesaDocumentoView | null;
+  onClose: () => void;
+  onCaricato: (id: string, fileName: string) => void;
+}) {
+  const [errore, setErrore] = useState<string | null>(null);
+  const [file, setFile] = useState<File | null>(null);
+  const [chiedi, setChiedi] = useState(false);
+  const [pending, setPending] = useState(false);
+  const atteso = spesa?.nomeDocumento.trim() ?? "";
+
+  useEffect(() => {
+    setErrore(null);
+    setFile(null);
+    setChiedi(false);
+    setPending(false);
+  }, [spesa?.id]);
+
+  async function invia(scelto: File) {
+    if (!spesa) return;
+    setPending(true);
+    setErrore(null);
+    const body = new FormData();
+    body.set("id", spesa.id);
+    body.set("fonte", spesa.fonte);
+    body.set("file", scelto);
+    const res = await caricaAllegatoRegistroAction(body);
+    setPending(false);
+    if (!res.success) {
+      setErrore(res.error);
+      return;
+    }
+    onCaricato(spesa.id, res.fileName);
+  }
+
+  function scegli(scelto: File) {
+    setFile(scelto);
+    setErrore(null);
+    if (!stessoDocumento(atteso, scelto.name)) {
+      setChiedi(true);
+      return;
+    }
+    setChiedi(false);
+    void invia(scelto);
+  }
+
+  if (!spesa || typeof document === "undefined") return null;
+
+  return createPortal(
+    <div className="fixed inset-0 z-[200] flex items-center justify-center bg-slate-950/40 p-4">
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="carica-documento-registro-title"
+        className="w-full max-w-md rounded-xl border border-[var(--border)] bg-white p-4 shadow-xl"
+      >
+        <h2 id="carica-documento-registro-title" className="text-base font-semibold text-slate-900">
+          Carica documento
+        </h2>
+        <p className="mt-1 text-sm text-slate-600">{spesa.esercente}</p>
+        {atteso ? (
+          <p className="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-950">
+            Documento atteso: <span className="font-semibold">{atteso}</span>
+          </p>
+        ) : (
+          <p className="mt-3 text-sm text-slate-600">
+            Non risulta il nome del file originale. Controlla di allegare il documento giusto.
+          </p>
+        )}
+        {chiedi && file ? (
+          <p className="mt-3 text-sm text-red-800">
+            Hai selezionato <span className="font-semibold">{file.name}</span>
+            {atteso ? (
+              <>
+                . Non coincide con <span className="font-semibold">{atteso}</span>
+              </>
+            ) : null}
+            .
+          </p>
+        ) : null}
+        {errore ? <p className="mt-3 text-sm text-red-700">{errore}</p> : null}
+        <div className="mt-4 flex flex-wrap justify-end gap-2">
+          <button
+            type="button"
+            onClick={onClose}
+            className="rounded-lg border border-slate-300 px-3 py-2 text-sm"
+          >
+            Chiudi
+          </button>
+          {chiedi && file ? (
+            <button
+              type="button"
+              disabled={pending}
+              onClick={() => {
+                setChiedi(false);
+                setFile(null);
+              }}
+              className="rounded-lg border border-slate-300 px-3 py-2 text-sm"
+            >
+              Scegli un altro
+            </button>
+          ) : null}
+          {chiedi && file ? (
+            <button
+              type="button"
+              disabled={pending}
+              onClick={() => void invia(file)}
+              className="rounded-lg bg-[var(--primary)] px-3 py-2 text-sm font-medium text-white disabled:opacity-50"
+            >
+              {pending ? "Caricamento…" : "Carica questo file"}
+            </button>
+          ) : (
+            <label className="cursor-pointer rounded-lg bg-[var(--primary)] px-3 py-2 text-sm font-medium text-white">
+              {pending ? "Caricamento…" : "Scegli file"}
+              <input
+                type="file"
+                accept="application/pdf,image/jpeg,image/png,image/webp,.pdf,.jpg,.jpeg,.png,.webp"
+                className="hidden"
+                disabled={pending}
+                onChange={(e) => {
+                  const scelto = e.target.files?.[0];
+                  e.target.value = "";
+                  if (scelto) scegli(scelto);
+                }}
+              />
+            </label>
+          )}
+        </div>
+      </div>
+    </div>,
+    document.body
+  );
+}
 
 function VoceDettaglio({
   etichetta,
@@ -194,6 +364,7 @@ export function SpeseRegistroBoard() {
   const [msg, setMsg] = useState<string | null>(null);
   const [confermaId, setConfermaId] = useState<string | null>(null);
   const [aperti, setAperti] = useState<Set<string>>(() => new Set());
+  const [daCaricare, setDaCaricare] = useState<SpesaDocumentoView | null>(null);
   const [pending, start] = useTransition();
 
   function toggleDettagli(id: string) {
@@ -250,15 +421,35 @@ export function SpeseRegistroBoard() {
     });
   }
 
-  function apriFile(id: string) {
+  function apriFile(spesa: SpesaDocumentoView) {
     start(async () => {
-      const res = await urlAllegatoSpesaAction(id);
+      const res = await apriAllegatoRegistroAction({
+        id: spesa.id,
+        fonte: spesa.fonte,
+      });
       if (!res.success) {
         setErrore(res.error);
         return;
       }
       window.open(res.url, "_blank", "noopener,noreferrer");
     });
+  }
+
+  function segnaCaricato(id: string, fileName: string) {
+    setSpese((prev) =>
+      prev.map((spesa) =>
+        spesa.id === id
+          ? {
+              ...spesa,
+              documentoCaricato: true,
+              nomeDocumento: fileName,
+              fileName,
+            }
+          : spesa
+      )
+    );
+    setDaCaricare(null);
+    setMsg("Documento caricato.");
   }
 
   return (
@@ -350,13 +541,14 @@ export function SpeseRegistroBoard() {
               <th className="px-3 py-2">Esercente</th>
               <th className="px-3 py-2 text-right">Totale</th>
               <th className="px-3 py-2">Stato</th>
+              <th className="px-3 py-2">Documento</th>
               <th className="px-3 py-2" />
             </tr>
           </thead>
           <tbody>
             {spese.length === 0 ? (
               <tr>
-                <td colSpan={6} className="px-3 py-6 text-center text-slate-500">
+                <td colSpan={7} className="px-3 py-6 text-center text-slate-500">
                   {pending ? "Caricamento…" : "Nessuna spesa con questi filtri."}
                 </td>
               </tr>
@@ -380,6 +572,29 @@ export function SpeseRegistroBoard() {
                         ) : null}
                       </td>
                       <td className="px-3 py-2">{LABEL_STATO_SPESA[s.stato]}</td>
+                      <td className="px-3 py-2">
+                        <button
+                          type="button"
+                          className="inline-flex items-center gap-1"
+                          title={testoDocumento(s, "title")}
+                          aria-label={testoDocumento(s, "aria")}
+                          onClick={() => {
+                            if (s.documentoCaricato) apriFile(s);
+                            else setDaCaricare(s);
+                          }}
+                        >
+                          {s.documentoCaricato ? (
+                            <FaCircleCheck className="text-emerald-600" size={16} />
+                          ) : (
+                            <FaCircleXmark className="text-red-600" size={16} />
+                          )}
+                          {!s.documentoCaricato && s.nomeDocumento ? (
+                            <span className="max-w-[9rem] truncate text-xs text-red-800">
+                              {s.nomeDocumento}
+                            </span>
+                          ) : null}
+                        </button>
+                      </td>
                       <td className="px-3 py-2 text-right">
                         <button
                           type="button"
@@ -393,11 +608,11 @@ export function SpeseRegistroBoard() {
                     </tr>
                     {aperto ? (
                       <tr className="border-t border-slate-100 bg-slate-50">
-                        <td colSpan={6} className="px-3 py-3">
+                        <td colSpan={7} className="px-3 py-3">
                           <DettagliSpesa
                             spesa={s}
                             chiediConferma={confermaId === s.id}
-                            onFile={() => apriFile(s.id)}
+                            onFile={() => apriFile(s)}
                             onContabilizza={() => contabilizza(s.id)}
                             onChiediContabilizza={() => setConfermaId(s.id)}
                             onAnnulla={() => annulla(s.id)}
@@ -412,6 +627,11 @@ export function SpeseRegistroBoard() {
           </tbody>
         </table>
       </div>
+      <CaricaDocumentoRegistro
+        spesa={daCaricare}
+        onClose={() => setDaCaricare(null)}
+        onCaricato={segnaCaricato}
+      />
     </div>
   );
 }
