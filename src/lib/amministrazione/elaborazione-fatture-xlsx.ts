@@ -17,6 +17,30 @@ import {
   type CommercialistaRegistroKind,
 } from "@/lib/amministrazione/commercialista";
 
+/** Percorso relativo al foglio, senza protocollo file://. */
+function destinazionePdf(cartella: string | undefined, nomeFile: string): string {
+  const raw = cartella ? `${cartella}/${nomeFile}` : nomeFile;
+  return encodeURI(raw.replace(/\\/g, "/"));
+}
+
+function cellaApreFattura(
+  cell: ExcelJS.Cell,
+  testo: string,
+  href: string
+): void {
+  cell.value = {
+    text: testo,
+    hyperlink: href,
+    tooltip: "Apri la fattura",
+  };
+  cell.font = {
+    name: "Calibri",
+    size: 11,
+    color: { argb: "FF1D4ED8" },
+    underline: true,
+  };
+}
+
 function larghezzaColonna(titolo: string): number {
   if (
     titolo === "Nome file" ||
@@ -63,11 +87,14 @@ export async function buildElaborazioneFattureXlsx(input: {
   anno: number;
   trimestre: number;
   docs: FatturaElaborazioneSorgente[];
-  /** Il numero documento apre il PDF che sta nella stessa cartella. */
+  /** Il nome del file apre il PDF. */
   collegaPdf?: boolean;
+  /** Cartella dei PDF vista dal foglio. Vuota se il foglio sta insieme ai PDF. */
+  cartellaRelativa?: string;
+  workbook?: ExcelJS.Workbook;
 }): Promise<{ filename: string; base64: string; bytes: Uint8Array }> {
   const righe = righeElaborazioneFatture(input.docs, input.kind);
-  const wb = new ExcelJS.Workbook();
+  const wb = input.workbook ?? new ExcelJS.Workbook();
   wb.creator = "OpuntiaIndustry";
   wb.created = new Date();
   const nomeFoglio = nomeFoglioRegistro(input.kind);
@@ -119,21 +146,13 @@ export async function buildElaborazioneFattureXlsx(input: {
       };
     }
     if (input.collegaPdf && riga.tipo === "fattura" && riga.nomeFile) {
-      const colNumero = titoli.indexOf("N. documento") + 1;
-      if (colNumero > 0) {
-        const cell = excelRow.getCell(colNumero);
-        const testo = String(cell.value ?? "").trim() || riga.nomeFile;
-        cell.value = {
-          text: testo,
-          hyperlink: riga.nomeFile,
-          tooltip: "Apri il PDF",
-        };
-        cell.font = {
-          name: "Calibri",
-          size: 11,
-          color: { argb: "FF1D4ED8" },
-          underline: true,
-        };
+      const colNome = titoli.indexOf("Nome file") + 1;
+      if (colNome > 0) {
+        cellaApreFattura(
+          excelRow.getCell(colNome),
+          riga.nomeFile,
+          destinazionePdf(input.cartellaRelativa, riga.nomeFile)
+        );
       }
     }
     if (riga.tipo === "fattura" && riga.notaCredito) {
@@ -161,11 +180,11 @@ export async function buildElaborazioneFattureXlsx(input: {
         };
       });
     }
-    if (riga.tipo === "mese" && righe[i + 1]?.tipo === "fattura") {
-      ws.addRow([]);
-    }
   }
 
+  if (input.workbook) {
+    return { filename: "", bytes: new Uint8Array(), base64: "" };
+  }
   const buffer = await wb.xlsx.writeBuffer();
   const bytes = new Uint8Array(buffer);
   const filename = input.collegaPdf
@@ -189,9 +208,11 @@ function larghezzaUscita(titolo: string): number {
 export async function buildUscitaCartellaXlsx(input: {
   kind: CommercialistaRegistroKind;
   docs: FatturaElaborazioneSorgente[];
+  cartellaRelativa?: string;
+  workbook?: ExcelJS.Workbook;
 }): Promise<{ filename: string; bytes: Uint8Array }> {
   const righe = righeCartellaUscita(input.docs, input.kind);
-  const wb = new ExcelJS.Workbook();
+  const wb = input.workbook ?? new ExcelJS.Workbook();
   wb.creator = "OpuntiaIndustry";
   wb.created = new Date();
   const ws = wb.addWorksheet(nomeFoglioRegistro(input.kind), {
@@ -240,18 +261,11 @@ export async function buildUscitaCartellaXlsx(input: {
     excelRow.getCell(9).alignment = { horizontal: "center" };
     excelRow.getCell(10).alignment = { horizontal: "center" };
     if (documento && riga.nomeFile && riga.numeroDocumento) {
-      const cell = excelRow.getCell(3);
-      cell.value = {
-        text: riga.numeroDocumento,
-        hyperlink: riga.nomeFile,
-        tooltip: "Apri il PDF",
-      };
-      cell.font = {
-        name: "Calibri",
-        size: 11,
-        color: { argb: "FF1D4ED8" },
-        underline: true,
-      };
+      cellaApreFattura(
+        excelRow.getCell(3),
+        riga.numeroDocumento,
+        destinazionePdf(input.cartellaRelativa, riga.nomeFile)
+      );
     }
     if (documento && riga.notaCredito) {
       excelRow.eachCell((cell) => {
@@ -278,10 +292,8 @@ export async function buildUscitaCartellaXlsx(input: {
         };
       });
     }
-    if (riga.tipo === "mese" && righe[i + 1]?.tipo === "documento") {
-      ws.addRow([]);
-    }
   }
+  if (input.workbook) return { filename: "", bytes: new Uint8Array() };
   const buffer = await wb.xlsx.writeBuffer();
   return { filename: "resoconto.xlsx", bytes: new Uint8Array(buffer) };
 }
@@ -290,10 +302,11 @@ export const NOME_RESOCONTO_COMPLETO = "Resoconto completo.xlsx";
 
 /** Un solo foglio: tutti i tipi in ordine di data, con il link al PDF nella cartella del tipo. */
 export async function buildResocontoCompletoXlsx(
-  voci: VoceResocontoCompleto[]
+  voci: VoceResocontoCompleto[],
+  workbook?: ExcelJS.Workbook
 ): Promise<{ filename: string; bytes: Uint8Array }> {
   const righe = righeResocontoCompleto(voci);
-  const wb = new ExcelJS.Workbook();
+  const wb = workbook ?? new ExcelJS.Workbook();
   wb.creator = "OpuntiaIndustry";
   wb.created = new Date();
   const ws = wb.addWorksheet("Resoconto completo", {
@@ -338,19 +351,8 @@ export async function buildResocontoCompletoXlsx(
       excelRow.getCell(col).alignment = { horizontal: "right" };
     }
     if (documento && riga.percorsoPdf) {
-      const cell = excelRow.getCell(3);
       const testo = riga.numeroDocumento.trim() || riga.percorsoPdf;
-      cell.value = {
-        text: testo,
-        hyperlink: riga.percorsoPdf,
-        tooltip: "Apri il PDF",
-      };
-      cell.font = {
-        name: "Calibri",
-        size: 11,
-        color: { argb: "FF1D4ED8" },
-        underline: true,
-      };
+      cellaApreFattura(excelRow.getCell(3), testo, encodeURI(riga.percorsoPdf));
       const fondo = COLORI_TIPO_DOCUMENTO[riga.kind].fondo.replace("#", "");
       excelRow.eachCell((cella) => {
         cella.fill = {
@@ -376,11 +378,52 @@ export async function buildResocontoCompletoXlsx(
         };
       });
     }
-    if (riga.tipo === "mese" && righe[i + 1]?.tipo === "documento") {
-      ws.addRow([]);
-    }
   }
 
+  if (workbook) return { filename: NOME_RESOCONTO_COMPLETO, bytes: new Uint8Array() };
+  const buffer = await wb.xlsx.writeBuffer();
+  return {
+    filename: NOME_RESOCONTO_COMPLETO,
+    bytes: new Uint8Array(buffer),
+  };
+}
+
+/** Tutti i fogli della pagina, in un solo file da mettere nella cartella Agrinsicilia. */
+export async function buildPacchettoTrimestreXlsx(input: {
+  anno: number;
+  trimestre: number;
+  sezioni: Array<{
+    kind: CommercialistaRegistroKind;
+    cartellaRelativa: string;
+    docs: FatturaElaborazioneSorgente[];
+  }>;
+  voci: VoceResocontoCompleto[];
+}): Promise<{ filename: string; bytes: Uint8Array }> {
+  const wb = new ExcelJS.Workbook();
+  wb.creator = "OpuntiaIndustry";
+  wb.created = new Date();
+  for (const sezione of input.sezioni) {
+    if (sezione.docs.length === 0) continue;
+    if (registroMostraBeneConsumo(sezione.kind)) {
+      await buildElaborazioneFattureXlsx({
+        kind: sezione.kind,
+        anno: input.anno,
+        trimestre: input.trimestre,
+        docs: sezione.docs,
+        collegaPdf: true,
+        cartellaRelativa: sezione.cartellaRelativa,
+        workbook: wb,
+      });
+    } else {
+      await buildUscitaCartellaXlsx({
+        kind: sezione.kind,
+        docs: sezione.docs,
+        cartellaRelativa: sezione.cartellaRelativa,
+        workbook: wb,
+      });
+    }
+  }
+  await buildResocontoCompletoXlsx(input.voci, wb);
   const buffer = await wb.xlsx.writeBuffer();
   return {
     filename: NOME_RESOCONTO_COMPLETO,

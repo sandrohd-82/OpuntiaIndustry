@@ -87,9 +87,9 @@ export function gruppiElaborazioneTrimestre(
   ];
 }
 
-/** Cartella di ultimo livello: il numero fra parentesi è solo dei PDF. */
+/** Solo le cartelle che contengono file, non altre cartelle: «Ricevute III 2026 (185 file)». */
 export function nomeCartellaConConteggio(nome: string, documenti: number): string {
-  return `${nome} (${documenti})`;
+  return `${nome} (${documenti} file)`;
 }
 
 export function percorsoPdfTrimestre(
@@ -106,6 +106,19 @@ export function percorsoPdfTrimestre(
     return `${gruppo.cartella}/${foglia}/${nomeFile}`;
   }
   return `${foglia}/${nomeFile}`;
+}
+
+/** Cartella dei PDF, vista dalla cartella madre Agrinsicilia. */
+export function cartellaPdfTrimestre(
+  gruppo: GruppoTrimestre,
+  registro: RegistroTrimestre,
+  documenti: number
+): string {
+  const foglia = nomeCartellaConConteggio(
+    registro.sottocartella ?? gruppo.cartella,
+    documenti
+  );
+  return registro.sottocartella ? `${gruppo.cartella}/${foglia}` : foglia;
 }
 
 export function nomiFileElaborazione(
@@ -128,13 +141,15 @@ export function nomiFileElaborazione(
 const MIME_XLSX =
   "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
 
-/** Stessi PDF e lo stesso resoconto della singola elaborazione. */
+/** Stessi PDF della pagina. Il resoconto del trimestre sta nella cartella madre. */
 export async function scriviElaborazioneRegistro(input: {
   cartella: CartellaPdf;
   kind: CommercialistaRegistroKind;
   anno: number;
   trimestre: number;
   docs: DocumentoElaborazioneCartella[];
+  /** Nel pacchetto del trimestre i fogli stanno solo nella cartella Agrinsicilia. */
+  soloPdf?: boolean;
 }): Promise<void> {
   const nomi = nomiFileElaborazione(input.docs);
   for (let i = 0; i < input.docs.length; i += 1) {
@@ -155,7 +170,7 @@ export async function scriviElaborazioneRegistro(input: {
         });
     await scriviFileInCartella(input.cartella, pdf.fileName, pdf.blob);
   }
-  if (input.docs.length === 0) return;
+  if (input.soloPdf || input.docs.length === 0) return;
   const excel = registroMostraBeneConsumo(input.kind)
     ? await buildElaborazioneFattureXlsx({
         kind: input.kind,

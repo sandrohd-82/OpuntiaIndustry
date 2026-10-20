@@ -17,10 +17,11 @@ import {
 } from "@/lib/amministrazione/elaborazione-fatture-excel";
 import {
   NOME_RESOCONTO_COMPLETO,
-  buildResocontoCompletoXlsx,
+  buildPacchettoTrimestreXlsx,
 } from "@/lib/amministrazione/elaborazione-fatture-xlsx";
 import {
   gruppiElaborazioneTrimestre,
+  cartellaPdfTrimestre,
   nomeCartellaConConteggio,
   nomeCartellaTrimestre,
   nomiFileElaborazione,
@@ -143,6 +144,30 @@ export function CommercialistaElaboraTrimestreModal({
     setScrivendo(true);
     try {
       const radice = await scelta.getDirectoryHandle(nomeCartella, { create: true });
+      const sezioni = gruppi.flatMap((gruppo) =>
+        gruppo.registri.map((registro) => {
+          const docs = perKind[registro.kind]?.docs ?? [];
+          return {
+            kind: registro.kind,
+            docs,
+            cartellaRelativa: cartellaPdfTrimestre(gruppo, registro, docs.length),
+          };
+        })
+      );
+      const documentiPrevisti = sezioni.reduce((n, sezione) => n + sezione.docs.length, 0);
+      if (documentiPrevisti > 0) {
+        const excel = await buildPacchettoTrimestreXlsx({
+          anno,
+          trimestre,
+          sezioni,
+          voci,
+        });
+        await scriviFileInCartella(
+          radice,
+          excel.filename,
+          new Blob([excel.bytes as BlobPart], { type: MIME_XLSX })
+        );
+      }
       let documenti = 0;
       for (const gruppo of gruppi) {
         const haSottocartelle = gruppo.registri.some((registro) => registro.sottocartella);
@@ -164,17 +189,10 @@ export function CommercialistaElaboraTrimestreModal({
             anno,
             trimestre,
             docs,
+            soloPdf: true,
           });
           documenti += docs.length;
         }
-      }
-      if (documenti > 0) {
-        const excel = await buildResocontoCompletoXlsx(voci);
-        await scriviFileInCartella(
-          radice,
-          excel.filename,
-          new Blob([excel.bytes as BlobPart], { type: MIME_XLSX })
-        );
       }
       await auditCommercialistaTrimestreAction({
         anno,
@@ -184,8 +202,8 @@ export function CommercialistaElaboraTrimestreModal({
       });
       setMsg(
         documenti > 0
-          ? `Cartella «${nomeCartella}» salvata: ${documenti} PDF. Accanto al nome di ogni cartella di file c'è il numero dei documenti. ${NOME_RESOCONTO_COMPLETO} sta nella cartella principale.`
-          : `Cartella «${nomeCartella}» salvata. Nessun documento: le cartelle di file sono a (0) e non ho scritto i resoconti Excel.`
+          ? `Cartella «${nomeCartella}» salvata: ${documenti} PDF. ${NOME_RESOCONTO_COMPLETO} è dentro la cartella. Il nome del file, o il numero dove la pagina non mostra il file, apre la fattura.`
+          : `Cartella «${nomeCartella}» salvata. Nessun documento: le cartelle di file sono a (0 file) e non ho scritto il resoconto.`
       );
     } catch (err) {
       setMsg(err instanceof Error ? err.message : "Non sono riuscito a salvare la cartella.");
@@ -214,12 +232,13 @@ export function CommercialistaElaboraTrimestreModal({
                 {voci.length > 0 ? ` · ${voci.length} documenti` : null}
               </p>
               <p className="mt-1 max-w-3xl text-xs text-slate-500">
-                Esporta chiede dove salvare e crea «{nomeCartella}». Le cartelle che
-                contengono i PDF portano accanto al nome il numero dei documenti, per
-                esempio Emesse III 2026 (4). DDT e Note Cr restano cartelle
-                contenitore; il numero sta su DDT emessi, DDT ricevuti, Note emesse e
-                Note ricevute. Se una cartella è a (0) non viene scritto il suo Excel.
-                Il resoconto non entra nel conteggio.
+                Esporta chiede dove salvare e crea «{nomeCartella}». {NOME_RESOCONTO_COMPLETO}{" "}
+                sta subito in quella cartella, non nelle cartelle dei PDF. Nel foglio
+                il nome del file apre la fattura; dove la pagina mostra solo il numero,
+                è il numero che la apre. Solo le cartelle che contengono i PDF, e non
+                altre cartelle, riportano il numero, per esempio Ricevute III 2026 (185
+                file). DDT e Note Cr restano contenitori. Il resoconto non entra nel
+                conteggio.
               </p>
               <ul className="mt-2 flex flex-wrap gap-2">
                 {KINDS.map((kind) => (

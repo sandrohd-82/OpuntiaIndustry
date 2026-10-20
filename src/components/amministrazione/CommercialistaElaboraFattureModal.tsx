@@ -107,8 +107,8 @@ export function CommercialistaElaboraFattureModal({
       });
       setScaricaMsg(
         beneConsumo
-          ? `Cartella «${nomeCartella}» salvata: ${docs.length} PDF e il resoconto. Il numero documento apre il PDF.`
-          : `Cartella «${nomeCartella}» salvata: ${docs.length} PDF e il resoconto. Il nome del file usa la numerazione del periodo; nel foglio il progressivo parte dal 1° gennaio.`
+          ? `Cartella «${nomeCartella}» salvata: ${docs.length} PDF e il resoconto. Il nome del file apre la fattura.`
+          : `Cartella «${nomeCartella}» salvata: ${docs.length} PDF e il resoconto. Il numero del documento apre la fattura.`
       );
     } catch (err) {
       setScaricaMsg(
