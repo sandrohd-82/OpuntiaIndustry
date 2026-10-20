@@ -349,7 +349,7 @@ export async function getCommercialistaSummaryAction(
   const { data: emesseRows, error: emesseErr } = await supabase
     .from("fatture_emesse")
     .select(
-      "id, imponibile, imposta, totale, iva_percentuale, tipo_documento, stato_pagamento, fattura_collegata_id, numero_interno, data_emissione, cliente_ragione_sociale"
+      "id, imponibile, imposta, totale, iva_percentuale, tipo_documento, stato_pagamento, fattura_collegata_id, annullata_da_nc_id, numero_interno, numero_fattura, data_emissione, cliente_ragione_sociale"
     )
     .is("deleted_at", null)
     .gte("data_emissione", dal)
@@ -471,8 +471,26 @@ export async function getCommercialistaSummaryAction(
     ricevuteOk.map((r) => [String(r.id), String(r.numero_interno ?? "")])
   );
 
+  const fattureEmesseOk = emesseOk.filter(
+    (r) => !isNotaCreditoEmessa(r.tipo_documento, r.numero_interno)
+  );
+  const idFattureEmesse = new Set(fattureEmesseOk.map((r) => String(r.id)));
+  const fattureRicevuteOk = ricevuteOk.filter(
+    (r) => !isNotaCreditoRicevuta(r.numero_interno, r.totale)
+  );
+  const idFattureRicevute = new Set(fattureRicevuteOk.map((r) => String(r.id)));
+  const numeriLegame = await numeriDocumentiEmessi(
+    supabase,
+    emesseOk.flatMap((r) => [
+      String(r.annullata_da_nc_id ?? ""),
+      String(r.fattura_collegata_id ?? ""),
+    ])
+  );
+
   const emesseAgg = aggregateRigheConIva(
-    emesseRigheDb.map((r) => {
+    emesseRigheDb
+      .filter((r) => idFattureEmesse.has(String(r.fattura_id)))
+      .map((r) => {
       const fatturaId = String(r.fattura_id);
       const fromRiga = Number(r.iva_percentuale);
       return {
@@ -486,7 +504,9 @@ export async function getCommercialistaSummaryAction(
     })
   );
   const ricevuteAgg = aggregateRigheConIva(
-    ricevuteRigheDb.map((r) => {
+    ricevuteRigheDb
+      .filter((r) => idFattureRicevute.has(String(r.fattura_id)))
+      .map((r) => {
       const fatturaId = String(r.fattura_id);
       const fromRiga = Number(r.iva_percentuale);
       return {
@@ -501,7 +521,7 @@ export async function getCommercialistaSummaryAction(
   );
 
   const emesse = buildColonna({
-    testate: emesseOk.map((r) => ({
+    testate: fattureEmesseOk.map((r) => ({
       id: String(r.id),
       numeroInterno: String(r.numero_interno ?? ""),
       dataEmissione: String(r.data_emissione ?? ""),
@@ -509,18 +529,19 @@ export async function getCommercialistaSummaryAction(
       totale: Number(r.totale) || 0,
       imponibile: Number(r.imponibile) || 0,
       imposta: Number(r.imposta) || 0,
-      notaCredito:
-        r.tipo_documento === "nota_credito" ||
-        String(r.numero_interno ?? "").toUpperCase().startsWith("NC-"),
+      notaCredito: false,
+      legame: fraseFatturaAnnullata(
+        numeriLegame.get(String(r.annullata_da_nc_id ?? ""))
+      ),
     })),
-    righe: emesseRigheDb,
+    righe: emesseRigheDb.filter((r) => idFattureEmesse.has(String(r.fattura_id))),
     numeroById: emesseNumeroById,
     sequenzaById: sequenzaEmesse,
     agg: emesseAgg,
   });
 
   const ricevute = buildColonna({
-    testate: ricevuteOk.map((r) => ({
+    testate: fattureRicevuteOk.map((r) => ({
       id: String(r.id),
       numeroInterno: String(r.numero_interno ?? ""),
       dataEmissione: String(r.data_emissione ?? ""),
@@ -528,8 +549,11 @@ export async function getCommercialistaSummaryAction(
       totale: Number(r.totale) || 0,
       imponibile: Number(r.imponibile) || 0,
       imposta: Number(r.imposta) || 0,
+      legame: "",
     })),
-    righe: ricevuteRigheDb,
+    righe: ricevuteRigheDb.filter((r) =>
+      idFattureRicevute.has(String(r.fattura_id))
+    ),
     numeroById: ricevuteNumeroById,
     sequenzaById: sequenzaRicevute,
     agg: ricevuteAgg,
@@ -554,6 +578,9 @@ export async function getCommercialistaSummaryAction(
       imponibile: Number(r.imponibile) || 0,
       imposta: Number(r.imposta) || 0,
       notaCredito: true,
+      legame: fraseNotaAnnulla(
+        numeriLegame.get(String(r.fattura_collegata_id ?? ""))
+      ),
     })),
     righe: emesseRigheDb.filter((r) => noteEmesseIds.has(String(r.fattura_id))),
     numeroById: emesseNumeroById,
@@ -585,6 +612,7 @@ export async function getCommercialistaSummaryAction(
       imponibile: Number(r.imponibile) || 0,
       imposta: Number(r.imposta) || 0,
       notaCredito: true,
+      legame: "",
     })),
     righe: ricevuteRigheDb.filter((r) =>
       noteRicevuteIds.has(String(r.fattura_id))
@@ -625,6 +653,44 @@ export async function getCommercialistaSummaryAction(
       noteRicevute,
     },
   };
+}
+
+function fraseFatturaAnnullata(numeroNc: string | undefined): string {
+  const numero = numeroNc?.trim() ?? "";
+  return numero ? `Annullata con nota di credito n ${numero}` : "";
+}
+
+function fraseNotaAnnulla(numeroFattura: string | undefined): string {
+  const numero = numeroFattura?.trim() ?? "";
+  return numero ? `Annulla la fattura num ${numero}` : "";
+}
+
+async function numeriDocumentiEmessi(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  ids: string[]
+): Promise<Map<string, string>> {
+  const unici = [...new Set(ids.map((id) => id.trim()).filter(Boolean))];
+  const out = new Map<string, string>();
+  if (unici.length === 0) return out;
+  const { data, error } = await supabase
+    .from("fatture_emesse")
+    .select("id, numero_interno, numero_fattura")
+    .in("id", unici);
+  if (error) {
+    console.error("[commercialista legame nc]", error.message);
+    return out;
+  }
+  for (const row of data ?? []) {
+    const pubblico = String(row.numero_fattura ?? "").trim();
+    const interno = String(row.numero_interno ?? "").trim();
+    const numero =
+      interno ||
+      (pubblico && pubblico !== "Prenotata" && !pubblico.startsWith("Pren-")
+        ? pubblico
+        : "");
+    if (numero) out.set(String(row.id), numero);
+  }
+  return out;
 }
 
 function isNotaCreditoEmessa(
@@ -860,6 +926,7 @@ function buildColonna(input: {
     imponibile: number;
     imposta: number;
     notaCredito?: boolean;
+    legame?: string;
   }>;
   righe: Array<{
     id: string;
@@ -910,6 +977,7 @@ function buildColonna(input: {
       totale: t.totale,
       numeroSequenza: input.sequenzaById.get(t.id) ?? null,
       notaCredito: Boolean(t.notaCredito),
+      legame: t.legame?.trim() ?? "",
     })
   );
   col.documentiLista = documentiLista;
@@ -1171,6 +1239,8 @@ export type CommercialistaPaperDoc = {
   classica: FatturaClassicaStampaModel | null;
   /** Nazione dell'azienda collegata (fornitore emittente o cliente). */
   nazioneAzienda: string;
+  /** Legame fra fattura annullata e nota di credito. */
+  collegamento: string;
   sdiAssente: boolean;
 };
 
@@ -1408,6 +1478,8 @@ export async function getCommercialistaPaperBatchAction(input: {
     data_emissione: string;
     ragione: string;
     anagraficaId: string;
+    annullataDaNcId: string;
+    fatturaCollegataId: string;
   };
   let testate: Testata[] = [];
 
@@ -1445,7 +1517,7 @@ export async function getCommercialistaPaperBatchAction(input: {
     const { data, error } = await supabase
       .from("fatture_emesse")
       .select(
-        "id, numero_interno, data_emissione, cliente_id, cliente_ragione_sociale, tipo_documento, stato_pagamento, fattura_collegata_id"
+        "id, numero_interno, numero_fattura, data_emissione, cliente_id, cliente_ragione_sociale, tipo_documento, stato_pagamento, fattura_collegata_id, annullata_da_nc_id"
       )
       .is("deleted_at", null)
       .gte("data_emissione", dal)
@@ -1462,17 +1534,18 @@ export async function getCommercialistaPaperBatchAction(input: {
           numero_interno: r.numero_interno,
         })
       )
-      .filter((r) =>
-        input.kind === "nota_emessa"
-          ? isNotaCreditoEmessa(r.tipo_documento, r.numero_interno)
-          : true
-      )
+      .filter((r) => {
+        const nc = isNotaCreditoEmessa(r.tipo_documento, r.numero_interno);
+        return input.kind === "nota_emessa" ? nc : !nc;
+      })
       .map((r) => ({
         id: String(r.id),
         numero_interno: String(r.numero_interno ?? ""),
         data_emissione: String(r.data_emissione ?? ""),
         ragione: String(r.cliente_ragione_sociale ?? ""),
         anagraficaId: String(r.cliente_id ?? ""),
+        annullataDaNcId: String(r.annullata_da_nc_id ?? ""),
+        fatturaCollegataId: String(r.fattura_collegata_id ?? ""),
       }));
   } else {
     const { data, error } = await supabase
@@ -1487,19 +1560,25 @@ export async function getCommercialistaPaperBatchAction(input: {
       .order("numero_interno", { ascending: true });
     if (error) return { success: false, error: error.message };
     testate = (data ?? [])
-      .filter((r) =>
-        input.kind === "nota_ricevuta"
-          ? isNotaCreditoRicevuta(r.numero_interno, r.totale)
-          : true
-      )
+      .filter((r) => {
+        const nc = isNotaCreditoRicevuta(r.numero_interno, r.totale);
+        return input.kind === "nota_ricevuta" ? nc : !nc;
+      })
       .map((r) => ({
         id: String(r.id),
         numero_interno: String(r.numero_interno ?? ""),
         data_emissione: String(r.data_emissione ?? ""),
         ragione: String(r.fornitore_ragione_sociale ?? ""),
         anagraficaId: String(r.fornitore_id ?? ""),
+        annullataDaNcId: "",
+        fatturaCollegataId: "",
       }));
   }
+
+  const numeriLegame = await numeriDocumentiEmessi(
+    supabase,
+    testate.flatMap((t) => [t.annullataDaNcId, t.fatturaCollegataId])
+  );
 
   const nazioniAzienda = await nazioniAnagraficheCollegate(
     input.kind === "emessa" || input.kind === "nota_emessa"
@@ -1577,6 +1656,9 @@ export async function getCommercialistaPaperBatchAction(input: {
       model,
       classica,
       nazioneAzienda: nazioniAzienda.get(t.anagraficaId) ?? "",
+      collegamento: comeNc
+        ? fraseNotaAnnulla(numeriLegame.get(t.fatturaCollegataId))
+        : fraseFatturaAnnullata(numeriLegame.get(t.annullataDaNcId)),
       sdiAssente: !classica,
     });
   }
@@ -1754,6 +1836,7 @@ async function loadDdtPaperDocs(
       model,
       classica: null,
       nazioneAzienda: "",
+      collegamento: "",
       sdiAssente: false,
     };
   });

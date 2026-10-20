@@ -245,6 +245,9 @@ function ColonnaCommercialista({
                 <p className="truncate text-xs text-[var(--muted)]">
                   {d.anagraficaRagioneSociale}
                 </p>
+                {d.legame ? (
+                  <p className="mt-0.5 text-xs font-medium text-red-800">{d.legame}</p>
+                ) : null}
                 <p className="mt-0.5 text-xs tabular-nums text-slate-700">
                   {formatDateIt(d.dataEmissione)} · {formatEuro(d.totale)}
                 </p>

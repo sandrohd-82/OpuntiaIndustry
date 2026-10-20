@@ -38,6 +38,8 @@ export type CommercialistaDocumentoRiga = {
   /** Numero sequenza matita (provvisorio) se assegnato. */
   numeroSequenza: number | null;
   notaCredito: boolean;
+  /** Fattura annullata o nota che la annulla. */
+  legame: string;
 };
 
 export type CommercialistaBeneRiga = {

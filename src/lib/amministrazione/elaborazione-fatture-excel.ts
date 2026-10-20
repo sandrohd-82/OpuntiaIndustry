@@ -101,6 +101,8 @@ export type FatturaElaborazioneSorgente = {
    * il cliente sulle emesse. Nome anagrafica (es. Francia) o codice ISO.
    */
   nazioneAzienda?: string | null;
+  /** «Annullata con nota di credito n …» oppure «Annulla la fattura num …». */
+  collegamento?: string | null;
   notaCredito: boolean;
 };
 
@@ -190,13 +192,18 @@ function intestazioneDi(
   if (registroLatoEmesso(kind)) {
     const ricevente = doc.classica?.destinatario.ragioneSociale.trim() ?? "";
     const nome = ricevente || doc.anagraficaRagioneSociale.trim() || "—";
-    return doc.notaCredito ? `Nota di credito — ${nome}` : nome;
+    const base = doc.notaCredito ? `Nota di credito — ${nome}` : nome;
+    return conCollegamento(base, doc.collegamento);
   }
   const daSdi = doc.classica?.emittente.ragioneSociale.trim() ?? "";
-  if (daSdi) return daSdi;
   const daModello = doc.model.mittente.ragioneSociale.trim();
-  if (daModello) return daModello;
-  return doc.anagraficaRagioneSociale.trim() || "—";
+  const base = daSdi || daModello || doc.anagraficaRagioneSociale.trim() || "—";
+  return conCollegamento(base, doc.collegamento);
+}
+
+function conCollegamento(base: string, collegamento: string | null | undefined): string {
+  const nota = collegamento?.trim() ?? "";
+  return nota ? `${base} — ${nota}` : base;
 }
 
 /** ISO2 dell'anagrafica o del testo già in codice (Francia → FR). */
