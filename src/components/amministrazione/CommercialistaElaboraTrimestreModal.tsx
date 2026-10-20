@@ -189,7 +189,6 @@ export function CommercialistaElaboraTrimestreModal({
             anno,
             trimestre,
             docs,
-            soloPdf: true,
           });
           documenti += docs.length;
         }
@@ -202,8 +201,8 @@ export function CommercialistaElaboraTrimestreModal({
       });
       setMsg(
         documenti > 0
-          ? `Cartella «${nomeCartella}» salvata: ${documenti} PDF. ${NOME_RESOCONTO_COMPLETO} è dentro la cartella. Il nome del file, o il numero dove la pagina non mostra il file, apre la fattura.`
-          : `Cartella «${nomeCartella}» salvata. Nessun documento: le cartelle di file sono a (0 file) e non ho scritto il resoconto.`
+          ? `Cartella «${nomeCartella}» salvata: ${documenti} PDF. Ogni cartella di file ha il suo Excel. ${NOME_RESOCONTO_COMPLETO} è nella cartella madre. Il nome del file, o il numero dove la pagina non mostra il file, apre la fattura.`
+          : `Cartella «${nomeCartella}» salvata. Nessun documento: le cartelle di file sono a (0 file) e non ho scritto gli Excel.`
       );
     } catch (err) {
       setMsg(err instanceof Error ? err.message : "Non sono riuscito a salvare la cartella.");
@@ -233,12 +232,12 @@ export function CommercialistaElaboraTrimestreModal({
               </p>
               <p className="mt-1 max-w-3xl text-xs text-slate-500">
                 Esporta chiede dove salvare e crea «{nomeCartella}». {NOME_RESOCONTO_COMPLETO}{" "}
-                sta subito in quella cartella, non nelle cartelle dei PDF. Nel foglio
-                il nome del file apre la fattura; dove la pagina mostra solo il numero,
-                è il numero che la apre. Solo le cartelle che contengono i PDF, e non
-                altre cartelle, riportano il numero, per esempio Ricevute III 2026 (185
-                file). DDT e Note Cr restano contenitori. Il resoconto non entra nel
-                conteggio.
+                sta subito in quella cartella. Ogni cartella che contiene i PDF ha
+                anche il proprio Excel, insieme ai PDF. Nel foglio il nome del file
+                apre la fattura; dove la pagina mostra solo il numero, è il numero che
+                la apre. Solo le cartelle che contengono i PDF, e non altre cartelle,
+                riportano il numero, per esempio Ricevute III 2026 (185 file). DDT e
+                Note Cr restano contenitori. Il conteggio è dei PDF.
               </p>
               <ul className="mt-2 flex flex-wrap gap-2">
                 {KINDS.map((kind) => (

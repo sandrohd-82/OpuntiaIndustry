@@ -141,15 +141,13 @@ export function nomiFileElaborazione(
 const MIME_XLSX =
   "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
 
-/** Stessi PDF della pagina. Il resoconto del trimestre sta nella cartella madre. */
+/** PDF e Excel del registro, nella stessa cartella. Il resoconto completo sta nella madre. */
 export async function scriviElaborazioneRegistro(input: {
   cartella: CartellaPdf;
   kind: CommercialistaRegistroKind;
   anno: number;
   trimestre: number;
   docs: DocumentoElaborazioneCartella[];
-  /** Nel pacchetto del trimestre i fogli stanno solo nella cartella Agrinsicilia. */
-  soloPdf?: boolean;
 }): Promise<void> {
   const nomi = nomiFileElaborazione(input.docs);
   for (let i = 0; i < input.docs.length; i += 1) {
@@ -170,7 +168,7 @@ export async function scriviElaborazioneRegistro(input: {
         });
     await scriviFileInCartella(input.cartella, pdf.fileName, pdf.blob);
   }
-  if (input.soloPdf || input.docs.length === 0) return;
+  if (input.docs.length === 0) return;
   const excel = registroMostraBeneConsumo(input.kind)
     ? await buildElaborazioneFattureXlsx({
         kind: input.kind,
