@@ -1812,7 +1812,9 @@ export function SpeseCaricamentoBoard() {
           onClose={() => setRegistrazioneFattura(null)}
           onSaved={() => {
             setRegistrazioneFattura(null);
-            setMsg("Fattura registrata nello storico delle fatture ricevute.");
+            setMsg(
+              "Fattura registrata. La trovi in Area fiscale → Registro spese e fatture."
+            );
             void caricaRicevute();
             setAnteprima(null);
             setManualeAperto(false);

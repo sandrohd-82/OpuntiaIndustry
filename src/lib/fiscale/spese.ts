@@ -367,6 +367,9 @@ export const progettoSpesaSchema = z
 
 export type SpesaDocumentoView = {
   id: string;
+  /** Spesa dell'archivio piccole spese, oppure fattura ricevuta registrata dagli strumenti. */
+  fonte: "spesa" | "fattura";
+  schedaHref: string | null;
   tipoCaricamento: TipoCaricamentoSpesa;
   categoria: CategoriaSpesa;
   modalitaPagamento: PagamentoSpesa;

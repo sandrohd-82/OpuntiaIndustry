@@ -145,6 +145,8 @@ async function fileDaForm(
 function vista(row: DocRow, titoli: Map<string, string>): SpesaDocumentoView {
   return {
     id: row.id,
+    fonte: "spesa",
+    schedaHref: null,
     tipoCaricamento: row.tipo_caricamento,
     categoria: row.categoria,
     modalitaPagamento: row.modalita_pagamento,
@@ -569,6 +571,7 @@ export async function listSpeseAction(raw: {
   const { data, error } = await q;
   if (error) return { success: false, error: error.message };
   const rows = (data ?? []) as DocRow[];
+  const fattureManuali = await leggiFattureManualiRegistro(supabase, raw);
   const ids = [...new Set(rows.map((r) => r.progetto_id).filter((id): id is string => Boolean(id)))];
   const titoli = new Map<string, string>();
   if (ids.length) {
@@ -578,13 +581,129 @@ export async function listSpeseAction(raw: {
       .in("id", ids);
     for (const p of progetti ?? []) titoli.set(String(p.id), String(p.titolo ?? ""));
   }
-  return {
-    success: true,
-    spese: await attachRighe(
-      supabase,
-      rows.map((r) => vista(r, titoli))
-    ),
-  };
+  const spese = await attachRighe(
+    supabase,
+    rows.map((r) => vista(r, titoli))
+  );
+  if (!fattureManuali.success) return fattureManuali;
+  const unite = [...spese, ...fattureManuali.fatture].sort((a, b) => {
+    if (a.dataDocumento === b.dataDocumento) return 0;
+    return a.dataDocumento < b.dataDocumento ? 1 : -1;
+  });
+  return { success: true, spese: unite.slice(0, 400) };
+}
+
+const NOTA_FATTURA_STRUMENTI = "Fattura estera caricata dagli strumenti";
+
+async function leggiFattureManualiRegistro(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  raw: {
+    stato?: StatoSpesa | "";
+    categoria?: CategoriaSpesa | "";
+    tipo?: TipoCaricamentoSpesa | "";
+    soloLibere?: boolean;
+    testo?: string;
+  }
+): Promise<
+  | { success: true; fatture: SpesaDocumentoView[] }
+  | { success: false; error: string }
+> {
+  if (raw.tipo === "scontrino" || raw.tipo === "xml") {
+    return { success: true, fatture: [] };
+  }
+  if (raw.categoria) return { success: true, fatture: [] };
+  if (raw.stato && raw.stato !== "registrato") {
+    return { success: true, fatture: [] };
+  }
+  let q = supabase
+    .from("fatture_ricevute")
+    .select(
+      "id, data_emissione, fornitore_ragione_sociale, numero_interno, numero_documento_esterno, imponibile, iva_percentuale, imposta, totale, note, valuta, importo_valuta, tasso_cambio, documento_originale_file_name, versione, fornitori(sede_amm_nazione)"
+    )
+    .is("deleted_at", null)
+    .ilike("note", `%${NOTA_FATTURA_STRUMENTI}%`)
+    .order("data_emissione", { ascending: false })
+    .limit(400);
+  const testo = raw.testo?.trim();
+  if (testo) {
+    q = q.ilike("fornitore_ragione_sociale", `%${testo.replace(/[%_]/g, "")}%`);
+  }
+  const letto = await q;
+  let senzaFornitore = supabase
+    .from("fatture_ricevute")
+    .select(
+      "id, data_emissione, fornitore_ragione_sociale, numero_interno, numero_documento_esterno, imponibile, iva_percentuale, imposta, totale, note, valuta, importo_valuta, tasso_cambio, documento_originale_file_name, versione"
+    )
+    .is("deleted_at", null)
+    .ilike("note", `%${NOTA_FATTURA_STRUMENTI}%`)
+    .order("data_emissione", { ascending: false })
+    .limit(400);
+  if (testo) {
+    senzaFornitore = senzaFornitore.ilike(
+      "fornitore_ragione_sociale",
+      `%${testo.replace(/[%_]/g, "")}%`
+    );
+  }
+  const ripiego = letto.error ? await senzaFornitore : null;
+  const righeFattura = ripiego ? ripiego.data : letto.data;
+  if (letto.error && ripiego?.error) {
+    return { success: false, error: ripiego.error.message };
+  }
+  if (letto.error && !righeFattura) {
+    return { success: false, error: letto.error.message };
+  }
+  const fatture: SpesaDocumentoView[] = [];
+  for (const row of righeFattura ?? []) {
+    const fornitore = (
+      "fornitori" in row ? row.fornitori : null
+    ) as
+      | { sede_amm_nazione?: string | null }
+      | { sede_amm_nazione?: string | null }[]
+      | null;
+    const nazione = Array.isArray(fornitore)
+      ? String(fornitore[0]?.sede_amm_nazione ?? "")
+      : String(fornitore?.sede_amm_nazione ?? "");
+    const numero = String(row.numero_interno ?? "").trim();
+    const esterno = String(row.numero_documento_esterno ?? "").trim();
+    const note = String(row.note ?? "")
+      .replace(NOTA_FATTURA_STRUMENTI, "")
+      .replace(/^[\s.]+|[\s.]+$/g, "");
+    const id = String(row.id);
+    fatture.push({
+      id,
+      fonte: "fattura",
+      schedaHref: `/app/amministrazione/fatture/ricevute/${id}`,
+      tipoCaricamento: "fattura_estera",
+      categoria: "altro",
+      modalitaPagamento: "conto_aziendale",
+      esercente: String(row.fornitore_ragione_sociale ?? ""),
+      partitaIva: "",
+      dataDocumento: String(row.data_emissione ?? "").slice(0, 10),
+      giustificazione: [numero, esterno].filter(Boolean).join(" · "),
+      imponibile: num(row.imponibile),
+      aliquotaIva: num(row.iva_percentuale),
+      imposta: num(row.imposta),
+      totale: num(row.totale),
+      valuta: String(row.valuta || "EUR"),
+      importoValuta: row.importo_valuta == null ? null : num(row.importo_valuta),
+      cambio: row.tasso_cambio == null ? null : num(row.tasso_cambio),
+      nazione,
+      flagEsterometro: !isNazioneItalia(nazione),
+      tipoAutofattura: "",
+      progettoId: null,
+      progettoTitolo: null,
+      stato: "registrato",
+      versione: Number(row.versione) || 1,
+      fileName: String(row.documento_originale_file_name ?? ""),
+      letturaAutomatica: false,
+      note,
+      contabilizzatoAt: null,
+      prezziIvaCompresa: false,
+      privaIva: false,
+      righe: [],
+    });
+  }
+  return { success: true, fatture };
 }
 
 export type RicevutaRecenteSpesa = {

@@ -1,6 +1,7 @@
 "use client";
 
 import { Fragment, useEffect, useState, useTransition, type ReactNode } from "react";
+import Link from "next/link";
 import {
   annullaSpesaAction,
   contabilizzaSpesaAction,
@@ -90,8 +91,12 @@ function DettagliSpesa({
     <div className="space-y-3">
       <div className="grid gap-x-6 gap-y-1 sm:grid-cols-2 lg:grid-cols-3">
         <VoceDettaglio etichetta="Tipo" valore={LABEL_TIPO_CARICAMENTO[s.tipoCaricamento]} />
-        <VoceDettaglio etichetta="Categoria" valore={LABEL_CATEGORIA_SPESA[s.categoria]} />
-        <VoceDettaglio etichetta="Pagamento" valore={LABEL_PAGAMENTO_SPESA[s.modalitaPagamento]} />
+        {s.fonte === "fattura" ? null : (
+          <VoceDettaglio etichetta="Categoria" valore={LABEL_CATEGORIA_SPESA[s.categoria]} />
+        )}
+        {s.fonte === "fattura" ? null : (
+          <VoceDettaglio etichetta="Pagamento" valore={LABEL_PAGAMENTO_SPESA[s.modalitaPagamento]} />
+        )}
         <VoceDettaglio etichetta="Progetto" valore={s.progettoTitolo || "—"} />
         <VoceDettaglio etichetta="Giustificazione" valore={s.giustificazione} />
         <VoceDettaglio etichetta="P. IVA" valore={s.partitaIva} />
@@ -147,15 +152,24 @@ function DettagliSpesa({
         </table>
       ) : null}
       <div className="flex flex-wrap gap-1">
-        <button
-          type="button"
-          className="rounded border border-slate-300 px-2 py-1 text-xs"
-          onClick={onFile}
-        >
-          Apri file
-        </button>
-        {azioneContabilizza}
-        {s.stato === "registrato" ? (
+        {s.fonte === "fattura" && s.schedaHref ? (
+          <Link
+            href={s.schedaHref}
+            className="rounded border border-slate-300 px-2 py-1 text-xs"
+          >
+            Apri fattura
+          </Link>
+        ) : (
+          <button
+            type="button"
+            className="rounded border border-slate-300 px-2 py-1 text-xs"
+            onClick={onFile}
+          >
+            Apri file
+          </button>
+        )}
+        {s.fonte === "fattura" ? null : azioneContabilizza}
+        {s.fonte === "spesa" && s.stato === "registrato" ? (
           <button
             type="button"
             className="rounded border border-red-200 px-2 py-1 text-xs text-red-700"
@@ -332,6 +346,7 @@ export function SpeseRegistroBoard() {
           <thead className="bg-slate-50 text-xs text-slate-600">
             <tr>
               <th className="px-3 py-2">Data</th>
+              <th className="px-3 py-2">Tipo</th>
               <th className="px-3 py-2">Esercente</th>
               <th className="px-3 py-2 text-right">Totale</th>
               <th className="px-3 py-2">Stato</th>
@@ -341,7 +356,7 @@ export function SpeseRegistroBoard() {
           <tbody>
             {spese.length === 0 ? (
               <tr>
-                <td colSpan={5} className="px-3 py-6 text-center text-slate-500">
+                <td colSpan={6} className="px-3 py-6 text-center text-slate-500">
                   {pending ? "Caricamento…" : "Nessuna spesa con questi filtri."}
                 </td>
               </tr>
@@ -353,6 +368,9 @@ export function SpeseRegistroBoard() {
                     <tr className="border-t border-slate-100">
                       <td className="px-3 py-2 whitespace-nowrap">
                         {formatDateIt(s.dataDocumento)}
+                      </td>
+                      <td className="px-3 py-2">
+                        {LABEL_TIPO_CARICAMENTO[s.tipoCaricamento]}
                       </td>
                       <td className="px-3 py-2">{s.esercente}</td>
                       <td className="px-3 py-2 text-right tabular-nums">
@@ -375,7 +393,7 @@ export function SpeseRegistroBoard() {
                     </tr>
                     {aperto ? (
                       <tr className="border-t border-slate-100 bg-slate-50">
-                        <td colSpan={5} className="px-3 py-3">
+                        <td colSpan={6} className="px-3 py-3">
                           <DettagliSpesa
                             spesa={s}
                             chiediConferma={confermaId === s.id}
