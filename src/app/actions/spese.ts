@@ -710,6 +710,58 @@ async function leggiFattureManualiRegistro(
   return { success: true, fatture };
 }
 
+export async function dettaglioFatturaEsteraRegistroAction(
+  id: string
+): Promise<
+  | { success: true; partitaIva: string; righe: SpesaRigaView[] }
+  | { success: false; error: string }
+> {
+  await requireAreaAccess("area-fiscale");
+  const parsed = z.string().uuid().safeParse(id);
+  if (!parsed.success) return { success: false, error: "Fattura non valida." };
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from("fatture_ricevute")
+    .select("id, note, fornitori(partita_iva)")
+    .eq("id", parsed.data)
+    .is("deleted_at", null)
+    .maybeSingle();
+  if (error || !data || !String(data.note ?? "").includes(NOTA_FATTURA_STRUMENTI)) {
+    return { success: false, error: error?.message ?? "Fattura non trovata." };
+  }
+  const { data: righe, error: righeErr } = await supabase
+    .from("fatture_ricevute_righe")
+    .select("descrizione, quantita, prezzo_unitario, iva_percentuale, importo, sort_order")
+    .eq("fattura_id", parsed.data)
+    .order("sort_order", { ascending: true });
+  if (righeErr) return { success: false, error: righeErr.message };
+  const fornitore = data.fornitori as
+    | { partita_iva?: string | null }
+    | { partita_iva?: string | null }[]
+    | null;
+  const partitaIva = Array.isArray(fornitore)
+    ? String(fornitore[0]?.partita_iva ?? "")
+    : String(fornitore?.partita_iva ?? "");
+  return {
+    success: true,
+    partitaIva: partitaIva.trim(),
+    righe: (righe ?? []).map((riga) => {
+      const importo = num(riga.importo);
+      const aliquotaIva = num(riga.iva_percentuale);
+      const imposta = Math.round(importo * (aliquotaIva / 100) * 100) / 100;
+      return {
+        descrizione: String(riga.descrizione ?? ""),
+        quantita: num(riga.quantita),
+        prezzoUnitario: num(riga.prezzo_unitario),
+        imponibile: importo,
+        aliquotaIva,
+        imposta,
+        totale: Math.round((importo + imposta) * 100) / 100,
+      };
+    }),
+  };
+}
+
 export type RicevutaRecenteSpesa = {
   id: string;
   fonte: "spesa" | "fattura";

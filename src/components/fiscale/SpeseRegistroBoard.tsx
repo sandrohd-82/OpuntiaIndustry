@@ -9,8 +9,10 @@ import {
   apriAllegatoRegistroAction,
   caricaAllegatoRegistroAction,
   contabilizzaSpesaAction,
+  dettaglioFatturaEsteraRegistroAction,
   listSpeseAction,
 } from "@/app/actions/spese";
+import { ScontrinoZoomPane } from "@/components/fiscale/ScontrinoZoomPane";
 import { formatDateIt, formatEuro } from "@/lib/amministrazione/fatture";
 import {
   CATEGORIE_SPESA,
@@ -21,6 +23,7 @@ import {
   TIPI_CARICAMENTO_SPESA,
   type CategoriaSpesa,
   type SpesaDocumentoView,
+  type SpesaRigaView,
   type StatoSpesa,
   type TipoCaricamentoSpesa,
 } from "@/lib/fiscale/spese";
@@ -57,6 +60,12 @@ function stessoDocumento(atteso: string, scelto: string): boolean {
   return left === right;
 }
 
+function vistaFileRegistro(file: File): "pdf" | "image" {
+  const name = file.name.toLowerCase();
+  if (file.type === "application/pdf" || name.endsWith(".pdf")) return "pdf";
+  return "image";
+}
+
 function CaricaDocumentoRegistro({
   spesa,
   onClose,
@@ -68,16 +77,49 @@ function CaricaDocumentoRegistro({
 }) {
   const [errore, setErrore] = useState<string | null>(null);
   const [file, setFile] = useState<File | null>(null);
+  const [anteprima, setAnteprima] = useState<string | null>(null);
   const [chiedi, setChiedi] = useState(false);
   const [pending, setPending] = useState(false);
+  const [righe, setRighe] = useState<SpesaRigaView[]>([]);
+  const [partitaIva, setPartitaIva] = useState("");
   const atteso = spesa?.nomeDocumento.trim() ?? "";
+  const confronto = spesa?.fonte === "fattura" && file != null && anteprima != null;
 
   useEffect(() => {
     setErrore(null);
     setFile(null);
     setChiedi(false);
     setPending(false);
+    setRighe([]);
+    setPartitaIva("");
   }, [spesa?.id]);
+
+  useEffect(() => {
+    if (!file) {
+      setAnteprima(null);
+      return;
+    }
+    const url = URL.createObjectURL(file);
+    setAnteprima(url);
+    return () => URL.revokeObjectURL(url);
+  }, [file]);
+
+  useEffect(() => {
+    if (!spesa || spesa.fonte !== "fattura") return;
+    let attivo = true;
+    void dettaglioFatturaEsteraRegistroAction(spesa.id).then((res) => {
+      if (!attivo) return;
+      if (!res.success) {
+        setErrore(res.error);
+        return;
+      }
+      setRighe(res.righe);
+      setPartitaIva(res.partitaIva);
+    });
+    return () => {
+      attivo = false;
+    };
+  }, [spesa]);
 
   async function invia(scelto: File) {
     if (!spesa) return;
@@ -99,96 +141,237 @@ function CaricaDocumentoRegistro({
   function scegli(scelto: File) {
     setFile(scelto);
     setErrore(null);
-    if (!stessoDocumento(atteso, scelto.name)) {
-      setChiedi(true);
-      return;
-    }
-    setChiedi(false);
+    const diverso = !stessoDocumento(atteso, scelto.name);
+    setChiedi(diverso);
+    if (spesa?.fonte === "fattura") return;
+    if (diverso) return;
     void invia(scelto);
   }
 
   if (!spesa || typeof document === "undefined") return null;
 
+  const importoEstero =
+    spesa.valuta !== "EUR" && spesa.importoValuta != null
+      ? `${spesa.importoValuta.toLocaleString("it-IT")} ${spesa.valuta}`
+      : "";
+
   return createPortal(
-    <div className="fixed inset-0 z-[200] flex items-center justify-center bg-slate-950/40 p-4">
+    <div className="fixed inset-0 z-[200] flex items-center justify-center bg-slate-950/40 p-3">
       <div
         role="dialog"
         aria-modal="true"
         aria-labelledby="carica-documento-registro-title"
-        className="w-full max-w-md rounded-xl border border-[var(--border)] bg-white p-4 shadow-xl"
+        className={
+          confronto
+            ? "flex h-[calc(100vh-1.5rem)] w-full flex-col overflow-hidden rounded-xl border border-[var(--border)] bg-white shadow-xl"
+            : "w-full max-w-md rounded-xl border border-[var(--border)] bg-white p-4 shadow-xl"
+        }
       >
-        <h2 id="carica-documento-registro-title" className="text-base font-semibold text-slate-900">
-          Carica documento
-        </h2>
-        <p className="mt-1 text-sm text-slate-600">{spesa.esercente}</p>
-        {atteso ? (
-          <p className="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-950">
-            Documento atteso: <span className="font-semibold">{atteso}</span>
-          </p>
-        ) : (
-          <p className="mt-3 text-sm text-slate-600">
-            Non risulta il nome del file originale. Controlla di allegare il documento giusto.
-          </p>
-        )}
-        {chiedi && file ? (
-          <p className="mt-3 text-sm text-red-800">
-            Hai selezionato <span className="font-semibold">{file.name}</span>
-            {atteso ? (
-              <>
-                . Non coincide con <span className="font-semibold">{atteso}</span>
-              </>
-            ) : null}
-            .
-          </p>
-        ) : null}
-        {errore ? <p className="mt-3 text-sm text-red-700">{errore}</p> : null}
-        <div className="mt-4 flex flex-wrap justify-end gap-2">
-          <button
-            type="button"
-            onClick={onClose}
-            className="rounded-lg border border-slate-300 px-3 py-2 text-sm"
-          >
-            Chiudi
-          </button>
-          {chiedi && file ? (
-            <button
-              type="button"
-              disabled={pending}
-              onClick={() => {
-                setChiedi(false);
-                setFile(null);
-              }}
-              className="rounded-lg border border-slate-300 px-3 py-2 text-sm"
-            >
-              Scegli un altro
-            </button>
-          ) : null}
-          {chiedi && file ? (
-            <button
-              type="button"
-              disabled={pending}
-              onClick={() => void invia(file)}
-              className="rounded-lg bg-[var(--primary)] px-3 py-2 text-sm font-medium text-white disabled:opacity-50"
-            >
-              {pending ? "Caricamento…" : "Carica questo file"}
-            </button>
-          ) : (
-            <label className="cursor-pointer rounded-lg bg-[var(--primary)] px-3 py-2 text-sm font-medium text-white">
-              {pending ? "Caricamento…" : "Scegli file"}
-              <input
-                type="file"
-                accept="application/pdf,image/jpeg,image/png,image/webp,.pdf,.jpg,.jpeg,.png,.webp"
-                className="hidden"
+        {confronto && file && anteprima ? (
+          <>
+            <div className="grid min-h-0 flex-1 grid-cols-1 lg:grid-cols-2">
+              <div className="min-h-0 overflow-y-auto border-b border-slate-200 p-4 lg:border-b-0 lg:border-r">
+                <h2
+                  id="carica-documento-registro-title"
+                  className="text-base font-semibold text-slate-900"
+                >
+                  Dettaglio salvato
+                </h2>
+                <p className="mt-1 text-sm text-slate-600">
+                  Confronta questi dati con il documento a destra, poi conferma il salvataggio.
+                </p>
+                <div className="mt-4 space-y-1 text-sm">
+                  <VoceDettaglio etichetta="Fornitore" valore={spesa.esercente} />
+                  <VoceDettaglio etichetta="P. IVA" valore={partitaIva} />
+                  <VoceDettaglio
+                    etichetta="Data"
+                    valore={spesa.dataDocumento ? formatDateIt(spesa.dataDocumento) : ""}
+                  />
+                  <VoceDettaglio etichetta="Numero" valore={spesa.giustificazione} />
+                  <VoceDettaglio etichetta="Nazione" valore={spesa.nazione} />
+                  <VoceDettaglio etichetta="Importo in valuta" valore={importoEstero} />
+                  <VoceDettaglio
+                    etichetta="Cambio"
+                    valore={spesa.cambio != null ? String(spesa.cambio) : ""}
+                  />
+                  <VoceDettaglio etichetta="Imponibile" valore={formatEuro(spesa.imponibile)} />
+                  <VoceDettaglio
+                    etichetta="IVA"
+                    valore={`${spesa.aliquotaIva}% · ${formatEuro(spesa.imposta)}`}
+                  />
+                  <VoceDettaglio etichetta="Totale" valore={formatEuro(spesa.totale)} />
+                  <VoceDettaglio etichetta="Note" valore={spesa.note} />
+                </div>
+                {righe.length > 0 ? (
+                  <table className="mt-4 w-full text-xs">
+                    <thead>
+                      <tr className="text-slate-500">
+                        <th className="py-1 text-left font-medium">Descrizione</th>
+                        <th className="py-1 text-right font-medium">Qtà</th>
+                        <th className="py-1 text-right font-medium">Prezzo</th>
+                        <th className="py-1 text-right font-medium">IVA</th>
+                        <th className="py-1 text-right font-medium">Importo</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {righe.map((riga, index) => (
+                        <tr key={`${spesa.id}-confronto-${index}`} className="border-t border-slate-100">
+                          <td className="py-1 pr-2">{riga.descrizione}</td>
+                          <td className="py-1 text-right tabular-nums">
+                            {riga.quantita.toLocaleString("it-IT")}
+                          </td>
+                          <td className="py-1 text-right tabular-nums">
+                            {formatEuro(riga.prezzoUnitario)}
+                          </td>
+                          <td className="py-1 text-right tabular-nums">{riga.aliquotaIva}%</td>
+                          <td className="py-1 text-right tabular-nums">{formatEuro(riga.imponibile)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                ) : null}
+                {atteso ? (
+                  <p className="mt-4 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-950">
+                    Documento atteso: <span className="font-semibold">{atteso}</span>
+                  </p>
+                ) : null}
+                {chiedi ? (
+                  <p className="mt-3 text-sm text-red-800">
+                    Hai selezionato <span className="font-semibold">{file.name}</span>
+                    {atteso ? (
+                      <>
+                        . Non coincide con <span className="font-semibold">{atteso}</span>
+                      </>
+                    ) : null}
+                    .
+                  </p>
+                ) : (
+                  <p className="mt-3 text-sm text-slate-600">File scelto: {file.name}</p>
+                )}
+                {errore ? <p className="mt-3 text-sm text-red-700">{errore}</p> : null}
+              </div>
+              <div className="relative min-h-[40vh] bg-slate-100 lg:min-h-0">
+                <div className="absolute inset-0">
+                  {vistaFileRegistro(file) === "pdf" ? (
+                    <iframe
+                      title="Documento da allegare"
+                      src={`${anteprima.split("#")[0]}#navpanes=0&pagemode=none&view=FitH`}
+                      className="h-full w-full border-0 bg-white"
+                    />
+                  ) : (
+                    <ScontrinoZoomPane src={anteprima} alt="Documento da allegare" />
+                  )}
+                </div>
+              </div>
+            </div>
+            <div className="flex flex-wrap justify-end gap-2 border-t border-slate-200 p-3">
+              <button
+                type="button"
+                onClick={onClose}
+                className="rounded-lg border border-slate-300 px-3 py-2 text-sm"
+              >
+                Chiudi
+              </button>
+              <label className="cursor-pointer rounded-lg border border-slate-300 px-3 py-2 text-sm">
+                Scegli un altro
+                <input
+                  type="file"
+                  accept="application/pdf,image/jpeg,image/png,image/webp,.pdf,.jpg,.jpeg,.png,.webp"
+                  className="hidden"
+                  disabled={pending}
+                  onChange={(e) => {
+                    const scelto = e.target.files?.[0];
+                    e.target.value = "";
+                    if (scelto) scegli(scelto);
+                  }}
+                />
+              </label>
+              <button
+                type="button"
                 disabled={pending}
-                onChange={(e) => {
-                  const scelto = e.target.files?.[0];
-                  e.target.value = "";
-                  if (scelto) scegli(scelto);
-                }}
-              />
-            </label>
-          )}
-        </div>
+                onClick={() => void invia(file)}
+                className="rounded-lg bg-[var(--primary)] px-3 py-2 text-sm font-medium text-white disabled:opacity-50"
+              >
+                {pending ? "Salvataggio…" : "Salva documento"}
+              </button>
+            </div>
+          </>
+        ) : (
+          <>
+            <h2 id="carica-documento-registro-title" className="text-base font-semibold text-slate-900">
+              Carica documento
+            </h2>
+            <p className="mt-1 text-sm text-slate-600">{spesa.esercente}</p>
+            {atteso ? (
+              <p className="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-950">
+                Documento atteso: <span className="font-semibold">{atteso}</span>
+              </p>
+            ) : (
+              <p className="mt-3 text-sm text-slate-600">
+                Non risulta il nome del file originale. Controlla di allegare il documento giusto.
+              </p>
+            )}
+            {chiedi && file ? (
+              <p className="mt-3 text-sm text-red-800">
+                Hai selezionato <span className="font-semibold">{file.name}</span>
+                {atteso ? (
+                  <>
+                    . Non coincide con <span className="font-semibold">{atteso}</span>
+                  </>
+                ) : null}
+                .
+              </p>
+            ) : null}
+            {errore ? <p className="mt-3 text-sm text-red-700">{errore}</p> : null}
+            <div className="mt-4 flex flex-wrap justify-end gap-2">
+              <button
+                type="button"
+                onClick={onClose}
+                className="rounded-lg border border-slate-300 px-3 py-2 text-sm"
+              >
+                Chiudi
+              </button>
+              {chiedi && file ? (
+                <button
+                  type="button"
+                  disabled={pending}
+                  onClick={() => {
+                    setChiedi(false);
+                    setFile(null);
+                  }}
+                  className="rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                >
+                  Scegli un altro
+                </button>
+              ) : null}
+              {chiedi && file ? (
+                <button
+                  type="button"
+                  disabled={pending}
+                  onClick={() => void invia(file)}
+                  className="rounded-lg bg-[var(--primary)] px-3 py-2 text-sm font-medium text-white disabled:opacity-50"
+                >
+                  {pending ? "Caricamento…" : "Carica questo file"}
+                </button>
+              ) : (
+                <label className="cursor-pointer rounded-lg bg-[var(--primary)] px-3 py-2 text-sm font-medium text-white">
+                  {pending ? "Caricamento…" : "Scegli file"}
+                  <input
+                    type="file"
+                    accept="application/pdf,image/jpeg,image/png,image/webp,.pdf,.jpg,.jpeg,.png,.webp"
+                    className="hidden"
+                    disabled={pending}
+                    onChange={(e) => {
+                      const scelto = e.target.files?.[0];
+                      e.target.value = "";
+                      if (scelto) scegli(scelto);
+                    }}
+                  />
+                </label>
+              )}
+            </div>
+          </>
+        )}
       </div>
     </div>,
     document.body
