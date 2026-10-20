@@ -12,6 +12,7 @@ import type { FatturaClassicaStampaModel } from "@/lib/amministrazione/fattura-c
 import {
   buildFatturaClassicaPdf,
   buildPaperFatturaPdf,
+  caricaLogoIntestazione,
   nomiPdfUnivoci,
   scriviFileInCartella,
   type CartellaPdf,
@@ -150,6 +151,8 @@ export async function scriviElaborazioneRegistro(input: {
   docs: DocumentoElaborazioneCartella[];
 }): Promise<void> {
   const nomi = nomiFileElaborazione(input.docs);
+  const comeInviata = input.kind === "emessa" || input.kind === "nota_emessa";
+  const logo = comeInviata ? await caricaLogoIntestazione() : null;
   for (let i = 0; i < input.docs.length; i += 1) {
     const doc = input.docs[i];
     if (!doc) continue;
@@ -160,11 +163,15 @@ export async function scriviElaborazioneRegistro(input: {
           numeroSequenza: doc.numeroSequenza,
           showSequenza: doc.numeroSequenza != null,
           fileName,
+          logo,
         })
       : buildPaperFatturaPdf({
           model: doc.model,
           numeroSequenza: doc.numeroSequenza,
           fileName,
+          comeInviata,
+          notaCredito: doc.notaCredito,
+          logo,
         });
     await scriviFileInCartella(input.cartella, pdf.fileName, pdf.blob);
   }

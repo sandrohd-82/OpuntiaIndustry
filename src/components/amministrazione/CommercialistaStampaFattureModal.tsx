@@ -18,6 +18,7 @@ import { CommercialistaPaperPage } from "@/components/amministrazione/Commercial
 import {
   buildFatturaClassicaPdf,
   buildPaperFatturaPdf,
+  caricaLogoIntestazione,
   nomiPdfUnivoci,
   salvaPdfSeparati,
 } from "@/lib/amministrazione/fattura-classica-pdf";
@@ -104,6 +105,8 @@ export function CommercialistaStampaFattureModal({
           data: doc.classica?.dataDocumento || doc.dataEmissione || doc.model.data || "",
         }))
       );
+      const comeInviata = kind === "emessa" || kind === "nota_emessa";
+      const logo = comeInviata ? await caricaLogoIntestazione() : null;
       const files = docs.map((doc, i) => {
         const fileName = nomi[i] ?? "fattura.pdf";
         if (doc.classica) {
@@ -112,12 +115,16 @@ export function CommercialistaStampaFattureModal({
             numeroSequenza: doc.numeroSequenza,
             showSequenza,
             fileName,
+            logo,
           });
         }
         return buildPaperFatturaPdf({
           model: doc.model,
           numeroSequenza: doc.numeroSequenza,
           fileName,
+          comeInviata,
+          notaCredito: doc.notaCredito,
+          logo,
         });
       });
       const n = await salvaPdfSeparati(files);

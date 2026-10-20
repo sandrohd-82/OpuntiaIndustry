@@ -2,7 +2,11 @@ import { jsPDF } from "jspdf";
 import autoTable from "jspdf-autotable";
 import type { FatturaClassicaStampaModel } from "@/lib/amministrazione/fattura-classica-stampa";
 import { prezzoScontatoUnitario } from "@/lib/amministrazione/fatture";
-import { formatPreventivoDataIt } from "@/lib/amministrazione/preventivo-letterhead";
+import {
+  AGRINSICILIA_COORDINATE,
+  AGRINSICILIA_LETTERHEAD,
+  formatPreventivoDataIt,
+} from "@/lib/amministrazione/preventivo-letterhead";
 import { formatIbanDisplay } from "@/lib/iban";
 import type { PaperInvoiceModel } from "@/lib/amministrazione/paper-invoice";
 
@@ -92,6 +96,156 @@ function dataLunga(raw: string): string {
 
 type FilePdf = { fileName: string; blob: Blob };
 
+export type LogoIntestazione = {
+  dataUrl: string;
+  widthMm: number;
+  heightMm: number;
+};
+
+/** Logo della fattura inviata al cliente. Manca fuori dal browser. */
+export async function caricaLogoIntestazione(): Promise<LogoIntestazione | null> {
+  if (typeof window === "undefined") return null;
+  try {
+    const res = await fetch(AGRINSICILIA_LETTERHEAD.logoSrc);
+    if (!res.ok) return null;
+    const blob = await res.blob();
+    const dataUrl = await new Promise<string>((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(String(reader.result ?? ""));
+      reader.onerror = () => reject(reader.error);
+      reader.readAsDataURL(blob);
+    });
+    const misura = await new Promise<{ w: number; h: number }>((resolve, reject) => {
+      const img = new Image();
+      img.onload = () => resolve({ w: img.naturalWidth, h: img.naturalHeight });
+      img.onerror = () => reject(new Error("logo"));
+      img.src = dataUrl;
+    });
+    const widthMm = 72;
+    const heightMm =
+      misura.w > 0 ? Math.min(28, (widthMm * misura.h) / misura.w) : 18;
+    return { dataUrl, widthMm, heightMm };
+  } catch {
+    return null;
+  }
+}
+
+type ColonnaTabella = {
+  titolo: string;
+  larghezza: number;
+  align: "left" | "right";
+};
+
+/** Griglia con il titolo sulla stessa linea dei valori della colonna. */
+function disegnaTabella(
+  doc: jsPDF,
+  y: number,
+  colonne: ColonnaTabella[],
+  body: string[][]
+): number {
+  autoTable(doc, {
+    startY: y,
+    margin: { left: 12, right: 12 },
+    theme: "grid",
+    tableWidth: 186,
+    head: [colonne.map((colonna) => colonna.titolo)],
+    body,
+    styles: {
+      font: "helvetica",
+      fontSize: 8,
+      textColor: [15, 23, 42],
+      lineColor: [148, 163, 184],
+      lineWidth: 0.2,
+      cellPadding: { top: 1.8, right: 1.5, bottom: 1.8, left: 1.5 },
+      valign: "middle",
+      overflow: "linebreak",
+    },
+    headStyles: {
+      fillColor: [241, 245, 249],
+      textColor: [15, 23, 42],
+      fontStyle: "bold",
+      fontSize: 8,
+      valign: "middle",
+      minCellHeight: 8,
+      lineColor: [100, 116, 139],
+      lineWidth: 0.25,
+    },
+    columnStyles: Object.fromEntries(
+      colonne.map((colonna, index) => [
+        index,
+        { cellWidth: colonna.larghezza, halign: colonna.align },
+      ])
+    ),
+    didParseCell: (data) => {
+      const colonna = colonne[data.column.index];
+      if (!colonna) return;
+      data.cell.styles.halign = colonna.align;
+      data.cell.styles.valign = "middle";
+    },
+  });
+  return (
+    (doc as jsPDF & { lastAutoTable?: { finalY: number } }).lastAutoTable
+      ?.finalY ?? y
+  );
+}
+
+const COLONNE_FATTURA: ColonnaTabella[] = [
+  { titolo: "Prodotto", larghezza: 78, align: "left" },
+  { titolo: "Qty", larghezza: 22, align: "right" },
+  { titolo: "Listino", larghezza: 24, align: "right" },
+  { titolo: "Sconto", larghezza: 18, align: "right" },
+  { titolo: "Netto", larghezza: 26, align: "right" },
+  { titolo: "IVA", larghezza: 18, align: "right" },
+];
+
+/** Stessa testata della fattura che parte verso il cliente. */
+function disegnaIntestazioneInviata(
+  doc: jsPDF,
+  input: { logo: LogoIntestazione | null; titolo: string; sdi: string; y: number }
+): number {
+  const L = AGRINSICILIA_LETTERHEAD;
+  const right = 198;
+  let y = input.y;
+  if (input.logo) {
+    const formato = input.logo.dataUrl.includes("image/jpeg") ? "JPEG" : "PNG";
+    doc.addImage(
+      input.logo.dataUrl,
+      formato,
+      12,
+      y - 2,
+      input.logo.widthMm,
+      input.logo.heightMm
+    );
+  }
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(9);
+  doc.setTextColor(15, 23, 42);
+  y = testoDestra(doc, L.ragioneSociale, right, y, 108);
+  doc.setFont("helvetica", "normal");
+  doc.setFontSize(8);
+  y = testoDestra(doc, L.indirizzo, right, y, 108);
+  y = testoDestra(
+    doc,
+    `P.iva ${L.partitaIva} - C.F. ${L.codiceFiscale}`,
+    right,
+    y,
+    108
+  );
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(11);
+  y = testoDestra(doc, input.titolo, right, y, 108) + 0.6;
+  if (input.sdi.trim()) {
+    doc.setFontSize(10);
+    y = testoDestra(doc, `SDI ${input.sdi.trim()}`, right, y, 108);
+  }
+  const sottoLogo = input.logo ? input.y - 2 + input.logo.heightMm + 3 : y;
+  y = Math.max(y + 1.5, sottoLogo);
+  doc.setDrawColor(15, 23, 42);
+  doc.setLineWidth(0.3);
+  doc.line(12, y, right, y);
+  return y + 4;
+}
+
 /** Testo a destra che va a capo. Restituisce la y sotto l'ultima riga. */
 function testoDestra(
   doc: jsPDF,
@@ -124,14 +278,17 @@ export function buildFatturaClassicaPdf(input: {
   numeroSequenza: number | null;
   showSequenza: boolean;
   fileName: string;
+  /** Solo sulle emesse: stesso marchio della fattura inviata al cliente. */
+  logo?: LogoIntestazione | null;
 }): FilePdf {
   const doc = new jsPDF({ unit: "mm", format: "a4" });
   const m = input.model;
   const data = dataLunga(m.dataDocumento);
   const right = 198;
+  const inviata = !m.nascondiPiePagina;
   let y = 14;
 
-  if (input.showSequenza && input.numeroSequenza != null) {
+  if (!inviata && input.showSequenza && input.numeroSequenza != null) {
     doc.setFont("times", "italic");
     doc.setFontSize(18);
     doc.setTextColor(148, 163, 184);
@@ -139,50 +296,61 @@ export function buildFatturaClassicaPdf(input: {
     doc.setTextColor(15, 23, 42);
   }
 
-  doc.setFont("helvetica", "bold");
-  doc.setFontSize(8);
   doc.setTextColor(15, 23, 42);
-  y = testoDestra(doc, "EMITTENTE", right, y);
-  doc.setFontSize(11);
-  y = testoDestra(doc, testo(m.emittente.ragioneSociale), right, y) + 1.2;
-  doc.setFont("helvetica", "normal");
-  doc.setFontSize(9);
-  if (m.emittente.via.trim()) {
-    y = testoDestra(doc, m.emittente.via.trim(), right, y);
+  if (inviata) {
+    y = disegnaIntestazioneInviata(doc, {
+      logo: input.logo ?? null,
+      titolo: `${m.notaCredito ? "NOTA DI CREDITO" : "FATTURA"} nr. ${testo(m.numero)} del ${data}`,
+      sdi: m.destinatario.sdi,
+      y,
+    });
+  } else {
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(8);
+    y = testoDestra(doc, "EMITTENTE", right, y);
+    doc.setFontSize(11);
+    y = testoDestra(doc, testo(m.emittente.ragioneSociale), right, y) + 1.2;
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(9);
+    if (m.emittente.via.trim()) {
+      y = testoDestra(doc, m.emittente.via.trim(), right, y);
+    }
+    if (m.emittente.capCitta.trim()) {
+      y = testoDestra(doc, m.emittente.capCitta.trim(), right, y);
+    }
+    y = testoDestra(
+      doc,
+      `P.iva ${testo(m.emittente.partitaIva)} - C.F. ${testo(m.emittente.codiceFiscale)}`,
+      right,
+      y
+    );
+    if (m.emittente.email.trim()) {
+      y = testoDestra(doc, m.emittente.email.trim(), right, y);
+    }
+    if (m.emittente.telefono.trim()) {
+      y = testoDestra(doc, `Tel. ${m.emittente.telefono.trim()}`, right, y);
+    }
+    y += 1.5;
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(11);
+    y = testoDestra(
+      doc,
+      `${m.notaCredito ? "NOTA DI CREDITO" : "FATTURA"} nr. ${testo(m.numero)} del ${data}`,
+      right,
+      y
+    );
   }
-  if (m.emittente.capCitta.trim()) {
-    y = testoDestra(doc, m.emittente.capCitta.trim(), right, y);
-  }
-  y = testoDestra(
-    doc,
-    `P.iva ${testo(m.emittente.partitaIva)} - C.F. ${testo(m.emittente.codiceFiscale)}`,
-    right,
-    y
-  );
-  if (m.emittente.email.trim()) {
-    y = testoDestra(doc, m.emittente.email.trim(), right, y);
-  }
-  if (m.emittente.telefono.trim()) {
-    y = testoDestra(doc, `Tel. ${m.emittente.telefono.trim()}`, right, y);
-  }
-  y += 1.5;
-  doc.setFont("helvetica", "bold");
-  doc.setFontSize(11);
-  y = testoDestra(
-    doc,
-    `${m.notaCredito ? "NOTA DI CREDITO" : "FATTURA"} nr. ${testo(m.numero)} del ${data}`,
-    right,
-    y
-  );
-  if (m.destinatario.sdi.trim()) {
+  if (!inviata && m.destinatario.sdi.trim()) {
     doc.setFontSize(10);
     y = testoDestra(doc, `SDI ${m.destinatario.sdi.trim()}`, right, y);
   }
 
-  doc.setDrawColor(15, 23, 42);
-  doc.setLineWidth(0.3);
-  doc.line(12, y, right, y);
-  y += 4;
+  if (!inviata) {
+    doc.setDrawColor(15, 23, 42);
+    doc.setLineWidth(0.3);
+    doc.line(12, y, right, y);
+    y += 4;
+  }
   if (m.notaCredito) {
     doc.setFillColor(254, 236, 236);
     doc.setDrawColor(252, 165, 165);
@@ -228,53 +396,28 @@ export function buildFatturaClassicaPdf(input: {
   const gap = Math.max(6, Math.min(18, free / 2));
   y += gap;
 
-  autoTable(doc, {
-    startY: y,
-    margin: { left: 12, right: 12 },
-    theme: "plain",
-    head: [["Prodotto", "Qty", "Listino", "Sconto", "Netto", "IVA"]],
-    body:
-      m.righe.length === 0
-        ? [["Nessuna riga nello SDI", "", "", "", "", ""]]
-        : m.righe.map((r) => {
-            const netto = prezzoScontatoUnitario(
-              r.prezzoUnitario,
-              r.scontoPercentuale
-            );
-            const nome = [r.codice, r.descrizione].filter(Boolean).join(" — ");
-            return [
-              nome,
-              `${r.quantita} ${r.unitaMisura}`,
-              `${euro(r.prezzoUnitario)} €`,
-              r.scontoPercentuale > 0 ? `${r.scontoPercentuale} %` : "—",
-              `${euro(netto)} €`,
-              `${r.ivaPercentuale}%`,
-            ];
-          }),
-    styles: {
-      fontSize: 8,
-      textColor: [15, 23, 42],
-      cellPadding: 1.2,
-      overflow: "linebreak",
-    },
-    headStyles: {
-      fontStyle: "bold",
-      textColor: [71, 85, 105],
-      fillColor: [255, 255, 255],
-    },
-    columnStyles: {
-      0: { cellWidth: 62 },
-      1: { cellWidth: 30, halign: "right" },
-      2: { cellWidth: 28, halign: "right" },
-      3: { cellWidth: 20, halign: "right" },
-      4: { cellWidth: 28, halign: "right" },
-      5: { cellWidth: 18, halign: "right" },
-    },
-  });
-
-  const after =
-    (doc as jsPDF & { lastAutoTable?: { finalY: number } }).lastAutoTable
-      ?.finalY ?? y;
+  const after = disegnaTabella(
+    doc,
+    y,
+    COLONNE_FATTURA,
+    m.righe.length === 0
+      ? [["Nessuna riga nello SDI", "", "", "", "", ""]]
+      : m.righe.map((r) => {
+          const netto = prezzoScontatoUnitario(
+            r.prezzoUnitario,
+            r.scontoPercentuale
+          );
+          const nome = [r.codice, r.descrizione].filter(Boolean).join(" — ");
+          return [
+            nome,
+            `${r.quantita} ${r.unitaMisura}`,
+            `${euro(r.prezzoUnitario)} €`,
+            r.scontoPercentuale > 0 ? `${r.scontoPercentuale} %` : "—",
+            `${euro(netto)} €`,
+            `${r.ivaPercentuale}%`,
+          ];
+        })
+  );
   let boxY = after + gap;
   if (boxY + boxH > footerTop - 4) boxY = after + 6;
   if (boxY + boxH > footerTop - 2) boxY = Math.max(after + 4, footerTop - boxH);
@@ -287,11 +430,14 @@ export function buildFatturaClassicaPdf(input: {
   doc.text("Pagamento", 15, boxY + 6);
   doc.setFont("helvetica", "normal");
   doc.setFontSize(8);
+  const banca = inviata ? AGRINSICILIA_COORDINATE.banca : m.banca;
+  const iban = inviata ? AGRINSICILIA_COORDINATE.iban : m.iban;
+  const bic = inviata ? AGRINSICILIA_COORDINATE.bic : m.bic;
   const pay = [
     testo(m.pagamento),
-    `Banca: ${testo(m.banca)}`,
-    `IBAN: ${m.iban.trim() ? formatIbanDisplay(m.iban) : "—"}`,
-    `BIC: ${testo(m.bic)}`,
+    `Banca: ${testo(banca)}`,
+    `IBAN: ${iban.trim() ? formatIbanDisplay(iban) : "—"}`,
+    `BIC: ${testo(bic)}`,
     `Importo: ${euro(m.totale)} €`,
     `Causale: ${m.notaCredito ? "Nota di credito" : "Pagamento Fattura"} n. ${testo(m.numero)} del ${data}.`,
   ];
@@ -327,99 +473,118 @@ export function buildFatturaClassicaPdf(input: {
     doc.setFont("helvetica", "bold");
     doc.setFontSize(8);
     doc.setTextColor(15, 23, 42);
-    doc.text(testo(m.emittente.ragioneSociale), 105, foot, { align: "center" });
+    doc.text(AGRINSICILIA_LETTERHEAD.ragioneSociale, 105, foot, { align: "center" });
     doc.setFont("helvetica", "normal");
-    const pie = [m.emittente.via, m.emittente.capCitta, m.emittente.email]
-      .map((x) => x.trim())
-      .filter(Boolean)
-      .join(" - ");
-    doc.text(pie || "—", 105, foot + 4, { align: "center" });
-    if (m.emittente.telefono.trim()) {
-      doc.text(`Tel. ${m.emittente.telefono.trim()}`, 105, foot + 8, {
-        align: "center",
-      });
-    }
+    doc.text(
+      `${AGRINSICILIA_LETTERHEAD.sito} - ${AGRINSICILIA_LETTERHEAD.email}`,
+      105,
+      foot + 4,
+      { align: "center" }
+    );
+    doc.text(`cell: ${AGRINSICILIA_LETTERHEAD.cell}`, 105, foot + 8, {
+      align: "center",
+    });
   }
 
   return { fileName: input.fileName, blob: doc.output("blob") };
 }
 
+const COLONNE_RICEVUTA: ColonnaTabella[] = [
+  { titolo: "Descrizione", larghezza: 78, align: "left" },
+  { titolo: "Qty", larghezza: 22, align: "right" },
+  { titolo: "Prezzo", larghezza: 24, align: "right" },
+  { titolo: "Sconto", larghezza: 18, align: "right" },
+  { titolo: "IVA", larghezza: 18, align: "right" },
+  { titolo: "Importo", larghezza: 26, align: "right" },
+];
+
 export function buildPaperFatturaPdf(input: {
   model: PaperInvoiceModel;
   numeroSequenza: number | null;
   fileName: string;
+  /** Fattura o nota emessa da noi: stessa testata di quella inviata al cliente. */
+  comeInviata?: boolean;
+  notaCredito?: boolean;
+  logo?: LogoIntestazione | null;
 }): FilePdf {
   const doc = new jsPDF({ unit: "mm", format: "a4" });
   const m = input.model;
   const data = dataLunga(m.data ?? "");
-  if (input.numeroSequenza != null) {
-    doc.setFont("times", "italic");
-    doc.setFontSize(18);
-    doc.setTextColor(148, 163, 184);
-    doc.text(String(input.numeroSequenza), 198, 14, { align: "right" });
+  const nota = Boolean(input.comeInviata && input.notaCredito);
+  let y = 16;
+  if (input.comeInviata) {
+    y = disegnaIntestazioneInviata(doc, {
+      logo: input.logo ?? null,
+      titolo: `${nota ? "NOTA DI CREDITO" : "FATTURA"} nr. ${testo(m.numero)} del ${data}`,
+      sdi: m.destinatario.sdi,
+      y,
+    });
+  } else {
+    if (input.numeroSequenza != null) {
+      doc.setFont("times", "italic");
+      doc.setFontSize(18);
+      doc.setTextColor(148, 163, 184);
+      doc.text(String(input.numeroSequenza), 14, 12);
+      doc.setTextColor(15, 23, 42);
+    }
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(8);
     doc.setTextColor(15, 23, 42);
+    y = testoDestra(doc, "EMITTENTE", 198, 16);
+    doc.setFontSize(11);
+    y = testoDestra(doc, testo(m.mittente.ragioneSociale), 198, y) + 1;
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(11);
+    const titolo = (m.documentoTitolo ?? "Fattura").toUpperCase();
+    y = testoDestra(doc, `${titolo} nr. ${testo(m.numero)} del ${data}`, 198, y);
+    doc.setDrawColor(15, 23, 42);
+    doc.setLineWidth(0.3);
+    doc.line(12, y, 198, y);
+    y += 6;
   }
+  y = drawAvvisoEstero(doc, m.nazioneEstera ?? null, y);
   doc.setFont("helvetica", "bold");
   doc.setFontSize(8);
-  doc.setTextColor(100, 116, 139);
-  doc.text("CEDENTE / EMITTENTE", 14, 22);
   doc.setTextColor(15, 23, 42);
+  doc.text("DESTINATARIO", 12, y + 5);
   doc.setFontSize(11);
-  doc.text(testo(m.mittente.ragioneSociale), 14, 28);
-  const titolo = (m.documentoTitolo ?? "Fattura elettronica").toUpperCase();
-  doc.setFont("helvetica", "bold");
-  doc.setFontSize(11);
-  let yTestata = testoDestra(doc, titolo, 198, input.numeroSequenza != null ? 22 : 16);
-  doc.setFont("helvetica", "normal");
-  doc.setFontSize(9);
-  yTestata = testoDestra(
+  doc.text(testo(m.destinatario.ragioneSociale).toUpperCase(), 12, y + 10);
+  const after = disegnaTabella(
     doc,
-    `nr. ${testo(m.numero)} del ${data}`,
+    y + 16,
+    input.comeInviata ? COLONNE_FATTURA : COLONNE_RICEVUTA,
+    m.righe.length === 0
+      ? [["Nessuna riga", "", "", "", "", ""]]
+      : m.righe.map((r) => {
+          const netto = prezzoScontatoUnitario(r.prezzo, r.scontoPercentuale);
+          if (input.comeInviata) {
+            return [
+              r.descrizione,
+              `${r.quantita} ${r.unitaMisura}`.trim(),
+              `${euro(r.prezzo)} €`,
+              r.scontoPercentuale > 0 ? `${r.scontoPercentuale} %` : "—",
+              `${euro(netto)} €`,
+              `${r.ivaPercentuale}%`,
+            ];
+          }
+          return [
+            r.descrizione,
+            `${r.quantita} ${r.unitaMisura}`.trim(),
+            `${euro(r.prezzo)} €`,
+            r.scontoPercentuale > 0 ? `${r.scontoPercentuale} %` : "—",
+            `${r.ivaPercentuale}%`,
+            `${euro(r.importo)} €`,
+          ];
+        })
+  );
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(10);
+  doc.text(
+    `${nota ? "Totale nota di credito" : "Totale"} ${euro(m.totale)} €`,
     198,
-    yTestata + 1.2
+    after + 8,
+    { align: "right" }
   );
-  if (m.destinatario.sdi.trim()) {
-    yTestata = testoDestra(
-      doc,
-      `SDI ${m.destinatario.sdi.trim()}`,
-      198,
-      yTestata
-    );
-  }
-  const dopoAvviso = drawAvvisoEstero(
-    doc,
-    m.nazioneEstera ?? null,
-    Math.max(32, yTestata + 2)
-  );
-  doc.setFont("helvetica", "bold");
-  doc.setTextColor(15, 23, 42);
-  doc.text(testo(m.destinatario.ragioneSociale), 12, dopoAvviso + 6);
-  doc.setFont("helvetica", "normal");
-  autoTable(doc, {
-    startY: dopoAvviso + 10,
-    margin: { left: 12, right: 12 },
-    theme: "plain",
-    head: [["Descrizione", "Qty", "Prezzo", "IVA", "Importo"]],
-    body: m.righe.map((r) => [
-      r.descrizione,
-      `${r.quantita} ${r.unitaMisura}`,
-      `${euro(r.prezzo)} €`,
-      `${r.ivaPercentuale}%`,
-      `${euro(r.importo)} €`,
-    ]),
-    styles: { fontSize: 8, cellPadding: 1.2 },
-    columnStyles: {
-      1: { halign: "right" },
-      2: { halign: "right" },
-      3: { halign: "right" },
-      4: { halign: "right" },
-    },
-  });
-  const after =
-    (doc as jsPDF & { lastAutoTable?: { finalY: number } }).lastAutoTable
-      ?.finalY ?? 60;
-  doc.setFont("helvetica", "bold");
-  doc.text(`Totale ${euro(m.totale)} €`, 198, after + 10, { align: "right" });
   return { fileName: input.fileName, blob: doc.output("blob") };
 }
 
