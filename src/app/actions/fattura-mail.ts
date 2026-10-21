@@ -10,6 +10,7 @@ import {
 import { buildFatturaA4PdfBlob } from "@/lib/amministrazione/fattura-a4-pdf";
 import { requireAnyAreaAccess } from "@/lib/areas/guard";
 import { materializzaNumeroDocumento } from "@/app/actions/fattura-da-ordine";
+import { isFatturaProva } from "@/lib/amministrazione/prova-ordine";
 import { motivoBloccoInvioClienteOrdine } from "@/app/actions/ordine-calcolo-spedizione";
 import { createClient, createServiceClient } from "@/lib/supabase/server";
 import { persistMessaggioAttachments } from "@/lib/webmail/attachments";
@@ -80,6 +81,17 @@ export async function inviaFatturaDaWebmailAction(
     .maybeSingle();
   if (fatErr || !fattura) {
     return { success: false, error: fatErr?.message ?? "Fattura non trovata." };
+  }
+  if (
+    isFatturaProva({
+      numero_fattura: String(fattura.numero_fattura ?? ""),
+    })
+  ) {
+    return {
+      success: false,
+      error:
+        "La fattura di prova non si invia da qui e non parte allo SDI. La mail della prova va solo all'indirizzo indicato nel test.",
+    };
   }
   const bloccoSpedizione = await motivoBloccoInvioClienteOrdine(
     (fattura as { ordine_id?: string | null }).ordine_id

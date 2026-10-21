@@ -11,6 +11,7 @@ import { useActionAccess } from "@/components/layout/ActionAccessProvider";
 import { PaperInvoiceViewer } from "@/components/PaperInvoiceViewer";
 import { AZ } from "@/lib/auth/action-access";
 import type { Fattura } from "@/lib/amministrazione/fatture";
+import { isFatturaProva } from "@/lib/amministrazione/prova-ordine";
 
 type Props = {
   initial: Fattura;
@@ -98,8 +99,16 @@ export function FatturaDettaglioClient({ initial }: Props) {
     fattura.modalitaCollegamento,
   ]);
 
+  const prova = isFatturaProva(fattura);
   return (
     <div className="mx-auto w-[94%] max-w-none space-y-8">
+      {prova ? (
+        <p className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-950">
+          Fattura di prova {fattura.numeroFattura || fattura.numeroInterno}. Non
+          viene inviata allo SDI, non riceve un numero fiscale e non entra nel
+          registro. Per rifarla usa Cancella e ripeti il test nella coda ordini.
+        </p>
+      ) : null}
       {inviaMsg ? (
         <p className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm">
           {inviaMsg}
@@ -115,7 +124,7 @@ export function FatturaDettaglioClient({ initial }: Props) {
             : "Invia fattura attraverso SDI"
         }
         onInviaFic={
-          fattura.kind === "emessa" && !fattura.ficId
+          !prova && fattura.kind === "emessa" && !fattura.ficId
             ? () => {
                 if (passoInvio < 1) {
                   setPassoInvio(1);

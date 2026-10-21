@@ -133,6 +133,11 @@ function OrdineTableRow({
       <tr className="border-t border-[var(--border)]">
         <td className="px-4 py-3 font-semibold tabular-nums">
           {ordine.numeroInterno}
+          {ordine.isTest ? (
+            <span className="ml-2 rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-amber-900">
+              Prova
+            </span>
+          ) : null}
           <span className="ml-2 rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-slate-700">
             {labelTipoOrdine(ordine.tipo)}
           </span>

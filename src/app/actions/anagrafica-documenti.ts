@@ -3,6 +3,7 @@
 import { writeAuditLog } from "@/lib/audit";
 import { numeroFatturaVisibile } from "@/lib/amministrazione/numero-fattura";
 import { fatturaEmessaPrenotataNonInviata } from "@/lib/amministrazione/fatture";
+import { isFatturaProva } from "@/lib/amministrazione/prova-ordine";
 import { requireAnyAreaAccess } from "@/lib/areas/guard";
 import { resolveAnagraficaListVisibility } from "@/lib/auth/anagrafica-visibility";
 import { loadCommercialeUserIds } from "@/lib/auth/commerciale-lineage";
@@ -606,7 +607,9 @@ export async function loadClienteSchedaCompletaAction(
       tipo: String(r.tipo ?? "vendita"),
       importoEuro: Number(r.importo_euro ?? 0),
     })),
-    fatture: (fatRes.data ?? []).filter((r) => !fatturaEmessaPrenotataNonInviata(r)).map((r) => ({
+    fatture: (fatRes.data ?? [])
+      .filter((r) => !fatturaEmessaPrenotataNonInviata(r) && !isFatturaProva(r))
+      .map((r) => ({
       id: String(r.id),
       numeroInterno: numeroFatturaVisibile({
         kind:

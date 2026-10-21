@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { isFatturaProva } from "@/lib/amministrazione/prova-ordine";
 import { importoFiscaleEuro } from "@/lib/services/currency-exchange";
 import type {
   FatturaDocumentoStato,
@@ -1227,7 +1228,7 @@ export function includeInContabilitaFatturaEmessa(row: {
   numero_interno?: string | null;
   numero_fattura?: string | null;
 }): boolean {
-  if (fatturaEmessaPrenotataNonInviata(row)) return false;
+  if (fatturaEmessaPrenotataNonInviata(row) || isFatturaProva(row)) return false;
   if (row.stato_pagamento === "annullata") return false;
   const isNc = row.tipo_documento === "nota_credito";
   if (isNc && row.fattura_collegata_id) return false;
@@ -1246,7 +1247,7 @@ export function includeInRegistroCommercialista(row: {
   numero_interno?: string | null;
   numero_fattura?: string | null;
 }): boolean {
-  return !fatturaEmessaPrenotataNonInviata(row);
+  return !fatturaEmessaPrenotataNonInviata(row) && !isFatturaProva(row);
 }
 
 export function emptyFatturaRigaNotaCredito(): FatturaRiga {

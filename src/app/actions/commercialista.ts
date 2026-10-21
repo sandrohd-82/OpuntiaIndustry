@@ -33,6 +33,7 @@ import { comeNotaCredito } from "@/lib/amministrazione/fattura-classica-stampa";
 import { fatturaClassicaDaXml } from "@/lib/amministrazione/fattura-pa-xml";
 import { nazioneEstera } from "@/lib/amministrazione/nazione-fattura";
 import { resolveFicDocumentXml } from "@/lib/amministrazione/fic-document-xml";
+import { isFatturaProva } from "@/lib/amministrazione/prova-ordine";
 import {
   fatturaEmessaPrenotataNonInviata,
   includeInRegistroCommercialista,
@@ -2296,7 +2297,9 @@ async function caricaElencoEmessi(
 
   const righe = (data ?? []).filter(
     (r) =>
-      r.tipo_documento !== "proforma" && !fatturaEmessaPrenotataNonInviata(r)
+      r.tipo_documento !== "proforma" &&
+      !fatturaEmessaPrenotataNonInviata(r) &&
+      !isFatturaProva(r)
   );
   const note = righe.filter((r) =>
     isNotaCreditoEmessa(r.tipo_documento, r.numero_interno)

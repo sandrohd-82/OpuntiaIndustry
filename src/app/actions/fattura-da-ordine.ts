@@ -31,6 +31,7 @@ import {
   assegnaNumeroProforma,
   isNumeroFatturaEmessa,
 } from "@/lib/amministrazione/numero-fattura";
+import { isFatturaProva } from "@/lib/amministrazione/prova-ordine";
 import { AGRINSICILIA_COORDINATE } from "@/lib/amministrazione/preventivo-letterhead";
 import {
   ORDINI_PERSISTENZA_BLOCCATA_MSG,
@@ -422,6 +423,7 @@ export async function getFatturaA4ContextAction(input: {
     const numeroGia =
       existingRow?.numero_fattura?.trim() &&
       (isNumeroFatturaEmessa(existingRow.numero_fattura) ||
+        isFatturaProva(existingRow) ||
         /^PR-\d+\/20\d{2}$/.test(existingRow.numero_fattura.trim()));
     const nums = numeroGia
       ? {
@@ -642,6 +644,27 @@ export async function saveFatturaDaOrdineAction(
       const row = existing as FatturaEmessaRow;
       numeroInterno = row.numero_interno;
       numeroFattura = row.numero_fattura || ctx.numeroFattura;
+      if (isFatturaProva(row)) {
+        if (input.inviaOra) {
+          return {
+            success: false,
+            error:
+              "Fattura di prova: non viene inviata allo SDI e non riceve un numero fiscale.",
+          };
+        }
+        return {
+          success: true,
+          fatturaId: row.id,
+          numeroInterno: row.numero_interno,
+          numeroFattura: row.numero_fattura,
+          inviata: false,
+          ficId: null,
+          pdfUrl: "",
+          eiStatus: row.ei_status || "prova",
+          courtesyEmailSent: false,
+          sdiSent: false,
+        };
+      }
       if (row.fic_id && input.inviaOra) {
         return inviaFatturaSalvataAction({
           fatturaId: row.id,
@@ -885,6 +908,13 @@ export async function materializzaNumeroDocumento(
   const tipo = String(data.tipo_documento ?? "fattura");
   const numero = String(data.numero_fattura ?? "").trim();
   const interno = String(data.numero_interno ?? "").trim();
+  if (isFatturaProva({ numero_fattura: numero, numero_interno: interno })) {
+    return {
+      success: true,
+      numeroFattura: numero,
+      numeroInterno: interno || `Ft-${numero}`,
+    };
+  }
   const dataDocumento = String(data.data_emissione ?? "").slice(0, 10);
   if (tipo === "proforma" && /^PR-\d+\/20\d{2}$/.test(numero)) {
     return { success: true, numeroFattura: numero, numeroInterno: interno || numero };
@@ -1019,6 +1049,13 @@ export async function inviaFatturaSalvataAction(input: {
     return { success: false, error: error?.message ?? "Fattura non trovata." };
   }
   const fattura = fatturaData as FatturaEmessaRow;
+  if (isFatturaProva(fattura)) {
+    return {
+      success: false,
+      error:
+        "Fattura di prova: non viene inviata allo SDI, non riceve un numero fiscale e non parte al cliente.",
+    };
+  }
   const bloccoSpedizione = await motivoBloccoInvioClienteOrdine(fattura.ordine_id);
   if (bloccoSpedizione) return { success: false, error: bloccoSpedizione };
   if (fattura.tipo_documento === "proforma") {
