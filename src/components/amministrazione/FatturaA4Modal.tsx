@@ -44,9 +44,12 @@ import {
   type OrdinePagamentoPiano,
 } from "@/lib/amministrazione/ordine-pagamento-piano";
 import {
+  loadFatturaAnteprimaSessione,
   loadOrdineSessione,
   ORDINI_PERSISTENZA_DEFINITIVA,
+  saveFatturaAnteprimaSessione,
   saveOrdineSessione,
+  type FatturaAnteprimaSessione,
   type OrdineSessioneFattura,
 } from "@/lib/amministrazione/ordine-sessione";
 import type { DestinatarioPreventivo } from "@/lib/amministrazione/preventivo-letterhead";
@@ -65,6 +68,8 @@ export type FatturaA4SessioneDraft = {
 
 type Props = {
   ordineId?: string;
+  /** Identifica l'anteprima di questo ordine. Alla chiusura della finestra si cancella. */
+  sessioneId?: string | null;
   sessioneDraft?: FatturaA4SessioneDraft | null;
   pianoIniziale?: OrdinePagamentoPiano | null;
   onClose: () => void;
@@ -107,6 +112,7 @@ function clienteToPreventivo(c: Cliente): DestinatarioPreventivo {
 
 export function FatturaA4Modal({
   ordineId,
+  sessioneId = null,
   sessioneDraft = null,
   pianoIniziale,
   onClose,
@@ -183,10 +189,13 @@ export function FatturaA4Modal({
         setMailProfessionaleAperta(true);
       }
       if (soloSessione) {
-        const prev = loadOrdineSessione()?.fattura;
+        const memorizzata = loadFatturaAnteprimaSessione();
+        const usaMemorizzata =
+          Boolean(sessioneId) && memorizzata?.sessioneId === sessioneId;
         const draft = sessioneDraft;
-        const src = prev ??
-          (draft
+        const src = usaMemorizzata
+          ? memorizzata
+          : draft
             ? {
                 numeroFattura: draft.numeroFattura,
                 dataDocumento: draft.dataDocumento,
@@ -197,7 +206,7 @@ export function FatturaA4Modal({
                 invioEmail: draft.emails[0] ?? "",
                 intenzione: "bozza" as const,
               }
-            : null);
+            : null;
         if (!src) {
           setError("Nessuna fattura in sessione.");
           setLoading(false);
@@ -210,11 +219,13 @@ export function FatturaA4Modal({
         setRighe(src.righe);
         setNoteDocumento(src.noteDocumento);
         setFatturaId(null);
-        setPiano(pianoIniziale ?? src.piano);
+        setPiano(pianoIniziale && !usaMemorizzata ? pianoIniziale : src.piano);
         const mails = draft?.emails ?? [];
         setEmails(mails);
-        setEmailSel(src.invioEmail || mails[0] || "");
-        setInviaEmail(Boolean(src.invioEmail || mails[0]));
+        setEmailSel(
+          ("invioEmail" in src ? src.invioEmail : "") || mails[0] || ""
+        );
+        setInviaEmail(Boolean(mails[0]));
         setLoading(false);
         return;
       }
@@ -250,14 +261,52 @@ export function FatturaA4Modal({
     return () => {
       cancelled = true;
     };
-    // sessioneDraft solo come fallback al primo open; la fonte è sessionStorage
+    // La bozza dell'ordine è il punto di partenza. Le modifiche restano in sessione.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [ordineId, soloSessione]);
+  }, [ordineId, soloSessione, sessioneId]);
+
+  function anteprimaCorrente(): FatturaAnteprimaSessione | null {
+    if (!soloSessione || !sessioneId || !destinatario) return null;
+    return {
+      sessioneId,
+      numeroFattura: numero,
+      dataDocumento,
+      destinatario,
+      righe,
+      noteDocumento,
+      piano,
+    };
+  }
+
+  useEffect(() => {
+    if (loading) return;
+    const corrente = anteprimaCorrente();
+    if (!corrente) return;
+    saveFatturaAnteprimaSessione(corrente);
+    // anteprimaCorrente legge lo stato già elencato sotto.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [
+    loading,
+    soloSessione,
+    sessioneId,
+    numero,
+    dataDocumento,
+    destinatario,
+    righe,
+    noteDocumento,
+    piano,
+  ]);
+
+  function chiudiAnteprima() {
+    const corrente = anteprimaCorrente();
+    if (corrente) saveFatturaAnteprimaSessione(corrente);
+    onClose();
+  }
 
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
       if (e.key === "Escape" && !saving && !confirmOpen && !editKind) {
-        onClose();
+        chiudiAnteprima();
       }
     }
     document.addEventListener("keydown", onKey);
@@ -267,7 +316,7 @@ export function FatturaA4Modal({
       document.removeEventListener("keydown", onKey);
       document.body.style.overflow = prev;
     };
-  }, [onClose, saving, confirmOpen, editKind]);
+  }, [onClose, saving, confirmOpen, editKind, soloSessione, sessioneId, numero, dataDocumento, destinatario, righe, noteDocumento, piano, loading]);
 
   const destPicker = destinatario
     ? destinatarioToPreventivo(
@@ -582,7 +631,7 @@ export function FatturaA4Modal({
         <div className="flex flex-wrap justify-end gap-2">
           <button
             type="button"
-            onClick={onClose}
+            onClick={chiudiAnteprima}
             disabled={saving}
             className="rounded-lg border border-white/20 bg-white/10 px-3 py-1.5 text-sm text-white hover:bg-white/20 disabled:opacity-50"
           >
@@ -703,6 +752,12 @@ export function FatturaA4Modal({
       {error ? (
         <p className="mx-auto mb-3 max-w-[210mm] rounded border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700 print:hidden">
           {error}
+        </p>
+      ) : null}
+      {soloSessione && ORDINI_PERSISTENZA_DEFINITIVA && !msg ? (
+        <p className="mx-auto mb-3 max-w-[210mm] rounded border border-sky-200 bg-sky-50 px-3 py-2 text-sm text-sky-950 print:hidden">
+          Le modifiche restano in questa sessione del browser. Si cancellano
+          quando chiudi la finestra dell&apos;ordine. Non vanno sul server.
         </p>
       ) : null}
       {soloSessione && !ORDINI_PERSISTENZA_DEFINITIVA && !msg ? (

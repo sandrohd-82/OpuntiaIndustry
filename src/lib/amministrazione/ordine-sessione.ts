@@ -88,6 +88,60 @@ export function clearOrdineSessione(): void {
   }
 }
 
+/** Anteprima fattura dell'ordine aperto. Vive solo finché la finestra ordine è aperta. */
+export const FATTURA_ANTEPRIMA_SESSIONE_KEY =
+  "opuntia.fattura.anteprima-ordine.v1";
+
+export type FatturaAnteprimaSessione = {
+  sessioneId: string;
+  numeroFattura: string;
+  dataDocumento: string;
+  destinatario: FatturaDestinatarioSnapshot;
+  righe: FatturaA4Riga[];
+  noteDocumento: string;
+  piano: OrdinePagamentoPiano;
+};
+
+export function loadFatturaAnteprimaSessione(): FatturaAnteprimaSessione | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const raw = sessionStorage.getItem(FATTURA_ANTEPRIMA_SESSIONE_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as FatturaAnteprimaSessione;
+    if (!parsed?.sessioneId || !Array.isArray(parsed.righe)) return null;
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+
+export function saveFatturaAnteprimaSessione(
+  sessione: FatturaAnteprimaSessione
+): void {
+  if (typeof window === "undefined") return;
+  try {
+    sessionStorage.setItem(
+      FATTURA_ANTEPRIMA_SESSIONE_KEY,
+      JSON.stringify(sessione)
+    );
+  } catch {
+    /* quota / private mode */
+  }
+}
+
+export function clearFatturaAnteprimaSessione(sessioneId?: string): void {
+  if (typeof window === "undefined") return;
+  try {
+    if (sessioneId) {
+      const attuale = loadFatturaAnteprimaSessione();
+      if (attuale && attuale.sessioneId !== sessioneId) return;
+    }
+    sessionStorage.removeItem(FATTURA_ANTEPRIMA_SESSIONE_KEY);
+  } catch {
+    /* private mode */
+  }
+}
+
 function wipeLegacyOrdineSessione(): void {
   if (typeof window === "undefined") return;
   try {

@@ -79,6 +79,7 @@ import {
   buildOrdineSessioneLocale,
   destinatarioSessioneDaCliente,
   emailsDaCliente,
+  clearFatturaAnteprimaSessione,
   clearOrdineSessione,
   loadOrdineSessione,
   ORDINI_PERSISTENZA_DEFINITIVA,
@@ -431,6 +432,14 @@ export function OrdineNuovoWizardModal({
   const [savedOrdine, setSavedOrdine] = useState<Ordine | null>(null);
   const [sessioneMsg, setSessioneMsg] = useState<string | null>(null);
   const [fatturaA4Open, setFatturaA4Open] = useState(false);
+  const [anteprimaSessioneId] = useState(() =>
+    typeof crypto !== "undefined" && "randomUUID" in crypto
+      ? crypto.randomUUID()
+      : `anteprima-${Date.now()}`
+  );
+  useEffect(() => {
+    return () => clearFatturaAnteprimaSessione(anteprimaSessioneId);
+  }, [anteprimaSessioneId]);
   const [ordineFinalizzato, setOrdineFinalizzato] = useState(false);
   const [fatturaPrenotataId, setFatturaPrenotataId] = useState<string | null>(null);
   const [confermaInvioFattura, setConfermaInvioFattura] = useState(0);
@@ -3489,10 +3498,10 @@ export function OrdineNuovoWizardModal({
               <div className="space-y-2 rounded-xl border border-[var(--border)] p-4">
                 <p className="text-sm font-semibold">Fattura</p>
                 <p className="text-xs text-[var(--muted)]">
-                  Anteprima A4, senza registrare nulla. Alla finalizzazione la
-                  fattura resta prenotata, senza numero progressivo. Il numero
-                  si assegna solo all&apos;invio, e l&apos;invio parte solo dopo
-                  la doppia conferma. Niente email e niente SDI prima.
+                  Anteprima A4. Le modifiche restano in questa sessione finché
+                  la finestra dell&apos;ordine è aperta, poi si cancellano. Alla
+                  finalizzazione la fattura prenotata nasce dall&apos;ordine, senza
+                  numero progressivo. Niente email e niente SDI prima.
                 </p>
                 {attesaCalcoloSpedizione ? (
                   <p className="text-xs text-amber-800">
@@ -3807,6 +3816,7 @@ export function OrdineNuovoWizardModal({
           ordineId={
             savedOrdine && ORDINI_PERSISTENZA_DEFINITIVA ? savedOrdine.id : undefined
           }
+          sessioneId={anteprimaSessioneId}
           sessioneDraft={
             savedOrdine && ORDINI_PERSISTENZA_DEFINITIVA
               ? null
