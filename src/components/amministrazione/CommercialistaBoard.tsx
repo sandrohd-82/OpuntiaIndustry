@@ -4,6 +4,7 @@ import {
   useCallback,
   useEffect,
   useMemo,
+  useRef,
   useState,
   useTransition,
   type CSSProperties,
@@ -421,18 +422,26 @@ export function CommercialistaBoard({ ospite = false }: { ospite?: boolean }) {
   const [exporting, startExport] = useTransition();
   const [trimestreOpen, setTrimestreOpen] = useState(false);
   const { canElaboraContabilita } = useSensitiveAuth();
+  const richiesta = useRef(0);
 
   const calendarDefault = useMemo(
     () => dateRangeForTrimestre(anno, trimestre),
     [anno, trimestre]
   );
 
+  useEffect(() => {
+    setDalEdit(calendarDefault.dal);
+    setAlEdit(calendarDefault.al);
+  }, [calendarDefault]);
+
   const load = useCallback(async () => {
+    const id = ++richiesta.current;
     setReady(false);
     setError(null);
     setPeriodoMsg(null);
     const res: CommercialistaSummaryResult =
       await getCommercialistaSummaryAction({ anno, trimestre });
+    if (id !== richiesta.current) return;
     if (!res.success) {
       setError(res.error);
       setData(null);
@@ -590,7 +599,7 @@ export function CommercialistaBoard({ ospite = false }: { ospite?: boolean }) {
           />
           <button
             type="button"
-            disabled={savingPeriodo || !dalEdit || !alEdit}
+            disabled={savingPeriodo || !ready || !dalEdit || !alEdit}
             onClick={savePeriodo}
             className="rounded-lg bg-[var(--primary)] px-3 py-2 text-sm font-medium text-white disabled:opacity-50"
           >
