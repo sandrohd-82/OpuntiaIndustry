@@ -17,6 +17,7 @@ import {
   buildPaperFatturaPdf,
   caricaLogoIntestazione,
   nomiPdfUnivoci,
+  blobImmagineInPdf,
   scriviFileInCartella,
   type CartellaPdf,
 } from "@/lib/amministrazione/fattura-classica-pdf";
@@ -151,6 +152,13 @@ export function nomiFileElaborazione(
 const MIME_XLSX =
   "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
 
+/** Il jpg resta la foto, dentro un PDF: Excel apre quello, non l'immagine. */
+async function scontrinoPerExcel(blob: Blob, fileName: string): Promise<Blob> {
+  if (blob.type.toLowerCase() === "application/pdf") return blob;
+  if (fileName.toLowerCase().endsWith(".pdf")) return blobImmagineInPdf(blob);
+  return blob;
+}
+
 /** PDF e Excel del registro, nella stessa cartella. Il resoconto completo sta nella madre. */
 export async function scriviElaborazioneRegistro(input: {
   cartella: CartellaPdf;
@@ -187,7 +195,9 @@ export async function scriviElaborazioneRegistro(input: {
       try {
         const risposta = await fetch(doc.allegatoUrl);
         if (risposta.ok) {
-          await scriviFileInCartella(input.cartella, fileName, await risposta.blob());
+          const originale = await risposta.blob();
+          const contenuto = await scontrinoPerExcel(originale, fileName);
+          await scriviFileInCartella(input.cartella, fileName, contenuto);
           continue;
         }
       } catch {

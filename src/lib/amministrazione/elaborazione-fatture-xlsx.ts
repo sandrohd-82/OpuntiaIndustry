@@ -41,13 +41,11 @@ function segmentoRelativo(segmento: string): string {
 
 /**
  * Percorso relativo al foglio, stesso nome del file su disco.
- * Senza ./ Excel apre uno scontrino jpg, specie se nel nome ci sono spazi,
- * come se fosse un indirizzo e non il file nella cartella.
+ * Niente prefisso ./ : con quello Excel risponde «Non è possibile aprire il file specificato».
  */
 function destinazionePdf(cartella: string | undefined, nomeFile: string): string {
   const raw = (cartella ? `${cartella}/${nomeFile}` : nomeFile).replace(/\\/g, "/");
-  const encoded = raw.split("/").filter(Boolean).map(segmentoRelativo).join("/");
-  return `./${encoded}`;
+  return raw.split("/").filter(Boolean).map(segmentoRelativo).join("/");
 }
 
 function euroTesto(n: number): string {

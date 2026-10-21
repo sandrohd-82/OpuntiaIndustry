@@ -379,6 +379,11 @@ export function righeCartellaUscita(
   return out;
 }
 
+/** Excel non apre un jpg dal collegamento: la foto dello scontrino sta in un PDF. */
+function nomeFileApribileDaExcel(nome: string): string {
+  return nome.replace(/\.(jpe?g|png|webp|gif|bmp|heic|heif)$/i, ".pdf");
+}
+
 /** Il file caricato resta il nome; altrimenti vale il nome generato. */
 export function nomiConFileExport(
   docs: FatturaElaborazioneSorgente[],
@@ -386,7 +391,8 @@ export function nomiConFileExport(
 ): string[] {
   const usati = new Set<string>();
   return docs.map((doc, i) => {
-    const base = doc.nomeFileExport?.trim() || generati[i] || `documento_${i + 1}.pdf`;
+    const scelto = doc.nomeFileExport?.trim() || generati[i] || `documento_${i + 1}.pdf`;
+    const base = nomeFileApribileDaExcel(scelto);
     let nome = base;
     let n = 2;
     while (usati.has(nome.toLowerCase())) {

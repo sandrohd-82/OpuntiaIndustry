@@ -626,6 +626,45 @@ export async function chiediCartellaScrittura(): Promise<CartellaPdf | null> {
   }
 }
 
+/** Una pagina A4 con la foto dello scontrino. Excel apre il PDF, non il jpg. */
+export async function blobImmagineInPdf(blob: Blob): Promise<Blob> {
+  const url = URL.createObjectURL(blob);
+  try {
+    const img = await new Promise<HTMLImageElement>((resolve, reject) => {
+      const el = new Image();
+      el.onload = () => resolve(el);
+      el.onerror = () => reject(new Error("immagine"));
+      el.src = url;
+    });
+    const maxLato = 2000;
+    const scala = Math.min(1, maxLato / Math.max(img.naturalWidth, img.naturalHeight, 1));
+    const canvas = document.createElement("canvas");
+    canvas.width = Math.max(1, Math.round(img.naturalWidth * scala));
+    canvas.height = Math.max(1, Math.round(img.naturalHeight * scala));
+    const ctx = canvas.getContext("2d");
+    if (!ctx) throw new Error("canvas");
+    ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+    const doc = new jsPDF({ unit: "mm", format: "a4" });
+    const margin = 8;
+    const maxW = 210 - margin * 2;
+    const maxH = 297 - margin * 2;
+    const rapporto = Math.min(maxW / canvas.width, maxH / canvas.height);
+    const w = canvas.width * rapporto;
+    const h = canvas.height * rapporto;
+    doc.addImage(
+      canvas.toDataURL("image/jpeg", 0.92),
+      "JPEG",
+      margin + (maxW - w) / 2,
+      margin,
+      w,
+      h
+    );
+    return doc.output("blob");
+  } finally {
+    URL.revokeObjectURL(url);
+  }
+}
+
 export async function scriviFileInCartella(
   cartella: CartellaPdf,
   nome: string,
