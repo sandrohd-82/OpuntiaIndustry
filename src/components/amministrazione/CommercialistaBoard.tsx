@@ -25,6 +25,7 @@ import type {
   CommercialistaRegistroKind,
   CommercialistaSummary,
   ImportoConIva,
+  PrimaNotaSpesa,
 } from "@/lib/amministrazione/commercialista";
 import { formatEuro, formatDateIt } from "@/lib/amministrazione/fatture";
 import {
@@ -96,6 +97,8 @@ function ColonnaCommercialista({
   trimestre,
   onSequenzaDone,
   ospite = false,
+  primaNota,
+  totaleSpese,
 }: {
   kind: CommercialistaRegistroKind;
   titoloTotale: string;
@@ -107,6 +110,8 @@ function ColonnaCommercialista({
   trimestre: TrimestreNumero;
   onSequenzaDone: () => void;
   ospite?: boolean;
+  primaNota?: PrimaNotaSpesa;
+  totaleSpese?: number;
 }) {
   const [openResoconto, setOpenResoconto] = useState(false);
   const [openBeni, setOpenBeni] = useState(false);
@@ -145,6 +150,30 @@ function ColonnaCommercialista({
         <p className="mt-1 text-3xl font-semibold tabular-nums tracking-tight text-slate-900">
           {formatEuro(colonna.documenti.totale)}
         </p>
+        {primaNota && totaleSpese != null ? (
+          <dl className="mt-3 space-y-1 border-t border-[var(--border)] pt-3 text-sm">
+            <div className="flex items-baseline justify-between gap-3">
+              <dt className="text-[var(--muted)]">Totale spese</dt>
+              <dd className="font-semibold tabular-nums text-slate-900">
+                {formatEuro(totaleSpese)}
+              </dd>
+            </div>
+            <div className="flex items-baseline justify-between gap-3">
+              <dt className="text-[var(--muted)]">Importo prima nota</dt>
+              <dd className="tabular-nums text-slate-900">
+                {formatEuro(primaNota.totale)}
+              </dd>
+            </div>
+            <div className="flex items-baseline justify-between gap-3">
+              <dt className="text-[var(--muted)]">di cui IVA</dt>
+              <dd className="tabular-nums text-slate-700">{formatEuro(primaNota.iva)}</dd>
+            </div>
+            <p className="pt-1 text-[11px] leading-snug text-[var(--muted)]">
+              {primaNota.conteggio} scontrini. L&apos;IVA è indicata per tracciare
+              l&apos;importo e non entra nell&apos;IVA da detrarre.
+            </p>
+          </dl>
+        ) : null}
         <dl className="mt-2 grid grid-cols-3 gap-2 text-center text-[11px]">
           <div className="rounded-lg bg-slate-50 px-2 py-1.5">
             <dt className="text-[var(--muted)]">{etichettaDocumenti}</dt>
@@ -489,8 +518,9 @@ export function CommercialistaBoard({ ospite = false }: { ospite?: boolean }) {
       <div className="flex flex-wrap items-end justify-between gap-3">
         <p className="max-w-2xl text-sm text-[var(--muted)]">
           Riepilogo trimestrale (IVA ordinario{" "}
-          {data?.ivaAliquotaDefaultPct ?? 22}%). Fatture, DDT e note di credito,
-          emessi e ricevuti, sullo stesso periodo. Sequenza numerica stile matita.
+          {data?.ivaAliquotaDefaultPct ?? 22}%). Fatture, DDT, note di credito e
+          scontrini di prima nota, emessi e ricevuti, sullo stesso periodo.
+          L&apos;IVA degli scontrini è indicata e non si somma all&apos;IVA da detrarre.
         </p>
         <div className="flex flex-wrap gap-2">
           <label className="block text-sm">
@@ -654,6 +684,8 @@ export function CommercialistaBoard({ ospite = false }: { ospite?: boolean }) {
             trimestre={trimestre}
             ospite={ospite}
             onSequenzaDone={() => void load()}
+            primaNota={data.primaNota}
+            totaleSpese={data.totaleSpese}
           />
         </div>
       ) : null}

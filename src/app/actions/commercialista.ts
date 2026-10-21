@@ -18,6 +18,7 @@ import {
 } from "@/lib/amministrazione/commercialista";
 import { assignNumeriVignetta } from "@/lib/amministrazione/elaborazione-contabile";
 import { etichettaOrigineDocumento } from "@/lib/amministrazione/elaborazione-fatture-excel";
+import { LABEL_CATEGORIA_SPESA, SPESE_BUCKET } from "@/lib/fiscale/spese";
 import { buildElaborazioneFattureXlsx } from "@/lib/amministrazione/elaborazione-fatture-xlsx";
 import { buildElencoMistoXlsx } from "@/lib/amministrazione/elenco-documenti-xlsx";
 import {
@@ -632,6 +633,9 @@ export async function getCommercialistaSummaryAction(
 
   const ddt = await loadColonneDdt(supabase, dal, al, sequenzaDdtRicevutiAnno);
   if (!ddt.ok) return { success: false, error: ddt.error };
+  const scontriniLetti = await leggiScontriniPeriodo(supabase, dal, al);
+  if ("error" in scontriniLetti) return { success: false, error: scontriniLetti.error };
+  const primaNota = totaliScontrini(scontriniLetti);
 
   return {
     success: true,
@@ -651,6 +655,8 @@ export async function getCommercialistaSummaryAction(
       ddtRicevuti: ddt.ricevuti,
       noteEmesse,
       noteRicevute,
+      primaNota,
+      totaleSpese: roundMoney(ricevute.documenti.totale + primaNota.totale),
     },
   };
 }
@@ -1242,6 +1248,10 @@ export type CommercialistaPaperDoc = {
   /** Legame fra fattura annullata e nota di credito. */
   collegamento: string;
   sdiAssente: boolean;
+  /** Nome del file caricato, per gli scontrini. */
+  nomeFileExport?: string | null;
+  /** Allegato originale dello scontrino. */
+  allegatoUrl?: string | null;
 };
 
 /** Sede dell'azienda collegata. Il service role serve perché l'area fiscale non legge l'anagrafica. */
@@ -1471,6 +1481,9 @@ export async function getCommercialistaPaperBatchAction(input: {
   if (!periodoRes.ok) return { success: false, error: periodoRes.error };
   const { dal, al, labelTrimestre: label } = periodoRes.periodo;
   const supabase = accesso.supabase;
+  if (input.kind === "scontrino") {
+    return loadScontriniPaper(supabase, dal, al, label);
+  }
 
   type Testata = {
     id: string;
@@ -1667,6 +1680,191 @@ export async function getCommercialistaPaperBatchAction(input: {
     success: true,
     docs,
     senzaSequenza: docs.filter((d) => d.numeroSequenza == null).length,
+    labelPeriodo: label,
+  };
+}
+
+type ScontrinoPeriodo = {
+  id: string;
+  esercente: string;
+  partita_iva: string;
+  data_documento: string;
+  imponibile: number;
+  imposta: number;
+  totale: number;
+  nazione: string;
+  file_name: string;
+  storage_path: string;
+  categoria: string;
+  giustificazione: string;
+  note: string;
+};
+
+async function leggiScontriniPeriodo(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  dal: string,
+  al: string
+): Promise<ScontrinoPeriodo[] | { error: string }> {
+  const { data, error } = await supabase
+    .from("spese_documenti")
+    .select(
+      "id, esercente, partita_iva, data_documento, imponibile, imposta, totale, nazione, file_name, storage_path, categoria, giustificazione, note, stato"
+    )
+    .eq("tipo_caricamento", "scontrino")
+    .in("stato", ["registrato", "contabilizzato"])
+    .is("deleted_at", null)
+    .gte("data_documento", dal)
+    .lte("data_documento", al)
+    .order("data_documento", { ascending: true })
+    .order("created_at", { ascending: true });
+  if (error) return { error: error.message };
+  return (data ?? []).map((row) => ({
+    id: String(row.id),
+    esercente: String(row.esercente ?? ""),
+    partita_iva: String(row.partita_iva ?? ""),
+    data_documento: String(row.data_documento ?? ""),
+    imponibile: Number(row.imponibile) || 0,
+    imposta: Number(row.imposta) || 0,
+    totale: Number(row.totale) || 0,
+    nazione: String(row.nazione ?? ""),
+    file_name: String(row.file_name ?? ""),
+    storage_path: String(row.storage_path ?? ""),
+    categoria: String(row.categoria ?? ""),
+    giustificazione: String(row.giustificazione ?? ""),
+    note: String(row.note ?? ""),
+  }));
+}
+
+function totaliScontrini(righe: ScontrinoPeriodo[]): {
+  conteggio: number;
+  imponibile: number;
+  iva: number;
+  totale: number;
+} {
+  return {
+    conteggio: righe.length,
+    imponibile: roundMoney(righe.reduce((n, r) => n + r.imponibile, 0)),
+    iva: roundMoney(righe.reduce((n, r) => n + r.imposta, 0)),
+    totale: roundMoney(righe.reduce((n, r) => n + r.totale, 0)),
+  };
+}
+
+function nomeFileScontrino(fileName: string, index: number): string {
+  const base = fileName
+    .trim()
+    .replace(/[\\/]+/g, "-")
+    .replace(/[^\w.\- ()]+/g, "")
+    .replace(/\s+/g, " ");
+  const conEstensione = /\.[a-z0-9]{2,5}$/i.test(base) ? base : "";
+  return conEstensione || `scontrino_${index + 1}.pdf`;
+}
+
+async function loadScontriniPaper(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  dal: string,
+  al: string,
+  label: string
+): Promise<
+  | {
+      success: true;
+      docs: CommercialistaPaperDoc[];
+      senzaSequenza: number;
+      labelPeriodo: string;
+    }
+  | { success: false; error: string }
+> {
+  const letti = await leggiScontriniPeriodo(supabase, dal, al);
+  if ("error" in letti) return { success: false, error: letti.error };
+  const usati = new Set<string>();
+  const nomi = letti.map((row, index) => {
+    const base = nomeFileScontrino(row.file_name, index);
+    let nome = base;
+    let n = 2;
+    while (usati.has(nome.toLowerCase())) {
+      nome = base.replace(/(\.[^.]+)$/, `_${n}$1`);
+      n += 1;
+    }
+    usati.add(nome.toLowerCase());
+    return nome;
+  });
+  let service: ReturnType<typeof createServiceClient> | null = null;
+  try {
+    service = createServiceClient();
+  } catch {
+    service = null;
+  }
+  const azienda = defaultDestinatarioCooperativa();
+  const docs: CommercialistaPaperDoc[] = [];
+  for (let index = 0; index < letti.length; index += 1) {
+    const row = letti[index];
+    if (!row) continue;
+    let allegatoUrl: string | null = null;
+    if (service && row.storage_path.trim()) {
+      const signed = await service.storage
+        .from(SPESE_BUCKET)
+        .createSignedUrl(row.storage_path, 60 * 30);
+      allegatoUrl = signed.data?.signedUrl ?? null;
+    }
+    const categoria =
+      LABEL_CATEGORIA_SPESA[row.categoria as keyof typeof LABEL_CATEGORIA_SPESA] ??
+      row.categoria;
+    const descrizione = [categoria, row.giustificazione, row.note]
+      .map((v) => v.trim())
+      .filter(Boolean)
+      .join(" — ");
+    const mittente = partyMinimo(row.esercente, row.partita_iva);
+    const model: PaperInvoiceModel = {
+      numero: nomi[index]?.replace(/\.[^.]+$/, "") || `Scontrino ${index + 1}`,
+      data: row.data_documento.slice(0, 10) || null,
+      dataScadenza: null,
+      mittente,
+      destinatario: azienda,
+      righe: [
+        {
+          descrizione: descrizione || "Scontrino",
+          quantita: 1,
+          unitaMisura: "",
+          prezzo: row.imponibile,
+          scontoPercentuale: 0,
+          ivaPercentuale: row.imponibile > 0 ? roundMoney((row.imposta / row.imponibile) * 100) : 0,
+          importo: row.imponibile,
+        },
+      ],
+      castelletto: [],
+      imponibile: row.imponibile,
+      iva: row.imposta,
+      totale: row.totale,
+      iban: "",
+      notePagamento: "Prima nota. L'IVA dello scontrino non è detraibile.",
+      fonte: "opuntia",
+      documentoTitolo: "Scontrino",
+      scissionePagamenti: false,
+      nazioneEstera: nazioneEstera(row.nazione),
+    };
+    docs.push({
+      id: row.id,
+      numeroInterno: model.numero,
+      dataEmissione: row.data_documento,
+      anagraficaRagioneSociale: row.esercente,
+      numeroSequenza: index + 1,
+      notaCredito: false,
+      numeroDocumento: model.numero,
+      origineDocumento: etichettaOrigineDocumento({ fileName: row.file_name }),
+      beneAmmortizzabile: "NO",
+      numeroProgressivoAnno: index + 1,
+      model,
+      classica: null,
+      nazioneAzienda: row.nazione,
+      collegamento: "",
+      sdiAssente: true,
+      nomeFileExport: nomi[index] ?? `scontrino_${index + 1}.pdf`,
+      allegatoUrl,
+    });
+  }
+  return {
+    success: true,
+    docs,
+    senzaSequenza: 0,
     labelPeriodo: label,
   };
 }

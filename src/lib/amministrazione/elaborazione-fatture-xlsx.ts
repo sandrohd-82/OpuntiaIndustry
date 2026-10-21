@@ -37,6 +37,27 @@ function destinazionePdf(cartella: string | undefined, nomeFile: string): string
   return encodeURI(raw.replace(/\\/g, "/"));
 }
 
+function euroTesto(n: number): string {
+  return n.toLocaleString("it-IT", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  });
+}
+
+/** Importo visibile ma barrato: non entra nell'IVA detraibile né nell'imponibile. */
+function segnaNonContabilizzato(cell: ExcelJS.Cell, importo: number): void {
+  cell.value = {
+    richText: [
+      { font: { name: "Calibri", size: 9, color: { argb: "FF64748B" } }, text: "NC non contabilizzato\n" },
+      {
+        font: { name: "Calibri", size: 11, strike: true, color: { argb: "FF94A3B8" } },
+        text: euroTesto(importo),
+      },
+    ],
+  };
+  cell.alignment = { horizontal: "right", vertical: "middle", wrapText: true };
+}
+
 function cellaApreFattura(
   cell: ExcelJS.Cell,
   testo: string,
@@ -326,7 +347,7 @@ export async function buildResocontoCompletoXlsx(
   const ws = wb.addWorksheet("Resoconto completo", {
     views: [{ state: "frozen", ySplit: 1 }],
   });
-  const larghezze = [14, 28, 28, 42, 16, 14, 16];
+  const larghezze = [14, 28, 28, 42, 24, 24, 16];
   ws.columns = TITOLI_RESOCONTO_COMPLETO.map((_, index) => ({
     width: larghezze[index] ?? 18,
   }));
@@ -363,6 +384,11 @@ export async function buildResocontoCompletoXlsx(
     for (const col of [5, 6, 7]) {
       excelRow.getCell(col).numFmt = "#,##0.00";
       excelRow.getCell(col).alignment = { horizontal: "right" };
+    }
+    if (documento && riga.nonContabilizzato) {
+      segnaNonContabilizzato(excelRow.getCell(5), riga.imponibile);
+      segnaNonContabilizzato(excelRow.getCell(6), riga.iva);
+      excelRow.height = 32;
     }
     if (documento && riga.percorsoPdf) {
       const testo = riga.numeroDocumento.trim() || riga.percorsoPdf;

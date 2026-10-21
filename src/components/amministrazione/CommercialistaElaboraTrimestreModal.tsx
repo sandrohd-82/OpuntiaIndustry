@@ -43,6 +43,7 @@ const KINDS: CommercialistaRegistroKind[] = [
   "ddt_ricevuto",
   "nota_emessa",
   "nota_ricevuta",
+  "scontrino",
 ];
 
 const MIME_XLSX =
@@ -237,7 +238,10 @@ export function CommercialistaElaboraTrimestreModal({
                 apre la fattura; dove la pagina mostra solo il numero, è il numero che
                 la apre. Solo le cartelle che contengono i PDF, e non altre cartelle,
                 riportano il numero, per esempio Ricevute III 2026 (185 file). DDT e
-                Note Cr restano contenitori. Il conteggio è dei PDF.
+                Note Cr restano contenitori. Il conteggio è dei PDF. Prima Nota
+                contiene gli scontrini: nel resoconto completo imponibile e IVA
+                restano visibili con «NC non contabilizzato» e non entrano in quelle
+                somme. Il totale degli scontrini entra nel Totale.
               </p>
               <ul className="mt-2 flex flex-wrap gap-2">
                 {KINDS.map((kind) => (
@@ -369,10 +373,24 @@ export function CommercialistaElaboraTrimestreModal({
                               </td>
                               <td className="px-1.5 py-1">{riga.intestazione}</td>
                               <td className="px-1.5 py-1 text-right tabular-nums">
-                                {formatEuro(riga.imponibile)}
+                                {riga.nonContabilizzato ? (
+                                  <span className="inline-flex flex-col items-end leading-tight">
+                                    <span className="text-[10px] text-slate-500">NC non contabilizzato</span>
+                                    <span className="text-slate-400 line-through">{formatEuro(riga.imponibile)}</span>
+                                  </span>
+                                ) : (
+                                  formatEuro(riga.imponibile)
+                                )}
                               </td>
                               <td className="px-1.5 py-1 text-right tabular-nums">
-                                {formatEuro(riga.iva)}
+                                {riga.nonContabilizzato ? (
+                                  <span className="inline-flex flex-col items-end leading-tight">
+                                    <span className="text-[10px] text-slate-500">NC non contabilizzato</span>
+                                    <span className="text-slate-400 line-through">{formatEuro(riga.iva)}</span>
+                                  </span>
+                                ) : (
+                                  formatEuro(riga.iva)
+                                )}
                               </td>
                               <td className="px-1.5 py-1 text-right tabular-nums">
                                 {formatEuro(riga.totale)}

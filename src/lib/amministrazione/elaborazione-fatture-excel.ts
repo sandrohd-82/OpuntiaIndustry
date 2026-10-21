@@ -104,6 +104,10 @@ export type FatturaElaborazioneSorgente = {
   /** «Annullata con nota di credito n …» oppure «Annulla la fattura num …». */
   collegamento?: string | null;
   notaCredito: boolean;
+  /** Nome già deciso (lo scontrino tiene il file caricato). */
+  nomeFileExport?: string | null;
+  /** File originale dello scontrino, se c'è un allegato. */
+  allegatoUrl?: string | null;
 };
 
 export const TITOLI_USCITA_EXCEL = [
@@ -375,12 +379,30 @@ export function righeCartellaUscita(
   return out;
 }
 
-/** Elenco ordinato per data, con il totale di ogni mese e il totale del trimestre. */
-export function righeElaborazioneFatture(
+/** Il file caricato resta il nome; altrimenti vale il nome generato. */
+export function nomiConFileExport(
+  docs: FatturaElaborazioneSorgente[],
+  generati: string[]
+): string[] {
+  const usati = new Set<string>();
+  return docs.map((doc, i) => {
+    const base = doc.nomeFileExport?.trim() || generati[i] || `documento_${i + 1}.pdf`;
+    let nome = base;
+    let n = 2;
+    while (usati.has(nome.toLowerCase())) {
+      nome = base.replace(/(\.[^.]+)$/, `_${n}$1`);
+      n += 1;
+    }
+    usati.add(nome.toLowerCase());
+    return nome;
+  });
+}
+
+function nomiFileSorgente(
   docs: FatturaElaborazioneSorgente[],
   kind: CommercialistaRegistroKind
-): RigaElaborazioneExcel[] {
-  const nomi = nomiPdfUnivoci(
+): string[] {
+  const generati = nomiPdfUnivoci(
     docs.map((doc) => ({
       numeroSequenza: doc.numeroSequenza,
       numeroFattura:
@@ -392,6 +414,15 @@ export function righeElaborazioneFatture(
     })),
     registroMostraBeneConsumo(kind) ? "entrata" : "classico"
   );
+  return nomiConFileExport(docs, generati);
+}
+
+/** Elenco ordinato per data, con il totale di ogni mese e il totale del trimestre. */
+export function righeElaborazioneFatture(
+  docs: FatturaElaborazioneSorgente[],
+  kind: CommercialistaRegistroKind
+): RigaElaborazioneExcel[] {
+  const nomi = nomiFileSorgente(docs, kind);
   const nomePerDoc = new Map(docs.map((doc, i) => [doc, nomi[i] ?? ""]));
   const ordinate = [...docs].sort((a, b) => {
     const da =
@@ -483,11 +514,13 @@ export const COLORI_TIPO_DOCUMENTO: Record<
   ddt_ricevuto: { fondo: "#FFF4CC", etichetta: "DDT ricevuto" },
   nota_emessa: { fondo: "#F8D0D0", etichetta: "Nota di credito emessa" },
   nota_ricevuta: { fondo: "#E8D8F5", etichetta: "Nota di credito ricevuta" },
+  scontrino: { fondo: "#E7E5E4", etichetta: "Scontrino" },
 };
 
 const ORDINE_TIPO_RESOCONTO: CommercialistaRegistroKind[] = [
   "emessa",
   "ricevuta",
+  "scontrino",
   "ddt_emesso",
   "ddt_ricevuto",
   "nota_emessa",
@@ -512,6 +545,8 @@ export type RigaResocontoCompleto =
       iva: number;
       totale: number;
       percorsoPdf: string;
+      /** Imposta e IVA restano visibili ma non entrano nelle somme. */
+      nonContabilizzato?: boolean;
     }
   | {
       tipo: "mese" | "trimestre";
@@ -581,6 +616,7 @@ export function righeResocontoCompleto(
     if (mese && chiaveMese !== mese) chiudiMese();
     mese = chiaveMese;
     const importi = importiDi(voce.doc);
+    const primaNota = voce.kind === "scontrino";
     out.push({
       tipo: "documento",
       kind: voce.kind,
@@ -592,12 +628,15 @@ export function righeResocontoCompleto(
       iva: importi.iva,
       totale: importi.totale,
       percorsoPdf: voce.percorsoPdf,
+      nonContabilizzato: primaNota,
     });
-    impMese += importi.imponibile;
-    ivaMese += importi.iva;
+    if (!primaNota) {
+      impMese += importi.imponibile;
+      ivaMese += importi.iva;
+      impTutte += importi.imponibile;
+      ivaTutte += importi.iva;
+    }
     totMese += importi.totale;
-    impTutte += importi.imponibile;
-    ivaTutte += importi.iva;
     totTutte += importi.totale;
   }
 

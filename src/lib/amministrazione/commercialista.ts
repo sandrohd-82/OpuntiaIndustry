@@ -70,7 +70,8 @@ export type CommercialistaRegistroKind =
   | "ddt_emesso"
   | "ddt_ricevuto"
   | "nota_emessa"
-  | "nota_ricevuta";
+  | "nota_ricevuta"
+  | "scontrino";
 
 export function registroLatoEmesso(kind: CommercialistaRegistroKind): boolean {
   return kind === "emessa" || kind === "ddt_emesso" || kind === "nota_emessa";
@@ -97,6 +98,8 @@ export function etichettaRegistro(kind: CommercialistaRegistroKind): string {
       return "note di credito emesse";
     case "nota_ricevuta":
       return "note di credito ricevute";
+    case "scontrino":
+      return "prima nota spesa (scontrini)";
   }
 }
 
@@ -114,8 +117,18 @@ export function nomeFoglioRegistro(kind: CommercialistaRegistroKind): string {
       return "Note emesse";
     case "nota_ricevuta":
       return "Note ricevute";
+    case "scontrino":
+      return "Prima nota";
   }
 }
+
+export type PrimaNotaSpesa = {
+  conteggio: number;
+  imponibile: number;
+  /** Indicata sullo scontrino. Non entra nell'IVA detraibile. */
+  iva: number;
+  totale: number;
+};
 
 export type CommercialistaSummary = {
   anno: number;
@@ -136,6 +149,10 @@ export type CommercialistaSummary = {
   ddtRicevuti: CommercialistaColonnaTotali;
   noteEmesse: CommercialistaColonnaTotali;
   noteRicevute: CommercialistaColonnaTotali;
+  /** Scontrini del periodo: il totale entra nelle spese, l'IVA no. */
+  primaNota: PrimaNotaSpesa;
+  /** Fatture ricevute più il totale degli scontrini. */
+  totaleSpese: number;
 };
 
 export function emptyImportoConIva(): ImportoConIva {

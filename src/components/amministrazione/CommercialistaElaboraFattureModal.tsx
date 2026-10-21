@@ -151,7 +151,7 @@ export function CommercialistaElaboraFattureModal({
               {pagina ? null : (
                 <CommercialistaLinkOspite
                   ambito="registro"
-                  registro={kind}
+                  registro={kind === "scontrino" ? null : kind}
                   anno={anno}
                   trimestre={trimestre}
                 />

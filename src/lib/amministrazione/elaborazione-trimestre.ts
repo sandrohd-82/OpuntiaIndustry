@@ -3,7 +3,10 @@ import {
   registroMostraBeneConsumo,
   type CommercialistaRegistroKind,
 } from "@/lib/amministrazione/commercialista";
-import type { FatturaElaborazioneSorgente } from "@/lib/amministrazione/elaborazione-fatture-excel";
+import {
+  nomiConFileExport,
+  type FatturaElaborazioneSorgente,
+} from "@/lib/amministrazione/elaborazione-fatture-excel";
 import {
   buildElaborazioneFattureXlsx,
   buildUscitaCartellaXlsx,
@@ -67,6 +70,11 @@ export function gruppiElaborazioneTrimestre(
       registri: [{ kind: "ricevuta", sottocartella: null }],
     },
     {
+      titolo: "Prima Nota spesa (Scontrini)",
+      cartella: `Prima Nota ${periodo}`,
+      registri: [{ kind: "scontrino", sottocartella: null }],
+    },
+    {
       titolo: "DDT",
       cartella: `DDT ${periodo}`,
       registri: [
@@ -125,7 +133,7 @@ export function cartellaPdfTrimestre(
 export function nomiFileElaborazione(
   docs: FatturaElaborazioneSorgente[]
 ): string[] {
-  return nomiPdfUnivoci(
+  const generati = nomiPdfUnivoci(
     docs.map((doc) => ({
       numeroSequenza: doc.numeroSequenza,
       numeroFattura:
@@ -137,6 +145,7 @@ export function nomiFileElaborazione(
     })),
     "entrata"
   );
+  return nomiConFileExport(docs, generati);
 }
 
 const MIME_XLSX =
@@ -173,6 +182,17 @@ export async function scriviElaborazioneRegistro(input: {
     const doc = input.docs[i];
     if (!doc) continue;
     const fileName = nomi[i] ?? `documento_${i + 1}.pdf`;
+    if (input.kind === "scontrino" && doc.allegatoUrl) {
+      try {
+        const risposta = await fetch(doc.allegatoUrl);
+        if (risposta.ok) {
+          await scriviFileInCartella(input.cartella, fileName, await risposta.blob());
+          continue;
+        }
+      } catch {
+        // Senza l'allegato resta il foglio generato dai dati registrati.
+      }
+    }
     const pdf = doc.classica
       ? buildFatturaClassicaPdf({
           model: doc.classica,
