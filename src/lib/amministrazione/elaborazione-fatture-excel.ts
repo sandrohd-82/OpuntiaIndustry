@@ -420,9 +420,10 @@ function nomiFileSorgente(
 /** Elenco ordinato per data, con il totale di ogni mese e il totale del trimestre. */
 export function righeElaborazioneFatture(
   docs: FatturaElaborazioneSorgente[],
-  kind: CommercialistaRegistroKind
+  kind: CommercialistaRegistroKind,
+  nomiFile?: string[]
 ): RigaElaborazioneExcel[] {
-  const nomi = nomiFileSorgente(docs, kind);
+  const nomi = nomiFile ?? nomiFileSorgente(docs, kind);
   const nomePerDoc = new Map(docs.map((doc, i) => [doc, nomi[i] ?? ""]));
   const ordinate = [...docs].sort((a, b) => {
     const da =

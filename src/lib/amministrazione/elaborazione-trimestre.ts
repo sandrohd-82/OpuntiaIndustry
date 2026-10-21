@@ -170,6 +170,7 @@ export async function scriviElaborazioneRegistro(input: {
           trimestre: input.trimestre,
           docs: input.docs,
           collegaPdf: true,
+          nomiFile: nomi,
         })
       : await buildUscitaCartellaXlsx({ kind: input.kind, docs: input.docs });
     await scriviFileInCartella(

@@ -151,6 +151,7 @@ export function CommercialistaElaboraTrimestreModal({
           return {
             kind: registro.kind,
             docs,
+            nomiFile: nomiFileElaborazione(docs),
             cartellaRelativa: cartellaPdfTrimestre(gruppo, registro, docs.length),
           };
         })

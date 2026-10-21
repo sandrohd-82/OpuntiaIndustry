@@ -122,6 +122,26 @@ export function nomeFoglioRegistro(kind: CommercialistaRegistroKind): string {
   }
 }
 
+/** Excel accanto ai file della cartella. Il resoconto completo resta nella madre. */
+export function nomeResocontoCartella(kind: CommercialistaRegistroKind): string {
+  switch (kind) {
+    case "emessa":
+      return "Resoconto Emesse.xlsx";
+    case "ricevuta":
+      return "Resoconto Ricevute.xlsx";
+    case "scontrino":
+      return "Resoconto Prima Nota.xlsx";
+    case "ddt_emesso":
+      return "Resoconto DDT emessi.xlsx";
+    case "ddt_ricevuto":
+      return "Resoconto DDT ricevuti.xlsx";
+    case "nota_emessa":
+      return "Resoconto Note emesse.xlsx";
+    case "nota_ricevuta":
+      return "Resoconto Note ricevute.xlsx";
+  }
+}
+
 export type PrimaNotaSpesa = {
   conteggio: number;
   imponibile: number;

@@ -1749,14 +1749,18 @@ function totaliScontrini(righe: ScontrinoPeriodo[]): {
   };
 }
 
-function nomeFileScontrino(fileName: string, index: number): string {
+function nomeFileScontrino(fileName: string, storagePath: string, index: number): string {
   const base = fileName
     .trim()
     .replace(/[\\/]+/g, "-")
-    .replace(/[^\w.\- ()]+/g, "")
-    .replace(/\s+/g, " ");
-  const conEstensione = /\.[a-z0-9]{2,5}$/i.test(base) ? base : "";
-  return conEstensione || `scontrino_${index + 1}.pdf`;
+    .replace(/[<>:"|?*\u0000-\u001f]/g, "")
+    .replace(/\s+/g, " ")
+    .replace(/^\.+/, "")
+    .trim();
+  if (/\.[a-z0-9]{2,5}$/i.test(base)) return base;
+  const ext = /\.([a-z0-9]{2,5})$/i.exec(storagePath.trim());
+  if (ext) return `${base || `scontrino_${index + 1}`}.${ext[1]}`;
+  return `scontrino_${index + 1}.pdf`;
 }
 
 async function loadScontriniPaper(
@@ -1777,7 +1781,7 @@ async function loadScontriniPaper(
   if ("error" in letti) return { success: false, error: letti.error };
   const usati = new Set<string>();
   const nomi = letti.map((row, index) => {
-    const base = nomeFileScontrino(row.file_name, index);
+    const base = nomeFileScontrino(row.file_name, row.storage_path, index);
     let nome = base;
     let n = 2;
     while (usati.has(nome.toLowerCase())) {

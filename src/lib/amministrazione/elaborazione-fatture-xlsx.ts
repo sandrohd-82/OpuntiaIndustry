@@ -13,6 +13,7 @@ import {
 } from "@/lib/amministrazione/elaborazione-fatture-excel";
 import {
   nomeFoglioRegistro,
+  nomeResocontoCartella,
   registroMostraBeneConsumo,
   type CommercialistaRegistroKind,
 } from "@/lib/amministrazione/commercialista";
@@ -31,10 +32,22 @@ function bytesInBase64(bytes: Uint8Array): string {
   return btoa(binary);
 }
 
-/** Percorso relativo al foglio, senza protocollo file://. */
+/** Segmento di percorso come lo scrive Excel: spazi e parentesi codificati. */
+function segmentoRelativo(segmento: string): string {
+  return encodeURIComponent(segmento).replace(/[!'()*]/g, (carattere) =>
+    `%${carattere.charCodeAt(0).toString(16).toUpperCase()}`
+  );
+}
+
+/**
+ * Percorso relativo al foglio, stesso nome del file su disco.
+ * Senza ./ Excel apre uno scontrino jpg, specie se nel nome ci sono spazi,
+ * come se fosse un indirizzo e non il file nella cartella.
+ */
 function destinazionePdf(cartella: string | undefined, nomeFile: string): string {
-  const raw = cartella ? `${cartella}/${nomeFile}` : nomeFile;
-  return encodeURI(raw.replace(/\\/g, "/"));
+  const raw = (cartella ? `${cartella}/${nomeFile}` : nomeFile).replace(/\\/g, "/");
+  const encoded = raw.split("/").filter(Boolean).map(segmentoRelativo).join("/");
+  return `./${encoded}`;
 }
 
 function euroTesto(n: number): string {
@@ -66,7 +79,7 @@ function cellaApreFattura(
   cell.value = {
     text: testo,
     hyperlink: href,
-    tooltip: "Apri la fattura",
+    tooltip: "Apri il file",
   };
   cell.font = {
     name: "Calibri",
@@ -126,9 +139,11 @@ export async function buildElaborazioneFattureXlsx(input: {
   collegaPdf?: boolean;
   /** Cartella dei PDF vista dal foglio. Vuota se il foglio sta insieme ai PDF. */
   cartellaRelativa?: string;
+  /** Stessi nomi con cui i file vengono scritti nella cartella. */
+  nomiFile?: string[];
   workbook?: ExcelJS.Workbook;
 }): Promise<{ filename: string; base64: string; bytes: Uint8Array }> {
-  const righe = righeElaborazioneFatture(input.docs, input.kind);
+  const righe = righeElaborazioneFatture(input.docs, input.kind, input.nomiFile);
   const wb = input.workbook ?? new ExcelJS.Workbook();
   wb.creator = "OpuntiaIndustry";
   wb.created = new Date();
@@ -223,7 +238,7 @@ export async function buildElaborazioneFattureXlsx(input: {
   const buffer = await wb.xlsx.writeBuffer();
   const bytes = new Uint8Array(buffer);
   const filename = input.collegaPdf
-    ? "resoconto.xlsx"
+    ? nomeResocontoCartella(input.kind)
     : `Elaborazione_${input.kind}_${input.anno}_T${input.trimestre}.xlsx`;
   return {
     filename,
@@ -330,7 +345,7 @@ export async function buildUscitaCartellaXlsx(input: {
   }
   if (input.workbook) return { filename: "", bytes: new Uint8Array() };
   const buffer = await wb.xlsx.writeBuffer();
-  return { filename: "resoconto.xlsx", bytes: new Uint8Array(buffer) };
+  return { filename: nomeResocontoCartella(input.kind), bytes: new Uint8Array(buffer) };
 }
 
 export const NOME_RESOCONTO_COMPLETO = "Resoconto completo.xlsx";
@@ -392,7 +407,7 @@ export async function buildResocontoCompletoXlsx(
     }
     if (documento && riga.percorsoPdf) {
       const testo = riga.numeroDocumento.trim() || riga.percorsoPdf;
-      cellaApreFattura(excelRow.getCell(3), testo, encodeURI(riga.percorsoPdf));
+      cellaApreFattura(excelRow.getCell(3), testo, destinazionePdf(undefined, riga.percorsoPdf));
       const fondo = COLORI_TIPO_DOCUMENTO[riga.kind].fondo.replace("#", "");
       excelRow.eachCell((cella) => {
         cella.fill = {
@@ -436,6 +451,7 @@ export async function buildPacchettoTrimestreXlsx(input: {
     kind: CommercialistaRegistroKind;
     cartellaRelativa: string;
     docs: FatturaElaborazioneSorgente[];
+    nomiFile?: string[];
   }>;
   voci: VoceResocontoCompleto[];
 }): Promise<{ filename: string; bytes: Uint8Array }> {
@@ -452,6 +468,7 @@ export async function buildPacchettoTrimestreXlsx(input: {
         docs: sezione.docs,
         collegaPdf: true,
         cartellaRelativa: sezione.cartellaRelativa,
+        nomiFile: sezione.nomiFile,
         workbook: wb,
       });
     } else {
