@@ -17,11 +17,10 @@ import {
 } from "@/lib/amministrazione/elaborazione-fatture-excel";
 import {
   NOME_RESOCONTO_COMPLETO,
-  buildPacchettoTrimestreXlsx,
+  buildResocontoCompletoXlsx,
 } from "@/lib/amministrazione/elaborazione-fatture-xlsx";
 import {
   gruppiElaborazioneTrimestre,
-  cartellaPdfTrimestre,
   nomeCartellaConConteggio,
   nomeCartellaTrimestre,
   nomiFileElaborazione,
@@ -145,25 +144,8 @@ export function CommercialistaElaboraTrimestreModal({
     setScrivendo(true);
     try {
       const radice = await scelta.getDirectoryHandle(nomeCartella, { create: true });
-      const sezioni = gruppi.flatMap((gruppo) =>
-        gruppo.registri.map((registro) => {
-          const docs = perKind[registro.kind]?.docs ?? [];
-          return {
-            kind: registro.kind,
-            docs,
-            nomiFile: nomiFileElaborazione(docs),
-            cartellaRelativa: cartellaPdfTrimestre(gruppo, registro, docs.length),
-          };
-        })
-      );
-      const documentiPrevisti = sezioni.reduce((n, sezione) => n + sezione.docs.length, 0);
-      if (documentiPrevisti > 0) {
-        const excel = await buildPacchettoTrimestreXlsx({
-          anno,
-          trimestre,
-          sezioni,
-          voci,
-        });
+      if (voci.length > 0) {
+        const excel = await buildResocontoCompletoXlsx(voci);
         await scriviFileInCartella(
           radice,
           excel.filename,
