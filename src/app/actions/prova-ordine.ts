@@ -1,19 +1,32 @@
 "use server";
 
+import { randomUUID } from "crypto";
 import { z } from "zod";
 import { writeAuditLog } from "@/lib/audit";
+import { buildFatturaA4PdfBlob } from "@/lib/amministrazione/fattura-a4-pdf";
+import { emptySede } from "@/lib/amministrazione/fornitori";
 import { buildNumeroInternoOrdine } from "@/lib/amministrazione/ordini";
 import {
   anteprimaNumeroFattura,
   anteprimaNumeroProforma,
 } from "@/lib/amministrazione/numero-fattura";
-import { isOrdineProva, oggiRoma } from "@/lib/amministrazione/prova-ordine";
+import {
+  EMAIL_CONTROLLO_DEFAULT,
+  isOrdineProva,
+  oggiRoma,
+} from "@/lib/amministrazione/prova-ordine";
 import { requireAnyAreaAccess } from "@/lib/areas/guard";
 import { isAdminLikeProfile } from "@/lib/auth/roles";
 import { createClient, createServiceClient } from "@/lib/supabase/server";
+import { persistMessaggioAttachments } from "@/lib/webmail/attachments";
+import { sendMailViaAccount, type AccountRow } from "@/lib/webmail/sync";
+import { WEBMAIL_SENT_FOLDER } from "@/lib/webmail/types";
+import type { Attachment } from "mailparser";
 
 const clienteSchema = z.object({
   clienteId: z.string().uuid("Scegli il cliente."),
+  email: z.string().trim().max(200).optional(),
+  documento: z.enum(["fattura", "proforma"]).optional(),
 });
 
 export type ClienteNumerazione = {
@@ -30,6 +43,9 @@ export type NumerazioneReale = {
   numeroFattura: string;
   numeroInternoFattura: string;
   numeroProforma: string;
+  documento: "fattura" | "proforma";
+  email: string;
+  fileName: string;
 };
 
 export type ProvaOrdineAperta = {
@@ -94,9 +110,14 @@ export async function elencoClientiNumerazioneAction(): Promise<
   };
 }
 
-/** Legge i prossimi numeri veri. Non inserisce, non assegna, non invia. */
+/**
+ * Mostra i prossimi numeri veri e spedisce la copia PDF solo all'indirizzo di controllo.
+ * Non inserisce l'ordine, non assegna il numero fiscale, non chiama lo SDI, non scrive al cliente.
+ */
 export async function anteprimaNumerazioneRealeAction(raw: {
   clienteId?: string;
+  email?: string;
+  documento?: "fattura" | "proforma";
 }): Promise<
   | { success: true; numerazione: NumerazioneReale }
   | { success: false; error: string }
@@ -110,15 +131,62 @@ export async function anteprimaNumerazioneRealeAction(raw: {
       error: parsed.error.issues[0]?.message ?? "Scegli il cliente.",
     };
   }
+  const email = (parsed.data.email || EMAIL_CONTROLLO_DEFAULT).trim().toLowerCase();
+  if (!z.string().email().safeParse(email).success) {
+    return { success: false, error: "Indirizzo email non valido." };
+  }
+  const documento = parsed.data.documento ?? "fattura";
   const supabase = await createClient();
   const { data: cliente, error: clienteErr } = await supabase
     .from("clienti")
-    .select("id, ragione_sociale, codice_targa")
+    .select(
+      "id, ragione_sociale, codice_targa, partita_iva, codice_fiscale, email, pec, sede_amm_nazione, sede_amm_provincia, sede_amm_citta, sede_amm_cap, sede_amm_indirizzo"
+    )
     .eq("id", parsed.data.clienteId)
     .is("deleted_at", null)
     .maybeSingle();
   if (clienteErr) return { success: false, error: clienteErr.message };
   if (!cliente) return { success: false, error: "Cliente non trovato." };
+  const emailCliente = String(cliente.email ?? "").trim().toLowerCase();
+  const pecCliente = String(cliente.pec ?? "").trim().toLowerCase();
+  if (email === emailCliente || (pecCliente && email === pecCliente)) {
+    return {
+      success: false,
+      error:
+        "Questo indirizzo è del cliente. La copia non parte verso il cliente. Usa sandrohd@gmail.com o un altro indirizzo.",
+    };
+  }
+
+  const { data: prodotto, error: prodottoErr } = await supabase
+    .from("prodotti_propri")
+    .select("id, codice, nome, prezzo_listino")
+    .is("deleted_at", null)
+    .order("codice", { ascending: true })
+    .limit(1)
+    .maybeSingle();
+  if (prodottoErr) return { success: false, error: prodottoErr.message };
+  if (!prodotto) {
+    return { success: false, error: "Non c'è un prodotto per compilare la riga del documento." };
+  }
+
+  const service = createServiceClient();
+  const { data: caselle, error: caselleErr } = await service
+    .from("webmail_accounts")
+    .select(
+      "id, email_address, imap_host, imap_port, imap_secure, smtp_host, smtp_port, smtp_secure, username, password_encrypted"
+    )
+    .is("deleted_at", null)
+    .limit(8);
+  if (caselleErr) return { success: false, error: caselleErr.message };
+  const account = ((caselle ?? []) as AccountRow[]).find(
+    (riga) => riga.smtp_host && riga.password_encrypted
+  );
+  if (!account) {
+    return {
+      success: false,
+      error: "Nessuna casella Webmail con SMTP. La mail non è partita e nulla è stato salvato.",
+    };
+  }
 
   const data = oggiRoma();
   const targa = String(cliente.codice_targa ?? "").trim().toUpperCase() || "C000";
@@ -146,6 +214,154 @@ export async function anteprimaNumerazioneRealeAction(raw: {
     };
   }
 
+  const numeroDocumento =
+    documento === "proforma" ? proforma.numeroFattura : fattura.numeroFattura;
+  const prezzo = Number(prodotto.prezzo_listino) > 0 ? Number(prodotto.prezzo_listino) : 1;
+  const descrizione = String(prodotto.nome || prodotto.codice);
+  const dataIt = data.split("-").reverse().join("/");
+  const titolo = documento === "proforma" ? "Proforma" : "Fattura";
+  const subject = `${titolo} ${numeroDocumento} del ${dataIt}`;
+  const bodyText = [
+    "Copia di controllo. Non inviata al cliente e non trasmessa allo SDI. Il numero non è stato assegnato.",
+    "",
+    `Gentile ${cliente.ragione_sociale},`,
+    "",
+    `in allegato trova ${documento === "proforma" ? "la proforma" : "la fattura"} ${numeroDocumento} del ${dataIt}.`,
+    `Ordine di riferimento: ${numeroOrdine}.`,
+    `Voci: ${descrizione}.`,
+    "",
+    "Restiamo a disposizione per ogni chiarimento.",
+    "",
+    "Cordiali saluti,",
+    "Ufficio Amministrazione",
+    "Agrinsicilia Soc. Coop.",
+  ].join("\n");
+  const pdf = buildFatturaA4PdfBlob({
+    numeroFattura: numeroDocumento,
+    dataDocumento: data,
+    proforma: documento === "proforma",
+    destinatario: {
+      ragioneSociale: cliente.ragione_sociale,
+      partitaIva: String(cliente.partita_iva ?? ""),
+      codiceFiscale: String(cliente.codice_fiscale ?? ""),
+      email: String(cliente.email ?? ""),
+      sede: {
+        ...emptySede(),
+        nazione: String(cliente.sede_amm_nazione ?? ""),
+        provincia: String(cliente.sede_amm_provincia ?? ""),
+        citta: String(cliente.sede_amm_citta ?? ""),
+        cap: String(cliente.sede_amm_cap ?? ""),
+        indirizzo: String(cliente.sede_amm_indirizzo ?? ""),
+      },
+    },
+    righe: [
+      {
+        prodottoId: prodotto.id,
+        codice: prodotto.codice,
+        descrizione,
+        quantita: 1,
+        unitaMisura: "kg",
+        prezzoUnitario: prezzo,
+        scontoPercentuale: 0,
+        ivaPercentuale: 22,
+        isSpedizione: false,
+        note: "",
+      },
+    ],
+    noteDocumento: `Ordine di riferimento ${numeroOrdine}.`,
+  });
+  const pdfBytes = Buffer.from(await pdf.blob.arrayBuffer());
+
+  let smtpMessageId: string | null = null;
+  try {
+    const sent = await sendMailViaAccount({
+      account,
+      to: email,
+      subject,
+      text: bodyText,
+      attachments: [
+        {
+          filename: pdf.fileName,
+          content: pdfBytes,
+          contentType: "application/pdf",
+        },
+      ],
+    });
+    smtpMessageId = sent.messageId;
+  } catch (e) {
+    return {
+      success: false,
+      error:
+        e instanceof Error
+          ? `Mail non partita. Nessun documento è stato salvato. ${e.message}`
+          : "Mail non partita. Nessun documento è stato salvato.",
+    };
+  }
+
+  const sentAt = new Date().toISOString();
+  const { data: inserted, error: mailErr } = await service
+    .from("webmail_messaggi")
+    .insert({
+      account_id: account.id,
+      direction: "outbound",
+      message_uid: `controllo-numerazione-${randomUUID()}`,
+      message_id_header: smtpMessageId,
+      folder: WEBMAIL_SENT_FOLDER,
+      from_address: account.email_address,
+      from_name: "",
+      to_addresses: [email],
+      cc_addresses: [],
+      subject,
+      body_text: bodyText,
+      body_html: bodyText.replace(/\n/g, "<br/>"),
+      received_at: sentAt,
+      sent_at: sentAt,
+      is_seen: true,
+      created_by: accesso.auth.userId,
+      updated_by: accesso.auth.userId,
+    })
+    .select("id")
+    .single();
+  if (inserted?.id) {
+    try {
+      await persistMessaggioAttachments({
+        supabase: service,
+        messaggioId: String(inserted.id),
+        accountId: account.id,
+        userId: accesso.auth.userId,
+        attachments: [
+          {
+            filename: pdf.fileName,
+            content: pdfBytes,
+            contentType: "application/pdf",
+            contentDisposition: "attachment",
+          } as Attachment,
+        ],
+      });
+    } catch (e) {
+      console.error("[controllo numerazione allegato]", e);
+    }
+  }
+
+  await writeAuditLog({
+    entity_type: "controllo_numerazione",
+    entity_id: cliente.id,
+    action: "copia_controllo_inviata",
+    actor_id: accesso.auth.userId,
+    summary: `Copia ${titolo} ${numeroDocumento} inviata solo a ${email}. Non salvata, non SDI, non al cliente.`,
+    payload: {
+      documento,
+      numero_ordine: numeroOrdine,
+      numero_fattura: fattura.numeroFattura,
+      numero_proforma: proforma.numeroFattura,
+      email,
+      sdi: false,
+      salvato: false,
+      numero_fiscale_consumato: false,
+      webmail_errore: mailErr?.message ?? null,
+    },
+  });
+
   return {
     success: true,
     numerazione: {
@@ -156,6 +372,9 @@ export async function anteprimaNumerazioneRealeAction(raw: {
       numeroFattura: fattura.numeroFattura,
       numeroInternoFattura: fattura.numeroInterno,
       numeroProforma: proforma.numeroFattura,
+      documento,
+      email,
+      fileName: pdf.fileName,
     },
   };
 }

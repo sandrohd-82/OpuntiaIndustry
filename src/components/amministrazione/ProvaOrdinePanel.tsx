@@ -10,10 +10,13 @@ import {
   type NumerazioneReale,
   type ProvaOrdineAperta,
 } from "@/app/actions/prova-ordine";
+import { EMAIL_CONTROLLO_DEFAULT } from "@/lib/amministrazione/prova-ordine";
 
 export function ProvaOrdinePanel({ onChanged }: { onChanged: () => void }) {
   const [clienti, setClienti] = useState<ClienteNumerazione[]>([]);
   const [clienteId, setClienteId] = useState("");
+  const [email, setEmail] = useState(EMAIL_CONTROLLO_DEFAULT);
+  const [documento, setDocumento] = useState<"fattura" | "proforma">("fattura");
   const [numerazione, setNumerazione] = useState<NumerazioneReale | null>(null);
   const [residuo, setResiduo] = useState<ProvaOrdineAperta | null>(null);
   const [ready, setReady] = useState(false);
@@ -44,7 +47,11 @@ export function ProvaOrdinePanel({ onChanged }: { onChanged: () => void }) {
   async function controlla() {
     setBusy(true);
     setErrore(null);
-    const res = await anteprimaNumerazioneRealeAction({ clienteId });
+    const res = await anteprimaNumerazioneRealeAction({
+      clienteId,
+      email,
+      documento,
+    });
     setBusy(false);
     if (!res.success) {
       setNumerazione(null);
@@ -71,10 +78,9 @@ export function ProvaOrdinePanel({ onChanged }: { onChanged: () => void }) {
     <section className="mb-4 rounded-xl border border-[var(--border)] bg-[var(--card)] p-4">
       <h2 className="text-sm font-semibold">Numerazione reale, senza salvare</h2>
       <p className="mt-1 text-sm text-[var(--muted)]">
-        Mostra il prossimo numero ordine di quel cliente e il prossimo numero
-        fattura, con lo stesso criterio dei documenti veri. Non scrive nulla,
-        non invia allo SDI e non invia mail al cliente. Il contatore resta fermo:
-        puoi ricontrollare e vedi gli stessi numeri.
+        Invia a te la mail e il PDF, con i numeri che avrebbe il documento vero.
+        Non salva l&apos;ordine né la fattura, non chiama lo SDI e non scrive al
+        cliente. Il contatore resta fermo.
       </p>
       <div className="mt-3 flex flex-wrap items-end gap-2">
         <label className="text-sm">
@@ -97,13 +103,38 @@ export function ProvaOrdinePanel({ onChanged }: { onChanged: () => void }) {
             ))}
           </select>
         </label>
+        <label className="text-sm">
+          Documento
+          <select
+            value={documento}
+            onChange={(event) => {
+              setDocumento(event.target.value === "proforma" ? "proforma" : "fattura");
+              setNumerazione(null);
+            }}
+            disabled={busy}
+            className="mt-1 block w-40 rounded-lg border border-[var(--border)] bg-white px-3 py-2 text-sm text-slate-900"
+          >
+            <option value="fattura">Fattura</option>
+            <option value="proforma">Proforma</option>
+          </select>
+        </label>
+        <label className="text-sm">
+          Email di controllo
+          <input
+            type="email"
+            value={email}
+            onChange={(event) => setEmail(event.target.value)}
+            disabled={busy}
+            className="mt-1 block w-72 rounded-lg border border-[var(--border)] bg-white px-3 py-2 text-sm text-slate-900"
+          />
+        </label>
         <button
           type="button"
           onClick={() => void controlla()}
           disabled={!ready || busy || !clienteId}
           className="rounded-lg bg-[var(--primary)] px-4 py-2 text-sm font-medium text-white hover:bg-[var(--primary-hover)] disabled:opacity-60"
         >
-          {busy ? "Leggo i numeri…" : "Controlla numerazione"}
+          {busy ? "Invio la copia…" : "Invia copia di controllo"}
         </button>
       </div>
       {numerazione ? (
@@ -133,6 +164,13 @@ export function ProvaOrdinePanel({ onChanged }: { onChanged: () => void }) {
           <div>
             <dt className="text-[var(--muted)]">Proforma</dt>
             <dd className="font-medium tabular-nums">{numerazione.numeroProforma}</dd>
+          </div>
+          <div className="sm:col-span-2">
+            <dt className="text-[var(--muted)]">Mail inviata</dt>
+            <dd className="font-medium">
+              {numerazione.documento === "proforma" ? "Proforma" : "Fattura"}{" "}
+              {numerazione.fileName} a {numerazione.email}. Non al cliente.
+            </dd>
           </div>
         </dl>
       ) : null}

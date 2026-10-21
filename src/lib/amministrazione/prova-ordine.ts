@@ -1,3 +1,6 @@
+/** Destinatario della copia di controllo. Non è l'indirizzo del cliente. */
+export const EMAIL_CONTROLLO_DEFAULT = "sandrohd@gmail.com";
+
 /** Serie lasciata solo per riconoscere un eventuale ordine di prova già salvato. */
 export const PREFISSO_FATTURA_PROVA = "PROVA-";
 export const PREFISSO_ORDINE_PROVA = "Or-PROVA/";
