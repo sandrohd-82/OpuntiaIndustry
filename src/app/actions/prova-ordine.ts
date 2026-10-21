@@ -57,11 +57,14 @@ export type ProvaOrdineAperta = {
 };
 
 async function richiediAdmin() {
-  const { auth } = await requireAnyAreaAccess(["amministrazione", "produzione"]);
+  const { auth } = await requireAnyAreaAccess([
+    "commerciale",
+    "amministrazione",
+  ]);
   if (!isAdminLikeProfile(auth.profile)) {
     return {
       ok: false as const,
-      error: "Solo un amministratore può controllare la numerazione.",
+      error: "Solo un amministratore può inviare la copia di controllo.",
     };
   }
   return { ok: true as const, auth };
@@ -376,6 +379,245 @@ export async function anteprimaNumerazioneRealeAction(raw: {
       email,
       fileName: pdf.fileName,
     },
+  };
+}
+
+const ordineControlloSchema = z.object({
+  ordineId: z.string().uuid("Ordine non valido."),
+  email: z.string().trim().max(200).optional(),
+});
+
+/** Copia della fattura dell'ordine appena creato. Non assegna il numero e non chiama lo SDI. */
+export async function inviaCopiaControlloOrdineAction(raw: {
+  ordineId?: string;
+  email?: string;
+}): Promise<
+  | { success: true; numeroOrdine: string; numeroFattura: string; email: string }
+  | { success: false; error: string }
+> {
+  const accesso = await richiediAdmin();
+  if (!accesso.ok) return { success: false, error: accesso.error };
+  const parsed = ordineControlloSchema.safeParse(raw ?? {});
+  if (!parsed.success) {
+    return {
+      success: false,
+      error: parsed.error.issues[0]?.message ?? "Ordine non valido.",
+    };
+  }
+  const email = (parsed.data.email || EMAIL_CONTROLLO_DEFAULT).trim().toLowerCase();
+  if (!z.string().email().safeParse(email).success) {
+    return { success: false, error: "Indirizzo email non valido." };
+  }
+  const supabase = await createClient();
+  const { data: ordine, error: ordineErr } = await supabase
+    .from("ordini")
+    .select("id, numero_interno, cliente_id, cliente_ragione_sociale")
+    .eq("id", parsed.data.ordineId)
+    .is("deleted_at", null)
+    .maybeSingle();
+  if (ordineErr) return { success: false, error: ordineErr.message };
+  if (!ordine?.cliente_id) {
+    return { success: false, error: "L'ordine non ha un cliente registrato." };
+  }
+  const { data: cliente, error: clienteErr } = await supabase
+    .from("clienti")
+    .select(
+      "id, ragione_sociale, partita_iva, codice_fiscale, email, pec, sede_amm_nazione, sede_amm_provincia, sede_amm_citta, sede_amm_cap, sede_amm_indirizzo"
+    )
+    .eq("id", ordine.cliente_id)
+    .is("deleted_at", null)
+    .maybeSingle();
+  if (clienteErr) return { success: false, error: clienteErr.message };
+  if (!cliente) return { success: false, error: "Cliente non trovato." };
+  const emailCliente = String(cliente.email ?? "").trim().toLowerCase();
+  const pecCliente = String(cliente.pec ?? "").trim().toLowerCase();
+  if (email === emailCliente || (pecCliente && email === pecCliente)) {
+    return {
+      success: false,
+      error:
+        "Questo indirizzo è del cliente. La copia non parte verso il cliente.",
+    };
+  }
+  const { data: righe, error: righeErr } = await supabase
+    .from("ordini_righe")
+    .select(
+      "prodotto_id, prodotto_codice, prodotto_nome, quantita, unita_misura, prezzo_unitario, iva_percentuale"
+    )
+    .eq("ordine_id", ordine.id)
+    .order("sort_order", { ascending: true });
+  if (righeErr) return { success: false, error: righeErr.message };
+  if (!righe?.length) {
+    return { success: false, error: "L'ordine non ha righe da mettere in fattura." };
+  }
+
+  const service = createServiceClient();
+  const { data: caselle, error: caselleErr } = await service
+    .from("webmail_accounts")
+    .select(
+      "id, email_address, imap_host, imap_port, imap_secure, smtp_host, smtp_port, smtp_secure, username, password_encrypted"
+    )
+    .is("deleted_at", null)
+    .limit(8);
+  if (caselleErr) return { success: false, error: caselleErr.message };
+  const account = ((caselle ?? []) as AccountRow[]).find(
+    (riga) => riga.smtp_host && riga.password_encrypted
+  );
+  if (!account) {
+    return {
+      success: false,
+      error: "Nessuna casella Webmail con SMTP. La mail non è partita.",
+    };
+  }
+
+  const data = oggiRoma();
+  let numeroFattura = "";
+  try {
+    const anteprima = await anteprimaNumeroFattura(supabase, data);
+    numeroFattura = anteprima.numeroFattura;
+  } catch (e) {
+    return {
+      success: false,
+      error: e instanceof Error ? e.message : "Numerazione fattura non disponibile.",
+    };
+  }
+
+  const dataIt = data.split("-").reverse().join("/");
+  const prodotti = righe
+    .map((riga) => String(riga.prodotto_nome || riga.prodotto_codice))
+    .join(", ");
+  const subject = `Fattura ${numeroFattura} del ${dataIt}`;
+  const bodyText = [
+    "Copia di controllo. Non inviata al cliente e non trasmessa allo SDI. Il numero non è stato assegnato.",
+    "",
+    `Gentile ${cliente.ragione_sociale},`,
+    "",
+    `in allegato trova la fattura ${numeroFattura} del ${dataIt}.`,
+    `Ordine di riferimento: ${ordine.numero_interno}.`,
+    `Voci: ${prodotti}.`,
+    "",
+    "Restiamo a disposizione per ogni chiarimento.",
+    "",
+    "Cordiali saluti,",
+    "Ufficio Amministrazione",
+    "Agrinsicilia Soc. Coop.",
+  ].join("\n");
+  const pdf = buildFatturaA4PdfBlob({
+    numeroFattura,
+    dataDocumento: data,
+    destinatario: {
+      ragioneSociale: cliente.ragione_sociale,
+      partitaIva: String(cliente.partita_iva ?? ""),
+      codiceFiscale: String(cliente.codice_fiscale ?? ""),
+      email: String(cliente.email ?? ""),
+      sede: {
+        ...emptySede(),
+        nazione: String(cliente.sede_amm_nazione ?? ""),
+        provincia: String(cliente.sede_amm_provincia ?? ""),
+        citta: String(cliente.sede_amm_citta ?? ""),
+        cap: String(cliente.sede_amm_cap ?? ""),
+        indirizzo: String(cliente.sede_amm_indirizzo ?? ""),
+      },
+    },
+    righe: righe.map((riga) => ({
+      prodottoId: riga.prodotto_id,
+      codice: String(riga.prodotto_codice ?? ""),
+      descrizione: String(riga.prodotto_nome || riga.prodotto_codice || "Voce"),
+      quantita: Number(riga.quantita) || 0,
+      unitaMisura: String(riga.unita_misura ?? "kg"),
+      prezzoUnitario: Number(riga.prezzo_unitario) || 0,
+      scontoPercentuale: 0,
+      ivaPercentuale: Number(riga.iva_percentuale) || 22,
+      isSpedizione: false,
+      note: "",
+    })),
+    noteDocumento: `Ordine di riferimento ${ordine.numero_interno}.`,
+  });
+  const pdfBytes = Buffer.from(await pdf.blob.arrayBuffer());
+  try {
+    const sent = await sendMailViaAccount({
+      account,
+      to: email,
+      subject,
+      text: bodyText,
+      attachments: [
+        {
+          filename: pdf.fileName,
+          content: pdfBytes,
+          contentType: "application/pdf",
+        },
+      ],
+    });
+    const sentAt = new Date().toISOString();
+    const { data: inserted } = await service
+      .from("webmail_messaggi")
+      .insert({
+        account_id: account.id,
+        direction: "outbound",
+        message_uid: `controllo-ordine-${randomUUID()}`,
+        message_id_header: sent.messageId,
+        folder: WEBMAIL_SENT_FOLDER,
+        from_address: account.email_address,
+        from_name: "",
+        to_addresses: [email],
+        cc_addresses: [],
+        subject,
+        body_text: bodyText,
+        body_html: bodyText.replace(/\n/g, "<br/>"),
+        received_at: sentAt,
+        sent_at: sentAt,
+        is_seen: true,
+        created_by: accesso.auth.userId,
+        updated_by: accesso.auth.userId,
+      })
+      .select("id")
+      .single();
+    if (inserted?.id) {
+      try {
+        await persistMessaggioAttachments({
+          supabase: service,
+          messaggioId: String(inserted.id),
+          accountId: account.id,
+          userId: accesso.auth.userId,
+          attachments: [
+            {
+              filename: pdf.fileName,
+              content: pdfBytes,
+              contentType: "application/pdf",
+              contentDisposition: "attachment",
+            } as Attachment,
+          ],
+        });
+      } catch (e) {
+        console.error("[controllo ordine allegato]", e);
+      }
+    }
+  } catch (e) {
+    return {
+      success: false,
+      error: e instanceof Error ? e.message : "Mail non partita.",
+    };
+  }
+
+  await writeAuditLog({
+    entity_type: "ordini",
+    entity_id: ordine.id,
+    action: "copia_controllo_ordine",
+    actor_id: accesso.auth.userId,
+    summary: `Copia fattura ${numeroFattura} dell'ordine ${ordine.numero_interno} inviata solo a ${email}. Numero non assegnato, SDI non chiamato.`,
+    payload: {
+      numero_ordine: ordine.numero_interno,
+      numero_fattura: numeroFattura,
+      email,
+      sdi: false,
+      numero_fiscale_consumato: false,
+    },
+  });
+
+  return {
+    success: true,
+    numeroOrdine: ordine.numero_interno,
+    numeroFattura,
+    email,
   };
 }
 

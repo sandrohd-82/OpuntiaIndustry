@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 import {
   annullaProvaOrdineAction,
   anteprimaNumerazioneRealeAction,
@@ -12,7 +13,8 @@ import {
 } from "@/app/actions/prova-ordine";
 import { EMAIL_CONTROLLO_DEFAULT } from "@/lib/amministrazione/prova-ordine";
 
-export function ProvaOrdinePanel({ onChanged }: { onChanged: () => void }) {
+export function ProvaOrdinePanel({ onChanged }: { onChanged?: () => void }) {
+  const router = useRouter();
   const [clienti, setClienti] = useState<ClienteNumerazione[]>([]);
   const [clienteId, setClienteId] = useState("");
   const [email, setEmail] = useState(EMAIL_CONTROLLO_DEFAULT);
@@ -71,7 +73,8 @@ export function ProvaOrdinePanel({ onChanged }: { onChanged: () => void }) {
       return;
     }
     setResiduo(null);
-    onChanged();
+    onChanged?.();
+    router.refresh();
   }
 
   return (

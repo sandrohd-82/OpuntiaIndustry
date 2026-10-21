@@ -1,6 +1,7 @@
 import { notFound, redirect } from "next/navigation";
 import { OrdiniElencoBoard } from "@/components/amministrazione/OrdiniElencoBoard";
 import { OrdiniRicevutiBoard } from "@/components/amministrazione/OrdiniRicevutiBoard";
+import { ProvaOrdinePanel } from "@/components/amministrazione/ProvaOrdinePanel";
 import { AppHeader } from "@/components/layout/AppHeader";
 import { resolveCommercialePage } from "@/lib/areas/commerciale";
 import { requireAnyAreaAccess } from "@/lib/areas/guard";
@@ -32,6 +33,7 @@ export default async function CommercialeSubPage({ params }: Props) {
       <>
         <AppHeader title={page.label} subtitle={page.description} />
         <div className="p-6">
+          <ProvaOrdinePanel />
           <OrdiniElencoBoard />
         </div>
       </>
@@ -43,6 +45,7 @@ export default async function CommercialeSubPage({ params }: Props) {
       <>
         <AppHeader title={page.label} subtitle={page.description} />
         <div className="p-6">
+          <ProvaOrdinePanel />
           <OrdiniRicevutiBoard />
         </div>
       </>

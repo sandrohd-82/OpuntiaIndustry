@@ -56,10 +56,9 @@ import { CampionaturaAltroPostoModal } from "@/components/amministrazione/Campio
 import { ConsegnaCalendarioModal } from "@/components/amministrazione/ConsegnaCalendarioModal";
 import { ProdottoProprioFormModal } from "@/components/amministrazione/ProdottoProprioFormModal";
 import { ReferentiPickerField } from "@/components/amministrazione/ReferentiPickerField";
-import {
-  creaFatturaOrdineSenzaInvioAction,
-  inviaFatturaSalvataAction,
-} from "@/app/actions/fattura-da-ordine";
+import { creaFatturaOrdineSenzaInvioAction } from "@/app/actions/fattura-da-ordine";
+import { inviaCopiaControlloOrdineAction } from "@/app/actions/prova-ordine";
+import { EMAIL_CONTROLLO_DEFAULT } from "@/lib/amministrazione/prova-ordine";
 import { FatturaA4Modal } from "@/components/amministrazione/FatturaA4Modal";
 import { OrdinePagamentoPianoFields } from "@/components/amministrazione/OrdinePagamentoPianoFields";
 import { SpedizioneMailComposeModal } from "@/components/amministrazione/SpedizioneMailComposeModal";
@@ -436,6 +435,7 @@ export function OrdineNuovoWizardModal({
   const [ordineFinalizzato, setOrdineFinalizzato] = useState(false);
   const [fatturaPrenotataId, setFatturaPrenotataId] = useState<string | null>(null);
   const [confermaInvioFattura, setConfermaInvioFattura] = useState(0);
+  const [emailControllo, setEmailControllo] = useState(EMAIL_CONTROLLO_DEFAULT);
   const [tipoOrdine, setTipoOrdine] = useState<"vendita" | "campionatura">(
     "vendita"
   );
@@ -3585,45 +3585,55 @@ export function OrdineNuovoWizardModal({
               : "Annulla"}
           </button>
           <div className="flex flex-wrap justify-end gap-2">
-            {ordineFinalizzato && fatturaPrenotataId ? (
-              <button
-                type="button"
-                disabled={saving || confermaInvioFattura >= 2}
-                onClick={() => {
-                  if (confermaInvioFattura < 1) {
-                    setConfermaInvioFattura(1);
-                    setSessioneMsg(
-                      "Prima conferma. Premi di nuovo per inviare la fattura allo SDI: solo allora prende il numero progressivo."
-                    );
-                    return;
-                  }
-                  setSaving(true);
-                  void inviaFatturaSalvataAction({
-                    fatturaId: fatturaPrenotataId,
-                    sendToSdi: true,
-                    sendCourtesyEmail: false,
-                    doppiaConferma: true,
-                  }).then((res) => {
-                    setSaving(false);
-                    if (!res.success) {
-                      setFormError(res.error);
-                      setConfermaInvioFattura(0);
+            {ordineFinalizzato && fatturaPrenotataId && savedOrdine ? (
+              <>
+                <label className="text-sm text-slate-700">
+                  Email di controllo
+                  <input
+                    type="email"
+                    value={emailControllo}
+                    onChange={(event) => setEmailControllo(event.target.value)}
+                    disabled={saving || confermaInvioFattura >= 2}
+                    className="ml-2 rounded-lg border border-[var(--border)] bg-white px-3 py-2 text-sm text-slate-900"
+                  />
+                </label>
+                <button
+                  type="button"
+                  disabled={saving || confermaInvioFattura >= 2}
+                  onClick={() => {
+                    if (confermaInvioFattura < 1) {
+                      setConfermaInvioFattura(1);
+                      setSessioneMsg(
+                        "Prima conferma. Premi di nuovo: la mail e il PDF vanno solo all'indirizzo di controllo. Il numero fiscale non viene assegnato e lo SDI non parte."
+                      );
                       return;
                     }
-                    setConfermaInvioFattura(2);
-                    setSessioneMsg(
-                      `Fattura ${res.numeroFattura} inviata allo SDI. Nessuna mail di cortesia è partita.`
-                    );
-                  });
-                }}
-                className="rounded-lg border border-[var(--primary)] px-4 py-2 text-sm font-medium text-[var(--primary)] disabled:opacity-50"
-              >
-                {confermaInvioFattura >= 2
-                  ? "Fattura inviata"
-                  : (confermaInvioFattura === 1
-                    ? "Confermo l'invio della fattura"
-                    : "Invia la fattura ora")}
-              </button>
+                    setSaving(true);
+                    void inviaCopiaControlloOrdineAction({
+                      ordineId: savedOrdine.id,
+                      email: emailControllo,
+                    }).then((res) => {
+                      setSaving(false);
+                      if (!res.success) {
+                        setFormError(res.error);
+                        setConfermaInvioFattura(0);
+                        return;
+                      }
+                      setConfermaInvioFattura(2);
+                      setSessioneMsg(
+                        `Copia della fattura ${res.numeroFattura} dell'ordine ${res.numeroOrdine} inviata a ${res.email}. Non al cliente. Lo SDI non è stato chiamato e il numero non è stato consumato.`
+                      );
+                    });
+                  }}
+                  className="rounded-lg border border-[var(--primary)] px-4 py-2 text-sm font-medium text-[var(--primary)] disabled:opacity-50"
+                >
+                  {confermaInvioFattura >= 2
+                    ? "Copia inviata"
+                    : (confermaInvioFattura === 1
+                      ? "Confermo l'invio della copia"
+                      : "Invia la fattura ora")}
+                </button>
+              </>
             ) : null}
             {step > 1 ? (
               <button

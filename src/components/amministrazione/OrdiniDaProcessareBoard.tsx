@@ -5,7 +5,6 @@ import { countOrdiniDaProcessareAction } from "@/app/actions/ordini";
 import { CampionatureBoard } from "@/components/amministrazione/CampionatureBoard";
 import { OrdiniBoard } from "@/components/amministrazione/OrdiniBoard";
 import { OrdiniTipoSwitch } from "@/components/amministrazione/OrdiniTipoSwitch";
-import { ProvaOrdinePanel } from "@/components/amministrazione/ProvaOrdinePanel";
 import { ORDINI_STATI_DA_PROCESSARE } from "@/lib/amministrazione/ordini";
 import type { OrdineTipoDocumento } from "@/types/database";
 
@@ -16,27 +15,20 @@ export function OrdiniDaProcessareBoard() {
     campionatura: number;
   }>();
   const [campCount, setCampCount] = useState<number | null>(null);
-  const [provaVersione, setProvaVersione] = useState(0);
   const isCamp = tipo === "campionatura";
 
   useEffect(() => {
     void countOrdiniDaProcessareAction().then((res) => {
       if (!res.success) return;
       setCounts({ vendita: res.merce, campionatura: res.campionature });
-      if (res.merce === 0 && res.campionature > 0 && provaVersione === 0) {
+      if (res.merce === 0 && res.campionature > 0) {
         setTipo("campionatura");
       }
     });
-  }, [provaVersione]);
+  }, []);
 
   return (
     <div className="space-y-0">
-      <ProvaOrdinePanel
-        onChanged={() => {
-          setTipo("vendita");
-          setProvaVersione((v) => v + 1);
-        }}
-      />
       <OrdiniTipoSwitch tipo={tipo} onChange={setTipo} counts={counts} />
       <div className="rounded-b-xl border border-t-0 border-[var(--border)] bg-[var(--card)] p-4">
         {isCamp ? (
@@ -52,7 +44,7 @@ export function OrdiniDaProcessareBoard() {
               onFilteredCount={setCampCount}
             />
             <OrdiniBoard
-              key={`campionatura-${provaVersione}`}
+              key="campionatura"
               stato={ORDINI_STATI_DA_PROCESSARE}
               tipo="campionatura"
               processMode
@@ -68,7 +60,7 @@ export function OrdiniDaProcessareBoard() {
           </div>
         ) : (
           <OrdiniBoard
-            key={`vendita-${provaVersione}`}
+            key="vendita"
             stato={ORDINI_STATI_DA_PROCESSARE}
             tipo="vendita"
             processMode
