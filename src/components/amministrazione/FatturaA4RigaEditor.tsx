@@ -4,7 +4,10 @@ import { useEffect, useMemo, useState } from "react";
 import { getListinoVoceVigenteAction } from "@/app/actions/listini";
 import { listProdottiPropriAction } from "@/app/actions/prodotti-propri";
 import { ClearableNumberInput } from "@/components/ui/ClearableNumberInput";
-import type { FatturaA4Riga } from "@/lib/amministrazione/fattura-a4-documento";
+import {
+  totalsFromFatturaRighe,
+  type FatturaA4Riga,
+} from "@/lib/amministrazione/fattura-a4-documento";
 import { prezzoScontatoUnitario } from "@/lib/amministrazione/fatture";
 import type { ProdottoProprio } from "@/lib/amministrazione/prodotti-propri";
 import type { ListinoVoceVigente } from "@/lib/ecosystem/listino-vigente";
@@ -79,6 +82,13 @@ export function FatturaA4RigaEditor({ value, onChange }: Props) {
       cancelled = true;
     };
   }, [fonte, value.prodottoId]);
+
+  const prezzoUnitarioNetto = prezzoScontatoUnitario(
+    value.prezzoUnitario,
+    value.scontoPercentuale
+  );
+  const totaliRiga = totalsFromFatturaRighe([value]);
+  const unita = value.unitaMisura.trim();
 
   const filtrati = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -277,13 +287,31 @@ export function FatturaA4RigaEditor({ value, onChange }: Props) {
           />
         </label>
       </div>
-      <p className="text-xs text-slate-500">
-        Netto unitario (solo visualizzato):{" "}
-        {euro(
-          prezzoScontatoUnitario(value.prezzoUnitario, value.scontoPercentuale)
-        )}{" "}
-        €
-      </p>
+      <div className="rounded-lg border border-slate-300 bg-slate-50 px-3 py-2 text-sm">
+        <p className="text-xs font-medium text-slate-600">
+          Riepilogo riga, aggiornato a ogni modifica
+        </p>
+        <dl className="mt-2 grid grid-cols-2 gap-x-4 gap-y-1">
+          <dt className="text-slate-600">
+            Prezzo unitario
+            <span className="block text-xs font-normal">dopo lo sconto</span>
+          </dt>
+          <dd className="text-right font-semibold tabular-nums">
+            {euro(prezzoUnitarioNetto)} €
+            {unita ? ` / ${unita}` : ""}
+          </dd>
+          <dt className="text-slate-600">Totale riga</dt>
+          <dd className="text-right font-semibold tabular-nums">
+            {euro(totaliRiga.imponibile)} €
+          </dd>
+          <dt className="text-slate-600">IVA {value.ivaPercentuale}%</dt>
+          <dd className="text-right tabular-nums">{euro(totaliRiga.imposta)} €</dd>
+          <dt className="text-slate-600">Totale con IVA</dt>
+          <dd className="text-right font-semibold tabular-nums">
+            {euro(totaliRiga.totale)} €
+          </dd>
+        </dl>
+      </div>
     </div>
   );
 }
