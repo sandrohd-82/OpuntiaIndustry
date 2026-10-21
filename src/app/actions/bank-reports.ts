@@ -848,6 +848,8 @@ export async function listBankTransactionsAction(input: {
       items: BankTransactionView[];
       pendingSignCount: number;
       summary: BankPeriodSummary;
+      /** Data dell'ultimo movimento salvato, se il periodo chiesto è vuoto. */
+      ultimoMovimento: string | null;
     }
   | { success: false; error: string }
 > {
@@ -1054,11 +1056,26 @@ export async function listBankTransactionsAction(input: {
     );
   }
 
+  let ultimoMovimento: string | null = null;
+  if ((periodRows ?? []).length === 0) {
+    const { data: last } = await supabase
+      .from("bank_transactions")
+      .select("transaction_date")
+      .is("deleted_at", null)
+      .gte("transaction_date", "2000-01-01")
+      .order("transaction_date", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    const raw = last?.transaction_date ? String(last.transaction_date).slice(0, 10) : "";
+    ultimoMovimento = /^\d{4}-\d{2}-\d{2}$/.test(raw) ? raw : null;
+  }
+
   return {
     success: true,
     items,
     pendingSignCount: summary.dubbieCount,
     summary,
+    ultimoMovimento,
   };
 }
 

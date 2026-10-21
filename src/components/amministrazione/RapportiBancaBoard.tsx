@@ -5,6 +5,7 @@ import {
   useEffect,
   useId,
   useMemo,
+  useRef,
   useState,
   useTransition,
   type ReactNode,
@@ -147,6 +148,8 @@ export function RapportiBancaBoard() {
   const [items, setItems] = useState<BankTransactionView[]>([]);
   const [summary, setSummary] = useState<BankPeriodSummary>(EMPTY_SUMMARY);
   const [error, setError] = useState<string | null>(null);
+  const [ultimoMovimento, setUltimoMovimento] = useState<string | null>(null);
+  const saltoIniziale = useRef(true);
   const [info, setInfo] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
   const [detail, setDetail] = useState<BankTransactionView | null>(null);
@@ -347,6 +350,20 @@ export function RapportiBancaBoard() {
       setSummary(EMPTY_SUMMARY);
       return;
     }
+    const ultimo = res.ultimoMovimento;
+    if (
+      saltoIniziale.current &&
+      res.items.length === 0 &&
+      ultimo &&
+      (ultimo < dateFrom || ultimo > dateTo)
+    ) {
+      saltoIniziale.current = false;
+      setUltimoMovimento(ultimo);
+      setAnchor(new Date(`${ultimo}T12:00:00`));
+      return;
+    }
+    saltoIniziale.current = false;
+    setUltimoMovimento(ultimo);
     setItems(res.items);
     setSummary(res.summary ?? EMPTY_SUMMARY);
   }, [dateFrom, dateTo, tipo]);
@@ -1511,8 +1528,11 @@ export function RapportiBancaBoard() {
                   colSpan={5}
                   className="px-3 py-8 text-center text-[var(--muted)]"
                 >
-                  Nessun movimento. Carica un CSV in anteprima e salvalo con il
-                  PDF originale.
+                  Nessun movimento tra {formatDateIt(dateFrom)} e{" "}
+                  {formatDateIt(dateTo)}.
+                  {ultimoMovimento
+                    ? ` L'ultimo salvato è del ${formatDateIt(ultimoMovimento)}.`
+                    : " Carica un CSV in anteprima e salvalo con il PDF originale."}
                 </td>
               </tr>
             ) : (
