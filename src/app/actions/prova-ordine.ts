@@ -5,6 +5,7 @@ import { z } from "zod";
 import { writeAuditLog } from "@/lib/audit";
 import { buildFatturaA4PdfBlob } from "@/lib/amministrazione/fattura-a4-pdf";
 import { emptySede } from "@/lib/amministrazione/fornitori";
+import { splitNumeroForFic } from "@/lib/amministrazione/fattura-emissione";
 import { buildNumeroInternoOrdine } from "@/lib/amministrazione/ordini";
 import {
   anteprimaNumeroFattura,
@@ -43,6 +44,7 @@ export type NumerazioneReale = {
   numeroFattura: string;
   numeroInternoFattura: string;
   numeroProforma: string;
+  numeroProgressivoFic: string;
   documento: "fattura" | "proforma";
   email: string;
   fileName: string;
@@ -68,6 +70,20 @@ async function richiediAdmin() {
     };
   }
   return { ok: true as const, auth };
+}
+
+function destinatarioControllo(
+  raw: string | undefined
+): { ok: true; email: string } | { ok: false; error: string } {
+  const scritto = (raw ?? "").trim().toLowerCase();
+  if (scritto && scritto !== EMAIL_CONTROLLO_DEFAULT) {
+    return {
+      ok: false,
+      error:
+        "La copia di controllo si invia solo a sandrohd@gmail.com. Nessuna mail è partita e nulla è stato registrato.",
+    };
+  }
+  return { ok: true, email: EMAIL_CONTROLLO_DEFAULT };
 }
 
 function prossimoSeqOrdine(
@@ -134,10 +150,9 @@ export async function anteprimaNumerazioneRealeAction(raw: {
       error: parsed.error.issues[0]?.message ?? "Scegli il cliente.",
     };
   }
-  const email = (parsed.data.email || EMAIL_CONTROLLO_DEFAULT).trim().toLowerCase();
-  if (!z.string().email().safeParse(email).success) {
-    return { success: false, error: "Indirizzo email non valido." };
-  }
+  const destino = destinatarioControllo(parsed.data.email);
+  if (!destino.ok) return { success: false, error: destino.error };
+  const email = destino.email;
   const documento = parsed.data.documento ?? "fattura";
   const supabase = await createClient();
   const { data: cliente, error: clienteErr } = await supabase
@@ -150,15 +165,6 @@ export async function anteprimaNumerazioneRealeAction(raw: {
     .maybeSingle();
   if (clienteErr) return { success: false, error: clienteErr.message };
   if (!cliente) return { success: false, error: "Cliente non trovato." };
-  const emailCliente = String(cliente.email ?? "").trim().toLowerCase();
-  const pecCliente = String(cliente.pec ?? "").trim().toLowerCase();
-  if (email === emailCliente || (pecCliente && email === pecCliente)) {
-    return {
-      success: false,
-      error:
-        "Questo indirizzo è del cliente. La copia non parte verso il cliente. Usa sandrohd@gmail.com o un altro indirizzo.",
-    };
-  }
 
   const { data: prodotto, error: prodottoErr } = await supabase
     .from("prodotti_propri")
@@ -356,6 +362,7 @@ export async function anteprimaNumerazioneRealeAction(raw: {
       documento,
       numero_ordine: numeroOrdine,
       numero_fattura: fattura.numeroFattura,
+      numero_progressivo_fic: String(splitNumeroForFic(fattura.numeroFattura).number),
       numero_proforma: proforma.numeroFattura,
       email,
       sdi: false,
@@ -375,6 +382,7 @@ export async function anteprimaNumerazioneRealeAction(raw: {
       numeroFattura: fattura.numeroFattura,
       numeroInternoFattura: fattura.numeroInterno,
       numeroProforma: proforma.numeroFattura,
+      numeroProgressivoFic: String(splitNumeroForFic(fattura.numeroFattura).number),
       documento,
       email,
       fileName: pdf.fileName,
@@ -392,7 +400,13 @@ export async function inviaCopiaControlloOrdineAction(raw: {
   ordineId?: string;
   email?: string;
 }): Promise<
-  | { success: true; numeroOrdine: string; numeroFattura: string; email: string }
+  | {
+      success: true;
+      numeroOrdine: string;
+      numeroFattura: string;
+      numeroProgressivoFic: string;
+      email: string;
+    }
   | { success: false; error: string }
 > {
   const accesso = await richiediAdmin();
@@ -404,10 +418,9 @@ export async function inviaCopiaControlloOrdineAction(raw: {
       error: parsed.error.issues[0]?.message ?? "Ordine non valido.",
     };
   }
-  const email = (parsed.data.email || EMAIL_CONTROLLO_DEFAULT).trim().toLowerCase();
-  if (!z.string().email().safeParse(email).success) {
-    return { success: false, error: "Indirizzo email non valido." };
-  }
+  const destino = destinatarioControllo(parsed.data.email);
+  if (!destino.ok) return { success: false, error: destino.error };
+  const email = destino.email;
   const supabase = await createClient();
   const { data: ordine, error: ordineErr } = await supabase
     .from("ordini")
@@ -429,15 +442,6 @@ export async function inviaCopiaControlloOrdineAction(raw: {
     .maybeSingle();
   if (clienteErr) return { success: false, error: clienteErr.message };
   if (!cliente) return { success: false, error: "Cliente non trovato." };
-  const emailCliente = String(cliente.email ?? "").trim().toLowerCase();
-  const pecCliente = String(cliente.pec ?? "").trim().toLowerCase();
-  if (email === emailCliente || (pecCliente && email === pecCliente)) {
-    return {
-      success: false,
-      error:
-        "Questo indirizzo è del cliente. La copia non parte verso il cliente.",
-    };
-  }
   const { data: righe, error: righeErr } = await supabase
     .from("ordini_righe")
     .select(
@@ -607,6 +611,7 @@ export async function inviaCopiaControlloOrdineAction(raw: {
     payload: {
       numero_ordine: ordine.numero_interno,
       numero_fattura: numeroFattura,
+      numero_progressivo_fic: String(splitNumeroForFic(numeroFattura).number),
       email,
       sdi: false,
       numero_fiscale_consumato: false,
@@ -617,6 +622,7 @@ export async function inviaCopiaControlloOrdineAction(raw: {
     success: true,
     numeroOrdine: ordine.numero_interno,
     numeroFattura,
+    numeroProgressivoFic: String(splitNumeroForFic(numeroFattura).number),
     email,
   };
 }

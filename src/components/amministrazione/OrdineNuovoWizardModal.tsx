@@ -58,7 +58,6 @@ import { ProdottoProprioFormModal } from "@/components/amministrazione/ProdottoP
 import { ReferentiPickerField } from "@/components/amministrazione/ReferentiPickerField";
 import { creaFatturaOrdineSenzaInvioAction } from "@/app/actions/fattura-da-ordine";
 import { inviaCopiaControlloOrdineAction } from "@/app/actions/prova-ordine";
-import { EMAIL_CONTROLLO_DEFAULT } from "@/lib/amministrazione/prova-ordine";
 import { FatturaA4Modal } from "@/components/amministrazione/FatturaA4Modal";
 import { OrdinePagamentoPianoFields } from "@/components/amministrazione/OrdinePagamentoPianoFields";
 import { SpedizioneMailComposeModal } from "@/components/amministrazione/SpedizioneMailComposeModal";
@@ -435,7 +434,6 @@ export function OrdineNuovoWizardModal({
   const [ordineFinalizzato, setOrdineFinalizzato] = useState(false);
   const [fatturaPrenotataId, setFatturaPrenotataId] = useState<string | null>(null);
   const [confermaInvioFattura, setConfermaInvioFattura] = useState(0);
-  const [emailControllo, setEmailControllo] = useState(EMAIL_CONTROLLO_DEFAULT);
   const [tipoOrdine, setTipoOrdine] = useState<"vendita" | "campionatura">(
     "vendita"
   );
@@ -3587,16 +3585,9 @@ export function OrdineNuovoWizardModal({
           <div className="flex flex-wrap justify-end gap-2">
             {ordineFinalizzato && fatturaPrenotataId && savedOrdine ? (
               <>
-                <label className="text-sm text-slate-700">
-                  Email di controllo
-                  <input
-                    type="email"
-                    value={emailControllo}
-                    onChange={(event) => setEmailControllo(event.target.value)}
-                    disabled={saving || confermaInvioFattura >= 2}
-                    className="ml-2 rounded-lg border border-[var(--border)] bg-white px-3 py-2 text-sm text-slate-900"
-                  />
-                </label>
+                <p className="self-center text-sm text-slate-700">
+                  Copia solo a sandrohd@gmail.com
+                </p>
                 <button
                   type="button"
                   disabled={saving || confermaInvioFattura >= 2}
@@ -3604,14 +3595,13 @@ export function OrdineNuovoWizardModal({
                     if (confermaInvioFattura < 1) {
                       setConfermaInvioFattura(1);
                       setSessioneMsg(
-                        "Prima conferma. Premi di nuovo: la mail e il PDF vanno solo all'indirizzo di controllo. Il numero fiscale non viene assegnato e lo SDI non parte."
+                        "Prima conferma. Premi di nuovo: la mail e il PDF vanno solo a sandrohd@gmail.com, con il numero progressivo/anno. Il numero non viene scritto in fattura, Fatture in Cloud non viene chiamato e lo SDI non parte."
                       );
                       return;
                     }
                     setSaving(true);
                     void inviaCopiaControlloOrdineAction({
                       ordineId: savedOrdine.id,
-                      email: emailControllo,
                     }).then((res) => {
                       setSaving(false);
                       if (!res.success) {
@@ -3621,7 +3611,7 @@ export function OrdineNuovoWizardModal({
                       }
                       setConfermaInvioFattura(2);
                       setSessioneMsg(
-                        `Copia della fattura ${res.numeroFattura} dell'ordine ${res.numeroOrdine} inviata a ${res.email}. Non al cliente. Lo SDI non è stato chiamato e il numero non è stato consumato.`
+                        `Copia della fattura ${res.numeroFattura} dell'ordine ${res.numeroOrdine} inviata solo a ${res.email}. Su PDF e gestionale il numero è ${res.numeroFattura}; verso Fatture in Cloud andrebbe ${res.numeroProgressivoFic}, senza anno. In questo controllo Fatture in Cloud e lo SDI non sono stati chiamati e il numero non è stato consumato.`
                       );
                     });
                   }}

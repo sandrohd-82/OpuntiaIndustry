@@ -11,13 +11,10 @@ import {
   type NumerazioneReale,
   type ProvaOrdineAperta,
 } from "@/app/actions/prova-ordine";
-import { EMAIL_CONTROLLO_DEFAULT } from "@/lib/amministrazione/prova-ordine";
-
 export function ProvaOrdinePanel({ onChanged }: { onChanged?: () => void }) {
   const router = useRouter();
   const [clienti, setClienti] = useState<ClienteNumerazione[]>([]);
   const [clienteId, setClienteId] = useState("");
-  const [email, setEmail] = useState(EMAIL_CONTROLLO_DEFAULT);
   const [documento, setDocumento] = useState<"fattura" | "proforma">("fattura");
   const [numerazione, setNumerazione] = useState<NumerazioneReale | null>(null);
   const [residuo, setResiduo] = useState<ProvaOrdineAperta | null>(null);
@@ -51,7 +48,6 @@ export function ProvaOrdinePanel({ onChanged }: { onChanged?: () => void }) {
     setErrore(null);
     const res = await anteprimaNumerazioneRealeAction({
       clienteId,
-      email,
       documento,
     });
     setBusy(false);
@@ -81,9 +77,9 @@ export function ProvaOrdinePanel({ onChanged }: { onChanged?: () => void }) {
     <section className="mb-4 rounded-xl border border-[var(--border)] bg-[var(--card)] p-4">
       <h2 className="text-sm font-semibold">Numerazione reale, senza salvare</h2>
       <p className="mt-1 text-sm text-[var(--muted)]">
-        Invia a te la mail e il PDF, con i numeri che avrebbe il documento vero.
-        Non salva l&apos;ordine né la fattura, non chiama lo SDI e non scrive al
-        cliente. Il contatore resta fermo.
+        Invia la mail e il PDF solo a sandrohd@gmail.com, con il numero che
+        avrebbe il documento vero. Non salva l&apos;ordine né la fattura, non
+        chiama Fatture in Cloud e non chiama lo SDI. Il contatore resta fermo.
       </p>
       <div className="mt-3 flex flex-wrap items-end gap-2">
         <label className="text-sm">
@@ -121,16 +117,9 @@ export function ProvaOrdinePanel({ onChanged }: { onChanged?: () => void }) {
             <option value="proforma">Proforma</option>
           </select>
         </label>
-        <label className="text-sm">
-          Email di controllo
-          <input
-            type="email"
-            value={email}
-            onChange={(event) => setEmail(event.target.value)}
-            disabled={busy}
-            className="mt-1 block w-72 rounded-lg border border-[var(--border)] bg-white px-3 py-2 text-sm text-slate-900"
-          />
-        </label>
+        <p className="pb-2 text-sm text-[var(--muted)]">
+          Mail solo a sandrohd@gmail.com
+        </p>
         <button
           type="button"
           onClick={() => void controlla()}
@@ -157,8 +146,14 @@ export function ProvaOrdinePanel({ onChanged }: { onChanged?: () => void }) {
             <dd className="font-semibold tabular-nums">{numerazione.numeroOrdine}</dd>
           </div>
           <div>
-            <dt className="text-[var(--muted)]">Fattura</dt>
+            <dt className="text-[var(--muted)]">Fattura su PDF e gestionale</dt>
             <dd className="font-semibold tabular-nums">{numerazione.numeroFattura}</dd>
+          </div>
+          <div>
+            <dt className="text-[var(--muted)]">Numero verso Fatture in Cloud</dt>
+            <dd className="font-semibold tabular-nums">
+              {numerazione.numeroProgressivoFic}
+            </dd>
           </div>
           <div>
             <dt className="text-[var(--muted)]">Numero interno fattura</dt>
@@ -172,7 +167,8 @@ export function ProvaOrdinePanel({ onChanged }: { onChanged?: () => void }) {
             <dt className="text-[var(--muted)]">Mail inviata</dt>
             <dd className="font-medium">
               {numerazione.documento === "proforma" ? "Proforma" : "Fattura"}{" "}
-              {numerazione.fileName} a {numerazione.email}. Non al cliente.
+              {numerazione.fileName} solo a {numerazione.email}. Lo SDI non è
+              stato chiamato. Il numero non è stato consumato.
             </dd>
           </div>
         </dl>

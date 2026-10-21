@@ -166,11 +166,12 @@ export function calcolaTotaliEmissione(
 }
 
 /**
- * Split per FiC. Il numero visibile è number + numeration.
- * 22/2026 → number 22, numeration "/2026".
- * 27/0001 → number 27, numeration "/0001".
- * Storico 26-C005/1 resta leggibile allo stesso modo.
- * L'account FiC non deve aggiungere un altro anno in coda.
+ * Split per l'API Fatture in Cloud.
+ * Fino al 2026 il gestionale e i PDF usano NN/ANNO (22/2026).
+ * All'API si manda solo il progressivo (22): l'anno lo aggiunge Fatture in Cloud
+ * prima della trasmissione allo SDI. La numeration resta vuota, così non
+ * diventa 22/2026/2026.
+ * Dal 2027 il formato YY/CCCC si spezza ancora in number + numeration.
  */
 export function splitNumeroForFic(numeroFattura: string): {
   number: number;
@@ -179,7 +180,7 @@ export function splitNumeroForFic(numeroFattura: string): {
   const raw = numeroFattura.trim();
   const perAnno = raw.match(/^(\d+)\/(20\d{2})$/);
   if (perAnno && Number(perAnno[2]) <= 2026) {
-    return { number: Number(perAnno[1]), numeration: `/${perAnno[2]}` };
+    return { number: Number(perAnno[1]), numeration: "" };
   }
   const nuovo = raw.match(/^(\d{2})\/(\d{4})$/);
   if (nuovo && Number(nuovo[2]) < 2000) {

@@ -1168,7 +1168,7 @@ export async function inviaFatturaSalvataAction(input: {
     entity,
     date: fattura.data_emissione,
     number: split.number,
-    numeration: split.numeration,
+    ...(split.numeration ? { numeration: split.numeration } : {}),
     subject: `Fattura ${numeroFattura}`,
     visible_subject: `Fattura ${numeroFattura}`,
     currency: { id: "EUR", exchange_rate: "1.00000", symbol: "€" },
