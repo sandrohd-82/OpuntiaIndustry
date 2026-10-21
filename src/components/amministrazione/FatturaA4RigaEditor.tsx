@@ -126,8 +126,32 @@ export function FatturaA4RigaEditor({ value, onChange }: Props) {
     onChange({ ...value, ...part });
   }
 
+  const riepilogo = (
+    <div className="rounded-lg border border-slate-300 bg-slate-50 px-3 py-2 text-sm">
+      <dl className="grid grid-cols-2 gap-x-4 gap-y-1">
+        <dt className="self-center font-medium text-slate-900">Tot</dt>
+        <dd className="text-right text-base font-semibold tabular-nums text-slate-900">
+          {euro(totaliRiga.totale)} €
+        </dd>
+        <dt className="text-slate-600">
+          Prezzo unitario
+          <span className="block text-xs font-normal">dopo lo sconto</span>
+        </dt>
+        <dd className="text-right font-semibold tabular-nums">
+          {euro(prezzoUnitarioNetto)} €
+          {unita ? ` / ${unita}` : ""}
+        </dd>
+        <dt className="text-slate-600">Imponibile riga</dt>
+        <dd className="text-right tabular-nums">{euro(totaliRiga.imponibile)} €</dd>
+        <dt className="text-slate-600">IVA {value.ivaPercentuale}%</dt>
+        <dd className="text-right tabular-nums">{euro(totaliRiga.imposta)} €</dd>
+      </dl>
+    </div>
+  );
+
   return (
     <div className="space-y-3">
+      {riepilogo}
       <fieldset className="space-y-1.5 text-sm">
         <legend className="mb-1 font-medium">Origine riga</legend>
         <label className="flex items-center gap-2">
@@ -287,31 +311,7 @@ export function FatturaA4RigaEditor({ value, onChange }: Props) {
           />
         </label>
       </div>
-      <div className="rounded-lg border border-slate-300 bg-slate-50 px-3 py-2 text-sm">
-        <p className="text-xs font-medium text-slate-600">
-          Riepilogo riga, aggiornato a ogni modifica
-        </p>
-        <dl className="mt-2 grid grid-cols-2 gap-x-4 gap-y-1">
-          <dt className="text-slate-600">
-            Prezzo unitario
-            <span className="block text-xs font-normal">dopo lo sconto</span>
-          </dt>
-          <dd className="text-right font-semibold tabular-nums">
-            {euro(prezzoUnitarioNetto)} €
-            {unita ? ` / ${unita}` : ""}
-          </dd>
-          <dt className="text-slate-600">Totale riga</dt>
-          <dd className="text-right font-semibold tabular-nums">
-            {euro(totaliRiga.imponibile)} €
-          </dd>
-          <dt className="text-slate-600">IVA {value.ivaPercentuale}%</dt>
-          <dd className="text-right tabular-nums">{euro(totaliRiga.imposta)} €</dd>
-          <dt className="text-slate-600">Totale con IVA</dt>
-          <dd className="text-right font-semibold tabular-nums">
-            {euro(totaliRiga.totale)} €
-          </dd>
-        </dl>
-      </div>
+      {riepilogo}
     </div>
   );
 }

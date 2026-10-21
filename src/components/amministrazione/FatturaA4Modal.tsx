@@ -770,7 +770,8 @@ export function FatturaA4Modal({
                       <th className="py-1.5 pr-2 font-medium">Listino</th>
                       <th className="py-1.5 pr-2 font-medium">Sconto</th>
                       <th className="py-1.5 pr-2 font-medium">Netto</th>
-                      <th className="py-1.5 font-medium">IVA</th>
+                      <th className="py-1.5 pr-2 font-medium">IVA</th>
+                      <th className="py-1.5 text-right font-medium">Tot</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -779,6 +780,7 @@ export function FatturaA4Modal({
                         r.prezzoUnitario,
                         r.scontoPercentuale
                       );
+                      const totRiga = totalsFromFatturaRighe([r]).totale;
                       return (
                         <tr
                           key={`${r.codice}-${i}`}
@@ -802,8 +804,11 @@ export function FatturaA4Modal({
                           <td className="py-1.5 pr-2 tabular-nums font-medium">
                             {euro(netto)} €
                           </td>
-                          <td className="py-1.5 tabular-nums">
+                          <td className="py-1.5 pr-2 tabular-nums">
                             {r.ivaPercentuale}%
+                          </td>
+                          <td className="py-1.5 text-right font-semibold tabular-nums">
+                            {euro(totRiga)} €
                           </td>
                         </tr>
                       );

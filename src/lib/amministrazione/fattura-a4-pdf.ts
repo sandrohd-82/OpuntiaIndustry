@@ -109,7 +109,7 @@ export function buildFatturaA4PdfBlob(input: {
 
   autoTable(doc, {
     startY: y,
-    head: [["Codice", "Descrizione", "Qty", "Listino", "Sconto", "Netto", "IVA"]],
+    head: [["Codice", "Descrizione", "Qty", "Listino", "Sconto", "Netto", "IVA", "Tot"]],
     body: input.righe.map((r) => [
       r.codice,
       r.descrizione,
@@ -118,6 +118,7 @@ export function buildFatturaA4PdfBlob(input: {
       r.scontoPercentuale > 0 ? `${r.scontoPercentuale} %` : "—",
       `${euro(prezzoScontatoUnitario(r.prezzoUnitario, r.scontoPercentuale))} €`,
       `${r.ivaPercentuale} %`,
+      `${euro(totalsFromFatturaRighe([r]).totale)} €`,
     ]),
     styles: { fontSize: 8, cellPadding: 1.4 },
     headStyles: { fillColor: [30, 64, 175], textColor: 255 },
@@ -127,6 +128,7 @@ export function buildFatturaA4PdfBlob(input: {
       4: { halign: "right" },
       5: { halign: "right" },
       6: { halign: "right" },
+      7: { halign: "right" },
     },
     margin: { left: 14, right: 14 },
   });
