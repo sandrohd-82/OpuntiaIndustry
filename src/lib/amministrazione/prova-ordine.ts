@@ -1,5 +1,4 @@
-/** Serie locale della prova ordine. Non è un numero fiscale e non consuma 23/2026. */
-export const EMAIL_PROVA_DEFAULT = "sandrohd@gmail.com";
+/** Serie lasciata solo per riconoscere un eventuale ordine di prova già salvato. */
 export const PREFISSO_FATTURA_PROVA = "PROVA-";
 export const PREFISSO_ORDINE_PROVA = "Or-PROVA/";
 

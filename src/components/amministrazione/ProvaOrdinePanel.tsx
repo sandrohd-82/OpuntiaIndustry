@@ -3,118 +3,154 @@
 import { useEffect, useState } from "react";
 import {
   annullaProvaOrdineAction,
-  avviaProvaOrdineAction,
+  anteprimaNumerazioneRealeAction,
+  elencoClientiNumerazioneAction,
   statoProvaOrdineAction,
+  type ClienteNumerazione,
+  type NumerazioneReale,
   type ProvaOrdineAperta,
 } from "@/app/actions/prova-ordine";
-import { EMAIL_PROVA_DEFAULT } from "@/lib/amministrazione/prova-ordine";
 
 export function ProvaOrdinePanel({ onChanged }: { onChanged: () => void }) {
-  const [email, setEmail] = useState(EMAIL_PROVA_DEFAULT);
-  const [prova, setProva] = useState<ProvaOrdineAperta | null>(null);
+  const [clienti, setClienti] = useState<ClienteNumerazione[]>([]);
+  const [clienteId, setClienteId] = useState("");
+  const [numerazione, setNumerazione] = useState<NumerazioneReale | null>(null);
+  const [residuo, setResiduo] = useState<ProvaOrdineAperta | null>(null);
   const [ready, setReady] = useState(false);
   const [busy, setBusy] = useState(false);
-  const [messaggio, setMessaggio] = useState<string | null>(null);
   const [errore, setErrore] = useState<string | null>(null);
 
   useEffect(() => {
     let attivo = true;
-    void statoProvaOrdineAction().then((res) => {
+    void (async () => {
+      const [elenco, stato] = await Promise.all([
+        elencoClientiNumerazioneAction(),
+        statoProvaOrdineAction(),
+      ]);
       if (!attivo) return;
       setReady(true);
-      if (!res.success) {
-        setErrore(res.error);
+      if (!elenco.success) {
+        setErrore(elenco.error);
         return;
       }
-      setProva(res.prova);
-      if (res.prova?.email) setEmail(res.prova.email);
-    });
+      setClienti(elenco.clienti);
+      if (stato.success) setResiduo(stato.prova);
+    })();
     return () => {
       attivo = false;
     };
   }, []);
 
-  async function avvia() {
+  async function controlla() {
     setBusy(true);
     setErrore(null);
-    setMessaggio(null);
-    const res = await avviaProvaOrdineAction({ email });
+    const res = await anteprimaNumerazioneRealeAction({ clienteId });
     setBusy(false);
     if (!res.success) {
+      setNumerazione(null);
       setErrore(res.error);
       return;
     }
-    setProva(res.prova);
-    setMessaggio(
-      `Prova ${res.prova.numeroOrdine} creata con fattura ${res.prova.numeroFattura}. È in coda da processare. La mail è andata solo a ${res.prova.email}. Lo SDI non è stato chiamato e il numero fiscale non è stato consumato.`
-    );
-    onChanged();
+    setNumerazione(res.numerazione);
   }
 
-  async function annulla() {
+  async function chiudiResiduo() {
     setBusy(true);
     setErrore(null);
-    setMessaggio(null);
     const res = await annullaProvaOrdineAction();
     setBusy(false);
     if (!res.success) {
       setErrore(res.error);
       return;
     }
-    setProva(null);
-    setMessaggio(
-      "Prova chiusa. L'ordine e la fattura restano nello storico con data di cancellazione. Puoi ripetere il test."
-    );
+    setResiduo(null);
     onChanged();
   }
 
   return (
-    <section className="mb-4 rounded-xl border border-amber-200 bg-amber-50 p-4">
-      <h2 className="text-sm font-semibold text-amber-950">Prova ordine e fattura</h2>
-      <p className="mt-1 text-sm text-amber-950">
-        Crea un ordine in questa coda, con fattura numerata della serie PROVA.
-        Non parte allo SDI e la mail va solo all&apos;indirizzo qui sotto, non al cliente.
+    <section className="mb-4 rounded-xl border border-[var(--border)] bg-[var(--card)] p-4">
+      <h2 className="text-sm font-semibold">Numerazione reale, senza salvare</h2>
+      <p className="mt-1 text-sm text-[var(--muted)]">
+        Mostra il prossimo numero ordine di quel cliente e il prossimo numero
+        fattura, con lo stesso criterio dei documenti veri. Non scrive nulla,
+        non invia allo SDI e non invia mail al cliente. Il contatore resta fermo:
+        puoi ricontrollare e vedi gli stessi numeri.
       </p>
       <div className="mt-3 flex flex-wrap items-end gap-2">
-        <label className="text-sm text-amber-950">
-          Email della prova
-          <input
-            type="email"
-            value={email}
-            onChange={(event) => setEmail(event.target.value)}
-            disabled={busy || Boolean(prova)}
-            className="mt-1 block w-72 rounded-lg border border-amber-300 bg-white px-3 py-2 text-sm text-slate-900"
-          />
-        </label>
-        {prova ? (
-          <button
-            type="button"
-            onClick={() => void annulla()}
-            disabled={busy}
-            className="rounded-lg bg-amber-800 px-4 py-2 text-sm font-medium text-white hover:bg-amber-900 disabled:opacity-60"
-          >
-            {busy ? "Chiudo…" : "Cancella e ripeti il test"}
-          </button>
-        ) : (
-          <button
-            type="button"
-            onClick={() => void avvia()}
+        <label className="text-sm">
+          Cliente
+          <select
+            value={clienteId}
+            onChange={(event) => {
+              setClienteId(event.target.value);
+              setNumerazione(null);
+            }}
             disabled={!ready || busy}
-            className="rounded-lg bg-amber-800 px-4 py-2 text-sm font-medium text-white hover:bg-amber-900 disabled:opacity-60"
+            className="mt-1 block w-80 rounded-lg border border-[var(--border)] bg-white px-3 py-2 text-sm text-slate-900"
           >
-            {busy ? "Creo la prova…" : "Avvia prova"}
-          </button>
-        )}
+            <option value="">Scegli il cliente</option>
+            {clienti.map((cliente) => (
+              <option key={cliente.id} value={cliente.id}>
+                {cliente.ragioneSociale}
+                {cliente.codiceTarga ? ` · ${cliente.codiceTarga}` : ""}
+              </option>
+            ))}
+          </select>
+        </label>
+        <button
+          type="button"
+          onClick={() => void controlla()}
+          disabled={!ready || busy || !clienteId}
+          className="rounded-lg bg-[var(--primary)] px-4 py-2 text-sm font-medium text-white hover:bg-[var(--primary-hover)] disabled:opacity-60"
+        >
+          {busy ? "Leggo i numeri…" : "Controlla numerazione"}
+        </button>
       </div>
-      {prova ? (
-        <p className="mt-3 text-sm text-amber-950">
-          Prova aperta: ordine {prova.numeroOrdine}, fattura {prova.numeroFattura || "in creazione"}, cliente di appoggio {prova.cliente}. Mail a {prova.email}.
-        </p>
+      {numerazione ? (
+        <dl className="mt-4 grid gap-2 text-sm sm:grid-cols-2">
+          <div>
+            <dt className="text-[var(--muted)]">Data</dt>
+            <dd className="font-medium tabular-nums">{numerazione.data}</dd>
+          </div>
+          <div>
+            <dt className="text-[var(--muted)]">Cliente</dt>
+            <dd className="font-medium">
+              {numerazione.cliente} · {numerazione.codiceTarga}
+            </dd>
+          </div>
+          <div>
+            <dt className="text-[var(--muted)]">Ordine</dt>
+            <dd className="font-semibold tabular-nums">{numerazione.numeroOrdine}</dd>
+          </div>
+          <div>
+            <dt className="text-[var(--muted)]">Fattura</dt>
+            <dd className="font-semibold tabular-nums">{numerazione.numeroFattura}</dd>
+          </div>
+          <div>
+            <dt className="text-[var(--muted)]">Numero interno fattura</dt>
+            <dd className="font-medium tabular-nums">{numerazione.numeroInternoFattura}</dd>
+          </div>
+          <div>
+            <dt className="text-[var(--muted)]">Proforma</dt>
+            <dd className="font-medium tabular-nums">{numerazione.numeroProforma}</dd>
+          </div>
+        </dl>
       ) : null}
-      {messaggio ? (
-        <p className="mt-3 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-900">
-          {messaggio}
-        </p>
+      {residuo ? (
+        <div className="mt-3 flex flex-wrap items-center gap-2 text-sm">
+          <p>
+            Resta aperto un ordine salvato come prova ({residuo.numeroOrdine}). Non
+            entra in questa numerazione.
+          </p>
+          <button
+            type="button"
+            onClick={() => void chiudiResiduo()}
+            disabled={busy}
+            className="rounded-lg border border-[var(--border)] bg-white px-3 py-1.5 text-sm font-medium hover:bg-slate-50 disabled:opacity-60"
+          >
+            Chiudi quello salvato
+          </button>
+        </div>
       ) : null}
       {errore ? (
         <p className="mt-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
