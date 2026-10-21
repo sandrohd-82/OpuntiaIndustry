@@ -231,18 +231,6 @@ export function CommercialistaElaboraTrimestreModal({
                 {nomeCartella}
                 {voci.length > 0 ? ` · ${voci.length} documenti` : null}
               </p>
-              <p className="mt-1 max-w-3xl text-xs text-slate-500">
-                Esporta chiede dove salvare e crea «{nomeCartella}». {NOME_RESOCONTO_COMPLETO}{" "}
-                sta subito in quella cartella. Ogni cartella che contiene i PDF ha
-                anche il proprio Excel, insieme ai PDF. Nel foglio il nome del file
-                apre la fattura; dove la pagina mostra solo il numero, è il numero che
-                la apre. Solo le cartelle che contengono i PDF, e non altre cartelle,
-                riportano il numero, per esempio Ricevute III 2026 (185 file). DDT e
-                Note Cr restano contenitori. Il conteggio è dei PDF. Prima Nota
-                contiene gli scontrini: nel resoconto completo imponibile e IVA
-                restano visibili con «NC non contabilizzato» e non entrano in quelle
-                somme. Il totale degli scontrini entra nel Totale.
-              </p>
               <ul className="mt-2 flex flex-wrap gap-2">
                 {KINDS.map((kind) => (
                   <li
