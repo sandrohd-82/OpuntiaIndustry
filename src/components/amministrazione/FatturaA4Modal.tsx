@@ -318,13 +318,14 @@ export function FatturaA4Modal({
       saveFatturaAnteprimaSessione(corrente);
       setBaseline(firmaDocumento);
       setError(null);
-      setMsg(
-        "Modifica applicata. Resta in questa sessione finché la finestra dell'ordine è aperta."
-      );
+      onClose();
       return;
     }
     const ok = await persist(false);
-    if (ok) setBaseline(firmaDocumento);
+    if (ok) {
+      setBaseline(firmaDocumento);
+      onClose();
+    }
   }
 
   useEffect(() => {
