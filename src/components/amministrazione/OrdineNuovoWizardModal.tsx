@@ -3641,9 +3641,9 @@ export function OrdineNuovoWizardModal({
                 <p className="text-xs text-[var(--muted)]">
                   Anteprima A4. Le modifiche restano in questa sessione finché
                   la finestra dell&apos;ordine è aperta, poi si cancellano. Il
-                  numero in testata è un'anteprima: in questa fase di prova non
+                  numero in testata è un&apos;anteprima: in questa fase di prova non
                   viene scritto in fattura e non viene consumato. Se scegli la
-                  proforma, fattura e proforma restano sull'ordine senza numero.
+                  proforma, fattura e proforma restano sull&apos;ordine senza numero.
                   La mail parte solo verso sandrohd@gmail.com. Lo SDI non parte.
                 </p>
                 {prenotazioneNumero.pren ? (
