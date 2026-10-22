@@ -167,6 +167,33 @@ export function FatturaA4Modal({
   const ivaPct =
     righe.find((r) => !r.isSpedizione && r.ivaPercentuale > 0)?.ivaPercentuale ??
     22;
+  const firmaDocumento = useMemo(() => {
+    if (!destinatario) return "";
+    return JSON.stringify({
+      dataDocumento,
+      destinatario,
+      righe,
+      noteDocumento,
+      piano: applyTotaleToPiano(piano, totals.totale),
+      commercialeId: commerciale?.id ?? "",
+    });
+  }, [
+    dataDocumento,
+    destinatario,
+    righe,
+    noteDocumento,
+    piano,
+    totals.totale,
+    commerciale?.id,
+  ]);
+  const [baseline, setBaseline] = useState<string | null>(null);
+  const modificaDaApplicare =
+    !loading && baseline !== null && firmaDocumento !== baseline;
+
+  useEffect(() => {
+    if (loading || !firmaDocumento) return;
+    setBaseline((prev) => prev ?? firmaDocumento);
+  }, [loading, firmaDocumento]);
 
   useEffect(() => {
     setPiano((prev) => applyTotaleToPiano(prev, totals.totale));
@@ -176,6 +203,7 @@ export function FatturaA4Modal({
     let cancelled = false;
     void (async () => {
       setLoading(true);
+      setBaseline(null);
       const comm = await listPreventivoCommercialiRiferimentoAction({
         includiSenzaAccount: true,
       });
@@ -278,29 +306,25 @@ export function FatturaA4Modal({
     };
   }
 
-  useEffect(() => {
-    if (loading) return;
-    const corrente = anteprimaCorrente();
-    if (!corrente) return;
-    saveFatturaAnteprimaSessione(corrente);
-    // anteprimaCorrente legge lo stato già elencato sotto.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [
-    loading,
-    soloSessione,
-    sessioneId,
-    numero,
-    dataDocumento,
-    destinatario,
-    righe,
-    noteDocumento,
-    piano,
-  ]);
-
   function chiudiAnteprima() {
-    const corrente = anteprimaCorrente();
-    if (corrente) saveFatturaAnteprimaSessione(corrente);
     onClose();
+  }
+
+  async function applicaModifica() {
+    if (!destinatario || !modificaDaApplicare) return;
+    if (soloSessione && ORDINI_PERSISTENZA_DEFINITIVA) {
+      const corrente = anteprimaCorrente();
+      if (!corrente) return;
+      saveFatturaAnteprimaSessione(corrente);
+      setBaseline(firmaDocumento);
+      setError(null);
+      setMsg(
+        "Modifica applicata. Resta in questa sessione finché la finestra dell'ordine è aperta."
+      );
+      return;
+    }
+    const ok = await persist(false);
+    if (ok) setBaseline(firmaDocumento);
   }
 
   useEffect(() => {
@@ -316,7 +340,7 @@ export function FatturaA4Modal({
       document.removeEventListener("keydown", onKey);
       document.body.style.overflow = prev;
     };
-  }, [onClose, saving, confirmOpen, editKind, soloSessione, sessioneId, numero, dataDocumento, destinatario, righe, noteDocumento, piano, loading]);
+  }, [onClose, saving, confirmOpen, editKind]);
 
   const destPicker = destinatario
     ? destinatarioToPreventivo(
@@ -336,18 +360,18 @@ export function FatturaA4Modal({
       ? clienteToPreventivo(cliente)
       : null;
 
-  async function persist(inviaOra: boolean) {
+  async function persist(inviaOra: boolean): Promise<boolean> {
     const invioRichiesto = bloccaInvio ? false : inviaOra;
     if (!destinatario) {
       setError("Intestazione destinatario mancante.");
-      return;
+      return false;
     }
     const email = inviaEmail
       ? (emailNuova.trim() || emailSel).toLowerCase()
       : "";
     if (!soloSessione && invioRichiesto && inviaEmail && !email.includes("@")) {
       setError("Seleziona o aggiungi l’email a cui inviare la fattura.");
-      return;
+      return false;
     }
     setSaving(true);
     setError(null);
@@ -356,7 +380,7 @@ export function FatturaA4Modal({
       if (!prev) {
         setSaving(false);
         setError("Nessun ordine in sessione. Salva prima l’ordine.");
-        return;
+        return false;
       }
       const fattura: OrdineSessioneFattura = {
         numeroFattura: numero,
@@ -386,15 +410,15 @@ export function FatturaA4Modal({
           ordineNumero: prev.ordine.numeroInterno || prev.ordine.numero || "",
         });
         onClose();
-        return;
+        return true;
       }
       setMsg(`Fattura ${numero} salvata in sessione. Nessun dato sul server.`);
-      return;
+      return true;
     }
     if (!ordineId) {
       setSaving(false);
       setError("Ordine non indicato.");
-      return;
+      return false;
     }
     const res = await saveFatturaDaOrdineAction({
       ordineId,
@@ -411,7 +435,7 @@ export function FatturaA4Modal({
     setSaving(false);
     if (!res.success) {
       setError(res.error);
-      return;
+      return false;
     }
     setFatturaId(res.fatturaId);
     setNumero(res.numeroFattura);
@@ -431,11 +455,12 @@ export function FatturaA4Modal({
         ordineNumero: "",
       });
       onClose();
-      return;
+      return true;
     }
     setMsg(
       `Fattura ${res.numeroFattura} salvata. Potrai inviarla in un secondo momento da Fatture emesse.`
     );
+    return true;
   }
 
   function scaricaDocumento(proforma: boolean, numeroDoc: string) {
@@ -637,6 +662,16 @@ export function FatturaA4Modal({
           >
             Chiudi
           </button>
+          {vista === "fattura" && modificaDaApplicare ? (
+            <button
+              type="button"
+              onClick={() => void applicaModifica()}
+              disabled={saving || loading || !destinatario}
+              className="rounded-lg bg-[var(--primary)] px-3 py-1.5 text-sm font-medium text-white disabled:opacity-50"
+            >
+              {saving ? "Applico…" : "Applica modifica"}
+            </button>
+          ) : null}
           {!soloSessione && vista === "fattura" ? (
             <button
               type="button"
@@ -756,8 +791,8 @@ export function FatturaA4Modal({
       ) : null}
       {soloSessione && ORDINI_PERSISTENZA_DEFINITIVA && !msg ? (
         <p className="mx-auto mb-3 max-w-[210mm] rounded border border-sky-200 bg-sky-50 px-3 py-2 text-sm text-sky-950 print:hidden">
-          Le modifiche restano in questa sessione del browser. Si cancellano
-          quando chiudi la finestra dell&apos;ordine. Non vanno sul server.
+          Le modifiche restano sulla fattura solo dopo Applica modifica. Poi
+          stanno in questa sessione finché la finestra dell&apos;ordine è aperta.
         </p>
       ) : null}
       {soloSessione && !ORDINI_PERSISTENZA_DEFINITIVA && !msg ? (
