@@ -33,7 +33,7 @@ import {
   type FatturaDestinatarioSnapshot,
 } from "@/lib/amministrazione/fattura-a4-documento";
 import {
-  buildFatturaA4PdfBlob,
+  buildFatturaA4PdfPronto,
   PROFORMA_DICITURA_FISCALE,
 } from "@/lib/amministrazione/fattura-a4-pdf";
 import type { FatturaInvioMailDraft } from "@/lib/amministrazione/fattura-invio-mail";
@@ -303,29 +303,37 @@ export function FatturaA4Modal({
         setLoading(false);
         return;
       }
+      const memorizzata = loadFatturaAnteprimaSessione();
+      const usaMemorizzata =
+        Boolean(sessioneId) && memorizzata?.sessioneId === sessioneId
+          ? memorizzata
+          : null;
       setCliente(ctx.cliente);
-      setDestinatario(ctx.destinatario);
+      setDestinatario(usaMemorizzata?.destinatario ?? ctx.destinatario);
       setNumero(() => {
         const pren = numeroPrenotatoRef.current;
+        const base = usaMemorizzata?.numeroFattura || ctx.numeroFattura;
         if (
           pren &&
-          (!isNumeroFatturaEmessa(ctx.numeroFattura) ||
-            ctx.numeroFattura === numeroSeguitoRef.current)
+          (!isNumeroFatturaEmessa(base) || base === numeroSeguitoRef.current)
         ) {
           numeroSeguitoRef.current = pren;
           return pren;
         }
-        return ctx.numeroFattura;
+        return base;
       });
-      setDataDocumento(ctx.dataDocumento);
-      setRighe(ctx.righe);
-      setNoteDocumento(ctx.noteDocumento);
+      setDataDocumento(usaMemorizzata?.dataDocumento || ctx.dataDocumento);
+      setRighe(usaMemorizzata?.righe ?? ctx.righe);
+      setNoteDocumento(usaMemorizzata?.noteDocumento ?? ctx.noteDocumento);
       setFatturaId(ctx.fatturaEsistenteId);
       setProformaId(ctx.proformaId);
       setProformaNumero(ctx.proformaNumero);
       setProformaConvertitaNumero(ctx.proformaConvertitaNumero);
       if (ctx.proformaId) setVista("proforma");
-      setPiano(applyTotaleToPiano(pianoIniziale ?? ctx.piano, ctx.totale));
+      setPiano(
+        usaMemorizzata?.piano ??
+          applyTotaleToPiano(pianoIniziale ?? ctx.piano, ctx.totale)
+      );
       setEmails(ctx.emails);
       setEmailSel(ctx.emails[0] ?? "");
       setInviaEmail(ctx.emails.length > 0);
@@ -339,7 +347,7 @@ export function FatturaA4Modal({
   }, [ordineId, soloSessione, sessioneId]);
 
   function anteprimaCorrente(): FatturaAnteprimaSessione | null {
-    if (!soloSessione || !sessioneId || !destinatario) return null;
+    if (!sessioneId || !destinatario) return null;
     return {
       sessioneId,
       numeroFattura: numero,
@@ -368,6 +376,8 @@ export function FatturaA4Modal({
     }
     const ok = await persist(false);
     if (ok) {
+      const corrente = anteprimaCorrente();
+      if (corrente) saveFatturaAnteprimaSessione(corrente);
       setBaseline(firmaDocumento);
       onClose();
     }
@@ -509,9 +519,9 @@ export function FatturaA4Modal({
     return true;
   }
 
-  function scaricaDocumento(proforma: boolean, numeroDoc: string) {
+  async function scaricaDocumento(proforma: boolean, numeroDoc: string) {
     if (!destinatario) return;
-    const pdf = buildFatturaA4PdfBlob({
+    const pdf = await buildFatturaA4PdfPronto({
       numeroFattura: numeroDoc,
       dataDocumento,
       destinatario,

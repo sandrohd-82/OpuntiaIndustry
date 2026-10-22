@@ -8,6 +8,7 @@ import {
   type FatturaA4Riga,
 } from "@/lib/amministrazione/fattura-a4-documento";
 import { buildFatturaA4PdfBlob } from "@/lib/amministrazione/fattura-a4-pdf";
+import { caricaLoghiFatturaA4Server } from "@/lib/amministrazione/fattura-a4-loghi.server";
 import { requireAnyAreaAccess } from "@/lib/areas/guard";
 import { materializzaNumeroDocumento } from "@/app/actions/fattura-da-ordine";
 import { isFatturaProva } from "@/lib/amministrazione/prova-ordine";
@@ -148,6 +149,7 @@ export async function inviaFatturaDaWebmailAction(
   const numeri = await materializzaNumeroDocumento(input.fatturaId);
   if (!numeri.success) return numeri;
   const numero = numeri.numeroFattura;
+  const loghi = await caricaLoghiFatturaA4Server();
   const pdf = buildFatturaA4PdfBlob({
     numeroFattura: numero,
     dataDocumento: String(fattura.data_emissione ?? ""),
@@ -155,6 +157,7 @@ export async function inviaFatturaDaWebmailAction(
     righe,
     noteDocumento: String(fattura.note ?? ""),
     proforma: String(fattura.tipo_documento ?? "") === "proforma",
+    loghi,
   });
   const pdfBytes = Buffer.from(await pdf.blob.arrayBuffer());
 

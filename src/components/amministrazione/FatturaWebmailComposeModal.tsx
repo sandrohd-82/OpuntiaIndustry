@@ -9,7 +9,7 @@ import {
 import { listCaselleSpedizioneMailAction } from "@/app/actions/spedizione-mail";
 import { AziendaNoteBanner } from "@/components/amministrazione/AziendaNoteBanner";
 import { CanaleAttenzioneBanners } from "@/components/amministrazione/CanaleAttenzioneControls";
-import { buildFatturaA4PdfBlob } from "@/lib/amministrazione/fattura-a4-pdf";
+import { buildFatturaA4PdfPronto } from "@/lib/amministrazione/fattura-a4-pdf";
 import { totalsFromFatturaRighe } from "@/lib/amministrazione/fattura-a4-documento";
 import type { FatturaInvioMailDraft } from "@/lib/amministrazione/fattura-invio-mail";
 import { ORDINI_PERSISTENZA_DEFINITIVA } from "@/lib/amministrazione/ordine-sessione";
@@ -97,7 +97,7 @@ export function FatturaWebmailComposeModal({ draft, onClose }: Props) {
         setError(ai.error);
       }
       try {
-        const pdf = buildFatturaA4PdfBlob({
+        const pdf = await buildFatturaA4PdfPronto({
           numeroFattura: draft.numeroFattura,
           dataDocumento: draft.dataDocumento,
           destinatario: draft.destinatario,

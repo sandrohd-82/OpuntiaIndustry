@@ -86,6 +86,7 @@ import {
   emailsDaCliente,
   clearFatturaAnteprimaSessione,
   clearOrdineSessione,
+  loadFatturaAnteprimaSessione,
   loadOrdineSessione,
   ORDINI_PERSISTENZA_DEFINITIVA,
   saveOrdineSessione,
@@ -3668,8 +3669,23 @@ export function OrdineNuovoWizardModal({
                       return;
                     }
                     setSaving(true);
+                    const anteprima = loadFatturaAnteprimaSessione();
+                    const bozza =
+                      anteprima?.sessioneId === anteprimaSessioneId
+                        ? anteprima
+                        : null;
                     void inviaCopiaControlloOrdineAction({
                       ordineId: savedOrdine.id,
+                      bozza: bozza
+                        ? {
+                            numeroFattura: bozza.numeroFattura,
+                            dataDocumento: bozza.dataDocumento,
+                            destinatario: bozza.destinatario,
+                            righe: bozza.righe,
+                            noteDocumento: bozza.noteDocumento,
+                            piano: bozza.piano,
+                          }
+                        : undefined,
                     }).then((res) => {
                       setSaving(false);
                       if (!res.success) {
