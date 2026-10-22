@@ -29,6 +29,7 @@ import {
   normalizeVatKey,
 } from "@/lib/amministrazione/fic-anagrafiche";
 import type { FatturaSyncQueueItem } from "@/lib/amministrazione/fatture-sync";
+import type { FatturaSyncNonRegistrata } from "@/lib/amministrazione/fatture-sync-keep";
 import { syncYearProgress } from "@/lib/amministrazione/fatture-sync";
 import { formatDateIt, formatEuro } from "@/lib/amministrazione/fatture";
 import { hasNestedModalOpen } from "@/lib/ui/nested-modal";
@@ -36,8 +37,8 @@ import { hasNestedModalOpen } from "@/lib/ui/nested-modal";
 type Props = {
   items: FatturaSyncQueueItem[];
   onFinished: (registeredCount: number) => void;
-  /** Interrompe la sync: le fatture già registrate restano; al prossimo Sincronizza riparti dalle rimanenti. */
-  onPaused: () => void;
+  /** Interrompe la sync e consegna i documenti ancora aperti, che non vanno dati per registrati. */
+  onPaused: (nonRegistrate: FatturaSyncNonRegistrata[]) => void;
   avviso?: string | null;
 };
 
@@ -377,6 +378,21 @@ export function FatturaSyncQueueModal({
     setIndex((i) => i + 1);
   }
 
+  function documentiNonSalvati(): FatturaSyncNonRegistrata[] {
+    return queueItems.slice(index).map((it) => ({
+      ficId: it.ficId,
+      numero: it.numeroEsterno || String(it.ficId),
+      ragioneSociale: it.draft?.ragioneSociale || it.entityName || "",
+      partitaIva: it.draft?.partitaIva || it.entityVat || "",
+      data: it.dataEmissione || "",
+      importo: Number(it.amountGross || it.totale) || 0,
+    }));
+  }
+
+  function interrompi() {
+    onPaused(documentiNonSalvati());
+  }
+
   function confirmExisting() {
     if (!current?.existingId) return;
     setAnagraficaId(current.existingId);
@@ -512,7 +528,7 @@ export function FatturaSyncQueueModal({
         ) : null}
         <button
           type="button"
-          onClick={onPaused}
+          onClick={interrompi}
           className="rounded-lg border border-amber-300 bg-white px-4 py-1.5 text-sm font-medium text-amber-900 hover:bg-amber-100"
         >
           Pausa
@@ -612,7 +628,7 @@ export function FatturaSyncQueueModal({
               <button
                 type="button"
                 disabled={dupBusy}
-                onClick={onPaused}
+                onClick={interrompi}
                 className="rounded-lg border border-amber-300 bg-white px-3 py-1.5 text-sm"
               >
                 Pausa
@@ -723,7 +739,7 @@ export function FatturaSyncQueueModal({
             <div className="flex justify-end gap-2">
               <button
                 type="button"
-                onClick={onPaused}
+                onClick={interrompi}
                 className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-1.5 text-sm font-medium text-amber-900"
               >
                 Pausa
@@ -758,7 +774,7 @@ export function FatturaSyncQueueModal({
             <div className="flex justify-end gap-2">
               <button
                 type="button"
-                onClick={onPaused}
+                onClick={interrompi}
                 className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-1.5 text-sm font-medium text-amber-900"
               >
                 Pausa
@@ -798,7 +814,7 @@ export function FatturaSyncQueueModal({
                   </button>
                   <button
                     type="button"
-                    onClick={onPaused}
+                    onClick={interrompi}
                     className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-1.5 text-sm font-medium text-amber-900"
                   >
                     Pausa
@@ -824,7 +840,7 @@ export function FatturaSyncQueueModal({
                   ) : null}
                   <button
                     type="button"
-                    onClick={onPaused}
+                    onClick={interrompi}
                     className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-1.5 text-sm font-medium text-amber-900"
                   >
                     Pausa
@@ -844,7 +860,7 @@ export function FatturaSyncQueueModal({
             <div className="flex justify-end">
               <button
                 type="button"
-                onClick={onPaused}
+                onClick={interrompi}
                 className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-1.5 text-sm font-medium text-amber-900"
               >
                 Pausa
@@ -862,7 +878,7 @@ export function FatturaSyncQueueModal({
             <div className="flex justify-end">
               <button
                 type="button"
-                onClick={onPaused}
+                onClick={interrompi}
                 className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-1.5 text-sm font-medium text-amber-900"
               >
                 Pausa
@@ -896,7 +912,7 @@ export function FatturaSyncQueueModal({
           stackTop
           ficDocument={{ kind, ficId: current.ficId }}
           initial={draftToClientePreview(current.draft, current.proposedTarga)}
-          onClose={onPaused}
+          onClose={interrompi}
           onSave={async (values) => {
             const created = await addCliente({
               ...values,
@@ -955,7 +971,7 @@ export function FatturaSyncQueueModal({
             current.draft,
             current.proposedTarga
           )}
-          onClose={onPaused}
+          onClose={interrompi}
           onSave={async (values, bioPdf) => {
             const created = await addFornitore(
               {
@@ -1012,10 +1028,8 @@ export function FatturaSyncQueueModal({
           elevated
           stackTop
           prefill={prefill}
-          onPause={onPaused}
-          onClose={() => {
-            goNext();
-          }}
+          onPause={interrompi}
+          onClose={interrompi}
           onSaved={() => {
             const nextCount = registeredCount + 1;
             setRegisteredCount(nextCount);

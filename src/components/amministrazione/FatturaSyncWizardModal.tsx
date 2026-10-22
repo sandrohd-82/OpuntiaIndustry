@@ -16,13 +16,15 @@ import {
   labelMesiIt,
   raggruppaFatturePerAzienda,
   splitForwardRetro,
+  type FatturaSyncNonRegistrata,
   type FattureSyncAnagraficaCreata,
   type FattureSyncFatturaRegistrata,
   type FattureSyncKeepKind,
   type FattureSyncPendingMeta,
   type FattureSyncSkipped,
 } from "@/lib/amministrazione/fatture-sync-keep";
-import { formatEuro } from "@/lib/amministrazione/fatture";
+import { normalizeVatKey } from "@/lib/amministrazione/fic-anagrafiche";
+import { formatDateIt, formatEuro } from "@/lib/amministrazione/fatture";
 import type { FatturaSyncQueueItem } from "@/lib/amministrazione/fatture-sync";
 
 type Step =
@@ -70,6 +72,9 @@ export function FatturaSyncWizardModal({ kind, onClose, onDone }: Props) {
   >([]);
   const [skippedNote, setSkippedNote] = useState<string | null>(null);
   const [skippedItems, setSkippedItems] = useState<FattureSyncSkipped[]>([]);
+  const [nonRegistrate, setNonRegistrate] = useState<FatturaSyncNonRegistrata[]>(
+    []
+  );
   const [precisaAvviso, setPrecisaAvviso] = useState<string | null>(null);
   const [resumeVeloce, setResumeVeloce] = useState<{
     ids: number[];
@@ -274,8 +279,10 @@ export function FatturaSyncWizardModal({ kind, onClose, onDone }: Props) {
   async function chiudiSessione(
     acc: AccVeloce,
     modalita: "precisa" | "veloce",
-    fase: "prospettiva" | "retroso" | "mista"
+    fase: "prospettiva" | "retroso" | "mista",
+    mancanti: FatturaSyncNonRegistrata[] = []
   ) {
+    setNonRegistrate(mancanti);
     await finalizeFattureSyncRunAction({
       kind,
       modalita,
@@ -284,6 +291,7 @@ export function FatturaSyncWizardModal({ kind, onClose, onDone }: Props) {
       fattureCount: acc.tot,
       anagraficheCreate: acc.anags,
       fattureRegistrate: acc.fatture,
+      nonRegistrate: mancanti,
     });
     setPrecisaItems(null);
     setResumeVeloce(null);
@@ -607,10 +615,32 @@ export function FatturaSyncWizardModal({ kind, onClose, onDone }: Props) {
 
           {step === "resoconto" ? (
             <div className="space-y-4">
-              <p className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-900">
-                Sincronizzazione completata: <strong>{registered}</strong> fatture
-                registrate.
-              </p>
+              {nonRegistrate.length > 0 ? (
+                <div className="rounded-lg border border-red-300 bg-red-50 px-3 py-3 text-sm text-red-950">
+                  <p className="font-semibold">
+                    Sync interrotta. {nonRegistrate.length} fatture NON sono
+                    state registrate. Gli importi restano solo su Fatture in
+                    Cloud finché non le salvi.
+                  </p>
+                  <ul className="mt-2 space-y-1">
+                    {nonRegistrate.map((d) => (
+                      <li key={`${d.ficId}-${d.numero}`}>
+                        <span className="font-mono">{d.numero}</span>
+                        {" · "}
+                        {d.ragioneSociale || "Fornitore"}
+                        {d.data ? ` · ${formatDateIt(d.data)}` : ""}
+                        {" · "}
+                        {formatEuro(d.importo)}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              ) : (
+                <p className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-900">
+                  Sincronizzazione completata: <strong>{registered}</strong>{" "}
+                  fatture registrate.
+                </p>
+              )}
               {skippedNote ? (
                 <p className="text-sm text-amber-900">{skippedNote}</p>
               ) : null}
@@ -679,7 +709,17 @@ export function FatturaSyncWizardModal({ kind, onClose, onDone }: Props) {
                   </p>
                 ) : (
                   <div className="space-y-3">
-                    {gruppiAzienda.map((g) => (
+                    {gruppiAzienda.map((g) => {
+                      const aperte = nonRegistrate.filter((d) => {
+                        const vatD = normalizeVatKey(d.partitaIva);
+                        const vatG = normalizeVatKey(g.partitaIva);
+                        if (vatD && vatG && vatD === vatG) return true;
+                        return (
+                          d.ragioneSociale.trim().toLowerCase() ===
+                          g.ragioneSociale.trim().toLowerCase()
+                        );
+                      });
+                      return (
                       <div
                         key={`${g.partitaIva}-${g.ragioneSociale}`}
                         className="overflow-hidden rounded-lg border border-[var(--border)]"
@@ -721,13 +761,26 @@ export function FatturaSyncWizardModal({ kind, onClose, onDone }: Props) {
                               ))}
                             </tbody>
                           </table>
-                        ) : (
+                        ) : null}
+                        {aperte.length ? (
+                          <ul className="space-y-1 bg-red-50 px-3 py-2 text-xs text-red-950">
+                            {aperte.map((d) => (
+                              <li key={`${d.ficId}-mancante`}>
+                                Fattura <span className="font-mono">{d.numero}</span>
+                                {d.data ? ` del ${formatDateIt(d.data)}` : ""} ·{" "}
+                                {formatEuro(d.importo)} — non registrata.
+                              </li>
+                            ))}
+                          </ul>
+                        ) : null}
+                        {!g.fatture.length && !aperte.length ? (
                           <p className="px-3 py-2 text-xs text-[var(--muted)]">
                             Nessuna fattura collegata in questo elenco.
                           </p>
-                        )}
+                        ) : null}
                       </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 )}
               </div>
@@ -834,7 +887,7 @@ export function FatturaSyncWizardModal({ kind, onClose, onDone }: Props) {
               );
             })();
           }}
-          onPaused={() => {
+          onPaused={(mancanti) => {
             void (async () => {
               const r = resumeVeloce;
               await chiudiSessione(
@@ -844,7 +897,8 @@ export function FatturaSyncWizardModal({ kind, onClose, onDone }: Props) {
                   fatture: r?.fatture ?? fattureRegistrate,
                 },
                 r ? "veloce" : "precisa",
-                r?.fase ?? "retroso"
+                r?.fase ?? (forwardIds.length ? "mista" : "retroso"),
+                mancanti
               );
             })();
           }}

@@ -33,6 +33,7 @@ import {
   dropPendingGiaInDb,
   splitForwardRetro,
   todayIsoRome,
+  type FatturaSyncNonRegistrata,
   type FattureSyncAnagraficaCreata,
   type FattureSyncFatturaRegistrata,
   type FattureSyncKeepKind,
@@ -1011,6 +1012,7 @@ export async function finalizeFattureSyncRunAction(input: {
   fattureCount: number;
   anagraficheCreate: FattureSyncAnagraficaCreata[];
   fattureRegistrate?: FattureSyncFatturaRegistrata[];
+  nonRegistrate?: FatturaSyncNonRegistrata[];
 }): Promise<{ success: true } | { success: false; error: string }> {
   const { auth } = await requireAreaAccess("amministrazione");
   const kind = fattureSyncKeepKindSchema.safeParse(input.kind);
@@ -1019,31 +1021,44 @@ export async function finalizeFattureSyncRunAction(input: {
     return { success: false, error: "Parametri sync non validi." };
   }
   const supabase = await createClient();
-  const { error } = await supabase.from("fatture_sync_run").insert({
-    kind: kind.data,
-    modalita: mode.data,
-    fase: input.fase,
-    stop_month: input.stopMonth ?? null,
-    fatture_count: input.fattureCount,
-    anagrafiche_create: input.anagraficheCreate,
-    skipped: [],
-    status: "completata",
-    created_by: auth.userId,
-    updated_by: auth.userId,
-  });
+  const nonRegistrate = input.nonRegistrate ?? [];
+  const interrotta = nonRegistrate.length > 0;
+  const { data: run, error } = await supabase
+    .from("fatture_sync_run")
+    .insert({
+      kind: kind.data,
+      modalita: mode.data,
+      fase: input.fase,
+      stop_month: input.stopMonth ?? null,
+      fatture_count: input.fattureCount,
+      anagrafiche_create: input.anagraficheCreate,
+      skipped: nonRegistrate,
+      status: interrotta ? "interrotta" : "completata",
+      created_by: auth.userId,
+      updated_by: auth.userId,
+    })
+    .select("id")
+    .single();
   if (error) return { success: false, error: error.message };
+  const numeri = nonRegistrate
+    .map((d) => d.numero || String(d.ficId))
+    .join(", ");
   await writeAuditLog({
     entity_type: "fatture_sync_run",
-    entity_id: kind.data,
-    action: "sync_finalize",
+    entity_id: String(run?.id ?? "00000000-0000-0000-0000-000000000000"),
+    action: "status_change",
     actor_id: auth.userId,
-    summary: `Resoconto sync ${kind.data}: ${input.fattureCount} fatture`,
+    summary: interrotta
+      ? `Sync ${kind.data} interrotta: non registrate ${numeri}.`
+      : `Resoconto sync ${kind.data}: ${input.fattureCount} fatture registrate.`,
     payload: {
       modalita: mode.data,
       fase: input.fase,
       fattureCount: input.fattureCount,
       anagrafiche: input.anagraficheCreate,
       fatture: input.fattureRegistrate ?? [],
+      non_registrate: nonRegistrate,
+      status: interrotta ? "interrotta" : "completata",
     },
   });
   if (kind.data === "emessa") await rinumeraTutteFattureEmesseAction();

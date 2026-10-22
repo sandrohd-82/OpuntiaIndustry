@@ -101,6 +101,16 @@ export type FattureSyncSkipped = {
   motivo: string;
 };
 
+/** Documento FiC aperto in sync e non scritto in fatture_ricevute / fatture_emesse. */
+export type FatturaSyncNonRegistrata = {
+  ficId: number;
+  numero: string;
+  ragioneSociale: string;
+  partitaIva: string;
+  data: string;
+  importo: number;
+};
+
 export type FattureSyncEccezione = {
   ficId: number;
   number: string;
