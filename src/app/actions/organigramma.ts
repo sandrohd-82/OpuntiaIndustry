@@ -385,12 +385,15 @@ async function loadProfiliFor(
   const service = createServiceClient();
   const { data } = await service
     .from("profiles")
-    .select("id, email, stato_operativo, gerarchia, potere")
+    .select("id, email, email_professionale, stato_operativo, gerarchia, potere")
     .in("id", userIds);
   for (const row of data ?? []) {
     map.set(String(row.id), {
       id: String(row.id),
       email: String(row.email ?? ""),
+      emailProfessionale: String(
+        (row as { email_professionale?: string | null }).email_professionale ?? ""
+      ).trim(),
       stato: parseProfileStatoOperativo(row.stato_operativo),
       gerarchia: String(row.gerarchia ?? "operatore"),
       potere: String(row.potere ?? "operatore"),
@@ -1583,10 +1586,21 @@ export async function updatePersonaAction(
   if (!banca.ok) return { success: false, error: banca.error };
   const { data: prev } = await supabase
     .from("organigramma_persone")
-    .select("commerciale_provvigione_pct, provvigione_quota_superiore_pct, parent_id, banca_iban, matricola")
+    .select("commerciale_provvigione_pct, provvigione_quota_superiore_pct, parent_id, banca_iban, matricola, user_id")
     .eq("id", v.id)
     .is("deleted_at", null)
     .maybeSingle();
+  const mailProfessionale = v.emailProfessionale.trim();
+  const profiloUserId = String(
+    (prev as { user_id?: string | null } | null)?.user_id ?? ""
+  );
+  if (mailProfessionale && !profiloUserId) {
+    return {
+      success: false,
+      error:
+        "Per la mail professionale serve un profilo gestionale collegato.",
+    };
+  }
   const prevMatricola = normalizeMatricola(
     (prev as { matricola?: string | null } | null)?.matricola
   );
@@ -1731,6 +1745,35 @@ export async function updatePersonaAction(
         : undefined,
   });
   const row = data as PersonaRow;
+  if (row.user_id) {
+    const service = createServiceClient();
+    const { data: profiloMail } = await service
+      .from("profiles")
+      .select("email_professionale")
+      .eq("id", row.user_id)
+      .maybeSingle();
+    const attuale = String(
+      (profiloMail as { email_professionale?: string | null } | null)
+        ?.email_professionale ?? ""
+    ).trim();
+    if (attuale !== mailProfessionale) {
+      const { error: mailErr } = await service
+        .from("profiles")
+        .update({ email_professionale: mailProfessionale || null })
+        .eq("id", row.user_id);
+      if (mailErr) return { success: false, error: mailErr.message };
+      await writeAuditLog({
+        entity_type: "profiles",
+        entity_id: row.user_id,
+        action: "update",
+        actor_id: auth.userId,
+        summary: mailProfessionale
+          ? `Mail professionale impostata: ${mailProfessionale}`
+          : "Mail professionale rimossa dalla scheda operatore",
+        payload: { email_professionale: mailProfessionale || null },
+      });
+    }
+  }
   await syncProfiloCommercialeCampi(
     row.user_id,
     comm.grado,

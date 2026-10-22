@@ -66,6 +66,7 @@ export type OrganigrammaReparto = {
 export type OrganigrammaProfiloLink = {
   id: string;
   email: string;
+  emailProfessionale: string;
   stato: "test" | "pre_operativo" | "operativo" | "sospeso" | "bloccato";
   gerarchia: string;
   potere: string;
@@ -392,6 +393,15 @@ export const personaInputSchema = z.object({
     .toUpperCase()
     .regex(/^$|^[A-HJ-NP-Z2-9]{6}$/, "Matricola: 6 caratteri (lettere e numeri).")
     .optional(),
+  emailProfessionale: z
+    .string()
+    .trim()
+    .max(200)
+    .refine((value) => value === "" || /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value), {
+      message: "Mail professionale non valida.",
+    })
+    .optional()
+    .default(""),
 });
 
 export const personaUpdateSchema = personaInputSchema.extend({

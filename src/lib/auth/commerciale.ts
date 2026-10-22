@@ -189,16 +189,20 @@ export function resolveCommercialeAppartenenza(opts: {
   createdBy: string | null | undefined;
   commercialIds: Set<string>;
   excludeCreatorIds?: Set<string>;
+  /** Presidente e Vicepresidente: l'azienda resta della cooperativa. */
+  titolareIds?: Set<string>;
   labels: Map<string, { nome: string; grado: CommercialeGrado | null }>;
 }): {
   commercialeId: string | null;
   commercialeNome: string;
   commercialeGrado: CommercialeGrado | null;
 } {
-  const assigned = String(opts.commercialeId ?? "").trim();
+  const assignedRaw = String(opts.commercialeId ?? "").trim();
+  const assigned = opts.titolareIds?.has(assignedRaw) ? "" : assignedRaw;
   const creator = String(opts.createdBy ?? "").trim();
   const skipCreator =
     !creator ||
+    Boolean(opts.titolareIds?.has(creator)) ||
     Boolean(opts.excludeCreatorIds?.has(creator)) ||
     (opts.excludeCreatorIds == null && !opts.commercialIds.has(creator));
   const effective = assigned || (skipCreator ? "" : creator);

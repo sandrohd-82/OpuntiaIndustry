@@ -34,6 +34,7 @@ import {
   loadCommercialeLabels,
   loadCommercialeUserIds,
   loadOrganigrammaNomi,
+  loadTitolareCooperativaUserIds,
   resolveDefaultCommercialeId,
 } from "@/lib/auth/commerciale-lineage";
 import {
@@ -174,7 +175,10 @@ export async function listClientiAction(): Promise<
   }
 
   const rows = (data ?? []) as ClienteRow[];
-  const commercialIds = await loadCommercialeUserIds();
+  const [commercialIds, titolareIds] = await Promise.all([
+    loadCommercialeUserIds(),
+    loadTitolareCooperativaUserIds(),
+  ]);
   const labels = await loadCommercialeLabels(
     rows
       .flatMap((r) => [
@@ -216,6 +220,7 @@ export async function listClientiAction(): Promise<
         commercialeId: row.commerciale_id ?? null,
         createdBy: row.created_by ?? null,
         commercialIds,
+        titolareIds,
         labels,
       });
       const cliente = mapClienteRow(row, {

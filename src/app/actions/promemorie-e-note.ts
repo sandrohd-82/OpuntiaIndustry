@@ -11,6 +11,7 @@ import {
   loadOrganigrammaNomi,
   loadCommercialeUserIds,
   loadSuperadminUserIds,
+  loadTitolareCooperativaUserIds,
   resolveDefaultCommercialeId,
 } from "@/lib/auth/commerciale-lineage";
 import {
@@ -1255,9 +1256,10 @@ export async function updateNotaPnAction(input: unknown): Promise<
 }
 
 async function applicaCommercialiPossibili(items: ClientePossibile[]) {
-  const [commercialIds, excludeCreatorIds] = await Promise.all([
+  const [commercialIds, excludeCreatorIds, titolareIds] = await Promise.all([
     loadCommercialeUserIds(),
     loadSuperadminUserIds(),
+    loadTitolareCooperativaUserIds(),
   ]);
   const labels = await loadCommercialeLabels(
     items
@@ -1282,6 +1284,7 @@ async function applicaCommercialiPossibili(items: ClientePossibile[]) {
       createdBy: item.createdBy,
       commercialIds,
       excludeCreatorIds,
+      titolareIds,
       labels,
     });
     item.commercialeId = resolved.commercialeId;
@@ -1550,9 +1553,10 @@ export async function createClientePossibileAction(
   }
   const item = mapClientePossibileRow(data as Record<string, unknown>);
   {
-    const [commercialIds, excludeCreatorIds] = await Promise.all([
+    const [commercialIds, excludeCreatorIds, titolareIds] = await Promise.all([
       loadCommercialeUserIds(),
       loadSuperadminUserIds(),
+      loadTitolareCooperativaUserIds(),
     ]);
     const labels = await loadCommercialeLabels(
       [item.commercialeId ?? "", item.createdBy ?? "", item.affiancatoId ?? ""].filter(
@@ -1567,6 +1571,7 @@ export async function createClientePossibileAction(
       createdBy: item.createdBy,
       commercialIds,
       excludeCreatorIds,
+      titolareIds,
       labels,
     });
     item.commercialeId = resolved.commercialeId;
@@ -1802,9 +1807,10 @@ export async function updateClientePossibileAction(
     }
   }
   {
-    const [commercialIds, excludeCreatorIds] = await Promise.all([
+    const [commercialIds, excludeCreatorIds, titolareIds] = await Promise.all([
       loadCommercialeUserIds(),
       loadSuperadminUserIds(),
+      loadTitolareCooperativaUserIds(),
     ]);
     const labels = await loadCommercialeLabels(
       [item.commercialeId ?? "", item.createdBy ?? "", item.affiancatoId ?? ""].filter(
@@ -1819,6 +1825,7 @@ export async function updateClientePossibileAction(
       createdBy: item.createdBy,
       commercialIds,
       excludeCreatorIds,
+      titolareIds,
       labels,
     });
     item.commercialeId = resolved.commercialeId;

@@ -260,6 +260,9 @@ function AnagraficaCard({
   onError: (msg: string | null) => void;
 }) {
   const [nome, setNome] = useState(item.nome);
+  const [emailProfessionale, setEmailProfessionale] = useState(
+    item.profilo?.emailProfessionale ?? ""
+  );
   const [cognome, setCognome] = useState(item.cognome);
   const [matricola, setMatricola] = useState(item.matricola ?? "");
   const [codiceFiscale, setCf] = useState(item.codiceFiscale);
@@ -305,6 +308,7 @@ function AnagraficaCard({
 
   useEffect(() => {
     setNome(item.nome);
+    setEmailProfessionale(item.profilo?.emailProfessionale ?? "");
     setCognome(item.cognome);
     setMatricola(item.matricola ?? "");
     setCf(item.codiceFiscale);
@@ -342,6 +346,7 @@ function AnagraficaCard({
       id: item.id,
       nome,
       cognome,
+      emailProfessionale,
       matricola,
       codiceFiscale,
       cartaIdentita,
@@ -454,7 +459,43 @@ function AnagraficaCard({
                 : "Riporta in forza"}
             </button>
           ) : null}
+          {(() => {
+            const carica = item.mansioni.find(
+              (m) => m.codice === "presidente" || m.codice === "vicepresidente"
+            );
+            if (!carica) return null;
+            return (
+              <p className="mt-2 text-sm font-medium text-slate-800">
+                {carica.nome} della cooperativa. Titolare, non commerciale: le
+                aziende che carica restano della cooperativa.
+              </p>
+            );
+          })()}
           <div className="mt-3 grid gap-3 sm:grid-cols-2">
+            <label className="text-xs text-[var(--muted)]">
+              Mail di accesso
+              <input
+                value={item.profilo?.email || "Nessun profilo collegato"}
+                disabled
+                className={inputCls}
+              />
+            </label>
+            <label className="text-xs text-[var(--muted)]">
+              Mail professionale
+              <input
+                type="email"
+                value={emailProfessionale}
+                disabled={!isAdmin || !item.userId}
+                onChange={(e) => setEmailProfessionale(e.target.value)}
+                className={inputCls}
+                placeholder="es. nome@agrinsicilia.com"
+                autoComplete="off"
+              />
+              <span className="mt-0.5 block text-[10px]">
+                Compare su preventivi, fatture e comunicazioni. È distinta
+                dalla mail di accesso.
+              </span>
+            </label>
             <label className="text-xs text-[var(--muted)]">
               Nome
               <input

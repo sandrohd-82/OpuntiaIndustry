@@ -112,6 +112,10 @@ export const loadCommercialeOperatorContext = cache(
     if (!mine) {
       return { isCommerciale: false, grado: null, subtreeIds: [] };
     }
+    const titolari = await loadTitolareCooperativaUserIds();
+    if (titolari.has(mine)) {
+      return { isCommerciale: false, grado: null, subtreeIds };
+    }
 
     const service = createServiceClient();
     const [{ data: profile }, { data: persone }, { data: fromReparto }] =
@@ -171,6 +175,47 @@ export const loadCommercialeOperatorContext = cache(
     };
   }
 );
+
+/** Cariche dei titolari della cooperativa. Non sono commerciali. */
+export const CARICHE_TITOLARE_COOPERATIVA = ["presidente", "vicepresidente"] as const;
+
+/** Presidente e Vicepresidente: le aziende che caricano restano della cooperativa. */
+export async function loadTitolareCooperativaUserIds(): Promise<Set<string>> {
+  const service = createServiceClient();
+  const { data: mansioni } = await service
+    .from("organigramma_mansioni")
+    .select("id")
+    .in("codice", [...CARICHE_TITOLARE_COOPERATIVA])
+    .is("deleted_at", null);
+  const mansioneIds = (mansioni ?? [])
+    .map((row) => String((row as { id?: string }).id ?? ""))
+    .filter(Boolean);
+  if (mansioneIds.length === 0) return new Set();
+  const { data: links } = await service
+    .from("organigramma_persona_mansioni")
+    .select("persona_id")
+    .in("mansione_id", mansioneIds)
+    .is("deleted_at", null);
+  const personaIds = [
+    ...new Set(
+      (links ?? [])
+        .map((row) => String((row as { persona_id?: string }).persona_id ?? ""))
+        .filter(Boolean)
+    ),
+  ];
+  if (personaIds.length === 0) return new Set();
+  const { data: persone } = await service
+    .from("organigramma_persone")
+    .select("user_id")
+    .in("id", personaIds)
+    .is("deleted_at", null);
+  const ids = new Set<string>();
+  for (const row of persone ?? []) {
+    const uid = String((row as { user_id?: string | null }).user_id ?? "");
+    if (uid) ids.add(uid);
+  }
+  return ids;
+}
 
 /** Super Admin: non diventano «area commerciale» se creano un’anagrafica. */
 export async function loadSuperadminUserIds(): Promise<Set<string>> {
@@ -237,6 +282,8 @@ export async function loadCommercialeUserIds(): Promise<Set<string>> {
     const uid = String((p as { id?: string }).id ?? "");
     if (uid) ids.add(uid);
   }
+  const titolari = await loadTitolareCooperativaUserIds();
+  for (const id of titolari) ids.delete(id);
   for (const id of supers) ids.delete(id);
   return ids;
 }
@@ -249,6 +296,11 @@ export async function resolveDefaultCommercialeId(opts: {
   anyNonSuperadmin?: boolean;
 }): Promise<string | null> {
   const explicit = opts.explicitId?.trim() || null;
+  const titolari = await loadTitolareCooperativaUserIds();
+  if (titolari.has(opts.userId)) {
+    if (explicit && !titolari.has(explicit)) return explicit;
+    return null;
+  }
   if (explicit) return explicit;
   if (opts.isSuperadmin) return null;
   if (opts.anyNonSuperadmin) return opts.userId;

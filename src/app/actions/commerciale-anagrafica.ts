@@ -21,6 +21,7 @@ import {
   loadCommercialLineagePersonaIds,
   loadCommercialeLabels,
   loadCommercialeOperatorContext,
+  loadTitolareCooperativaUserIds,
 } from "@/lib/auth/commerciale-lineage";
 import { isSuperadminProfile } from "@/lib/auth/roles";
 import { getAuthContext } from "@/lib/auth/session";
@@ -288,6 +289,8 @@ export async function getCommercialeAnagraficaContextAction(): Promise<
   for (const p of graded ?? []) {
     ids.add(String((p as { id: string }).id));
   }
+  const titolari = await loadTitolareCooperativaUserIds();
+  for (const id of titolari) ids.delete(id);
   if (ids.size === 0) {
     return {
       canAssign,
@@ -389,6 +392,14 @@ export async function assignCommercialeAnagraficaAction(
   const service = createServiceClient();
 
   if (parsed.data.commercialeId) {
+    const titolari = await loadTitolareCooperativaUserIds();
+    if (titolari.has(parsed.data.commercialeId)) {
+      return {
+        success: false,
+        error:
+          "Presidente e Vicepresidente non sono commerciali. L'azienda resta della cooperativa.",
+      };
+    }
     const { data: profile } = await service
       .from("profiles")
       .select("id")
