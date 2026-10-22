@@ -87,6 +87,7 @@ export const emissioneInputSchema = z
     sendCourtesyEmail: z.boolean().optional().default(true),
     dryRunSdi: z.boolean().optional().default(false),
     ordineId: z.string().uuid().nullable().optional().default(null),
+    prenotazioneId: z.string().uuid().nullable().optional().default(null),
     noteDocumento: z.string().optional().default(""),
     righe: z.array(rigaSchema).min(1, "Aggiungi almeno una riga"),
   })

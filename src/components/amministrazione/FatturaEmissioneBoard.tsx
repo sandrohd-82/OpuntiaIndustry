@@ -2,12 +2,13 @@
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import {
-  getAliquoteEmissioneAction,
-  previewNumeroEmissioneAction,
-} from "@/app/actions/fattura-emissione";
+import { getAliquoteEmissioneAction } from "@/app/actions/fattura-emissione";
 import { listProdottiPropriAction } from "@/app/actions/prodotti-propri";
 import { ClienteSelectField } from "@/components/amministrazione/ClienteSelectField";
+import {
+  FatturaNumeroAvvisoDialog,
+  usePrenotazioneNumero,
+} from "@/components/amministrazione/FatturaNumeroPrenotato";
 import { ClearableNumberInput } from "@/components/ui/ClearableNumberInput";
 import type { Cliente } from "@/lib/amministrazione/clienti";
 import {
@@ -54,7 +55,17 @@ export function FatturaEmissioneBoard() {
   ]);
   const [spedizione, setSpedizione] = useState(emptySpedizioneRiga(0, false, 22));
   const [includeSpedizione, setIncludeSpedizione] = useState(false);
-  const [numeroFattura, setNumeroFattura] = useState("");
+  const [sessioneNumeroId] = useState(() =>
+    typeof crypto !== "undefined" && "randomUUID" in crypto
+      ? crypto.randomUUID()
+      : `fattura-${Date.now()}`
+  );
+  const prenotazioneNumero = usePrenotazioneNumero({
+    contesto: "fattura",
+    sessioneId: sessioneNumeroId,
+    attivo: true,
+    dataDocumento,
+  });
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<{
@@ -72,26 +83,6 @@ export function FatturaEmissioneBoard() {
       if (r.success) setAliquote(r.aliquote);
     });
   }, []);
-
-  useEffect(() => {
-    if (!cliente) {
-      setNumeroFattura("");
-      return;
-    }
-    let cancelled = false;
-    void previewNumeroEmissioneAction({
-      clienteId: cliente.id,
-      dataDocumento,
-    }).then((r) => {
-      if (cancelled) return;
-      if (r.success) {
-        setNumeroFattura(r.numeroFattura);
-      }
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, [cliente, dataDocumento]);
 
   const righeCalcolo = useMemo(() => {
     const list = righe.map((r) => ({
@@ -165,11 +156,15 @@ export function FatturaEmissioneBoard() {
     };
 
     setBusy(true);
+    prenotazioneNumero.bloccaRilascio();
     try {
       const res = await fetch("/api/invoices/create-and-send", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
+        body: JSON.stringify({
+          ...payload,
+          prenotazioneId: prenotazioneNumero.pren?.id ?? null,
+        }),
       });
       const json = (await res.json()) as {
         success: boolean;
@@ -180,8 +175,17 @@ export function FatturaEmissioneBoard() {
         eiStatus?: string;
       };
       if (!json.success) {
+        prenotazioneNumero.consentiRilascio();
         setError(json.error ?? "Emissione non riuscita.");
         return;
+      }
+      if (prenotazioneNumero.pren) {
+        prenotazioneNumero.applica({
+          ...prenotazioneNumero.pren,
+          stato: "emessa",
+          incerto: false,
+          numeroFattura: json.numeroFattura || prenotazioneNumero.pren.numeroFattura,
+        });
       }
       setSuccess({
         fatturaId: json.fatturaId!,
@@ -194,6 +198,7 @@ export function FatturaEmissioneBoard() {
       setSpedizione(emptySpedizioneRiga(0, false, 22));
       setNoteDocumento("");
     } catch (err) {
+      prenotazioneNumero.consentiRilascio();
       setError(err instanceof Error ? err.message : "Errore di rete.");
     } finally {
       setBusy(false);
@@ -201,6 +206,7 @@ export function FatturaEmissioneBoard() {
   }
 
   return (
+    <>
     <form onSubmit={onSubmit} className="space-y-6">
       <p className="text-sm text-[var(--muted)]">
         Compila e invia la fattura elettronica a Fatture in Cloud / SDI. Il
@@ -255,11 +261,25 @@ export function FatturaEmissioneBoard() {
             </div>
           </dl>
         ) : null}
-        {numeroFattura ? (
-          <p className="rounded-lg bg-slate-50 px-3 py-2 text-sm">
+        {prenotazioneNumero.pren ? (
+          <p
+            className={`rounded-lg px-3 py-2 text-sm ${
+              prenotazioneNumero.pren.incerto
+                ? "bg-amber-50 text-amber-950"
+                : "bg-slate-50"
+            }`}
+          >
             Numero fattura:{" "}
-            <strong className="font-mono text-base">{numeroFattura}</strong>
+            <strong className="font-mono text-base">
+              {prenotazioneNumero.pren.numeroFattura}
+            </strong>
+            {prenotazioneNumero.pren.incerto
+              ? `. Non è sicuro: può variare fra ${prenotazioneNumero.pren.numeroMin} e ${prenotazioneNumero.pren.numeroMax}. Chi completa prima si aggiudica il numero più basso.`
+              : ". Prenotato finché non invii."}
           </p>
+        ) : null}
+        {prenotazioneNumero.errore ? (
+          <p className="text-sm text-red-700">{prenotazioneNumero.errore}</p>
         ) : null}
       </section>
 
@@ -599,7 +619,7 @@ export function FatturaEmissioneBoard() {
         </div>
         <button
           type="submit"
-          disabled={busy || !cliente}
+          disabled={busy || !cliente || !prenotazioneNumero.pren}
           className="rounded-lg bg-[var(--primary)] px-5 py-2.5 text-sm font-semibold text-white hover:opacity-90 disabled:opacity-50"
         >
           {busy ? "Emissione in corso…" : "Crea e invia fattura"}
@@ -639,5 +659,12 @@ export function FatturaEmissioneBoard() {
         </div>
       ) : null}
     </form>
+    {prenotazioneNumero.avviso ? (
+      <FatturaNumeroAvvisoDialog
+        messaggio={prenotazioneNumero.avviso}
+        onClose={() => prenotazioneNumero.setAvviso(null)}
+      />
+    ) : null}
+    </>
   );
 }

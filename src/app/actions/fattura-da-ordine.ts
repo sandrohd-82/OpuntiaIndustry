@@ -31,6 +31,10 @@ import {
   assegnaNumeroProforma,
   isNumeroFatturaEmessa,
 } from "@/lib/amministrazione/numero-fattura";
+import {
+  emettiNumeroPrenotato,
+  idPrenotazioneAggiudicataFattura,
+} from "@/app/actions/fattura-prenotazione-numero";
 import { isFatturaProva } from "@/lib/amministrazione/prova-ordine";
 import { AGRINSICILIA_COORDINATE } from "@/lib/amministrazione/preventivo-letterhead";
 import {
@@ -923,10 +927,18 @@ export async function materializzaNumeroDocumento(
     return { success: true, numeroFattura: numero, numeroInterno: interno || `Ft-${numero}` };
   }
   try {
-    const assegnato =
+    const prenotazioneId =
       tipo === "proforma"
-        ? await assegnaNumeroProforma(supabase, dataDocumento)
-        : await assegnaNumeroFattura(supabase, dataDocumento);
+        ? null
+        : await idPrenotazioneAggiudicataFattura(fatturaId);
+    let assegnato: { numeroFattura: string; numeroInterno: string };
+    if (prenotazioneId) {
+      assegnato = await emettiNumeroPrenotato(prenotazioneId, dataDocumento);
+    } else if (tipo === "proforma") {
+      assegnato = await assegnaNumeroProforma(supabase, dataDocumento);
+    } else {
+      assegnato = await assegnaNumeroFattura(supabase, dataDocumento);
+    }
     const { error: upErr } = await supabase
       .from("fatture_emesse")
       .update({

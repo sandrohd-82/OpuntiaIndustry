@@ -16,6 +16,7 @@ import {
   anteprimaNumeroFattura,
   assegnaNumeroFattura,
 } from "@/lib/amministrazione/numero-fattura";
+import { emettiNumeroPrenotato } from "@/app/actions/fattura-prenotazione-numero";
 import {
   createIssuedDocument,
   fetchFicVatTypes,
@@ -220,7 +221,9 @@ export async function createAndSendInvoiceAction(
   let numeroInterno: string;
   let numeroFattura: string;
   try {
-    const assegnato = await assegnaNumeroFattura(supabase, parsed.dataDocumento);
+    const assegnato = parsed.prenotazioneId
+      ? await emettiNumeroPrenotato(parsed.prenotazioneId, parsed.dataDocumento)
+      : await assegnaNumeroFattura(supabase, parsed.dataDocumento);
     numeroInterno = assegnato.numeroInterno;
     numeroFattura = assegnato.numeroFattura;
   } catch (e) {

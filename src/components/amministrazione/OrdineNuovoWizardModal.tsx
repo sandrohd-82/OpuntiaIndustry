@@ -57,6 +57,11 @@ import { ConsegnaCalendarioModal } from "@/components/amministrazione/ConsegnaCa
 import { ProdottoProprioFormModal } from "@/components/amministrazione/ProdottoProprioFormModal";
 import { ReferentiPickerField } from "@/components/amministrazione/ReferentiPickerField";
 import { creaFatturaOrdineSenzaInvioAction } from "@/app/actions/fattura-da-ordine";
+import { aggiudicaNumeroFatturaAction } from "@/app/actions/fattura-prenotazione-numero";
+import {
+  FatturaNumeroAvvisoDialog,
+  usePrenotazioneNumero,
+} from "@/components/amministrazione/FatturaNumeroPrenotato";
 import { inviaCopiaControlloOrdineAction } from "@/app/actions/prova-ordine";
 import { FatturaA4Modal } from "@/components/amministrazione/FatturaA4Modal";
 import { OrdinePagamentoPianoFields } from "@/components/amministrazione/OrdinePagamentoPianoFields";
@@ -446,6 +451,11 @@ export function OrdineNuovoWizardModal({
   const [tipoOrdine, setTipoOrdine] = useState<"vendita" | "campionatura">(
     "vendita"
   );
+  const prenotazioneNumero = usePrenotazioneNumero({
+    contesto: "ordine",
+    sessioneId: anteprimaSessioneId,
+    attivo: tipoOrdine === "vendita" && !modificaOrdineId,
+  });
   const lastStep: Step = tipoOrdine === "campionatura" ? 6 : 7;
 
   const [consegnaTipo, setConsegnaTipo] = useState<"asap" | "data">("asap");
@@ -1663,12 +1673,32 @@ export function OrdineNuovoWizardModal({
           );
           return;
         }
+        let numeroAggiudicato = prenotazioneNumero.pren?.numeroFattura ?? "";
+        if (prenotazioneNumero.pren?.id) {
+          prenotazioneNumero.bloccaRilascio();
+          const agg = await aggiudicaNumeroFatturaAction({
+            prenotazioneId: prenotazioneNumero.pren.id,
+            ordineId: result.ordine.id,
+            fatturaId: fat.fatturaId,
+          });
+          if (!agg.success) {
+            prenotazioneNumero.consentiRilascio();
+            setFormError(
+              `Ordine registrato, ma il numero non è stato aggiudicato: ${agg.error}`
+            );
+          } else {
+            numeroAggiudicato = agg.prenotazione.numeroFattura;
+            prenotazioneNumero.applica(agg.prenotazione);
+          }
+        }
         const mailErr = await memorizzaMail();
         setFatturaPrenotataId(fat.fatturaId);
         setConfermaInvioFattura(0);
         setOrdineFinalizzato(true);
         setSessioneMsg(
-          `Ordine ${result.ordine.numeroInterno} finalizzato. La fattura è prenotata, senza numero progressivo. Nessuna mail e nessuno SDI sono partiti.`
+          numeroAggiudicato
+            ? `Ordine ${result.ordine.numeroInterno} finalizzato. Numero ${numeroAggiudicato} aggiudicato e riservato. La fattura resta prenotata: niente mail e niente SDI.`
+            : `Ordine ${result.ordine.numeroInterno} finalizzato. La fattura è prenotata. Nessuna mail e nessuno SDI sono partiti.`
         );
         if (mailErr) {
           setFormError(
@@ -3499,10 +3529,39 @@ export function OrdineNuovoWizardModal({
                 <p className="text-sm font-semibold">Fattura</p>
                 <p className="text-xs text-[var(--muted)]">
                   Anteprima A4. Le modifiche restano in questa sessione finché
-                  la finestra dell&apos;ordine è aperta, poi si cancellano. Alla
-                  finalizzazione la fattura prenotata nasce dall&apos;ordine, senza
-                  numero progressivo. Niente email e niente SDI prima.
+                  la finestra dell&apos;ordine è aperta, poi si cancellano. Il
+                  numero in testata è prenotato: chi completa prima si
+                  aggiudica il più basso. Alla finalizzazione resta riservato
+                  alla fattura prenotata, senza email e senza SDI.
                 </p>
+                {prenotazioneNumero.pren ? (
+                  <p
+                    className={`text-sm ${
+                      prenotazioneNumero.pren.incerto
+                        ? "text-amber-900"
+                        : "text-slate-800"
+                    }`}
+                  >
+                    Numero fattura:{" "}
+                    <strong className="font-mono text-base">
+                      {prenotazioneNumero.pren.numeroFattura}
+                    </strong>
+                    {prenotazioneNumero.pren.incerto
+                      ? ` — non sicuro, può variare fra ${prenotazioneNumero.pren.numeroMin} e ${prenotazioneNumero.pren.numeroMax}`
+                      : ""}
+                  </p>
+                ) : null}
+                {!prenotazioneNumero.pren && prenotazioneNumero.errore ? (
+                  <p className="text-xs text-red-700">{prenotazioneNumero.errore}</p>
+                ) : null}
+                {!prenotazioneNumero.pren &&
+                !prenotazioneNumero.errore &&
+                tipoOrdine === "vendita" &&
+                !modificaOrdineId ? (
+                  <p className="text-xs text-[var(--muted)]">
+                    Prenotazione del numero in corso…
+                  </p>
+                ) : null}
                 {attesaCalcoloSpedizione ? (
                   <p className="text-xs text-amber-800">
                     La fattura resta chiusa finché l&apos;operatore non conferma
@@ -3832,12 +3891,17 @@ export function OrdineNuovoWizardModal({
                   ),
                   piano: pagamentoPiano,
                   emails: emailsDaCliente(clienteSped),
-                  numeroFattura: "AA/NNNN",
+                  numeroFattura:
+                    prenotazioneNumero.pren?.numeroFattura || "…",
                   dataDocumento: todayIsoDate(),
                   noteDocumento: "",
                 }
           }
           pianoIniziale={pagamentoPiano}
+          numeroPrenotato={prenotazioneNumero.pren?.numeroFattura ?? null}
+          numeroIncerto={Boolean(prenotazioneNumero.pren?.incerto)}
+          numeroMin={prenotazioneNumero.pren?.numeroMin ?? null}
+          numeroMax={prenotazioneNumero.pren?.numeroMax ?? null}
           bloccaInvio
           onClose={() => setFatturaA4Open(false)}
           onSaved={() => {
@@ -3871,6 +3935,12 @@ export function OrdineNuovoWizardModal({
             setComposeAfter(null);
             onSaved(o);
           }}
+        />
+      ) : null}
+      {prenotazioneNumero.avviso ? (
+        <FatturaNumeroAvvisoDialog
+          messaggio={prenotazioneNumero.avviso}
+          onClose={() => prenotazioneNumero.setAvviso(null)}
         />
       ) : null}
     </div>

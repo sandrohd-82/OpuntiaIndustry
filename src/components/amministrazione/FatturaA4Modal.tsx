@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useId, useMemo, useState } from "react";
+import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { listPreventivoCommercialiRiferimentoAction } from "@/app/actions/preventivi";
 import {
   convertProformaInFatturaAction,
@@ -38,6 +38,7 @@ import {
 } from "@/lib/amministrazione/fattura-a4-pdf";
 import type { FatturaInvioMailDraft } from "@/lib/amministrazione/fattura-invio-mail";
 import { prezzoScontatoUnitario } from "@/lib/amministrazione/fatture";
+import { isNumeroFatturaEmessa } from "@/lib/amministrazione/numero-fattura";
 import {
   applyTotaleToPiano,
   emptyPagamentoPiano,
@@ -72,6 +73,11 @@ type Props = {
   sessioneId?: string | null;
   sessioneDraft?: FatturaA4SessioneDraft | null;
   pianoIniziale?: OrdinePagamentoPiano | null;
+  /** Numero prenotato in questa finestra. Non è ancora il numero fiscale emesso. */
+  numeroPrenotato?: string | null;
+  numeroIncerto?: boolean;
+  numeroMin?: string | null;
+  numeroMax?: string | null;
   onClose: () => void;
   onSaved?: (info: { fatturaId: string; inviata: boolean }) => void;
   onSimulaInvio?: (draft: FatturaInvioMailDraft) => void;
@@ -115,6 +121,10 @@ export function FatturaA4Modal({
   sessioneId = null,
   sessioneDraft = null,
   pianoIniziale,
+  numeroPrenotato = null,
+  numeroIncerto = false,
+  numeroMin = null,
+  numeroMax = null,
   onClose,
   onSaved,
   onSimulaInvio,
@@ -131,6 +141,19 @@ export function FatturaA4Modal({
   const [destinatario, setDestinatario] =
     useState<FatturaDestinatarioSnapshot | null>(null);
   const [numero, setNumero] = useState("AA/NNNN");
+  const numeroPrenotatoRef = useRef(numeroPrenotato);
+  const numeroSeguitoRef = useRef<string | null>(null);
+  numeroPrenotatoRef.current = numeroPrenotato;
+  useEffect(() => {
+    if (!numeroPrenotato) return;
+    setNumero((prev) => {
+      if (!isNumeroFatturaEmessa(prev) || prev === numeroSeguitoRef.current) {
+        numeroSeguitoRef.current = numeroPrenotato;
+        return numeroPrenotato;
+      }
+      return prev;
+    });
+  }, [numeroPrenotato]);
   const [dataDocumento, setDataDocumento] = useState("");
   const [righe, setRighe] = useState<FatturaA4Riga[]>([]);
   const [noteDocumento, setNoteDocumento] = useState("");
@@ -242,7 +265,18 @@ export function FatturaA4Modal({
         }
         setCliente(draft?.cliente ?? null);
         setDestinatario(src.destinatario);
-        setNumero(src.numeroFattura);
+        setNumero(() => {
+          const pren = numeroPrenotatoRef.current;
+          if (
+            pren &&
+            (!isNumeroFatturaEmessa(src.numeroFattura) ||
+              src.numeroFattura === numeroSeguitoRef.current)
+          ) {
+            numeroSeguitoRef.current = pren;
+            return pren;
+          }
+          return src.numeroFattura;
+        });
         setDataDocumento(src.dataDocumento);
         setRighe(src.righe);
         setNoteDocumento(src.noteDocumento);
@@ -271,7 +305,18 @@ export function FatturaA4Modal({
       }
       setCliente(ctx.cliente);
       setDestinatario(ctx.destinatario);
-      setNumero(ctx.numeroFattura);
+      setNumero(() => {
+        const pren = numeroPrenotatoRef.current;
+        if (
+          pren &&
+          (!isNumeroFatturaEmessa(ctx.numeroFattura) ||
+            ctx.numeroFattura === numeroSeguitoRef.current)
+        ) {
+          numeroSeguitoRef.current = pren;
+          return pren;
+        }
+        return ctx.numeroFattura;
+      });
       setDataDocumento(ctx.dataDocumento);
       setRighe(ctx.righe);
       setNoteDocumento(ctx.noteDocumento);
@@ -821,6 +866,21 @@ export function FatturaA4Modal({
               onEditData={() => openEdit("data")}
               onEditCommerciale={() => openEdit("commerciale")}
             />
+            {vista === "fattura" && numeroPrenotato ? (
+              <p
+                className={`mt-3 rounded-md px-3 py-2 text-sm print:hidden ${
+                  numeroIncerto
+                    ? "bg-amber-50 text-amber-950"
+                    : "bg-slate-50 text-slate-800"
+                }`}
+              >
+                Numero prenotato{" "}
+                <strong className="font-mono">{numeroPrenotato}</strong>
+                {numeroIncerto
+                  ? `. Non è sicuro: può variare fra ${numeroMin || numeroPrenotato} e ${numeroMax || numeroPrenotato}. Chi completa prima si aggiudica il numero più basso.`
+                  : ". Resta riservato a questa fattura finché non viene emessa."}
+              </p>
+            ) : null}
             {vista === "proforma" ? (
               <p className="mt-4 rounded-md bg-red-600 px-4 py-3 text-base font-bold leading-snug text-white">
                 {PROFORMA_DICITURA_FISCALE}
