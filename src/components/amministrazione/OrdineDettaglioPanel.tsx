@@ -8,6 +8,7 @@ import { getOrdineAllegatoSignedUrlAction } from "@/app/actions/ordini";
 import { getPrenotazioneSpedizioneMailAction } from "@/app/actions/spedizione-mail";
 import { labelSede } from "@/lib/impostazioni/sedi";
 import type { SpedizioneMailPrenotazione } from "@/lib/amministrazione/spedizione-mail";
+import { MailOrdineFaseTestModal } from "@/components/amministrazione/MailOrdineFaseTestModal";
 import { OrdineAuditLogModal } from "@/components/amministrazione/OrdineAuditLogModal";
 import {
   formatOperatoreQuando,
@@ -102,6 +103,8 @@ type Props = {
 
 export function OrdineDettaglioPanel({ ordine, onEdit }: Props) {
   const [auditOpen, setAuditOpen] = useState(false);
+  const [stacca, setStacca] = useState(false);
+  const [staccaMsg, setStaccaMsg] = useState<string | null>(null);
   const [sedeLabel, setSedeLabel] = useState("");
   const [corriereNome, setCorriereNome] = useState("");
   const [mail, setMail] = useState<SpedizioneMailPrenotazione | null | undefined>(
@@ -154,6 +157,15 @@ export function OrdineDettaglioPanel({ ordine, onEdit }: Props) {
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
+          {ordine.tipo === "vendita" ? (
+            <button
+              type="button"
+              onClick={() => setStacca(true)}
+              className="rounded-lg border border-[var(--primary)] px-3 py-1.5 text-xs font-medium text-[var(--primary)]"
+            >
+              Stacca fattura
+            </button>
+          ) : null}
           {onEdit ? (
             <button
               type="button"
@@ -203,6 +215,29 @@ export function OrdineDettaglioPanel({ ordine, onEdit }: Props) {
           Mostra tutti
         </button>
       </div>
+
+      {staccaMsg ? (
+        <p className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-900">
+          {staccaMsg}
+        </p>
+      ) : null}
+      {stacca ? (
+        <MailOrdineFaseTestModal
+          ordineId={ordine.id}
+          numeroOrdine={ordine.numeroInterno}
+          documento="fattura"
+          allegaPdf
+          allegaTracking={Boolean(mail && mail.trackingUrl.trim())}
+          trackingUrl={mail?.trackingUrl ?? ""}
+          oggetto={`Fattura ordine ${ordine.numeroInterno}`}
+          corpo={`Gentile ${ordine.cliente},\n\nin allegato la fattura dell'ordine ${ordine.numeroInterno}.\n\nCordiali saluti,\nUfficio Amministrazione`}
+          onClose={() => setStacca(false)}
+          onInviata={(messaggio) => {
+            setStacca(false);
+            setStaccaMsg(messaggio);
+          }}
+        />
+      ) : null}
 
       <dl className="grid gap-3 text-sm sm:grid-cols-2 lg:grid-cols-3">
         <div>

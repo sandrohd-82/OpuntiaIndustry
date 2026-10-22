@@ -35,7 +35,10 @@ import {
   emettiNumeroPrenotato,
   idPrenotazioneAggiudicataFattura,
 } from "@/app/actions/fattura-prenotazione-numero";
-import { isFatturaProva } from "@/lib/amministrazione/prova-ordine";
+import {
+  FASE_TEST_INVIO,
+  isFatturaProva,
+} from "@/lib/amministrazione/prova-ordine";
 import { AGRINSICILIA_COORDINATE } from "@/lib/amministrazione/preventivo-letterhead";
 import {
   ORDINI_PERSISTENZA_BLOCCATA_MSG,
@@ -1066,6 +1069,13 @@ export async function inviaFatturaSalvataAction(input: {
       success: false,
       error:
         "Fattura di prova: non viene inviata allo SDI, non riceve un numero fiscale e non parte al cliente.",
+    };
+  }
+  if (FASE_TEST_INVIO && input.sendToSdi !== false) {
+    return {
+      success: false,
+      error:
+        "Fase test: lo SDI è spento. La fattura si invia solo per mail a sandrohd@gmail.com e il numero non viene consumato.",
     };
   }
   const bloccoSpedizione = await motivoBloccoInvioClienteOrdine(fattura.ordine_id);

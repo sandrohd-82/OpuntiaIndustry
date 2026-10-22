@@ -56,13 +56,22 @@ import { CampionaturaAltroPostoModal } from "@/components/amministrazione/Campio
 import { ConsegnaCalendarioModal } from "@/components/amministrazione/ConsegnaCalendarioModal";
 import { ProdottoProprioFormModal } from "@/components/amministrazione/ProdottoProprioFormModal";
 import { ReferentiPickerField } from "@/components/amministrazione/ReferentiPickerField";
-import { creaFatturaOrdineSenzaInvioAction } from "@/app/actions/fattura-da-ordine";
+import {
+  creaFatturaOrdineSenzaInvioAction,
+  getFatturaA4ContextAction,
+  saveProformaDaOrdineAction,
+} from "@/app/actions/fattura-da-ordine";
+import {
+  EMAIL_CONTROLLO_DEFAULT,
+  FASE_TEST_INVIO,
+} from "@/lib/amministrazione/prova-ordine";
 import { aggiudicaNumeroFatturaAction } from "@/app/actions/fattura-prenotazione-numero";
 import {
   FatturaNumeroAvvisoDialog,
   usePrenotazioneNumero,
 } from "@/components/amministrazione/FatturaNumeroPrenotato";
 import { inviaCopiaControlloOrdineAction } from "@/app/actions/prova-ordine";
+import { MailOrdineFaseTestModal } from "@/components/amministrazione/MailOrdineFaseTestModal";
 import { FatturaA4Modal } from "@/components/amministrazione/FatturaA4Modal";
 import { OrdinePagamentoPianoFields } from "@/components/amministrazione/OrdinePagamentoPianoFields";
 import { SpedizioneMailComposeModal } from "@/components/amministrazione/SpedizioneMailComposeModal";
@@ -87,6 +96,7 @@ import {
   clearFatturaAnteprimaSessione,
   clearOrdineSessione,
   loadFatturaAnteprimaSessione,
+  type FatturaAnteprimaSessione,
   loadOrdineSessione,
   ORDINI_PERSISTENZA_DEFINITIVA,
   saveOrdineSessione,
@@ -347,7 +357,32 @@ export function OrdineNuovoWizardModal({
     mailOggetto: "",
     mailCorpo: "",
     mailGiaInviata: false,
+    documentoMail: "informativa" as "informativa" | "proforma" | "fattura",
+    inviaMailDocumento: false,
+    allegaTrackingMail: false,
   });
+  const [mailTest, setMailTest] = useState<{
+    ordineId: string;
+    numeroOrdine: string;
+    documento: "informativa" | "proforma" | "fattura";
+    allegaPdf: boolean;
+    allegaTracking: boolean;
+    trackingUrl: string;
+    oggetto: string;
+    corpo: string;
+    bozza?: FatturaAnteprimaSessione;
+  } | null>(null);
+  const [mailPronto, setMailPronto] = useState<{
+    ordineId: string;
+    numeroOrdine: string;
+    documento: "informativa" | "proforma" | "fattura";
+    allegaPdf: boolean;
+    allegaTracking: boolean;
+    trackingUrl: string;
+    oggetto: string;
+    corpo: string;
+    bozza?: FatturaAnteprimaSessione;
+  } | null>(null);
   const [composeAfter, setComposeAfter] = useState<{
     prenotazione: SpedizioneMailPrenotazione;
     subject: string;
@@ -1610,6 +1645,28 @@ export function OrdineNuovoWizardModal({
       }
       const ordineSalvato = result.ordine;
       setSavedOrdine(ordineSalvato);
+      function apriMailOrdine() {
+        const d = spedDraft.current;
+        const documento = d.documentoMail ?? "informativa";
+        const anteprima = loadFatturaAnteprimaSessione();
+        const bozza =
+          anteprima?.sessioneId === anteprimaSessioneId ? anteprima : undefined;
+        const payload = {
+          ordineId: ordineSalvato.id,
+          numeroOrdine: ordineSalvato.numeroInterno,
+          documento,
+          allegaPdf:
+            documento !== "informativa" && Boolean(d.inviaMailDocumento),
+          allegaTracking:
+            Boolean(d.allegaTrackingMail) && Boolean(d.trackingUrl.trim()),
+          trackingUrl: d.trackingUrl,
+          oggetto: d.mailOggetto,
+          corpo: d.mailCorpo,
+          bozza,
+        };
+        setMailPronto(payload);
+        setMailTest(payload);
+      }
       if (spedDraft.current.sedePartenzaId) {
         await updateSedePartenzaAction({
           entityType: "ordine",
@@ -1648,7 +1705,10 @@ export function OrdineNuovoWizardModal({
           allegaTracking: d.allegaTracking,
           allegaLettera: false,
           allegaFile: false,
-          destinatarioEmail: d.destinatarioEmail,
+          destinatarioEmail:
+            !modificaOrdineId && FASE_TEST_INVIO
+              ? EMAIL_CONTROLLO_DEFAULT
+              : d.destinatarioEmail,
           oggetto,
           corpo,
           accountId: d.mailAccountId || null,
@@ -1658,12 +1718,14 @@ export function OrdineNuovoWizardModal({
         });
         return up.success ? null : up.error;
       }
+      const docMail = spedDraft.current.documentoMail ?? "fattura";
       const serveFattura =
         ORDINI_PERSISTENZA_DEFINITIVA &&
         tipoOrdine !== "campionatura" &&
         Boolean(clienteId) &&
         anagraficaFonte === "cliente" &&
-        !attesaCalcoloSpedizione;
+        !attesaCalcoloSpedizione &&
+        docMail !== "informativa";
       if (serveFattura) {
         const fat = await creaFatturaOrdineSenzaInvioAction(result.ordine.id);
         if (!fat.success) {
@@ -1674,8 +1736,13 @@ export function OrdineNuovoWizardModal({
           );
           return;
         }
-        let numeroAggiudicato = prenotazioneNumero.pren?.numeroFattura ?? "";
-        if (prenotazioneNumero.pren?.id) {
+        let numeroAggiudicato = "";
+        if (
+          !FASE_TEST_INVIO &&
+          docMail === "fattura" &&
+          prenotazioneNumero.pren?.id
+        ) {
+          numeroAggiudicato = prenotazioneNumero.pren.numeroFattura;
           prenotazioneNumero.bloccaRilascio();
           const agg = await aggiudicaNumeroFatturaAction({
             prenotazioneId: prenotazioneNumero.pren.id,
@@ -1693,14 +1760,44 @@ export function OrdineNuovoWizardModal({
           }
         }
         const mailErr = await memorizzaMail();
+        if (docMail === "proforma") {
+          const ctx = await getFatturaA4ContextAction({
+            ordineId: result.ordine.id,
+          });
+          if (!ctx.success) {
+            setFormError(
+              `La fattura senza numero è sull'ordine, ma la proforma no: ${ctx.error}`
+            );
+          } else {
+            const pr = await saveProformaDaOrdineAction({
+              ordineId: result.ordine.id,
+              dataDocumento: ctx.dataDocumento,
+              noteDocumento: ctx.noteDocumento,
+              righe: ctx.righe,
+              destinatario: ctx.destinatario,
+            });
+            if (!pr.success) {
+              setFormError(
+                `La fattura senza numero è sull'ordine, ma la proforma no: ${pr.error}`
+              );
+            }
+          }
+        }
         setFatturaPrenotataId(fat.fatturaId);
         setConfermaInvioFattura(0);
         setOrdineFinalizzato(true);
-        setSessioneMsg(
-          numeroAggiudicato
-            ? `Ordine ${result.ordine.numeroInterno} finalizzato. Numero ${numeroAggiudicato} aggiudicato e riservato. La fattura resta prenotata: niente mail e niente SDI.`
-            : `Ordine ${result.ordine.numeroInterno} finalizzato. La fattura è prenotata. Nessuna mail e nessuno SDI sono partiti.`
-        );
+        if (!modificaOrdineId) apriMailOrdine();
+        let messaggioFinale = `Ordine ${result.ordine.numeroInterno} finalizzato. La fattura è prenotata. Nessuna mail e nessuno SDI sono partiti.`;
+        if (FASE_TEST_INVIO && !modificaOrdineId) {
+          const documentoSalvato =
+            docMail === "proforma"
+              ? "Proforma e fattura sono salvate senza numero."
+              : "La fattura è salvata senza numero.";
+          messaggioFinale = `Ordine ${result.ordine.numeroInterno} registrato. ${documentoSalvato} La mail si compila adesso e parte solo verso sandrohd@gmail.com. Lo SDI non parte e il progressivo non viene consumato.`;
+        } else if (numeroAggiudicato) {
+          messaggioFinale = `Ordine ${result.ordine.numeroInterno} finalizzato. Numero ${numeroAggiudicato} aggiudicato e riservato. La fattura resta prenotata: niente mail e niente SDI.`;
+        }
+        setSessioneMsg(messaggioFinale);
         if (mailErr) {
           setFormError(
             `La bozza mail non è stata memorizzata: ${mailErr}. Nessun invio è partito.`
@@ -1717,6 +1814,19 @@ export function OrdineNuovoWizardModal({
         return;
       }
       const mailErr = await memorizzaMail();
+      if (!modificaOrdineId) {
+        apriMailOrdine();
+        setOrdineFinalizzato(true);
+        setSessioneMsg(
+          `Ordine ${result.ordine.numeroInterno} registrato. La mail si compila adesso: solo sandrohd@gmail.com, senza SDI.`
+        );
+        if (mailErr) {
+          setFormError(
+            `La bozza mail non è stata memorizzata: ${mailErr}. Puoi comunque inviarla dalla finestra appena aperta.`
+          );
+        }
+        return;
+      }
       if (mailErr) {
         setSavedOrdine(result.ordine);
         setFormError(
@@ -3531,9 +3641,10 @@ export function OrdineNuovoWizardModal({
                 <p className="text-xs text-[var(--muted)]">
                   Anteprima A4. Le modifiche restano in questa sessione finché
                   la finestra dell&apos;ordine è aperta, poi si cancellano. Il
-                  numero in testata è prenotato: chi completa prima si
-                  aggiudica il più basso. Alla finalizzazione resta riservato
-                  alla fattura prenotata, senza email e senza SDI.
+                  numero in testata è un'anteprima: in questa fase di prova non
+                  viene scritto in fattura e non viene consumato. Se scegli la
+                  proforma, fattura e proforma restano sull'ordine senza numero.
+                  La mail parte solo verso sandrohd@gmail.com. Lo SDI non parte.
                 </p>
                 {prenotazioneNumero.pren ? (
                   <p
@@ -3616,7 +3727,13 @@ export function OrdineNuovoWizardModal({
                 emailPec={clienteSped?.pec ?? ""}
                 emailGeneriche={clienteSped?.emailGeneriche ?? []}
                 onDraftChange={(d) => {
-                  spedDraft.current = d;
+                  spedDraft.current = {
+                    ...spedDraft.current,
+                    ...d,
+                    documentoMail: d.documentoMail ?? "informativa",
+                    inviaMailDocumento: Boolean(d.inviaMailDocumento),
+                    allegaTrackingMail: Boolean(d.allegaTrackingMail),
+                  };
                 }}
                 onNeedEntity={(modo) => void submit(modo)}
                 sceltaOrdineFissa={Boolean(modificaOrdineId)}
@@ -3652,7 +3769,16 @@ export function OrdineNuovoWizardModal({
               : "Annulla"}
           </button>
           <div className="flex flex-wrap justify-end gap-2">
-            {ordineFinalizzato && fatturaPrenotataId && savedOrdine ? (
+            {ordineFinalizzato && !modificaOrdineId && mailPronto && !mailTest ? (
+              <button
+                type="button"
+                onClick={() => setMailTest(mailPronto)}
+                className="rounded-lg border border-[var(--primary)] px-4 py-2 text-sm font-medium text-[var(--primary)]"
+              >
+                Apri la mail
+              </button>
+            ) : null}
+            {ordineFinalizzato && fatturaPrenotataId && savedOrdine && modificaOrdineId ? (
               <>
                 <p className="self-center text-sm text-slate-700">
                   Copia solo a sandrohd@gmail.com
@@ -3733,6 +3859,16 @@ export function OrdineNuovoWizardModal({
                 disabled={saving || !modificaPronta || calcoloLoading}
                 onClick={() => {
                   const d = spedDraft.current;
+                  if (!modificaOrdineId) {
+                    if (!d.mailAccountId) {
+                      setFormError(
+                        "Seleziona la casella mittente. La mail di prova parte solo verso sandrohd@gmail.com."
+                      );
+                      return;
+                    }
+                    void submit("salva");
+                    return;
+                  }
                   if (d.allegaTracking && !d.destinatarioEmail.includes("@")) {
                     setFormError(
                       "Indica il destinatario della mail di tracking."
@@ -3950,6 +4086,24 @@ export function OrdineNuovoWizardModal({
             const o = composeAfter.ordine;
             setComposeAfter(null);
             onSaved(o);
+          }}
+        />
+      ) : null}
+      {mailTest ? (
+        <MailOrdineFaseTestModal
+          ordineId={mailTest.ordineId}
+          numeroOrdine={mailTest.numeroOrdine}
+          documento={mailTest.documento}
+          allegaPdf={mailTest.allegaPdf}
+          allegaTracking={mailTest.allegaTracking}
+          trackingUrl={mailTest.trackingUrl}
+          oggetto={mailTest.oggetto}
+          corpo={mailTest.corpo}
+          bozza={mailTest.bozza}
+          onClose={() => setMailTest(null)}
+          onInviata={(messaggio) => {
+            setMailTest(null);
+            setSessioneMsg(messaggio);
           }}
         />
       ) : null}

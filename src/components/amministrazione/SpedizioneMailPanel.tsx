@@ -30,6 +30,27 @@ import {
   AGRINSICILIA_MAIL_FIRMA,
 } from "@/lib/amministrazione/preventivo-letterhead";
 
+function testoIntroSpedizione(input: {
+  persistDisabled: boolean;
+  sceltaOrdineFissa: boolean;
+  impostazioneDocumento: boolean;
+  nascondiAttesaTracking: boolean;
+}): string {
+  if (input.persistDisabled) {
+    return "Bozza spedizione solo in sessione: niente upload, prenotazione mail o invio.";
+  }
+  if (input.sceltaOrdineFissa) {
+    return "Inserisci il tracking quando c’è. Se in fase di ordine è stata chiesta la mail, parte solo dopo la tua conferma. Nessuna mail parte da sola.";
+  }
+  if (input.impostazioneDocumento) {
+    return "La mail non dipende dal tracking. Scegli informativa, proforma o fattura. In questa fase di prova parte solo verso sandrohd@gmail.com e lo SDI resta spento.";
+  }
+  if (input.nascondiAttesaTracking) {
+    return "Il tracking e la mail al cliente sono facoltativi. Salva bozza tiene il documento in elenco anche se i campi sono vuoti.";
+  }
+  return "Puoi inserire il tracking se ce l’hai, oppure salvare e lasciare il sistema in attesa. La mail al cliente è facoltativa.";
+}
+
 export type SpedizioneMailBozza = {
   trackingUrl: string;
   letteraViaPath: string;
@@ -46,6 +67,10 @@ export type SpedizioneMailBozza = {
   mailCorpo: string;
   prenotazioneId: string;
   mailGiaInviata: boolean;
+  /** Scelta della mail in creazione ordine. Non è legata al tracking. */
+  documentoMail?: "informativa" | "proforma" | "fattura";
+  inviaMailDocumento?: boolean;
+  allegaTrackingMail?: boolean;
 };
 
 type Props = {
@@ -100,6 +125,11 @@ export function SpedizioneMailPanel({
   const [letteraName, setLetteraName] = useState("");
   const [allegati, setAllegati] = useState<SpedizioneMailAllegato[]>([]);
   const [vuoleMail, setVuoleMail] = useState(false);
+  const [documentoMail, setDocumentoMail] = useState<
+    "informativa" | "proforma" | "fattura"
+  >("informativa");
+  const [inviaMailDocumento, setInviaMailDocumento] = useState(false);
+  const [allegaTrackingMail, setAllegaTrackingMail] = useState(false);
   const [destEmail, setDestEmail] = useState(destEmailDefault);
   const [accounts, setAccounts] = useState<
     Array<{ id: string; label: string; email: string }>
@@ -195,9 +225,12 @@ export function SpedizioneMailPanel({
       letteraViaPath: letteraPath,
       letteraViaName: letteraName,
       allegati,
-      allegaTracking: vuoleMail,
+      allegaTracking: impostazioneDocumento ? allegaTrackingMail : vuoleMail,
       allegaLettera: false,
       allegaFile: false,
+      documentoMail,
+      inviaMailDocumento,
+      allegaTrackingMail,
       destinatarioEmail: destEmail,
       sedePartenzaId,
       bozzaPronta,
@@ -213,6 +246,10 @@ export function SpedizioneMailPanel({
     letteraName,
     allegati,
     vuoleMail,
+    documentoMail,
+    inviaMailDocumento,
+    allegaTrackingMail,
+    impostazioneDocumento,
     destEmail,
     sedePartenzaId,
     bozzaPronta,
@@ -452,15 +489,12 @@ export function SpedizioneMailPanel({
     <div className="space-y-3 rounded-lg border border-[var(--border)] px-3 py-3">
       <p className="text-sm font-medium">Spedizione</p>
       <p className="text-xs text-[var(--muted)]">
-        {persistDisabled
-          ? "Bozza spedizione solo in sessione: niente upload, prenotazione mail o invio."
-          : (sceltaOrdineFissa
-            ? "Inserisci il tracking quando c’è. Se in fase di ordine è stata chiesta la mail, parte solo dopo la tua conferma. Nessuna mail parte da sola."
-            : (impostazioneDocumento
-              ? "La scelta si salva con l’ordine, come le altre impostazioni. Se chiedi la mail, la scrivi adesso e resta in attesa del tracking."
-              : (nascondiAttesaTracking
-                ? "Il tracking e la mail al cliente sono facoltativi. Salva bozza tiene il documento in elenco anche se i campi sono vuoti."
-                : "Puoi inserire il tracking se ce l’hai, oppure salvare e lasciare il sistema in attesa. La mail al cliente è facoltativa.")))}
+        {testoIntroSpedizione({
+          persistDisabled,
+          sceltaOrdineFissa,
+          impostazioneDocumento,
+          nascondiAttesaTracking,
+        })}
       </p>
 
       <label className="block text-sm">
@@ -469,7 +503,11 @@ export function SpedizioneMailPanel({
           type="url"
           value={trackingUrl}
           onChange={(e) => setTrackingUrl(e.target.value)}
-          placeholder="https:// — se non c’è, si resta in attesa"
+          placeholder={
+            impostazioneDocumento
+              ? "https:// — facoltativo, si allega solo se spuntato"
+              : "https:// — se non c’è, si resta in attesa"
+          }
           className="w-full rounded-lg border border-[var(--border)] px-3 py-2 text-sm"
         />
       </label>
@@ -586,6 +624,78 @@ export function SpedizioneMailPanel({
         </div>
       ) : (
       <>
+      {impostazioneDocumento ? (
+        <fieldset className="space-y-2 text-sm">
+          <legend className="font-medium">Mail dell&apos;ordine</legend>
+          <p className="text-xs text-[var(--muted)]">
+            Scelta libera. Il tracking, se c&apos;è, si allega solo se lo
+            spunti. Non si crea una bozza in attesa del tracking.
+          </p>
+          <label className="flex items-center gap-2">
+            <input
+              type="radio"
+              name={mailRadioName}
+              checked={documentoMail === "informativa"}
+              onChange={() => {
+                setDocumentoMail("informativa");
+                setInviaMailDocumento(false);
+              }}
+            />
+            Solo informativa: l&apos;ordine è in fase di elaborazione
+          </label>
+          <label className="flex items-center gap-2">
+            <input
+              type="radio"
+              name={mailRadioName}
+              checked={documentoMail === "proforma"}
+              onChange={() => {
+                setDocumentoMail("proforma");
+                setInviaMailDocumento(true);
+              }}
+            />
+            Proforma. La fattura resta sull&apos;ordine, senza numero
+          </label>
+          <label className="flex items-center gap-2">
+            <input
+              type="radio"
+              name={mailRadioName}
+              checked={documentoMail === "fattura"}
+              onChange={() => {
+                setDocumentoMail("fattura");
+                setInviaMailDocumento(true);
+              }}
+            />
+            Fattura
+          </label>
+          {documentoMail !== "informativa" ? (
+            <label className="flex items-center gap-2">
+              <input
+                type="checkbox"
+                checked={inviaMailDocumento}
+                onChange={(e) => setInviaMailDocumento(e.target.checked)}
+              />
+              {documentoMail === "proforma"
+                ? "Invia mail con proforma"
+                : "Invia mail con fattura"}
+            </label>
+          ) : null}
+          <label className="flex items-center gap-2">
+            <input
+              type="checkbox"
+              checked={allegaTrackingMail}
+              onChange={(e) => setAllegaTrackingMail(e.target.checked)}
+            />
+            Allega anche tracking
+          </label>
+          {allegaTrackingMail && !trackingUrl.trim() ? (
+            <p className="text-xs text-amber-800">
+              Senza il link il tracking non entra nella mail. L&apos;invio non
+              resta in attesa.
+            </p>
+          ) : null}
+        </fieldset>
+      ) : null}
+      {!impostazioneDocumento ? (
       <fieldset className="space-y-2 text-sm">
         <legend className="font-medium">
           Vuoi che il tracking venga inviato al cliente?
@@ -614,8 +724,9 @@ export function SpedizioneMailPanel({
           Sì, crea la bozza in attesa del tracking
         </label>
       </fieldset>
+      ) : null}
 
-      {vuoleMail ? (
+      {vuoleMail || impostazioneDocumento ? (
         <div className="space-y-3 rounded-lg border border-[var(--border)] bg-white px-3 py-3">
           <label className="block text-sm">
             <span className="mb-1 block font-medium">Casella mittente</span>
@@ -637,6 +748,12 @@ export function SpedizioneMailPanel({
               </span>
             ) : null}
           </label>
+          {impostazioneDocumento ? (
+            <p className="rounded-lg border border-sky-200 bg-sky-50 px-3 py-2 text-xs text-sky-950">
+              Destinatario di prova: sandrohd@gmail.com. Il cliente non riceve
+              nulla e lo SDI non parte.
+            </p>
+          ) : (
           <SpedizioneDestinatarioMailField
             value={destEmail}
             onChange={setDestEmail}
@@ -645,6 +762,7 @@ export function SpedizioneMailPanel({
             emailPec={emailPec}
             emailGeneriche={emailGeneriche}
           />
+          )}
           {anagrafica?.id ? (
             <TraduciIntercomunicazione
               tipo={anagrafica.tipo}

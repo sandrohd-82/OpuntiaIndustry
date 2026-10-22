@@ -449,6 +449,12 @@ const ordineControlloSchema = z.object({
   ordineId: z.string().uuid("Ordine non valido."),
   email: z.string().trim().max(200).optional(),
   bozza: bozzaControlloSchema.optional(),
+  documento: z.enum(["informativa", "proforma", "fattura"]).optional(),
+  allegaPdf: z.boolean().optional(),
+  allegaTracking: z.boolean().optional(),
+  trackingUrl: z.string().trim().max(500).optional(),
+  oggetto: z.string().trim().max(500).optional(),
+  corpo: z.string().trim().max(20000).optional(),
 });
 
 /** Copia della fattura dell'ordine appena creato. Non assegna il numero e non chiama lo SDI. */
@@ -456,6 +462,12 @@ export async function inviaCopiaControlloOrdineAction(raw: {
   ordineId?: string;
   email?: string;
   bozza?: z.input<typeof bozzaControlloSchema>;
+  documento?: "informativa" | "proforma" | "fattura";
+  allegaPdf?: boolean;
+  allegaTracking?: boolean;
+  trackingUrl?: string;
+  oggetto?: string;
+  corpo?: string;
 }): Promise<
   | {
       success: true;
@@ -656,19 +668,28 @@ export async function inviaCopiaControlloOrdineAction(raw: {
     };
   }
 
+  const documento = parsed.data.documento ?? "fattura";
+  const allegaPdf = parsed.data.allegaPdf !== false && documento !== "informativa";
   const data = dataDocumento || oggiRoma();
   let numeroFattura = "";
-  try {
-    const anteprima = await anteprimaNumeroFattura(supabase, oggiRoma());
-    numeroFattura = anteprima.numeroFattura;
-  } catch (e) {
-    return {
-      success: false,
-      error: e instanceof Error ? e.message : "Numerazione fattura non disponibile.",
-    };
+  if (allegaPdf) {
+    try {
+      const anteprima =
+        documento === "proforma"
+          ? await anteprimaNumeroProforma(supabase, oggiRoma())
+          : await anteprimaNumeroFattura(supabase, oggiRoma());
+      numeroFattura = anteprima.numeroFattura;
+    } catch (e) {
+      return {
+        success: false,
+        error: e instanceof Error ? e.message : "Numerazione non disponibile.",
+      };
+    }
+    const numeroBozza = bozza?.numeroFattura?.trim() ?? "";
+    if (documento === "fattura" && /^\d+\/20\d{2}$/.test(numeroBozza)) {
+      numeroFattura = numeroBozza;
+    }
   }
-  const numeroBozza = bozza?.numeroFattura?.trim() ?? "";
-  if (/^\d+\/20\d{2}$/.test(numeroBozza)) numeroFattura = numeroBozza;
 
   const destinatario = destinatarioDocumento ?? {
     ragioneSociale: cliente.ragione_sociale,
@@ -686,45 +707,83 @@ export async function inviaCopiaControlloOrdineAction(raw: {
   };
   const dataIt = data.split("-").reverse().join("/");
   const prodotti = righeDocumento.map((riga) => riga.descrizione).join(", ");
-  const subject = `Fattura ${numeroFattura} del ${dataIt}`;
-  const bodyText = [
-    "Copia di controllo. Non inviata al cliente e non trasmessa allo SDI. Il numero non è stato assegnato.",
-    "",
-    `Gentile ${destinatario.ragioneSociale},`,
-    "",
-    `in allegato trova la fattura ${numeroFattura} del ${dataIt}.`,
-    `Ordine di riferimento: ${ordine.numero_interno}.`,
-    `Voci: ${prodotti}.`,
-    "",
-    "Restiamo a disposizione per ogni chiarimento.",
-    "",
-    "Cordiali saluti,",
-    "Ufficio Amministrazione",
-    "Agrinsicilia Soc. Coop.",
-  ].join("\n");
-  const pdf = await pdfBozzaA4({
-    numeroFattura,
-    dataDocumento: data,
-    destinatario,
-    righe: righeDocumento,
-    noteDocumento:
-      noteDocumento.trim() || `Ordine di riferimento ${ordine.numero_interno}.`,
-    piano: bozza?.piano ?? null,
-  });
-  const pdfBytes = Buffer.from(await pdf.blob.arrayBuffer());
+  const titoloDoc = documento === "proforma" ? "Proforma" : "Fattura";
+  const subject =
+    parsed.data.oggetto?.trim() ||
+    (documento === "informativa"
+      ? `Ordine ${ordine.numero_interno} in elaborazione`
+      : `${titoloDoc} ${numeroFattura} del ${dataIt}`);
+  const tracking =
+    parsed.data.allegaTracking && parsed.data.trackingUrl?.trim()
+      ? parsed.data.trackingUrl.trim()
+      : "";
+  const bodyDefault =
+    documento === "informativa"
+      ? [
+          "Copia di controllo. Non inviata al cliente e non trasmessa allo SDI.",
+          "",
+          `Gentile ${destinatario.ragioneSociale},`,
+          "",
+          `il suo ordine ${ordine.numero_interno} è in fase di elaborazione.`,
+          prodotti ? `Voci: ${prodotti}.` : "",
+          tracking ? `Tracking: ${tracking}` : "",
+          "",
+          "Cordiali saluti,",
+          "Ufficio Amministrazione",
+          "Agrinsicilia Soc. Coop.",
+        ]
+          .filter((riga) => riga !== "")
+          .join("\n")
+      : [
+          "Copia di controllo. Non inviata al cliente e non trasmessa allo SDI. Il numero non è stato assegnato.",
+          "",
+          `Gentile ${destinatario.ragioneSociale},`,
+          "",
+          `in allegato trova ${documento === "proforma" ? "la proforma" : "la fattura"} ${numeroFattura} del ${dataIt}.`,
+          `Ordine di riferimento: ${ordine.numero_interno}.`,
+          `Voci: ${prodotti}.`,
+          tracking ? `Tracking: ${tracking}` : "",
+          "",
+          "Restiamo a disposizione per ogni chiarimento.",
+          "",
+          "Cordiali saluti,",
+          "Ufficio Amministrazione",
+          "Agrinsicilia Soc. Coop.",
+        ]
+          .filter((riga) => riga !== "")
+          .join("\n");
+  const bodyText = parsed.data.corpo?.trim()
+    ? `${parsed.data.corpo.trim()}${tracking && !parsed.data.corpo.includes(tracking) ? `\n\nTracking: ${tracking}` : ""}`
+    : bodyDefault;
+  const pdf = allegaPdf
+    ? await pdfBozzaA4({
+        numeroFattura,
+        dataDocumento: data,
+        destinatario,
+        righe: righeDocumento,
+        noteDocumento:
+          noteDocumento.trim() || `Ordine di riferimento ${ordine.numero_interno}.`,
+        piano: bozza?.piano ?? null,
+        proforma: documento === "proforma",
+      })
+    : null;
+  const pdfBytes = pdf ? Buffer.from(await pdf.blob.arrayBuffer()) : null;
   try {
     const sent = await sendMailViaAccount({
       account,
       to: email,
       subject,
       text: bodyText,
-      attachments: [
-        {
-          filename: pdf.fileName,
-          content: pdfBytes,
-          contentType: "application/pdf",
-        },
-      ],
+      attachments:
+        pdf && pdfBytes
+          ? [
+              {
+                filename: pdf.fileName,
+                content: pdfBytes,
+                contentType: "application/pdf",
+              },
+            ]
+          : [],
     });
     const sentAt = new Date().toISOString();
     const { data: inserted } = await service
@@ -750,7 +809,7 @@ export async function inviaCopiaControlloOrdineAction(raw: {
       })
       .select("id")
       .single();
-    if (inserted?.id) {
+    if (inserted?.id && pdf && pdfBytes) {
       try {
         await persistMessaggioAttachments({
           supabase: service,

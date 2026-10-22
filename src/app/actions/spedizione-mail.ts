@@ -18,6 +18,10 @@ import {
 } from "@/lib/amministrazione/preventivo-letterhead";
 import { inferCarrierFromUrl } from "@/lib/shipping/tracking";
 import { motivoBloccoInvioClienteOrdine } from "@/app/actions/ordine-calcolo-spedizione";
+import {
+  EMAIL_CONTROLLO_DEFAULT,
+  FASE_TEST_INVIO,
+} from "@/lib/amministrazione/prova-ordine";
 import { createClient, createServiceClient } from "@/lib/supabase/server";
 import { sendMailViaAccount } from "@/lib/webmail/sync";
 import { z } from "zod";
@@ -491,6 +495,15 @@ export async function inviaMailSpedizioneAction(
     };
   }
   const d = parsed.data;
+  if (
+    FASE_TEST_INVIO &&
+    d.to.trim().toLowerCase() !== EMAIL_CONTROLLO_DEFAULT
+  ) {
+    return {
+      success: false,
+      error: `Fase test: la mail parte solo verso ${EMAIL_CONTROLLO_DEFAULT}. Il cliente e lo SDI non vengono contattati.`,
+    };
+  }
   const service = createServiceClient();
   const { data: pren, error: pErr } = await service
     .from("spedizione_mail_prenotazioni")
