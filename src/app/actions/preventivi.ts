@@ -638,7 +638,8 @@ export async function getPreventivoPerModificaAction(
   const destinatario = await destinatarioPerModifica(
     row.cliente_id,
     row.cliente_ragione_sociale,
-    row.cliente_codice_targa
+    row.cliente_codice_targa,
+    row.cliente_possibile_id
   );
   let mailMittente = "";
   if (row.mail_bozza_account_id) {
@@ -814,54 +815,104 @@ export async function eliminaPreventivoBozzaAction(input: {
   return { success: true };
 }
 
-async function destinatarioPerModifica(
-  clienteId: string | null,
-  ragioneSociale: string,
-  codiceTarga: string
-): Promise<PreventivoModificaFoglio["destinatario"]> {
-  const supabase = await createClient();
-  if (!clienteId) return null;
-  const { data } = await supabase
-    .from("clienti")
-    .select(
-      "id, codice_targa, ragione_sociale, partita_iva, codice_fiscale, email, sede_amm_nazione, sede_amm_provincia, sede_amm_citta, sede_amm_cap, sede_amm_indirizzo"
-    )
-    .eq("id", clienteId)
-    .is("deleted_at", null)
-    .maybeSingle();
-  if (!data) {
+const COLONNE_SEDE_ANAGRAFICA =
+  "id, ragione_sociale, partita_iva, codice_fiscale, email, sede_amm_nazione, sede_amm_provincia, sede_amm_citta, sede_amm_cap, sede_amm_indirizzo, sede_mag_nazione, sede_mag_provincia, sede_mag_citta, sede_mag_cap, sede_mag_indirizzo, consegne_altra_azienda";
+
+type RigaSedeAnagrafica = {
+  id: string;
+  ragione_sociale?: string | null;
+  partita_iva?: string | null;
+  codice_fiscale?: string | null;
+  email?: string | null;
+  codice_targa?: string | null;
+  sede_amm_nazione?: string | null;
+  sede_amm_provincia?: string | null;
+  sede_amm_citta?: string | null;
+  sede_amm_cap?: string | null;
+  sede_amm_indirizzo?: string | null;
+  sede_mag_nazione?: string | null;
+  sede_mag_provincia?: string | null;
+  sede_mag_citta?: string | null;
+  sede_mag_cap?: string | null;
+  sede_mag_indirizzo?: string | null;
+  consegne_altra_azienda?: unknown;
+};
+
+function sedeIntestazioneDaAnagrafica(row: RigaSedeAnagrafica): {
+  nazione: string;
+  provincia: string;
+  citta: string;
+  cap: string;
+  indirizzo: string;
+} {
+  const ammVia = String(row.sede_amm_indirizzo ?? "").trim();
+  const ammCap = String(row.sede_amm_cap ?? "").trim();
+  if (ammVia || ammCap) {
     return {
-      kind: "cliente",
-      id: clienteId,
-      ragioneSociale,
-      partitaIva: "",
-      codiceFiscale: "",
-      codiceTarga: codiceTarga || "PC",
-      email: "",
-      sede: {
-        nazione: "",
-        provincia: "",
-        citta: "",
-        cap: "",
-        indirizzo: "",
-      },
+      nazione: String(row.sede_amm_nazione ?? ""),
+      provincia: String(row.sede_amm_provincia ?? ""),
+      citta: String(row.sede_amm_citta ?? ""),
+      cap: ammCap,
+      indirizzo: ammVia,
     };
   }
   return {
-    kind: "cliente",
-    id: String(data.id),
-    ragioneSociale: String(data.ragione_sociale || ragioneSociale),
-    partitaIva: String(data.partita_iva ?? ""),
-    codiceFiscale: String(data.codice_fiscale ?? ""),
-    codiceTarga: String(data.codice_targa || codiceTarga || "PC"),
-    email: String(data.email ?? ""),
-    sede: {
-      nazione: String(data.sede_amm_nazione ?? ""),
-      provincia: String(data.sede_amm_provincia ?? ""),
-      citta: String(data.sede_amm_citta ?? ""),
-      cap: String(data.sede_amm_cap ?? ""),
-      indirizzo: String(data.sede_amm_indirizzo ?? ""),
-    },
+    nazione: String(row.sede_mag_nazione ?? ""),
+    provincia: String(row.sede_mag_provincia ?? ""),
+    citta: String(row.sede_mag_citta ?? ""),
+    cap: String(row.sede_mag_cap ?? ""),
+    indirizzo: String(row.sede_mag_indirizzo ?? ""),
+  };
+}
+
+async function leggiAnagraficaDestinatario(
+  clienteId: string | null,
+  possibileId: string | null
+): Promise<
+  | { kind: "cliente"; row: RigaSedeAnagrafica }
+  | { kind: "possibile"; row: RigaSedeAnagrafica }
+  | null
+> {
+  const service = createServiceClient();
+  if (clienteId) {
+    const { data } = await service
+      .from("clienti")
+      .select(`${COLONNE_SEDE_ANAGRAFICA}, codice_targa`)
+      .eq("id", clienteId)
+      .is("deleted_at", null)
+      .maybeSingle();
+    if (data) return { kind: "cliente", row: data as RigaSedeAnagrafica };
+  }
+  if (possibileId) {
+    const { data } = await service
+      .from("clienti_possibili")
+      .select(COLONNE_SEDE_ANAGRAFICA)
+      .eq("id", possibileId)
+      .is("deleted_at", null)
+      .maybeSingle();
+    if (data) return { kind: "possibile", row: data as RigaSedeAnagrafica };
+  }
+  return null;
+}
+
+async function destinatarioPerModifica(
+  clienteId: string | null,
+  ragioneSociale: string,
+  codiceTarga: string,
+  possibileId: string | null = null
+): Promise<PreventivoModificaFoglio["destinatario"]> {
+  const trovato = await leggiAnagraficaDestinatario(clienteId, possibileId);
+  if (!trovato) return null;
+  const sede = sedeIntestazioneDaAnagrafica(trovato.row);
+  return {
+    kind: trovato.kind,
+    id: String(trovato.row.id),
+    ragioneSociale: String(trovato.row.ragione_sociale || ragioneSociale),
+    partitaIva: String(trovato.row.partita_iva ?? ""),
+    codiceFiscale: String(trovato.row.codice_fiscale ?? ""),
+    codiceTarga: String(trovato.row.codice_targa || codiceTarga || "PC"),
+    email: String(trovato.row.email ?? ""),
+    sede,
   };
 }
 
@@ -1979,7 +2030,7 @@ export async function contestoSpedizionePreventivoAction(
   const service = createServiceClient();
   const { data: prev, error } = await service
     .from("preventivi")
-    .select("cliente_id, cliente_ragione_sociale")
+    .select("cliente_id, cliente_possibile_id, cliente_ragione_sociale")
     .eq("id", preventivoId)
     .is("deleted_at", null)
     .maybeSingle();
@@ -1988,8 +2039,11 @@ export async function contestoSpedizionePreventivoAction(
   }
   const aziendaPreventivo = String(prev.cliente_ragione_sociale ?? "").trim();
   const clienteId = prev.cliente_id ? String(prev.cliente_id) : "";
+  const possibileId = prev.cliente_possibile_id
+    ? String(prev.cliente_possibile_id)
+    : "";
   const vuoto = destinatarioScheda(aziendaPreventivo);
-  if (!clienteId) {
+  if (!clienteId && !possibileId) {
     return {
       success: true,
       azienda: aziendaPreventivo,
@@ -1997,15 +2051,12 @@ export async function contestoSpedizionePreventivoAction(
       destinatario: vuoto,
     };
   }
-  const { data: cliente, error: cErr } = await service
-    .from("clienti")
-    .select(
-      "ragione_sociale, partita_iva, codice_fiscale, sede_amm_indirizzo, sede_amm_cap, sede_amm_citta, sede_amm_provincia, sede_amm_nazione, sede_mag_indirizzo, sede_mag_cap, sede_mag_citta, sede_mag_provincia, sede_mag_nazione, consegne_altra_azienda"
-    )
-    .eq("id", clienteId)
-    .is("deleted_at", null)
-    .maybeSingle();
-  if (cErr || !cliente) {
+  const anagrafica = await leggiAnagraficaDestinatario(
+    clienteId || null,
+    possibileId || null
+  );
+  const cliente = anagrafica?.row ?? null;
+  if (!cliente) {
     return {
       success: true,
       azienda: aziendaPreventivo,
@@ -2013,16 +2064,12 @@ export async function contestoSpedizionePreventivoAction(
       destinatario: vuoto,
     };
   }
+  const sedeIntestazione = sedeIntestazioneDaAnagrafica(cliente);
   const destinatario = destinatarioScheda(
     aziendaPreventivo || String(cliente.ragione_sociale ?? ""),
     String(cliente.partita_iva ?? ""),
     String(cliente.codice_fiscale ?? ""),
-    {
-      indirizzo: cliente.sede_amm_indirizzo,
-      cap: cliente.sede_amm_cap,
-      citta: cliente.sede_amm_citta,
-      provincia: cliente.sede_amm_provincia,
-    }
+    sedeIntestazione
   );
   const altra = Array.isArray(cliente.consegne_altra_azienda)
     ? (cliente.consegne_altra_azienda as Array<Record<string, unknown>>)[0]
