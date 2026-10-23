@@ -41,7 +41,7 @@ type GiacenzaRiga = {
 type Props = {
   ordine: Ordine;
   onClose: () => void;
-  onSaved: (ordine: Ordine) => void;
+  onSaved: (ordine: Ordine, avviso?: string) => void;
 };
 
 export function ProcessaOrdineScalettaModal({
@@ -254,7 +254,7 @@ export function ProcessaOrdineScalettaModal({
         return;
       }
       setAttivitaDrafts(payload.attivitaDrafts);
-      onSaved(result.ordine);
+      onSaved(result.ordine, result.avviso);
     } catch (err) {
       setError(
         err instanceof Error ? err.message : "Salvataggio non riuscito. Riprova."
@@ -298,7 +298,7 @@ export function ProcessaOrdineScalettaModal({
         setError(result.error);
         return;
       }
-      onSaved(result.ordine);
+      onSaved(result.ordine, result.avviso);
     } catch (err) {
       setError(
         err instanceof Error ? err.message : "Salvataggio non riuscito. Riprova."
@@ -330,6 +330,12 @@ export function ProcessaOrdineScalettaModal({
           {ordine.numeroInterno} · {labelTipoOrdine(ordine.tipo)} ·{" "}
           {ordine.cliente}
         </p>
+        {isCamp ? null : (
+          <p className="mt-3 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-950">
+            Passaggio in produzione. L&apos;ordine entra in scaletta, la fattura
+            prende il numero fiscale, parte allo SDI e la mail va al cliente.
+          </p>
+        )}
 
         <fieldset className="mt-4 space-y-2">
           <legend className="text-sm font-medium">Approvvigionamento</legend>

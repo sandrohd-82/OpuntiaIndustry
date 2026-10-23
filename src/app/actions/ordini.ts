@@ -58,7 +58,9 @@ import { prezzoNettoDaSconto } from "@/lib/amministrazione/sconto-fuori-listino"
 import { getPreventivoProdottoContestoAction } from "@/app/actions/preventivi";
 import { elencoProfiliCalcoloSpedizioni } from "@/app/actions/ordine-calcolo-spedizione";
 import { risolviSpedizioneOrdineDiretto } from "@/lib/amministrazione/ordine-calcolo-spedizione";
+import { inviaFatturaSalvataAction } from "@/app/actions/fattura-da-ordine";
 import { notificaOrdineInCoda } from "@/lib/amministrazione/ordine-notifica-coda";
+import { isFatturaProva } from "@/lib/amministrazione/prova-ordine";
 import { dispatchNotifiche } from "@/lib/notifiche/dispatch";
 import {
   CONFEZIONE_SISTEMA,
@@ -105,7 +107,7 @@ import type {
 } from "@/types/database";
 
 export type OrdiniActionResult =
-  | { success: true; ordine: Ordine }
+  | { success: true; ordine: Ordine; avviso?: string }
   | { success: false; error: string };
 
 async function writeAudit(input: AuditLogInsert) {
@@ -2112,11 +2114,16 @@ export async function processOrdineInScalettaAction(
         "L'ordine non è finalizzato. La fattura va creata, senza invio, prima del passaggio in produzione.",
     };
   }
+  let fatturaDaEmettereId = "";
+  let fatturaProvaSaltata = false;
+  let documentoNonFattura = false;
   if (existing.clienteId && existing.tipo !== "campionatura") {
     const supabaseCheck = await createClient();
     const { data: fatturaPronta, error: fatErr } = await supabaseCheck
       .from("fatture_emesse")
-      .select("id, fic_id, courtesy_email_sent")
+      .select(
+        "id, fic_id, courtesy_email_sent, tipo_documento, numero_fattura, numero_interno"
+      )
       .eq("ordine_id", existing.id)
       .is("deleted_at", null)
       .limit(1)
@@ -2129,16 +2136,33 @@ export async function processOrdineInScalettaAction(
           "Manca la fattura. L'ordine non passa in produzione. Nessuna fattura è stata inviata.",
       };
     }
-    const giaInviata = Boolean(
-      (fatturaPronta as { fic_id?: number | null }).fic_id ||
-        (fatturaPronta as { courtesy_email_sent?: boolean }).courtesy_email_sent
-    );
+    const pronta = fatturaPronta as {
+      id: string;
+      fic_id?: number | null;
+      courtesy_email_sent?: boolean;
+      tipo_documento?: string | null;
+      numero_fattura?: string | null;
+      numero_interno?: string | null;
+    };
+    const giaInviata = Boolean(pronta.fic_id || pronta.courtesy_email_sent);
     if (giaInviata) {
       return {
         success: false,
         error:
           "La fattura risulta già inviata. Il passaggio in produzione è bloccato.",
       };
+    }
+    if (pronta.tipo_documento !== "fattura") {
+      documentoNonFattura = true;
+    } else if (
+      isFatturaProva({
+        numero_fattura: pronta.numero_fattura,
+        numero_interno: pronta.numero_interno,
+      })
+    ) {
+      fatturaProvaSaltata = true;
+    } else {
+      fatturaDaEmettereId = pronta.id;
     }
   }
 
@@ -2375,7 +2399,37 @@ export async function processOrdineInScalettaAction(
   if (!ordine) {
     return { success: false, error: "Ordine processato ma non leggibile." };
   }
-  return { success: true, ordine };
+
+  let avviso: string | undefined;
+  if (fatturaProvaSaltata) {
+    avviso =
+      "Ordine in scaletta. La fattura è di prova: non è partita allo SDI e non ha consumato un numero fiscale.";
+  } else if (documentoNonFattura) {
+    avviso =
+      "Ordine in scaletta. Il documento collegato non è una fattura: non è partito allo SDI.";
+  } else if (fatturaDaEmettereId) {
+    const invio = await inviaFatturaSalvataAction({
+      fatturaId: fatturaDaEmettereId,
+      sendToSdi: true,
+      sendCourtesyEmail: true,
+      doppiaConferma: true,
+      produzioneReale: true,
+    });
+    if (!invio.success) {
+      avviso = `Ordine in scaletta. La fattura non è partita: ${invio.error}`;
+    } else {
+      const sdi = invio.sdiSent
+        ? "inviata allo SDI"
+        : "registrata, ma lo SDI non ha confermato l'invio";
+      const mail = invio.courtesyEmailSent
+        ? "La mail è partita al cliente."
+        : "La mail al cliente non risulta partita.";
+      avviso = `Fattura ${invio.numeroFattura} ${sdi}. ${mail}`;
+      if (invio.warning) avviso = `${avviso} ${invio.warning}`;
+    }
+  }
+
+  return { success: true, ordine, avviso };
 }
 
 /**

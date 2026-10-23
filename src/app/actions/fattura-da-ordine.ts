@@ -4,6 +4,7 @@ import { writeAuditLog } from "@/lib/audit";
 import { notificaOrdineInCoda } from "@/lib/amministrazione/ordine-notifica-coda";
 import { scanPromozioniDaFattureAction } from "@/app/actions/lead-promozione";
 import { requireAreaAccess } from "@/lib/areas/guard";
+import { requireOrdineProcessAccess } from "@/lib/auth/ordini-access";
 import {
   buildDescrizioneDocumento,
   splitNumeroForFic,
@@ -37,6 +38,7 @@ import {
   idPrenotazioneAggiudicataFattura,
 } from "@/app/actions/fattura-prenotazione-numero";
 import {
+  EMAIL_CONTROLLO_DEFAULT,
   FASE_TEST_INVIO,
   isFatturaProva,
 } from "@/lib/amministrazione/prova-ordine";
@@ -1066,8 +1068,15 @@ export async function inviaFatturaSalvataAction(input: {
   sendCourtesyEmail?: boolean;
   /** Seconda conferma esplicita. Senza questo flag non si assegna il numero e non parte nulla. */
   doppiaConferma?: boolean;
+  /**
+   * Solo Produzione → Ordini → Da processare.
+   * Qui il numero fiscale, lo SDI e la mail al cliente sono reali.
+   */
+  produzioneReale?: boolean;
 }): Promise<SalvaFatturaDaOrdineResult> {
-  const { auth } = await requireAreaAccess("amministrazione");
+  const { auth } = input.produzioneReale
+    ? await requireOrdineProcessAccess()
+    : await requireAreaAccess("amministrazione");
   const supabase = await createClient();
   const { data: fatturaData, error } = await supabase
     .from("fatture_emesse")
@@ -1086,7 +1095,7 @@ export async function inviaFatturaSalvataAction(input: {
         "Fattura di prova: non viene inviata allo SDI, non riceve un numero fiscale e non parte al cliente.",
     };
   }
-  if (FASE_TEST_INVIO && input.sendToSdi !== false) {
+  if (FASE_TEST_INVIO && !input.produzioneReale && input.sendToSdi !== false) {
     return {
       success: false,
       error:
@@ -1182,7 +1191,19 @@ export async function inviaFatturaSalvataAction(input: {
   };
   if (cliente.sdi_code?.trim()) entity.ei_code = cliente.sdi_code.trim();
   if (cliente.pec?.trim()) entity.certified_email = cliente.pec.trim();
-  const mailTo = (input.invioEmail || fattura.invio_email || cliente.email || "").trim();
+  const candidatiMail = [
+    (input.invioEmail || "").trim(),
+    (fattura.invio_email || "").trim(),
+    (cliente.email || "").trim(),
+  ].filter(Boolean);
+  const mailTo = (
+    input.produzioneReale
+      ? candidatiMail.find(
+          (email) =>
+            email.toLowerCase() !== EMAIL_CONTROLLO_DEFAULT.toLowerCase()
+        ) ?? ""
+      : candidatiMail[0] ?? ""
+  ).trim();
   if (mailTo) entity.email = mailTo;
 
   const payments_list =
@@ -1350,7 +1371,14 @@ export async function inviaFatturaSalvataAction(input: {
         ? `Fattura ${numeroFattura} già inviata allo SDI`
         : `Fattura ${numeroFattura} inviata attraverso lo SDI (FiC ${ficId ?? "—"})`
       : `Emessa fattura ${numeroFattura} (FiC ${ficId})`,
-    payload: { ficId, eiStatus, sdiSent, courtesyEmailSent, mailTo },
+    payload: {
+      ficId,
+      eiStatus,
+      sdiSent,
+      courtesyEmailSent,
+      mailTo,
+      produzione_reale: Boolean(input.produzioneReale),
+    },
   });
   void scanPromozioniDaFattureAction();
 

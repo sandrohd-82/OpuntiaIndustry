@@ -353,6 +353,7 @@ export function OrdiniBoard({
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [processing, setProcessing] = useState<Ordine | null>(null);
+  const [processAvviso, setProcessAvviso] = useState<string | null>(null);
   const [approvingId, setApprovingId] = useState<string | null>(null);
   const [campionaturaTick, setCampionaturaTick] = useState(0);
   const [sort, setSort] = useState<SortState<OrdineSortKey> | null>({
@@ -474,6 +475,12 @@ export function OrdiniBoard({
           {actionError || error}
         </p>
       )}
+
+      {processAvviso ? (
+        <p className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-950">
+          {processAvviso}
+        </p>
+      ) : null}
 
       {ordini.length === 0 ? (
         <div className="rounded-xl border border-dashed border-[var(--border)] bg-[var(--card)] p-10 text-center">
@@ -699,8 +706,11 @@ export function OrdiniBoard({
         <ProcessaOrdineScalettaModal
           ordine={processing}
           onClose={() => setProcessing(null)}
-          onSaved={(ordine) => {
+          onSaved={(ordine, avviso) => {
             setProcessing(null);
+            setProcessAvviso(
+              avviso ?? `${ordine.numeroInterno} inserito in produzione.`
+            );
             notifyOrdiniDaProcessareNav();
             if (processMode && !isOrdineDaProcessare(ordine.stato)) {
               void refresh();
