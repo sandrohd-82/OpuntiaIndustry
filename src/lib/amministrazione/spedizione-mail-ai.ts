@@ -88,6 +88,138 @@ function pulisciCodiceInterno(testo: string, codiceInterno: string): string {
     .trim();
 }
 
+export async function generaTestoMailOrdine(input: {
+  documento: "informativa" | "proforma" | "fattura";
+  cliente: string;
+  numeroOrdine: string;
+  prodotti: string;
+  trackingUrl: string;
+  allegaTracking: boolean;
+}): Promise<{ subject: string; bodyText: string; model: string }> {
+  const cliente = input.cliente.trim() || "Cliente";
+  const numeroOrdine = input.numeroOrdine.trim();
+  const prodotti = input.prodotti.trim() || "i prodotti richiesti";
+  const tracking = input.allegaTracking ? input.trackingUrl.trim() : "";
+  const fallback = templateMailOrdine({
+    documento: input.documento,
+    cliente,
+    numeroOrdine,
+    prodotti,
+    tracking,
+  });
+  const apiKey = process.env.OPENAI_API_KEY?.trim();
+  if (!apiKey || process.env.WEBMAIL_AI_ENABLED === "false") {
+    return { ...fallback, model: "template" };
+  }
+  const model = process.env.OPENAI_MODEL?.trim() || "gpt-4o-mini";
+  let scopo =
+    "Accompagnare la fattura in allegato. Non citare un numero fiscale se non è indicato e non parlare di SDI.";
+  if (input.documento === "informativa") {
+    scopo =
+      "Informare che l'ordine è in fase di elaborazione. Non allegare fattura né proforma e non promettere una data di spedizione.";
+  } else if (input.documento === "proforma") {
+    scopo =
+      "Accompagnare la proforma in allegato. La fattura fiscale non è ancora emessa: non citare un numero di fattura e non parlare di SDI.";
+  }
+  const trackingIstruzione = tracking
+    ? `Il tracking è ${tracking}. Inseriscilo in una riga dedicata.`
+    : "Non parlare di tracking.";
+  try {
+    const res = await fetch("https://api.openai.com/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        model,
+        temperature: 0.3,
+        response_format: { type: "json_object" },
+        messages: [
+          {
+            role: "system",
+            content:
+              "Scrivi una mail formale in italiano per Agrinsicilia Soc. Coop. Non inventare importi, date o numeri. Firma: Ufficio Amministrazione. Rispondi JSON {\"subject\":\"...\",\"bodyText\":\"...\"}.",
+          },
+          {
+            role: "user",
+            content: `Destinatario: ${cliente}
+Ordine: ${numeroOrdine || "(non indicato)"}
+Voci: ${prodotti}
+${trackingIstruzione}
+Scopo: ${scopo}`,
+          },
+        ],
+      }),
+    });
+    if (!res.ok) return { ...fallback, model: "template-fallback" };
+    const json = (await res.json()) as {
+      choices?: Array<{ message?: { content?: string } }>;
+    };
+    const parsed = JSON.parse(
+      String(json.choices?.[0]?.message?.content ?? "{}")
+    ) as { subject?: string; bodyText?: string };
+    const subject = parsed.subject?.trim() ?? "";
+    const bodyText = parsed.bodyText?.trim() ?? "";
+    if (!subject || !bodyText) return { ...fallback, model: "template-fallback" };
+    return { subject, bodyText, model };
+  } catch {
+    return { ...fallback, model: "template-fallback" };
+  }
+}
+
+function templateMailOrdine(input: {
+  documento: "informativa" | "proforma" | "fattura";
+  cliente: string;
+  numeroOrdine: string;
+  prodotti: string;
+  tracking: string;
+}): { subject: string; bodyText: string } {
+  const ordine = input.numeroOrdine ? ` ${input.numeroOrdine}` : "";
+  const trackingRiga = input.tracking ? `Tracking: ${input.tracking}` : "";
+  if (input.documento === "informativa") {
+    return {
+      subject: `Ordine${ordine} in elaborazione`,
+      bodyText: [
+        `Gentile ${input.cliente},`,
+        "",
+        `il suo ordine${ordine} è in fase di elaborazione.`,
+        `Voci: ${input.prodotti}.`,
+        trackingRiga,
+        "",
+        "La terremo aggiornata sui passaggi successivi.",
+        "",
+        "Cordiali saluti,",
+        "Ufficio Amministrazione",
+        "Agrinsicilia Soc. Coop.",
+      ]
+        .filter((riga) => riga !== "")
+        .join("\n"),
+    };
+  }
+  const titolo = input.documento === "proforma" ? "Proforma" : "Fattura";
+  const allegato =
+    input.documento === "proforma" ? "la proforma" : "la fattura";
+  return {
+    subject: `${titolo} ordine${ordine}`,
+    bodyText: [
+      `Gentile ${input.cliente},`,
+      "",
+      `in allegato trova ${allegato} dell'ordine${ordine}.`,
+      `Voci: ${input.prodotti}.`,
+      trackingRiga,
+      "",
+      "Restiamo a disposizione per ogni chiarimento.",
+      "",
+      "Cordiali saluti,",
+      "Ufficio Amministrazione",
+      "Agrinsicilia Soc. Coop.",
+    ]
+      .filter((riga) => riga !== "")
+      .join("\n"),
+  };
+}
+
 function templateMailSpedizione(input: {
   prodotti: string;
   codiceInterno: string;

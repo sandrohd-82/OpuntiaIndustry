@@ -3,7 +3,10 @@
 import { randomUUID } from "crypto";
 import { writeAuditLog } from "@/lib/audit";
 import { requireAnyAreaAccess } from "@/lib/areas/guard";
-import { generaTestoMailSpedizione } from "@/lib/amministrazione/spedizione-mail-ai";
+import {
+  generaTestoMailOrdine,
+  generaTestoMailSpedizione,
+} from "@/lib/amministrazione/spedizione-mail-ai";
 import {
   isCasellaInfoAzienda,
   mapSpedizioneMailRow,
@@ -170,6 +173,48 @@ export async function uploadSpedizioneMailFileAction(
     name: safe || file.name,
     contentType: file.type || "application/octet-stream",
   };
+}
+
+export async function generaCorpoMailOrdineAction(input: {
+  documento: "informativa" | "proforma" | "fattura";
+  cliente: string;
+  numeroOrdine: string;
+  prodotti: string;
+  trackingUrl?: string;
+  allegaTracking?: boolean;
+}): Promise<
+  | { success: true; subject: string; bodyText: string }
+  | { success: false; error: string }
+> {
+  await gateWrite();
+  const documento = input.documento;
+  if (
+    documento !== "informativa" &&
+    documento !== "proforma" &&
+    documento !== "fattura"
+  ) {
+    return { success: false, error: "Tipo di mail non valido." };
+  }
+  try {
+    const testo = await generaTestoMailOrdine({
+      documento,
+      cliente: input.cliente,
+      numeroOrdine: input.numeroOrdine,
+      prodotti: input.prodotti,
+      trackingUrl: input.trackingUrl ?? "",
+      allegaTracking: Boolean(input.allegaTracking),
+    });
+    return {
+      success: true,
+      subject: testo.subject,
+      bodyText: testo.bodyText,
+    };
+  } catch (e) {
+    return {
+      success: false,
+      error: e instanceof Error ? e.message : "Testo mail non generato.",
+    };
+  }
 }
 
 export async function generaCorpoMailSpedizioneAction(input: {

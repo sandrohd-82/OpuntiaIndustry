@@ -2,6 +2,7 @@
 
 import { useEffect, useId, useRef, useState } from "react";
 import {
+  generaCorpoMailOrdineAction,
   generaCorpoMailSpedizioneAction,
   getPrenotazioneSpedizioneMailAction,
   casellaMittenteCommercialeAction,
@@ -139,6 +140,8 @@ export function SpedizioneMailPanel({
   const [mailCorpo, setMailCorpo] = useState("");
   const oggettoToccato = useRef(false);
   const corpoToccato = useRef(false);
+  const documentoGenerato = useRef(documentoMail);
+  const [testoMailInCorso, setTestoMailInCorso] = useState(false);
   const [item, setItem] = useState<SpedizioneMailPrenotazione | null>(null);
   const [compose, setCompose] = useState<{
     prenotazione: SpedizioneMailPrenotazione;
@@ -195,6 +198,53 @@ export function SpedizioneMailPanel({
   useEffect(() => {
     if (destEmailDefault && !destEmail) setDestEmail(destEmailDefault);
   }, [destEmailDefault, destEmail]);
+
+  useEffect(() => {
+    if (!impostazioneDocumento) return;
+    const cambioDocumento = documentoGenerato.current !== documentoMail;
+    documentoGenerato.current = documentoMail;
+    if (cambioDocumento) {
+      oggettoToccato.current = false;
+      corpoToccato.current = false;
+    }
+    if (
+      !cambioDocumento &&
+      oggettoToccato.current &&
+      corpoToccato.current
+    ) {
+      return;
+    }
+    let cancel = false;
+    setTestoMailInCorso(true);
+    const timer = window.setTimeout(() => {
+      void generaCorpoMailOrdineAction({
+        documento: documentoMail,
+        cliente: clienteNome,
+        numeroOrdine: numero,
+        prodotti,
+        trackingUrl,
+        allegaTracking: allegaTrackingMail && Boolean(trackingUrl.trim()),
+      }).then((res) => {
+        if (cancel) return;
+        setTestoMailInCorso(false);
+        if (!res.success) return;
+        if (!oggettoToccato.current) setMailOggetto(res.subject);
+        if (!corpoToccato.current) setMailCorpo(res.bodyText);
+      });
+    }, 300);
+    return () => {
+      cancel = true;
+      window.clearTimeout(timer);
+    };
+  }, [
+    impostazioneDocumento,
+    documentoMail,
+    clienteNome,
+    numero,
+    prodotti,
+    trackingUrl,
+    allegaTrackingMail,
+  ]);
 
   useEffect(() => {
     if (!vuoleMail) return;
@@ -785,6 +835,13 @@ export function SpedizioneMailPanel({
                 }
               }}
             />
+          ) : null}
+          {impostazioneDocumento ? (
+            <p className="text-xs text-[var(--muted)]">
+              {testoMailInCorso
+                ? "Preparazione del testo…"
+                : "Base generata: puoi modificarla prima dell&apos;invio."}
+            </p>
           ) : null}
           <label className="block text-sm">
             <span className="mb-1 block font-medium">Oggetto</span>
