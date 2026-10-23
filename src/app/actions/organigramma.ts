@@ -4,6 +4,7 @@ import { notFound, redirect } from "next/navigation";
 import { writeAuditLog } from "@/lib/audit";
 import { requireAreaAccess } from "@/lib/areas/guard";
 import { isAdminLikeProfile, isSuperadminProfile } from "@/lib/auth/roles";
+import { mailProfessionaleConsentita } from "@/lib/webmail/mail-professionale-operatore";
 import { getAuthContext, userCanAccessArea } from "@/lib/auth/session";
 import {
   attivitaPersonaFilterSchema,
@@ -1590,16 +1591,25 @@ export async function updatePersonaAction(
     .eq("id", v.id)
     .is("deleted_at", null)
     .maybeSingle();
-  const mailProfessionale = v.emailProfessionale.trim();
+  const mailRichiesta = v.emailProfessionale.trim();
   const profiloUserId = String(
     (prev as { user_id?: string | null } | null)?.user_id ?? ""
   );
-  if (mailProfessionale && !profiloUserId) {
+  if (mailRichiesta && !profiloUserId) {
     return {
       success: false,
       error:
         "Per la mail professionale serve un profilo gestionale collegato.",
     };
+  }
+  let mailProfessionale = mailRichiesta;
+  if (profiloUserId) {
+    const ammessa = await mailProfessionaleConsentita(
+      profiloUserId,
+      mailRichiesta
+    );
+    if (!ammessa.ok) return { success: false, error: ammessa.error };
+    mailProfessionale = ammessa.email;
   }
   const prevMatricola = normalizeMatricola(
     (prev as { matricola?: string | null } | null)?.matricola

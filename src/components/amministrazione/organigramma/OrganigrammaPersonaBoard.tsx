@@ -30,6 +30,10 @@ import {
   listPersonaContrattiAction,
 } from "@/app/actions/organigramma";
 import { getCommercialeAnagraficaContextAction } from "@/app/actions/commerciale-anagrafica";
+import {
+  opzioniMailProfessionaleDiOperatoreAction,
+  type OpzioneMailProfessionale,
+} from "@/app/actions/mail-professionale";
 import { AziendeCommercialeCard } from "@/components/amministrazione/organigramma/AziendeCommercialeCard";
 import { ContrattoElenco } from "@/components/amministrazione/organigramma/ContrattoElenco";
 import { DocumentoElenco } from "@/components/amministrazione/organigramma/DocumentoElenco";
@@ -263,6 +267,9 @@ function AnagraficaCard({
   const [emailProfessionale, setEmailProfessionale] = useState(
     item.profilo?.emailProfessionale ?? ""
   );
+  const [opzioniMail, setOpzioniMail] = useState<OpzioneMailProfessionale[]>([]);
+  const [mailInCarico, setMailInCarico] = useState(false);
+  const [mailErrore, setMailErrore] = useState<string | null>(null);
   const [cognome, setCognome] = useState(item.cognome);
   const [matricola, setMatricola] = useState(item.matricola ?? "");
   const [codiceFiscale, setCf] = useState(item.codiceFiscale);
@@ -338,6 +345,37 @@ function AnagraficaCard({
     setBancaIntestatario(item.bancaIntestatario ?? "");
     setMansioneIds(item.mansioni.map((m) => m.id));
   }, [item]);
+
+  useEffect(() => {
+    if (!isAdmin || !item.userId) {
+      setOpzioniMail([]);
+      setMailInCarico(false);
+      return;
+    }
+    let cancel = false;
+    setMailInCarico(true);
+    void opzioniMailProfessionaleDiOperatoreAction(item.userId).then((res) => {
+      if (cancel) return;
+      setMailInCarico(false);
+      if (!res.success) {
+        setOpzioniMail([]);
+        setMailErrore(res.error);
+        return;
+      }
+      setMailErrore(null);
+      setOpzioniMail(res.opzioni);
+      setEmailProfessionale((prev) => {
+        const chiave = prev.trim().toLowerCase();
+        const trovata = res.opzioni.find(
+          (opzione) => opzione.email.toLowerCase() === chiave
+        );
+        return trovata ? trovata.email : prev;
+      });
+    });
+    return () => {
+      cancel = true;
+    };
+  }, [isAdmin, item.userId]);
 
   async function save() {
     setBusy(true);
@@ -482,19 +520,33 @@ function AnagraficaCard({
             </label>
             <label className="text-xs text-[var(--muted)]">
               Mail professionale
-              <input
-                type="email"
+              <select
                 value={emailProfessionale}
-                disabled={!isAdmin || !item.userId}
+                disabled={!isAdmin || !item.userId || mailInCarico}
                 onChange={(e) => setEmailProfessionale(e.target.value)}
                 className={inputCls}
-                placeholder="es. nome@agrinsicilia.com"
-                autoComplete="off"
-              />
+              >
+                <option value="">
+                  {item.userId ? "Nessuna" : "Nessun profilo collegato"}
+                </option>
+                {emailProfessionale &&
+                !opzioniMail.some((opzione) => opzione.email === emailProfessionale) ? (
+                  <option value={emailProfessionale}>{emailProfessionale}</option>
+                ) : null}
+                {opzioniMail.map((opzione) => (
+                  <option key={opzione.email} value={opzione.email}>
+                    {opzione.etichetta} — {opzione.email}
+                  </option>
+                ))}
+              </select>
               <span className="mt-0.5 block text-[10px]">
-                Compare su preventivi, fatture e comunicazioni. È distinta
-                dalla mail di accesso.
+                {mailInCarico
+                  ? "Caricamento caselle di questo operatore…"
+                  : "Menù delle caselle a cui ha accesso questo operatore. Compare su preventivi, fatture e comunicazioni."}
               </span>
+              {mailErrore ? (
+                <span className="mt-0.5 block text-[10px] text-red-700">{mailErrore}</span>
+              ) : null}
             </label>
             <label className="text-xs text-[var(--muted)]">
               Nome

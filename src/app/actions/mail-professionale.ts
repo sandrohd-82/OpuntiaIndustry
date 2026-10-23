@@ -1,9 +1,12 @@
 "use server";
 
 import { writeAuditLog } from "@/lib/audit";
+import { requireAreaAccess } from "@/lib/areas/guard";
+import { isAdminLikeProfile } from "@/lib/auth/roles";
 import { getAuthContext } from "@/lib/auth/session";
 import { createServiceClient } from "@/lib/supabase/server";
 import { resolveWebmailAccountVisibility } from "@/lib/webmail/account-access";
+import { elencoMailOperatore } from "@/lib/webmail/mail-professionale-operatore";
 
 export type OpzioneMailProfessionale = {
   email: string;
@@ -126,4 +129,27 @@ export async function impostaMailProfessionaleAction(
     payload: { email_professionale: ammessa.email },
   });
   return { success: true, email: ammessa.email };
+}
+
+/** Caselle dell'operatore aperto in scheda, non quelle di chi sta modificando. */
+export async function opzioniMailProfessionaleDiOperatoreAction(
+  userId: string
+): Promise<
+  | { success: true; attuale: string; opzioni: OpzioneMailProfessionale[] }
+  | { success: false; error: string }
+> {
+  const { auth } = await requireAreaAccess("amministrazione");
+  if (!isAdminLikeProfile(auth.profile)) {
+    return {
+      success: false,
+      error: "Solo l'amministratore può vedere le caselle dell'operatore.",
+    };
+  }
+  const id = userId.trim();
+  if (!/^[0-9a-f-]{36}$/i.test(id)) {
+    return { success: false, error: "Operatore non valido." };
+  }
+  const letto = await elencoMailOperatore(id);
+  if (!letto.ok) return { success: false, error: letto.error };
+  return { success: true, attuale: letto.attuale, opzioni: letto.opzioni };
 }
