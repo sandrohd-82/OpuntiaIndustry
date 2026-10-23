@@ -177,6 +177,7 @@ export async function uploadSpedizioneMailFileAction(
 
 export async function generaCorpoMailOrdineAction(input: {
   documento: "informativa" | "proforma" | "fattura";
+  allegaPdf?: boolean;
   cliente: string;
   numeroOrdine: string;
   prodotti: string;
@@ -198,6 +199,7 @@ export async function generaCorpoMailOrdineAction(input: {
   try {
     const testo = await generaTestoMailOrdine({
       documento,
+      allegaPdf: documento !== "informativa" && input.allegaPdf !== false,
       cliente: input.cliente,
       numeroOrdine: input.numeroOrdine,
       prodotti: input.prodotti,

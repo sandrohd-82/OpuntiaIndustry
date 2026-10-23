@@ -16,6 +16,7 @@ import {
   updateSedePartenzaAction,
 } from "@/app/actions/impostazioni-sedi";
 import { labelSede, type ImpostazioniSede } from "@/lib/impostazioni/sedi";
+import { bozzaMailOrdine } from "@/lib/amministrazione/ordine-mail-bozza";
 import { SpedizioneMailComposeModal } from "@/components/amministrazione/SpedizioneMailComposeModal";
 import { TraduciIntercomunicazione } from "@/components/amministrazione/TraduciIntercomunicazione";
 import {
@@ -140,7 +141,7 @@ export function SpedizioneMailPanel({
   const [mailCorpo, setMailCorpo] = useState("");
   const oggettoToccato = useRef(false);
   const corpoToccato = useRef(false);
-  const documentoGenerato = useRef(documentoMail);
+  const selezioneMail = useRef("");
   const [testoMailInCorso, setTestoMailInCorso] = useState(false);
   const [item, setItem] = useState<SpedizioneMailPrenotazione | null>(null);
   const [compose, setCompose] = useState<{
@@ -201,17 +202,25 @@ export function SpedizioneMailPanel({
 
   useEffect(() => {
     if (!impostazioneDocumento) return;
-    const cambioDocumento = documentoGenerato.current !== documentoMail;
-    documentoGenerato.current = documentoMail;
-    if (cambioDocumento) {
+    const allegaPdf = documentoMail !== "informativa" && inviaMailDocumento;
+    const chiave = `${documentoMail}|${allegaPdf}|${allegaTrackingMail}`;
+    const cambioSelezione = selezioneMail.current !== chiave;
+    selezioneMail.current = chiave;
+    if (cambioSelezione) {
       oggettoToccato.current = false;
       corpoToccato.current = false;
-    }
-    if (
-      !cambioDocumento &&
-      oggettoToccato.current &&
-      corpoToccato.current
-    ) {
+      const base = bozzaMailOrdine({
+        documento: documentoMail,
+        allegaPdf,
+        allegaTracking: allegaTrackingMail,
+        trackingUrl,
+        cliente: clienteNome,
+        numeroOrdine: numero,
+        prodotti,
+      });
+      setMailOggetto(base.subject);
+      setMailCorpo(base.bodyText);
+    } else if (oggettoToccato.current && corpoToccato.current) {
       return;
     }
     let cancel = false;
@@ -219,11 +228,12 @@ export function SpedizioneMailPanel({
     const timer = window.setTimeout(() => {
       void generaCorpoMailOrdineAction({
         documento: documentoMail,
+        allegaPdf,
         cliente: clienteNome,
         numeroOrdine: numero,
         prodotti,
         trackingUrl,
-        allegaTracking: allegaTrackingMail && Boolean(trackingUrl.trim()),
+        allegaTracking: allegaTrackingMail,
       }).then((res) => {
         if (cancel) return;
         setTestoMailInCorso(false);
@@ -239,11 +249,12 @@ export function SpedizioneMailPanel({
   }, [
     impostazioneDocumento,
     documentoMail,
+    inviaMailDocumento,
+    allegaTrackingMail,
     clienteNome,
     numero,
     prodotti,
     trackingUrl,
-    allegaTrackingMail,
   ]);
 
   useEffect(() => {
@@ -840,7 +851,7 @@ export function SpedizioneMailPanel({
             <p className="text-xs text-[var(--muted)]">
               {testoMailInCorso
                 ? "Preparazione del testo…"
-                : "Base generata: puoi modificarla prima dell&apos;invio."}
+                : "Il testo segue il tipo di mail, l&apos;allegato e il tracking. Puoi modificarlo."}
             </p>
           ) : null}
           <label className="block text-sm">
