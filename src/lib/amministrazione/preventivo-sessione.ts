@@ -12,6 +12,13 @@ export const PREVENTIVO_SESSIONE_KEY = "opuntia.preventivo.sessione-provvisoria"
  */
 export const PREVENTIVI_SESSIONE_PROVA = false;
 
+/**
+ * Prova di invio: si arriva fino al pulsante di finalizzazione,
+ * la mail parte solo verso sandrohd@gmail.com e il preventivo
+ * resta nella fase in cui si trova. Il cliente non riceve nulla.
+ */
+export const FASE_TEST_INVIO_PREVENTIVO = true;
+
 export const PREVENTIVI_SESSIONE_PROVA_MSG =
   "Sessione di prova: il preventivo resta solo in questo browser. Non viene scritto in archivio e non parte nessuna email.";
 

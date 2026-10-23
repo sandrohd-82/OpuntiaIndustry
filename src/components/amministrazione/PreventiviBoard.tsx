@@ -447,6 +447,7 @@ export function PreventiviBoard({
             setNotice("Preventivo eliminato. Il numero non viene riusato.");
             void reload();
           }}
+          onMessaggio={(message) => setNotice(message)}
           onSaved={(item) => {
             if (item.documentoStato === "bozza") {
               setRaccolta("da_completare");
@@ -488,6 +489,7 @@ export function PreventiviBoard({
       {creating ? (
         <PreventivoFormModal
           onClose={() => setCreating(false)}
+          onMessaggio={(message) => setNotice(message)}
           onSaved={(item) => {
             if (item.documentoStato === "bozza") {
               setRaccolta("da_completare");

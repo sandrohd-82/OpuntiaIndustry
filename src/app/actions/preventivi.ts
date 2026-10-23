@@ -4,9 +4,11 @@ import { createHash, randomUUID } from "node:crypto";
 import { writeAuditLog } from "@/lib/audit";
 import { fraseConfermaSoftDelete } from "@/lib/soft-delete";
 import {
+  FASE_TEST_INVIO_PREVENTIVO,
   PREVENTIVI_SESSIONE_PROVA,
   PREVENTIVI_SESSIONE_PROVA_MSG,
 } from "@/lib/amministrazione/preventivo-sessione";
+import { EMAIL_CONTROLLO_DEFAULT } from "@/lib/amministrazione/prova-ordine";
 import { applicaDicituraTraduzioneAi } from "@/lib/amministrazione/dicitura-traduzione-ai";
 import { dispatchNotifiche } from "@/lib/notifiche/dispatch";
 import {
@@ -1437,7 +1439,11 @@ export async function savePreventivoAction(
   } else if (isRichiestaPrezzo) {
     stato = "in_attesa_spedizione";
     documentoStato = "approvato";
-  } else if (!PREVENTIVI_SESSIONE_PROVA && intenzione === "inviato") {
+  } else if (
+    !PREVENTIVI_SESSIONE_PROVA &&
+    !FASE_TEST_INVIO_PREVENTIVO &&
+    intenzione === "inviato"
+  ) {
     stato = "inviato";
     documentoStato = "approvato";
   }
@@ -1488,7 +1494,12 @@ export async function savePreventivoAction(
       ? colonneAccettazioneSenior(accettazione)
       : {}),
   };
-  if (!PREVENTIVI_SESSIONE_PROVA && intenzione === "inviato" && !isRichiestaPrezzo) {
+  if (
+    !PREVENTIVI_SESSIONE_PROVA &&
+    !FASE_TEST_INVIO_PREVENTIVO &&
+    intenzione === "inviato" &&
+    !isRichiestaPrezzo
+  ) {
     patch.sent_at = current.sent_at ?? now;
     patch.sent_by = current.sent_by ?? gate.auth.userId;
   }
@@ -1616,6 +1627,13 @@ export async function setPreventivoStatoAction(input: {
 > {
   const gate = await requirePreventiviAccess();
   if (!gate.ok) return { success: false, error: gate.error };
+  if (FASE_TEST_INVIO_PREVENTIVO && input.stato === "inviato") {
+    return {
+      success: false,
+      error:
+        "Fase di prova: il preventivo non si segna inviato. La mail di controllo parte solo verso sandrohd@gmail.com e la fase resta quella attuale.",
+    };
+  }
   const now = new Date().toISOString();
   const supabase = await createClient();
   if (input.stato === "inviato" || input.stato === "accettato") {
@@ -2400,10 +2418,105 @@ async function chiudiPdfPreventivoEmesso(input: {
   return error?.message ?? null;
 }
 
+function destinatarioProvaPreventivo():
+  | { ok: true; email: string }
+  | { ok: false; error: string } {
+  const email = EMAIL_CONTROLLO_DEFAULT.trim();
+  if (email.toLowerCase() !== "sandrohd@gmail.com") {
+    return {
+      ok: false,
+      error: "La prova può scrivere solo a sandrohd@gmail.com.",
+    };
+  }
+  return { ok: true, email };
+}
+
+/** Mail identica a quella del cliente, ma solo verso l'indirizzo di controllo. Nessun cambio di fase. */
+async function inviaMailControlloPreventivo(input: {
+  accountId: string;
+  preventivoId: string;
+  numero: string;
+  oggetto: string;
+  testo: string;
+  html: string;
+  pdf: Buffer;
+  pdfNome: string;
+  extra: Array<{ filename: string; content: Buffer; contentType: string }>;
+  userId: string;
+  destinatarioPrevisto: string;
+}): Promise<{ ok: true } | { ok: false; error: string }> {
+  const verso = destinatarioProvaPreventivo();
+  if (!verso.ok) return verso;
+  const service = createServiceClient();
+  const { data: account, error: accErr } = await service
+    .from("webmail_accounts")
+    .select(
+      "id, email_address, imap_host, imap_port, imap_secure, smtp_host, smtp_port, smtp_secure, username, password_encrypted"
+    )
+    .eq("id", input.accountId)
+    .is("deleted_at", null)
+    .maybeSingle();
+  if (accErr || !account) {
+    return { ok: false, error: accErr?.message ?? "Casella mail non trovata." };
+  }
+  const accountRow = account as {
+    id: string;
+    email_address: string;
+    imap_host: string;
+    imap_port: number;
+    imap_secure: boolean;
+    smtp_host: string;
+    smtp_port: number;
+    smtp_secure: boolean;
+    username: string;
+    password_encrypted: string;
+  };
+  try {
+    await sendMailViaAccount({
+      account: accountRow,
+      to: verso.email,
+      subject: input.oggetto,
+      text: input.testo,
+      html: input.html,
+      attachments: [
+        {
+          filename: input.pdfNome,
+          content: input.pdf,
+          contentType: "application/pdf",
+        },
+        ...input.extra,
+      ],
+    });
+  } catch (e) {
+    return {
+      ok: false,
+      error:
+        e instanceof Error
+          ? `Invio di prova non riuscito: ${e.message}`
+          : "Invio di prova non riuscito.",
+    };
+  }
+  await writeAuditLog({
+    entity_type: "preventivi",
+    entity_id: input.preventivoId,
+    action: "export",
+    actor_id: input.userId,
+    summary: `Prova preventivo ${input.numero}: mail solo a ${verso.email}, fase invariata`,
+    payload: {
+      fase: "prova",
+      destinatarioEffettivo: verso.email,
+      destinatarioPrevisto: input.destinatarioPrevisto,
+      statoInvariato: true,
+    },
+  });
+  return { ok: true };
+}
+
 export async function inviaPreventivoMailAction(
   raw: unknown
 ): Promise<
-  { success: true; item: Preventivo } | { success: false; error: string }
+  | { success: true; item: Preventivo; provaInvio?: boolean }
+  | { success: false; error: string }
 > {
   const gate = await requirePreventiviAccess();
   if (!gate.ok) return { success: false, error: gate.error };
@@ -2472,6 +2585,75 @@ export async function inviaPreventivoMailAction(
   }
   const bloccoInvio = motivoBloccoInvioPreventivo(prev);
   if (bloccoInvio) return { success: false, error: bloccoInvio };
+  if (FASE_TEST_INVIO_PREVENTIVO) {
+    const metodoSpedizione =
+      prev.consegna_metodo === "corriere_cliente" ||
+      prev.consegna_metodo === "corriere_nostro" ||
+      prev.consegna_metodo === "da_concordare" ||
+      prev.consegna_metodo === "ritiro"
+        ? prev.consegna_metodo
+        : "corriere_cliente";
+    const corpoMail = normalizzaVoceSpedizioneMail(
+      input.mailTesto,
+      metodoSpedizione,
+      prev.modalita_spedizione_prezzo ?? ""
+    );
+    const linguaAllegato = input.linguaAllegato?.trim() || "it";
+    const corpoConDicitura =
+      linguaAllegato !== "it"
+        ? applicaDicituraTraduzioneAi(corpoMail, input.modelloTraduzione)
+        : corpoMail;
+    const extraAllegati = await leggiAllegatiInvioPreventivo(prev.id);
+    if (!extraAllegati.ok) {
+      return { success: false, error: extraAllegati.error };
+    }
+    const prova = await inviaMailControlloPreventivo({
+      accountId: input.mailAccountId,
+      preventivoId: prev.id,
+      numero: prev.numero_interno,
+      oggetto: input.mailOggetto,
+      testo: testoMailPreventivoConFirma(corpoConDicitura),
+      html: htmlMailPreventivoConFirma(corpoConDicitura),
+      pdf: pdfBuffer,
+      pdfNome: nomePdfEmesso(prev.numero_interno, 1, linguaAllegato),
+      extra: extraAllegati.files,
+      userId: gate.auth.userId,
+      destinatarioPrevisto: input.mailTo,
+    });
+    if (!prova.ok) return { success: false, error: prova.error };
+    const { data: fresco, error: frescoErr } = await supabase
+      .from("preventivi")
+      .select("*")
+      .eq("id", prev.id)
+      .is("deleted_at", null)
+      .single();
+    if (frescoErr || !fresco) {
+      return {
+        success: false,
+        error:
+          frescoErr?.message ??
+          "Mail di prova inviata, ma non rileggo il preventivo.",
+      };
+    }
+    const { data: righe } = await supabase
+      .from("preventivi_righe")
+      .select("*")
+      .eq("preventivo_id", prev.id)
+      .order("sort_order", { ascending: true });
+    const pdfEmessi = await attachPdfEmessi([prev.id]);
+    return {
+      success: true,
+      provaInvio: true,
+      item: mapPreventivo(
+        fresco as PreventivoRow,
+        (righe ?? []) as PreventivoRigaRow[],
+        "",
+        gate.auth.userId,
+        isSuperadminProfile(gate.auth.profile),
+        pdfEmessi.get(prev.id) ?? []
+      ),
+    };
+  }
   const now = new Date().toISOString();
   const { error: draftErr } = await supabase
     .from("preventivi")
@@ -2757,7 +2939,8 @@ export async function completaCalcoloSpedizionePreventivoAction(input: {
   pdfBase64: string;
   confermaInvio: boolean;
 }): Promise<
-  { success: true; provaChiusa?: boolean } | { success: false; error: string }
+  | { success: true; provaChiusa?: boolean; provaInvio?: boolean }
+  | { success: false; error: string }
 > {
   const auth = await getAuthContext();
   if (!auth?.isSecondFactorVerified) {
@@ -2846,6 +3029,35 @@ export async function completaCalcoloSpedizionePreventivoAction(input: {
   }
   if (!prev.mail_bozza_account_id || !prev.mail_bozza_to.includes("@")) {
     return { success: false, error: "Manca la mail preparata dal commerciale." };
+  }
+  if (FASE_TEST_INVIO_PREVENTIVO) {
+    const extraAllegati = await leggiAllegatiInvioPreventivo(prev.id);
+    if (!extraAllegati.ok) return { success: false, error: extraAllegati.error };
+    const testo = testoMailPreventivoConFirma(prev.mail_bozza_testo);
+    const prova = await inviaMailControlloPreventivo({
+      accountId: prev.mail_bozza_account_id,
+      preventivoId: prev.id,
+      numero: prev.numero_interno,
+      oggetto: prev.mail_bozza_oggetto,
+      testo,
+      html: htmlMailPreventivoConFirma(prev.mail_bozza_testo),
+      pdf: pdfBuffer,
+      pdfNome: nomePdfEmesso(prev.numero_interno, 1, "it"),
+      extra: extraAllegati.files,
+      userId: auth.userId,
+      destinatarioPrevisto: prev.mail_bozza_to,
+    });
+    if (!prova.ok) return { success: false, error: prova.error };
+    const { error: lockErr } = await service
+      .from("preventivi")
+      .update({
+        spedizione_lock_by: null,
+        spedizione_lock_at: null,
+      })
+      .eq("id", prev.id)
+      .eq("stato", "in_attesa_spedizione");
+    if (lockErr) return { success: false, error: lockErr.message };
+    return { success: true, provaInvio: true };
   }
   const now = new Date().toISOString();
   const archivio = await preparaPdfPreventivoEmesso({
@@ -3290,6 +3502,13 @@ export async function collegaInvioManualePreventivoAction(input: {
 }): Promise<{ success: true; item: Preventivo } | { success: false; error: string }> {
   const gate = await requirePreventiviAccess();
   if (!gate.ok) return { success: false, error: gate.error };
+  if (FASE_TEST_INVIO_PREVENTIVO) {
+    return {
+      success: false,
+      error:
+        "Fase di prova: il preventivo non si segna inviato. La mail di controllo parte solo verso sandrohd@gmail.com e la fase resta quella attuale.",
+    };
+  }
   if (
     !/^[0-9a-f-]{36}$/i.test(input.preventivoId) ||
     !/^[0-9a-f-]{36}$/i.test(input.messaggioId)

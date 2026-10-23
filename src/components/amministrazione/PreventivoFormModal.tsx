@@ -91,6 +91,7 @@ import {
   clearPreventivoSessione,
   labelIntenzionePreventivo,
   loadPreventivoSessione,
+  FASE_TEST_INVIO_PREVENTIVO,
   PREVENTIVI_SESSIONE_PROVA,
   PREVENTIVI_SESSIONE_PROVA_MSG,
   savePreventivoSessione,
@@ -126,6 +127,7 @@ type EditKind =
 type Props = {
   onClose: () => void;
   onSaved: (item: Preventivo) => void;
+  onMessaggio?: (message: string) => void;
   onDeleted?: () => void;
   /** Preventivo già in archivio: la modale si apre compilata, numero invariato. */
   preventivoId?: string;
@@ -221,6 +223,7 @@ function CoppiaCentrata({
 export function PreventivoFormModal({
   onClose,
   onSaved,
+  onMessaggio,
   onDeleted,
   preventivoId,
 }: Props) {
@@ -1362,6 +1365,16 @@ export function PreventivoFormModal({
         setMailError(res.error);
         return;
       }
+      if (res.provaInvio) {
+        clearPreventivoSessione();
+        setInviaOpen(false);
+        onMessaggio?.(
+          `Prova: mail inviata solo a sandrohd@gmail.com. ${res.item.numeroInterno} resta nella fase attuale e non è stato inviato al cliente.`
+        );
+        onSaved(res.item);
+        onClose();
+        return;
+      }
       clearPreventivoSessione();
       setInviaOpen(false);
       onSaved(res.item);
@@ -1472,6 +1485,19 @@ export function PreventivoFormModal({
     setInviaOpen(false);
     onSaved(item);
     onClose();
+  }
+
+  function testoChiusuraInvio() {
+    if (prezzoAcquirenteModo === "richiesto") {
+      return "La mail resta pronta. Parte solo quando chi calcola la spedizione inserisce l'importo e completa.";
+    }
+    if (FASE_TEST_INVIO_PREVENTIVO) {
+      return "Prova: la mail parte solo verso sandrohd@gmail.com. Il preventivo resta nella fase attuale e non arriva al cliente.";
+    }
+    if (PREVENTIVI_SESSIONE_PROVA) {
+      return "Conferma l'invio in sessione di prova: nessuna email reale parte.";
+    }
+    return "Salva e invia chiude la mail e il preventivo.";
   }
 
   function etichettaConfermaMail() {
@@ -2121,18 +2147,7 @@ export function PreventivoFormModal({
               ? `Invio in ${labelLingua(linguaScelta)}: la mail e il PDF partono in questa lingua.`
               : "Invio in italiano: la mail e il PDF restano il testo originale."}
           </p>
-          {prezzoAcquirenteModo === "richiesto" ? (
-            <p className="text-sm text-slate-600">
-              La mail resta pronta. Parte solo quando chi calcola la spedizione
-              inserisce l&apos;importo e completa.
-            </p>
-          ) : (
-            <p className="text-sm text-slate-600">
-              {PREVENTIVI_SESSIONE_PROVA
-                ? "Conferma l'invio in sessione di prova: nessuna email reale parte."
-                : "Salva e invia chiude la mail e il preventivo."}
-            </p>
-          )}
+          <p className="text-sm text-slate-600">{testoChiusuraInvio()}</p>
           <label className="block text-sm">
             <span className="mb-1 block font-medium">Casella</span>
             <select

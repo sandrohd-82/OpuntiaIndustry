@@ -20,6 +20,7 @@ import {
   AGRINSICILIA_MAIL_FIRMA,
   formatDestinatarioIndirizzo,
 } from "@/lib/amministrazione/preventivo-letterhead";
+import { FASE_TEST_INVIO_PREVENTIVO } from "@/lib/amministrazione/preventivo-sessione";
 import {
   PREVENTIVO_CONSEGNA_LABEL,
   PREVENTIVO_IVA_DEFAULT,
@@ -218,11 +219,14 @@ export function PreventivoCalcoloSpedizioneSheet({
                       return;
                     }
                     chiuso.current = true;
-                    onCompleted?.(
-                      res.provaChiusa
-                        ? "Mail inviata all'indirizzo indicato. Il preventivo di prova è uscito dall'archivio."
-                        : `Spedizione inserita. Preventivo ${item.numeroInterno} inviato.`
-                    );
+                    let messaggio = `Spedizione inserita. Preventivo ${item.numeroInterno} inviato.`;
+                    if (res.provaInvio) {
+                      messaggio = `Prova: mail inviata solo a sandrohd@gmail.com. ${item.numeroInterno} resta nella fase attuale e non è stato inviato al cliente.`;
+                    } else if (res.provaChiusa) {
+                      messaggio =
+                        "Mail inviata all'indirizzo indicato. Il preventivo di prova è uscito dall'archivio.";
+                    }
+                    onCompleted?.(messaggio);
                   })
                   .catch((e: unknown) => {
                     setBusy(false);
@@ -240,6 +244,13 @@ export function PreventivoCalcoloSpedizioneSheet({
           )}
         </div>
       </div>
+
+      {FASE_TEST_INVIO_PREVENTIVO && !solaLettura ? (
+        <p className="mx-4 mt-3 rounded border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-950">
+          Fase di prova. La mail che vedi è quella del cliente, ma parte solo
+          verso sandrohd@gmail.com. Il preventivo resta in questa fase.
+        </p>
+      ) : null}
 
       {error ? (
         <p className="mx-4 mt-3 rounded border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
@@ -276,8 +287,9 @@ export function PreventivoCalcoloSpedizioneSheet({
                   className="mt-0.5"
                 />
                 <span>
-                  Confermo il prezzo e autorizzo l&apos;invio della mail al
-                  cliente. Prima di questa conferma non parte nulla.
+                  {FASE_TEST_INVIO_PREVENTIVO
+                    ? "Confermo il prezzo. In prova la mail va solo a sandrohd@gmail.com e il preventivo resta in questa fase."
+                    : "Confermo il prezzo e autorizzo l'invio della mail al cliente. Prima di questa conferma non parte nulla."}
                 </span>
               </label>
             </div>
