@@ -99,6 +99,11 @@ type Props = {
    * Il salvataggio è il bottone del wizard, non un'azione a parte.
    */
   impostazioneDocumento?: boolean;
+  /**
+   * Produzione → Ordini → Da processare: il tracking si inserisce qui.
+   * La scelta prepara la mail di invio, non una bozza in attesa.
+   */
+  mailPerInvioTracking?: boolean;
 };
 
 export function SpedizioneMailPanel({
@@ -119,6 +124,7 @@ export function SpedizioneMailPanel({
   persistDisabled = false,
   sceltaOrdineFissa = false,
   impostazioneDocumento = false,
+  mailPerInvioTracking = false,
 }: Props) {
   const [trackingUrl, setTrackingUrl] = useState("");
   const [sedePartenzaId, setSedePartenzaId] = useState(sedePartenzaIdDefault);
@@ -782,7 +788,9 @@ export function SpedizioneMailPanel({
             checked={vuoleMail}
             onChange={() => setVuoleMail(true)}
           />
-          Sì, crea la bozza in attesa del tracking
+          {mailPerInvioTracking
+            ? "Sì, crea mail per l'invio del tracking"
+            : "Sì, crea la bozza in attesa del tracking"}
         </label>
       </fieldset>
       ) : null}

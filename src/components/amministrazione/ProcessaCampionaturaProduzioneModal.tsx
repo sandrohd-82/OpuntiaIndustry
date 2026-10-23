@@ -1026,6 +1026,7 @@ export function ProcessaCampionaturaProduzioneModal({
               })}
               sedePartenzaIdDefault={sedePartenzaId}
               sceltaOrdineFissa
+              mailPerInvioTracking
               onDraftChange={(d) => {
                 mailBozza.current = d;
                 setSedePartenzaId(d.sedePartenzaId);
