@@ -1,7 +1,6 @@
 "use server";
 
 import { passaCampionaturaInScalettaAction } from "@/app/actions/campionature";
-import { listLottiMagazzinoInserimentoAction } from "@/app/actions/lotto-produzione-magazzino";
 import { processOrdineInScalettaAction } from "@/app/actions/ordini";
 import {
   inviaMailSpedizioneAction,
@@ -767,13 +766,52 @@ export async function salvaGruppiScalettaAction(
   return { success: true, avviso: note.filter(Boolean).join(" ") };
 }
 
+const rigaLottoSchema = z.object({
+  rigaId: z.string().uuid(),
+  lottoInternoCodice: z.string().trim().min(1).max(80),
+  lottoProdottoId: z.string().uuid(),
+  lottoProdottoCodice: z.string().trim().min(1).max(80),
+  conforme: z.boolean(),
+  processoId: z.string().uuid().nullable().optional(),
+  processoCodice: z.string().trim().max(80).optional().default(""),
+  processoNome: z.string().trim().max(200).optional().default(""),
+  sottoprodottoPrenotato: z.boolean().optional().default(false),
+});
+
 const raggruppaSchema = z.object({
   documenti: z.array(riferimentoSchema).min(1).max(30),
   giaProcessato: riferimentoSchema.nullable().optional(),
   unicoPacco: z.boolean(),
   unicaMail: z.boolean(),
   trackingUrl: z.string().trim().max(2000).optional().default(""),
+  campionature: z
+    .array(
+      z.object({
+        campionaturaId: z.string().uuid(),
+        dataLavorazione: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+        dataConfezionamento: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+        righe: z.array(rigaLottoSchema).min(1),
+      })
+    )
+    .optional()
+    .default([]),
 });
+
+export type RigaRaggruppo = {
+  id: string;
+  prodottoId: string;
+  prodottoCodice: string;
+  prodottoNome: string;
+  quantita: number;
+  unitaMisura: string;
+};
+
+export type DocumentoRaggruppo = {
+  id: string;
+  numero: string;
+  destinatario: string;
+  righe: RigaRaggruppo[];
+};
 
 async function emailCliente(ref: RiferimentoDocumento): Promise<string> {
   const service = createServiceClient();
@@ -800,56 +838,86 @@ async function emailCliente(ref: RiferimentoDocumento): Promise<string> {
   return email;
 }
 
-async function processaCampionaturaInGruppo(
-  campionaturaId: string
-): Promise<{ success: true } | { success: false; error: string }> {
-  const service = createServiceClient();
-  const { data: righeData, error } = await service
-    .from("campionature_righe")
-    .select("id, prodotto_id, prodotto_codice")
-    .eq("campionatura_id", campionaturaId);
-  if (error) return { success: false, error: error.message };
-  const righe = (righeData ?? []) as Array<{
-    id: string;
-    prodotto_id: string | null;
-    prodotto_codice: string;
-  }>;
-  const lotti = await listLottiMagazzinoInserimentoAction();
-  if (!lotti.success) return { success: false, error: lotti.error };
-  const scelte = [];
-  for (const riga of righe) {
-    const lotto = lotti.lotti.find(
-      (item) => item.prodottoId === riga.prodotto_id && item.quantitaKg > 0
-    );
-    if (!lotto) {
-      return {
-        success: false,
-        error: `Manca un lotto a magazzino per ${riga.prodotto_codice}.`,
-      };
-    }
-    scelte.push({
-      rigaId: riga.id,
-      lottoInternoCodice: lotto.lottoInternoCodice,
-      lottoProdottoId: lotto.prodottoId,
-      lottoProdottoCodice: lotto.prodottoCodice,
-      conforme: true,
-      processoId: null,
-      processoCodice: "",
-      processoNome: "",
-      sottoprodottoPrenotato: false,
-    });
-  }
-  if (scelte.length === 0) {
-    return { success: false, error: "Campionatura senza righe." };
-  }
-  const oggi = oggiRoma();
+async function processaCampionaturaInGruppo(input: {
+  campionaturaId: string;
+  dataLavorazione: string;
+  dataConfezionamento: string;
+  righe: z.infer<typeof rigaLottoSchema>[];
+}): Promise<{ success: true } | { success: false; error: string }> {
   return passaCampionaturaInScalettaAction({
-    campionaturaId,
-    dataLavorazione: oggi,
-    dataConfezionamento: oggi,
-    righe: scelte,
+    campionaturaId: input.campionaturaId,
+    dataLavorazione: input.dataLavorazione,
+    dataConfezionamento: input.dataConfezionamento,
+    righe: input.righe,
     pack: {},
   });
+}
+
+export async function dettaglioCampionatureRaggruppoAction(
+  ids: string[]
+): Promise<
+  { success: true; documenti: DocumentoRaggruppo[] } | { success: false; error: string }
+> {
+  await requireOrdineProcessAccess();
+  const unici = [...new Set(ids.filter(Boolean))].slice(0, 30);
+  if (unici.length === 0) return { success: true, documenti: [] };
+  const service = createServiceClient();
+  const [{ data: teste, error: tErr }, { data: righe, error: rErr }] =
+    await Promise.all([
+      service
+        .from("campionature")
+        .select("id, numero_interno, destinatario, cliente_ragione_sociale")
+        .in("id", unici)
+        .is("deleted_at", null),
+      service
+        .from("campionature_righe")
+        .select(
+          "id, campionatura_id, prodotto_id, prodotto_codice, prodotto_nome, quantita, unita_misura, sort_order"
+        )
+        .in("campionatura_id", unici)
+        .order("sort_order", { ascending: true }),
+    ]);
+  if (tErr || rErr) {
+    return { success: false, error: tErr?.message ?? rErr?.message ?? "Dettaglio non letto." };
+  }
+  const documenti: DocumentoRaggruppo[] = (teste ?? []).map((row) => {
+    const testa = row as {
+      id: string;
+      numero_interno: string;
+      destinatario?: string | null;
+      cliente_ragione_sociale: string;
+    };
+    return {
+      id: testa.id,
+      numero: testa.numero_interno,
+      destinatario: String(testa.destinatario || testa.cliente_ragione_sociale),
+      righe: (righe ?? [])
+        .filter(
+          (riga) =>
+            String((riga as { campionatura_id: string }).campionatura_id) === testa.id
+        )
+        .map((riga) => {
+          const item = riga as {
+            id: string;
+            prodotto_id: string | null;
+            prodotto_codice: string;
+            prodotto_nome: string;
+            quantita: number;
+            unita_misura: string;
+          };
+          return {
+            id: item.id,
+            prodottoId: String(item.prodotto_id ?? ""),
+            prodottoCodice: item.prodotto_codice,
+            prodottoNome: item.prodotto_nome,
+            quantita: Number(item.quantita) || 0,
+            unitaMisura: String(item.unita_misura ?? ""),
+          };
+        })
+        .filter((riga) => riga.prodottoId),
+    };
+  });
+  return { success: true, documenti };
 }
 
 export async function elencoRaggruppoScalettaAction(): Promise<
@@ -1011,7 +1079,14 @@ export async function raggruppaEProcessaAction(
       entrati.push(ref);
       if (esito.avviso) note.push(`${doc.numero}: ${esito.avviso}`);
     } else {
-      const esito = await processaCampionaturaInGruppo(ref.entityId);
+      const preparata = input.campionature.find(
+        (item) => item.campionaturaId === ref.entityId
+      );
+      if (!preparata) {
+        note.push(`${doc.numero} non è entrato in scaletta: manca la scelta del lotto.`);
+        continue;
+      }
+      const esito = await processaCampionaturaInGruppo(preparata);
       if (!esito.success) {
         note.push(`${doc.numero} non è entrato in scaletta: ${esito.error}`);
         continue;
