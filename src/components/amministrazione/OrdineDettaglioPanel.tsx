@@ -10,6 +10,7 @@ import { labelSede } from "@/lib/impostazioni/sedi";
 import type { SpedizioneMailPrenotazione } from "@/lib/amministrazione/spedizione-mail";
 import { MailOrdineFaseTestModal } from "@/components/amministrazione/MailOrdineFaseTestModal";
 import { OrdineAuditLogModal } from "@/components/amministrazione/OrdineAuditLogModal";
+import { OrdineSchedaAziendaModal } from "@/components/amministrazione/OrdineSchedaAziendaModal";
 import {
   formatOperatoreQuando,
   imponibileRiga,
@@ -103,6 +104,7 @@ type Props = {
 
 export function OrdineDettaglioPanel({ ordine, onEdit }: Props) {
   const [auditOpen, setAuditOpen] = useState(false);
+  const [schedaAzienda, setSchedaAzienda] = useState(false);
   const [stacca, setStacca] = useState(false);
   const [staccaMsg, setStaccaMsg] = useState<string | null>(null);
   const [sedeLabel, setSedeLabel] = useState("");
@@ -157,6 +159,13 @@ export function OrdineDettaglioPanel({ ordine, onEdit }: Props) {
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
+          <button
+            type="button"
+            onClick={() => setSchedaAzienda(true)}
+            className="rounded-lg border border-[var(--primary)] px-3 py-1.5 text-xs font-medium text-[var(--primary)]"
+          >
+            Scheda azienda
+          </button>
           {ordine.tipo === "vendita" ? (
             <button
               type="button"
@@ -220,6 +229,12 @@ export function OrdineDettaglioPanel({ ordine, onEdit }: Props) {
         <p className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-900">
           {staccaMsg}
         </p>
+      ) : null}
+      {schedaAzienda ? (
+        <OrdineSchedaAziendaModal
+          ordineId={ordine.id}
+          onClose={() => setSchedaAzienda(false)}
+        />
       ) : null}
       {stacca ? (
         <MailOrdineFaseTestModal

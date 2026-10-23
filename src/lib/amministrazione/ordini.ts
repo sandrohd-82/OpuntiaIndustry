@@ -694,6 +694,8 @@ export function labelAuditAction(action: string): string {
       return "Allegato caricato";
     case "attachment_remove":
       return "Allegato rimosso";
+    case "view":
+      return "Consultazione scheda azienda";
     case "purge_test_ordini":
       return "Pulizia dati test ordini";
     case "ordine_processa":

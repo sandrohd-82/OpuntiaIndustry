@@ -15,7 +15,7 @@ export function OrdineDettaglioViewModal({ ordine, onClose, onEdit }: Props) {
 
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
-      if (e.key === "Escape") onClose();
+      if (e.key === "Escape" && !e.defaultPrevented) onClose();
     }
     document.addEventListener("keydown", onKey);
     const prev = document.body.style.overflow;
