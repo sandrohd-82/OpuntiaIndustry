@@ -528,7 +528,37 @@ const inviaSchema = z.object({
   to: z.string().trim().email("Email destinatario non valida"),
   subject: z.string().trim().min(1).max(240),
   bodyText: z.string().trim().min(1).max(20000),
+  /**
+   * Solo Produzione → Ordini → Da processare.
+   * La mail parte all'indirizzo del cliente. Il resto dell'app resta in prova.
+   */
+  produzioneReale: z.boolean().optional(),
 });
+
+async function documentoInCodaDaProcessare(
+  entityType: "campionatura" | "ordine",
+  entityId: string
+): Promise<boolean> {
+  const service = createServiceClient();
+  if (entityType === "campionatura") {
+    const { data } = await service
+      .from("campionature")
+      .select("stato")
+      .eq("id", entityId)
+      .is("deleted_at", null)
+      .maybeSingle();
+    const stato = String((data as { stato?: string } | null)?.stato ?? "");
+    return stato === "inserita" || stato === "bozza";
+  }
+  const { data } = await service
+    .from("ordini")
+    .select("stato")
+    .eq("id", entityId)
+    .is("deleted_at", null)
+    .maybeSingle();
+  const stato = String((data as { stato?: string } | null)?.stato ?? "");
+  return stato === "in_attesa" || stato === "ricevuto" || stato === "sospeso";
+}
 
 export async function inviaMailSpedizioneAction(
   raw: unknown
@@ -542,15 +572,6 @@ export async function inviaMailSpedizioneAction(
     };
   }
   const d = parsed.data;
-  if (
-    FASE_TEST_INVIO &&
-    d.to.trim().toLowerCase() !== EMAIL_CONTROLLO_DEFAULT
-  ) {
-    return {
-      success: false,
-      error: `Fase test: la mail parte solo verso ${EMAIL_CONTROLLO_DEFAULT}. Il cliente e lo SDI non vengono contattati.`,
-    };
-  }
   const service = createServiceClient();
   const { data: pren, error: pErr } = await service
     .from("spedizione_mail_prenotazioni")
@@ -562,6 +583,19 @@ export async function inviaMailSpedizioneAction(
     return { success: false, error: pErr?.message ?? "Prenotazione non trovata." };
   }
   const item = mapSpedizioneMailRow(pren as Record<string, unknown>);
+  const invioReale =
+    d.produzioneReale === true &&
+    (await documentoInCodaDaProcessare(item.entityType, item.entityId));
+  if (
+    FASE_TEST_INVIO &&
+    !invioReale &&
+    d.to.trim().toLowerCase() !== EMAIL_CONTROLLO_DEFAULT
+  ) {
+    return {
+      success: false,
+      error: `Fase test: la mail parte solo verso ${EMAIL_CONTROLLO_DEFAULT}. Il cliente e lo SDI non vengono contattati.`,
+    };
+  }
   if (item.stato === "inviata") {
     return { success: false, error: "Mail già inviata." };
   }
@@ -667,6 +701,8 @@ export async function inviaMailSpedizioneAction(
       entity_id: item.entityId,
       stato_da: item.stato,
       stato_a: "inviata",
+      produzione_reale: invioReale,
+      destinatario: d.to,
     },
   });
   return { success: true };

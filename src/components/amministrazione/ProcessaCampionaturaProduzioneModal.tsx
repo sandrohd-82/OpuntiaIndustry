@@ -405,6 +405,7 @@ export function ProcessaCampionaturaProduzioneModal({
             to: salvata.item.destinatarioEmail,
             subject: salvata.item.oggetto,
             bodyText: salvata.item.corpo,
+            produzioneReale: true,
           });
           if (!inviata.success) {
             setError(inviata.error);
@@ -986,9 +987,13 @@ export function ProcessaCampionaturaProduzioneModal({
 
         {step === 3 ? (
           <div className="mt-4 space-y-3 text-sm">
+            <p className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-950">
+              Passaggio in produzione. La mail con il tracking parte
+              all&apos;indirizzo del cliente indicato qui sotto.
+            </p>
             <div className="flex flex-wrap items-center gap-2">
               <p className="text-xs text-slate-500">
-                Spedizione: inserisci il tracking se è già disponibile. L’invio
+                Spedizione: inserisci il tracking se è già disponibile. L&apos;invio
                 al cliente resta quello scelto in fase di ordine.
               </p>
               <InfoSezione
