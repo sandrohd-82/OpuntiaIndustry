@@ -1,6 +1,7 @@
 "use server";
 
 import { writeAuditLog } from "@/lib/audit";
+import { notificaOrdineInCoda } from "@/lib/amministrazione/ordine-notifica-coda";
 import { scanPromozioniDaFattureAction } from "@/app/actions/lead-promozione";
 import { requireAreaAccess } from "@/lib/areas/guard";
 import {
@@ -995,6 +996,12 @@ export async function creaFatturaOrdineSenzaInvioAction(
     };
   }
   const supabase = await createClient();
+  const { data: prima } = await supabase
+    .from("ordini")
+    .select("stato")
+    .eq("id", ordineId)
+    .is("deleted_at", null)
+    .maybeSingle();
   const { error } = await supabase
     .from("ordini")
     .update({
@@ -1022,6 +1029,14 @@ export async function creaFatturaOrdineSenzaInvioAction(
       sdi_sent: false,
       documento_stato: "registrato",
     },
+  });
+  await notificaOrdineInCoda({
+    actorId: auth.userId,
+    ordineId,
+    statoPrima: String(
+      (prima as { stato?: string } | null)?.stato ?? ""
+    ),
+    evento: "fattura registrata, pronto per la produzione",
   });
   return {
     success: true,

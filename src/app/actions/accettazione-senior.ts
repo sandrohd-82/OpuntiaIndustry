@@ -3,6 +3,8 @@
 import { writeAuditLog } from "@/lib/audit";
 import { requireAnyAreaAccess } from "@/lib/areas/guard";
 import { isSuperadminProfile } from "@/lib/auth/roles";
+import { ORDINI_STATI_DA_PROCESSARE } from "@/lib/amministrazione/ordini";
+import { destinatariOrdineCreatoreOCommerciale } from "@/lib/amministrazione/ordine-notifica-coda";
 import { dispatchNotifiche } from "@/lib/notifiche/dispatch";
 import { createClient } from "@/lib/supabase/server";
 import { z } from "zod";
@@ -31,14 +33,24 @@ export async function rispondiAccettazioneSeniorAction(
   }
   const table = entity === "preventivo" ? "preventivi" : "ordini";
   const supabase = await createClient();
-  const { data, error } = await supabase
-    .from(table)
+  const ordineQuery = supabase
+    .from("ordini")
+    .select(
+      "id, numero_interno, created_by, cliente_id, cliente_possibile_id, stato, accettazione_senior_stato, accettazione_senior_user_id"
+    )
+    .eq("id", id)
+    .is("deleted_at", null)
+    .maybeSingle();
+  const preventivoQuery = supabase
+    .from("preventivi")
     .select(
       "id, numero_interno, created_by, accettazione_senior_stato, accettazione_senior_user_id"
     )
     .eq("id", id)
     .is("deleted_at", null)
     .maybeSingle();
+  const { data, error } =
+    entity === "ordine" ? await ordineQuery : await preventivoQuery;
   if (error || !data) {
     return { success: false, error: error?.message ?? "Documento non trovato." };
   }
@@ -46,6 +58,9 @@ export async function rispondiAccettazioneSeniorAction(
     id: string;
     numero_interno?: string | null;
     created_by?: string | null;
+    cliente_id?: string | null;
+    cliente_possibile_id?: string | null;
+    stato?: string | null;
     accettazione_senior_stato?: string | null;
     accettazione_senior_user_id?: string | null;
   };
@@ -95,10 +110,26 @@ export async function rispondiAccettazioneSeniorAction(
     },
   });
   const destinatario = row.created_by ? String(row.created_by) : "";
-  if (destinatario && destinatario !== auth.userId) {
+  const inCoda =
+    entity === "ordine" &&
+    (ORDINI_STATI_DA_PROCESSARE as readonly string[]).includes(
+      String(row.stato ?? "")
+    );
+  let recipientIds: string[] = [];
+  if (inCoda) {
+    recipientIds = await destinatariOrdineCreatoreOCommerciale({
+      createdBy: row.created_by,
+      clienteId: row.cliente_id,
+      possibileClienteId: row.cliente_possibile_id,
+    });
+  } else if (destinatario) {
+    recipientIds = [destinatario];
+  }
+  if (recipientIds.length) {
     await dispatchNotifiche({
       actorId: auth.userId,
-      recipientIds: [destinatario],
+      allowRepeat: inCoda,
+      recipientIds,
       tipo: "attivita",
       title:
         esito === "accettata"

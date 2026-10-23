@@ -5,6 +5,7 @@ import { requireOrdineCreateAccess, requireOrdineReadAccess } from "@/lib/auth/o
 import { loadCommercialLineageUserIds } from "@/lib/auth/commerciale-lineage";
 import { createClient } from "@/lib/supabase/server";
 import { mapOrdineRow, type Ordine } from "@/lib/amministrazione/ordini";
+import { notificaOrdineInCoda } from "@/lib/amministrazione/ordine-notifica-coda";
 import { isScontoFascia } from "@/lib/amministrazione/sconto-fuori-listino";
 import {
   loadClienteCommercialeId,
@@ -105,6 +106,16 @@ export async function approveOrdineScontoAction(
       actorId: auth.userId,
     });
   }
+
+  await notificaOrdineInCoda({
+    actorId: auth.userId,
+    ordineId,
+    statoPrima: typed.stato,
+    evento:
+      recomputed.stato === "approvata"
+        ? "sconto extra approvato"
+        : "firma sconto extra registrata",
+  });
 
   await writeAuditLog({
     entity_type: "ordini",

@@ -7,6 +7,7 @@ import {
 } from "@/lib/auth/ordini-access";
 import { loadCommercialLineageUserIds } from "@/lib/auth/commerciale-lineage";
 import { loadOrdineWithRighe } from "@/app/actions/ordini";
+import { notificaOrdineInCoda } from "@/lib/amministrazione/ordine-notifica-coda";
 import { createClient } from "@/lib/supabase/server";
 import type { Ordine } from "@/lib/amministrazione/ordini";
 import {
@@ -90,6 +91,12 @@ export async function approveScontoSuddivisioneOrdineAction(
     .eq("id", ordineId)
     .is("deleted_at", null);
   if (updErr) return { success: false, error: updErr.message };
+  await notificaOrdineInCoda({
+    actorId: auth.userId,
+    ordineId,
+    statoPrima: typed.stato,
+    evento: "suddivisione sconto approvata",
+  });
   const ordine = await loadOrdineWithRighe(ordineId);
   if (!ordine) return { success: false, error: "Ordine non rileggibile." };
   return { success: true, ordine };

@@ -1,7 +1,7 @@
 "use server";
 
 import { z } from "zod";
-import { dispatchNotifiche } from "@/lib/notifiche/dispatch";
+import { notificaOrdineInCoda } from "@/lib/amministrazione/ordine-notifica-coda";
 import { BLOCCO_DOCUMENTI_CLIENTE_ORDINE } from "@/lib/amministrazione/ordine-calcolo-spedizione";
 import { getAuthContext, userCanAccessArea } from "@/lib/auth/session";
 import { isSuperadminProfile } from "@/lib/auth/roles";
@@ -187,7 +187,7 @@ export async function completaCalcoloSpedizioneOrdineAction(
     .eq("id", input.ordineId)
     .eq("modalita_spedizione_prezzo", "richiesto")
     .is("deleted_at", null)
-    .select("id, numero_interno, created_by, cliente_ragione_sociale")
+    .select("id, numero_interno, created_by, cliente_ragione_sociale, stato")
     .maybeSingle();
   if (error) return { success: false, error: error.message };
   if (!data) {
@@ -201,6 +201,7 @@ export async function completaCalcoloSpedizioneOrdineAction(
     numero_interno: string;
     created_by: string | null;
     cliente_ragione_sociale: string;
+    stato: string;
   };
   await service.from("audit_log").insert({
     entity_type: "ordini",
@@ -215,18 +216,12 @@ export async function completaCalcoloSpedizioneOrdineAction(
       invio_cliente: false,
     },
   });
-  if (row.created_by) {
-    await dispatchNotifiche({
-      actorId: gate.auth.userId,
-      recipientIds: [row.created_by],
-      tipo: "attivita",
-      title: "Costo spedizione inserito",
-      body: `Ordine ${row.numero_interno} per ${row.cliente_ragione_sociale}: il costo è ${importo} €. La fattura viene creata e non viene inviata.`,
-      href: "/app/amministrazione/ordini",
-      entityType: "ordini",
-      entityId: row.id,
-      payload: { compito: "calcolo_spedizioni", invio_cliente: false },
-    });
-  }
+  await notificaOrdineInCoda({
+    actorId: gate.auth.userId,
+    ordineId: row.id,
+    statoPrima: row.stato,
+    title: "Costo spedizione inserito",
+    evento: `il costo è ${importo} €. La fattura viene creata e non viene inviata`,
+  });
   return { success: true, message: COMPLETA_MSG };
 }

@@ -21,7 +21,12 @@ async function notificheWriteClient(): Promise<{
 }
 
 export async function dispatchNotifiche(
-  input: CreateNotificaInput & { actorId: string; includeActor?: boolean }
+  input: CreateNotificaInput & {
+    actorId: string;
+    includeActor?: boolean;
+    /** Ogni evento crea una riga, anche se ne esiste già una non letta. */
+    allowRepeat?: boolean;
+  }
 ): Promise<{ created: number; pushed: number }> {
   const parsed = createNotificaSchema.safeParse(input);
   if (!parsed.success) {
@@ -43,7 +48,7 @@ export async function dispatchNotifiche(
   const { user, service } = await notificheWriteClient();
   const reader = service ?? user;
   let existing = new Set<string>();
-  if (parsed.data.entityId) {
+  if (parsed.data.entityId && !input.allowRepeat) {
     const { data } = await reader
       .from("app_notifiche")
       .select("recipient_id")

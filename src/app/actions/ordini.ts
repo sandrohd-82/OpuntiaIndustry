@@ -13,6 +13,7 @@ import {
   isOrdineAccettazioneSeniorBloccata,
   isCampionaturaGratuita,
   labelAuditAction,
+  labelStatoOrdine,
   mapOrdineRow,
   normalizzaUnitaRigaOrdine,
   ordineInputSchema,
@@ -57,6 +58,7 @@ import { prezzoNettoDaSconto } from "@/lib/amministrazione/sconto-fuori-listino"
 import { getPreventivoProdottoContestoAction } from "@/app/actions/preventivi";
 import { elencoProfiliCalcoloSpedizioni } from "@/app/actions/ordine-calcolo-spedizione";
 import { risolviSpedizioneOrdineDiretto } from "@/lib/amministrazione/ordine-calcolo-spedizione";
+import { notificaOrdineInCoda } from "@/lib/amministrazione/ordine-notifica-coda";
 import { dispatchNotifiche } from "@/lib/notifiche/dispatch";
 import {
   CONFEZIONE_SISTEMA,
@@ -921,6 +923,15 @@ export async function updateOrdineAction(
 
   const ordine = await loadOrdineWithRighe(id);
   if (!ordine) return { success: false, error: "Aggiornamento non leggibile." };
+  await notificaOrdineInCoda({
+    actorId: auth.userId,
+    ordineId: id,
+    statoPrima: existing.stato,
+    evento:
+      input.stato !== existing.stato
+        ? `passato a ${labelStatoOrdine(input.stato)}`
+        : "modificato",
+  });
   return { success: true, ordine };
 }
 
@@ -955,6 +966,13 @@ export async function softDeleteOrdineAction(input: {
     .is("deleted_at", null);
 
   if (error) return { success: false, error: error.message };
+
+  await notificaOrdineInCoda({
+    actorId: auth.userId,
+    ordineId: input.id,
+    statoPrima: existing.stato,
+    evento: "eliminato",
+  });
 
   await writeAudit({
     entity_type: "ordini",
@@ -1929,6 +1947,18 @@ async function createOrdineWizardActionInner(
       },
     });
 
+    if (editing) {
+      await notificaOrdineInCoda({
+        actorId: auth.userId,
+        ordineId: row.id,
+        statoPrima: editing.stato,
+        evento:
+          editing.stato !== statoScritto
+            ? `passato a ${labelStatoOrdine(statoScritto as Ordine["stato"])}`
+            : "modificato",
+      });
+    }
+
     if (passaInAttesaCalcolo) {
       await dispatchNotifiche({
         actorId: auth.userId,
@@ -2332,6 +2362,13 @@ export async function processOrdineInScalettaAction(
       giorni_attivita: giorniAttivita,
       linea,
     },
+  });
+
+  await notificaOrdineInCoda({
+    actorId: auth.userId,
+    ordineId: existing.id,
+    statoPrima: existing.stato,
+    evento: "messo in scaletta",
   });
 
   const ordine = await loadOrdineWithRighe(existing.id);
