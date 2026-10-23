@@ -3,7 +3,6 @@
 import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { passaCampionaturaInScalettaAction } from "@/app/actions/campionature";
-import { salvaGruppiScalettaAction } from "@/app/actions/gruppi-scaletta";
 import { FaCheck } from "react-icons/fa6";
 import { listImballaggiVociAction } from "@/app/actions/imballaggi-spedizioni";
 import {
@@ -25,10 +24,6 @@ import {
   SpedizioneMailPanel,
   type SpedizioneMailBozza,
 } from "@/components/amministrazione/SpedizioneMailPanel";
-import {
-  GruppoScalettaPicker,
-  type GruppoScalettaScelta,
-} from "@/components/amministrazione/GruppoScalettaPicker";
 import { anagraficaMailDi } from "@/components/amministrazione/SpedizioneDestinatarioMailField";
 import { InfoSezione } from "@/components/ui/InfoSezione";
 import {
@@ -106,13 +101,6 @@ export function ProcessaCampionaturaProduzioneModal({
   const [invioMail, setInvioMail] = useState(false);
   const [chiusuraPronta, setChiusuraPronta] = useState(false);
   const mailBozza = useRef<SpedizioneMailBozza | null>(null);
-  const gruppiRef = useRef<GruppoScalettaScelta>({
-    processo: [],
-    colli: [],
-    spedizioneAttiva: false,
-    mailGiaInviata: false,
-    trackingUrl: "",
-  });
   const [error, setError] = useState<string | null>(null);
   const [giacenze, setGiacenze] = useState<GiacenzaRiga[]>([]);
   const [lotti, setLotti] = useState<LottoInserimentoOption[]>([]);
@@ -369,11 +357,8 @@ export function ProcessaCampionaturaProduzioneModal({
       return;
     }
     const bozza = mailBozza.current;
-    const gruppi = gruppiRef.current;
     const deveInviare = Boolean(
-      bozza?.allegaTracking &&
-        !bozza.mailGiaInviata &&
-        !gruppi.mailGiaInviata
+      bozza?.allegaTracking && !bozza.mailGiaInviata
     );
     if (deveInviare && !bozza?.trackingUrl.trim()) {
       setError(
@@ -395,7 +380,7 @@ export function ProcessaCampionaturaProduzioneModal({
         const salvata = await upsertPrenotazioneSpedizioneMailAction({
           entityType: "campionatura",
           entityId: item.id,
-          trackingUrl: bozza.trackingUrl || gruppi.trackingUrl,
+          trackingUrl: bozza.trackingUrl,
           letteraViaPath: bozza.letteraViaPath,
           letteraViaName: bozza.letteraViaName,
           allegati: bozza.allegati,
@@ -471,27 +456,8 @@ export function ProcessaCampionaturaProduzioneModal({
         setError(res.error);
         return;
       }
-      const gruppiSalvati = await salvaGruppiScalettaAction({
-        principale: { entityType: "campionatura", entityId: item.id },
-        processo: gruppi.processo,
-        colli: gruppi.spedizioneAttiva ? gruppi.colli : [],
-        trackingUrl: bozza?.trackingUrl || gruppi.trackingUrl,
-        mailInviata: deveInviare || gruppi.mailGiaInviata,
-        parametriOrdine: {
-          giorniProduzione: [],
-          giorniAttivita: [],
-          dataConsegnaCalendario: dataLavorazione,
-          usaMagazzino: true,
-          approvvigionamento: "magazzino",
-          usaSabato: false,
-          urgente: false,
-        },
-      });
       onSaved(res.item);
-      const dettaglio = gruppiSalvati.success ? gruppiSalvati.avviso : gruppiSalvati.error;
-      const query = new URLSearchParams({ avviso: "scaletta" });
-      if (dettaglio) query.set("dettaglio", dettaglio.slice(0, 500));
-      router.push(`/app/produzione/ordini/scaletta?${query.toString()}`);
+      router.push("/app/produzione/ordini/scaletta?avviso=scaletta");
     } finally {
       setSaving(false);
     }
@@ -1064,28 +1030,8 @@ export function ProcessaCampionaturaProduzioneModal({
               onDraftChange={(d) => {
                 mailBozza.current = d;
                 setSedePartenzaId(d.sedePartenzaId);
-                setInvioMail(
-                  d.allegaTracking &&
-                    !d.mailGiaInviata &&
-                    !gruppiRef.current.mailGiaInviata
-                );
+                setInvioMail(d.allegaTracking && !d.mailGiaInviata);
                 setChiusuraPronta(d.bozzaPronta);
-              }}
-            />
-            <GruppoScalettaPicker
-              entityType="campionatura"
-              entityId={item.id}
-              numero={item.numeroInterno}
-              onChange={(scelta) => {
-                gruppiRef.current = scelta;
-                const bozza = mailBozza.current;
-                if (bozza) {
-                  setInvioMail(
-                    bozza.allegaTracking &&
-                      !bozza.mailGiaInviata &&
-                      !scelta.mailGiaInviata
-                  );
-                }
               }}
             />
           </div>

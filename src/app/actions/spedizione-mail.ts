@@ -560,6 +560,33 @@ async function documentoInCodaDaProcessare(
   return stato === "in_attesa" || stato === "ricevuto" || stato === "sospeso";
 }
 
+async function spedizioneUnicaMailInAttesa(
+  entityType: "campionatura" | "ordine",
+  entityId: string
+): Promise<boolean> {
+  const service = createServiceClient();
+  const { data: contenuti } = await service
+    .from("spedizioni_gruppi_contenuti")
+    .select("gruppo_id")
+    .eq("entity_type", entityType)
+    .eq("entity_id", entityId)
+    .is("deleted_at", null);
+  const ids = (contenuti ?? []).map((row) =>
+    String((row as { gruppo_id: string }).gruppo_id)
+  );
+  if (ids.length === 0) return false;
+  const { data } = await service
+    .from("spedizioni_gruppi")
+    .select("id")
+    .in("id", ids)
+    .eq("unica_mail", true)
+    .is("mail_inviata_at", null)
+    .in("stato", ["bozza", "pronta"])
+    .is("deleted_at", null)
+    .limit(1);
+  return (data ?? []).length > 0;
+}
+
 export async function inviaMailSpedizioneAction(
   raw: unknown
 ): Promise<{ success: true } | { success: false; error: string }> {
@@ -585,7 +612,8 @@ export async function inviaMailSpedizioneAction(
   const item = mapSpedizioneMailRow(pren as Record<string, unknown>);
   const invioReale =
     d.produzioneReale === true &&
-    (await documentoInCodaDaProcessare(item.entityType, item.entityId));
+    ((await documentoInCodaDaProcessare(item.entityType, item.entityId)) ||
+      (await spedizioneUnicaMailInAttesa(item.entityType, item.entityId)));
   if (
     FASE_TEST_INVIO &&
     !invioReale &&
