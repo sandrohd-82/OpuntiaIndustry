@@ -7,6 +7,7 @@ import {
   bachecheTrelloAction,
   importaBachecaTrelloAction,
   listeTrelloAction,
+  scollegaTrelloAction,
   statoTrelloAction,
 } from "@/app/actions/trello-utente";
 import { TrelloConnectCard } from "@/components/kanban/TrelloConnectCard";
@@ -58,6 +59,20 @@ export function TrelloUserImportModal({ onClose }: { onClose: () => void }) {
       setScelte(res.liste.map((lista) => lista.id));
     });
   }, [boardId]);
+
+  async function ricomincia() {
+    setErrore(null);
+    const res = await scollegaTrelloAction();
+    if (!res.success) {
+      setErrore(res.error);
+      return;
+    }
+    setCollegato(false);
+    setBacheche([]);
+    setBoardId("");
+    setListe([]);
+    setScelte([]);
+  }
 
   async function importa() {
     if (!boardId || invio) return;
@@ -140,7 +155,16 @@ export function TrelloUserImportModal({ onClose }: { onClose: () => void }) {
           </div>
         ) : null}
         {errore ? <p className="mt-3 text-sm text-red-700">{errore}</p> : null}
-        <div className="mt-5 flex justify-end gap-2">
+        <div className="mt-5 flex flex-wrap items-center justify-end gap-2">
+          {collegato ? (
+            <button
+              type="button"
+              onClick={() => void ricomincia()}
+              className="mr-auto rounded-lg border border-slate-300 px-3 py-1.5 text-sm"
+            >
+              Elimina il collegamento e ricomincia
+            </button>
+          ) : null}
           <button
             type="button"
             onClick={onClose}

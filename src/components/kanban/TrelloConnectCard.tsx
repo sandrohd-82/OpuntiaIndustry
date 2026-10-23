@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   scollegaTrelloAction,
   statoTrelloAction,
@@ -13,6 +13,8 @@ export function TrelloConnectCard({ onChanged }: { onChanged?: () => void }) {
   const [avatarUrl, setAvatarUrl] = useState("");
   const [errore, setErrore] = useState<string | null>(null);
   const [attesa, setAttesa] = useState(false);
+  const popupRef = useRef<Window | null>(null);
+  const provaAnnullata = useRef(false);
 
   async function ricarica() {
     const res = await statoTrelloAction();
@@ -34,10 +36,21 @@ export function TrelloConnectCard({ onChanged }: { onChanged?: () => void }) {
 
   useEffect(() => {
     if (!attesa) return;
+    const timer = window.setInterval(() => {
+      if (provaAnnullata.current || !popupRef.current?.closed) return;
+      popupRef.current = null;
+      setAttesa(false);
+      void ricarica();
+    }, 400);
+    return () => window.clearInterval(timer);
+  }, [attesa]);
+
+  useEffect(() => {
+    if (!attesa) return;
     function onMessage(event: MessageEvent) {
       if (event.origin !== window.location.origin) return;
       const data = event.data as { tipo?: string; errore?: string };
-      if (!data || data.tipo !== "trello-collegato") return;
+      if (!data || data.tipo !== "trello-collegato" || provaAnnullata.current) return;
       setAttesa(false);
       if (data.errore) {
         setErrore(data.errore);
@@ -51,6 +64,7 @@ export function TrelloConnectCard({ onChanged }: { onChanged?: () => void }) {
   }, [attesa]);
 
   async function collega() {
+    provaAnnullata.current = false;
     setErrore(null);
     const res = await urlCollegamentoTrelloAction(window.location.origin);
     if (!res.success) {
@@ -62,7 +76,25 @@ export function TrelloConnectCard({ onChanged }: { onChanged?: () => void }) {
       setErrore("Il browser ha bloccato la finestra di Trello.");
       return;
     }
+    popupRef.current = popup;
     setAttesa(true);
+  }
+
+  async function annullaProva() {
+    provaAnnullata.current = true;
+    popupRef.current?.close();
+    popupRef.current = null;
+    setAttesa(false);
+    const res = await scollegaTrelloAction();
+    if (!res.success) {
+      setErrore(res.error);
+      return;
+    }
+    setErrore(null);
+    setCollegato(false);
+    setUsername("");
+    setAvatarUrl("");
+    onChanged?.();
   }
 
   return (
@@ -83,20 +115,9 @@ export function TrelloConnectCard({ onChanged }: { onChanged?: () => void }) {
           <button
             type="button"
             className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm"
-            onClick={() => {
-              void scollegaTrelloAction().then((res) => {
-                if (!res.success) {
-                  setErrore(res.error);
-                  return;
-                }
-                setCollegato(false);
-                setUsername("");
-                setAvatarUrl("");
-                onChanged?.();
-              });
-            }}
+            onClick={() => void annullaProva()}
           >
-            Scollega
+            {errore ? "Elimina il collegamento e ricomincia" : "Scollega"}
           </button>
         </div>
       ) : (
@@ -104,17 +125,33 @@ export function TrelloConnectCard({ onChanged }: { onChanged?: () => void }) {
           <p className="text-sm text-slate-600">
             Collega il tuo account Trello per importare le bacheche a cui hai accesso.
           </p>
-          <button
-            type="button"
-            disabled={attesa}
-            onClick={() => void collega()}
-            className="rounded-lg bg-[var(--primary)] px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
-          >
-            {attesa ? "In attesa di Trello…" : "Collega il tuo Account Trello"}
-          </button>
+          <div className="flex flex-wrap gap-2">
+            {attesa || errore ? (
+              <button
+                type="button"
+                onClick={() => void annullaProva()}
+                className="rounded-lg border border-slate-300 px-3 py-2 text-sm"
+              >
+                Elimina la prova e ricomincia
+              </button>
+            ) : null}
+            <button
+              type="button"
+              disabled={attesa}
+              onClick={() => void collega()}
+              className="rounded-lg bg-[var(--primary)] px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
+            >
+              {attesa ? "In attesa di Trello…" : "Collega il tuo Account Trello"}
+            </button>
+          </div>
         </div>
       )}
       {errore ? <p className="mt-2 text-sm text-red-700">{errore}</p> : null}
+      {attesa ? (
+        <p className="mt-2 text-sm text-slate-600">
+          Se Trello segnala un errore, elimina la prova e ripeti il collegamento.
+        </p>
+      ) : null}
     </section>
   );
 }

@@ -184,8 +184,10 @@ export async function scollegaTrelloAction(): Promise<
       deleted_by: auth.userId,
       updated_by: auth.userId,
     })
-    .eq("user_id", auth.userId);
+    .eq("user_id", auth.userId)
+    .select("user_id");
   if (aggiornato.error) return { success: false, error: aggiornato.error.message };
+  if (!aggiornato.data?.length) return { success: true };
   await writeAuditLog({
     entity_type: "user_trello_credentials",
     entity_id: auth.userId,
