@@ -3,16 +3,14 @@
 import { passaCampionaturaInScalettaAction } from "@/app/actions/campionature";
 import { processOrdineInScalettaAction } from "@/app/actions/ordini";
 import {
+  casellaMittenteCommercialeAction,
+  getClienteEmailSpedizioneAction,
   inviaMailSpedizioneAction,
-  listCaselleSpedizioneMailAction,
   upsertPrenotazioneSpedizioneMailAction,
 } from "@/app/actions/spedizione-mail";
 import { writeAuditLog } from "@/lib/audit";
 import { requireOrdineProcessAccess } from "@/lib/auth/ordini-access";
-import {
-  EMAIL_CONTROLLO_DEFAULT,
-  oggiRoma,
-} from "@/lib/amministrazione/prova-ordine";
+import { oggiRoma } from "@/lib/amministrazione/prova-ordine";
 import { createServiceClient } from "@/lib/supabase/server";
 import { z } from "zod";
 
@@ -784,6 +782,10 @@ const raggruppaSchema = z.object({
   unicoPacco: z.boolean(),
   unicaMail: z.boolean(),
   trackingUrl: z.string().trim().max(2000).optional().default(""),
+  destinatarioEmail: z.string().trim().max(200).optional().default(""),
+  accountId: z.string().trim().max(80).optional().default(""),
+  oggetto: z.string().trim().max(240).optional().default(""),
+  corpo: z.string().trim().max(20000).optional().default(""),
   campionature: z
     .array(
       z.object({
@@ -813,29 +815,67 @@ export type DocumentoRaggruppo = {
   righe: RigaRaggruppo[];
 };
 
-async function emailCliente(ref: RiferimentoDocumento): Promise<string> {
+async function clienteDelDocumento(
+  ref: RiferimentoDocumento
+): Promise<string> {
   const service = createServiceClient();
   const table = ref.entityType === "ordine" ? "ordini" : "campionature";
-  const colonna =
-    ref.entityType === "ordine" ? "cliente_id" : "cliente_id";
   const { data } = await service
     .from(table)
-    .select(colonna)
+    .select("cliente_id")
     .eq("id", ref.entityId)
     .maybeSingle();
-  const clienteId = String(
+  return String(
     (data as { cliente_id?: string | null } | null)?.cliente_id ?? ""
   );
-  if (!clienteId) return "";
-  const { data: cliente } = await service
-    .from("clienti")
-    .select("email")
-    .eq("id", clienteId)
-    .maybeSingle();
-  const email = String((cliente as { email?: string | null } | null)?.email ?? "")
-    .trim();
-  if (email.toLowerCase() === EMAIL_CONTROLLO_DEFAULT.toLowerCase()) return "";
-  return email;
+}
+
+export type ContestoMailUnica = {
+  email: string;
+  clienteId: string;
+  accountId: string;
+  destinatario: string;
+  numeri: string[];
+};
+
+export async function contestoMailUnicaAction(
+  refs: RiferimentoDocumento[]
+): Promise<
+  { success: true; contesto: ContestoMailUnica } | { success: false; error: string }
+> {
+  await requireOrdineProcessAccess();
+  const unici = dedupe(refs).slice(0, 30);
+  const numeri: string[] = [];
+  let destinatario = "";
+  let clienteId = "";
+  let ancora: RiferimentoDocumento | null = null;
+  for (const ref of unici) {
+    const doc = await leggiDocumento(ref);
+    if (!doc) continue;
+    numeri.push(doc.numero);
+    if (!destinatario) destinatario = doc.destinatario || doc.cliente;
+    if (!ancora) ancora = ref;
+    if (!clienteId) clienteId = await clienteDelDocumento(ref);
+  }
+  const email = clienteId
+    ? await getClienteEmailSpedizioneAction(clienteId)
+    : { success: true as const, email: "" };
+  const casella = ancora
+    ? await casellaMittenteCommercialeAction({
+        entityType: ancora.entityType,
+        entityId: ancora.entityId,
+      })
+    : { success: true as const, accountId: null };
+  return {
+    success: true,
+    contesto: {
+      email: email.success ? email.email : "",
+      clienteId,
+      accountId: casella.success ? casella.accountId ?? "" : "",
+      destinatario,
+      numeri,
+    },
+  };
 }
 
 async function processaCampionaturaInGruppo(input: {
@@ -1021,6 +1061,198 @@ export async function elencoRaggruppoScalettaAction(): Promise<
   };
 }
 
+async function spedisciMailUnica(input: {
+  gruppoId: string;
+  ancora: RiferimentoDocumento;
+  email: string;
+  accountId: string;
+  oggetto: string;
+  corpo: string;
+  trackingUrl: string;
+  userId: string;
+}): Promise<{ success: true } | { success: false; error: string }> {
+  const salvata = await upsertPrenotazioneSpedizioneMailAction({
+    entityType: input.ancora.entityType,
+    entityId: input.ancora.entityId,
+    trackingUrl: input.trackingUrl,
+    letteraViaPath: "",
+    letteraViaName: "",
+    allegati: [],
+    allegaTracking: true,
+    allegaLettera: false,
+    allegaFile: false,
+    destinatarioEmail: input.email,
+    oggetto: input.oggetto,
+    corpo: input.corpo,
+    accountId: input.accountId,
+    modo: "salva",
+    soloTracking: false,
+  });
+  if (!salvata.success) return salvata;
+  const inviata = await inviaMailSpedizioneAction({
+    prenotazioneId: salvata.item.id,
+    accountId: salvata.item.accountId || input.accountId,
+    to: input.email,
+    subject: salvata.item.oggetto || input.oggetto,
+    bodyText: salvata.item.corpo || input.corpo,
+    produzioneReale: true,
+  });
+  if (!inviata.success) return inviata;
+  const service = createServiceClient();
+  const { error } = await service
+    .from("spedizioni_gruppi")
+    .update({
+      mail_inviata_at: new Date().toISOString(),
+      tracking_url: input.trackingUrl,
+      stato: "pronta",
+      documento_stato: "approvato",
+      updated_by: input.userId,
+    })
+    .eq("id", input.gruppoId);
+  if (error) return { success: false, error: error.message };
+  await writeAuditLog({
+    entity_type: "spedizioni_gruppi",
+    entity_id: input.gruppoId,
+    action: "status_change",
+    actor_id: input.userId,
+    summary: `Mail unica inviata a ${input.email}`,
+    payload: { destinatario: input.email, tracking: Boolean(input.trackingUrl) },
+  });
+  return { success: true };
+}
+
+export type MailUnicaInAttesa = {
+  id: string;
+  numero: string;
+  destinatario: string;
+  trackingUrl: string;
+  documenti: string[];
+  email: string;
+  clienteId: string;
+  accountId: string;
+  ancora: RiferimentoDocumento;
+};
+
+export async function elencoMailUnicheInAttesaAction(): Promise<
+  { success: true; gruppi: MailUnicaInAttesa[] } | { success: false; error: string }
+> {
+  await requireOrdineProcessAccess();
+  const service = createServiceClient();
+  const { data, error } = await service
+    .from("spedizioni_gruppi")
+    .select("id, numero, destinatario, tracking_url")
+    .eq("unica_mail", true)
+    .is("mail_inviata_at", null)
+    .in("stato", ["bozza", "pronta"])
+    .is("deleted_at", null)
+    .order("created_at", { ascending: false })
+    .limit(20);
+  if (error) return { success: false, error: error.message };
+  const gruppi: MailUnicaInAttesa[] = [];
+  for (const row of data ?? []) {
+    const gruppo = row as {
+      id: string;
+      numero: string;
+      destinatario: string | null;
+      tracking_url: string | null;
+    };
+    const { data: contenuti } = await service
+      .from("spedizioni_gruppi_contenuti")
+      .select("entity_type, entity_id")
+      .eq("gruppo_id", gruppo.id)
+      .is("deleted_at", null);
+    const refs = dedupe(
+      (contenuti ?? []).map((item) => ({
+        entityType: (item as { entity_type: "ordine" | "campionatura" }).entity_type,
+        entityId: String((item as { entity_id: string }).entity_id),
+      }))
+    );
+    const contesto = await contestoMailUnicaAction(refs);
+    gruppi.push({
+      id: gruppo.id,
+      numero: gruppo.numero,
+      destinatario: String(gruppo.destinatario ?? ""),
+      trackingUrl: String(gruppo.tracking_url ?? ""),
+      documenti: contesto.success ? contesto.contesto.numeri : [],
+      email: contesto.success ? contesto.contesto.email : "",
+      clienteId: contesto.success ? contesto.contesto.clienteId : "",
+      accountId: contesto.success ? contesto.contesto.accountId : "",
+      ancora: refs[0] ?? { entityType: "campionatura", entityId: gruppo.id },
+    });
+  }
+  return { success: true, gruppi };
+}
+
+const inviaMailUnicaSchema = z.object({
+  gruppoId: z.string().uuid(),
+  destinatarioEmail: z.string().trim().email("Email destinatario non valida"),
+  accountId: z.string().uuid(),
+  oggetto: z.string().trim().min(1).max(240),
+  corpo: z.string().trim().min(1).max(20000),
+  trackingUrl: z.string().trim().min(1).max(2000),
+});
+
+export async function inviaMailUnicaGruppoAction(
+  raw: unknown
+): Promise<{ success: true; avviso: string } | { success: false; error: string }> {
+  const { auth } = await requireOrdineProcessAccess();
+  const parsed = inviaMailUnicaSchema.safeParse(raw);
+  if (!parsed.success) {
+    return {
+      success: false,
+      error: parsed.error.issues[0]?.message ?? "Dati mail non validi.",
+    };
+  }
+  const input = parsed.data;
+  const service = createServiceClient();
+  const { data, error } = await service
+    .from("spedizioni_gruppi")
+    .select("id, numero, unica_mail, mail_inviata_at, stato")
+    .eq("id", input.gruppoId)
+    .is("deleted_at", null)
+    .maybeSingle();
+  if (error || !data) {
+    return { success: false, error: error?.message ?? "Spedizione non trovata." };
+  }
+  const gruppo = data as {
+    numero: string;
+    unica_mail: boolean;
+    mail_inviata_at: string | null;
+    stato: string;
+  };
+  if (!gruppo.unica_mail) {
+    return { success: false, error: "Questa spedizione non prevede una mail unica." };
+  }
+  if (gruppo.mail_inviata_at) {
+    return { success: false, error: "La mail unica è già partita." };
+  }
+  const { data: contenuti } = await service
+    .from("spedizioni_gruppi_contenuti")
+    .select("entity_type, entity_id")
+    .eq("gruppo_id", input.gruppoId)
+    .is("deleted_at", null)
+    .limit(1);
+  const prima = (contenuti ?? [])[0] as
+    | { entity_type: "ordine" | "campionatura"; entity_id: string }
+    | undefined;
+  if (!prima) return { success: false, error: "La spedizione non ha documenti." };
+  const esito = await spedisciMailUnica({
+    gruppoId: input.gruppoId,
+    ancora: { entityType: prima.entity_type, entityId: prima.entity_id },
+    email: input.destinatarioEmail,
+    accountId: input.accountId,
+    oggetto: input.oggetto,
+    corpo: input.corpo,
+    trackingUrl: input.trackingUrl,
+    userId: auth.userId,
+  });
+  if (!esito.success) return esito;
+  return {
+    success: true,
+    avviso: `Mail di ${gruppo.numero} inviata a ${input.destinatarioEmail}.`,
+  };
+}
+
 export async function raggruppaEProcessaAction(
   raw: unknown
 ): Promise<{ success: true; avviso: string } | { success: false; error: string }> {
@@ -1046,6 +1278,24 @@ export async function raggruppaEProcessaAction(
     return {
       success: false,
       error: "Con la mail unica serve il link di tracking.",
+    };
+  }
+  if (input.unicaMail && !input.destinatarioEmail.includes("@")) {
+    return {
+      success: false,
+      error: "Indica l'indirizzo a cui inviare la mail unica.",
+    };
+  }
+  if (input.unicaMail && !z.string().uuid().safeParse(input.accountId).success) {
+    return {
+      success: false,
+      error: "Seleziona la casella da cui parte la mail unica.",
+    };
+  }
+  if (input.unicaMail && (!input.oggetto || !input.corpo)) {
+    return {
+      success: false,
+      error: "Compila oggetto e testo della mail unica.",
     };
   }
   const note: string[] = [];
@@ -1273,63 +1523,18 @@ export async function raggruppaEProcessaAction(
     if (spedizioneEsistente?.mailInviata) {
       note.push("La mail unica di questa spedizione era già partita.");
     } else {
-      const email = await emailCliente(ancora);
-      const caselle = await listCaselleSpedizioneMailAction();
-      const accountId = caselle.success ? caselle.accounts[0]?.id ?? "" : "";
-      if (!email || !accountId) {
-        note.push(
-          "Mail unica non partita: manca l'indirizzo del cliente o una casella mittente."
-        );
-      } else {
-        const numeri = [];
-        for (const ref of unici) {
-          const doc = await leggiDocumento(ref);
-          if (doc) numeri.push(doc.numero);
-        }
-        const corpo = `Spedizione ${numeroSpedizione} per ${ancoraDoc.destinatario || ancoraDoc.cliente}.\nDocumenti: ${numeri.join(", ")}.`;
-        const salvata = await upsertPrenotazioneSpedizioneMailAction({
-          entityType: ancora.entityType,
-          entityId: ancora.entityId,
-          trackingUrl: input.trackingUrl.trim(),
-          letteraViaPath: "",
-          letteraViaName: "",
-          allegati: [],
-          allegaTracking: true,
-          allegaLettera: false,
-          allegaFile: false,
-          destinatarioEmail: email,
-          oggetto: `Spedizione ${numeroSpedizione}`,
-          corpo,
-          accountId,
-          modo: "salva",
-          soloTracking: false,
-        });
-        if (!salvata.success) note.push(salvata.error);
-        else {
-          const inviata = await inviaMailSpedizioneAction({
-            prenotazioneId: salvata.item.id,
-            accountId: salvata.item.accountId || accountId,
-            to: email,
-            subject: salvata.item.oggetto || `Spedizione ${numeroSpedizione}`,
-            bodyText: salvata.item.corpo || corpo,
-            produzioneReale: true,
-          });
-          if (!inviata.success) note.push(inviata.error);
-          else {
-            await service
-              .from("spedizioni_gruppi")
-              .update({
-                mail_inviata_at: new Date().toISOString(),
-                tracking_url: input.trackingUrl.trim(),
-                stato: "pronta",
-                documento_stato: "approvato",
-                updated_by: auth.userId,
-              })
-              .eq("id", gruppoSpedizioneId);
-            note.unshift(`Una sola mail con il tracking è partita a ${email}.`);
-          }
-        }
-      }
+      const esitoMail = await spedisciMailUnica({
+        gruppoId: gruppoSpedizioneId,
+        ancora,
+        email: input.destinatarioEmail,
+        accountId: input.accountId,
+        oggetto: input.oggetto,
+        corpo: input.corpo,
+        trackingUrl: input.trackingUrl.trim(),
+        userId: auth.userId,
+      });
+      if (!esitoMail.success) note.push(`Mail unica non partita: ${esitoMail.error}`);
+      else note.unshift(`Una sola mail con il tracking è partita a ${input.destinatarioEmail}.`);
     }
   } else if (!input.unicaMail) {
     note.push("Ogni documento tiene la propria mail.");

@@ -2,6 +2,7 @@
 
 import { useEffect, useId, useMemo, useState } from "react";
 import {
+  contestoMailUnicaAction,
   dettaglioCampionatureRaggruppoAction,
   elencoRaggruppoScalettaAction,
   raggruppaEProcessaAction,
@@ -9,7 +10,9 @@ import {
   type DocumentoRaggruppo,
   type RiferimentoDocumento,
 } from "@/app/actions/gruppi-scaletta";
+import { listCaselleSpedizioneMailAction } from "@/app/actions/spedizione-mail";
 import { listLottiMagazzinoInserimentoAction, listProcessiInserimentoProduzioneAction } from "@/app/actions/lotto-produzione-magazzino";
+import { CampiMailUnica } from "@/components/amministrazione/MailUnicaInAttesaBanner";
 import type {
   LottoInserimentoOption,
   ProcessoInserimentoOption,
@@ -64,6 +67,14 @@ export function RaggruppaDocumentiModal({ onClose, onDone }: Props) {
   const [datePerDoc, setDatePerDoc] = useState<
     Record<string, { lavorazione: string; confezionamento: string }>
   >({});
+  const [caselle, setCaselle] = useState<
+    Array<{ id: string; label: string; email: string }>
+  >([]);
+  const [mailEmail, setMailEmail] = useState("");
+  const [mailClienteId, setMailClienteId] = useState("");
+  const [mailAccountId, setMailAccountId] = useState("");
+  const [mailOggetto, setMailOggetto] = useState("");
+  const [mailCorpo, setMailCorpo] = useState("");
 
   useEffect(() => {
     void elencoRaggruppoScalettaAction().then((res) => {
@@ -75,6 +86,40 @@ export function RaggruppaDocumentiModal({ onClose, onDone }: Props) {
       setGiaProcessati(res.giaProcessati);
     });
   }, []);
+
+  useEffect(() => {
+    if (fase !== "chiusura" || !unicaMail) return;
+    const selezionati = scelti
+      .map((key) => coda.find((item) => chiave(item) === key))
+      .filter((item): item is CandidatoRaggruppamento => Boolean(item));
+    const gia = giaProcessati.find((item) => chiave(item) === giaId);
+    const refs = [
+      ...selezionati.map((item) => ({
+        entityType: item.entityType,
+        entityId: item.entityId,
+      })),
+      ...(gia ? [{ entityType: gia.entityType, entityId: gia.entityId }] : []),
+    ];
+    void Promise.all([
+      listCaselleSpedizioneMailAction(),
+      contestoMailUnicaAction(refs),
+    ]).then(([caselleRes, contestoRes]) => {
+      if (caselleRes.success) setCaselle(caselleRes.accounts);
+      if (!contestoRes.success) return;
+      const ctx = contestoRes.contesto;
+      setMailEmail((prev) => prev || ctx.email);
+      setMailClienteId(ctx.clienteId);
+      setMailAccountId((prev) => prev || ctx.accountId);
+      const nome = ctx.destinatario || "Cliente";
+      const documenti = ctx.numeri.join(", ");
+      setMailOggetto((prev) => prev || "Spedizione campionature");
+      setMailCorpo(
+        (prev) =>
+          prev ||
+          `Gentile ${nome},\n\nla spedizione è in partenza.\nDocumenti: ${documenti}.\n\nCordiali saluti,\nUfficio Commerciale`
+      );
+    });
+  }, [fase, unicaMail, scelti, coda, giaProcessati, giaId]);
 
   const lottoByKey = useMemo(() => {
     const map = new Map<string, LottoInserimentoOption>();
@@ -243,6 +288,18 @@ export function RaggruppaDocumentiModal({ onClose, onDone }: Props) {
       setErrore("Con la mail unica inserisci il link di tracking.");
       return;
     }
+    if (unicaMail && !mailEmail.includes("@")) {
+      setErrore("Indica l'indirizzo a cui inviare la mail unica.");
+      return;
+    }
+    if (unicaMail && !mailAccountId) {
+      setErrore("Seleziona la casella da cui parte la mail unica.");
+      return;
+    }
+    if (unicaMail && (!mailOggetto.trim() || !mailCorpo.trim())) {
+      setErrore("Compila oggetto e testo della mail unica.");
+      return;
+    }
     const selezionati = documentiSelezionati();
     const gia = giaProcessati.find((item) => chiave(item) === giaId);
     const oggi = oggiISO();
@@ -281,6 +338,10 @@ export function RaggruppaDocumentiModal({ onClose, onDone }: Props) {
         unicoPacco,
         unicaMail,
         trackingUrl,
+        destinatarioEmail: unicaMail ? mailEmail : "",
+        accountId: unicaMail ? mailAccountId : "",
+        oggetto: unicaMail ? mailOggetto : "",
+        corpo: unicaMail ? mailCorpo : "",
         campionature,
       });
       if (!res.success) {
@@ -552,18 +613,32 @@ export function RaggruppaDocumentiModal({ onClose, onDone }: Props) {
                 No, ogni documento tiene la propria mail
               </label>
               {unicaMail ? (
-                <label className="block">
-                  <span className="mb-1 block text-xs font-medium">
-                    Link di tracking
-                  </span>
-                  <input
-                    type="url"
-                    value={trackingUrl}
-                    onChange={(e) => setTrackingUrl(e.target.value)}
-                    placeholder="https://"
-                    className="w-full rounded-lg border border-[var(--border)] px-3 py-2 text-sm"
+                <div className="space-y-3 pt-1">
+                  <label className="block">
+                    <span className="mb-1 block text-xs font-medium">
+                      Link di tracking
+                    </span>
+                    <input
+                      type="url"
+                      value={trackingUrl}
+                      onChange={(e) => setTrackingUrl(e.target.value)}
+                      placeholder="https://"
+                      className="w-full rounded-lg border border-[var(--border)] px-3 py-2 text-sm"
+                    />
+                  </label>
+                  <CampiMailUnica
+                    email={mailEmail}
+                    onEmail={setMailEmail}
+                    clienteId={mailClienteId}
+                    accountId={mailAccountId}
+                    onAccount={setMailAccountId}
+                    accounts={caselle}
+                    oggetto={mailOggetto}
+                    onOggetto={setMailOggetto}
+                    corpo={mailCorpo}
+                    onCorpo={setMailCorpo}
                   />
-                </label>
+                </div>
               ) : null}
             </fieldset>
             {vendita ? (

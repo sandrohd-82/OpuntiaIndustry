@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { countOrdiniDaProcessareAction } from "@/app/actions/ordini";
 import { CampionatureBoard } from "@/components/amministrazione/CampionatureBoard";
 import { OrdiniBoard } from "@/components/amministrazione/OrdiniBoard";
+import { MailUnicaInAttesaBanner } from "@/components/amministrazione/MailUnicaInAttesaBanner";
 import { RaggruppaDocumentiModal } from "@/components/amministrazione/RaggruppaDocumentiModal";
 import { OrdiniTipoSwitch } from "@/components/amministrazione/OrdiniTipoSwitch";
 import { ORDINI_STATI_DA_PROCESSARE } from "@/lib/amministrazione/ordini";
@@ -50,6 +51,9 @@ export function OrdiniDaProcessareBoard() {
           >
             Raggruppa
           </button>
+        </div>
+        <div className="mb-4">
+          <MailUnicaInAttesaBanner />
         </div>
         {avviso ? (
           <p className="mb-4 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-950">

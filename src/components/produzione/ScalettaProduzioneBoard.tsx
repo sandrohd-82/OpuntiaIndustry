@@ -21,6 +21,7 @@ import {
   type ScalettaVista,
 } from "@/lib/amministrazione/scaletta-produzione";
 import { addDays } from "@/lib/amministrazione/produzione-capacita";
+import { MailUnicaInAttesaBanner } from "@/components/amministrazione/MailUnicaInAttesaBanner";
 import { ScalettaImpegnoModal } from "@/components/produzione/ScalettaImpegnoModal";
 import { ScalettaTestElenco } from "@/components/produzione/ScalettaTestElenco";
 import {
@@ -273,6 +274,7 @@ export function ScalettaProduzioneBoard({
       <Suspense fallback={null}>
         <AvvisoPassaggioScaletta />
       </Suspense>
+      <MailUnicaInAttesaBanner />
       <p className="text-sm text-[var(--muted)]">
         {archivio
           ? "Archivio della scaletta: lavorazioni e confezionamenti già chiusi, nella stessa struttura del calendario operativo."
