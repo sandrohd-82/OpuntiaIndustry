@@ -22,10 +22,13 @@ export function DocumentazioneBancariaBoard({
   anno,
   trimestre,
   solaLettura = false,
+  soloCaricati = false,
 }: {
   anno: number;
   trimestre: TrimestreNumero;
   solaLettura?: boolean;
+  /** In elaborazione: solo i file già presenti, senza i posti vuoti. */
+  soloCaricati?: boolean;
 }) {
   const [voci, setVoci] = useState<VoceDocumentazioneBancaria[]>([]);
   const [errore, setErrore] = useState<string | null>(null);
@@ -144,7 +147,9 @@ export function DocumentazioneBancariaBoard({
     >
       <h2 className="text-sm font-semibold text-slate-900">Documentazione Bancaria</h2>
       <p className="mt-1 text-xs text-[var(--muted)]">
-        Documenti del trimestre selezionato. Il nome sotto ogni riga è quello con cui il file viene salvato.
+        {soloCaricati
+          ? "Documenti già caricati per questo trimestre."
+          : "Documenti del trimestre selezionato. Il nome sotto ogni riga è quello con cui il file viene salvato."}
       </p>
       {errore ? (
         <p className="mt-2 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">
@@ -164,6 +169,7 @@ export function DocumentazioneBancariaBoard({
               <ul className="mt-3 space-y-3">
                 {voci
                   .filter((voce) => voce.gruppo === gruppo.id)
+                  .filter((voce) => !soloCaricati || voce.caricato)
                   .map((voce) => {
                     const def = slotDocumentazioneBancaria(voce.slot);
                     let etichettaCarica = "Carica";
@@ -214,6 +220,12 @@ export function DocumentazioneBancariaBoard({
                       </li>
                     );
                   })}
+                {soloCaricati &&
+                !voci.some((voce) => voce.gruppo === gruppo.id && voce.caricato) ? (
+                  <li className="text-sm text-slate-600">
+                    Nessun documento caricato in questo trimestre.
+                  </li>
+                ) : null}
               </ul>
             </div>
           ))}

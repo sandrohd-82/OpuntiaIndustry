@@ -347,13 +347,6 @@ export function CommercialistaElaboraTrimestreModal({
                 );
               })}
 
-              {pagina ? (
-                <DocumentazioneBancariaBoard
-                  anno={anno}
-                  trimestre={trimestre}
-                  solaLettura
-                />
-              ) : null}
               <section className="space-y-2">
                 <h3 className="text-sm font-semibold text-slate-900">{NOME_RESOCONTO_COMPLETO}</h3>
                 {righeComplete.length === 0 ? (
@@ -438,6 +431,12 @@ export function CommercialistaElaboraTrimestreModal({
                   </div>
                 )}
               </section>
+              <DocumentazioneBancariaBoard
+                anno={anno}
+                trimestre={trimestre}
+                solaLettura
+                soloCaricati
+              />
             </div>
           )}
         </div>
