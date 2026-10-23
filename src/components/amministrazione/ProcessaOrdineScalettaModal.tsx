@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useId, useMemo, useState } from "react";
+import { useEffect, useId, useMemo, useRef, useState } from "react";
+import { salvaGruppiScalettaAction } from "@/app/actions/gruppi-scaletta";
 import { processOrdineInScalettaAction } from "@/app/actions/ordini";
 import { listAttivitaByProdottoAction } from "@/app/actions/attivita";
 import { anteprimaLottoProduzioneMagazzinoAction } from "@/app/actions/lotto-produzione-magazzino";
@@ -9,6 +10,10 @@ import {
   getGiacenzaProdottoAction,
 } from "@/app/actions/produzione-capacita";
 import { ConsegnaCalendarioModal } from "@/components/amministrazione/ConsegnaCalendarioModal";
+import {
+  GruppoScalettaPicker,
+  type GruppoScalettaScelta,
+} from "@/components/amministrazione/GruppoScalettaPicker";
 import {
   attivitaToOrdineDraft,
   type AttivitaOrdineDraft,
@@ -61,6 +66,13 @@ export function ProcessaOrdineScalettaModal({
   const [calcolo, setCalcolo] = useState<CapacitaCalcoloResult | null>(null);
   const [calcoloLoading, setCalcoloLoading] = useState(false);
   const [calendarioOpen, setCalendarioOpen] = useState(false);
+  const gruppiRef = useRef<GruppoScalettaScelta>({
+    processo: [],
+    colli: [],
+    spedizioneAttiva: false,
+    mailGiaInviata: false,
+    trackingUrl: "",
+  });
   const [usaSabato, setUsaSabato] = useState(ordine.usaSabato);
   const [fonte, setFonte] = useState<FonteApprovvigionamento>(
     isCamp || ordine.usaMagazzino ? "magazzino" : "lavorazione"
@@ -222,6 +234,34 @@ export function ProcessaOrdineScalettaModal({
     usaSabato,
   ]);
 
+  async function unisciGruppi(parametri: {
+    giorniProduzione: string[];
+    giorniAttivita: string[];
+    attivitaSnapshot: Array<{
+      attivitaId: string;
+      codice: string;
+      titolo: string;
+      dates: string[];
+    }>;
+    dataConsegnaCalendario: string;
+    usaMagazzino: boolean;
+    approvvigionamento: "magazzino" | "lavorazione";
+    usaSabato: boolean;
+    urgente: boolean;
+  }): Promise<string> {
+    const scelta = gruppiRef.current;
+    if (scelta.processo.length === 0 && !scelta.spedizioneAttiva) return "";
+    const res = await salvaGruppiScalettaAction({
+      principale: { entityType: "ordine", entityId: ordine.id },
+      processo: scelta.processo,
+      colli: scelta.spedizioneAttiva ? scelta.colli : [],
+      trackingUrl: scelta.trackingUrl,
+      mailInviata: scelta.mailGiaInviata,
+      parametriOrdine: parametri,
+    });
+    return res.success ? res.avviso : res.error;
+  }
+
   async function confirmCalendario(payload: {
     giorniProduzione: string[];
     giorniAttivita: string[];
@@ -254,7 +294,18 @@ export function ProcessaOrdineScalettaModal({
         return;
       }
       setAttivitaDrafts(payload.attivitaDrafts);
-      onSaved(result.ordine, result.avviso);
+      const avvisoGruppo = await unisciGruppi({
+        giorniProduzione: payload.giorniProduzione,
+        giorniAttivita: payload.giorniAttivita,
+        attivitaSnapshot: payload.segmentiAttivita,
+        dataConsegnaCalendario: payload.dataConsegna,
+        usaMagazzino,
+        approvvigionamento: fonte,
+        usaSabato,
+        urgente,
+      });
+      const avviso = [result.avviso, avvisoGruppo].filter(Boolean).join(" ");
+      onSaved(result.ordine, avviso || undefined);
     } catch (err) {
       setError(
         err instanceof Error ? err.message : "Salvataggio non riuscito. Riprova."
@@ -298,7 +349,18 @@ export function ProcessaOrdineScalettaModal({
         setError(result.error);
         return;
       }
-      onSaved(result.ordine, result.avviso);
+      const avvisoGruppo = await unisciGruppi({
+        giorniProduzione: [],
+        giorniAttivita: [],
+        attivitaSnapshot: [],
+        dataConsegnaCalendario: dataConsegna,
+        usaMagazzino: true,
+        approvvigionamento: "magazzino",
+        usaSabato: false,
+        urgente: isCamp ? false : urgente,
+      });
+      const avviso = [result.avviso, avvisoGruppo].filter(Boolean).join(" ");
+      onSaved(result.ordine, avviso || undefined);
     } catch (err) {
       setError(
         err instanceof Error ? err.message : "Salvataggio non riuscito. Riprova."
@@ -321,7 +383,7 @@ export function ProcessaOrdineScalettaModal({
         role="dialog"
         aria-modal="true"
         aria-labelledby={titleId}
-        className="w-full max-w-lg rounded-xl border border-[var(--border)] bg-[var(--card)] p-5 shadow-xl"
+        className="w-full max-w-2xl rounded-xl border border-[var(--border)] bg-[var(--card)] p-5 shadow-xl"
       >
         <h2 id={titleId} className="text-lg font-semibold">
           Inserisci in produzione
@@ -485,6 +547,15 @@ export function ProcessaOrdineScalettaModal({
             </div>
           </div>
         ) : null}
+
+        <GruppoScalettaPicker
+          entityType="ordine"
+          entityId={ordine.id}
+          numero={ordine.numeroInterno}
+          onChange={(scelta) => {
+            gruppiRef.current = scelta;
+          }}
+        />
 
         {error ? (
           <p className="mt-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">

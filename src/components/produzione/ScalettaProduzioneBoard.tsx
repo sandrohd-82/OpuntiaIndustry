@@ -80,7 +80,10 @@ function AvvisoPassaggioScaletta() {
   const [testo, setTesto] = useState<string | null>(null);
 
   useEffect(() => {
-    if (params.get("avviso") === "scaletta") {
+    const dettaglio = params.get("dettaglio");
+    if (dettaglio) {
+      setTesto(dettaglio);
+    } else if (params.get("avviso") === "scaletta") {
       setTesto("Ordine passato in scaletta");
     }
   }, [params]);
