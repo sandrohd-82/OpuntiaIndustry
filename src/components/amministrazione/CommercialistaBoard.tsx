@@ -18,6 +18,7 @@ import {
   upsertTrimestreCommercialistaAction,
   type CommercialistaSummaryResult,
 } from "@/app/actions/commercialista";
+import { DocumentazioneBancariaBoard } from "@/components/amministrazione/DocumentazioneBancariaBoard";
 import { CommercialistaElaboraFattureModal } from "@/components/amministrazione/CommercialistaElaboraFattureModal";
 import { CommercialistaElaboraTrimestreModal } from "@/components/amministrazione/CommercialistaElaboraTrimestreModal";
 import { CommercialistaStampaFattureModal } from "@/components/amministrazione/CommercialistaStampaFattureModal";
@@ -659,6 +660,12 @@ export function CommercialistaBoard({ ospite = false }: { ospite?: boolean }) {
           <p className="mt-1 text-xs text-slate-700">{exportMsg}</p>
         ) : null}
       </section>
+
+      <DocumentazioneBancariaBoard
+        anno={anno}
+        trimestre={trimestre}
+        solaLettura={ospite}
+      />
 
       {error ? (
         <p className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">

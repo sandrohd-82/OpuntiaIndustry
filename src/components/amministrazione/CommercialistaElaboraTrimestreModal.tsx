@@ -8,6 +8,8 @@ import {
   getCommercialistaPaperBatchAction,
   type CommercialistaPaperDoc,
 } from "@/app/actions/commercialista";
+import { fileDocumentazioneBancariaExportAction } from "@/app/actions/documentazione-bancaria";
+import { DocumentazioneBancariaBoard } from "@/components/amministrazione/DocumentazioneBancariaBoard";
 import { ElaborazioneRegistroTabella } from "@/components/amministrazione/ElaborazioneRegistroTabella";
 import type { CommercialistaRegistroKind } from "@/lib/amministrazione/commercialista";
 import {
@@ -20,6 +22,10 @@ import {
   buildResocontoCompletoXlsx,
 } from "@/lib/amministrazione/elaborazione-fatture-xlsx";
 import {
+  cartellaGruppoDocumentiBanca,
+  nomeCartellaDocumentiBanca,
+} from "@/lib/amministrazione/documentazione-bancaria";
+import {
   gruppiElaborazioneTrimestre,
   nomeCartellaConConteggio,
   nomeCartellaTrimestre,
@@ -31,6 +37,7 @@ import { formatEuro } from "@/lib/amministrazione/fatture";
 import {
   chiediCartellaScrittura,
   scriviFileInCartella,
+  type CartellaPdf,
 } from "@/lib/amministrazione/fattura-classica-pdf";
 import type { TrimestreNumero } from "@/lib/amministrazione/trimestre-commerciale";
 import { CommercialistaLinkOspite } from "@/components/amministrazione/CommercialistaLinkOspite";
@@ -177,16 +184,43 @@ export function CommercialistaElaboraTrimestreModal({
           documenti += docs.length;
         }
       }
+      const banca = await fileDocumentazioneBancariaExportAction({ anno, trimestre });
+      if (!banca.success) {
+        throw new Error(banca.error);
+      }
+      const cartellaBanca = await radice.getDirectoryHandle(
+        nomeCartellaDocumentiBanca(anno, trimestre),
+        { create: true }
+      );
+      const viste = new Map<string, CartellaPdf>();
+      for (const gruppo of ["estratto_conto", "prospetto_scalare"] as const) {
+        const nome = cartellaGruppoDocumentiBanca(gruppo);
+        viste.set(gruppo, await cartellaBanca.getDirectoryHandle(nome, { create: true }));
+      }
+      for (const file of banca.files) {
+        const dest = viste.get(file.gruppo);
+        if (!dest) continue;
+        const risposta = await fetch(file.url);
+        if (!risposta.ok) {
+          throw new Error(`Non riesco a copiare ${file.fileName}.`);
+        }
+        await scriviFileInCartella(dest, file.fileName, await risposta.blob());
+      }
       await auditCommercialistaTrimestreAction({
         anno,
         trimestre,
         documenti,
+        documentiBanca: banca.files.length,
         cartella: nomeCartella,
       });
+      const bancaTesto =
+        banca.files.length > 0
+          ? ` Documenti di banca copiati: ${banca.files.length}, in «${nomeCartellaDocumentiBanca(anno, trimestre)}».`
+          : ` Cartella «${nomeCartellaDocumentiBanca(anno, trimestre)}» creata, senza file di banca.`;
       setMsg(
         documenti > 0
-          ? `Cartella «${nomeCartella}» salvata: ${documenti} PDF. Ogni cartella di file ha il suo Excel. ${NOME_RESOCONTO_COMPLETO} è nella cartella madre. Il nome del file, o il numero dove la pagina non mostra il file, apre la fattura.`
-          : `Cartella «${nomeCartella}» salvata. Nessun documento: le cartelle di file sono a (0 file) e non ho scritto gli Excel.`
+          ? `Cartella «${nomeCartella}» salvata: ${documenti} PDF.${bancaTesto} Ogni cartella di file ha il suo Excel. ${NOME_RESOCONTO_COMPLETO} è nella cartella madre. Il nome del file, o il numero dove la pagina non mostra il file, apre la fattura.`
+          : `Cartella «${nomeCartella}» salvata.${bancaTesto} Nessun documento contabile: le cartelle di file sono a (0 file) e non ho scritto gli Excel.`
       );
     } catch (err) {
       setMsg(err instanceof Error ? err.message : "Non sono riuscito a salvare la cartella.");
@@ -313,6 +347,13 @@ export function CommercialistaElaboraTrimestreModal({
                 );
               })}
 
+              {pagina ? (
+                <DocumentazioneBancariaBoard
+                  anno={anno}
+                  trimestre={trimestre}
+                  solaLettura
+                />
+              ) : null}
               <section className="space-y-2">
                 <h3 className="text-sm font-semibold text-slate-900">{NOME_RESOCONTO_COMPLETO}</h3>
                 {righeComplete.length === 0 ? (

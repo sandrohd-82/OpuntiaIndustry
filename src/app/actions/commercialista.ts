@@ -2107,6 +2107,7 @@ export async function auditCommercialistaTrimestreAction(input: {
   anno: number;
   trimestre: TrimestreNumero;
   documenti: number;
+  documentiBanca?: number;
   cartella: string;
 }): Promise<{ success: true } | { success: false; error: string }> {
   const accesso = await requireCommercialistaLettura();
@@ -2127,16 +2128,18 @@ export async function auditCommercialistaTrimestreAction(input: {
     soloTrimestre: true,
   });
   const cartella = input.cartella.trim().slice(0, 120);
+  const documentiBanca = input.documentiBanca ?? 0;
   if (accesso.ospite && accesso.linkId) {
     await registraAuditOspite({
       entityId: accesso.linkId,
       action: "status_change",
-      summary: `Commercialista salva trimestre ${cartella} (${input.documenti} doc)`,
+      summary: `Commercialista salva trimestre ${cartella} (${input.documenti} doc, ${documentiBanca} banca)`,
       payload: {
         anno: parsed.data.anno,
         trimestre: parsed.data.trimestre,
         mode: "salva_trimestre",
         documenti: input.documenti,
+        documenti_banca: documentiBanca,
         cartella,
       },
     });
@@ -2147,12 +2150,13 @@ export async function auditCommercialistaTrimestreAction(input: {
     entity_id: `trimestre-${parsed.data.anno}-T${parsed.data.trimestre}`,
     action: "export",
     actor_id: accesso.userId,
-    summary: `Commercialista salva trimestre ${cartella} (${input.documenti} doc)`,
+    summary: `Commercialista salva trimestre ${cartella} (${input.documenti} doc, ${documentiBanca} banca)`,
     payload: {
       anno: parsed.data.anno,
       trimestre: parsed.data.trimestre,
       mode: "salva_trimestre",
       documenti: input.documenti,
+      documenti_banca: documentiBanca,
       cartella,
     },
   });
