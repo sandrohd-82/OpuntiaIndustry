@@ -59,6 +59,7 @@ import { getPreventivoProdottoContestoAction } from "@/app/actions/preventivi";
 import { elencoProfiliCalcoloSpedizioni } from "@/app/actions/ordine-calcolo-spedizione";
 import { risolviSpedizioneOrdineDiretto } from "@/lib/amministrazione/ordine-calcolo-spedizione";
 import { inviaFatturaSalvataAction } from "@/app/actions/fattura-da-ordine";
+import { rilasciaPrenotazioniOrdine } from "@/lib/amministrazione/prenotazione-ordine";
 import { notificaOrdineInCoda } from "@/lib/amministrazione/ordine-notifica-coda";
 import { isFatturaProva } from "@/lib/amministrazione/prova-ordine";
 import { dispatchNotifiche } from "@/lib/notifiche/dispatch";
@@ -969,6 +970,18 @@ export async function softDeleteOrdineAction(input: {
 
   if (error) return { success: false, error: error.message };
 
+  try {
+    await rilasciaPrenotazioniOrdine(input.id, auth.userId);
+  } catch (e) {
+    return {
+      success: false,
+      error:
+        e instanceof Error
+          ? `Ordine eliminato, ma la prenotazione del numero non è stata chiusa: ${e.message}`
+          : "Ordine eliminato, ma la prenotazione del numero non è stata chiusa.",
+    };
+  }
+
   await notificaOrdineInCoda({
     actorId: auth.userId,
     ordineId: input.id,
@@ -1078,6 +1091,7 @@ export async function listOrdineAuditLogAction(
  */
 async function scartaOrdineNonFinalizzato(ordineId: string): Promise<void> {
   const service = createServiceClient();
+  await rilasciaPrenotazioniOrdine(ordineId, null);
   const { data: conf } = await service
     .from("ordini_confezionamento")
     .select("id")

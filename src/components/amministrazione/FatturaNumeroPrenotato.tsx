@@ -89,6 +89,18 @@ export function usePrenotazioneNumero(opts: {
           contesto,
         });
       }
+      if (
+        res.success &&
+        res.prenotazione.stato === "rilasciata" &&
+        !chiusaRef.current
+      ) {
+        idRef.current = null;
+        res = await prenotaNumeroFatturaAction({
+          sessioneId,
+          dataDocumento,
+          contesto,
+        });
+      }
       if (stop) return;
       if (!res.success) {
         setErrore(res.error);

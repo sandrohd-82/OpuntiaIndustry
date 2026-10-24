@@ -8,7 +8,7 @@ import {
   rpcPrenotazione,
   type PrenotazioneNumero,
 } from "@/lib/amministrazione/numero-fattura-prenotazione";
-import { createClient } from "@/lib/supabase/server";
+import { createClient, createServiceClient } from "@/lib/supabase/server";
 
 const prenotaSchema = z.object({
   sessioneId: z.string().trim().min(8).max(80),
@@ -74,6 +74,45 @@ export async function heartbeatNumeroFatturaAction(
       error: e instanceof Error ? e.message : "Controllo numero non riuscito.",
     };
   }
+}
+
+export async function collegaPrenotazioneOrdineAction(raw: {
+  prenotazioneId: string;
+  ordineId: string;
+  fatturaId?: string | null;
+}): Promise<{ success: true } | { success: false; error: string }> {
+  const { auth } = await requireAnyAreaAccess(["commerciale", "amministrazione"]);
+  const parsed = z
+    .object({
+      prenotazioneId: z.string().uuid(),
+      ordineId: z.string().uuid(),
+      fatturaId: z.string().uuid().nullable().optional(),
+    })
+    .safeParse(raw);
+  if (!parsed.success) {
+    return { success: false, error: "Collegamento numero non valido." };
+  }
+  const service = createServiceClient();
+  const patch: {
+    ordine_id: string;
+    updated_at: string;
+    updated_by: string;
+    fattura_id?: string;
+  } = {
+    ordine_id: parsed.data.ordineId,
+    updated_at: new Date().toISOString(),
+    updated_by: auth.userId,
+  };
+  if (parsed.data.fatturaId) patch.fattura_id = parsed.data.fatturaId;
+  const { error } = await service
+    .from("fatture_numeri_prenotati")
+    .update(patch)
+    .eq("id", parsed.data.prenotazioneId)
+    .eq("created_by", auth.userId)
+    .in("stato", ["in_corso", "aggiudicata"])
+    .is("deleted_at", null);
+  if (error) return { success: false, error: error.message };
+  return { success: true };
 }
 
 export async function rilasciaNumeroFatturaAction(

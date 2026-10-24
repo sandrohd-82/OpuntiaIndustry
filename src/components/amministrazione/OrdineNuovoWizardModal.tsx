@@ -65,7 +65,10 @@ import {
   EMAIL_CONTROLLO_DEFAULT,
   FASE_TEST_INVIO,
 } from "@/lib/amministrazione/prova-ordine";
-import { aggiudicaNumeroFatturaAction } from "@/app/actions/fattura-prenotazione-numero";
+import {
+  aggiudicaNumeroFatturaAction,
+  collegaPrenotazioneOrdineAction,
+} from "@/app/actions/fattura-prenotazione-numero";
 import {
   FatturaNumeroAvvisoDialog,
   usePrenotazioneNumero,
@@ -1647,6 +1650,12 @@ export function OrdineNuovoWizardModal({
       }
       const ordineSalvato = result.ordine;
       setSavedOrdine(ordineSalvato);
+      if (prenotazioneNumero.pren?.id) {
+        await collegaPrenotazioneOrdineAction({
+          prenotazioneId: prenotazioneNumero.pren.id,
+          ordineId: ordineSalvato.id,
+        });
+      }
       function apriMailOrdine() {
         const d = spedDraft.current;
         const documento = d.documentoMail ?? "informativa";
