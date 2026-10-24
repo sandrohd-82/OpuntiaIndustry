@@ -240,6 +240,7 @@ export function OrdineDettaglioPanel({ ordine, onEdit }: Props) {
         <MailOrdineFaseTestModal
           ordineId={ordine.id}
           numeroOrdine={ordine.numeroInterno}
+          accountId={mail?.accountId ?? ""}
           documento="fattura"
           allegaPdf
           allegaTracking={Boolean(mail && mail.trackingUrl.trim())}

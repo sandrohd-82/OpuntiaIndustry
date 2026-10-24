@@ -1149,17 +1149,39 @@ async function inviaMailPdfComeBozza(input: {
     loghi,
   });
   const bytes = Buffer.from(await pdf.blob.arrayBuffer());
-  const { data: accounts, error } = await service
+  let accountIdScelto = "";
+  if (input.fattura.ordine_id) {
+    const { data: prenotazione } = await service
+      .from("spedizione_mail_prenotazioni")
+      .select("account_id")
+      .eq("entity_type", "ordine")
+      .eq("entity_id", input.fattura.ordine_id)
+      .is("deleted_at", null)
+      .maybeSingle();
+    accountIdScelto = String(
+      (prenotazione as { account_id?: string | null } | null)?.account_id ?? ""
+    );
+  }
+  if (!accountIdScelto) {
+    throw new Error(
+      "Manca la casella mittente scelta per questa fattura. Non è stata usata un'altra casella."
+    );
+  }
+  const { data: accountRow, error } = await service
     .from("webmail_accounts")
     .select(
       "id, email_address, imap_host, imap_port, imap_secure, smtp_host, smtp_port, smtp_secure, username, password_encrypted"
     )
+    .eq("id", accountIdScelto)
     .is("deleted_at", null)
-    .order("created_at", { ascending: true });
-  if (error || !accounts?.length) {
-    throw new Error(error?.message ?? "Nessuna casella mittente per la fattura.");
+    .maybeSingle();
+  if (error || !accountRow) {
+    throw new Error(
+      error?.message ??
+        "La casella mittente scelta non è disponibile. La mail non è partita da un'altra casella."
+    );
   }
-  const caselle = accounts as Array<{
+  const account = accountRow as {
     id: string;
     email_address: string;
     imap_host: string;
@@ -1170,24 +1192,7 @@ async function inviaMailPdfComeBozza(input: {
     smtp_secure: boolean;
     username: string;
     password_encrypted: string;
-  }>;
-  let account = caselle[0];
-  if (input.fattura.created_by) {
-    const { data: profile } = await service
-      .from("profiles")
-      .select("email")
-      .eq("id", input.fattura.created_by)
-      .maybeSingle();
-    const email = String(
-      (profile as { email?: string | null } | null)?.email ?? ""
-    )
-      .trim()
-      .toLowerCase();
-    const sua = caselle.find(
-      (casella) => casella.email_address.trim().toLowerCase() === email
-    );
-    if (sua) account = sua;
-  }
+  };
   const subject = `Fattura ${input.numeroFattura}`;
   const text = `Gentile cliente,\n\nin allegato la fattura ${input.numeroFattura}, uguale al documento predisposto sull'ordine.\n\nCordiali saluti,\nUfficio Amministrazione`;
   const allegato = {

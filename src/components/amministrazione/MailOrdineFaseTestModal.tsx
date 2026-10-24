@@ -1,7 +1,8 @@
 "use client";
 
-import { useId, useState } from "react";
+import { useEffect, useId, useState } from "react";
 import { inviaCopiaControlloOrdineAction } from "@/app/actions/prova-ordine";
+import { listCaselleSpedizioneMailAction } from "@/app/actions/spedizione-mail";
 import type { FatturaAnteprimaSessione } from "@/lib/amministrazione/ordine-sessione";
 import { EMAIL_CONTROLLO_DEFAULT } from "@/lib/amministrazione/prova-ordine";
 
@@ -10,6 +11,7 @@ type Documento = "informativa" | "proforma" | "fattura";
 type Props = {
   ordineId: string;
   numeroOrdine: string;
+  accountId: string;
   documento: Documento;
   allegaPdf: boolean;
   allegaTracking: boolean;
@@ -40,6 +42,7 @@ function titolo(documento: Documento, allegaPdf: boolean): string {
 export function MailOrdineFaseTestModal({
   ordineId,
   numeroOrdine,
+  accountId: accountIdScelto,
   documento,
   allegaPdf,
   allegaTracking,
@@ -51,17 +54,33 @@ export function MailOrdineFaseTestModal({
   onInviata,
 }: Props) {
   const titleId = useId();
+  const [accountId, setAccountId] = useState(accountIdScelto);
+  const [accounts, setAccounts] = useState<
+    Array<{ id: string; label: string; email: string }>
+  >([]);
   const [subject, setSubject] = useState(oggetto);
   const [body, setBody] = useState(corpo);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [conferma, setConferma] = useState(false);
 
+  useEffect(() => {
+    void listCaselleSpedizioneMailAction().then((res) => {
+      if (res.success) setAccounts(res.accounts);
+    });
+  }, []);
+
   async function invia() {
+    if (!accountId) {
+      setError("Seleziona la casella mittente. La mail non parte da un'altra casella.");
+      setConferma(false);
+      return;
+    }
     setBusy(true);
     setError(null);
     const res = await inviaCopiaControlloOrdineAction({
       ordineId,
+      accountId,
       documento,
       allegaPdf,
       allegaTracking,
@@ -103,6 +122,24 @@ export function MailOrdineFaseTestModal({
             : " Il tracking non è allegato."}
         </p>
         <label className="mt-4 block text-sm">
+          <span className="mb-1 block font-medium">Casella mittente</span>
+          <select
+            value={accountId}
+            onChange={(e) => {
+              setAccountId(e.target.value);
+              setConferma(false);
+            }}
+            className="w-full rounded-lg border border-[var(--border)] px-3 py-2 text-sm"
+          >
+            <option value="">Seleziona casella…</option>
+            {accounts.map((a) => (
+              <option key={a.id} value={a.id}>
+                {a.label} · {a.email}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="mt-3 block text-sm">
           <span className="mb-1 block font-medium">Oggetto</span>
           <input
             value={subject}
@@ -136,7 +173,7 @@ export function MailOrdineFaseTestModal({
           {conferma ? (
             <button
               type="button"
-              disabled={busy || !subject.trim() || !body.trim()}
+              disabled={busy || !accountId || !subject.trim() || !body.trim()}
               onClick={() => void invia()}
               className="rounded-lg bg-[var(--primary)] px-3 py-2 text-sm font-medium text-white disabled:opacity-50"
             >
@@ -145,7 +182,7 @@ export function MailOrdineFaseTestModal({
           ) : (
             <button
               type="button"
-              disabled={!subject.trim() || !body.trim()}
+              disabled={!accountId || !subject.trim() || !body.trim()}
               onClick={() => setConferma(true)}
               className="rounded-lg bg-[var(--primary)] px-3 py-2 text-sm font-medium text-white disabled:opacity-50"
             >

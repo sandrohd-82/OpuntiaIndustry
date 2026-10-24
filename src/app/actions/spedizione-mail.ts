@@ -76,28 +76,20 @@ async function casellaIdDaEmailProfilo(userId: string | null): Promise<string | 
   return match ? String((match as { id: string }).id) : null;
 }
 
-/** Se la casella salvata è info@, usa la casella uguale all'indirizzo del commerciale. */
+/**
+ * La casella scelta in schermata è quella che spedisce.
+ * Il commerciale si usa solo se l'operatore non ha ancora scelto.
+ */
 async function casellaMittenteEffettiva(
   accountId: string | null,
   entityType: "campionatura" | "ordine",
   entityId: string
 ): Promise<string | null> {
-  const service = createServiceClient();
-  let email = "";
-  if (accountId) {
-    const { data } = await service
-      .from("webmail_accounts")
-      .select("email_address")
-      .eq("id", accountId)
-      .is("deleted_at", null)
-      .maybeSingle();
-    email = String(data?.email_address ?? "");
-  }
-  if (accountId && email && !isCasellaInfoAzienda(email)) return accountId;
+  if (accountId) return accountId;
   const delCommerciale = await casellaIdDaEmailProfilo(
     await idAutoreDocumento(entityType, entityId)
   );
-  return delCommerciale ?? accountId;
+  return delCommerciale;
 }
 
 export async function getPrenotazioneSpedizioneMailAction(input: {

@@ -364,6 +364,7 @@ export function OrdineNuovoWizardModal({
   const [mailTest, setMailTest] = useState<{
     ordineId: string;
     numeroOrdine: string;
+    accountId: string;
     documento: "informativa" | "proforma" | "fattura";
     allegaPdf: boolean;
     allegaTracking: boolean;
@@ -375,6 +376,7 @@ export function OrdineNuovoWizardModal({
   const [mailPronto, setMailPronto] = useState<{
     ordineId: string;
     numeroOrdine: string;
+    accountId: string;
     documento: "informativa" | "proforma" | "fattura";
     allegaPdf: boolean;
     allegaTracking: boolean;
@@ -1654,6 +1656,7 @@ export function OrdineNuovoWizardModal({
         const payload = {
           ordineId: ordineSalvato.id,
           numeroOrdine: ordineSalvato.numeroInterno,
+          accountId: d.mailAccountId,
           documento,
           allegaPdf:
             documento !== "informativa" && Boolean(d.inviaMailDocumento),
@@ -3800,8 +3803,17 @@ export function OrdineNuovoWizardModal({
                       anteprima?.sessioneId === anteprimaSessioneId
                         ? anteprima
                         : null;
+                    if (!spedDraft.current.mailAccountId) {
+                      setSaving(false);
+                      setFormError(
+                        "Seleziona la casella mittente. La mail non parte da un'altra casella."
+                      );
+                      setConfermaInvioFattura(0);
+                      return;
+                    }
                     void inviaCopiaControlloOrdineAction({
                       ordineId: savedOrdine.id,
+                      accountId: spedDraft.current.mailAccountId,
                       bozza: bozza
                         ? {
                             numeroFattura: bozza.numeroFattura,
@@ -4093,6 +4105,7 @@ export function OrdineNuovoWizardModal({
         <MailOrdineFaseTestModal
           ordineId={mailTest.ordineId}
           numeroOrdine={mailTest.numeroOrdine}
+          accountId={mailTest.accountId}
           documento={mailTest.documento}
           allegaPdf={mailTest.allegaPdf}
           allegaTracking={mailTest.allegaTracking}

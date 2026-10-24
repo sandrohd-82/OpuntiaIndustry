@@ -99,6 +99,11 @@ async function pdfBozzaA4(
   input: Parameters<typeof buildFatturaA4PdfBlob>[0]
 ) {
   const loghi = await caricaLoghiFatturaA4Server();
+  if (!loghi.agrinsicilia) {
+    throw new Error(
+      "Manca il logo in intestazione: la fattura non può partire diversa dalla bozza."
+    );
+  }
   return buildFatturaA4PdfBlob({ ...input, loghi });
 }
 
@@ -261,7 +266,9 @@ export async function anteprimaNumerazioneRealeAction(raw: {
     "Ufficio Amministrazione",
     "Agrinsicilia Soc. Coop.",
   ].join("\n");
-  const pdf = await pdfBozzaA4({
+  let pdf: Awaited<ReturnType<typeof pdfBozzaA4>>;
+  try {
+    pdf = await pdfBozzaA4({
     numeroFattura: numeroDocumento,
     dataDocumento: data,
     proforma: documento === "proforma",
@@ -295,6 +302,12 @@ export async function anteprimaNumerazioneRealeAction(raw: {
     ],
     noteDocumento: `Ordine di riferimento ${numeroOrdine}.`,
   });
+  } catch (e) {
+    return {
+      success: false,
+      error: e instanceof Error ? e.message : "PDF fattura non generato.",
+    };
+  }
   const pdfBytes = Buffer.from(await pdf.blob.arrayBuffer());
 
   let smtpMessageId: string | null = null;
@@ -447,6 +460,7 @@ const bozzaControlloSchema = z.object({
 
 const ordineControlloSchema = z.object({
   ordineId: z.string().uuid("Ordine non valido."),
+  accountId: z.string().uuid("Seleziona la casella mittente."),
   email: z.string().trim().max(200).optional(),
   bozza: bozzaControlloSchema.optional(),
   documento: z.enum(["informativa", "proforma", "fattura"]).optional(),
@@ -460,6 +474,7 @@ const ordineControlloSchema = z.object({
 /** Copia della fattura dell'ordine appena creato. Non assegna il numero e non chiama lo SDI. */
 export async function inviaCopiaControlloOrdineAction(raw: {
   ordineId?: string;
+  accountId?: string;
   email?: string;
   bozza?: z.input<typeof bozzaControlloSchema>;
   documento?: "informativa" | "proforma" | "fattura";
@@ -650,21 +665,21 @@ export async function inviaCopiaControlloOrdineAction(raw: {
   }
 
   const service = createServiceClient();
-  const { data: caselle, error: caselleErr } = await service
+  const { data: accountRow, error: caselleErr } = await service
     .from("webmail_accounts")
     .select(
       "id, email_address, imap_host, imap_port, imap_secure, smtp_host, smtp_port, smtp_secure, username, password_encrypted"
     )
+    .eq("id", parsed.data.accountId)
     .is("deleted_at", null)
-    .limit(8);
+    .maybeSingle();
   if (caselleErr) return { success: false, error: caselleErr.message };
-  const account = ((caselle ?? []) as AccountRow[]).find(
-    (riga) => riga.smtp_host && riga.password_encrypted
-  );
-  if (!account) {
+  const account = accountRow as AccountRow | null;
+  if (!account?.smtp_host || !account.password_encrypted) {
     return {
       success: false,
-      error: "Nessuna casella Webmail con SMTP. La mail non è partita.",
+      error:
+        "La casella selezionata non può spedire. La mail non è partita da un'altra casella.",
     };
   }
 
@@ -755,8 +770,10 @@ export async function inviaCopiaControlloOrdineAction(raw: {
   const bodyText = parsed.data.corpo?.trim()
     ? `${parsed.data.corpo.trim()}${tracking && !parsed.data.corpo.includes(tracking) ? `\n\nTracking: ${tracking}` : ""}`
     : bodyDefault;
-  const pdf = allegaPdf
-    ? await pdfBozzaA4({
+  let pdf: Awaited<ReturnType<typeof pdfBozzaA4>> | null = null;
+  if (allegaPdf) {
+    try {
+      pdf = await pdfBozzaA4({
         numeroFattura,
         dataDocumento: data,
         destinatario,
@@ -765,8 +782,14 @@ export async function inviaCopiaControlloOrdineAction(raw: {
           noteDocumento.trim() || `Ordine di riferimento ${ordine.numero_interno}.`,
         piano: bozza?.piano ?? null,
         proforma: documento === "proforma",
-      })
-    : null;
+      });
+    } catch (e) {
+      return {
+        success: false,
+        error: e instanceof Error ? e.message : "PDF fattura non generato.",
+      };
+    }
+  }
   const pdfBytes = pdf ? Buffer.from(await pdf.blob.arrayBuffer()) : null;
   try {
     const sent = await sendMailViaAccount({

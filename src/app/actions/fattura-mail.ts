@@ -150,6 +150,13 @@ export async function inviaFatturaDaWebmailAction(
   if (!numeri.success) return numeri;
   const numero = numeri.numeroFattura;
   const loghi = await caricaLoghiFatturaA4Server();
+  if (!loghi.agrinsicilia) {
+    return {
+      success: false,
+      error:
+        "Manca il logo in intestazione: la fattura non può partire diversa dalla bozza.",
+    };
+  }
   const pdf = buildFatturaA4PdfBlob({
     numeroFattura: numero,
     dataDocumento: String(fattura.data_emissione ?? ""),
