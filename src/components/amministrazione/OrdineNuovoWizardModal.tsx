@@ -1741,10 +1741,14 @@ export function OrdineNuovoWizardModal({
       if (serveFattura) {
         const fat = await creaFatturaOrdineSenzaInvioAction(result.ordine.id);
         if (!fat.success) {
-          await annullaOrdineNonFinalizzatoAction(result.ordine.id);
+          const annullo = await annullaOrdineNonFinalizzatoAction(
+            result.ordine.id
+          );
           setSavedOrdine(null);
           setFormError(
-            `Finalizzazione annullata: ${fat.error} L'ordine non è stato registrato. Nessuna fattura è stata inviata.`
+            annullo.success
+              ? `Finalizzazione annullata: ${fat.error} L'ordine non è stato registrato. Nessuna fattura è stata inviata.`
+              : `Finalizzazione annullata: ${fat.error} ${annullo.error}`
           );
           return;
         }

@@ -59,6 +59,7 @@ import { getPreventivoProdottoContestoAction } from "@/app/actions/preventivi";
 import { elencoProfiliCalcoloSpedizioni } from "@/app/actions/ordine-calcolo-spedizione";
 import { risolviSpedizioneOrdineDiretto } from "@/lib/amministrazione/ordine-calcolo-spedizione";
 import { inviaFatturaSalvataAction } from "@/app/actions/fattura-da-ordine";
+import { isNumeroFatturaEmessa } from "@/lib/amministrazione/numero-fattura";
 import { rilasciaPrenotazioniOrdine } from "@/lib/amministrazione/prenotazione-ordine";
 import { notificaOrdineInCoda } from "@/lib/amministrazione/ordine-notifica-coda";
 import { isFatturaProva } from "@/lib/amministrazione/prova-ordine";
@@ -116,6 +117,60 @@ async function writeAudit(input: AuditLogInsert) {
   const { error } = await supabase.from("audit_log").insert(input);
   if (error) {
     console.error("[audit_log]", error.message, input);
+  }
+}
+
+/** La bozza non inviata segue l'ordine eliminato, così il suo numero interno si libera. */
+async function chiudiBozzeFatturaOrdine(
+  ordineId: string,
+  userId: string | null
+): Promise<void> {
+  const service = createServiceClient();
+  const { data, error } = await service
+    .from("fatture_emesse")
+    .select("id, numero_interno, numero_fattura, fic_id, courtesy_email_sent")
+    .eq("ordine_id", ordineId)
+    .is("deleted_at", null);
+  if (error) throw new Error(error.message);
+  const now = new Date().toISOString();
+  const bozze = (data ?? []).filter((row) => {
+    const fic = (row as { fic_id?: number | null }).fic_id;
+    const inviata = Boolean(
+      (row as { courtesy_email_sent?: boolean | null }).courtesy_email_sent
+    );
+    const numero = String(
+      (row as { numero_fattura?: string | null }).numero_fattura ?? ""
+    ).trim();
+    if (fic || inviata) return false;
+    if (numero && isNumeroFatturaEmessa(numero)) return false;
+    return true;
+  });
+  if (bozze.length === 0) return;
+  const ids = bozze.map((row) => String((row as { id: string }).id));
+  const { error: upErr } = await service
+    .from("fatture_emesse")
+    .update({
+      deleted_at: now,
+      deleted_by: userId,
+      updated_at: now,
+      updated_by: userId,
+    })
+    .in("id", ids)
+    .is("deleted_at", null);
+  if (upErr) throw new Error(upErr.message);
+  for (const row of bozze) {
+    const id = String((row as { id: string }).id);
+    const interno = String(
+      (row as { numero_interno?: string | null }).numero_interno ?? ""
+    );
+    await writeAudit({
+      entity_type: "fatture_emesse",
+      entity_id: id,
+      action: "soft_delete",
+      actor_id: userId,
+      summary: `Bozza ${interno || id} chiusa: ordine eliminato.`,
+      payload: { ordine_id: ordineId, numero_interno: interno },
+    });
   }
 }
 
@@ -970,15 +1025,27 @@ export async function softDeleteOrdineAction(input: {
 
   if (error) return { success: false, error: error.message };
 
+  const chiusure: string[] = [];
   try {
     await rilasciaPrenotazioniOrdine(input.id, auth.userId);
   } catch (e) {
+    chiusure.push(
+      e instanceof Error
+        ? e.message
+        : "prenotazione del numero non chiusa"
+    );
+  }
+  try {
+    await chiudiBozzeFatturaOrdine(input.id, auth.userId);
+  } catch (e) {
+    chiusure.push(
+      e instanceof Error ? e.message : "bozza fattura non chiusa"
+    );
+  }
+  if (chiusure.length) {
     return {
       success: false,
-      error:
-        e instanceof Error
-          ? `Ordine eliminato, ma la prenotazione del numero non è stata chiusa: ${e.message}`
-          : "Ordine eliminato, ma la prenotazione del numero non è stata chiusa.",
+      error: `Ordine eliminato, ma non è stato chiuso tutto il collegato: ${chiusure.join(" ")}`,
     };
   }
 
@@ -1091,7 +1158,16 @@ export async function listOrdineAuditLogAction(
  */
 async function scartaOrdineNonFinalizzato(ordineId: string): Promise<void> {
   const service = createServiceClient();
-  await rilasciaPrenotazioniOrdine(ordineId, null);
+  try {
+    await rilasciaPrenotazioniOrdine(ordineId, null);
+  } catch (e) {
+    console.error("[rilasciaPrenotazioniOrdine]", e);
+  }
+  try {
+    await chiudiBozzeFatturaOrdine(ordineId, null);
+  } catch (e) {
+    console.error("[chiudiBozzeFatturaOrdine]", e);
+  }
   const { data: conf } = await service
     .from("ordini_confezionamento")
     .select("id")
