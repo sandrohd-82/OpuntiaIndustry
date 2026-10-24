@@ -528,6 +528,14 @@ export function FatturaA4Modal({
       righe,
       noteDocumento,
       proforma,
+      piano,
+      commerciale: commerciale
+        ? {
+            nome: commerciale.nome,
+            telefono: commerciale.telefono,
+            email: commerciale.email,
+          }
+        : null,
     });
     const url = URL.createObjectURL(pdf.blob);
     const a = document.createElement("a");
@@ -692,7 +700,7 @@ export function FatturaA4Modal({
 
   return (
     <div
-      className="fixed inset-0 z-[80] overflow-y-auto bg-slate-950/65 px-3 py-6 sm:px-6"
+      className="paper-invoice-viewer fixed inset-0 z-[80] overflow-y-auto bg-slate-950/65 px-3 py-6 sm:px-6"
       role="presentation"
     >
       {mailProfessionaleAperta ? (

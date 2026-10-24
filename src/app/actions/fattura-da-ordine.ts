@@ -42,6 +42,8 @@ import {
   FASE_TEST_INVIO,
   isFatturaProva,
 } from "@/lib/amministrazione/prova-ordine";
+import { buildFatturaA4PdfBlob } from "@/lib/amministrazione/fattura-a4-pdf";
+import { caricaLoghiFatturaA4Server } from "@/lib/amministrazione/fattura-a4-loghi.server";
 import { AGRINSICILIA_COORDINATE } from "@/lib/amministrazione/preventivo-letterhead";
 import {
   ORDINI_PERSISTENZA_BLOCCATA_MSG,
@@ -52,10 +54,13 @@ import {
   createIssuedDocument,
   fetchFicVatTypes,
   resolveFicVatId,
-  sendIssuedDocumentCourtesyEmail,
   sendIssuedDocumentToSdi,
 } from "@/lib/fic";
-import { createClient } from "@/lib/supabase/server";
+import { createClient, createServiceClient } from "@/lib/supabase/server";
+import {
+  registraCopiaMailInviata,
+  sendMailViaAccount,
+} from "@/lib/webmail/sync";
 import { z } from "zod";
 import type {
   ClienteRow,
@@ -1048,6 +1053,171 @@ export async function creaFatturaOrdineSenzaInvioAction(
   };
 }
 
+function righeBozzaFattura(
+  rows: Array<Record<string, unknown>>
+): FatturaA4Riga[] {
+  return rows.map((riga) => ({
+    prodottoId: riga.prodotto_id ? String(riga.prodotto_id) : null,
+    codice: String(riga.codice ?? ""),
+    descrizione: String(riga.descrizione ?? ""),
+    quantita: Number(riga.quantita) || 0,
+    unitaMisura: String(riga.unita_misura ?? "nr"),
+    prezzoUnitario: Number(riga.prezzo_unitario) || 0,
+    scontoPercentuale: Number(riga.sconto_percentuale) || 0,
+    ivaPercentuale: Number(riga.iva_percentuale) || 22,
+    isSpedizione: Boolean(riga.is_spedizione),
+    note: String(riga.note ?? ""),
+  }));
+}
+
+function pianoBozzaFattura(
+  fattura: FatturaEmessaRow,
+  dilazioni: Array<Record<string, unknown>>
+): OrdinePagamentoPiano {
+  const tipoUnica =
+    fattura.tipo_scadenza_unica === "anticipato" ||
+    fattura.tipo_scadenza_unica === "alla_consegna" ||
+    fattura.tipo_scadenza_unica === "pronto_magazzino" ||
+    fattura.tipo_scadenza_unica === "posticipato"
+      ? fattura.tipo_scadenza_unica
+      : "alla_consegna";
+  const modalita =
+    fattura.pagamento_modalita === "dilazione" ? "dilazione" : "unica";
+  const rate = dilazioni
+    .slice()
+    .sort(
+      (a, b) => Number(a.sort_order ?? 0) - Number(b.sort_order ?? 0)
+    )
+    .map((rata, index) => ({
+      sortOrder: index,
+      importo: Number(rata.importo) || 0,
+      tipoScadenza:
+        index === 0
+          ? ((rata.tipo_scadenza as typeof tipoUnica) || tipoUnica)
+          : null,
+      dataPagamento: rata.data_scadenza
+        ? String(rata.data_scadenza).slice(0, 10)
+        : null,
+      note: String(rata.note ?? ""),
+    }));
+  if (rate.length === 0) {
+    return applyTotaleToPiano(
+      {
+        modalita,
+        tipoUnica,
+        rate: [
+          {
+            sortOrder: 0,
+            importo: Number(fattura.totale) || 0,
+            tipoScadenza: tipoUnica,
+            dataPagamento: null,
+            note: "",
+          },
+        ],
+      },
+      Number(fattura.totale) || 0
+    );
+  }
+  return { modalita, tipoUnica, rate };
+}
+
+/** Mail al cliente con lo stesso PDF della bozza ordine: logo e intestazione. */
+async function inviaMailPdfComeBozza(input: {
+  fattura: FatturaEmessaRow;
+  righe: Array<Record<string, unknown>>;
+  dilazioni: Array<Record<string, unknown>>;
+  destinatario: FatturaDestinatarioSnapshot;
+  mailTo: string;
+  numeroFattura: string;
+  userId: string;
+}): Promise<void> {
+  const service = createServiceClient();
+  const loghi = await caricaLoghiFatturaA4Server();
+  if (!loghi.agrinsicilia) {
+    throw new Error(
+      "Manca il logo in intestazione: la fattura non può partire diversa dalla bozza."
+    );
+  }
+  const pdf = buildFatturaA4PdfBlob({
+    numeroFattura: input.numeroFattura,
+    dataDocumento: String(input.fattura.data_emissione ?? ""),
+    destinatario: input.destinatario,
+    righe: righeBozzaFattura(input.righe),
+    noteDocumento: String(input.fattura.note ?? ""),
+    proforma: false,
+    piano: pianoBozzaFattura(input.fattura, input.dilazioni),
+    loghi,
+  });
+  const bytes = Buffer.from(await pdf.blob.arrayBuffer());
+  const { data: accounts, error } = await service
+    .from("webmail_accounts")
+    .select(
+      "id, email_address, imap_host, imap_port, imap_secure, smtp_host, smtp_port, smtp_secure, username, password_encrypted"
+    )
+    .is("deleted_at", null)
+    .order("created_at", { ascending: true });
+  if (error || !accounts?.length) {
+    throw new Error(error?.message ?? "Nessuna casella mittente per la fattura.");
+  }
+  const caselle = accounts as Array<{
+    id: string;
+    email_address: string;
+    imap_host: string;
+    imap_port: number;
+    imap_secure: boolean;
+    smtp_host: string;
+    smtp_port: number;
+    smtp_secure: boolean;
+    username: string;
+    password_encrypted: string;
+  }>;
+  let account = caselle[0];
+  if (input.fattura.created_by) {
+    const { data: profile } = await service
+      .from("profiles")
+      .select("email")
+      .eq("id", input.fattura.created_by)
+      .maybeSingle();
+    const email = String(
+      (profile as { email?: string | null } | null)?.email ?? ""
+    )
+      .trim()
+      .toLowerCase();
+    const sua = caselle.find(
+      (casella) => casella.email_address.trim().toLowerCase() === email
+    );
+    if (sua) account = sua;
+  }
+  const subject = `Fattura ${input.numeroFattura}`;
+  const text = `Gentile cliente,\n\nin allegato la fattura ${input.numeroFattura}, uguale al documento predisposto sull'ordine.\n\nCordiali saluti,\nUfficio Amministrazione`;
+  const allegato = {
+    filename: pdf.fileName,
+    content: bytes,
+    contentType: "application/pdf",
+  };
+  const sent = await sendMailViaAccount({
+    account,
+    to: input.mailTo,
+    subject,
+    text,
+    attachments: [allegato],
+  });
+  await registraCopiaMailInviata({
+    supabase: service,
+    accountId: account.id,
+    fromAddress: account.email_address,
+    to: input.mailTo,
+    subject,
+    text,
+    messageId: sent.messageId,
+    userId: input.userId,
+    aziendaTipo: "cliente",
+    aziendaId: input.fattura.cliente_id,
+    aziendaLabel: input.destinatario.ragioneSociale,
+    attachments: [allegato],
+  });
+}
+
 export async function inviaFatturaAttraversoSdiAction(
   fatturaId: string,
   doppiaConferma = false
@@ -1297,12 +1467,30 @@ export async function inviaFatturaSalvataAction(input: {
 
   let courtesyEmailSent = Boolean(fattura.courtesy_email_sent);
   const sendCourtesy = input.sendCourtesyEmail !== false;
-  if (sendCourtesy && mailTo && ficId) {
+  if (sendCourtesy && mailTo) {
     try {
-      await sendIssuedDocumentCourtesyEmail({
-        ficId,
-        recipientEmail: mailTo,
-        subject: `Fattura ${numeroFattura}`,
+      const destSnap = parseDestinatarioSnapshot(fattura.destinatario_snapshot);
+      const destinatarioMail = destSnap ?? {
+        ragioneSociale: cliente.ragione_sociale,
+        partitaIva: cliente.partita_iva || "",
+        codiceFiscale: cliente.codice_fiscale || "",
+        email: mailTo,
+        sede: {
+          nazione: cliente.sede_amm_nazione || "",
+          provincia: cliente.sede_amm_provincia || "",
+          citta: cliente.sede_amm_citta || "",
+          cap: cliente.sede_amm_cap || "",
+          indirizzo: cliente.sede_amm_indirizzo || "",
+        },
+      };
+      await inviaMailPdfComeBozza({
+        fattura,
+        righe: (righe ?? []) as Array<Record<string, unknown>>,
+        dilazioni: (dilazioni ?? []) as Array<Record<string, unknown>>,
+        destinatario: destinatarioMail,
+        mailTo,
+        numeroFattura,
+        userId: auth.userId,
       });
       courtesyEmailSent = true;
     } catch (e) {
