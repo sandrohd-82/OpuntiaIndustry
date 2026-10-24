@@ -334,11 +334,11 @@ export function SpedizioneMailPanel({
     setLetteraName(next.letteraViaName);
     setAllegati(next.allegati);
     setDestEmail(next.destinatarioEmail || destEmailDefault);
-    if (next.oggetto) {
+    if (next.oggetto && !mailPerInvioTracking) {
       oggettoToccato.current = true;
       setMailOggetto(next.oggetto);
     }
-    if (next.corpo) {
+    if (next.corpo && !mailPerInvioTracking) {
       corpoToccato.current = true;
       setMailCorpo(next.corpo);
     }

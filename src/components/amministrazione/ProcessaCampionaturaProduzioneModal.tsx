@@ -31,6 +31,7 @@ import {
   inviaMailSpedizioneAction,
   upsertPrenotazioneSpedizioneMailAction,
 } from "@/app/actions/spedizione-mail";
+import { etichettaProdottoMail } from "@/lib/amministrazione/spedizione-mail-ai";
 import type {
   LottoInserimentoOption,
   ProcessoInserimentoOption,
@@ -1016,8 +1017,9 @@ export function ProcessaCampionaturaProduzioneModal({
               clienteNome={item.cliente}
               numero={item.numeroInterno}
               prodotti={righe
-                .map((r) => `${r.prodottoCodice} ${r.quantita} ${r.unitaMisura}`)
-                .join(", ")}
+                .map((r) => etichettaProdottoMail(r.prodottoCodice, r.prodottoNome))
+                .filter(Boolean)
+                .join("\n")}
               destEmailDefault={destEmail}
               anagrafica={anagraficaMailDi({
                 fonte: item.clienteId ? "cliente" : "possibile",

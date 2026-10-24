@@ -23,6 +23,7 @@ import { SpedizioneMailComposeModal } from "@/components/amministrazione/Spedizi
 import { SpedizioneMailPanel } from "@/components/amministrazione/SpedizioneMailPanel";
 import { anagraficaMailDi } from "@/components/amministrazione/SpedizioneDestinatarioMailField";
 import type { SpedizioneMailPrenotazione } from "@/lib/amministrazione/spedizione-mail";
+import { etichettaProdottoMail } from "@/lib/amministrazione/spedizione-mail-ai";
 import { AziendaTimelineModal } from "@/components/amministrazione/AziendaTimelineModal";
 import { AziendaOrdineSelect } from "@/components/amministrazione/AziendaOrdineSelect";
 import { CampionaturaAltroPostoModal } from "@/components/amministrazione/CampionaturaAltroPostoModal";
@@ -652,8 +653,9 @@ export function CampionaturaFormModal({
             cliente: result.item.cliente,
             numero: result.item.numeroInterno,
             prodotti: result.item.righe
-              .map((r) => `${r.prodottoCodice} ${r.quantita} ${r.unitaMisura}`)
-              .join(", "),
+              .map((r) => etichettaProdottoMail(r.prodottoCodice, r.prodottoNome))
+              .filter(Boolean)
+              .join("\n"),
             trackingUrl: d.trackingUrl,
             haLettera: false,
           });
@@ -1262,10 +1264,10 @@ export function CampionaturaFormModal({
             prodotti={righe
               .map((r) => {
                 const p = prodotti.find((x) => x.id === r.prodottoId);
-                return p ? `${p.codice} ${r.quantita} ${r.unitaMisura}` : "";
+                return p ? etichettaProdottoMail(p.codice, p.nome) : "";
               })
               .filter(Boolean)
-              .join(", ")}
+              .join("\n")}
             destEmailDefault={cliente?.email ?? ""}
             anagrafica={anagraficaMailDi({
               fonte: anagraficaFonte,

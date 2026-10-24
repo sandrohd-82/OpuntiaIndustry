@@ -1,7 +1,28 @@
 import { bozzaMailOrdine } from "@/lib/amministrazione/ordine-mail-bozza";
 
-const TRACKING_ASSENTE =
-  /non (?:è |e )?ancora disponibile|verrà comunicato|vi informeremo non appena|non appena sarà possibile/i;
+/** Una riga per prodotto: codice e nome, come li deve leggere il cliente. */
+export function elencoProdottiMail(prodotti: string): string {
+  const raw = prodotti.trim();
+  if (!raw || raw === "i prodotti richiesti") return "";
+  const parti = (raw.includes("\n") ? raw.split(/\n+/) : raw.split(","))
+    .map((parte) => parte.replace(/\s+/g, " ").trim())
+    .filter(Boolean);
+  return parti.join("\n");
+}
+
+export function etichettaProdottoMail(codice: string, nome: string): string {
+  const codicePulito = codice.trim();
+  const nomePulito = nome.trim();
+  if (!codicePulito) return nomePulito;
+  if (
+    !nomePulito ||
+    nomePulito.toLowerCase() === codicePulito.toLowerCase() ||
+    nomePulito.toLowerCase().startsWith(`${codicePulito.toLowerCase()} `)
+  ) {
+    return nomePulito || codicePulito;
+  }
+  return `${codicePulito} ${nomePulito}`;
+}
 
 export async function generaTestoMailSpedizione(input: {
   cliente: string;
@@ -10,73 +31,12 @@ export async function generaTestoMailSpedizione(input: {
   trackingUrl: string;
   haLettera: boolean;
 }): Promise<{ subject: string; bodyText: string; model: string }> {
-  const cliente = input.cliente.trim() || "Cliente";
   const numero = input.numero.trim();
-  const prodotti = input.prodotti.trim() || "i prodotti richiesti";
-  const tracking = input.trackingUrl.trim();
   const fallback = templateMailSpedizione({
-    prodotti,
+    prodotti: input.prodotti.trim() || "i prodotti richiesti",
     codiceInterno: numero,
   });
-
-  const apiKey = process.env.OPENAI_API_KEY?.trim();
-  if (!apiKey || process.env.WEBMAIL_AI_ENABLED === "false") {
-    return { ...fallback, model: "template" };
-  }
-  const model = process.env.OPENAI_MODEL?.trim() || "gpt-4o-mini";
-  const trackingIstruzione = tracking
-    ? "Non inserire il link di tracking nel testo e non scrivere la parola Tracking: il link viene aggiunto in fondo, dopo l'ultimo rigo."
-    : "Non parlare del tracking: il link non va anticipato né dato per mancante.";
-  try {
-    const res = await fetch("https://api.openai.com/v1/chat/completions", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        model,
-        temperature: 0.2,
-        response_format: { type: "json_object" },
-        messages: [
-          {
-            role: "system",
-            content:
-              "Scrivi una mail formale in italiano per Agrinsicilia. Non inventare dati. Non citare codici interni, numeri di ordine, numeri di campionatura o documenti interni. La mail parte solo con il tracking già noto: non scrivere mai che il tracking manca, che non è disponibile o che arriverà dopo. Firma: Ufficio Commerciale. Rispondi JSON {\"subject\":\"...\",\"bodyText\":\"...\"}.",
-          },
-          {
-            role: "user",
-            content: `Destinatario azienda: ${cliente}
-Prodotti: ${prodotti}
-${trackingIstruzione}
-Scopo: comunicare che i prodotti richiesti sono stati spediti.`,
-          },
-        ],
-      }),
-    });
-    if (!res.ok) return { ...fallback, model: "template-fallback" };
-    const json = (await res.json()) as {
-      choices?: Array<{ message?: { content?: string } }>;
-    };
-    const parsed = JSON.parse(
-      String(json.choices?.[0]?.message?.content ?? "{}")
-    ) as { subject?: string; bodyText?: string };
-    const subject = pulisciCodiceInterno(parsed.subject?.trim() ?? "", numero);
-    const bodyText = pulisciCodiceInterno(parsed.bodyText?.trim() ?? "", numero);
-    if (
-      !subject ||
-      !bodyText ||
-      TRACKING_ASSENTE.test(subject) ||
-      TRACKING_ASSENTE.test(bodyText) ||
-      (numero.length > 3 &&
-        (`${parsed.subject ?? ""} ${parsed.bodyText ?? ""}`).includes(numero))
-    ) {
-      return { ...fallback, model: "template-fallback" };
-    }
-    return { subject, bodyText, model };
-  } catch {
-    return { ...fallback, model: "template-fallback" };
-  }
+  return { ...fallback, model: "template" };
 }
 
 function pulisciCodiceInterno(testo: string, codiceInterno: string): string {
@@ -188,13 +148,12 @@ function templateMailSpedizione(input: {
   prodotti: string;
   codiceInterno: string;
 }): { subject: string; bodyText: string } {
-  const righe = [
-    "Gentili Signori,",
-    "",
-    `con la presente vi informiamo che i prodotti richiesti (${input.prodotti}) sono stati spediti.`,
-    "",
-  ];
+  const elenco = elencoProdottiMail(input.prodotti);
+  const righe = ["Gentili Signori,", ""];
+  if (elenco) righe.push(elenco, "");
   righe.push(
+    "da voi richiesti sono stati spediti.",
+    "",
     "Restiamo a disposizione per ogni chiarimento.",
     "",
     "Cordiali saluti,",
