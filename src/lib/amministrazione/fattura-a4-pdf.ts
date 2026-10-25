@@ -235,7 +235,7 @@ export function buildFatturaA4PdfBlob(input: FatturaA4PdfInput): {
   autoTable(doc, {
     startY: y,
     margin: { left, right: 14 },
-    theme: "plain",
+    theme: "grid",
     head: [["Prodotto", "Qty", "Listino", "Sconto", "Netto", "IVA", "Tot"]],
     body: input.righe.map((r) => {
       const netto = prezzoScontatoUnitario(r.prezzoUnitario, r.scontoPercentuale);
@@ -256,14 +256,26 @@ export function buildFatturaA4PdfBlob(input: FatturaA4PdfInput): {
       fontSize: 8,
       textColor: [15, 23, 42],
       fillColor: [255, 255, 255],
-      cellPadding: 1.3,
-      lineWidth: 0,
+      lineColor: [203, 213, 225],
+      lineWidth: 0.15,
+      cellPadding: 1.4,
     },
     headStyles: {
-      fillColor: [255, 255, 255],
-      textColor: [71, 85, 105],
+      fillColor: [243, 244, 246],
+      textColor: [51, 65, 85],
       fontStyle: "bold",
       fontSize: 8,
+      lineColor: [203, 213, 225],
+      lineWidth: 0.15,
+    },
+    didParseCell: (data) => {
+      if (data.section === "head") {
+        data.cell.styles.fillColor = [243, 244, 246];
+        return;
+      }
+      if (data.section !== "body") return;
+      data.cell.styles.fillColor =
+        data.row.index % 2 === 0 ? [255, 255, 255] : [243, 244, 246];
     },
     columnStyles: {
       0: { cellWidth: 62 },
@@ -273,17 +285,6 @@ export function buildFatturaA4PdfBlob(input: FatturaA4PdfInput): {
       4: { cellWidth: 20, halign: "right" },
       5: { cellWidth: 16, halign: "right" },
       6: { cellWidth: 22, halign: "right" },
-    },
-    didDrawCell: (data) => {
-      if (data.section !== "head") return;
-      doc.setDrawColor(148, 163, 184);
-      doc.setLineWidth(0.2);
-      doc.line(
-        data.cell.x,
-        data.cell.y + data.cell.height,
-        data.cell.x + data.cell.width,
-        data.cell.y + data.cell.height
-      );
     },
   });
 
@@ -329,7 +330,18 @@ export function buildFatturaA4PdfBlob(input: FatturaA4PdfInput): {
     `Causale: Pagamento Fattura n. ${input.numeroFattura || "—"} del ${formatPreventivoDataIt(input.dataDocumento)}.`,
   ];
   const boxH = Math.max(42, 16 + payLines.length * 3.8);
-  if (y + boxH > 268) y = Math.max(y, 268 - boxH);
+  const piedeLoghi = 268;
+  const marginePiede = 6;
+  const fondoUtile = piedeLoghi - marginePiede;
+  let boxY = fondoUtile - boxH;
+  if (boxY < y) {
+    if (y + boxH <= fondoUtile) boxY = y;
+    else {
+      doc.addPage();
+      boxY = fondoUtile - boxH;
+    }
+  }
+  y = boxY;
   doc.setDrawColor(15, 23, 42);
   doc.rect(left, y, 182, boxH);
   doc.line(105, y, 105, y + boxH);

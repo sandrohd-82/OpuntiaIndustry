@@ -126,7 +126,7 @@ export function FatturaA4PiePagina({
           </PreventivoDocField>
         </div>
       </div>
-      <div className="h-[5.5em] shrink-0" aria-hidden />
+      <div className="mt-[6mm] shrink-0" aria-hidden />
       <footer className="text-center">
         {nascondiLoghi ? null : (
           <div className="mb-2 flex items-center justify-center gap-4">

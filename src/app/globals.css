@@ -362,6 +362,14 @@ body {
     width: 100% !important;
   }
 
+  .paper-invoice-sheet table,
+  .paper-invoice-sheet tr,
+  .paper-invoice-sheet th,
+  .paper-invoice-sheet td {
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+
   .commercialista-print-break {
     break-after: page;
     page-break-after: always;

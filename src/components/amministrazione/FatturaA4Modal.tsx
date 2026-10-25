@@ -931,16 +931,16 @@ export function FatturaA4Modal({
                   openEdit("prodotto", righe.length > 0 ? 0 : undefined)
                 }
               >
-                <table className="w-full text-left text-[11px]">
-                  <thead className="border-b border-slate-300 text-slate-600">
-                    <tr>
-                      <th className="py-1.5 pr-2 font-medium">Prodotto</th>
-                      <th className="py-1.5 pr-2 font-medium">Qty</th>
-                      <th className="py-1.5 pr-2 font-medium">Listino</th>
-                      <th className="py-1.5 pr-2 font-medium">Sconto</th>
-                      <th className="py-1.5 pr-2 font-medium">Netto</th>
-                      <th className="py-1.5 pr-2 font-medium">IVA</th>
-                      <th className="py-1.5 text-right font-medium">Tot</th>
+                <table className="w-full border-collapse border border-slate-300 text-left text-[11px]">
+                  <thead className="text-slate-700">
+                    <tr className="bg-slate-100">
+                      <th className="border border-slate-300 px-2 py-1.5 font-medium">Prodotto</th>
+                      <th className="border border-slate-300 px-2 py-1.5 font-medium">Qty</th>
+                      <th className="border border-slate-300 px-2 py-1.5 font-medium">Listino</th>
+                      <th className="border border-slate-300 px-2 py-1.5 font-medium">Sconto</th>
+                      <th className="border border-slate-300 px-2 py-1.5 font-medium">Netto</th>
+                      <th className="border border-slate-300 px-2 py-1.5 font-medium">IVA</th>
+                      <th className="border border-slate-300 px-2 py-1.5 text-right font-medium">Tot</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -953,30 +953,32 @@ export function FatturaA4Modal({
                       return (
                         <tr
                           key={`${r.codice}-${i}`}
-                          className="cursor-pointer border-b border-slate-100 print:cursor-auto hover:bg-slate-50"
+                          className={`cursor-pointer print:cursor-auto ${
+                            i % 2 === 0 ? "bg-white" : "bg-slate-100"
+                          }`}
                           onClick={() => openEdit("prodotto", i)}
                         >
-                          <td className="py-1.5 pr-2">
+                          <td className="border border-slate-300 px-2 py-1.5">
                             {r.codice} — {r.descrizione}
                           </td>
-                          <td className="py-1.5 pr-2 tabular-nums">
+                          <td className="border border-slate-300 px-2 py-1.5 tabular-nums">
                             {r.quantita} {r.unitaMisura}
                           </td>
-                          <td className="py-1.5 pr-2 tabular-nums">
+                          <td className="border border-slate-300 px-2 py-1.5 tabular-nums">
                             {euro(r.prezzoUnitario)} €
                           </td>
-                          <td className="py-1.5 pr-2 tabular-nums">
+                          <td className="border border-slate-300 px-2 py-1.5 tabular-nums">
                             {r.scontoPercentuale > 0
                               ? `${r.scontoPercentuale} %`
                               : "—"}
                           </td>
-                          <td className="py-1.5 pr-2 tabular-nums font-medium">
+                          <td className="border border-slate-300 px-2 py-1.5 tabular-nums font-medium">
                             {euro(netto)} €
                           </td>
-                          <td className="py-1.5 pr-2 tabular-nums">
+                          <td className="border border-slate-300 px-2 py-1.5 tabular-nums">
                             {r.ivaPercentuale}%
                           </td>
-                          <td className="py-1.5 text-right font-semibold tabular-nums">
+                          <td className="border border-slate-300 px-2 py-1.5 text-right font-semibold tabular-nums">
                             {euro(totRiga)} €
                           </td>
                         </tr>
