@@ -121,6 +121,19 @@ export async function buildFatturaA4PdfPronto(
   });
 }
 
+/** Stesso file del pulsante Scarica della bozza, da allegare alla mail senza ricostruirlo. */
+export async function fatturaA4PdfComeBozza(
+  input: Omit<FatturaA4PdfInput, "loghi">
+): Promise<{ fileName: string; base64: string }> {
+  const pronto = await buildFatturaA4PdfPronto(input);
+  const bytes = new Uint8Array(await pronto.blob.arrayBuffer());
+  let binary = "";
+  for (let i = 0; i < bytes.length; i += 0x8000) {
+    binary += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+  }
+  return { fileName: pronto.fileName, base64: btoa(binary) };
+}
+
 /** PDF della bozza A4: intestazione, voci modificate, trasporto e totali. */
 export function buildFatturaA4PdfBlob(input: FatturaA4PdfInput): {
   blob: Blob;
@@ -169,36 +182,36 @@ export function buildFatturaA4PdfBlob(input: FatturaA4PdfInput): {
       96
     ) + 1;
   const commerciale = input.commerciale;
-  if (commerciale?.nome.trim()) {
-    doc.setFontSize(8);
-    rightY = testoDestra(doc, "Commerciale di riferimento", right, rightY, 96);
-    doc.setFont("helvetica", "normal");
-    rightY = testoDestra(doc, commerciale.nome.trim(), right, rightY, 96);
-    if (commerciale.telefono.trim()) {
-      rightY = testoDestra(
-        doc,
-        `Telefono ${commerciale.telefono.trim()}`,
-        right,
-        rightY,
-        96
-      );
-    }
-    if (commerciale.email.trim()) {
-      rightY = testoDestra(
-        doc,
-        `Email ${commerciale.email.trim()}`,
-        right,
-        rightY,
-        96
-      );
-    }
-  }
+  doc.setFontSize(8);
+  rightY = testoDestra(doc, "Commerciale di riferimento", right, rightY, 96);
+  doc.setFont("helvetica", "normal");
+  rightY = testoDestra(
+    doc,
+    commerciale?.nome.trim() || "—",
+    right,
+    rightY,
+    96
+  );
+  rightY = testoDestra(
+    doc,
+    `Telefono ${commerciale?.telefono.trim() || "—"}`,
+    right,
+    rightY,
+    96
+  );
+  rightY = testoDestra(
+    doc,
+    `Email ${commerciale?.email.trim() || "—"}`,
+    right,
+    rightY,
+    96
+  );
   const sottoLogo = logo ? y - 2 + logo.heightMm + 3 : y;
   y = Math.max(rightY + 2, sottoLogo);
   doc.setDrawColor(15, 23, 42);
   doc.setLineWidth(0.3);
   doc.line(left, y, right, y);
-  y += 6;
+  y += 12;
 
   if (input.proforma) {
     const lines = doc.splitTextToSize(PROFORMA_DICITURA_FISCALE, 176);
@@ -229,7 +242,7 @@ export function buildFatturaA4PdfBlob(input: FatturaA4PdfInput): {
   doc.text((addr.capCitta || "").toUpperCase(), right, y, { align: "right" });
   y += 4.5;
   doc.text(`CF: ${dest.codiceFiscale || "—"}`, left, y);
-  y += 8;
+  y += 16;
 
   const ivaUnica = input.righe.find((r) => r.ivaPercentuale > 0)?.ivaPercentuale;
   autoTable(doc, {
@@ -331,7 +344,7 @@ export function buildFatturaA4PdfBlob(input: FatturaA4PdfInput): {
   ];
   const boxH = Math.max(42, 16 + payLines.length * 3.8);
   const piedeLoghi = 268;
-  const marginePiede = 6;
+  const marginePiede = 18;
   const fondoUtile = piedeLoghi - marginePiede;
   let boxY = fondoUtile - boxH;
   if (boxY < y) {

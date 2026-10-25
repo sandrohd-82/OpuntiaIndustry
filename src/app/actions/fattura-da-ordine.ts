@@ -45,6 +45,7 @@ import {
 import { buildFatturaA4PdfBlob } from "@/lib/amministrazione/fattura-a4-pdf";
 import { caricaLoghiFatturaA4Server } from "@/lib/amministrazione/fattura-a4-loghi.server";
 import { AGRINSICILIA_COORDINATE } from "@/lib/amministrazione/preventivo-letterhead";
+import { loadPreventivoCommercialiRiferimento } from "@/lib/amministrazione/preventivo-commerciale-riferimento";
 import {
   ORDINI_PERSISTENZA_BLOCCATA_MSG,
   ORDINI_PERSISTENZA_DEFINITIVA,
@@ -1138,6 +1139,13 @@ async function inviaMailPdfComeBozza(input: {
       "Manca il logo in intestazione: la fattura non può partire diversa dalla bozza."
     );
   }
+  const persone = await loadPreventivoCommercialiRiferimento({
+    includiSenzaAccount: true,
+  });
+  const persona =
+    persone.find((item) => item.id === input.fattura.created_by) ??
+    persone.find((item) => item.id === input.userId) ??
+    null;
   const pdf = buildFatturaA4PdfBlob({
     numeroFattura: input.numeroFattura,
     dataDocumento: String(input.fattura.data_emissione ?? ""),
@@ -1146,6 +1154,13 @@ async function inviaMailPdfComeBozza(input: {
     noteDocumento: String(input.fattura.note ?? ""),
     proforma: false,
     piano: pianoBozzaFattura(input.fattura, input.dilazioni),
+    commerciale: persona
+      ? {
+          nome: persona.nome,
+          telefono: persona.telefono,
+          email: persona.email,
+        }
+      : null,
     loghi,
   });
   const bytes = Buffer.from(await pdf.blob.arrayBuffer());

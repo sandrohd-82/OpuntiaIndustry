@@ -2,7 +2,9 @@
 
 import { useEffect, useId, useState } from "react";
 import { inviaCopiaControlloOrdineAction } from "@/app/actions/prova-ordine";
+import { listPreventivoCommercialiRiferimentoAction } from "@/app/actions/preventivi";
 import { listCaselleSpedizioneMailAction } from "@/app/actions/spedizione-mail";
+import { fatturaA4PdfComeBozza } from "@/lib/amministrazione/fattura-a4-pdf";
 import type { FatturaAnteprimaSessione } from "@/lib/amministrazione/ordine-sessione";
 import { EMAIL_CONTROLLO_DEFAULT } from "@/lib/amministrazione/prova-ordine";
 
@@ -26,6 +28,7 @@ type Props = {
     | "righe"
     | "noteDocumento"
     | "piano"
+    | "commerciale"
   >;
   onClose: () => void;
   onInviata: (messaggio: string) => void;
@@ -78,26 +81,64 @@ export function MailOrdineFaseTestModal({
     }
     setBusy(true);
     setError(null);
-    const res = await inviaCopiaControlloOrdineAction({
-      ordineId,
-      accountId,
-      documento,
-      allegaPdf,
-      allegaTracking,
-      trackingUrl,
-      oggetto: subject,
-      corpo: body,
-      bozza,
-    });
-    setBusy(false);
-    if (!res.success) {
-      setError(res.error);
+    try {
+      let pdfAllegato: { fileName: string; base64: string } | undefined;
+      if (allegaPdf && documento !== "informativa" && bozza) {
+        let commerciale = bozza.commerciale ?? null;
+        if (!commerciale?.nome.trim()) {
+          const elenco = await listPreventivoCommercialiRiferimentoAction({
+            includiSenzaAccount: true,
+          });
+          if (elenco.success && elenco.defaultItem) {
+            commerciale = {
+              nome: elenco.defaultItem.nome,
+              telefono: elenco.defaultItem.telefono,
+              email: elenco.defaultItem.email,
+            };
+          }
+        }
+        pdfAllegato = await fatturaA4PdfComeBozza({
+          numeroFattura: bozza.numeroFattura,
+          dataDocumento: bozza.dataDocumento,
+          destinatario: bozza.destinatario,
+          righe: bozza.righe,
+          noteDocumento: bozza.noteDocumento,
+          piano: bozza.piano,
+          proforma: documento === "proforma",
+          commerciale,
+        });
+      }
+      const res = await inviaCopiaControlloOrdineAction({
+        ordineId,
+        accountId,
+        documento,
+        allegaPdf,
+        allegaTracking,
+        trackingUrl,
+        oggetto: subject,
+        corpo: body,
+        bozza: bozza
+          ? {
+              ...bozza,
+              commerciale: bozza.commerciale ?? null,
+            }
+          : undefined,
+        pdfAllegato,
+      });
+      setBusy(false);
+      if (!res.success) {
+        setError(res.error);
+        setConferma(false);
+        return;
+      }
+      onInviata(
+        `Mail dell'ordine ${res.numeroOrdine} inviata solo a ${res.email}. In allegato c'è la fattura della bozza. Lo SDI non è stato chiamato e il numero non è stato consumato.`
+      );
+    } catch (e) {
+      setBusy(false);
       setConferma(false);
-      return;
+      setError(e instanceof Error ? e.message : "La fattura della bozza non è stata allegata.");
     }
-    onInviata(
-      `Mail dell'ordine ${res.numeroOrdine} inviata solo a ${res.email}. Lo SDI non è stato chiamato e il numero non è stato consumato.`
-    );
   }
 
   return (

@@ -100,6 +100,7 @@ export type FatturaAnteprimaSessione = {
   righe: FatturaA4Riga[];
   noteDocumento: string;
   piano: OrdinePagamentoPiano;
+  commerciale?: { nome: string; telefono: string; email: string } | null;
 };
 
 export function loadFatturaAnteprimaSessione(): FatturaAnteprimaSessione | null {

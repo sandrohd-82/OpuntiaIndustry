@@ -21,7 +21,6 @@ import {
   createIssuedDocument,
   fetchFicVatTypes,
   resolveFicVatId,
-  sendIssuedDocumentCourtesyEmail,
   sendIssuedDocumentToSdi,
 } from "@/lib/fic";
 import { createClient } from "@/lib/supabase/server";
@@ -317,30 +316,7 @@ export async function createAndSendInvoiceAction(
     }
   }
 
-  let courtesyEmailSent = false;
-  const mailTo = (cliente.email || cliente.pec || "").trim();
-  if (parsed.sendCourtesyEmail && mailTo) {
-    try {
-      await sendIssuedDocumentCourtesyEmail({
-        ficId: created.ficId,
-        recipientEmail: mailTo,
-        subject: `Fattura ${numeroFattura}`,
-      });
-      courtesyEmailSent = true;
-    } catch (e) {
-      await writeAuditLog({
-        entity_type: "fatture_emesse",
-        entity_id: numeroFattura,
-        action: "emissione_email_error",
-        actor_id: auth.userId,
-        summary: `Errore mail cortesia ${numeroFattura}`,
-        payload: {
-          ficId: created.ficId,
-          error: e instanceof Error ? e.message : String(e),
-        },
-      });
-    }
-  }
+  const courtesyEmailSent = false;
 
   const insert: FatturaEmessaInsert & Record<string, unknown> = {
     numero_interno: numeroInterno,

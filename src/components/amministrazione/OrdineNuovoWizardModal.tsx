@@ -74,6 +74,8 @@ import {
   usePrenotazioneNumero,
 } from "@/components/amministrazione/FatturaNumeroPrenotato";
 import { inviaCopiaControlloOrdineAction } from "@/app/actions/prova-ordine";
+import { listPreventivoCommercialiRiferimentoAction } from "@/app/actions/preventivi";
+import { fatturaA4PdfComeBozza } from "@/lib/amministrazione/fattura-a4-pdf";
 import { MailOrdineFaseTestModal } from "@/components/amministrazione/MailOrdineFaseTestModal";
 import { FatturaA4Modal } from "@/components/amministrazione/FatturaA4Modal";
 import { OrdinePagamentoPianoFields } from "@/components/amministrazione/OrdinePagamentoPianoFields";
@@ -3824,7 +3826,33 @@ export function OrdineNuovoWizardModal({
                       setConfermaInvioFattura(0);
                       return;
                     }
-                    void inviaCopiaControlloOrdineAction({
+                    void (async () => {
+                      let commerciale = bozza?.commerciale ?? null;
+                      if (bozza && !commerciale?.nome.trim()) {
+                        const elenco =
+                          await listPreventivoCommercialiRiferimentoAction({
+                            includiSenzaAccount: true,
+                          });
+                        if (elenco.success && elenco.defaultItem) {
+                          commerciale = {
+                            nome: elenco.defaultItem.nome,
+                            telefono: elenco.defaultItem.telefono,
+                            email: elenco.defaultItem.email,
+                          };
+                        }
+                      }
+                      const pdfAllegato = bozza
+                        ? await fatturaA4PdfComeBozza({
+                            numeroFattura: bozza.numeroFattura,
+                            dataDocumento: bozza.dataDocumento,
+                            destinatario: bozza.destinatario,
+                            righe: bozza.righe,
+                            noteDocumento: bozza.noteDocumento,
+                            piano: bozza.piano,
+                            commerciale,
+                          })
+                        : undefined;
+                      return inviaCopiaControlloOrdineAction({
                       ordineId: savedOrdine.id,
                       accountId: spedDraft.current.mailAccountId,
                       bozza: bozza
@@ -3835,9 +3863,12 @@ export function OrdineNuovoWizardModal({
                             righe: bozza.righe,
                             noteDocumento: bozza.noteDocumento,
                             piano: bozza.piano,
+                            commerciale,
                           }
                         : undefined,
-                    }).then((res) => {
+                      pdfAllegato,
+                    });
+                    })().then((res) => {
                       setSaving(false);
                       if (!res.success) {
                         setFormError(res.error);
@@ -3846,7 +3877,15 @@ export function OrdineNuovoWizardModal({
                       }
                       setConfermaInvioFattura(2);
                       setSessioneMsg(
-                        `Copia della fattura ${res.numeroFattura} dell'ordine ${res.numeroOrdine} inviata solo a ${res.email}. Su PDF e gestionale il numero è ${res.numeroFattura}; verso Fatture in Cloud andrebbe ${res.numeroProgressivoFic}, senza anno. In questo controllo Fatture in Cloud e lo SDI non sono stati chiamati e il numero non è stato consumato.`
+                        `Copia della fattura ${res.numeroFattura} dell'ordine ${res.numeroOrdine} inviata solo a ${res.email}. L'allegato è la fattura della bozza. Fatture in Cloud e lo SDI non sono stati chiamati e il numero non è stato consumato.`
+                      );
+                    }).catch((e: unknown) => {
+                      setSaving(false);
+                      setConfermaInvioFattura(0);
+                      setFormError(
+                        e instanceof Error
+                          ? e.message
+                          : "La fattura della bozza non è stata allegata."
                       );
                     });
                   }}

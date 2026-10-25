@@ -356,6 +356,13 @@ export function FatturaA4Modal({
       righe,
       noteDocumento,
       piano,
+      commerciale: commerciale
+        ? {
+            nome: commerciale.nome,
+            telefono: commerciale.telefono,
+            email: commerciale.email,
+          }
+        : null,
     };
   }
 
@@ -924,7 +931,7 @@ export function FatturaA4Modal({
               dall’ordine. L’ordine non viene modificato.
             </p>
 
-            <div className="mt-8 border-t border-slate-200 pt-5">
+            <div className="mt-[18mm] border-t border-slate-200 pt-6">
               <PreventivoDocField
                 label="Modifica prodotti, prezzi e sconto"
                 onEdit={() =>
