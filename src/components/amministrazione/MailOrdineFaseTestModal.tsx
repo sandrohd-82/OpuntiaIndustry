@@ -107,6 +107,7 @@ export function MailOrdineFaseTestModal({
           proforma: documento === "proforma",
           commerciale,
         });
+        if (pdfAllegato.base64.length > 2_500_000) pdfAllegato = undefined;
       }
       const res = await inviaCopiaControlloOrdineAction({
         ordineId,

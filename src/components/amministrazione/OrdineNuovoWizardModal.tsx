@@ -3841,7 +3841,7 @@ export function OrdineNuovoWizardModal({
                           };
                         }
                       }
-                      const pdfAllegato = bozza
+                      const pronto = bozza
                         ? await fatturaA4PdfComeBozza({
                             numeroFattura: bozza.numeroFattura,
                             dataDocumento: bozza.dataDocumento,
@@ -3852,6 +3852,10 @@ export function OrdineNuovoWizardModal({
                             commerciale,
                           })
                         : undefined;
+                      const pdfAllegato =
+                        pronto && pronto.base64.length <= 2_500_000
+                          ? pronto
+                          : undefined;
                       return inviaCopiaControlloOrdineAction({
                       ordineId: savedOrdine.id,
                       accountId: spedDraft.current.mailAccountId,

@@ -77,6 +77,27 @@ function formatoImmagine(dataUrl: string): "PNG" | "JPEG" {
   return dataUrl.includes("image/jpeg") ? "JPEG" : "PNG";
 }
 
+function aggiungiLogo(
+  doc: jsPDF,
+  logo: FatturaA4Logo,
+  x: number,
+  y: number,
+  w: number,
+  h: number,
+  alias: string
+) {
+  doc.addImage(
+    logo.dataUrl,
+    formatoImmagine(logo.dataUrl),
+    x,
+    y,
+    w,
+    h,
+    alias,
+    "FAST"
+  );
+}
+
 async function logoDaUrl(
   src: string,
   widthMm: number,
@@ -147,13 +168,14 @@ export function buildFatturaA4PdfBlob(input: FatturaA4PdfInput): {
   let y = 14;
   const logo = input.loghi?.agrinsicilia ?? null;
   if (logo) {
-    doc.addImage(
-      logo.dataUrl,
-      formatoImmagine(logo.dataUrl),
+    aggiungiLogo(
+      doc,
+      logo,
       left,
       y - 2,
       logo.widthMm,
-      logo.heightMm
+      logo.heightMm,
+      "logo-agrinsicilia"
     );
   }
   doc.setTextColor(15, 23, 42);
@@ -398,24 +420,26 @@ export function buildFatturaA4PdfBlob(input: FatturaA4PdfInput): {
     const totaleW = wTesta + (wTesta && wPiede ? gap : 0) + wPiede;
     let x = 105 - totaleW / 2;
     if (logoTesta) {
-      doc.addImage(
-        logoTesta.dataUrl,
-        formatoImmagine(logoTesta.dataUrl),
+      aggiungiLogo(
+        doc,
+        logoTesta,
         x,
         foot - 16,
         wTesta,
-        h
+        h,
+        "logo-agrinsicilia"
       );
       x += wTesta + gap;
     }
     if (logoPiede) {
-      doc.addImage(
-        logoPiede.dataUrl,
-        formatoImmagine(logoPiede.dataUrl),
+      aggiungiLogo(
+        doc,
+        logoPiede,
         x,
         foot - 16,
         wPiede,
-        h
+        h,
+        "logo-opuntia"
       );
     }
   }
