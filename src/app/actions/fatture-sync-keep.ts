@@ -57,6 +57,7 @@ import { normalizeVatKey } from "@/lib/amministrazione/fic-anagrafiche";
 import {
   enrichReceivedDocument,
   fetchIssuedCreditNotes,
+  fetchIssuedDocumentById,
   fetchIssuedInvoices,
   fetchReceivedDocumentById,
   fetchReceivedInvoices,
@@ -143,6 +144,20 @@ function lastRegisteredIso(hints: RegisteredDocHint[]): string | null {
   return dates.length ? dates.reduce((a, b) => (a > b ? a : b)) : null;
 }
 
+/** Keep-sync: solo i documenti vicini all'ultima fattura già registrata. */
+function sincePerAvanti(lastIso: string | null): Date {
+  if (lastIso && /^\d{4}-\d{2}-\d{2}$/.test(lastIso)) {
+    const parsed = new Date(`${lastIso}T00:00:00.000Z`);
+    if (!Number.isNaN(parsed.getTime())) {
+      parsed.setUTCDate(parsed.getUTCDate() - 2);
+      return parsed;
+    }
+  }
+  const recent = new Date();
+  recent.setUTCDate(recent.getUTCDate() - 14);
+  return recent;
+}
+
 function docInScope(
   scope: Awaited<ReturnType<typeof resolveFiscaleDocScope>>,
   aziendaId: string | null,
@@ -153,7 +168,7 @@ function docInScope(
 
 async function listPendingMeta(
   kind: FattureSyncKeepKind,
-  opts?: { supabase?: unknown; skipScope?: boolean }
+  opts?: { supabase?: unknown; skipScope?: boolean; soloAvanti?: boolean }
 ): Promise<
   | { success: true; preview: FattureSyncPreview }
   | { success: false; error: string }
@@ -177,20 +192,21 @@ async function listPendingMeta(
   const today = todayIsoRome();
 
   if (kind === "emessa") {
-    const [invoices, creditNotes, registeredPage] = await Promise.all([
-      fetchIssuedInvoices(null),
-      fetchIssuedCreditNotes(null),
-      pageAllSoftRows(
-        hintClient,
-        "fatture_emesse",
-        "id, fic_id, data_emissione, numero_documento_esterno, numero_fattura, numero_interno, totale"
-      ),
-    ]);
+    const registeredPage = await pageAllSoftRows(
+      hintClient,
+      "fatture_emesse",
+      "id, fic_id, data_emissione, numero_documento_esterno, numero_fattura, numero_interno, totale"
+    );
     if (registeredPage.error) {
       return { success: false, error: registeredPage.error };
     }
     const registeredHints = mapRegisteredHints(registeredPage.rows);
     const lastRegisteredDate = lastRegisteredIso(registeredHints);
+    const since = opts?.soloAvanti ? sincePerAvanti(lastRegisteredDate) : null;
+    const [invoices, creditNotes] = await Promise.all([
+      fetchIssuedInvoices(since),
+      fetchIssuedCreditNotes(since),
+    ]);
 
     const emesseScope = skipScope
       ? { skip: true as const, dateFloor: null, ownedIds: null }
@@ -254,19 +270,18 @@ async function listPendingMeta(
     };
   }
 
-  const [docs, registeredPage] = await Promise.all([
-    fetchReceivedInvoices(null),
-    pageAllSoftRows(
-      hintClient,
-      "fatture_ricevute",
-      "id, fic_id, data_emissione, numero_documento_esterno, numero_interno, totale"
-    ),
-  ]);
+  const registeredPage = await pageAllSoftRows(
+    hintClient,
+    "fatture_ricevute",
+    "id, fic_id, data_emissione, numero_documento_esterno, numero_interno, totale"
+  );
   if (registeredPage.error) {
     return { success: false, error: registeredPage.error };
   }
   const registeredHints = mapRegisteredHints(registeredPage.rows);
   const lastRegisteredDate = lastRegisteredIso(registeredHints);
+  const since = opts?.soloAvanti ? sincePerAvanti(lastRegisteredDate) : null;
+  const docs = await fetchReceivedInvoices(since);
   const scope = skipScope
     ? { skip: true as const, dateFloor: null, ownedIds: null }
     : await resolveFiscaleDocScope(supabase, "fiscale.fatture_ricevute");
@@ -493,6 +508,24 @@ async function buildItemsFromFicIds(
   const idSet = new Set(ficIds);
   if (idSet.size === 0) return [];
   if (kind === "emessa") {
+    if (idSet.size <= 30) {
+      const items: FatturaSyncQueueItem[] = [];
+      for (const ficId of idSet) {
+        const doc = await fetchIssuedDocumentById(ficId);
+        if (!doc) continue;
+        const tipo = String(doc.raw.type ?? "");
+        items.push(
+          buildFatturaSyncQueueItem({
+            doc,
+            kind: tipo === "credit_note" ? "nota_credito" : "emessa",
+            existingId: null,
+            existingLabel: null,
+            proposedTarga: "",
+          })
+        );
+      }
+      return items;
+    }
     const [invoices, creditNotes] = await Promise.all([
       fetchIssuedInvoices(null),
       fetchIssuedCreditNotes(null),
@@ -525,7 +558,8 @@ async function buildItemsFromFicIds(
     return items;
   }
 
-  const listed = await fetchReceivedInvoices(null);
+  const listed =
+    idSet.size <= 30 ? [] : await fetchReceivedInvoices(null);
   const byList = new Map(listed.map((d) => [d.ficId, d]));
   const items: FatturaSyncQueueItem[] = [];
   for (const ficId of idSet) {
@@ -1089,6 +1123,7 @@ async function runKeepSyncInternal(
   const preview = await listPendingMeta(kind, {
     supabase,
     skipScope: true,
+    soloAvanti: true,
   });
   if (!preview.success) {
     await touchKeep(kind, userId, 0, preview.error, supabase);

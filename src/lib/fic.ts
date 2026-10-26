@@ -124,8 +124,21 @@ async function ficRequest<T>(
     const body = await res.text().catch(() => "");
     const lower = body.toLowerCase();
     if (res.status === 403 && lower.includes("usage_limit_reached")) {
+      const retrySec = Number(res.headers.get("retry-after") ?? "");
+      const monthlyLeft = res.headers.get("ratelimit-monthlyremaining");
+      const hourlyLeft = res.headers.get("ratelimit-hourlyremaining");
+      let quando = "Riprova più tardi.";
+      if (Number.isFinite(retrySec) && retrySec > 0) {
+        const minuti = Math.max(1, Math.ceil(retrySec / 60));
+        quando = `Riprova tra ${minuti} minuti.`;
+      } else if (monthlyLeft === "0") {
+        quando =
+          "Il limite del mese si rinnova il primo giorno del mese prossimo.";
+      } else if (hourlyLeft === "0") {
+        quando = "Il limite dell'ora si rinnova all'inizio dell'ora successiva.";
+      }
       throw new Error(
-        "Fatture in Cloud ha esaurito il limite di chiamate API del piano. Nessun documento è stato creato lì e lo SDI non è partito. Riprova quando il limite si rinnova, oppure alza il piano API dal pannello Fatture in Cloud."
+        `Fatture in Cloud ha esaurito le chiamate API consentite. ${quando} Nessun documento è stato creato e lo SDI non è partito.`
       );
     }
     if (
@@ -612,6 +625,28 @@ export async function enrichReceivedDocument(
     entityVat: entityVat || doc.entityVat,
     raw,
   };
+}
+
+/** Dettaglio di una fattura emessa per ID FiC, senza riascoltare tutta la lista. */
+export async function fetchIssuedDocumentById(
+  ficId: number
+): Promise<FicDocumentNormalized | null> {
+  const id = Number(ficId);
+  if (!Number.isFinite(id) || id <= 0) return null;
+  try {
+    const res = await ficGet<{ data?: unknown }>(
+      `/issued_documents/${id}`,
+      {}
+    );
+    return normalizeIssuedDocument(res.data);
+  } catch (e) {
+    console.error(
+      "[fic] fetchIssuedDocumentById",
+      id,
+      e instanceof Error ? e.message : e
+    );
+    return null;
+  }
 }
 
 /** Dettaglio di una ricevuta per ID FiC, senza riascoltare tutta la lista. */
@@ -1264,8 +1299,33 @@ export type FicVatType = {
   description: string;
 };
 
+/**
+ * Aliquote già usate sui DDT di questa azienda.
+ * Il 22% è l'id 0: non serve rileggere /info/vat_types a ogni fattura.
+ */
+const ALIQUOTE_NOTE: FicVatType[] = [
+  { id: 0, value: 22, description: "22%" },
+  { id: 4, value: 4, description: "4%" },
+  { id: 6, value: 0, description: "0%" },
+];
+
+let aliquoteCache: { at: number; rows: FicVatType[] } | null = null;
+
+export function idAliquotaNota(percentuale: number): number | null {
+  const target = Number(percentuale) || 0;
+  const found = ALIQUOTE_NOTE.find((v) => Math.abs(v.value - target) < 0.001);
+  return found ? found.id : null;
+}
+
+export function aliquoteNoteFic(): FicVatType[] {
+  return ALIQUOTE_NOTE.map((row) => ({ ...row }));
+}
+
 /** Elenco aliquote IVA configurate su FiC. */
 export async function fetchFicVatTypes(): Promise<FicVatType[]> {
+  if (aliquoteCache && Date.now() - aliquoteCache.at < 6 * 60 * 60 * 1000) {
+    return aliquoteCache.rows;
+  }
   const res = await ficGet<{ data?: unknown[] }>("/info/vat_types", {});
   const out: FicVatType[] = [];
   for (const item of res.data ?? []) {
@@ -1278,6 +1338,7 @@ export async function fetchFicVatTypes(): Promise<FicVatType[]> {
       description: asText(r.description),
     });
   }
+  if (out.length > 0) aliquoteCache = { at: Date.now(), rows: out };
   return out;
 }
 
@@ -1512,7 +1573,8 @@ export type CreateIssuedDocumentResult = {
 
 /** Crea fattura emessa su FiC (POST /issued_documents). */
 export async function createIssuedDocument(
-  data: Record<string, unknown>
+  data: Record<string, unknown>,
+  options?: { includiPdf?: boolean }
 ): Promise<CreateIssuedDocumentResult> {
   const res = await ficPost<{ data?: unknown }>("/issued_documents", { data });
   const doc = asRecord(res.data);
@@ -1526,11 +1588,13 @@ export async function createIssuedDocument(
     .filter((x) => x !== null && x !== undefined && String(x).trim() !== "")
     .map(String)
     .join("");
-  let pdfUrl = "";
-  try {
-    pdfUrl = await fetchFicDocumentPdfUrl({ kind: "issued", ficId });
-  } catch {
-    pdfUrl = asText(doc.url);
+  let pdfUrl = asText(doc.url);
+  if (options?.includiPdf !== false) {
+    try {
+      pdfUrl = (await fetchFicDocumentPdfUrl({ kind: "issued", ficId })) || pdfUrl;
+    } catch {
+      pdfUrl = pdfUrl || asText(doc.url);
+    }
   }
   return {
     ficId,
