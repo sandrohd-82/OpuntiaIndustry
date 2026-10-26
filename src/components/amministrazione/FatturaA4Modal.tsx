@@ -78,6 +78,10 @@ type Props = {
   numeroIncerto?: boolean;
   numeroMin?: string | null;
   numeroMax?: string | null;
+  /** Firma della riga ordine. Se cambia, la bozza in sessione non copre la fattura. */
+  ordineRigaFirma?: string;
+  /** La riga ordine è cambiata: mostra le righe dell'ordine, non la fattura precedente. */
+  allineaAllOrdine?: boolean;
   onClose: () => void;
   onSaved?: (info: { fatturaId: string; inviata: boolean }) => void;
   onSimulaInvio?: (draft: FatturaInvioMailDraft) => void;
@@ -125,6 +129,8 @@ export function FatturaA4Modal({
   numeroIncerto = false,
   numeroMin = null,
   numeroMax = null,
+  ordineRigaFirma = "",
+  allineaAllOrdine = false,
   onClose,
   onSaved,
   onSimulaInvio,
@@ -241,8 +247,15 @@ export function FatturaA4Modal({
       }
       if (soloSessione) {
         const memorizzata = loadFatturaAnteprimaSessione();
+        const firmaDiversa = Boolean(
+          ordineRigaFirma &&
+            memorizzata?.firmaOrdine &&
+            memorizzata.firmaOrdine !== ordineRigaFirma
+        );
         const usaMemorizzata =
-          Boolean(sessioneId) && memorizzata?.sessioneId === sessioneId;
+          Boolean(sessioneId) &&
+          memorizzata?.sessioneId === sessioneId &&
+          !firmaDiversa;
         const draft = sessioneDraft;
         const src = usaMemorizzata
           ? memorizzata
@@ -296,7 +309,10 @@ export function FatturaA4Modal({
         setLoading(false);
         return;
       }
-      const ctx = await getFatturaA4ContextAction({ ordineId });
+      const ctx = await getFatturaA4ContextAction({
+        ordineId,
+        ignoraRigheFattura: allineaAllOrdine,
+      });
       if (cancelled) return;
       if (!ctx.success) {
         setError(ctx.error);
@@ -304,8 +320,16 @@ export function FatturaA4Modal({
         return;
       }
       const memorizzata = loadFatturaAnteprimaSessione();
+      const firmaDiversa = Boolean(
+        ordineRigaFirma &&
+          memorizzata?.firmaOrdine &&
+          memorizzata.firmaOrdine !== ordineRigaFirma
+      );
       const usaMemorizzata =
-        Boolean(sessioneId) && memorizzata?.sessioneId === sessioneId
+        !allineaAllOrdine &&
+        Boolean(sessioneId) &&
+        memorizzata?.sessioneId === sessioneId &&
+        !firmaDiversa
           ? memorizzata
           : null;
       setCliente(ctx.cliente);
@@ -356,6 +380,7 @@ export function FatturaA4Modal({
       righe,
       noteDocumento,
       piano,
+      firmaOrdine: ordineRigaFirma || undefined,
       commerciale: commerciale
         ? {
             nome: commerciale.nome,

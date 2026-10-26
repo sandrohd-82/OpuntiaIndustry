@@ -278,6 +278,8 @@ function pianoFromOrdineRate(
 
 export async function getFatturaA4ContextAction(input: {
   ordineId: string;
+  /** Ricostruisce le righe dall'ordine, senza leggere la fattura già salvata. */
+  ignoraRigheFattura?: boolean;
 }): Promise<
   | {
       success: true;
@@ -296,6 +298,7 @@ export async function getFatturaA4ContextAction(input: {
       imponibile: number;
       imposta: number;
       fatturaEsistenteId: string | null;
+      righeDaFatturaSalvata: boolean;
       proformaId: string | null;
       proformaNumero: string | null;
       proformaConvertitaNumero: string | null;
@@ -404,6 +407,7 @@ export async function getFatturaA4ContextAction(input: {
       .limit(1)
       .maybeSingle();
     const existingRow = existing as FatturaEmessaRow | null;
+    let righeDaFatturaSalvata = false;
     if (existingRow) {
       noteDocumento = existingRow.note ?? "";
       const snap = parseDestinatarioSnapshot(existingRow.destinatario_snapshot);
@@ -420,7 +424,8 @@ export async function getFatturaA4ContextAction(input: {
       } catch {
         fatturaRighe = [];
       }
-      if (fatturaRighe && fatturaRighe.length > 0) {
+      if (!input.ignoraRigheFattura && fatturaRighe && fatturaRighe.length > 0) {
+        righeDaFatturaSalvata = true;
         righe = fatturaRighe.map((r) => ({
           prodottoId: r.prodotto_id,
           codice: r.codice,
@@ -509,6 +514,7 @@ export async function getFatturaA4ContextAction(input: {
       imponibile: totals.imponibile,
       imposta: totals.imposta,
       fatturaEsistenteId: existingRow?.id ?? null,
+      righeDaFatturaSalvata,
       proformaId: proforma && !proforma.fattura_definitiva_id ? proforma.id : null,
       proformaNumero:
         proforma && !proforma.fattura_definitiva_id
@@ -976,35 +982,164 @@ export async function materializzaNumeroDocumento(
 
 /** Crea la fattura dell'ordine e non la invia. Solo dopo il successo l'ordine è pronto per la produzione. */
 export async function creaFatturaOrdineSenzaInvioAction(
-  ordineId: string
+  ordineId: string,
+  opts?: {
+    /** true solo se è cambiata la riga prodotto dell'ordine. */
+    resetDaOrdine?: boolean;
+    bozza?: {
+      righe: FatturaA4Riga[];
+      destinatario?: FatturaDestinatarioSnapshot;
+      noteDocumento?: string;
+      dataDocumento?: string;
+      piano?: OrdinePagamentoPiano;
+    } | null;
+    invioFatturaSdi?: "subito" | "al_processo" | null;
+  }
 ): Promise<
-  | { success: true; fatturaId: string; numeroFattura: string; inviata: false }
+  | {
+      success: true;
+      fatturaId: string;
+      numeroFattura: string;
+      inviata: false;
+      giaInviata: boolean;
+      resettata: boolean;
+      avviso?: string;
+    }
   | { success: false; error: string }
 > {
   const { auth } = await requireAreaAccess("amministrazione");
-  const ctx = await getFatturaA4ContextAction({ ordineId });
-  if (!ctx.success) return ctx;
-  const res = await saveFatturaDaOrdineAction({
-    ordineId,
-    fatturaId: ctx.fatturaEsistenteId,
-    dataDocumento: ctx.dataDocumento,
-    invioEmail: "",
-    inviaOra: false,
-    sendToSdi: false,
-    piano: ctx.piano,
-    noteDocumento: ctx.noteDocumento,
-    righe: ctx.righe,
-    destinatario: ctx.destinatario,
-  });
-  if (!res.success) return res;
-  if (res.inviata || res.sdiSent || res.courtesyEmailSent || res.ficId) {
-    return {
-      success: false,
-      error:
-        "La fattura risulta inviata. Il passaggio in produzione è bloccato.",
-    };
-  }
   const supabase = await createClient();
+  const { data: esistente, error: esistenteErr } = await supabase
+    .from("fatture_emesse")
+    .select("id, fic_id, courtesy_email_sent, numero_fattura, ei_status")
+    .eq("ordine_id", ordineId)
+    .eq("tipo_documento", "fattura")
+    .is("deleted_at", null)
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (esistenteErr) return { success: false, error: esistenteErr.message };
+  const emessa = esistente as {
+    id: string;
+    fic_id?: number | null;
+    courtesy_email_sent?: boolean | null;
+    numero_fattura?: string | null;
+    ei_status?: string | null;
+  } | null;
+  const numeroSalvato = String(emessa?.numero_fattura ?? "").trim();
+  const documentoPartito = Boolean(
+    emessa &&
+      (emessa.fic_id ||
+        emessa.courtesy_email_sent ||
+        emessa.ei_status === "sent" ||
+        (numeroSalvato && isNumeroFatturaEmessa(numeroSalvato)))
+  );
+  const giaInviata = Boolean(
+    emessa && (emessa.courtesy_email_sent || emessa.ei_status === "sent")
+  );
+  const scelta =
+    opts?.invioFatturaSdi === "subito" || opts?.invioFatturaSdi === "al_processo"
+      ? opts.invioFatturaSdi
+      : null;
+  if (scelta) {
+    const { error: sceltaErr } = await supabase
+      .from("ordini")
+      .update({
+        invio_fattura_sdi: scelta,
+        invio_fattura_sdi_scelto_at: new Date().toISOString(),
+        invio_fattura_sdi_scelto_by: auth.userId,
+        updated_by: auth.userId,
+      })
+      .eq("id", ordineId)
+      .is("deleted_at", null);
+    if (sceltaErr) {
+      return {
+        success: false,
+        error: `La scelta di invio non è stata registrata: ${sceltaErr.message}`,
+      };
+    }
+    await writeAuditLog({
+      entity_type: "ordini",
+      entity_id: ordineId,
+      action: "invio_fattura_sdi",
+      actor_id: auth.userId,
+      summary:
+        scelta === "subito"
+          ? "Scelta: invia subito la fattura allo SDI e la mail di cortesia al cliente."
+          : "Scelta: invia la fattura allo SDI e la mail di cortesia quando l'ordine entra in produzione.",
+      payload: { invio_fattura_sdi: scelta },
+    });
+  }
+
+  const resetRichiesto = Boolean(opts?.resetDaOrdine);
+  let fatturaId = emessa?.id ?? "";
+  let numeroFattura = numeroSalvato || "Prenotata";
+  let resettata = false;
+  let avviso: string | undefined;
+
+  if (documentoPartito) {
+    if (resetRichiesto) {
+      avviso =
+        "La riga dell'ordine è cambiata. La fattura già inviata allo SDI non è stata modificata.";
+    }
+  } else {
+    const ctx = await getFatturaA4ContextAction({
+      ordineId,
+      ignoraRigheFattura: resetRichiesto,
+    });
+    if (!ctx.success) return ctx;
+    const bozza = resetRichiesto ? null : (opts?.bozza ?? null);
+    const tieniSalvata =
+      !resetRichiesto &&
+      ctx.righeDaFatturaSalvata &&
+      !(bozza?.righe && bozza.righe.length > 0);
+    if (tieniSalvata) {
+      fatturaId = ctx.fatturaEsistenteId ?? fatturaId;
+      numeroFattura = ctx.numeroFattura;
+    } else {
+      const res = await saveFatturaDaOrdineAction({
+        ordineId,
+        fatturaId: ctx.fatturaEsistenteId,
+        dataDocumento: bozza?.dataDocumento || ctx.dataDocumento,
+        invioEmail: "",
+        inviaOra: false,
+        sendToSdi: false,
+        piano: bozza?.piano ?? ctx.piano,
+        noteDocumento: bozza?.noteDocumento ?? ctx.noteDocumento,
+        righe: bozza?.righe && bozza.righe.length > 0 ? bozza.righe : ctx.righe,
+        destinatario: bozza?.destinatario ?? ctx.destinatario,
+      });
+      if (!res.success) return res;
+      if (res.inviata || res.sdiSent || res.courtesyEmailSent) {
+        return {
+          success: false,
+          error:
+            "La fattura risulta inviata. Il passaggio in produzione è bloccato.",
+        };
+      }
+      fatturaId = res.fatturaId;
+      numeroFattura = res.numeroFattura;
+      if (resetRichiesto) {
+        resettata = true;
+        avviso =
+          "La riga dell'ordine è cambiata: la fattura non inviata è stata riallineata all'ordine.";
+        await writeAuditLog({
+          entity_type: "fatture_emesse",
+          entity_id: fatturaId,
+          action: "update",
+          actor_id: auth.userId,
+          summary:
+            "Fattura non inviata riallineata all'ordine perché la riga prodotto è cambiata.",
+          payload: { ordine_id: ordineId, reset_da_ordine: true },
+        });
+      }
+    }
+  }
+
+  if (!fatturaId) {
+    return { success: false, error: "Fattura non creata." };
+  }
+
   const { data: prima } = await supabase
     .from("ordini")
     .select("stato")
@@ -1022,7 +1157,7 @@ export async function creaFatturaOrdineSenzaInvioAction(
   if (error) {
     return {
       success: false,
-      error: `Fattura ${res.numeroFattura} creata e non inviata, ma l'ordine non è stato sbloccato: ${error.message}`,
+      error: `Fattura ${numeroFattura} registrata, ma l'ordine non è stato sbloccato: ${error.message}`,
     };
   }
   await writeAuditLog({
@@ -1030,28 +1165,34 @@ export async function creaFatturaOrdineSenzaInvioAction(
     entity_id: ordineId,
     action: "status_change",
     actor_id: auth.userId,
-    summary: `Fattura prenotata senza numero per l'ordine. Nessun invio. Ordine pronto per la produzione.`,
+    summary: giaInviata
+      ? "Fattura già inviata: l'ordine resta pronto per la produzione e non parte un secondo invio."
+      : "Fattura registrata senza invio. L'ordine è pronto per la produzione.",
     payload: {
-      fattura_id: res.fatturaId,
-      numero_fattura: res.numeroFattura,
+      fattura_id: fatturaId,
+      numero_fattura: numeroFattura,
       inviata: false,
       sdi_sent: false,
       documento_stato: "registrato",
+      gia_inviata: giaInviata,
+      resettata,
+      invio_fattura_sdi: scelta,
     },
   });
   await notificaOrdineInCoda({
     actorId: auth.userId,
     ordineId,
-    statoPrima: String(
-      (prima as { stato?: string } | null)?.stato ?? ""
-    ),
+    statoPrima: String((prima as { stato?: string } | null)?.stato ?? ""),
     evento: "fattura registrata, pronto per la produzione",
   });
   return {
     success: true,
-    fatturaId: res.fatturaId,
-    numeroFattura: res.numeroFattura,
+    fatturaId,
+    numeroFattura,
     inviata: false,
+    giaInviata,
+    resettata,
+    avviso,
   };
 }
 

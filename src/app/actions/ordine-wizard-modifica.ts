@@ -77,6 +77,8 @@ export type OrdineWizardModifica = {
   kgEssiccatore: number | null;
   sedePartenzaId: string;
   mail: SpedizioneMailPrenotazione | null;
+  invioFatturaSdi: "subito" | "al_processo" | null;
+  fatturaGiaInviata: boolean;
 };
 
 function asRecord(value: unknown): Record<string, unknown> {
@@ -308,6 +310,25 @@ export async function loadOrdinePerModificaWizardAction(
     ? ripresa.attivitaSnapshot
     : [];
 
+  const { data: fatturaRow } = await supabase
+    .from("fatture_emesse")
+    .select("courtesy_email_sent, ei_status")
+    .eq("ordine_id", ordineId)
+    .eq("tipo_documento", "fattura")
+    .is("deleted_at", null)
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  const fatturaEmessa = fatturaRow as {
+    courtesy_email_sent?: boolean | null;
+    ei_status?: string | null;
+  } | null;
+  const invioRaw = String(ordine.invio_fattura_sdi ?? "");
+  const fatturaGiaInviata = Boolean(
+    fatturaEmessa &&
+      (fatturaEmessa.courtesy_email_sent || fatturaEmessa.ei_status === "sent")
+  );
+
   return {
     success: true,
     draft: {
@@ -430,6 +451,9 @@ export async function loadOrdinePerModificaWizardAction(
       mail: prenotazione
         ? mapSpedizioneMailRow(prenotazione as Record<string, unknown>)
         : null,
+      invioFatturaSdi:
+        invioRaw === "subito" || invioRaw === "al_processo" ? invioRaw : null,
+      fatturaGiaInviata,
     },
   };
 }

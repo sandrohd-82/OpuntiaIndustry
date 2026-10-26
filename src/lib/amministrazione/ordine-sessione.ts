@@ -101,6 +101,8 @@ export type FatturaAnteprimaSessione = {
   noteDocumento: string;
   piano: OrdinePagamentoPiano;
   commerciale?: { nome: string; telefono: string; email: string } | null;
+  /** Firma della riga ordine al momento dell'ultima modifica fattura. */
+  firmaOrdine?: string;
 };
 
 export function loadFatturaAnteprimaSessione(): FatturaAnteprimaSessione | null {

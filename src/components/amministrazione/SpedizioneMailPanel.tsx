@@ -45,7 +45,7 @@ function testoIntroSpedizione(input: {
     return "Inserisci il tracking quando c’è. Se in fase di ordine è stata chiesta la mail, parte solo dopo la tua conferma. Nessuna mail parte da sola.";
   }
   if (input.impostazioneDocumento) {
-    return "La mail non dipende dal tracking. Scegli informativa, proforma o fattura. In questa fase di prova parte solo verso sandrohd@gmail.com e lo SDI resta spento.";
+    return "La mail non dipende dal tracking. Scegli informativa, proforma o fattura. L'invio allo SDI si decide nel riquadro sopra: subito, oppure quando l'ordine entra in produzione.";
   }
   if (input.nascondiAttesaTracking) {
     return "Il tracking e la mail al cliente sono facoltativi. Salva bozza tiene il documento in elenco anche se i campi sono vuoti.";

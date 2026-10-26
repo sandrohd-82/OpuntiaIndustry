@@ -109,7 +109,13 @@ import type {
 } from "@/types/database";
 
 export type OrdiniActionResult =
-  | { success: true; ordine: Ordine; avviso?: string }
+  | {
+      success: true;
+      ordine: Ordine;
+      avviso?: string;
+      /** true se prodotto, quantità, unità, prezzo o IVA della riga sono cambiati. */
+      rigaProdottoCambiata?: boolean;
+    }
   | { success: false; error: string };
 
 async function writeAudit(input: AuditLogInsert) {
@@ -327,6 +333,10 @@ async function replaceRighe(
 
   const { error: insErr } = await supabase.from("ordini_righe").insert(inserts);
   return insErr?.message ?? null;
+}
+
+function stessoNumeroRiga(a: number, b: number): boolean {
+  return Math.abs(a - b) < 0.0001;
 }
 
 export async function listOrdiniAction(
@@ -1848,6 +1858,38 @@ async function createOrdineWizardActionInner(
       if (firmaErr) return boccia(firmaErr);
     }
 
+    let rigaProdottoCambiata = false;
+    if (editing) {
+      const { data: vecchieRighe } = await supabase
+        .from("ordini_righe")
+        .select(
+          "prodotto_id, prodotto_codice, prodotto_nome, quantita, unita_misura, prezzo_unitario, iva_percentuale"
+        )
+        .eq("ordine_id", editing.id)
+        .order("sort_order", { ascending: true });
+      const vecchia = (vecchieRighe ?? [])[0] as
+        | {
+            prodotto_id?: string | null;
+            prodotto_codice?: string | null;
+            prodotto_nome?: string | null;
+            quantita?: number | null;
+            unita_misura?: string | null;
+            prezzo_unitario?: number | null;
+            iva_percentuale?: number | null;
+          }
+        | undefined;
+      rigaProdottoCambiata =
+        !vecchia ||
+        (vecchieRighe ?? []).length !== 1 ||
+        String(vecchia.prodotto_id ?? "") !== input.prodottoId ||
+        String(vecchia.prodotto_codice ?? "") !== input.prodottoCodice ||
+        String(vecchia.prodotto_nome ?? "") !== input.prodottoNome ||
+        String(vecchia.unita_misura ?? "") !== unitaMisura ||
+        !stessoNumeroRiga(Number(vecchia.quantita), input.quantita) ||
+        !stessoNumeroRiga(Number(vecchia.prezzo_unitario), prezzoUnitario) ||
+        !stessoNumeroRiga(Number(vecchia.iva_percentuale), ivaPercentuale);
+    }
+
     const righeErr = await replaceRighe(row.id, [
       {
         prodottoId: input.prodottoId,
@@ -2070,7 +2112,7 @@ async function createOrdineWizardActionInner(
     if (!ordine) {
       return boccia("Ordine creato ma non leggibile.");
     }
-    return { success: true, ordine };
+    return { success: true, ordine, rigaProdottoCambiata };
   } catch (e) {
     console.error("[createOrdineWizardAction]", e);
     return {
@@ -2207,12 +2249,13 @@ export async function processOrdineInScalettaAction(
   let fatturaDaEmettereId = "";
   let fatturaProvaSaltata = false;
   let documentoNonFattura = false;
+  let fatturaGiaInviata = false;
   if (existing.clienteId && existing.tipo !== "campionatura") {
     const supabaseCheck = await createClient();
     const { data: fatturaPronta, error: fatErr } = await supabaseCheck
       .from("fatture_emesse")
       .select(
-        "id, fic_id, courtesy_email_sent, tipo_documento, numero_fattura, numero_interno"
+        "id, fic_id, courtesy_email_sent, ei_status, tipo_documento, numero_fattura, numero_interno"
       )
       .eq("ordine_id", existing.id)
       .is("deleted_at", null)
@@ -2230,19 +2273,17 @@ export async function processOrdineInScalettaAction(
       id: string;
       fic_id?: number | null;
       courtesy_email_sent?: boolean;
+      ei_status?: string | null;
       tipo_documento?: string | null;
       numero_fattura?: string | null;
       numero_interno?: string | null;
     };
-    const giaInviata = Boolean(pronta.fic_id || pronta.courtesy_email_sent);
+    const giaInviata = Boolean(
+      pronta.courtesy_email_sent || pronta.ei_status === "sent"
+    );
     if (giaInviata) {
-      return {
-        success: false,
-        error:
-          "La fattura risulta già inviata. Il passaggio in produzione è bloccato.",
-      };
-    }
-    if (pronta.tipo_documento !== "fattura") {
+      fatturaGiaInviata = true;
+    } else if (pronta.tipo_documento !== "fattura") {
       documentoNonFattura = true;
     } else if (
       isFatturaProva({
@@ -2497,6 +2538,9 @@ export async function processOrdineInScalettaAction(
   } else if (documentoNonFattura) {
     avviso =
       "Ordine in scaletta. Il documento collegato non è una fattura: non è partito allo SDI.";
+  } else if (fatturaGiaInviata) {
+    avviso =
+      "Ordine in scaletta. La fattura era già stata inviata allo SDI: non è partita una seconda volta.";
   } else if (fatturaDaEmettereId) {
     const invio = await inviaFatturaSalvataAction({
       fatturaId: fatturaDaEmettereId,
