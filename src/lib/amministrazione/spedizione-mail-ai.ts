@@ -73,6 +73,9 @@ export async function generaTestoMailOrdine(input: {
     numeroOrdine,
     prodotti,
   });
+  if (input.documento === "fattura" && allegaPdf) {
+    return { ...fallback, model: "template" };
+  }
   const apiKey = process.env.OPENAI_API_KEY?.trim();
   if (!apiKey || process.env.WEBMAIL_AI_ENABLED === "false") {
     return { ...fallback, model: "template" };

@@ -40,6 +40,16 @@ export function bozzaMailOrdine(input: {
   }
   const proforma = input.documento === "proforma";
   const titolo = proforma ? "Proforma" : "Fattura";
+  if (!proforma && input.allegaPdf) {
+    const cortesia = testoMailFatturaCortesia({
+      numeroOrdine: ordine,
+      prodotti: input.prodotti.trim(),
+    });
+    return {
+      subject: `Fattura ordine${ordineTesto}`,
+      bodyText: righe([cortesia.bodyText, trackingRiga]),
+    };
+  }
   const nomeDoc = proforma ? "la proforma" : "la fattura";
   const corpoAllegato = input.allegaPdf
     ? `in allegato trova ${nomeDoc} dell'ordine${ordineTesto}.`
@@ -66,4 +76,24 @@ export function bozzaMailOrdine(input: {
 
 function righe(parti: string[]): string {
   return parti.filter((riga) => riga !== "").join("\n");
+}
+
+/** Testo fisso della mail con la fattura di cortesia. Ordine e voci restano quelli del documento. */
+export function testoMailFatturaCortesia(input: {
+  numeroOrdine: string;
+  prodotti: string;
+  trackingUrl?: string;
+}): { subject: string; bodyText: string } {
+  const ordine = input.numeroOrdine.trim();
+  const voci = input.prodotti.trim() || "indicate in fattura";
+  const tracking = (input.trackingUrl ?? "").trim();
+  return {
+    subject: ordine ? `Fattura ordine ${ordine}` : "Fattura",
+    bodyText: righe([
+      "Gentile cliente,",
+      "",
+      `In questa e-mail troverà in allegato la fattura di cortesia relativa all'ordine ${ordine}, contenente le voci ${voci}. L'originale è stata inviata tramite sistema di interscambio SDI.`,
+      tracking ? `Tracking: ${tracking}` : "",
+    ]),
+  };
 }

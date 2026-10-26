@@ -45,6 +45,7 @@ import {
 import { buildFatturaA4PdfBlob } from "@/lib/amministrazione/fattura-a4-pdf";
 import { caricaLoghiFatturaA4Server } from "@/lib/amministrazione/fattura-a4-loghi.server";
 import { AGRINSICILIA_COORDINATE } from "@/lib/amministrazione/preventivo-letterhead";
+import { testoMailFatturaCortesia } from "@/lib/amministrazione/ordine-mail-bozza";
 import { loadPreventivoCommercialiRiferimento } from "@/lib/amministrazione/preventivo-commerciale-riferimento";
 import {
   ORDINI_PERSISTENZA_BLOCCATA_MSG,
@@ -1208,8 +1209,32 @@ async function inviaMailPdfComeBozza(input: {
     username: string;
     password_encrypted: string;
   };
+  let numeroOrdine = "";
+  if (input.fattura.ordine_id) {
+    const { data: ordineRow } = await service
+      .from("ordini")
+      .select("numero_interno")
+      .eq("id", input.fattura.ordine_id)
+      .maybeSingle();
+    numeroOrdine = String(
+      (ordineRow as { numero_interno?: string | null } | null)?.numero_interno ??
+        ""
+    ).trim();
+  }
+  const voci = righeBozzaFattura(input.righe)
+    .filter((riga) => !riga.isSpedizione)
+    .map((riga) =>
+      [riga.codice.trim() || riga.descrizione.trim(), String(riga.quantita), riga.unitaMisura.trim()]
+        .filter(Boolean)
+        .join(" ")
+    )
+    .filter(Boolean)
+    .join(", ");
   const subject = `Fattura ${input.numeroFattura}`;
-  const text = `Gentile cliente,\n\nin allegato la fattura ${input.numeroFattura}, uguale al documento predisposto sull'ordine.\n\nCordiali saluti,\nUfficio Amministrazione`;
+  const text = testoMailFatturaCortesia({
+    numeroOrdine,
+    prodotti: voci,
+  }).bodyText;
   const allegato = {
     filename: pdf.fileName,
     content: bytes,
