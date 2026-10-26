@@ -1377,6 +1377,11 @@ export function PreventivoFormModal({
       }
       clearPreventivoSessione();
       setInviaOpen(false);
+      onMessaggio?.(
+        res.notificaCommerciale
+          ? `Preventivo ${res.item.numeroInterno} inviato a ${mailTo.trim()}. È passato in Inviati. Il commerciale di riferimento ha ricevuto la notifica.`
+          : `Preventivo ${res.item.numeroInterno} inviato a ${mailTo.trim()}. È passato in Inviati. Manca il commerciale di riferimento con accesso: la notifica non è partita.`
+      );
       onSaved(res.item);
       onClose();
     } catch (e) {

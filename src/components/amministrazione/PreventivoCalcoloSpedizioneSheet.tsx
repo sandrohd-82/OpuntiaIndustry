@@ -219,7 +219,15 @@ export function PreventivoCalcoloSpedizioneSheet({
                       return;
                     }
                     chiuso.current = true;
-                    let messaggio = `Spedizione inserita. Preventivo ${item.numeroInterno} inviato.`;
+                    const verso = mailTo.trim() || "il cliente";
+                    let messaggio = `Spedizione inserita. Preventivo ${item.numeroInterno} inviato a ${verso}. È passato in Inviati.`;
+                    if (res.notificaCommerciale) {
+                      messaggio +=
+                        " Il commerciale di riferimento ha ricevuto la notifica.";
+                    } else if (!res.provaInvio) {
+                      messaggio +=
+                        " Manca il commerciale di riferimento con accesso: la notifica non è partita.";
+                    }
                     if (res.provaInvio) {
                       messaggio = `Prova: mail inviata solo a sandrohd@gmail.com. ${item.numeroInterno} resta nella fase attuale e non è stato inviato al cliente.`;
                     } else if (res.provaChiusa) {
@@ -249,6 +257,13 @@ export function PreventivoCalcoloSpedizioneSheet({
         <p className="mx-4 mt-3 rounded border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-950">
           Fase di prova. La mail che vedi è quella del cliente, ma parte solo
           verso sandrohd@gmail.com. Il preventivo resta in questa fase.
+        </p>
+      ) : null}
+      {!FASE_TEST_INVIO_PREVENTIVO && !solaLettura ? (
+        <p className="mx-4 mt-3 rounded border-2 border-amber-600 bg-amber-50 px-3 py-2 text-sm font-medium text-amber-950">
+          Invio reale. La mail parte a {mailTo.trim() || "il destinatario indicato"}.
+          Il preventivo passa in Inviati e il commerciale di riferimento riceve
+          la notifica.
         </p>
       ) : null}
 

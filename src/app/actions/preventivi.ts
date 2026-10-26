@@ -1758,6 +1758,16 @@ export async function setPreventivoStatoAction(input: {
     actor_id: gate.auth.userId,
     summary: `Preventivo ${header.numero_interno} → ${input.stato}`,
   });
+  if (input.stato === "inviato") {
+    await notificaCommercialePreventivoInviato({
+      actorId: gate.auth.userId,
+      preventivoId: header.id,
+      numero: header.numero_interno,
+      cliente: header.cliente_ragione_sociale,
+      commercialeId: header.commerciale_riferimento_id,
+      mailTo: header.mail_bozza_to,
+    });
+  }
   return {
     success: true,
     item: mapPreventivo(header, righe.get(header.id) ?? []),
@@ -2478,6 +2488,34 @@ function destinatarioProvaPreventivo():
   return { ok: true, email };
 }
 
+async function notificaCommercialePreventivoInviato(input: {
+  actorId: string;
+  preventivoId: string;
+  numero: string;
+  cliente: string;
+  commercialeId: string | null | undefined;
+  mailTo: string;
+}): Promise<boolean> {
+  const id = String(input.commercialeId ?? "").trim();
+  if (!/^[0-9a-f-]{36}$/i.test(id)) return false;
+  const cliente = input.cliente.trim() || "il cliente";
+  const verso = input.mailTo.trim() || "il cliente";
+  const res = await dispatchNotifiche({
+    actorId: input.actorId,
+    includeActor: true,
+    allowRepeat: true,
+    recipientIds: [id],
+    tipo: "attivita",
+    title: `Preventivo ${input.numero} inviato`,
+    body: `Preventivo ${input.numero} per ${cliente} inviato a ${verso}. Lo stato è passato a Inviato.`,
+    href: "/app/commerciale/preventivi",
+    entityType: "preventivi",
+    entityId: input.preventivoId,
+    payload: { stato: "inviato", mailTo: verso },
+  });
+  return res.created > 0;
+}
+
 /** Mail identica a quella del cliente, ma solo verso l'indirizzo di controllo. Nessun cambio di fase. */
 async function inviaMailControlloPreventivo(input: {
   accountId: string;
@@ -2562,7 +2600,12 @@ async function inviaMailControlloPreventivo(input: {
 export async function inviaPreventivoMailAction(
   raw: unknown
 ): Promise<
-  | { success: true; item: Preventivo; provaInvio?: boolean }
+  | {
+      success: true;
+      item: Preventivo;
+      provaInvio?: boolean;
+      notificaCommerciale?: boolean;
+    }
   | { success: false; error: string }
 > {
   const gate = await requirePreventiviAccess();
@@ -2592,7 +2635,7 @@ export async function inviaPreventivoMailAction(
   const { data: row, error: rowErr } = await supabase
     .from("preventivi")
     .select(
-      "id, numero_interno, stato, sent_at, accettazione_senior_stato, modalita_spedizione_prezzo, spedizione_importo, consegna_metodo, cliente_id, cliente_possibile_id, cliente_ragione_sociale"
+      "id, numero_interno, stato, sent_at, accettazione_senior_stato, modalita_spedizione_prezzo, spedizione_importo, consegna_metodo, cliente_id, cliente_possibile_id, cliente_ragione_sociale, commerciale_riferimento_id"
     )
     .eq("id", input.preventivoId)
     .is("deleted_at", null)
@@ -2612,6 +2655,7 @@ export async function inviaPreventivoMailAction(
     cliente_id: string | null;
     cliente_possibile_id: string | null;
     cliente_ragione_sociale: string | null;
+    commerciale_riferimento_id: string | null;
   };
   if (
     accettazioneSeniorBloccaInvio(
@@ -2915,6 +2959,14 @@ export async function inviaPreventivoMailAction(
       linguaAllegato,
     },
   });
+  const notificaCommerciale = await notificaCommercialePreventivoInviato({
+    actorId: gate.auth.userId,
+    preventivoId: prev.id,
+    numero: prev.numero_interno,
+    cliente: prev.cliente_ragione_sociale ?? "",
+    commercialeId: prev.commerciale_riferimento_id,
+    mailTo: input.mailTo,
+  });
   if (chiusuraPdf || chiusuraItaliano) {
     return {
       success: false,
@@ -2936,6 +2988,7 @@ export async function inviaPreventivoMailAction(
   });
   return {
     success: true,
+    notificaCommerciale,
     item: mapPreventivo(
       updated as PreventivoRow,
       (righe ?? []) as PreventivoRigaRow[],
@@ -2986,7 +3039,12 @@ export async function completaCalcoloSpedizionePreventivoAction(input: {
   pdfBase64: string;
   confermaInvio: boolean;
 }): Promise<
-  | { success: true; provaChiusa?: boolean; provaInvio?: boolean }
+  | {
+      success: true;
+      provaChiusa?: boolean;
+      provaInvio?: boolean;
+      notificaCommerciale?: boolean;
+    }
   | { success: false; error: string }
 > {
   const auth = await getAuthContext();
@@ -3024,7 +3082,7 @@ export async function completaCalcoloSpedizionePreventivoAction(input: {
   const { data: row, error } = await service
     .from("preventivi")
     .select(
-      "id, numero_interno, stato, sent_at, accettazione_senior_stato, spedizione_lock_by, spedizione_lock_at, data_preventivo, cliente_id, cliente_ragione_sociale, tipo_pagamento, giorni_consegna, validita_giorni, note, consegna_metodo, commerciale_riferimento_nome, commerciale_riferimento_telefono, commerciale_riferimento_email, mail_bozza_account_id, mail_bozza_to, mail_bozza_oggetto, mail_bozza_testo"
+      "id, numero_interno, stato, sent_at, accettazione_senior_stato, spedizione_lock_by, spedizione_lock_at, data_preventivo, cliente_id, cliente_ragione_sociale, tipo_pagamento, giorni_consegna, validita_giorni, note, consegna_metodo, commerciale_riferimento_id, commerciale_riferimento_nome, commerciale_riferimento_telefono, commerciale_riferimento_email, mail_bozza_account_id, mail_bozza_to, mail_bozza_oggetto, mail_bozza_testo"
     )
     .eq("id", input.preventivoId)
     .is("deleted_at", null)
@@ -3042,6 +3100,8 @@ export async function completaCalcoloSpedizionePreventivoAction(input: {
     mail_bozza_oggetto: string;
     mail_bozza_testo: string;
     accettazione_senior_stato?: string | null;
+    cliente_ragione_sociale?: string | null;
+    commerciale_riferimento_id?: string | null;
   };
   if (
     accettazioneSeniorBloccaInvio(
@@ -3234,6 +3294,14 @@ export async function completaCalcoloSpedizionePreventivoAction(input: {
       sha256: archivio.sha256,
     },
   });
+  const notificaCommerciale = await notificaCommercialePreventivoInviato({
+    actorId: auth.userId,
+    preventivoId: prev.id,
+    numero: prev.numero_interno,
+    cliente: prev.cliente_ragione_sociale ?? "",
+    commercialeId: prev.commerciale_riferimento_id,
+    mailTo: prev.mail_bozza_to,
+  });
   if (chiusuraPdf) {
     return {
       success: false,
@@ -3282,9 +3350,9 @@ export async function completaCalcoloSpedizionePreventivoAction(input: {
       summary: `Prova ${prev.numero_interno} inviata a ${prev.mail_bozza_to} e tolta dall'archivio`,
       payload: { importo, mailTo: prev.mail_bozza_to },
     });
-    return { success: true, provaChiusa: true };
+    return { success: true, provaChiusa: true, notificaCommerciale };
   }
-  return { success: true };
+  return { success: true, notificaCommerciale };
 }
 
 export async function apriPdfPreventivoEmessoAction(
@@ -3565,7 +3633,9 @@ export async function collegaInvioManualePreventivoAction(input: {
   const service = createServiceClient();
   const { data: prev, error: prevErr } = await service
     .from("preventivi")
-    .select("id, stato, numero_interno, sent_at, accettazione_senior_stato")
+    .select(
+      "id, stato, numero_interno, sent_at, accettazione_senior_stato, cliente_ragione_sociale, commerciale_riferimento_id, mail_bozza_to"
+    )
     .eq("id", input.preventivoId)
     .is("deleted_at", null)
     .maybeSingle();
@@ -3623,6 +3693,15 @@ export async function collegaInvioManualePreventivoAction(input: {
     actor_id: gate.auth.userId,
     summary: `Preventivo ${prev.numero_interno} segnato inviato e collegato alla mail «${mail.subject ?? ""}»`,
     payload: { webmailInvioId: mail.id, oggetto: mail.subject ?? "" },
+  });
+  const collegato = updated as PreventivoRow;
+  await notificaCommercialePreventivoInviato({
+    actorId: gate.auth.userId,
+    preventivoId: collegato.id,
+    numero: collegato.numero_interno,
+    cliente: collegato.cliente_ragione_sociale,
+    commercialeId: collegato.commerciale_riferimento_id,
+    mailTo: collegato.mail_bozza_to,
   });
   const righe = await attachRighe([prev.id]);
   const pdfEmessi = await attachPdfEmessi([prev.id]);

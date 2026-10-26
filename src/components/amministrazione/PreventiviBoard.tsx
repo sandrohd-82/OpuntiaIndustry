@@ -433,7 +433,8 @@ export function PreventiviBoard({
           onCompleted={(message) => {
             setCompletaItem(null);
             setNotice(message);
-            void reload();
+            setRaccolta("inviati");
+            void reload("inviati");
           }}
         />
       ) : null}
@@ -463,6 +464,11 @@ export function PreventiviBoard({
                 `${item.numeroInterno} è in Creato da inviare. Quando lo hai mandato, clicca Preventivo inviato e collega la mail.`
               );
               void reload("creato_da_inviare");
+              return;
+            }
+            if (item.stato === "inviato") {
+              setRaccolta("inviati");
+              void reload("inviati");
               return;
             }
             void reload();
@@ -509,9 +515,13 @@ export function PreventiviBoard({
                 `${item.numeroInterno} è in Creato da inviare. Quando lo hai mandato, clicca Preventivo inviato e collega la mail.`
               );
             }
+            if (item.stato === "inviato") {
+              setRaccolta("inviati");
+            }
             let raccoltaSalvata = raccolta;
             if (item.stato === "in_attesa_spedizione") raccoltaSalvata = "da_completare";
             if (item.stato === "creato_da_inviare") raccoltaSalvata = "creato_da_inviare";
+            if (item.stato === "inviato") raccoltaSalvata = "inviati";
             void reload(raccoltaSalvata);
           }}
         />
