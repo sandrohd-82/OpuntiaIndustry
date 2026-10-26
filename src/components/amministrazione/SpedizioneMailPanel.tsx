@@ -31,6 +31,7 @@ import {
   AGRINSICILIA_LETTERHEAD,
   AGRINSICILIA_MAIL_FIRMA,
 } from "@/lib/amministrazione/preventivo-letterhead";
+import { FASE_TEST_INVIO } from "@/lib/amministrazione/prova-ordine";
 
 function testoIntroSpedizione(input: {
   persistDisabled: boolean;
@@ -817,12 +818,20 @@ export function SpedizioneMailPanel({
               </span>
             ) : null}
           </label>
-          {impostazioneDocumento ? (
+          {impostazioneDocumento && FASE_TEST_INVIO ? (
             <p className="rounded-lg border border-sky-200 bg-sky-50 px-3 py-2 text-xs text-sky-950">
               Destinatario di prova: sandrohd@gmail.com. Il cliente non riceve
               nulla e lo SDI non parte.
             </p>
           ) : (
+          <>
+          {impostazioneDocumento ? (
+            <p className="rounded-lg border border-sky-200 bg-sky-50 px-3 py-2 text-xs text-sky-950">
+              La mail va al cliente. Lo SDI e la mail di cortesia seguono la
+              scelta nel riquadro sopra: subito, oppure quando l&apos;ordine
+              entra in produzione.
+            </p>
+          ) : null}
           <SpedizioneDestinatarioMailField
             value={destEmail}
             onChange={setDestEmail}
@@ -831,6 +840,7 @@ export function SpedizioneMailPanel({
             emailPec={emailPec}
             emailGeneriche={emailGeneriche}
           />
+          </>
           )}
           {anagrafica?.id ? (
             <TraduciIntercomunicazione
