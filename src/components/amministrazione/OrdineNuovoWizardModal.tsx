@@ -1804,7 +1804,7 @@ export function OrdineNuovoWizardModal({
         setFatturaPrenotataId(fat.fatturaId);
         setConfermaInvioFattura(0);
         setOrdineFinalizzato(true);
-        if (!modificaOrdineId) apriMailOrdine();
+        if (!modificaOrdineId && FASE_TEST_INVIO) apriMailOrdine();
         let messaggioFinale = `Ordine ${result.ordine.numeroInterno} finalizzato. La fattura è prenotata. Nessuna mail e nessuno SDI sono partiti.`;
         if (FASE_TEST_INVIO && !modificaOrdineId) {
           const documentoSalvato =
@@ -1833,10 +1833,12 @@ export function OrdineNuovoWizardModal({
       }
       const mailErr = await memorizzaMail();
       if (!modificaOrdineId) {
-        apriMailOrdine();
+        if (FASE_TEST_INVIO) apriMailOrdine();
         setOrdineFinalizzato(true);
         setSessioneMsg(
-          `Ordine ${result.ordine.numeroInterno} registrato. La mail si compila adesso: solo sandrohd@gmail.com, senza SDI.`
+          FASE_TEST_INVIO
+            ? `Ordine ${result.ordine.numeroInterno} registrato. La mail si compila adesso: solo sandrohd@gmail.com, senza SDI.`
+            : `Ordine ${result.ordine.numeroInterno} registrato. Nessuna mail di prova è stata aperta.`
         );
         if (mailErr) {
           setFormError(
@@ -3787,7 +3789,7 @@ export function OrdineNuovoWizardModal({
               : "Annulla"}
           </button>
           <div className="flex flex-wrap justify-end gap-2">
-            {ordineFinalizzato && !modificaOrdineId && mailPronto && !mailTest ? (
+            {FASE_TEST_INVIO && ordineFinalizzato && !modificaOrdineId && mailPronto && !mailTest ? (
               <button
                 type="button"
                 onClick={() => setMailTest(mailPronto)}
@@ -3796,7 +3798,7 @@ export function OrdineNuovoWizardModal({
                 Apri la mail
               </button>
             ) : null}
-            {ordineFinalizzato && fatturaPrenotataId && savedOrdine && modificaOrdineId ? (
+            {FASE_TEST_INVIO && ordineFinalizzato && fatturaPrenotataId && savedOrdine && modificaOrdineId ? (
               <>
                 <p className="self-center text-sm text-slate-700">
                   Copia solo a sandrohd@gmail.com
