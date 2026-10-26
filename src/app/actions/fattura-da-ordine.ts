@@ -1404,6 +1404,21 @@ async function inviaMailPdfComeBozza(input: {
   });
 }
 
+function messaggioAliquoteFic(e: unknown, numeroCorrente: string): string {
+  const raw =
+    e instanceof Error
+      ? e.message
+      : "Impossibile leggere le aliquote IVA da Fatture in Cloud.";
+  const limite =
+    raw.includes("limite di chiamate API") ||
+    raw.includes("USAGE_LIMIT_REACHED");
+  if (!limite) return `Aliquote IVA FiC: ${raw}`;
+  const numero = isNumeroFatturaEmessa(numeroCorrente)
+    ? ` Il numero ${numeroCorrente} resta su questa fattura: al prossimo invio viene riusato e non se ne prende un altro.`
+    : " Il numero fiscale non è stato assegnato.";
+  return `${raw}${numero}`;
+}
+
 export async function inviaFatturaAttraversoSdiAction(
   fatturaId: string,
   doppiaConferma = false
@@ -1474,11 +1489,6 @@ export async function inviaFatturaSalvataAction(input: {
         "L'invio della fattura richiede la doppia conferma. Il numero non è stato assegnato e nulla è partito.",
     };
   }
-  const numeri = await materializzaNumeroDocumento(fattura.id);
-  if (!numeri.success) return numeri;
-  fattura.numero_fattura = numeri.numeroFattura;
-  fattura.numero_interno = numeri.numeroInterno;
-  fattura.numero_documento_esterno = numeri.numeroFattura;
   const [{ data: dilazioni }, { data: clienteData }] = await Promise.all([
     supabase
       .from("fatture_emesse_dilazioni")
@@ -1511,14 +1521,23 @@ export async function inviaFatturaSalvataAction(input: {
   try {
     vatTypes = await fetchFicVatTypes();
   } catch (e) {
-    return {
-      success: false,
-      error:
-        e instanceof Error
-          ? `Aliquote IVA FiC: ${e.message}`
-          : "Impossibile leggere le aliquote IVA da Fatture in Cloud.",
-    };
+    const message = messaggioAliquoteFic(e, fattura.numero_fattura);
+    await writeAuditLog({
+      entity_type: "fatture_emesse",
+      entity_id: fattura.id,
+      action: "emissione_fic_error",
+      actor_id: auth.userId,
+      summary: `Aliquote IVA non lette ${fattura.numero_fattura || fattura.numero_interno}`,
+      payload: { error: message },
+    });
+    return { success: false, error: message };
   }
+
+  const numeri = await materializzaNumeroDocumento(fattura.id);
+  if (!numeri.success) return numeri;
+  fattura.numero_fattura = numeri.numeroFattura;
+  fattura.numero_interno = numeri.numeroInterno;
+  fattura.numero_documento_esterno = numeri.numeroFattura;
 
   const numeroFattura =
     fattura.numero_fattura || fattura.numero_documento_esterno;

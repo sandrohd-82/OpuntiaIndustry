@@ -123,6 +123,11 @@ async function ficRequest<T>(
   if (!res.ok) {
     const body = await res.text().catch(() => "");
     const lower = body.toLowerCase();
+    if (res.status === 403 && lower.includes("usage_limit_reached")) {
+      throw new Error(
+        "Fatture in Cloud ha esaurito il limite di chiamate API del piano. Nessun documento è stato creato lì e lo SDI non è partito. Riprova quando il limite si rinnova, oppure alza il piano API dal pannello Fatture in Cloud."
+      );
+    }
     if (
       res.status === 403 &&
       (lower.includes("no_permission") || lower.includes("no permission"))
