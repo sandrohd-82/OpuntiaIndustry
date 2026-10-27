@@ -19,6 +19,7 @@ import {
   type NoteSezioniOrdine,
   type OrdineSezioneChiave,
 } from "@/lib/amministrazione/ordine-sezione-note";
+import { labelRitiroMezzo } from "@/lib/amministrazione/ordine-ritiro";
 import { labelSede } from "@/lib/impostazioni/sedi";
 import type { SpedizioneMailPrenotazione } from "@/lib/amministrazione/spedizione-mail";
 import { MailOrdineFaseTestModal } from "@/components/amministrazione/MailOrdineFaseTestModal";
@@ -448,13 +449,18 @@ export function OrdineDettaglioPanel({ ordine, onEdit }: Props) {
         </div>
         <div>
           <dt className="text-xs font-medium uppercase text-[var(--muted)]">
-            Corriere
+            {ordine.ritiroInSede ? "Mezzo di ritiro" : "Corriere"}
           </dt>
           <dd className="mt-0.5">
-            {ordine.corriereDaCompilare
-              ? "Si sceglie dopo"
-              : corriereNome ||
-                (ordine.corriereId ? "Corriere scelto" : "Non indicato")}
+            {ordine.ritiroInSede
+              ? labelRitiroMezzo(ordine.ritiroMezzo)
+              : (ordine.corriereDaCompilare
+                ? "Si sceglie dopo"
+                : corriereNome ||
+                  (ordine.corriereId ? "Corriere scelto" : "Non indicato"))}
+            {ordine.ritiroInSede && ordine.avvisaMercePronta
+              ? ` Avviso merce pronta via ${ordine.avvisoCanale === "tel" ? "telefono" : "mail"}: ${ordine.avvisoEtichetta ? `${ordine.avvisoEtichetta}, ` : ""}${ordine.avvisoValore}.`
+              : (ordine.ritiroInSede ? " Nessun avviso di merce pronta." : "")}
             {nota("spedizione_mezzo")}
           </dd>
         </div>

@@ -26,6 +26,7 @@ import {
   quantitaRichiestaInBaseKg,
   type FonteApprovvigionamento,
 } from "@/lib/amministrazione/approvvigionamento";
+import { labelRitiroMezzo } from "@/lib/amministrazione/ordine-ritiro";
 import {
   labelTipoOrdine,
   quantitaInUnitaBase,
@@ -359,6 +360,14 @@ export function ProcessaOrdineScalettaModal({
         <div className="mt-3">
           <OrdineCampionaturaElenco righe={campionatureOrdine} />
         </div>
+        {ordine.ritiroInSede ? (
+          <p className="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-950">
+            Ritiro in sede: {labelRitiroMezzo(ordine.ritiroMezzo)}.
+            {ordine.avvisaMercePronta
+              ? ` Avvisare appena la merce è pronta, via ${ordine.avvisoCanale === "tel" ? "telefono" : "mail"}: ${ordine.avvisoEtichetta ? `${ordine.avvisoEtichetta}, ` : ""}${ordine.avvisoValore}.`
+              : " Nessun avviso di merce pronta."}
+          </p>
+        ) : null}
         {isCamp ? null : (
           <p className="mt-3 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-950">
             Passaggio in produzione. L&apos;ordine entra in scaletta, la fattura

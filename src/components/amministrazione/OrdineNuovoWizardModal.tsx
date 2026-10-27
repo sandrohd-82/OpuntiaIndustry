@@ -9,15 +9,17 @@ import {
 } from "@/app/actions/ordini";
 import { getScontoFuoriListinoContextAction } from "@/app/actions/ordine-sconto";
 import { listSediAttiveAction } from "@/app/actions/impostazioni-sedi";
+import { elencoContattiRitiroAction } from "@/app/actions/ordine-ritiro-contatti";
 import { TitoloConNota } from "@/components/amministrazione/OrdineSezioneNota";
 import { OrdineCampionaturaElenco } from "@/components/amministrazione/OrdineCampionaturaElenco";
 import { CAMPIONATURA_ORDINE_NOTA } from "@/lib/amministrazione/ordine-campionatura";
 import { InfoHint } from "@/components/ui/InfoHint";
 import type { OrdineSezioneChiave } from "@/lib/amministrazione/ordine-sezione-note";
+import { labelSede, type ImpostazioniSede } from "@/lib/impostazioni/sedi";
 import {
-  labelSede,
-  type ImpostazioniSede,
-} from "@/lib/impostazioni/sedi";
+  type ContattoRitiro,
+  type RitiroMezzo,
+} from "@/lib/amministrazione/ordine-ritiro";
 import {
   fasciaScontoExtra,
   parseScontoExtraPct,
@@ -568,6 +570,15 @@ export function OrdineNuovoWizardModal({
   const [sediError, setSediError] = useState<string | null>(null);
   const [addressKey, setAddressKey] = useState("");
   const [sedeRitiroId, setSedeRitiroId] = useState("");
+  const [ritiroMezzo, setRitiroMezzo] = useState<RitiroMezzo | "">("");
+  const [avvisaMercePronta, setAvvisaMercePronta] = useState(false);
+  const [avvisoCanale, setAvvisoCanale] = useState<"tel" | "mail" | "">("");
+  const [avvisoValore, setAvvisoValore] = useState("");
+  const [avvisoEtichetta, setAvvisoEtichetta] = useState("");
+  const [contattiRitiro, setContattiRitiro] = useState<{
+    telefoni: ContattoRitiro[];
+    mail: ContattoRitiro[];
+  }>({ telefoni: [], mail: [] });
   const [sediAzienda, setSediAzienda] = useState<ImpostazioniSede[]>([]);
   const [noteSezioni, setNoteSezioni] = useState<
     Partial<Record<OrdineSezioneChiave, string>>
@@ -582,6 +593,26 @@ export function OrdineNuovoWizardModal({
       numeroConfezioni: number | "";
     }>
   >([]);
+  useEffect(() => {
+    if (addressKey !== "ritiro") return;
+    const cliente = anagraficaFonte === "possibile" ? "" : clienteId;
+    const possibile = anagraficaFonte === "possibile" ? possibileClienteId : "";
+    if (!cliente && !possibile) {
+      setContattiRitiro({ telefoni: [], mail: [] });
+      return;
+    }
+    let cancel = false;
+    void elencoContattiRitiroAction({
+      clienteId: cliente || null,
+      possibileClienteId: possibile || null,
+    }).then((res) => {
+      if (cancel || !res.success) return;
+      setContattiRitiro({ telefoni: res.telefoni, mail: res.mail });
+    });
+    return () => {
+      cancel = true;
+    };
+  }, [addressKey, anagraficaFonte, clienteId, possibileClienteId]);
   const ritiroScelto = useRef(false);
   const [altroPostoOpen, setAltroPostoOpen] = useState(false);
   const [altroPostoLabel, setAltroPostoLabel] = useState("");
@@ -720,6 +751,11 @@ export function OrdineNuovoWizardModal({
         preserveSavedAddress.current = true;
         setAddressKey("ritiro");
         setSedeRitiroId(d.sedeRitiroId);
+        setRitiroMezzo(d.ritiroMezzo ?? "");
+        setAvvisaMercePronta(d.avvisaMercePronta);
+        setAvvisoCanale(d.avvisoCanale ?? "");
+        setAvvisoValore(d.avvisoValore);
+        setAvvisoEtichetta(d.avvisoEtichetta);
       }
       setQuantita(d.quantita);
       setUnitaMisura(d.unitaMisura);
@@ -1343,7 +1379,11 @@ export function OrdineNuovoWizardModal({
       return true;
     }
     if (step === 5) {
-      if (addressKey === "ritiro") return Boolean(sedeRitiroId);
+      if (addressKey === "ritiro") {
+        if (!sedeRitiroId || !ritiroMezzo) return false;
+        if (avvisaMercePronta && (!avvisoCanale || !avvisoValore)) return false;
+        return true;
+      }
       if (!corriereDopo && !corriereId) return false;
       if (aCarico === "diviso" && (pctAgrin === "" || Number(pctAgrin) < 0))
         return false;
@@ -1620,6 +1660,14 @@ export function OrdineNuovoWizardModal({
         });
         ordine.ritiroInSede = ritiroInSede;
         ordine.sedeRitiroId = ritiroInSede ? sedeRitiroId || null : null;
+        ordine.ritiroMezzo = ritiroInSede ? ritiroMezzo || null : null;
+        ordine.avvisaMercePronta = ritiroInSede && avvisaMercePronta;
+        ordine.avvisoCanale =
+          ritiroInSede && avvisaMercePronta ? avvisoCanale || null : null;
+        ordine.avvisoValore =
+          ritiroInSede && avvisaMercePronta ? avvisoValore.trim() : "";
+        ordine.avvisoEtichetta =
+          ritiroInSede && avvisaMercePronta ? avvisoEtichetta.trim() : "";
         ordine.trasporto = {
           ...emptyTrasporto(),
           imponibile: ritiroInSede || attesaCalcoloSpedizione
@@ -1701,6 +1749,12 @@ export function OrdineNuovoWizardModal({
                 })),
         ritiroInSede,
         sedeRitiroId: ritiroInSede ? sedeRitiroId || null : null,
+        ritiroMezzo: ritiroInSede ? ritiroMezzo || null : null,
+        avvisaMercePronta: ritiroInSede && avvisaMercePronta,
+        avvisoCanale: ritiroInSede && avvisaMercePronta ? avvisoCanale || null : null,
+        avvisoValore: ritiroInSede && avvisaMercePronta ? avvisoValore.trim() : "",
+        avvisoEtichetta:
+          ritiroInSede && avvisaMercePronta ? avvisoEtichetta.trim() : "",
         quantita: quantitaInserita,
         unitaMisura: umEffettiva,
         prezzoUnitario: tipoOrdine === "campionatura" ? 0 : numberOrZero(prezzoUnitario),
@@ -1746,8 +1800,8 @@ export function OrdineNuovoWizardModal({
         capacitaIngressoKgPerEssiccatoreOverride:
           kgEssiccatore === "" ? null : Number(kgEssiccatore),
         spedizioneMezzo: "corriere",
-        corriereId: corriereDopo ? null : corriereId || null,
-        corriereDaCompilare: corriereDopo,
+        corriereId: ritiroInSede || corriereDopo ? null : corriereId || null,
+        corriereDaCompilare: ritiroInSede ? false : corriereDopo,
         spedizioneACarico: aCarico,
         modalitaSpedizionePrezzo: (ritiroInSede
           ? "non_applicabile"
@@ -3629,6 +3683,129 @@ export function OrdineNuovoWizardModal({
                 <legend className="px-1 text-sm font-medium">
                   {titoloNota("spedizione_mezzo", "Mezzo")}
                 </legend>
+                {ritiroInSede ? (
+                  <div className="space-y-3">
+                    <p className="text-xs text-[var(--muted)]">
+                      Il cliente ritira in sede. Non si sceglie un corriere del catalogo.
+                    </p>
+                    <label className="flex items-start gap-2 text-sm">
+                      <input
+                        type="radio"
+                        name="ritiro-mezzo"
+                        className="mt-1"
+                        checked={ritiroMezzo === "personalmente"}
+                        onChange={() => setRitiroMezzo("personalmente")}
+                      />
+                      <span>Personalmente</span>
+                    </label>
+                    <label className="flex items-start gap-2 text-sm">
+                      <input
+                        type="radio"
+                        name="ritiro-mezzo"
+                        className="mt-1"
+                        checked={ritiroMezzo === "corriere_cliente"}
+                        onChange={() => setRitiroMezzo("corriere_cliente")}
+                      />
+                      <span>A mezzo corriere del cliente</span>
+                    </label>
+                    <label className="flex items-start gap-2 text-sm">
+                      <input
+                        type="checkbox"
+                        className="mt-1"
+                        checked={avvisaMercePronta}
+                        onChange={(e) => {
+                          setAvvisaMercePronta(e.target.checked);
+                          if (!e.target.checked) {
+                            setAvvisoCanale("");
+                            setAvvisoValore("");
+                            setAvvisoEtichetta("");
+                          }
+                        }}
+                      />
+                      <span>Avvisare il cliente appena merce pronta magazzino</span>
+                    </label>
+                    {avvisaMercePronta ? (
+                      <div className="space-y-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2">
+                        <label className="flex items-center gap-2 text-sm">
+                          <input
+                            type="radio"
+                            name="avviso-canale"
+                            checked={avvisoCanale === "tel"}
+                            onChange={() => {
+                              setAvvisoCanale("tel");
+                              setAvvisoValore("");
+                              setAvvisoEtichetta("");
+                            }}
+                          />
+                          Tel
+                        </label>
+                        <label className="flex items-center gap-2 text-sm">
+                          <input
+                            type="radio"
+                            name="avviso-canale"
+                            checked={avvisoCanale === "mail"}
+                            onChange={() => {
+                              setAvvisoCanale("mail");
+                              setAvvisoValore("");
+                              setAvvisoEtichetta("");
+                            }}
+                          />
+                          Mail
+                        </label>
+                        {avvisoCanale ? (
+                          <label className="block text-sm">
+                            <span className="mb-1 block font-medium">
+                              {avvisoCanale === "tel"
+                                ? "Numero di telefono"
+                                : "Mail"}
+                            </span>
+                            <select
+                              value={avvisoValore}
+                              onChange={(e) => {
+                                const lista =
+                                  avvisoCanale === "tel"
+                                    ? contattiRitiro.telefoni
+                                    : contattiRitiro.mail;
+                                const scelto = lista.find(
+                                  (voce) => voce.valore === e.target.value
+                                );
+                                setAvvisoValore(e.target.value);
+                                setAvvisoEtichetta(scelto?.etichetta ?? avvisoEtichetta);
+                              }}
+                              className="w-full rounded-lg border border-amber-200 bg-white px-3 py-2 text-sm"
+                            >
+                              <option value="">
+                                {avvisoCanale === "tel"
+                                  ? "Seleziona un numero…"
+                                  : "Seleziona una mail…"}
+                              </option>
+                              {avvisoValore &&
+                              !(avvisoCanale === "tel"
+                                ? contattiRitiro.telefoni
+                                : contattiRitiro.mail
+                              ).some((voce) => voce.valore === avvisoValore) ? (
+                                <option value={avvisoValore}>
+                                  {avvisoEtichetta
+                                    ? `${avvisoEtichetta}: ${avvisoValore}`
+                                    : avvisoValore}
+                                </option>
+                              ) : null}
+                              {(avvisoCanale === "tel"
+                                ? contattiRitiro.telefoni
+                                : contattiRitiro.mail
+                              ).map((voce) => (
+                                <option key={voce.valore} value={voce.valore}>
+                                  {voce.etichetta}: {voce.valore}
+                                </option>
+                              ))}
+                            </select>
+                          </label>
+                        ) : null}
+                      </div>
+                    ) : null}
+                  </div>
+                ) : (
+                  <>
                 <label className="flex items-center gap-2 text-sm">
                   <input type="radio" checked readOnly />
                   Corriere
@@ -3692,6 +3869,8 @@ export function OrdineNuovoWizardModal({
                     <FaPlus size={11} /> Aggiungi
                   </button>
                 </div>
+                  </>
+                )}
               </fieldset>
 
               <fieldset className="space-y-2 rounded-lg border border-[var(--border)] p-3">

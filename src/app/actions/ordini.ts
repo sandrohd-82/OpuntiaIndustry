@@ -1,5 +1,6 @@
 "use server";
 
+import { writeAuditLog } from "@/lib/audit";
 import { loadIndirizzoRicezioneMerce } from "@/app/actions/anagrafica-extra";
 import { createClient, createServiceClient } from "@/lib/supabase/server";
 import { assegnaLottoProduzioneDaMagazzino } from "@/app/actions/lotto-produzione-magazzino";
@@ -1507,12 +1508,13 @@ async function createOrdineWizardActionInner(
       scontoPct: number;
       modalitaPrecedente: string;
       calcolataBy: string | null;
+      ritiroPrima: boolean;
     } | null = null;
     if (input.ordineId) {
       const { data: prev, error: prevErr } = await supabase
         .from("ordini")
         .select(
-          "id, numero_interno, versione, stato, tipo, giorni_produzione, sconto_extra_pct, modalita_spedizione_prezzo, spedizione_calcolata_by, deleted_at"
+          "id, numero_interno, versione, stato, tipo, giorni_produzione, sconto_extra_pct, modalita_spedizione_prezzo, spedizione_calcolata_by, ritiro_in_sede, deleted_at"
         )
         .eq("id", input.ordineId)
         .maybeSingle();
@@ -1554,6 +1556,9 @@ async function createOrdineWizardActionInner(
         calcolataBy:
           (prev as { spedizione_calcolata_by?: string | null })
             .spedizione_calcolata_by ?? null,
+        ritiroPrima: Boolean(
+          (prev as { ritiro_in_sede?: boolean | null }).ritiro_in_sede
+        ),
       };
     }
     if (input.preventivoId && !campionaturaGratis) {
@@ -1632,6 +1637,22 @@ async function createOrdineWizardActionInner(
       return {
         success: false,
         error: "Per il ritiro in sede scegli la sede.",
+      };
+    }
+    if (input.ritiroInSede && !input.ritiroMezzo) {
+      return {
+        success: false,
+        error: "Scegli se il ritiro è personale o con il corriere del cliente.",
+      };
+    }
+    if (
+      input.ritiroInSede &&
+      input.avvisaMercePronta &&
+      (!input.avvisoCanale || !input.avvisoValore?.trim())
+    ) {
+      return {
+        success: false,
+        error: "Scegli telefono o mail per l'avviso di merce pronta.",
       };
     }
     const spedizione = risolviSpedizioneOrdineDiretto({
@@ -1762,10 +1783,13 @@ async function createOrdineWizardActionInner(
       giorni_produzione: giorniScritti,
       is_test: false,
       spedizione_mezzo: "corriere",
-      corriere_id: input.corriereDaCompilare
-        ? null
-        : (input.corriereId ?? null),
-      corriere_da_compilare: Boolean(input.corriereDaCompilare),
+      corriere_id:
+        input.ritiroInSede || input.corriereDaCompilare
+          ? null
+          : (input.corriereId ?? null),
+      corriere_da_compilare: input.ritiroInSede
+        ? false
+        : Boolean(input.corriereDaCompilare),
       spedizione_a_carico: input.spedizioneACarico,
       spedizione_pct_agrinsicilia:
         input.spedizioneACarico === "diviso"
@@ -1778,6 +1802,22 @@ async function createOrdineWizardActionInner(
       indirizzo_spedizione: destSped.indirizzo,
       ritiro_in_sede: Boolean(input.ritiroInSede),
       sede_ritiro_id: input.ritiroInSede ? (input.sedeRitiroId ?? null) : null,
+      ritiro_mezzo: input.ritiroInSede ? (input.ritiroMezzo ?? null) : null,
+      avvisa_merce_pronta: input.ritiroInSede
+        ? Boolean(input.avvisaMercePronta)
+        : false,
+      avviso_canale:
+        input.ritiroInSede && input.avvisaMercePronta
+          ? (input.avvisoCanale ?? null)
+          : null,
+      avviso_valore:
+        input.ritiroInSede && input.avvisaMercePronta
+          ? (input.avvisoValore ?? "").trim()
+          : "",
+      avviso_etichetta:
+        input.ritiroInSede && input.avvisaMercePronta
+          ? (input.avvisoEtichetta ?? "").trim()
+          : "",
       preventivo_id: campionaturaGratis ? null : (input.preventivoId ?? null),
       webmail_accettazione_id: campionaturaGratis
         ? null
@@ -2130,6 +2170,32 @@ async function createOrdineWizardActionInner(
       },
     });
     if (!noteSalvate.success) return boccia(noteSalvate.error);
+
+    if (input.ritiroInSede || editing?.ritiroPrima) {
+      const mezzo =
+        input.ritiroMezzo === "corriere_cliente"
+          ? "corriere del cliente"
+          : "personalmente";
+      await writeAuditLog({
+        entity_type: "ordini",
+        entity_id: row.id,
+        action: "update",
+        actor_id: auth.userId,
+        summary: input.ritiroInSede
+          ? `Ritiro in sede: ${mezzo}. Avviso merce pronta: ${input.avvisaMercePronta ? input.avvisoCanale ?? "sì" : "no"}.`
+          : "Ritiro in sede annullato.",
+        payload: {
+          ritiro_mezzo: input.ritiroInSede ? (input.ritiroMezzo ?? null) : null,
+          avvisa_merce_pronta: input.ritiroInSede
+            ? Boolean(input.avvisaMercePronta)
+            : false,
+          avviso_canale:
+            input.ritiroInSede && input.avvisaMercePronta
+              ? (input.avvisoCanale ?? null)
+              : null,
+        },
+      });
+    }
 
     const campionatureSalvate = await salvaCampionatureOrdine({
       ordineId: row.id,

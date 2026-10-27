@@ -156,6 +156,14 @@ export const ordineWizardInputSchema = z
       .default([]),
     ritiroInSede: z.boolean().optional().default(false),
     sedeRitiroId: z.string().uuid().nullable().optional(),
+    ritiroMezzo: z
+      .enum(["personalmente", "corriere_cliente"])
+      .nullable()
+      .optional(),
+    avvisaMercePronta: z.boolean().optional().default(false),
+    avvisoCanale: z.enum(["tel", "mail"]).nullable().optional(),
+    avvisoValore: z.string().trim().max(200).optional().default(""),
+    avvisoEtichetta: z.string().trim().max(200).optional().default(""),
     prezzoUnitario: z.number().min(0),
     scontoListinoPct: z.number().min(0).max(100).optional().default(0),
     scontoListinoStandardPct: z.number().min(0).max(100).optional().default(0),
@@ -289,6 +297,30 @@ export const ordineWizardInputSchema = z
     accordoGiustificazione: z.string().trim().max(500).optional().default(""),
   })
   .superRefine((val, ctx) => {
+    if (val.ritiroInSede) {
+      if (!val.sedeRitiroId) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: "Per il ritiro in sede scegli la sede.",
+          path: ["sedeRitiroId"],
+        });
+      }
+      if (!val.ritiroMezzo) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message:
+            "Scegli se il ritiro è personale o con il corriere del cliente.",
+          path: ["ritiroMezzo"],
+        });
+      }
+      if (val.avvisaMercePronta && (!val.avvisoCanale || !val.avvisoValore)) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: "Scegli telefono o mail per l'avviso di merce pronta.",
+          path: ["avvisoValore"],
+        });
+      }
+    }
     if (!val.clienteId && !val.possibileClienteId) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,

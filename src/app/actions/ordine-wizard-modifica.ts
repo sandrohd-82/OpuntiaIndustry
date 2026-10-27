@@ -33,6 +33,11 @@ export type OrdineWizardModifica = {
   campionatureOrdine: CampionaturaOrdineVoce[];
   ritiroInSede: boolean;
   sedeRitiroId: string;
+  ritiroMezzo: "personalmente" | "corriere_cliente" | null;
+  avvisaMercePronta: boolean;
+  avvisoCanale: "tel" | "mail" | null;
+  avvisoValore: string;
+  avvisoEtichetta: string;
   quantita: number;
   unitaMisura: OrdineUnitaMisura;
   prezzoUnitario: number;
@@ -385,6 +390,18 @@ export async function loadOrdinePerModificaWizardAction(
       campionatureOrdine,
       ritiroInSede: Boolean(ordine.ritiro_in_sede),
       sedeRitiroId: ordine.sede_ritiro_id ? String(ordine.sede_ritiro_id) : "",
+      ritiroMezzo:
+        ordine.ritiro_mezzo === "personalmente" ||
+        ordine.ritiro_mezzo === "corriere_cliente"
+          ? ordine.ritiro_mezzo
+          : null,
+      avvisaMercePronta: Boolean(ordine.avvisa_merce_pronta),
+      avvisoCanale:
+        ordine.avviso_canale === "tel" || ordine.avviso_canale === "mail"
+          ? ordine.avviso_canale
+          : null,
+      avvisoValore: String(ordine.avviso_valore ?? ""),
+      avvisoEtichetta: String(ordine.avviso_etichetta ?? ""),
       quantita: Number(riga.quantita ?? 0),
       unitaMisura,
       prezzoUnitario: prezzoRipresa ?? prezzoListino ?? Number(riga.prezzo_unitario ?? 0),

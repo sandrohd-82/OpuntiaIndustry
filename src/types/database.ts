@@ -1056,6 +1056,11 @@ export interface OrdineRow {
   sede_partenza_id?: string | null;
   ritiro_in_sede?: boolean;
   sede_ritiro_id?: string | null;
+  ritiro_mezzo?: "personalmente" | "corriere_cliente" | null;
+  avvisa_merce_pronta?: boolean;
+  avviso_canale?: "tel" | "mail" | null;
+  avviso_valore?: string;
+  avviso_etichetta?: string;
   destinatario?: string;
   indirizzo_spedizione?: string;
   preventivo_id?: string | null;
@@ -1144,6 +1149,11 @@ export interface OrdineInsert {
   indirizzo_spedizione?: string;
   ritiro_in_sede?: boolean;
   sede_ritiro_id?: string | null;
+  ritiro_mezzo?: "personalmente" | "corriere_cliente" | null;
+  avvisa_merce_pronta?: boolean;
+  avviso_canale?: "tel" | "mail" | null;
+  avviso_valore?: string;
+  avviso_etichetta?: string;
   preventivo_id?: string | null;
   webmail_accettazione_id?: string | null;
   referente_accettazione_id?: string | null;
@@ -1219,6 +1229,11 @@ export interface OrdineUpdate {
   indirizzo_spedizione?: string;
   ritiro_in_sede?: boolean;
   sede_ritiro_id?: string | null;
+  ritiro_mezzo?: "personalmente" | "corriere_cliente" | null;
+  avvisa_merce_pronta?: boolean;
+  avviso_canale?: "tel" | "mail" | null;
+  avviso_valore?: string;
+  avviso_etichetta?: string;
   sconto_extra_pct?: number;
   sconto_fascia?: string;
   sconto_approvazione_stato?: string;

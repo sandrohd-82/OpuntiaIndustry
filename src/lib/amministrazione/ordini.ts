@@ -189,6 +189,11 @@ export type Ordine = {
   sedePartenzaId: string | null;
   ritiroInSede: boolean;
   sedeRitiroId: string | null;
+  ritiroMezzo: "personalmente" | "corriere_cliente" | null;
+  avvisaMercePronta: boolean;
+  avvisoCanale: "tel" | "mail" | null;
+  avvisoValore: string;
+  avvisoEtichetta: string;
   corriereId: string | null;
   corriereDaCompilare: boolean;
   spedizioneACarico: "cliente" | "agrinsicilia" | "diviso" | null;
@@ -466,6 +471,17 @@ export function mapOrdineRow(
     sedePartenzaId: row.sede_partenza_id ? String(row.sede_partenza_id) : null,
     ritiroInSede: Boolean(row.ritiro_in_sede),
     sedeRitiroId: row.sede_ritiro_id ? String(row.sede_ritiro_id) : null,
+    ritiroMezzo:
+      row.ritiro_mezzo === "personalmente" || row.ritiro_mezzo === "corriere_cliente"
+        ? row.ritiro_mezzo
+        : null,
+    avvisaMercePronta: Boolean(row.avvisa_merce_pronta),
+    avvisoCanale:
+      row.avviso_canale === "tel" || row.avviso_canale === "mail"
+        ? row.avviso_canale
+        : null,
+    avvisoValore: String(row.avviso_valore ?? ""),
+    avvisoEtichetta: String(row.avviso_etichetta ?? ""),
     corriereId: row.corriere_id ? String(row.corriere_id) : null,
     corriereDaCompilare: Boolean(row.corriere_da_compilare),
     spedizioneACarico:
