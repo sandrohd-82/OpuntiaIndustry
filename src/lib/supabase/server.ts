@@ -1,7 +1,8 @@
 import { cache } from "react";
-import { createClient as createSupabaseClient } from "@supabase/supabase-js";
 import { createServerClient, type SetAllCookies } from "@supabase/ssr";
 import { cookies } from "next/headers";
+
+export { createServiceClient } from "@/lib/supabase/service";
 
 export const createClient = cache(async function createClient() {
   const cookieStore = await cookies();
@@ -25,22 +26,5 @@ export const createClient = cache(async function createClient() {
         },
       },
     }
-  );
-});
-
-/**
- * Client service role senza generic Database.
- * Evita Insert/Row = never in CI quando lo schema custom non viene risolto.
- * Usare solo in Server Actions / route protette lato server.
- */
-export const createServiceClient = cache(function createServiceClient() {
-  if (!process.env.NEXT_PUBLIC_SUPABASE_URL || !process.env.SUPABASE_SERVICE_ROLE_KEY) {
-    throw new Error("Missing Supabase service env vars");
-  }
-
-  return createSupabaseClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_ROLE_KEY!,
-    { auth: { persistSession: false, autoRefreshToken: false } }
   );
 });

@@ -5,7 +5,7 @@
  * Una chiamata parte solo se quel codice non c'è ancora.
  */
 
-import { createServiceClient } from "@/lib/supabase/server";
+import { createServiceClient } from "@/lib/supabase/service";
 
 const FIC_API_BASE = "https://api-v2.fattureincloud.it";
 
