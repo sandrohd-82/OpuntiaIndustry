@@ -142,6 +142,18 @@ export const ordineWizardInputSchema = z
     lottoCodice: z.string().trim().max(80).optional().default(""),
     notaProdotto: z.string().trim().max(2000).optional().default(""),
     noteSezioni: z.record(z.string(), z.string().max(2000)).optional().default({}),
+    campionatureOrdine: z
+      .array(
+        z.object({
+          prodottoId: z.string().uuid(),
+          prodottoCodice: z.string().trim().min(1).max(80),
+          prodottoNome: z.string().trim().min(1).max(200),
+          numeroConfezioni: z.number().int().min(1).max(9999),
+        })
+      )
+      .max(30)
+      .optional()
+      .default([]),
     ritiroInSede: z.boolean().optional().default(false),
     sedeRitiroId: z.string().uuid().nullable().optional(),
     prezzoUnitario: z.number().min(0),

@@ -3187,6 +3187,54 @@ export interface Database {
         };
         Relationships: [];
       };
+      ordini_campionature: {
+        Row: {
+          id: string;
+          ordine_id: string;
+          prodotto_id: string | null;
+          prodotto_codice: string;
+          prodotto_nome: string;
+          numero_confezioni: number;
+          sort_order: number;
+          versione: number;
+          documento_stato: "bozza" | "approvato" | "chiuso";
+          created_at: string;
+          updated_at: string;
+          created_by: string | null;
+          updated_by: string | null;
+          deleted_at: string | null;
+          deleted_by: string | null;
+        };
+        Insert: {
+          id?: string;
+          ordine_id: string;
+          prodotto_id?: string | null;
+          prodotto_codice: string;
+          prodotto_nome: string;
+          numero_confezioni: number;
+          sort_order?: number;
+          versione?: number;
+          documento_stato?: "bozza" | "approvato" | "chiuso";
+          created_by?: string | null;
+          updated_by?: string | null;
+          deleted_at?: string | null;
+          deleted_by?: string | null;
+        };
+        Update: {
+          prodotto_id?: string | null;
+          prodotto_codice?: string;
+          prodotto_nome?: string;
+          numero_confezioni?: number;
+          sort_order?: number;
+          versione?: number;
+          documento_stato?: "bozza" | "approvato" | "chiuso";
+          updated_by?: string | null;
+          updated_at?: string;
+          deleted_at?: string | null;
+          deleted_by?: string | null;
+        };
+        Relationships: [];
+      };
       campionature: {
         Row: CampionaturaRow;
         Insert: Partial<CampionaturaRow> & {

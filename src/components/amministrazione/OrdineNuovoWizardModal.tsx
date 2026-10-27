@@ -10,6 +10,8 @@ import {
 import { getScontoFuoriListinoContextAction } from "@/app/actions/ordine-sconto";
 import { listSediAttiveAction } from "@/app/actions/impostazioni-sedi";
 import { TitoloConNota } from "@/components/amministrazione/OrdineSezioneNota";
+import { OrdineCampionaturaElenco } from "@/components/amministrazione/OrdineCampionaturaElenco";
+import { CAMPIONATURA_ORDINE_NOTA } from "@/lib/amministrazione/ordine-campionatura";
 import { InfoHint } from "@/components/ui/InfoHint";
 import type { OrdineSezioneChiave } from "@/lib/amministrazione/ordine-sezione-note";
 import {
@@ -570,6 +572,16 @@ export function OrdineNuovoWizardModal({
   const [noteSezioni, setNoteSezioni] = useState<
     Partial<Record<OrdineSezioneChiave, string>>
   >({});
+  const [spedisceCampionatura, setSpedisceCampionatura] = useState(false);
+  const [campionatureOrdine, setCampionatureOrdine] = useState<
+    Array<{
+      key: string;
+      prodottoId: string;
+      prodottoCodice: string;
+      prodottoNome: string;
+      numeroConfezioni: number | "";
+    }>
+  >([]);
   const ritiroScelto = useRef(false);
   const [altroPostoOpen, setAltroPostoOpen] = useState(false);
   const [altroPostoLabel, setAltroPostoLabel] = useState("");
@@ -693,6 +705,16 @@ export function OrdineNuovoWizardModal({
       setProdotto(trovato);
       setNotaProdotto(d.notaProdotto);
       setNoteSezioni(d.noteSezioni);
+      setSpedisceCampionatura(d.campionatureOrdine.length > 0);
+      setCampionatureOrdine(
+        d.campionatureOrdine.map((riga, index) => ({
+          key: `${riga.prodottoId}-${index}`,
+          prodottoId: riga.prodottoId,
+          prodottoCodice: riga.prodottoCodice,
+          prodottoNome: riga.prodottoNome,
+          numeroConfezioni: riga.numeroConfezioni,
+        }))
+      );
       if (d.ritiroInSede) {
         ritiroScelto.current = true;
         preserveSavedAddress.current = true;
@@ -1279,6 +1301,14 @@ export function OrdineNuovoWizardModal({
     if (step === 2) {
       if (!prodotto || voceListinoLoading) return false;
       if (regolaListino.esito === "fuori_produzione") return false;
+      if (
+        tipoOrdine !== "campionatura" &&
+        spedisceCampionatura &&
+        (campionatureOrdine.length === 0 ||
+          campionatureOrdine.some((riga) => !riga.prodottoId))
+      ) {
+        return false;
+      }
       if (tipoOrdine === "campionatura") return true;
       return (
         regolaListino.esito === "ordinabile" || regolaListino.esito === "sospeso"
@@ -1286,6 +1316,13 @@ export function OrdineNuovoWizardModal({
     }
     if (step === 3) {
       if (!(quantitaInserita > 0)) return false;
+      if (
+        tipoOrdine !== "campionatura" &&
+        spedisceCampionatura &&
+        campionatureOrdine.some((riga) => !(Number(riga.numeroConfezioni) >= 1))
+      ) {
+        return false;
+      }
       if (tipoOrdine !== "campionatura" && !(numberOrZero(prezzoUnitario) > 0)) {
         return false;
       }
@@ -1651,6 +1688,17 @@ export function OrdineNuovoWizardModal({
         prodottoNome: prodotto.nome,
         notaProdotto: (noteSezioni.prodotto ?? notaProdotto).trim(),
         noteSezioni,
+        campionatureOrdine:
+          tipoOrdine === "campionatura" || !spedisceCampionatura
+            ? []
+            : campionatureOrdine
+                .filter((riga) => riga.prodottoId)
+                .map((riga) => ({
+                  prodottoId: riga.prodottoId,
+                  prodottoCodice: riga.prodottoCodice,
+                  prodottoNome: riga.prodottoNome,
+                  numeroConfezioni: Math.floor(Number(riga.numeroConfezioni)),
+                })),
         ritiroInSede,
         sedeRitiroId: ritiroInSede ? sedeRitiroId || null : null,
         quantita: quantitaInserita,
@@ -2587,6 +2635,123 @@ export function OrdineNuovoWizardModal({
                   />
                 </div>
               ) : null}
+              {tipoOrdine !== "campionatura" ? (
+                <div className="mt-4 space-y-3 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3">
+                  <p className="text-sm font-medium">Spedire della campionatura?</p>
+                  <p className="text-xs text-amber-950">{CAMPIONATURA_ORDINE_NOTA}</p>
+                  <div className="flex gap-4 text-sm">
+                    <label className="flex items-center gap-2">
+                      <input
+                        type="radio"
+                        name="campionatura-ordine"
+                        checked={!spedisceCampionatura}
+                        onChange={() => {
+                          setSpedisceCampionatura(false);
+                          setCampionatureOrdine([]);
+                        }}
+                      />
+                      No
+                    </label>
+                    <label className="flex items-center gap-2">
+                      <input
+                        type="radio"
+                        name="campionatura-ordine"
+                        checked={spedisceCampionatura}
+                        onChange={() => {
+                          setSpedisceCampionatura(true);
+                          setCampionatureOrdine((prev) =>
+                            prev.length > 0
+                              ? prev
+                              : [
+                                  {
+                                    key: `c-${Date.now()}`,
+                                    prodottoId: "",
+                                    prodottoCodice: "",
+                                    prodottoNome: "",
+                                    numeroConfezioni: "",
+                                  },
+                                ]
+                          );
+                        }}
+                      />
+                      Sì
+                    </label>
+                  </div>
+                  {spedisceCampionatura ? (
+                    <div className="space-y-2">
+                      {campionatureOrdine.map((riga) => (
+                        <div key={riga.key} className="flex gap-2">
+                          <select
+                            value={riga.prodottoId}
+                            onChange={(e) => {
+                              const scelto =
+                                sortedProdotti.find((p) => p.id === e.target.value) ??
+                                null;
+                              setCampionatureOrdine((prev) =>
+                                prev.map((item) =>
+                                  item.key === riga.key
+                                    ? {
+                                        ...item,
+                                        prodottoId: scelto?.id ?? "",
+                                        prodottoCodice: scelto?.codice ?? "",
+                                        prodottoNome: scelto?.nome ?? "",
+                                      }
+                                    : item
+                                )
+                              );
+                            }}
+                            className="min-w-0 flex-1 rounded-lg border border-amber-200 bg-white px-3 py-2 text-sm outline-none focus:border-[var(--primary)]"
+                          >
+                            <option value="">Seleziona prodotto…</option>
+                            {riga.prodottoId &&
+                            !sortedProdotti.some((p) => p.id === riga.prodottoId) ? (
+                              <option value={riga.prodottoId}>
+                                {riga.prodottoCodice} — {riga.prodottoNome}
+                              </option>
+                            ) : null}
+                            {sortedProdotti.map((p) => (
+                              <option key={p.id} value={p.id}>
+                                {p.codice} — {p.nome}
+                              </option>
+                            ))}
+                          </select>
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setCampionatureOrdine((prev) =>
+                                prev.filter((item) => item.key !== riga.key)
+                              )
+                            }
+                            className="shrink-0 text-sm text-amber-800 underline"
+                          >
+                            Togli
+                          </button>
+                        </div>
+                      ))}
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setCampionatureOrdine((prev) => [
+                            ...prev,
+                            {
+                              key: `c-${Date.now()}-${prev.length}`,
+                              prodottoId: "",
+                              prodottoCodice: "",
+                              prodottoNome: "",
+                              numeroConfezioni: "",
+                            },
+                          ])
+                        }
+                        className="text-sm font-medium text-amber-800 underline"
+                      >
+                        {campionatureOrdine.length === 0
+                          ? "Aggiungi campionatura"
+                          : "Aggiungi altro"}
+                      </button>
+                    </div>
+                  ) : null}
+                </div>
+              ) : null}
             </>
           )}
 
@@ -3034,6 +3199,40 @@ export function OrdineNuovoWizardModal({
                       />
                     </div>
                   </div>
+                </div>
+              ) : null}
+              {tipoOrdine !== "campionatura" && spedisceCampionatura ? (
+                <div className="space-y-3 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3">
+                  <p className="text-sm font-medium">Area Campionatura</p>
+                  <p className="text-xs text-amber-950">{CAMPIONATURA_ORDINE_NOTA}</p>
+                  {campionatureOrdine.map((riga) => (
+                    <label key={riga.key} className="block text-sm">
+                      <span className="mb-1 block font-medium">
+                        {riga.prodottoCodice
+                          ? `${riga.prodottoCodice} — ${riga.prodottoNome}`
+                          : "Prodotto"}
+                      </span>
+                      <span className="mb-1 block text-xs text-amber-900">
+                        Numero di confezioni
+                      </span>
+                      <ClearableNumberInput
+                        min={1}
+                        value={riga.numeroConfezioni}
+                        onValueChange={(v) => {
+                          const intero =
+                            v === "" ? "" : Math.max(1, Math.floor(Number(v)));
+                          setCampionatureOrdine((prev) =>
+                            prev.map((item) =>
+                              item.key === riga.key
+                                ? { ...item, numeroConfezioni: intero }
+                                : item
+                            )
+                          );
+                        }}
+                        className="w-32 rounded-lg border border-amber-200 bg-white px-3 py-2 outline-none focus:border-[var(--primary)]"
+                      />
+                    </label>
+                  ))}
                 </div>
               ) : null}
             </div>
@@ -3633,6 +3832,23 @@ export function OrdineNuovoWizardModal({
 
           {step === 6 && (
             <div className="space-y-4">
+              <OrdineCampionaturaElenco
+                righe={
+                  tipoOrdine === "campionatura" || !spedisceCampionatura
+                    ? []
+                    : campionatureOrdine
+                        .filter(
+                          (riga) =>
+                            riga.prodottoId && Number(riga.numeroConfezioni) >= 1
+                        )
+                        .map((riga) => ({
+                          prodottoId: riga.prodottoId,
+                          prodottoCodice: riga.prodottoCodice,
+                          prodottoNome: riga.prodottoNome,
+                          numeroConfezioni: Math.floor(Number(riga.numeroConfezioni)),
+                        }))
+                }
+              />
               <fieldset className="space-y-2 rounded-lg border border-[var(--border)] p-3">
                 <legend className="px-1 text-sm font-medium">
                   {titoloNota(

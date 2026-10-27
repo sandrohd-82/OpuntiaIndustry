@@ -1,9 +1,12 @@
 "use client";
 
 import { useEffect, useId, useMemo, useState } from "react";
+import { leggiCampionatureOrdineAction } from "@/app/actions/ordine-campionatura";
 import { leggiNoteSezioniOrdineAction } from "@/app/actions/ordine-sezione-note";
+import { OrdineCampionaturaElenco } from "@/components/amministrazione/OrdineCampionaturaElenco";
 import { processOrdineInScalettaAction } from "@/app/actions/ordini";
 import { NoteSezioniElenco } from "@/components/amministrazione/OrdineSezioneNota";
+import type { CampionaturaOrdineVoce } from "@/lib/amministrazione/ordine-campionatura";
 import type { NoteSezioniOrdine } from "@/lib/amministrazione/ordine-sezione-note";
 import { listAttivitaByProdottoAction } from "@/app/actions/attivita";
 import { anteprimaLottoProduzioneMagazzinoAction } from "@/app/actions/lotto-produzione-magazzino";
@@ -74,12 +77,19 @@ export function ProcessaOrdineScalettaModal({
   );
   const [giacenze, setGiacenze] = useState<GiacenzaRiga[]>([]);
   const [noteSezioni, setNoteSezioni] = useState<NoteSezioniOrdine>({});
+  const [campionatureOrdine, setCampionatureOrdine] = useState<
+    CampionaturaOrdineVoce[]
+  >([]);
 
   useEffect(() => {
     let cancel = false;
     void leggiNoteSezioniOrdineAction(ordine.id).then((res) => {
       if (cancel || !res.success) return;
       setNoteSezioni(res.note);
+    });
+    void leggiCampionatureOrdineAction(ordine.id).then((res) => {
+      if (cancel || !res.success) return;
+      setCampionatureOrdine(res.righe);
     });
     return () => {
       cancel = true;
@@ -346,6 +356,9 @@ export function ProcessaOrdineScalettaModal({
           {ordine.cliente}
         </p>
         <NoteSezioniElenco note={noteSezioni} />
+        <div className="mt-3">
+          <OrdineCampionaturaElenco righe={campionatureOrdine} />
+        </div>
         {isCamp ? null : (
           <p className="mt-3 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-950">
             Passaggio in produzione. L&apos;ordine entra in scaletta, la fattura

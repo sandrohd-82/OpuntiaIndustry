@@ -359,6 +359,7 @@ export async function getFatturaA4ContextAction(input: {
       ordine.prezzo_listino_unitario != null
         ? Number(ordine.prezzo_listino_unitario)
         : null;
+    // ordini_campionature resta fuori: non è una riga di fattura.
     const righeOrdine = (righeData ?? []) as OrdineRigaRow[];
     let righe: FatturaA4Riga[] = righeOrdine.map((r) => {
       const mapped = listinoEScontoDaOrdine({

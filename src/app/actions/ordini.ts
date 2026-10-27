@@ -58,6 +58,7 @@ import { prezzoNettoDaSconto } from "@/lib/amministrazione/sconto-fuori-listino"
 import { getPreventivoProdottoContestoAction } from "@/app/actions/preventivi";
 import { elencoProfiliCalcoloSpedizioni } from "@/app/actions/ordine-calcolo-spedizione";
 import { risolviSpedizioneOrdineDiretto } from "@/lib/amministrazione/ordine-calcolo-spedizione";
+import { salvaCampionatureOrdine } from "@/app/actions/ordine-campionatura";
 import { salvaNoteSezioniOrdine } from "@/app/actions/ordine-sezione-note";
 import { inviaFatturaSalvataAction } from "@/app/actions/fattura-da-ordine";
 import { isNumeroFatturaEmessa } from "@/lib/amministrazione/numero-fattura";
@@ -2129,6 +2130,13 @@ async function createOrdineWizardActionInner(
       },
     });
     if (!noteSalvate.success) return boccia(noteSalvate.error);
+
+    const campionatureSalvate = await salvaCampionatureOrdine({
+      ordineId: row.id,
+      userId: auth.userId,
+      righe: input.tipo === "campionatura" ? [] : (input.campionatureOrdine ?? []),
+    });
+    if (!campionatureSalvate.success) return boccia(campionatureSalvate.error);
 
     const ordine = await loadOrdineWithRighe(row.id);
     if (!ordine) {

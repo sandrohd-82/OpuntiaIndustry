@@ -5,12 +5,15 @@ import { FaFilePdf } from "react-icons/fa6";
 import { listCorrieriAction } from "@/app/actions/imballaggi-spedizioni";
 import { listSediAttiveAction } from "@/app/actions/impostazioni-sedi";
 import { getOrdineAllegatoSignedUrlAction } from "@/app/actions/ordini";
+import { leggiCampionatureOrdineAction } from "@/app/actions/ordine-campionatura";
 import { leggiNoteSezioniOrdineAction } from "@/app/actions/ordine-sezione-note";
+import { OrdineCampionaturaElenco } from "@/components/amministrazione/OrdineCampionaturaElenco";
 import { getPrenotazioneSpedizioneMailAction } from "@/app/actions/spedizione-mail";
 import {
   NotaSezioneTesto,
   NoteSezioniElenco,
 } from "@/components/amministrazione/OrdineSezioneNota";
+import type { CampionaturaOrdineVoce } from "@/lib/amministrazione/ordine-campionatura";
 import {
   testoNota,
   type NoteSezioniOrdine,
@@ -123,12 +126,19 @@ export function OrdineDettaglioPanel({ ordine, onEdit }: Props) {
     undefined
   );
   const [noteSezioni, setNoteSezioni] = useState<NoteSezioniOrdine>({});
+  const [campionatureOrdine, setCampionatureOrdine] = useState<
+    CampionaturaOrdineVoce[]
+  >([]);
 
   useEffect(() => {
     let cancel = false;
     void leggiNoteSezioniOrdineAction(ordine.id).then((res) => {
       if (cancel || !res.success) return;
       setNoteSezioni(res.note);
+    });
+    void leggiCampionatureOrdineAction(ordine.id).then((res) => {
+      if (cancel || !res.success) return;
+      setCampionatureOrdine(res.righe);
     });
     return () => {
       cancel = true;
@@ -610,6 +620,8 @@ export function OrdineDettaglioPanel({ ordine, onEdit }: Props) {
           </tbody>
         </table>
       </div>
+
+      <OrdineCampionaturaElenco righe={campionatureOrdine} />
 
       <div className="rounded-xl border border-[var(--border)] bg-white p-3 text-sm">
         <p className="font-semibold">Trasporto</p>
