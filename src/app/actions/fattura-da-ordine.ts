@@ -53,10 +53,9 @@ import {
 } from "@/lib/amministrazione/ordine-sessione";
 import { motivoBloccoInvioClienteOrdine } from "@/app/actions/ordine-calcolo-spedizione";
 import {
-  aliquoteNoteFic,
   createIssuedDocument,
   fetchFicVatTypes,
-  idAliquotaNota,
+  messaggioBloccoQuotaFic,
   resolveFicVatId,
   sendIssuedDocumentToSdi,
 } from "@/lib/fic";
@@ -1519,31 +1518,35 @@ export async function inviaFatturaSalvataAction(input: {
   const fisc = validateClienteFiscale(cliente);
   if (fisc) return { success: false, error: fisc };
 
-  const percentualiIva = (righe ?? []).map(
-    (r) => Number(r.iva_percentuale) || 0
-  );
-  const aliquoteGiaNote = percentualiIva.every(
-    (percentuale) => idAliquotaNota(percentuale) != null
-  );
   let vatTypes: Awaited<ReturnType<typeof fetchFicVatTypes>> = [];
-  if (aliquoteGiaNote) {
-    vatTypes = aliquoteNoteFic();
-  } else {
-    try {
-      vatTypes = await fetchFicVatTypes();
-    } catch (e) {
-      const message = messaggioAliquoteFic(e, fattura.numero_fattura);
-      await writeAuditLog({
-        entity_type: "fatture_emesse",
-        entity_id: fattura.id,
-        action: "emissione_fic_error",
-        actor_id: auth.userId,
-        summary: `Aliquote IVA non lette ${fattura.numero_fattura || fattura.numero_interno}`,
-        payload: { error: message },
-      });
-      return { success: false, error: message };
-    }
+  try {
+    vatTypes = await fetchFicVatTypes();
+  } catch (e) {
+    const message = messaggioAliquoteFic(e, fattura.numero_fattura);
+    await writeAuditLog({
+      entity_type: "fatture_emesse",
+      entity_id: fattura.id,
+      action: "emissione_fic_error",
+      actor_id: auth.userId,
+      summary: `Aliquote IVA non lette ${fattura.numero_fattura || fattura.numero_interno}`,
+      payload: { error: message },
+    });
+    return { success: false, error: message };
   }
+
+  const aliquotaMancante = (righe ?? []).find((r) => {
+    const target = Number(r.iva_percentuale) || 0;
+    return !vatTypes.some((v) => Math.abs(v.value - target) < 0.001);
+  });
+  if (aliquotaMancante) {
+    return {
+      success: false,
+      error: `Aliquota ${Number(aliquotaMancante.iva_percentuale) || 0}% non è tra i codici IVA già salvati. Nessuna chiamata è partita e il numero non è stato assegnato.`,
+    };
+  }
+
+  const bloccoQuota = await messaggioBloccoQuotaFic();
+  if (bloccoQuota) return { success: false, error: bloccoQuota };
 
   const numeri = await materializzaNumeroDocumento(fattura.id);
   if (!numeri.success) return numeri;

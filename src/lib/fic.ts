@@ -1,7 +1,11 @@
 /**
  * Client minimo Fatture in Cloud API v2 (Manual Authentication).
  * Usa FIC_API_TOKEN (Bearer) e FIC_COMPANY_ID dal server.
+ * I codici (aliquote, conti) si leggono dal catalogo salvato.
+ * Una chiamata parte solo se quel codice non c'è ancora.
  */
+
+import { createServiceClient } from "@/lib/supabase/server";
 
 const FIC_API_BASE = "https://api-v2.fattureincloud.it";
 
@@ -92,6 +96,113 @@ type FicListResponse = {
   total?: number;
 };
 
+type CatalogoChiave = "vat_types" | "payment_accounts" | "quota_blocco";
+
+async function leggiCatalogo<T>(chiave: CatalogoChiave): Promise<T | null> {
+  try {
+    const sb = createServiceClient();
+    const { data, error } = await sb
+      .from("fic_cataloghi")
+      .select("payload")
+      .eq("chiave", chiave)
+      .is("deleted_at", null)
+      .maybeSingle();
+    if (error || data?.payload == null) return null;
+    return data.payload as T;
+  } catch {
+    return null;
+  }
+}
+
+async function salvaCatalogo(
+  chiave: CatalogoChiave,
+  payload: unknown
+): Promise<void> {
+  try {
+    const sb = createServiceClient();
+    const now = new Date().toISOString();
+    const { data: existing } = await sb
+      .from("fic_cataloghi")
+      .select("id, versione")
+      .eq("chiave", chiave)
+      .is("deleted_at", null)
+      .maybeSingle();
+    if (existing?.id) {
+      await sb
+        .from("fic_cataloghi")
+        .update({
+          payload,
+          versione: Number(existing.versione ?? 1) + 1,
+          fetched_at: now,
+          updated_at: now,
+          documento_stato: "approvato",
+        })
+        .eq("id", existing.id);
+      return;
+    }
+    await sb.from("fic_cataloghi").insert({
+      chiave,
+      payload,
+      versione: 1,
+      documento_stato: "approvato",
+      fetched_at: now,
+    });
+  } catch (e) {
+    console.error("[fic] salva catalogo", chiave, e instanceof Error ? e.message : e);
+  }
+}
+
+function messaggioQuota(res: Response): { testo: string; fino: string } {
+  const retrySec = Number(res.headers.get("retry-after") ?? "");
+  const monthlyLeft = res.headers.get("ratelimit-monthlyremaining");
+  const hourlyLeft = res.headers.get("ratelimit-hourlyremaining");
+  const now = Date.now();
+  if (Number.isFinite(retrySec) && retrySec > 0) {
+    const minuti = Math.max(1, Math.ceil(retrySec / 60));
+    return {
+      testo: `Fatture in Cloud ha esaurito le chiamate API. Riprova tra ${minuti} minuti. Nessuna altra chiamata parte prima di allora.`,
+      fino: new Date(now + retrySec * 1000).toISOString(),
+    };
+  }
+  if (monthlyLeft === "0") {
+    const prossimo = new Date();
+    prossimo.setUTCMonth(prossimo.getUTCMonth() + 1, 1);
+    prossimo.setUTCHours(0, 0, 0, 0);
+    return {
+      testo:
+        "Fatture in Cloud ha esaurito le chiamate API del mese. Il tetto si rinnova il primo giorno del mese prossimo. Nessuna altra chiamata parte prima di allora.",
+      fino: prossimo.toISOString(),
+    };
+  }
+  if (hourlyLeft === "0") {
+    const prossimo = new Date(now);
+    prossimo.setUTCMinutes(0, 0, 0);
+    prossimo.setUTCHours(prossimo.getUTCHours() + 1);
+    return {
+      testo:
+        "Fatture in Cloud ha esaurito le chiamate API di quest'ora. Il tetto si rinnova all'inizio dell'ora successiva. Nessuna altra chiamata parte prima di allora.",
+      fino: prossimo.toISOString(),
+    };
+  }
+  return {
+    testo:
+      "Fatture in Cloud ha esaurito le chiamate API. Nessuna altra chiamata parte per la prossima ora.",
+    fino: new Date(now + 60 * 60 * 1000).toISOString(),
+  };
+}
+
+/** Testo da mostrare se una risposta precedente ha già detto di non richiamare. */
+export async function messaggioBloccoQuotaFic(): Promise<string | null> {
+  const blocco = await leggiCatalogo<{ fino?: string; testo?: string }>(
+    "quota_blocco"
+  );
+  if (!blocco?.fino || Date.parse(blocco.fino) <= Date.now()) return null;
+  return (
+    blocco.testo ||
+    "Fatture in Cloud ha esaurito le chiamate API. Nessuna altra chiamata parte prima della scadenza salvata."
+  );
+}
+
 async function ficRequest<T>(
   method: "GET" | "POST" | "PUT",
   path: string,
@@ -100,6 +211,8 @@ async function ficRequest<T>(
     body?: unknown;
   }
 ): Promise<T> {
+  const bloccoTesto = await messaggioBloccoQuotaFic();
+  if (bloccoTesto) throw new Error(bloccoTesto);
   const { token, companyId } = getFicConfig();
   const url = new URL(`${FIC_API_BASE}/c/${companyId}${path}`);
   for (const [k, v] of Object.entries(options?.query ?? {})) {
@@ -124,22 +237,9 @@ async function ficRequest<T>(
     const body = await res.text().catch(() => "");
     const lower = body.toLowerCase();
     if (res.status === 403 && lower.includes("usage_limit_reached")) {
-      const retrySec = Number(res.headers.get("retry-after") ?? "");
-      const monthlyLeft = res.headers.get("ratelimit-monthlyremaining");
-      const hourlyLeft = res.headers.get("ratelimit-hourlyremaining");
-      let quando = "Riprova più tardi.";
-      if (Number.isFinite(retrySec) && retrySec > 0) {
-        const minuti = Math.max(1, Math.ceil(retrySec / 60));
-        quando = `Riprova tra ${minuti} minuti.`;
-      } else if (monthlyLeft === "0") {
-        quando =
-          "Il limite del mese si rinnova il primo giorno del mese prossimo.";
-      } else if (hourlyLeft === "0") {
-        quando = "Il limite dell'ora si rinnova all'inizio dell'ora successiva.";
-      }
-      throw new Error(
-        `Fatture in Cloud ha esaurito le chiamate API consentite. ${quando} Nessun documento è stato creato e lo SDI non è partito.`
-      );
+      const quota = messaggioQuota(res);
+      await salvaCatalogo("quota_blocco", quota);
+      throw new Error(quota.testo);
     }
     if (
       res.status === 403 &&
@@ -1321,25 +1421,45 @@ export function aliquoteNoteFic(): FicVatType[] {
   return ALIQUOTE_NOTE.map((row) => ({ ...row }));
 }
 
-/** Elenco aliquote IVA configurate su FiC. */
+/** Elenco aliquote IVA. Prima il catalogo salvato, la chiamata solo se manca. */
 export async function fetchFicVatTypes(): Promise<FicVatType[]> {
   if (aliquoteCache && Date.now() - aliquoteCache.at < 6 * 60 * 60 * 1000) {
     return aliquoteCache.rows;
   }
-  const res = await ficGet<{ data?: unknown[] }>("/info/vat_types", {});
-  const out: FicVatType[] = [];
-  for (const item of res.data ?? []) {
-    const r = asRecord(item);
-    const id = asNumber(r.id);
-    if (!id && id !== 0) continue;
-    out.push({
-      id,
-      value: asNumber(r.value),
-      description: asText(r.description),
-    });
+  const salvate = await leggiCatalogo<FicVatType[]>("vat_types");
+  if (Array.isArray(salvate) && salvate.length > 0) {
+    aliquoteCache = { at: Date.now(), rows: salvate };
+    return salvate;
   }
-  if (out.length > 0) aliquoteCache = { at: Date.now(), rows: out };
-  return out;
+  try {
+    const res = await ficGet<{ data?: unknown[] }>("/info/vat_types", {});
+    const out: FicVatType[] = [];
+    for (const item of res.data ?? []) {
+      const r = asRecord(item);
+      const id = asNumber(r.id);
+      if (!id && id !== 0) continue;
+      out.push({
+        id,
+        value: asNumber(r.value),
+        description: asText(r.description),
+      });
+    }
+    if (out.length > 0) {
+      aliquoteCache = { at: Date.now(), rows: out };
+      await salvaCatalogo("vat_types", out);
+      return out;
+    }
+  } catch (e) {
+    const testo = e instanceof Error ? e.message : "";
+    if (testo.includes("chiamate API")) {
+      const note = aliquoteNoteFic();
+      aliquoteCache = { at: Date.now(), rows: note };
+      await salvaCatalogo("vat_types", note);
+      return note;
+    }
+    throw e;
+  }
+  return aliquoteNoteFic();
 }
 
 export type FicPaymentAccount = {
@@ -1349,8 +1469,10 @@ export type FicPaymentAccount = {
   iban: string;
 };
 
-/** Conti di pagamento FiC (es. BCC Don Rizzo / TS Pay). */
+/** Conti di pagamento. Prima il catalogo salvato, la chiamata solo se manca. */
 export async function fetchFicPaymentAccounts(): Promise<FicPaymentAccount[]> {
+  const salvati = await leggiCatalogo<FicPaymentAccount[]>("payment_accounts");
+  if (Array.isArray(salvati) && salvati.length > 0) return salvati;
   const res = await ficGet<{ data?: unknown[] }>("/info/payment_accounts", {});
   const out: FicPaymentAccount[] = [];
   for (const item of res.data ?? []) {
@@ -1364,6 +1486,7 @@ export async function fetchFicPaymentAccounts(): Promise<FicPaymentAccount[]> {
       iban: asText(r.iban) || asText(r.bank_iban),
     });
   }
+  if (out.length > 0) await salvaCatalogo("payment_accounts", out);
   return out;
 }
 
@@ -1555,12 +1678,9 @@ export function resolveFicVatId(
   const target = Number(aliquotaPercent) || 0;
   const exact = vatTypes.find((v) => Math.abs(v.value - target) < 0.001);
   if (exact) return exact.id;
-  if (target === 0) {
-    const zero = vatTypes.find((v) => v.value === 0);
-    if (zero) return zero.id;
-  }
-  // fallback comune FiC: id 0 = IVA default azienda
-  return vatTypes[0]?.id ?? 0;
+  throw new Error(
+    `Aliquota ${target}% non è tra i codici IVA già salvati. Il documento non è stato creato.`
+  );
 }
 
 export type CreateIssuedDocumentResult = {
