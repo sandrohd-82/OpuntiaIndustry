@@ -1,7 +1,10 @@
 "use client";
 
 import { useEffect, useId, useMemo, useState } from "react";
+import { leggiNoteSezioniOrdineAction } from "@/app/actions/ordine-sezione-note";
 import { processOrdineInScalettaAction } from "@/app/actions/ordini";
+import { NoteSezioniElenco } from "@/components/amministrazione/OrdineSezioneNota";
+import type { NoteSezioniOrdine } from "@/lib/amministrazione/ordine-sezione-note";
 import { listAttivitaByProdottoAction } from "@/app/actions/attivita";
 import { anteprimaLottoProduzioneMagazzinoAction } from "@/app/actions/lotto-produzione-magazzino";
 import {
@@ -70,6 +73,18 @@ export function ProcessaOrdineScalettaModal({
     []
   );
   const [giacenze, setGiacenze] = useState<GiacenzaRiga[]>([]);
+  const [noteSezioni, setNoteSezioni] = useState<NoteSezioniOrdine>({});
+
+  useEffect(() => {
+    let cancel = false;
+    void leggiNoteSezioniOrdineAction(ordine.id).then((res) => {
+      if (cancel || !res.success) return;
+      setNoteSezioni(res.note);
+    });
+    return () => {
+      cancel = true;
+    };
+  }, [ordine.id]);
 
   const usaMagazzino = fonte === "magazzino";
 
@@ -330,6 +345,7 @@ export function ProcessaOrdineScalettaModal({
           {ordine.numeroInterno} · {labelTipoOrdine(ordine.tipo)} ·{" "}
           {ordine.cliente}
         </p>
+        <NoteSezioniElenco note={noteSezioni} />
         {isCamp ? null : (
           <p className="mt-3 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-950">
             Passaggio in produzione. L&apos;ordine entra in scaletta, la fattura

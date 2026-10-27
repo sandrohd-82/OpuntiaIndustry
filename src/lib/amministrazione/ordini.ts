@@ -187,6 +187,8 @@ export type Ordine = {
   destinatario: string;
   indirizzoSpedizione: string;
   sedePartenzaId: string | null;
+  ritiroInSede: boolean;
+  sedeRitiroId: string | null;
   corriereId: string | null;
   corriereDaCompilare: boolean;
   spedizioneACarico: "cliente" | "agrinsicilia" | "diviso" | null;
@@ -462,6 +464,8 @@ export function mapOrdineRow(
     destinatario: String(row.destinatario ?? ""),
     indirizzoSpedizione: String(row.indirizzo_spedizione ?? ""),
     sedePartenzaId: row.sede_partenza_id ? String(row.sede_partenza_id) : null,
+    ritiroInSede: Boolean(row.ritiro_in_sede),
+    sedeRitiroId: row.sede_ritiro_id ? String(row.sede_ritiro_id) : null,
     corriereId: row.corriere_id ? String(row.corriere_id) : null,
     corriereDaCompilare: Boolean(row.corriere_da_compilare),
     spedizioneACarico:

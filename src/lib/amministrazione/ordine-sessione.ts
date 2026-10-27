@@ -238,6 +238,8 @@ export function buildOrdineSessioneLocale(input: {
     destinatario: input.destinatario,
     indirizzoSpedizione: input.indirizzoSpedizione,
     sedePartenzaId: null,
+    ritiroInSede: false,
+    sedeRitiroId: null,
     corriereId: null,
     corriereDaCompilare: false,
     spedizioneACarico: null,

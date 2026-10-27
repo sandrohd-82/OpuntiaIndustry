@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useId, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState, type ReactNode } from "react";
 import {
   generaCorpoMailOrdineAction,
   generaCorpoMailSpedizioneAction,
@@ -105,6 +105,9 @@ type Props = {
    * La scelta prepara la mail di invio, non una bozza in attesa.
    */
   mailPerInvioTracking?: boolean;
+  ritiroInSede?: boolean;
+  notaSpedizione?: ReactNode;
+  notaMail?: ReactNode;
 };
 
 export function SpedizioneMailPanel({
@@ -126,6 +129,9 @@ export function SpedizioneMailPanel({
   sceltaOrdineFissa = false,
   impostazioneDocumento = false,
   mailPerInvioTracking = false,
+  ritiroInSede = false,
+  notaSpedizione,
+  notaMail,
 }: Props) {
   const [trackingUrl, setTrackingUrl] = useState("");
   const [sedePartenzaId, setSedePartenzaId] = useState(sedePartenzaIdDefault);
@@ -555,7 +561,16 @@ export function SpedizioneMailPanel({
 
   return (
     <div className="space-y-3 rounded-lg border border-[var(--border)] px-3 py-3">
-      <p className="text-sm font-medium">Spedizione</p>
+      {notaSpedizione ? (
+        <div className="text-sm font-medium">{notaSpedizione}</div>
+      ) : (
+        <p className="text-sm font-medium">Spedizione</p>
+      )}
+      {ritiroInSede ? (
+        <p className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-950">
+          Ritiro in sede: costo annullato.
+        </p>
+      ) : null}
       <p className="text-xs text-[var(--muted)]">
         {testoIntroSpedizione({
           persistDisabled,
@@ -694,7 +709,9 @@ export function SpedizioneMailPanel({
       <>
       {impostazioneDocumento ? (
         <fieldset className="space-y-2 text-sm">
-          <legend className="font-medium">Mail dell&apos;ordine</legend>
+          <legend className="font-medium">
+            {notaMail ?? "Mail dell'ordine"}
+          </legend>
           <p className="text-xs text-[var(--muted)]">
             Scelta libera. Il tracking, se c&apos;è, si allega solo se lo
             spunti. Non si crea una bozza in attesa del tracking.

@@ -58,6 +58,7 @@ import { prezzoNettoDaSconto } from "@/lib/amministrazione/sconto-fuori-listino"
 import { getPreventivoProdottoContestoAction } from "@/app/actions/preventivi";
 import { elencoProfiliCalcoloSpedizioni } from "@/app/actions/ordine-calcolo-spedizione";
 import { risolviSpedizioneOrdineDiretto } from "@/lib/amministrazione/ordine-calcolo-spedizione";
+import { salvaNoteSezioniOrdine } from "@/app/actions/ordine-sezione-note";
 import { inviaFatturaSalvataAction } from "@/app/actions/fattura-da-ordine";
 import { isNumeroFatturaEmessa } from "@/lib/amministrazione/numero-fattura";
 import { rilasciaPrenotazioniOrdine } from "@/lib/amministrazione/prenotazione-ordine";
@@ -1626,13 +1627,20 @@ async function createOrdineWizardActionInner(
       }
     }
 
+    if (input.ritiroInSede && !input.sedeRitiroId) {
+      return {
+        success: false,
+        error: "Per il ritiro in sede scegli la sede.",
+      };
+    }
     const spedizione = risolviSpedizioneOrdineDiretto({
       campionatura: campionaturaGratis,
       preventivoId: campionaturaGratis ? null : (input.preventivoId ?? null),
       aCarico: input.spedizioneACarico,
       modalitaRichiesta: input.modalitaSpedizionePrezzo,
-      importo: input.spedizioneImporto,
+      importo: input.ritiroInSede ? 0 : input.spedizioneImporto,
       ivaModo: input.spedizioneIvaModo,
+      ritiroInSede: Boolean(input.ritiroInSede),
     });
     if (!spedizione.ok) return { success: false, error: spedizione.error };
     const passaInAttesaCalcolo =
@@ -1767,6 +1775,8 @@ async function createOrdineWizardActionInner(
       spedizione_iva_modo: spedizione.ivaModo,
       destinatario: destSped.destinatario,
       indirizzo_spedizione: destSped.indirizzo,
+      ritiro_in_sede: Boolean(input.ritiroInSede),
+      sede_ritiro_id: input.ritiroInSede ? (input.sedeRitiroId ?? null) : null,
       preventivo_id: campionaturaGratis ? null : (input.preventivoId ?? null),
       webmail_accettazione_id: campionaturaGratis
         ? null
@@ -2107,6 +2117,18 @@ async function createOrdineWizardActionInner(
         payload: { priorita: "urgente", compito: "calcolo_spedizioni", invio_cliente: false },
       });
     }
+
+    const noteSalvate = await salvaNoteSezioniOrdine({
+      ordineId: row.id,
+      userId: auth.userId,
+      note: {
+        ...(input.noteSezioni ?? {}),
+        ...(input.notaProdotto?.trim()
+          ? { prodotto: input.notaProdotto.trim() }
+          : {}),
+      },
+    });
+    if (!noteSalvate.success) return boccia(noteSalvate.error);
 
     const ordine = await loadOrdineWithRighe(row.id);
     if (!ordine) {

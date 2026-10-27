@@ -5,7 +5,17 @@ import { FaFilePdf } from "react-icons/fa6";
 import { listCorrieriAction } from "@/app/actions/imballaggi-spedizioni";
 import { listSediAttiveAction } from "@/app/actions/impostazioni-sedi";
 import { getOrdineAllegatoSignedUrlAction } from "@/app/actions/ordini";
+import { leggiNoteSezioniOrdineAction } from "@/app/actions/ordine-sezione-note";
 import { getPrenotazioneSpedizioneMailAction } from "@/app/actions/spedizione-mail";
+import {
+  NotaSezioneTesto,
+  NoteSezioniElenco,
+} from "@/components/amministrazione/OrdineSezioneNota";
+import {
+  testoNota,
+  type NoteSezioniOrdine,
+  type OrdineSezioneChiave,
+} from "@/lib/amministrazione/ordine-sezione-note";
 import { labelSede } from "@/lib/impostazioni/sedi";
 import type { SpedizioneMailPrenotazione } from "@/lib/amministrazione/spedizione-mail";
 import { MailOrdineFaseTestModal } from "@/components/amministrazione/MailOrdineFaseTestModal";
@@ -112,6 +122,22 @@ export function OrdineDettaglioPanel({ ordine, onEdit }: Props) {
   const [mail, setMail] = useState<SpedizioneMailPrenotazione | null | undefined>(
     undefined
   );
+  const [noteSezioni, setNoteSezioni] = useState<NoteSezioniOrdine>({});
+
+  useEffect(() => {
+    let cancel = false;
+    void leggiNoteSezioniOrdineAction(ordine.id).then((res) => {
+      if (cancel || !res.success) return;
+      setNoteSezioni(res.note);
+    });
+    return () => {
+      cancel = true;
+    };
+  }, [ordine.id]);
+
+  function nota(chiave: OrdineSezioneChiave) {
+    return <NotaSezioneTesto testo={testoNota(noteSezioni, chiave)} />;
+  }
 
   useEffect(() => {
     let cancel = false;
@@ -264,6 +290,7 @@ export function OrdineDettaglioPanel({ ordine, onEdit }: Props) {
             {ordine.clienteCodiceTarga
               ? `${ordine.clienteCodiceTarga} — ${ordine.cliente}`
               : ordine.cliente}
+            {nota("azienda_cliente")}
           </dd>
         </div>
         <div>
@@ -276,7 +303,10 @@ export function OrdineDettaglioPanel({ ordine, onEdit }: Props) {
           <dt className="text-xs font-medium uppercase text-[var(--muted)]">
             Data ordine
           </dt>
-          <dd className="mt-0.5">{formatDate(ordine.dataOrdine)}</dd>
+          <dd className="mt-0.5">
+            {formatDate(ordine.dataOrdine)}
+            {nota("azienda_data")}
+          </dd>
         </div>
         <div>
           <dt className="text-xs font-medium uppercase text-[var(--muted)]">
@@ -337,6 +367,7 @@ export function OrdineDettaglioPanel({ ordine, onEdit }: Props) {
           </dt>
           <dd className="mt-0.5">
             {labelTipoPagamento(ordine.tipoPagamento)}
+            {nota("pagamento_pagamento")}
           </dd>
         </div>
         <div>
@@ -365,7 +396,9 @@ export function OrdineDettaglioPanel({ ordine, onEdit }: Props) {
             Indirizzo di spedizione
           </dt>
           <dd className="mt-0.5 whitespace-pre-wrap">
+            {ordine.ritiroInSede ? "Ritiro in sede. " : ""}
             {ordine.indirizzoSpedizione.trim() || "Non indicato"}
+            {nota("spedizione_indirizzo")}
           </dd>
         </div>
         <div className="sm:col-span-2 lg:col-span-3">
@@ -398,7 +431,10 @@ export function OrdineDettaglioPanel({ ordine, onEdit }: Props) {
           <dt className="text-xs font-medium uppercase text-[var(--muted)]">
             Spedizione a carico
           </dt>
-          <dd className="mt-0.5">{labelCarico(ordine)}</dd>
+          <dd className="mt-0.5">
+            {ordine.ritiroInSede ? "Ritiro in sede: costo annullato." : labelCarico(ordine)}
+            {nota("spedizione_carico")}
+          </dd>
         </div>
         <div>
           <dt className="text-xs font-medium uppercase text-[var(--muted)]">
@@ -409,6 +445,7 @@ export function OrdineDettaglioPanel({ ordine, onEdit }: Props) {
               ? "Si sceglie dopo"
               : corriereNome ||
                 (ordine.corriereId ? "Corriere scelto" : "Non indicato")}
+            {nota("spedizione_mezzo")}
           </dd>
         </div>
         <div>
@@ -424,6 +461,7 @@ export function OrdineDettaglioPanel({ ordine, onEdit }: Props) {
             {ordine.urgente ? " · Urgente" : ""}
             {ordine.usaMagazzino ? " · Da magazzino" : ""}
             {ordine.usaSabato ? " · Anche il sabato" : ""}
+            {nota("consegna")}
           </dd>
         </div>
         <div>
@@ -461,6 +499,25 @@ export function OrdineDettaglioPanel({ ordine, onEdit }: Props) {
           </div>
         ) : null}
       </dl>
+      <NoteSezioniElenco
+        note={{
+          quantita_confezione: testoNota(noteSezioni, "quantita_confezione"),
+          quantita_sconto_extra: testoNota(noteSezioni, "quantita_sconto_extra"),
+          quantita_mail: testoNota(noteSezioni, "quantita_mail"),
+          quantita_preventivo: testoNota(noteSezioni, "quantita_preventivo"),
+          quantita_referente: testoNota(noteSezioni, "quantita_referente"),
+          confezione_chi: testoNota(noteSezioni, "confezione_chi"),
+          confezione_movimentazione: testoNota(
+            noteSezioni,
+            "confezione_movimentazione"
+          ),
+          confezione_blocchi: testoNota(noteSezioni, "confezione_blocchi"),
+          pagamento_fattura: testoNota(noteSezioni, "pagamento_fattura"),
+          pagamento_sdi: testoNota(noteSezioni, "pagamento_sdi"),
+          pagamento_spedizione: testoNota(noteSezioni, "pagamento_spedizione"),
+          pagamento_mail: testoNota(noteSezioni, "pagamento_mail"),
+        }}
+      />
 
       <div className="flex flex-col gap-1">
         {ordine.offerta ? (
@@ -522,11 +579,12 @@ export function OrdineDettaglioPanel({ ordine, onEdit }: Props) {
                 <tr key={r.id} className="border-t border-[var(--border)]">
                   <td className="px-3 py-2">
                     {r.prodottoCodice} — {r.prodottoNome}
-                    {r.note?.trim() ? (
-                      <div className="mt-0.5 text-xs text-[var(--muted)]">
-                        Nota: {r.note.trim()}
+                    {testoNota(noteSezioni, "prodotto") || r.note?.trim() ? (
+                      <div className="mt-0.5 text-sm text-amber-800">
+                        {testoNota(noteSezioni, "prodotto") || r.note.trim()}
                       </div>
                     ) : null}
+                    {nota("quantita_prezzo")}
                   </td>
                   <td className="px-3 py-2 tabular-nums">
                     {r.quantita} {r.unitaMisura}

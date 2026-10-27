@@ -21,6 +21,7 @@ export function risolviSpedizioneOrdineDiretto(input: {
   modalitaRichiesta: ModalitaSpedizionePrezzoOrdine;
   importo: number;
   ivaModo: SpedizioneIvaModoOrdine;
+  ritiroInSede?: boolean;
 }):
   | {
       ok: true;
@@ -33,7 +34,7 @@ export function risolviSpedizioneOrdineDiretto(input: {
   | { ok: false; error: string } {
   const ivaModo = input.ivaModo === "compreso" ? "compreso" : "piu_iva";
   const importoChiesto = Math.round(Math.max(0, input.importo) * 100) / 100;
-  if (input.campionatura || input.aCarico !== "cliente") {
+  if (input.campionatura || input.ritiroInSede || input.aCarico !== "cliente") {
     return {
       ok: true,
       modalita: "non_applicabile",

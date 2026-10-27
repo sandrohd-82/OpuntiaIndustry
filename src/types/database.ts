@@ -1054,6 +1054,8 @@ export interface OrdineRow {
   spedizione_calcolata_by?: string | null;
   giorni_produzione: string[];
   sede_partenza_id?: string | null;
+  ritiro_in_sede?: boolean;
+  sede_ritiro_id?: string | null;
   destinatario?: string;
   indirizzo_spedizione?: string;
   preventivo_id?: string | null;
@@ -1140,6 +1142,8 @@ export interface OrdineInsert {
   giorni_produzione?: string[];
   destinatario?: string;
   indirizzo_spedizione?: string;
+  ritiro_in_sede?: boolean;
+  sede_ritiro_id?: string | null;
   preventivo_id?: string | null;
   webmail_accettazione_id?: string | null;
   referente_accettazione_id?: string | null;
@@ -1213,6 +1217,8 @@ export interface OrdineUpdate {
   giorni_produzione?: string[];
   destinatario?: string;
   indirizzo_spedizione?: string;
+  ritiro_in_sede?: boolean;
+  sede_ritiro_id?: string | null;
   sconto_extra_pct?: number;
   sconto_fascia?: string;
   sconto_approvazione_stato?: string;
@@ -3138,6 +3144,44 @@ export interface Database {
           data_pagamento?: string | null;
           note?: string;
           updated_by?: string | null;
+          deleted_at?: string | null;
+          deleted_by?: string | null;
+        };
+        Relationships: [];
+      };
+      ordine_sezione_note: {
+        Row: {
+          id: string;
+          ordine_id: string;
+          sezione_chiave: string;
+          testo: string;
+          versione: number;
+          documento_stato: "bozza" | "approvato" | "chiuso";
+          created_at: string;
+          updated_at: string;
+          created_by: string | null;
+          updated_by: string | null;
+          deleted_at: string | null;
+          deleted_by: string | null;
+        };
+        Insert: {
+          id?: string;
+          ordine_id: string;
+          sezione_chiave: string;
+          testo?: string;
+          versione?: number;
+          documento_stato?: "bozza" | "approvato" | "chiuso";
+          created_by?: string | null;
+          updated_by?: string | null;
+          deleted_at?: string | null;
+          deleted_by?: string | null;
+        };
+        Update: {
+          testo?: string;
+          versione?: number;
+          documento_stato?: "bozza" | "approvato" | "chiuso";
+          updated_by?: string | null;
+          updated_at?: string;
           deleted_at?: string | null;
           deleted_by?: string | null;
         };

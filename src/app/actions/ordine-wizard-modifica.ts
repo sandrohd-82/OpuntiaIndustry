@@ -9,6 +9,10 @@ import type { SpedizioneMailPrenotazione } from "@/lib/amministrazione/spedizion
 import type { RubricaContatto } from "@/lib/rubrica/types";
 import { createClient } from "@/lib/supabase/server";
 import type { OrdineUnitaMisura } from "@/lib/amministrazione/ordini";
+import {
+  noteSezioniDaInput,
+  type NoteSezioniOrdine,
+} from "@/lib/amministrazione/ordine-sezione-note";
 
 export type OrdineWizardModifica = {
   ordineId: string;
@@ -24,6 +28,9 @@ export type OrdineWizardModifica = {
   prodottoCodice: string;
   prodottoNome: string;
   notaProdotto: string;
+  noteSezioni: NoteSezioniOrdine;
+  ritiroInSede: boolean;
+  sedeRitiroId: string;
   quantita: number;
   unitaMisura: OrdineUnitaMisura;
   prezzoUnitario: number;
@@ -324,6 +331,19 @@ export async function loadOrdinePerModificaWizardAction(
     ei_status?: string | null;
   } | null;
   const invioRaw = String(ordine.invio_fattura_sdi ?? "");
+  const { data: noteRows } = await supabase
+    .from("ordine_sezione_note")
+    .select("sezione_chiave, testo")
+    .eq("ordine_id", ordineId)
+    .is("deleted_at", null);
+  const noteGrezze: Record<string, string> = {};
+  for (const nota of noteRows ?? []) {
+    noteGrezze[String(nota.sezione_chiave)] = String(nota.testo ?? "");
+  }
+  const noteSezioni = noteSezioniDaInput(noteGrezze);
+  const notaRiga = String(riga.note ?? "").trim();
+  if (!noteSezioni.prodotto && notaRiga) noteSezioni.prodotto = notaRiga;
+
   const fatturaGiaInviata = Boolean(
     fatturaEmessa &&
       (fatturaEmessa.courtesy_email_sent || fatturaEmessa.ei_status === "sent")
@@ -344,7 +364,10 @@ export async function loadOrdinePerModificaWizardAction(
       prodottoId: String(riga.prodotto_id),
       prodottoCodice: String(riga.prodotto_codice ?? ""),
       prodottoNome: String(riga.prodotto_nome ?? ""),
-      notaProdotto: String(riga.note ?? "").trim(),
+      notaProdotto: noteSezioni.prodotto ?? String(riga.note ?? "").trim(),
+      noteSezioni,
+      ritiroInSede: Boolean(ordine.ritiro_in_sede),
+      sedeRitiroId: ordine.sede_ritiro_id ? String(ordine.sede_ritiro_id) : "",
       quantita: Number(riga.quantita ?? 0),
       unitaMisura,
       prezzoUnitario: prezzoRipresa ?? prezzoListino ?? Number(riga.prezzo_unitario ?? 0),

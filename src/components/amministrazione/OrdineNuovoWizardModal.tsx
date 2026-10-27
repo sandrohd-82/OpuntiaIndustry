@@ -8,7 +8,14 @@ import {
   previewNumeroInternoOrdineAction,
 } from "@/app/actions/ordini";
 import { getScontoFuoriListinoContextAction } from "@/app/actions/ordine-sconto";
+import { listSediAttiveAction } from "@/app/actions/impostazioni-sedi";
+import { TitoloConNota } from "@/components/amministrazione/OrdineSezioneNota";
 import { InfoHint } from "@/components/ui/InfoHint";
+import type { OrdineSezioneChiave } from "@/lib/amministrazione/ordine-sezione-note";
+import {
+  labelSede,
+  type ImpostazioniSede,
+} from "@/lib/impostazioni/sedi";
 import {
   fasciaScontoExtra,
   parseScontoExtraPct,
@@ -413,7 +420,6 @@ export function OrdineNuovoWizardModal({
 
   const [prodotto, setProdotto] = useState<ProdottoProprio | null>(null);
   const [notaProdotto, setNotaProdotto] = useState("");
-  const [notaProdottoAperta, setNotaProdottoAperta] = useState(false);
   const [voceListino, setVoceListino] = useState<ListinoVoceVigente | null>(
     null
   );
@@ -559,6 +565,12 @@ export function OrdineNuovoWizardModal({
   const [sediExtra, setSediExtra] = useState<AnagraficaSede[]>([]);
   const [sediError, setSediError] = useState<string | null>(null);
   const [addressKey, setAddressKey] = useState("");
+  const [sedeRitiroId, setSedeRitiroId] = useState("");
+  const [sediAzienda, setSediAzienda] = useState<ImpostazioniSede[]>([]);
+  const [noteSezioni, setNoteSezioni] = useState<
+    Partial<Record<OrdineSezioneChiave, string>>
+  >({});
+  const ritiroScelto = useRef(false);
   const [altroPostoOpen, setAltroPostoOpen] = useState(false);
   const [altroPostoLabel, setAltroPostoLabel] = useState("");
   const [destinatario, setDestinatario] = useState("");
@@ -680,7 +692,13 @@ export function OrdineNuovoWizardModal({
       setTipoOrdine(d.tipo);
       setProdotto(trovato);
       setNotaProdotto(d.notaProdotto);
-      setNotaProdottoAperta(Boolean(d.notaProdotto.trim()));
+      setNoteSezioni(d.noteSezioni);
+      if (d.ritiroInSede) {
+        ritiroScelto.current = true;
+        preserveSavedAddress.current = true;
+        setAddressKey("ritiro");
+        setSedeRitiroId(d.sedeRitiroId);
+      }
       setQuantita(d.quantita);
       setUnitaMisura(d.unitaMisura);
       setScontoExtraPct(d.scontoExtraPct || "");
@@ -769,6 +787,8 @@ export function OrdineNuovoWizardModal({
       ]);
       if (cRes.success) setCorrieri(cRes.items);
       if (iRes.success) setCatalogo(iRes.items);
+      const sediRes = await listSediAttiveAction();
+      if (sediRes.success) setSediAzienda(sediRes.sedi);
     })();
   }, []);
 
@@ -793,6 +813,7 @@ export function OrdineNuovoWizardModal({
       setSediError(null);
       setSediExtra(res.sedi);
       const options = clienteSpedizioneOptions(clienteSped, res.sedi, purpose);
+      if (ritiroScelto.current) return;
       if (addressManual.current || preserveSavedAddress.current) {
         const current = indirizzoSpedizioneRef.current.trim().toLowerCase();
         const hit = options.find(
@@ -1212,9 +1233,11 @@ export function OrdineNuovoWizardModal({
     setDataConsegnaCalendario(null);
   }, [prodotto?.id]);
 
+  const ritiroInSede = addressKey === "ritiro";
   const attesaCalcoloSpedizione =
     tipoOrdine !== "campionatura" &&
     !preventivoId &&
+    !ritiroInSede &&
     aCarico === "cliente" &&
     modalitaSpedizionePrezzo === "richiesto";
   const vuoleSceltaInvio =
@@ -1283,6 +1306,7 @@ export function OrdineNuovoWizardModal({
       return true;
     }
     if (step === 5) {
+      if (addressKey === "ritiro") return Boolean(sedeRitiroId);
       if (!corriereDopo && !corriereId) return false;
       if (aCarico === "diviso" && (pctAgrin === "" || Number(pctAgrin) < 0))
         return false;
@@ -1557,20 +1581,29 @@ export function OrdineNuovoWizardModal({
           destinatario,
           indirizzoSpedizione,
         });
+        ordine.ritiroInSede = ritiroInSede;
+        ordine.sedeRitiroId = ritiroInSede ? sedeRitiroId || null : null;
         ordine.trasporto = {
           ...emptyTrasporto(),
-          imponibile: attesaCalcoloSpedizione
+          imponibile: ritiroInSede || attesaCalcoloSpedizione
             ? 0
             : (aCarico === "cliente" ? numberOrZero(spedizioneImporto) : 0),
           ivaPercentuale:
             aCarico === "cliente" && spedizioneIvaModo === "compreso" ? 0 : 22,
         };
-        ordine.modalitaSpedizionePrezzo = attesaCalcoloSpedizione
-          ? "richiesto"
-          : (aCarico === "cliente" ? "inserito" : "non_applicabile");
-        ordine.spedizioneImporto = attesaCalcoloSpedizione
-          ? 0
-          : (aCarico === "cliente" ? numberOrZero(spedizioneImporto) : 0);
+        ordine.modalitaSpedizionePrezzo = ritiroInSede
+          ? "non_applicabile"
+          : attesaCalcoloSpedizione
+            ? "richiesto"
+            : aCarico === "cliente"
+              ? "inserito"
+              : "non_applicabile";
+        ordine.spedizioneImporto =
+          ritiroInSede || attesaCalcoloSpedizione
+            ? 0
+            : aCarico === "cliente"
+              ? numberOrZero(spedizioneImporto)
+              : 0;
         ordine.spedizioneIvaModo = spedizioneIvaModo;
         saveOrdineSessione({
           ordine,
@@ -1616,7 +1649,10 @@ export function OrdineNuovoWizardModal({
         prodottoId: prodotto.id,
         prodottoCodice: prodotto.codice,
         prodottoNome: prodotto.nome,
-        notaProdotto: notaProdotto.trim(),
+        notaProdotto: (noteSezioni.prodotto ?? notaProdotto).trim(),
+        noteSezioni,
+        ritiroInSede,
+        sedeRitiroId: ritiroInSede ? sedeRitiroId || null : null,
         quantita: quantitaInserita,
         unitaMisura: umEffettiva,
         prezzoUnitario: tipoOrdine === "campionatura" ? 0 : numberOrZero(prezzoUnitario),
@@ -1665,12 +1701,14 @@ export function OrdineNuovoWizardModal({
         corriereId: corriereDopo ? null : corriereId || null,
         corriereDaCompilare: corriereDopo,
         spedizioneACarico: aCarico,
-        modalitaSpedizionePrezzo: attesaCalcoloSpedizione
-          ? "richiesto"
-          : (aCarico === "cliente" ? "inserito" : "non_applicabile"),
-        spedizioneImporto: attesaCalcoloSpedizione
+        modalitaSpedizionePrezzo: (ritiroInSede
+          ? "non_applicabile"
+          : (attesaCalcoloSpedizione
+            ? "richiesto"
+            : (aCarico === "cliente" ? "inserito" : "non_applicabile"))),
+        spedizioneImporto: (ritiroInSede || attesaCalcoloSpedizione
           ? 0
-          : (aCarico === "cliente" ? numberOrZero(spedizioneImporto) : 0),
+          : (aCarico === "cliente" ? numberOrZero(spedizioneImporto) : 0)),
         spedizioneIvaModo,
         spedizionePctAgrinsicilia:
           aCarico === "diviso" ? Number(pctAgrin) : null,
@@ -2276,6 +2314,19 @@ export function OrdineNuovoWizardModal({
     );
   }
 
+  function titoloNota(sezione: OrdineSezioneChiave, titolo: string) {
+    return (
+      <TitoloConNota
+        titolo={titolo}
+        valore={noteSezioni[sezione] ?? ""}
+        onChange={(testo) => {
+          setNoteSezioni((prev) => ({ ...prev, [sezione]: testo }));
+          if (sezione === "prodotto") setNotaProdotto(testo);
+        }}
+      />
+    );
+  }
+
   return (
     <div
       className="fixed inset-0 z-[60] flex items-start justify-center overflow-y-auto bg-slate-950/60 px-4 py-8"
@@ -2336,7 +2387,10 @@ export function OrdineNuovoWizardModal({
             <>
               <div className="block text-sm">
                 <span className="mb-1 block font-medium">
-                  Azienda / cliente
+                  {titoloNota(
+                    "azienda_cliente",
+                    "Selezione del cliente e possibile cliente"
+                  )}
                 </span>
                 <AziendaOrdineSelect
                   fonte={anagraficaFonte}
@@ -2416,7 +2470,9 @@ export function OrdineNuovoWizardModal({
                 />
               </div>
               <label className="block text-sm">
-                <span className="mb-1 block font-medium">Data ordine</span>
+                <span className="mb-1 block font-medium">
+                  {titoloNota("azienda_data", "Data ordine")}
+                </span>
                 <input
                   type="date"
                   value={dataOrdine}
@@ -2448,7 +2504,7 @@ export function OrdineNuovoWizardModal({
                     setProdotto(p);
                     if (prodotto?.id && p?.id !== prodotto.id) {
                       setNotaProdotto("");
-                      setNotaProdottoAperta(false);
+                      setNoteSezioni((prev) => ({ ...prev, prodotto: "" }));
                     }
                     setOverridesSeeded(false);
                   }}
@@ -2473,29 +2529,8 @@ export function OrdineNuovoWizardModal({
                   Nuovo
                 </button>
               </div>
-              <div className="mt-2">
-                <button
-                  type="button"
-                  onClick={() => setNotaProdottoAperta((open) => !open)}
-                  className="rounded-lg border border-[var(--border)] bg-white px-3 py-1.5 text-sm font-medium hover:bg-slate-50"
-                >
-                  Nota
-                </button>
-                {notaProdottoAperta ? (
-                  <label className="mt-2 block text-sm">
-                    <span className="mb-1 block font-medium">
-                      Nota del prodotto
-                    </span>
-                    <input
-                      type="text"
-                      maxLength={500}
-                      value={notaProdotto}
-                      onChange={(e) => setNotaProdotto(e.target.value)}
-                      placeholder="Es. Nopal dry C da 50 micron"
-                      className="w-full rounded-lg border border-[var(--border)] bg-white px-3 py-2 outline-none focus:border-[var(--primary)]"
-                    />
-                  </label>
-                ) : null}
+              <div className="mt-2 text-sm font-medium">
+                {titoloNota("prodotto", "Prodotto")}
               </div>
               {voceListinoLoading ? (
                 <p className="mt-3 text-sm text-[var(--muted)]">
@@ -2569,6 +2604,9 @@ export function OrdineNuovoWizardModal({
                   prodottoCodice={prodotto.codice}
                 />
               ) : null}
+              <div className="text-sm font-medium">
+                {titoloNota("quantita_prezzo", "Quantità e prezzo vendita")}
+              </div>
               <div className="grid gap-3 sm:grid-cols-2">
                 <label className="block text-sm">
                   <span className="mb-1 block font-medium">Quantità</span>
@@ -2657,7 +2695,12 @@ export function OrdineNuovoWizardModal({
               </div>
               {tipoOrdine === "campionatura" || packListino.length === 0 ? null : (
                 <div className="space-y-2 rounded-lg border border-[var(--border)] px-4 py-3">
-                  <p className="text-sm font-medium">Confezione e sconto di listino</p>
+                  <div className="text-sm font-medium">
+                    {titoloNota(
+                      "quantita_confezione",
+                      "Confezione e sconto di listino"
+                    )}
+                  </div>
                   <p className="text-xs text-[var(--muted)]">
                     {fontePreventivo
                       ? "Presi dal preventivo. Quantità, confezione e sconto si possono cambiare."
@@ -2787,7 +2830,10 @@ export function OrdineNuovoWizardModal({
               {tipoOrdine === "campionatura" ? null : (
                 <label className="block text-sm">
                   <span className="mb-1 inline-flex items-center gap-1.5 font-medium">
-                    Sconto extra fuori listino (%)
+                    {titoloNota(
+                      "quantita_sconto_extra",
+                      "Sconto extra fuori listino"
+                    )}
                     <InfoHint title={SCONTO_FUORI_LISTINO_TITOLO} wide>
                       <span className="block space-y-2">
                         {SCONTO_FUORI_LISTINO_REGOLE.map((r) => (
@@ -2904,7 +2950,9 @@ export function OrdineNuovoWizardModal({
               )}
 
               <div className="space-y-2 rounded-lg border border-[var(--border)] px-4 py-3">
-                <p className="text-sm font-medium">Richiesta pervenuta per mail</p>
+                <div className="text-sm font-medium">
+                  {titoloNota("quantita_mail", "Richiesta pervenuta per mail")}
+                </div>
                 <p className="text-xs text-[var(--muted)]">
                   Se il cliente ha scritto per mail, collega il messaggio.
                   Prima compaiono le inerenti: da lì puoi caricare tutte
@@ -2932,7 +2980,9 @@ export function OrdineNuovoWizardModal({
 
               {tipoOrdine !== "campionatura" ? (
                 <div className="space-y-3 rounded-lg border border-[var(--border)] px-4 py-3">
-                  <p className="text-sm font-medium">Preventivo accettato</p>
+                  <div className="text-sm font-medium">
+                    {titoloNota("quantita_preventivo", "Preventivo accettato")}
+                  </div>
                   <p className="text-xs text-[var(--muted)]">
                     Facoltativo, anche se hai collegato la mail di richiesta.
                     Solo stato Accettato, un prodotto o più righe («di tanti»).
@@ -2966,7 +3016,10 @@ export function OrdineNuovoWizardModal({
                     </div>
                     <div className="text-sm">
                       <span className="mb-1 block font-medium">
-                        Referente che ha inviato
+                        {titoloNota(
+                          "quantita_referente",
+                          "Referente che ha inviato"
+                        )}
                       </span>
                       <ReferentiPickerField
                         value={
@@ -2988,6 +3041,9 @@ export function OrdineNuovoWizardModal({
 
           {step === 4 && ordineSospeso ? (
             <div className="space-y-3 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-950">
+              <div className="font-medium">
+                {titoloNota("consegna", "Consegna")}
+              </div>
               <p className="font-medium">Ordine sospeso — non in produzione</p>
               <p>{LISTINO_CONTRATTO_MSG.sospeso}</p>
               <label className="block">
@@ -3008,7 +3064,9 @@ export function OrdineNuovoWizardModal({
           {step === 4 && !ordineSospeso && (
             <div className="space-y-4">
               <fieldset className="space-y-2">
-                <legend className="text-sm font-medium">Modalità consegna</legend>
+                <legend className="text-sm font-medium">
+                  {titoloNota("consegna", "Consegna")}
+                </legend>
                 <label className="flex items-center gap-2 text-sm">
                   <input
                     type="radio"
@@ -3218,7 +3276,7 @@ export function OrdineNuovoWizardModal({
             <div className="space-y-4">
               <fieldset className="space-y-2 rounded-lg border border-[var(--border)] p-3">
                 <legend className="px-1 text-sm font-medium">
-                  Indirizzo di ricezione
+                  {titoloNota("spedizione_indirizzo", "Indirizzo di ricezione")}
                 </legend>
                 <p className="text-xs text-[var(--muted)]">
                   {tipoOrdine === "campionatura"
@@ -3254,6 +3312,7 @@ export function OrdineNuovoWizardModal({
                       onChange={() => {
                         addressManual.current = true;
                         preserveSavedAddress.current = false;
+                        ritiroScelto.current = false;
                         setAddressKey(opt.key);
                         setAltroPostoLabel("");
                         setDestinatario(opt.destinatario);
@@ -3288,6 +3347,70 @@ export function OrdineNuovoWizardModal({
                     Seleziona prima l’azienda.
                   </p>
                 ) : null}
+                <label
+                  className={`flex cursor-pointer gap-2 rounded-lg border px-3 py-2 ${
+                    addressKey === "ritiro"
+                      ? "border-[var(--primary)] bg-slate-50"
+                      : "border-[var(--border)] bg-white"
+                  }`}
+                >
+                  <input
+                    type="radio"
+                    name="ordine-indirizzo-spedizione"
+                    checked={addressKey === "ritiro"}
+                    onChange={() => {
+                      addressManual.current = true;
+                      preserveSavedAddress.current = true;
+                      ritiroScelto.current = true;
+                      setAddressKey("ritiro");
+                      setSpedizioneImporto("");
+                      setModalitaSpedizionePrezzo("inserito");
+                      const sede =
+                        sediAzienda.find((s) => s.id === sedeRitiroId) ??
+                        sediAzienda[0];
+                      if (sede) {
+                        setSedeRitiroId(sede.id);
+                        setDestinatario(sede.nome);
+                        setIndirizzoSpedizione(labelSede(sede));
+                      }
+                    }}
+                    className="mt-1"
+                  />
+                  <span>
+                    <span className="font-medium">Ritiro in sede</span>
+                    <span className="mt-0.5 block text-xs text-[var(--muted)]">
+                      Il cliente viene a ritirare. Il costo di spedizione si annulla.
+                    </span>
+                  </span>
+                </label>
+                {addressKey === "ritiro" ? (
+                  <label className="block text-sm">
+                    <span className="mb-1 block font-medium">Sede di ritiro</span>
+                    <select
+                      value={sedeRitiroId}
+                      onChange={(e) => {
+                        const id = e.target.value;
+                        setSedeRitiroId(id);
+                        const sede = sediAzienda.find((s) => s.id === id);
+                        if (!sede) return;
+                        setDestinatario(sede.nome);
+                        setIndirizzoSpedizione(labelSede(sede));
+                      }}
+                      className="w-full rounded-lg border border-[var(--border)] bg-white px-3 py-2 text-sm"
+                    >
+                      <option value="">
+                        {sediAzienda.length
+                          ? "Seleziona la sede…"
+                          : "Nessuna sede in Impostazioni"}
+                      </option>
+                      {sediAzienda.map((s) => (
+                        <option key={s.id} value={s.id}>
+                          {labelSede(s)}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                ) : null}
                 <button
                   type="button"
                   disabled={!clienteId && !possibileClienteId}
@@ -3304,7 +3427,9 @@ export function OrdineNuovoWizardModal({
                 </button>
               </fieldset>
               <fieldset className="space-y-2 rounded-lg border border-[var(--border)] p-3">
-                <legend className="px-1 text-sm font-medium">Mezzo</legend>
+                <legend className="px-1 text-sm font-medium">
+                  {titoloNota("spedizione_mezzo", "Mezzo")}
+                </legend>
                 <label className="flex items-center gap-2 text-sm">
                   <input type="radio" checked readOnly />
                   Corriere
@@ -3371,7 +3496,14 @@ export function OrdineNuovoWizardModal({
               </fieldset>
 
               <fieldset className="space-y-2 rounded-lg border border-[var(--border)] p-3">
-                <legend className="px-1 text-sm font-medium">A carico</legend>
+                <legend className="px-1 text-sm font-medium">
+                  {titoloNota("spedizione_carico", "A carico")}
+                </legend>
+                {ritiroInSede ? (
+                  <p className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-950">
+                    Ritiro in sede: costo annullato.
+                  </p>
+                ) : null}
                 {(
                   [
                     ["cliente", "Cliente"],
@@ -3383,7 +3515,8 @@ export function OrdineNuovoWizardModal({
                     <input
                       type="radio"
                       name="aCarico"
-                      checked={aCarico === val}
+                      checked={!ritiroInSede && aCarico === val}
+                      disabled={ritiroInSede}
                       onChange={() => setACarico(val)}
                     />
                     {label}
@@ -3409,7 +3542,7 @@ export function OrdineNuovoWizardModal({
                     ) : null}
                   </label>
                 ) : null}
-                {aCarico === "cliente" ? (
+                {aCarico === "cliente" && !ritiroInSede ? (
                   <div className="mt-3 space-y-2 border-t border-[var(--border)] pt-3">
                     <p className="text-sm font-medium">
                       Richiesta importo al cliente
@@ -3502,7 +3635,10 @@ export function OrdineNuovoWizardModal({
             <div className="space-y-4">
               <fieldset className="space-y-2 rounded-lg border border-[var(--border)] p-3">
                 <legend className="px-1 text-sm font-medium">
-                  Chi definisce il confezionamento
+                  {titoloNota(
+                    "confezione_chi",
+                    "Chi definisce il confezionamento"
+                  )}
                 </legend>
                 <label className="flex items-start gap-2 text-sm">
                   <input
@@ -3540,10 +3676,18 @@ export function OrdineNuovoWizardModal({
                 </label>
               </fieldset>
               {conf.affidatoProduzione ? (
-                <p className="rounded-lg border border-sky-200 bg-sky-50 px-3 py-2 text-sm text-sky-950">
-                  Nessun imballo da compilare. Puoi andare avanti: l&apos;operatore
-                  di produzione definirà come confezionare questa quantità.
-                </p>
+                <div className="space-y-3">
+                  <p className="rounded-lg border border-sky-200 bg-sky-50 px-3 py-2 text-sm text-sky-950">
+                    Nessun imballo da compilare. Puoi andare avanti: l&apos;operatore
+                    di produzione definirà come confezionare questa quantità.
+                  </p>
+                  <div className="text-sm font-medium">
+                    {titoloNota("confezione_movimentazione", "Movimentazione")}
+                  </div>
+                  <div className="text-sm font-medium">
+                    {titoloNota("confezione_blocchi", "Confezione (blocchi)")}
+                  </div>
+                </div>
               ) : null}
               {testoConfezione && !conf.affidatoProduzione ? (
                 <p className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-950">
@@ -3556,7 +3700,7 @@ export function OrdineNuovoWizardModal({
               <>
               <fieldset className="space-y-2 rounded-lg border border-[var(--border)] p-3">
                 <legend className="px-1 text-sm font-medium">
-                  Movimentazione
+                  {titoloNota("confezione_movimentazione", "Movimentazione")}
                 </legend>
                 <label className="flex items-center gap-2 text-sm">
                   <input
@@ -3627,7 +3771,9 @@ export function OrdineNuovoWizardModal({
               </fieldset>
 
               <div className="flex flex-wrap items-center justify-between gap-2">
-                <p className="text-sm font-medium">Confezione (blocchi)</p>
+                <div className="text-sm font-medium">
+                  {titoloNota("confezione_blocchi", "Confezione (blocchi)")}
+                </div>
                 <button
                   type="button"
                   className="inline-flex items-center gap-1 rounded-lg border border-[var(--border)] px-2.5 py-1.5 text-xs font-medium hover:bg-slate-50"
@@ -3737,7 +3883,9 @@ export function OrdineNuovoWizardModal({
           {step === 7 && tipoOrdine !== "campionatura" ? (
             <div className="space-y-4">
               <div className="space-y-3 rounded-xl border border-[var(--border)] p-4">
-                <p className="text-sm font-semibold">Pagamento</p>
+                <div className="text-sm font-semibold">
+                  {titoloNota("pagamento_pagamento", "Pagamento")}
+                </div>
                 <p className="text-xs text-[var(--muted)]">
                   Unica soluzione oppure dilazione. In dilazione la prima rata
                   ha la stessa scadenza (anticipato, consegna, pronto
@@ -3763,7 +3911,9 @@ export function OrdineNuovoWizardModal({
                 ) : null}
               </div>
               <div className="space-y-2 rounded-xl border border-[var(--border)] p-4">
-                <p className="text-sm font-semibold">Fattura</p>
+                <div className="text-sm font-semibold">
+                  {titoloNota("pagamento_fattura", "Fattura")}
+                </div>
                 <p className="text-xs text-[var(--muted)]">
                   La fattura modificata resta anche se riapri l&apos;ordine.
                   Si riallinea all&apos;ordine solo se cambi la riga prodotto, e
@@ -3826,9 +3976,9 @@ export function OrdineNuovoWizardModal({
             <div className="mt-4 space-y-3">
               {vuoleSceltaInvio ? (
                 <div className="rounded-xl border-2 border-amber-600 bg-amber-50 p-4">
-                  <p className="text-base font-semibold text-amber-950">
-                    Invio della fattura allo SDI
-                  </p>
+                  <div className="text-base font-semibold text-amber-950">
+                    {titoloNota("pagamento_sdi", "Invio della fattura allo SDI")}
+                  </div>
                   <p className="mt-1 text-sm text-amber-950">
                     Scelta obbligatoria prima di finalizzare. Fa esattamente
                     quello che è scritto.
@@ -3900,6 +4050,12 @@ export function OrdineNuovoWizardModal({
                 </p>
               ) : null}
               <SpedizioneMailPanel
+                ritiroInSede={ritiroInSede}
+                notaSpedizione={titoloNota(
+                  "pagamento_spedizione",
+                  "Spedizione"
+                )}
+                notaMail={titoloNota("pagamento_mail", "Mail dell'ordine")}
                 entityType="ordine"
                 entityId={modificaOrdineId ?? ""}
                 sedePartenzaIdDefault={sedePartenzaId}
@@ -4173,6 +4329,7 @@ export function OrdineNuovoWizardModal({
           onSaved={(r) => {
             addressManual.current = true;
             preserveSavedAddress.current = false;
+            ritiroScelto.current = false;
             setAddressKey("altro");
             setAltroPostoLabel(r.label);
             setDestinatario(r.destinatario);
