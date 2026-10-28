@@ -110,6 +110,7 @@ type Props = {
   notaMail?: ReactNode;
   /** Finalizzazione: nessuna mail al cliente, né documento né tracking. */
   bloccaMail?: boolean;
+  onNessunaMailChange?: (value: boolean) => void;
 };
 
 export function SpedizioneMailPanel({
@@ -135,6 +136,7 @@ export function SpedizioneMailPanel({
   notaSpedizione,
   notaMail,
   bloccaMail = false,
+  onNessunaMailChange,
 }: Props) {
   const [trackingUrl, setTrackingUrl] = useState("");
   const [sedePartenzaId, setSedePartenzaId] = useState(sedePartenzaIdDefault);
@@ -716,14 +718,32 @@ export function SpedizioneMailPanel({
         </div>
       ) : (
       <>
-      {bloccaMail ? (
-        <p className="rounded-xl border border-slate-300 bg-slate-50 px-4 py-3 text-sm text-slate-800">
-          Non è prevista alcuna mail al cliente. Fattura, tracking e cortesia
-          restano spenti.
-        </p>
+      {onNessunaMailChange ? (
+        <label className="flex items-start gap-2 rounded-xl border border-slate-300 bg-slate-50 px-4 py-3 text-sm">
+          <input
+            type="checkbox"
+            className="mt-1"
+            checked={bloccaMail}
+            onChange={(e) => onNessunaMailChange(e.target.checked)}
+          />
+          <span>
+            Non intendo inviare alcuna mail. Non parte la mail di cortesia,
+            né la fattura, né il tracking.
+          </span>
+        </label>
       ) : null}
+      <div
+        className={`grid transition-[grid-template-rows] duration-200 ease-out ${
+          bloccaMail ? "grid-rows-[0fr]" : "grid-rows-[1fr]"
+        }`}
+      >
+      <div
+        className={`min-h-0 overflow-hidden ${bloccaMail ? "" : "space-y-3"}`}
+        inert={bloccaMail ? true : undefined}
+        aria-hidden={bloccaMail}
+      >
       {impostazioneDocumento ? (
-        <fieldset className="space-y-2 text-sm" disabled={bloccaMail}>
+        <fieldset className="space-y-2 text-sm">
           <legend className="font-medium">
             {notaMail ?? "Mail dell'ordine"}
           </legend>
@@ -796,7 +816,7 @@ export function SpedizioneMailPanel({
         </fieldset>
       ) : null}
       {!impostazioneDocumento ? (
-      <fieldset className="space-y-2 text-sm" disabled={bloccaMail}>
+      <fieldset className="space-y-2 text-sm">
         <legend className="font-medium">
           Vuoi che il tracking venga inviato al cliente?
         </legend>
@@ -944,6 +964,8 @@ export function SpedizioneMailPanel({
           </div>
         </div>
       ) : null}
+      </div>
+      </div>
       </>
       )}
 

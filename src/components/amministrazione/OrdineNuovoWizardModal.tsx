@@ -4473,28 +4473,6 @@ export function OrdineNuovoWizardModal({
                   finalizzato: nessuna fattura e nessuna mail vengono registrate.
                 </p>
               ) : null}
-              <label className="flex items-start gap-2 rounded-xl border border-slate-300 bg-slate-50 px-4 py-3 text-sm">
-                <input
-                  type="checkbox"
-                  className="mt-1"
-                  checked={nessunaMail}
-                  onChange={(e) => {
-                    const acceso = e.target.checked;
-                    setNessunaMail(acceso);
-                    if (!acceso) return;
-                    spedDraft.current = {
-                      ...spedDraft.current,
-                      inviaMailDocumento: false,
-                      allegaTrackingMail: false,
-                      documentoMail: "informativa",
-                    };
-                  }}
-                />
-                <span>
-                  Non intendo inviare alcuna mail. Non parte la mail di
-                  cortesia, né la fattura, né il tracking.
-                </span>
-              </label>
               <SpedizioneMailPanel
                 ritiroInSede={ritiroInSede}
                 notaSpedizione={titoloNota(
@@ -4534,6 +4512,16 @@ export function OrdineNuovoWizardModal({
                 sceltaOrdineFissa={Boolean(modificaOrdineId)}
                 impostazioneDocumento={!modificaOrdineId}
                 bloccaMail={nessunaMail}
+                onNessunaMailChange={(acceso) => {
+                  setNessunaMail(acceso);
+                  if (!acceso) return;
+                  spedDraft.current = {
+                    ...spedDraft.current,
+                    inviaMailDocumento: false,
+                    allegaTrackingMail: false,
+                    documentoMail: "informativa",
+                  };
+                }}
               />
             </div>
           ) : null}
