@@ -197,7 +197,7 @@ type Props = {
   /** Riapre la procedura già compilata su questo ordine. */
   modificaOrdineId?: string;
   onClose: () => void;
-  onSaved: (ordine: Ordine) => void;
+  onSaved: (ordine: Ordine, esito?: string) => void;
 };
 
 type Step = 1 | 2 | 3 | 4 | 5 | 6 | 7;
@@ -2041,14 +2041,13 @@ export function OrdineNuovoWizardModal({
             invioSubito = `${sdi} ${mail}${invio.warning ? ` ${invio.warning}` : ""}`;
           }
         }
+        let notaProforma = "";
         if (docMail === "proforma") {
           const ctx = await getFatturaA4ContextAction({
             ordineId: result.ordine.id,
           });
           if (!ctx.success) {
-            setFormError(
-              `La fattura senza numero è sull'ordine, ma la proforma no: ${ctx.error}`
-            );
+            notaProforma = `La fattura senza numero è sull'ordine, ma la proforma no: ${ctx.error}`;
           } else {
             const pr = await saveProformaDaOrdineAction({
               ordineId: result.ordine.id,
@@ -2058,9 +2057,7 @@ export function OrdineNuovoWizardModal({
               destinatario: ctx.destinatario,
             });
             if (!pr.success) {
-              setFormError(
-                `La fattura senza numero è sull'ordine, ma la proforma no: ${pr.error}`
-              );
+              notaProforma = `La fattura senza numero è sull'ordine, ma la proforma no: ${pr.error}`;
             }
           }
         }
@@ -2086,16 +2083,14 @@ export function OrdineNuovoWizardModal({
         } else if (fat.avviso && invioFatturaSdi === "subito") {
           messaggioFinale = `${messaggioFinale} ${fat.avviso}`;
         }
-        setSessioneMsg(messaggioFinale);
-        if (invioSubito.startsWith("L'ordine è registrato")) {
-          setFormError(invioSubito);
-        }
-        if (mailErr) {
-          setFormError(
-            `La bozza mail non è stata memorizzata: ${mailErr}.`
-          );
-        }
-        setSavedOrdine(result.ordine);
+        const esito = [
+          messaggioFinale,
+          notaProforma,
+          mailErr ? `La bozza mail non è stata memorizzata: ${mailErr}.` : "",
+        ]
+          .filter(Boolean)
+          .join(" ");
+        onSaved(result.ordine, esito);
         return;
       }
       if (attesaCalcoloSpedizione) {
@@ -2106,29 +2101,15 @@ export function OrdineNuovoWizardModal({
         return;
       }
       const mailErr = await memorizzaMail();
-      if (!modificaOrdineId) {
-        if (FASE_TEST_INVIO && !nessunaMail) apriMailOrdine();
-        setOrdineFinalizzato(true);
-        setSessioneMsg(
-          FASE_TEST_INVIO
-            ? `Ordine ${result.ordine.numeroInterno} registrato. La mail si compila adesso: solo sandrohd@gmail.com, senza SDI.`
-            : `Ordine ${result.ordine.numeroInterno} registrato. Nessuna mail di prova è stata aperta.`
-        );
-        if (mailErr) {
-          setFormError(
-            `La bozza mail non è stata memorizzata: ${mailErr}. Puoi comunque inviarla dalla finestra appena aperta.`
-          );
-        }
-        return;
-      }
-      if (mailErr) {
-        setSavedOrdine(result.ordine);
-        setFormError(
-          `Ordine finalizzato, ma la bozza mail non è stata memorizzata: ${mailErr}. Nessun invio è partito.`
-        );
-        return;
-      }
-      onSaved(result.ordine);
+      const base = !modificaOrdineId
+        ? (FASE_TEST_INVIO
+          ? `Ordine ${result.ordine.numeroInterno} registrato. La mail si compila adesso: solo sandrohd@gmail.com, senza SDI.`
+          : `Ordine ${result.ordine.numeroInterno} registrato.`)
+        : `Ordine ${result.ordine.numeroInterno} finalizzato.`;
+      const coda = mailErr
+        ? ` La bozza mail non è stata memorizzata: ${mailErr}.`
+        : "";
+      onSaved(result.ordine, `${base}${coda}`);
     } catch (err) {
       setFormError(
         err instanceof Error ? err.message : "Salvataggio non riuscito. Riprova."

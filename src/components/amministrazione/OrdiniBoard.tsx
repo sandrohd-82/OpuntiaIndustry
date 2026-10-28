@@ -60,6 +60,18 @@ type OrdineSortKey =
   | "pagato"
   | "versione";
 
+function classeEsitoOrdine(testo: string) {
+  const attenzione =
+    testo.includes("non è partita") ||
+    testo.includes("non è stata") ||
+    testo.includes("non risulta") ||
+    testo.includes("non ha confermato");
+  if (attenzione) {
+    return "rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-950";
+  }
+  return "rounded-xl border border-emerald-300 bg-emerald-50 px-4 py-3 text-sm text-emerald-950";
+}
+
 function formatEuro(value: number) {
   return value.toLocaleString("it-IT", {
     style: "currency",
@@ -354,6 +366,7 @@ export function OrdiniBoard({
   const [actionError, setActionError] = useState<string | null>(null);
   const [processing, setProcessing] = useState<Ordine | null>(null);
   const [processAvviso, setProcessAvviso] = useState<string | null>(null);
+  const [esitoOrdine, setEsitoOrdine] = useState<string | null>(null);
   const [approvingId, setApprovingId] = useState<string | null>(null);
   const [campionaturaTick, setCampionaturaTick] = useState(0);
   const [sort, setSort] = useState<SortState<OrdineSortKey> | null>({
@@ -480,6 +493,10 @@ export function OrdiniBoard({
         <p className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-950">
           {processAvviso}
         </p>
+      ) : null}
+
+      {esitoOrdine ? (
+        <p className={classeEsitoOrdine(esitoOrdine)}>{esitoOrdine}</p>
       ) : null}
 
       {ordini.length === 0 ? (
@@ -664,10 +681,11 @@ export function OrdiniBoard({
       {creating === "ordine" && useWizardCreate && (
         <OrdineNuovoWizardModal
           onClose={() => setCreating(false)}
-          onSaved={(ordine) => {
+          onSaved={(ordine, esito) => {
             upsertLocal(ordine);
             setCreating(false);
             setExpandedId(ordine.id);
+            if (esito) setEsitoOrdine(esito);
             notifyOrdiniDaProcessareNav();
           }}
         />
@@ -727,10 +745,11 @@ export function OrdiniBoard({
         <OrdineNuovoWizardModal
           modificaOrdineId={editing.id}
           onClose={() => setEditing(null)}
-          onSaved={(ordine) => {
+          onSaved={(ordine, esito) => {
             upsertLocal(ordine);
             setEditing(null);
             setExpandedId(ordine.id);
+            if (esito) setEsitoOrdine(esito);
             notifyOrdiniDaProcessareNav();
           }}
         />
