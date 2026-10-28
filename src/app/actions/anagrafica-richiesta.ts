@@ -2,7 +2,9 @@
 
 import { getPublicAppUrl } from "@/lib/auth/app-url";
 import { requireAnyAreaAccess } from "@/lib/areas/guard";
+import { FASE_TEST_ANAGRAFICA } from "@/lib/anagrafica/fase-test";
 import {
+  annullaTestAnagrafica,
   nuovoToken,
   preparaInvioAnagrafica,
   precompilaDaScheda,
@@ -75,6 +77,9 @@ export async function inviaRichiestaAnagraficaAction(input: {
         "",
         "Ogni campo viene salvato appena uscite dal campo. Potete chiudere e riprendere più tardi, entro la scadenza.",
         "Al termine scaricate il PDF, stampatelo su carta intestata, timbratelo, firmatelo e ricaricatelo sullo stesso link.",
+        ...(FASE_TEST_ANAGRAFICA
+          ? ["", "Questa è una prova: i dati potranno essere annullati e la scheda ripristinata."]
+          : []),
       ].join("\n"),
     });
   } catch {
@@ -93,5 +98,19 @@ export async function inviaRichiestaAnagraficaAction(input: {
       error: "La mail è partita, ma il link non è stato registrato. Invia di nuovo.",
     };
   }
+  return { success: true };
+}
+
+export async function annullaTestAnagraficaAction(input: {
+  kind: "cliente" | "cliente_possibile";
+  id: string;
+}): Promise<{ success: true } | { success: false; error: string }> {
+  const { auth } = await requireAnyAreaAccess(["amministrazione", "commerciale"]);
+  const esito = await annullaTestAnagrafica({
+    kind: input.kind,
+    id: input.id,
+    actorId: auth.userId,
+  });
+  if ("errore" in esito) return { success: false, error: esito.errore };
   return { success: true };
 }

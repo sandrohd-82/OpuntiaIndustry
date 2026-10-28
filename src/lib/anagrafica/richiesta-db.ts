@@ -13,6 +13,7 @@ import {
   normalizzaForm,
   sedeVuota,
 } from "@/lib/anagrafica/richiesta-form";
+import { FASE_TEST_ANAGRAFICA } from "@/lib/anagrafica/fase-test";
 import { pdfAnagraficaAziendale } from "@/lib/anagrafica/richiesta-pdf";
 import { createServiceClient } from "@/lib/supabase/service";
 
@@ -26,8 +27,10 @@ type Richiesta = {
   scade_at: string;
   payload: unknown;
   pdf_storage_path: string;
+  firmato_storage_path?: string;
   versione: number;
   created_by: string | null;
+  fase_test?: boolean;
 };
 
 function hashToken(token: string): string {
@@ -87,7 +90,7 @@ async function carica(token: string): Promise<Richiesta | { errore: string }> {
   const { data, error } = await service
     .from("anagrafica_richieste")
     .select(
-      "id, cliente_id, cliente_possibile_id, stato, scade_at, payload, pdf_storage_path, versione, created_by"
+      "id, cliente_id, cliente_possibile_id, stato, scade_at, payload, pdf_storage_path, firmato_storage_path, versione, created_by, fase_test"
     )
     .eq("token_hash", hashToken(pulito))
     .is("deleted_at", null)
@@ -114,6 +117,7 @@ function vista(row: Richiesta): VistaPubblica {
     form,
     scadeAt: row.scade_at,
     ragioneSociale: form.ragioneSociale,
+    faseTest: row.fase_test === true,
   };
 }
 
@@ -331,7 +335,9 @@ async function archiviaPdfCliente(
     cliente_id: row.cliente_id,
     tipo: "anagrafica_aziendale",
     titolo,
-    note: "Archivio permanente del form anagrafica.",
+    note: row.fase_test
+      ? "Prova anagrafica. Ritirata se il test viene annullato."
+      : "Archivio permanente del form anagrafica.",
     storage_path: path,
     file_name: fileName,
     mime,
@@ -564,6 +570,218 @@ export async function precompilaDaScheda(
   };
 }
 
+const TIPI_SEDE_TEST = ["legale", "amministrativa", "magazzino"] as const;
+
+type SedeSnap = {
+  id: string | null;
+  tipo: (typeof TIPI_SEDE_TEST)[number];
+  nazione: string;
+  provincia: string;
+  localita: string;
+  citta: string;
+  cap: string;
+  indirizzo: string;
+  telefono: string;
+};
+
+function colonnaOwner(kind: "cliente" | "cliente_possibile") {
+  return kind === "cliente" ? "cliente_id" : "cliente_possibile_id";
+}
+
+async function assicuratiSnapshot(
+  kind: "cliente" | "cliente_possibile",
+  id: string,
+  actorId: string
+): Promise<string | null> {
+  if (!FASE_TEST_ANAGRAFICA) return null;
+  const service = createServiceClient();
+  const colonna = colonnaOwner(kind);
+  const { data: gia } = await service
+    .from("anagrafica_test_ripristini")
+    .select("id")
+    .eq(colonna, id)
+    .eq("stato", "attivo")
+    .is("deleted_at", null)
+    .maybeSingle();
+  if (gia && typeof gia === "object" && "id" in gia) return String((gia as { id: string }).id);
+  const table = kind === "cliente" ? "clienti" : "clienti_possibili";
+  const { data: scheda, error } = await service
+    .from(table)
+    .select(SELECT_SCHEDA)
+    .eq("id", id)
+    .is("deleted_at", null)
+    .maybeSingle();
+  if (error || !scheda) return null;
+  const { data: sedi } = await service
+    .from("anagrafica_sedi")
+    .select("id, tipo, nazione, provincia, localita, citta, cap, indirizzo, telefono")
+    .eq("owner_kind", kind)
+    .eq("owner_id", id)
+    .in("tipo", [...TIPI_SEDE_TEST])
+    .is("deleted_at", null);
+  const foto = ((sedi ?? []) as Array<Record<string, unknown>>).map((sede) => ({
+    id: String(sede.id ?? ""),
+    tipo: String(sede.tipo ?? ""),
+    nazione: String(sede.nazione ?? ""),
+    provincia: String(sede.provincia ?? ""),
+    localita: String(sede.localita ?? ""),
+    citta: String(sede.citta ?? ""),
+    cap: String(sede.cap ?? ""),
+    indirizzo: String(sede.indirizzo ?? ""),
+    telefono: String(sede.telefono ?? ""),
+  }));
+  const { data: creata, error: insertErr } = await service
+    .from("anagrafica_test_ripristini")
+    .insert({
+      cliente_id: kind === "cliente" ? id : null,
+      cliente_possibile_id: kind === "cliente_possibile" ? id : null,
+      scheda,
+      sedi: foto,
+      stato: "attivo",
+      documento_stato: "bozza",
+      created_by: actorId,
+      updated_by: actorId,
+    })
+    .select("id")
+    .single();
+  if (insertErr || !creata) return null;
+  const snapId = String((creata as { id: string }).id);
+  await audit(
+    table,
+    id,
+    "Istantanea di test anagrafica registrata prima dell'invio.",
+    { ripristino_id: snapId },
+    actorId
+  );
+  return snapId;
+}
+
+export async function annullaTestAnagrafica(input: {
+  kind: "cliente" | "cliente_possibile";
+  id: string;
+  actorId: string;
+}): Promise<{ ok: true } | { errore: string }> {
+  const service = createServiceClient();
+  const colonna = colonnaOwner(input.kind);
+  const { data: snap, error } = await service
+    .from("anagrafica_test_ripristini")
+    .select("id, scheda, sedi, created_at")
+    .eq(colonna, input.id)
+    .eq("stato", "attivo")
+    .is("deleted_at", null)
+    .maybeSingle();
+  if (error || !snap) return { errore: "Non c'è una prova da annullare." };
+  const foto = snap as { id: string; scheda: Record<string, unknown>; sedi: SedeSnap[] };
+  const table = input.kind === "cliente" ? "clienti" : "clienti_possibili";
+  const colonne: Record<string, unknown> = { ...foto.scheda, updated_by: input.actorId };
+  delete colonne.id;
+  const ripristino = await service.from(table).update(colonne).eq("id", input.id);
+  if (ripristino.error) return { errore: "Ripristino della scheda non riuscito." };
+  const sediFoto = Array.isArray(foto.sedi) ? foto.sedi : [];
+  for (const tipo of TIPI_SEDE_TEST) {
+    const precedente = sediFoto.find((sede) => sede.tipo === tipo);
+    const { data: viva } = await service
+      .from("anagrafica_sedi")
+      .select("id")
+      .eq("owner_kind", input.kind)
+      .eq("owner_id", input.id)
+      .eq("tipo", tipo)
+      .is("deleted_at", null)
+      .order("sort_order", { ascending: true })
+      .limit(1)
+      .maybeSingle();
+    const vivaId = viva && typeof viva === "object" && "id" in viva ? String((viva as { id: string }).id) : "";
+    if (precedente?.id) {
+      const sedeErr = await service
+        .from("anagrafica_sedi")
+        .update({
+          nazione: precedente.nazione,
+          provincia: precedente.provincia,
+          localita: precedente.localita,
+          citta: precedente.citta,
+          cap: precedente.cap,
+          indirizzo: precedente.indirizzo,
+          telefono: precedente.telefono,
+          deleted_at: null,
+          updated_by: input.actorId,
+        })
+        .eq("id", precedente.id);
+      if (sedeErr.error) return { errore: "Ripristino delle sedi non riuscito." };
+      if (vivaId && vivaId !== precedente.id) {
+        await service
+          .from("anagrafica_sedi")
+          .update({ deleted_at: new Date().toISOString(), deleted_by: input.actorId })
+          .eq("id", vivaId);
+      }
+    } else if (vivaId) {
+      await service
+        .from("anagrafica_sedi")
+        .update({ deleted_at: new Date().toISOString(), deleted_by: input.actorId })
+        .eq("id", vivaId);
+    }
+  }
+  const { data: richieste } = await service
+    .from("anagrafica_richieste")
+    .select("id, pdf_storage_path, firmato_storage_path")
+    .eq(colonna, input.id)
+    .eq("fase_test", true)
+    .is("deleted_at", null);
+  const prove = (richieste ?? []) as Array<{
+    id: string;
+    pdf_storage_path: string;
+    firmato_storage_path: string;
+  }>;
+  const ora = new Date().toISOString();
+  for (const prova of prove) {
+    const cartella = `${input.id}/anagrafica-richiesta`;
+    const elenco = await service.storage.from(ANAGRAFICA_DOCUMENTI_BUCKET).list(cartella);
+    const percorsi = (elenco.data ?? [])
+      .map((file) => String(file.name ?? ""))
+      .filter((nome) => nome.includes(prova.id))
+      .map((nome) => `${cartella}/${nome}`);
+    for (const extra of [prova.pdf_storage_path, prova.firmato_storage_path]) {
+      if (extra && !percorsi.includes(extra)) percorsi.push(extra);
+    }
+    if (percorsi.length) {
+      await service.storage.from(ANAGRAFICA_DOCUMENTI_BUCKET).remove(percorsi);
+    }
+    if (input.kind === "cliente") {
+      await service
+        .from("anagrafica_documenti")
+        .update({ deleted_at: ora, deleted_by: input.actorId })
+        .eq("cliente_id", input.id)
+        .eq("tipo", "anagrafica_aziendale")
+        .like("storage_path", `%/anagrafica-richiesta/${prova.id}%`)
+        .is("deleted_at", null);
+    }
+    await service
+      .from("anagrafica_richieste")
+      .update({
+        stato: "annullata",
+        documento_stato: "chiuso",
+        deleted_at: ora,
+        deleted_by: input.actorId,
+      })
+      .eq("id", prova.id);
+  }
+  await service
+    .from("anagrafica_test_ripristini")
+    .update({
+      stato: "ripristinato",
+      documento_stato: "chiuso",
+      updated_by: input.actorId,
+    })
+    .eq("id", foto.id);
+  await audit(
+    table,
+    input.id,
+    "Test anagrafica annullato. Scheda ripristinata allo stato precedente l'invio.",
+    { ripristino_id: foto.id, richieste: prove.length },
+    input.actorId
+  );
+  return { ok: true };
+}
+
 export async function preparaInvioAnagrafica(input: {
   kind: "cliente" | "cliente_possibile";
   id: string;
@@ -590,6 +808,10 @@ export async function preparaInvioAnagrafica(input: {
   if ("errore" in precompilata) return precompilata;
   const hash = hashToken(input.token);
   const scade = scadenza();
+  const snapId = await assicuratiSnapshot(input.kind, input.id, input.actorId);
+  if (FASE_TEST_ANAGRAFICA && !snapId) {
+    return { errore: "Impossibile registrare lo stato precedente. Il link non è stato attivato." };
+  }
   if (ancoraAperta && aperta) {
     const { error } = await service
       .from("anagrafica_richieste")
@@ -598,6 +820,7 @@ export async function preparaInvioAnagrafica(input: {
         email_destinatario: input.email,
         scade_at: scade,
         updated_by: input.actorId,
+        ...(FASE_TEST_ANAGRAFICA ? { fase_test: true } : {}),
       })
       .eq("id", aperta.id);
     if (error) return { errore: "Aggiornamento del link non riuscito." };
@@ -619,6 +842,7 @@ export async function preparaInvioAnagrafica(input: {
     documento_stato: "bozza",
     created_by: input.actorId,
     updated_by: input.actorId,
+    fase_test: FASE_TEST_ANAGRAFICA,
     cliente_id: input.kind === "cliente" ? input.id : null,
     cliente_possibile_id: input.kind === "cliente_possibile" ? input.id : null,
   };
@@ -629,6 +853,9 @@ export async function preparaInvioAnagrafica(input: {
     .single();
   if (error || !data) return { errore: error?.message ?? "Richiesta non creata." };
   const id = (data as { id: string }).id;
+  if (snapId) {
+    await service.from("anagrafica_test_ripristini").update({ richiesta_id: id }).eq("id", snapId);
+  }
   await audit(
     "anagrafica_richieste",
     id,
@@ -650,6 +877,13 @@ export async function riepilogoRichiesta(kind: "cliente" | "cliente_possibile", 
     .order("created_at", { ascending: false })
     .limit(1)
     .maybeSingle();
+  const { data: prova } = await service
+    .from("anagrafica_test_ripristini")
+    .select("id")
+    .eq(colonna, id)
+    .eq("stato", "attivo")
+    .is("deleted_at", null)
+    .maybeSingle();
   const scheda = await precompilaDaScheda(kind, id);
   if ("errore" in scheda) return { errore: scheda.errore };
   const row = (data ?? null) as {
@@ -665,5 +899,7 @@ export async function riepilogoRichiesta(kind: "cliente" | "cliente_possibile", 
     pdfScaricatoAt: row?.pdf_scaricato_at ?? null,
     form: scheda.form,
     email: scheda.email,
+    faseTest: FASE_TEST_ANAGRAFICA,
+    testAttivo: Boolean(prova),
   };
 }

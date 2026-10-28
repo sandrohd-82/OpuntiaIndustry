@@ -15,6 +15,15 @@ import {
   type VistaPubblica,
 } from "@/lib/anagrafica/richiesta-form";
 
+function AvvisoTest({ attivo }: { attivo: boolean }) {
+  if (!attivo) return null;
+  return (
+    <p className="mb-4 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-950">
+      Fase di test. I dati si salvano, ma l&apos;azienda può annullare la prova e riportare la scheda a com&apos;era prima dell&apos;invio.
+    </p>
+  );
+}
+
 const NAZIONI = [
   "Italia",
   "Francia",
@@ -76,6 +85,7 @@ export function AnagraficaPubblicaForm({
   const [mancanti, setMancanti] = useState<string[]>([]);
   const [occupato, setOccupato] = useState(false);
   const [comuni, setComuni] = useState<Record<string, ComuneCap[]>>({});
+  const faseTest = partenza?.faseTest === true;
 
   if (!form || stato === "scaduta" || stato === "annullata") {
     return (
@@ -162,6 +172,7 @@ export function AnagraficaPubblicaForm({
   if (stato === "firmata") {
     return (
       <main className="mx-auto max-w-3xl px-4 py-10">
+        <AvvisoTest attivo={faseTest} />
         <h1 className="text-xl font-semibold">Anagrafica aziendale</h1>
         <p className="mt-3 text-sm text-slate-700">
           Grazie. Il documento firmato è stato ricevuto e la procedura è chiusa.
@@ -173,6 +184,7 @@ export function AnagraficaPubblicaForm({
   if (stato === "pdf_pronto") {
     return (
       <main className="mx-auto max-w-3xl px-4 py-10">
+        <AvvisoTest attivo={faseTest} />
         <h1 className="text-xl font-semibold">Anagrafica aziendale</h1>
         <p className="mt-3 text-sm text-slate-700">
           Stampate il PDF su carta intestata, timbratelo e fatelo firmare dal Rappresentante Legale.
@@ -240,6 +252,7 @@ export function AnagraficaPubblicaForm({
 
   return (
     <main className="mx-auto max-w-3xl px-4 py-8">
+      <AvvisoTest attivo={faseTest} />
       <p className="text-sm font-semibold">Spett.le</p>
       <p className="text-sm font-semibold">Agrinsicilia coop</p>
       <p className="text-sm">Sede legale: Via Pacini Giovanni 6</p>

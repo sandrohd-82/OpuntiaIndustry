@@ -198,6 +198,7 @@ export type VistaPubblica = {
   form: AnagraficaFormPayload;
   scadeAt: string;
   ragioneSociale: string;
+  faseTest: boolean;
 };
 
 export function erroriPdf(form: AnagraficaFormPayload): string[] {

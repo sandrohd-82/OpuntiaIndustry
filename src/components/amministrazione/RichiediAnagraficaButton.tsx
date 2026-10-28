@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import {
+  annullaTestAnagraficaAction,
   inviaRichiestaAnagraficaAction,
   riepilogoAnagraficaFormAction,
 } from "@/app/actions/anagrafica-richiesta";
@@ -34,6 +35,8 @@ export function RichiediAnagraficaButton({
   const [titolare, setTitolare] = useState("");
   const [messaggio, setMessaggio] = useState("");
   const [occupato, setOccupato] = useState(false);
+  const [faseTest, setFaseTest] = useState(false);
+  const [testAttivo, setTestAttivo] = useState(false);
 
   useEffect(() => {
     void riepilogoAnagraficaFormAction({ kind, id }).then((esito) => {
@@ -44,12 +47,19 @@ export function RichiediAnagraficaButton({
       const nome = [esito.form.titolareCognome, esito.form.titolareNome].filter(Boolean).join(" ");
       setTitolare(nome);
       setBanca(esito.form.bancaAppoggio);
+      setFaseTest(esito.faseTest);
+      setTestAttivo(esito.testAttivo);
     });
   }, [kind, id]);
 
   return (
     <div className="rounded-xl border border-slate-200 bg-white p-4">
       <h3 className="text-sm font-semibold">Anagrafica aziendale</h3>
+      {faseTest ? (
+        <p className="mt-2 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-950">
+          Fase di test. Il form funziona e i dati si salvano. Annulla test riporta la scheda a com&apos;era prima dell&apos;invio e ritira il link e i PDF di prova.
+        </p>
+      ) : null}
       <p className="mt-1 text-sm text-[var(--muted)]">{etichettaStato(stato, scadeAt)}</p>
       {banca || titolare ? (
         <p className="mt-1 text-sm">
@@ -83,6 +93,12 @@ export function RichiediAnagraficaButton({
             if (!("errore" in dopo)) {
               setStato(dopo.stato);
               setScadeAt(dopo.scadeAt);
+              setFaseTest(dopo.faseTest);
+              setTestAttivo(dopo.testAttivo);
+              setBanca(dopo.form.bancaAppoggio);
+              setTitolare(
+                [dopo.form.titolareCognome, dopo.form.titolareNome].filter(Boolean).join(" ")
+              );
             }
             setMessaggio("Mail inviata. Il link vale 7 giorni.");
           }}
@@ -90,6 +106,38 @@ export function RichiediAnagraficaButton({
         >
           Invia form anagrafica
         </button>
+        {testAttivo ? (
+          <button
+            type="button"
+            disabled={occupato}
+            onClick={async () => {
+              setOccupato(true);
+              setMessaggio("");
+              const esito = await annullaTestAnagraficaAction({ kind, id });
+              if (!esito.success) {
+                setOccupato(false);
+                setMessaggio(esito.error);
+                return;
+              }
+              const dopo = await riepilogoAnagraficaFormAction({ kind, id });
+              setOccupato(false);
+              if (!("errore" in dopo)) {
+                setStato(dopo.stato);
+                setScadeAt(dopo.scadeAt);
+                setFaseTest(dopo.faseTest);
+                setTestAttivo(dopo.testAttivo);
+                setBanca(dopo.form.bancaAppoggio);
+                setTitolare(
+                  [dopo.form.titolareCognome, dopo.form.titolareNome].filter(Boolean).join(" ")
+                );
+              }
+              setMessaggio("Test annullato. La scheda è tornata a com'era prima dell'invio.");
+            }}
+            className="rounded-lg border border-amber-400 bg-amber-50 px-4 py-2 text-sm font-semibold text-amber-950"
+          >
+            Annulla test
+          </button>
+        ) : null}
       </div>
       {messaggio ? <p className="mt-2 text-sm">{messaggio}</p> : null}
     </div>
