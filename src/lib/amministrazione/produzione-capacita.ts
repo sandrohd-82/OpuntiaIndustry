@@ -168,6 +168,11 @@ export const ordineWizardInputSchema = z
     avvisoCanale: z.enum(["tel", "mail"]).nullable().optional(),
     avvisoValore: z.string().trim().max(200).optional().default(""),
     avvisoEtichetta: z.string().trim().max(200).optional().default(""),
+    avvisoIncludiOrari: z.boolean().optional().default(false),
+    avvisoIncludiSede: z.boolean().optional().default(false),
+    avvisoIncludiMisure: z.boolean().optional().default(false),
+    avvisoIncludiPeso: z.boolean().optional().default(false),
+    nessunaMail: z.boolean().optional().default(false),
     prezzoUnitario: z.number().min(0),
     scontoListinoPct: z.number().min(0).max(100).optional().default(0),
     scontoListinoStandardPct: z.number().min(0).max(100).optional().default(0),
@@ -317,10 +322,13 @@ export const ordineWizardInputSchema = z
           path: ["ritiroMezzo"],
         });
       }
-      if (val.avvisaMercePronta && (!val.avvisoCanale || !val.avvisoValore)) {
+      if (
+        val.avvisaMercePronta &&
+        !val.avvisoValore.includes("@")
+      ) {
         ctx.addIssue({
           code: z.ZodIssueCode.custom,
-          message: "Scegli telefono o mail per l'avviso di merce pronta.",
+          message: "Scegli la mail a cui avvisare il cliente quando la merce è pronta.",
           path: ["avvisoValore"],
         });
       }

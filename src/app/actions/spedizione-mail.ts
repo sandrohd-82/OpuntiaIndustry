@@ -620,6 +620,18 @@ export async function inviaMailSpedizioneAction(
     return { success: false, error: "Mail già inviata." };
   }
   if (item.entityType === "ordine") {
+    const { data: ordineMail } = await service
+      .from("ordini")
+      .select("nessuna_mail")
+      .eq("id", item.entityId)
+      .maybeSingle();
+    if (ordineMail?.nessuna_mail) {
+      return {
+        success: false,
+        error:
+          "In finalizzazione è stato scelto di non inviare alcuna mail per questo ordine.",
+      };
+    }
     const bloccoSpedizione = await motivoBloccoInvioClienteOrdine(item.entityId);
     if (bloccoSpedizione) return { success: false, error: bloccoSpedizione };
   }

@@ -9,6 +9,11 @@ import {
 } from "@/app/actions/ritiro-ordini";
 import { checkShippingTrackingAction } from "@/app/actions/shipping-tracking";
 import { getSchedaOrdineDettaglioAction } from "@/app/actions/schede-ordini";
+import { leggiAvvisoRitiroOrdineAction } from "@/app/actions/ordine-ritiro-contatti";
+import {
+  OrdineAvvisoRitiroBanner,
+  OrdineNessunaMailBanner,
+} from "@/components/amministrazione/OrdineAvvisoRitiroBanner";
 import type { ProduzioneCorriere } from "@/lib/produzione/corrieri";
 import {
   SCHEDA_EVENTO_LABEL,
@@ -76,6 +81,16 @@ export function SchedaOrdineModal({
   const [nuovoCorriere, setNuovoCorriere] = useState("");
   const [motivoForza, setMotivoForza] = useState("");
   const [saving, setSaving] = useState(false);
+  const [avvisoRitiro, setAvvisoRitiro] = useState<{
+    attivo: boolean;
+    email: string;
+    etichetta: string;
+    orari: boolean;
+    sede: boolean;
+    misure: boolean;
+    peso: boolean;
+    nessunaMail: boolean;
+  } | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -109,6 +124,22 @@ export function SchedaOrdineModal({
       cancelled = true;
     };
   }, [schedaId]);
+
+  useEffect(() => {
+    const ordineId = dettaglio?.scheda.ordineId;
+    if (!ordineId) {
+      setAvvisoRitiro(null);
+      return;
+    }
+    let cancel = false;
+    void leggiAvvisoRitiroOrdineAction(ordineId).then((res) => {
+      if (cancel || !res.success) return;
+      setAvvisoRitiro(res);
+    });
+    return () => {
+      cancel = true;
+    };
+  }, [dettaglio?.scheda.ordineId]);
 
   useEffect(() => {
     void listCorrieriAction().then((res) => {
@@ -365,6 +396,20 @@ export function SchedaOrdineModal({
               ))
             )}
           </ol>
+        ) : null}
+        {avvisoRitiro ? (
+          <div className="mt-4 space-y-2">
+            <OrdineAvvisoRitiroBanner
+              attivo={avvisoRitiro.attivo}
+              email={avvisoRitiro.email}
+              etichetta={avvisoRitiro.etichetta}
+              orari={avvisoRitiro.orari}
+              sede={avvisoRitiro.sede}
+              misure={avvisoRitiro.misure}
+              peso={avvisoRitiro.peso}
+            />
+            <OrdineNessunaMailBanner attivo={avvisoRitiro.nessunaMail} />
+          </div>
         ) : null}
       </div>
     </div>

@@ -6,6 +6,10 @@ import { leggiNoteSezioniOrdineAction } from "@/app/actions/ordine-sezione-note"
 import { OrdineCampionaturaElenco } from "@/components/amministrazione/OrdineCampionaturaElenco";
 import { processOrdineInScalettaAction } from "@/app/actions/ordini";
 import { NoteSezioniElenco } from "@/components/amministrazione/OrdineSezioneNota";
+import {
+  OrdineAvvisoRitiroBanner,
+  OrdineNessunaMailBanner,
+} from "@/components/amministrazione/OrdineAvvisoRitiroBanner";
 import type { CampionaturaOrdineVoce } from "@/lib/amministrazione/ordine-campionatura";
 import type { NoteSezioniOrdine } from "@/lib/amministrazione/ordine-sezione-note";
 import { listAttivitaByProdottoAction } from "@/app/actions/attivita";
@@ -364,14 +368,17 @@ export function ProcessaOrdineScalettaModal({
           <p className="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-950">
             Ritiro in sede: {labelRitiroMezzo(ordine.ritiroMezzo)}.
             {ordine.avvisaMercePronta
-              ? ` Avvisare appena la merce è pronta, via ${ordine.avvisoCanale === "tel" ? "telefono" : "mail"}: ${ordine.avvisoEtichetta ? `${ordine.avvisoEtichetta}, ` : ""}${ordine.avvisoValore}.`
+              ? " Avviso di merce pronta previsto."
               : " Nessun avviso di merce pronta."}
           </p>
         ) : null}
         {isCamp ? null : (
           <p className="mt-3 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-950">
-            Passaggio in produzione. L&apos;ordine entra in scaletta, la fattura
-            prende il numero fiscale, parte allo SDI e la mail va al cliente.
+            Passaggio in produzione. L&apos;ordine entra in scaletta e la fattura
+            prende il numero fiscale allo SDI.
+            {ordine.nessunaMail
+              ? " Nessuna mail al cliente è prevista."
+              : " Se lo SDI conferma, la mail di cortesia può partire."}
           </p>
         )}
 
@@ -557,6 +564,18 @@ export function ProcessaOrdineScalettaModal({
               {saving ? "Salvataggio…" : "Inserisci da magazzino"}
             </button>
           )}
+        </div>
+        <div className="mt-4 space-y-2">
+          <OrdineAvvisoRitiroBanner
+            attivo={ordine.ritiroInSede && ordine.avvisaMercePronta}
+            email={ordine.avvisoValore}
+            etichetta={ordine.avvisoEtichetta}
+            orari={ordine.avvisoIncludiOrari}
+            sede={ordine.avvisoIncludiSede}
+            misure={ordine.avvisoIncludiMisure}
+            peso={ordine.avvisoIncludiPeso}
+          />
+          <OrdineNessunaMailBanner attivo={ordine.nessunaMail} />
         </div>
       </div>
 

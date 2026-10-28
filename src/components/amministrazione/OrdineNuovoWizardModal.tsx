@@ -61,6 +61,10 @@ import {
 } from "@/app/actions/preventivi";
 import { OrdinePreventivoPicker } from "@/components/amministrazione/OrdinePreventivoPicker";
 import {
+  OrdineAvvisoRitiroBanner,
+  OrdineNessunaMailBanner,
+} from "@/components/amministrazione/OrdineAvvisoRitiroBanner";
+import {
   CONFEZIONE_SISTEMA,
   confezioniListinoDistinte,
   modoConfezioneApplicato,
@@ -576,9 +580,13 @@ export function OrdineNuovoWizardModal({
   const [sedeRitiroId, setSedeRitiroId] = useState("");
   const [ritiroMezzo, setRitiroMezzo] = useState<RitiroMezzo | "">("");
   const [avvisaMercePronta, setAvvisaMercePronta] = useState(false);
-  const [avvisoCanale, setAvvisoCanale] = useState<"tel" | "mail" | "">("");
   const [avvisoValore, setAvvisoValore] = useState("");
   const [avvisoEtichetta, setAvvisoEtichetta] = useState("");
+  const [avvisoOrari, setAvvisoOrari] = useState(false);
+  const [avvisoSede, setAvvisoSede] = useState(false);
+  const [avvisoMisure, setAvvisoMisure] = useState(false);
+  const [avvisoPeso, setAvvisoPeso] = useState(false);
+  const [nessunaMail, setNessunaMail] = useState(false);
   const [contattiRitiro, setContattiRitiro] = useState<{
     telefoni: ContattoRitiro[];
     mail: ContattoRitiro[];
@@ -764,10 +772,14 @@ export function OrdineNuovoWizardModal({
         setSedeRitiroId(d.sedeRitiroId);
         setRitiroMezzo(d.ritiroMezzo ?? "");
         setAvvisaMercePronta(d.avvisaMercePronta);
-        setAvvisoCanale(d.avvisoCanale ?? "");
         setAvvisoValore(d.avvisoValore);
         setAvvisoEtichetta(d.avvisoEtichetta);
+        setAvvisoOrari(d.avvisoIncludiOrari);
+        setAvvisoSede(d.avvisoIncludiSede);
+        setAvvisoMisure(d.avvisoIncludiMisure);
+        setAvvisoPeso(d.avvisoIncludiPeso);
       }
+      setNessunaMail(d.nessunaMail);
       setQuantita(d.quantita);
       setUnitaMisura(d.unitaMisura);
       setScontoExtraPct(d.scontoExtraPct || "");
@@ -1393,7 +1405,7 @@ export function OrdineNuovoWizardModal({
     if (step === 5) {
       if (addressKey === "ritiro") {
         if (!sedeRitiroId || !ritiroMezzo) return false;
-        if (avvisaMercePronta && (!avvisoCanale || !avvisoValore)) return false;
+        if (avvisaMercePronta && !avvisoValore.includes("@")) return false;
         return true;
       }
       if (!corriereDopo && !corriereId) return false;
@@ -1675,11 +1687,17 @@ export function OrdineNuovoWizardModal({
         ordine.ritiroMezzo = ritiroInSede ? ritiroMezzo || null : null;
         ordine.avvisaMercePronta = ritiroInSede && avvisaMercePronta;
         ordine.avvisoCanale =
-          ritiroInSede && avvisaMercePronta ? avvisoCanale || null : null;
+          ritiroInSede && avvisaMercePronta ? "mail" : null;
         ordine.avvisoValore =
           ritiroInSede && avvisaMercePronta ? avvisoValore.trim() : "";
         ordine.avvisoEtichetta =
           ritiroInSede && avvisaMercePronta ? avvisoEtichetta.trim() : "";
+        ordine.avvisoIncludiOrari = ritiroInSede && avvisaMercePronta && avvisoOrari;
+        ordine.avvisoIncludiSede = ritiroInSede && avvisaMercePronta && avvisoSede;
+        ordine.avvisoIncludiMisure =
+          ritiroInSede && avvisaMercePronta && avvisoMisure;
+        ordine.avvisoIncludiPeso = ritiroInSede && avvisaMercePronta && avvisoPeso;
+        ordine.nessunaMail = nessunaMail;
         ordine.trasporto = {
           ...emptyTrasporto(),
           imponibile: ritiroInSede || attesaCalcoloSpedizione
@@ -1766,10 +1784,15 @@ export function OrdineNuovoWizardModal({
         sedeRitiroId: ritiroInSede ? sedeRitiroId || null : null,
         ritiroMezzo: ritiroInSede ? ritiroMezzo || null : null,
         avvisaMercePronta: ritiroInSede && avvisaMercePronta,
-        avvisoCanale: ritiroInSede && avvisaMercePronta ? avvisoCanale || null : null,
+        avvisoCanale: ritiroInSede && avvisaMercePronta ? "mail" : null,
         avvisoValore: ritiroInSede && avvisaMercePronta ? avvisoValore.trim() : "",
         avvisoEtichetta:
           ritiroInSede && avvisaMercePronta ? avvisoEtichetta.trim() : "",
+        avvisoIncludiOrari: ritiroInSede && avvisaMercePronta && avvisoOrari,
+        avvisoIncludiSede: ritiroInSede && avvisaMercePronta && avvisoSede,
+        avvisoIncludiMisure: ritiroInSede && avvisaMercePronta && avvisoMisure,
+        avvisoIncludiPeso: ritiroInSede && avvisaMercePronta && avvisoPeso,
+        nessunaMail,
         quantita: quantitaInserita,
         unitaMisura: umEffettiva,
         prezzoUnitario: tipoOrdine === "campionatura" ? 0 : numberOrZero(prezzoUnitario),
@@ -1893,6 +1916,7 @@ export function OrdineNuovoWizardModal({
         });
       }
       async function memorizzaMail(): Promise<string | null> {
+        if (nessunaMail) return null;
         if (!modoMail || attesaCalcoloSpedizione) return null;
         if (modificaOrdineId && !spedDraft.current.bozzaPronta) return null;
         const d = spedDraft.current;
@@ -1986,7 +2010,7 @@ export function OrdineNuovoWizardModal({
           const invio = await inviaFatturaSalvataAction({
             fatturaId: fat.fatturaId,
             sendToSdi: true,
-            sendCourtesyEmail: true,
+            sendCourtesyEmail: !nessunaMail,
             doppiaConferma: true,
             produzioneReale: true,
           });
@@ -1997,9 +2021,12 @@ export function OrdineNuovoWizardModal({
             const sdi = invio.sdiSent
               ? `Fattura ${invio.numeroFattura} inviata allo SDI.`
               : `Fattura ${invio.numeroFattura} registrata, ma lo SDI non ha confermato l'invio.`;
-            const mail = invio.courtesyEmailSent
-              ? "La mail di cortesia è partita al cliente."
-              : "La mail di cortesia al cliente non risulta partita.";
+            let mail = "La mail di cortesia al cliente non risulta partita.";
+            if (nessunaMail) {
+              mail = "Nessuna mail al cliente: è stato scelto di non inviarne.";
+            } else if (invio.courtesyEmailSent) {
+              mail = "La mail di cortesia è partita al cliente.";
+            }
             invioSubito = `${sdi} ${mail}${invio.warning ? ` ${invio.warning}` : ""}`;
           }
         }
@@ -2029,7 +2056,7 @@ export function OrdineNuovoWizardModal({
         setFatturaPrenotataId(fat.fatturaId);
         setConfermaInvioFattura(0);
         setOrdineFinalizzato(true);
-        if (!modificaOrdineId && FASE_TEST_INVIO) apriMailOrdine();
+        if (!modificaOrdineId && FASE_TEST_INVIO && !nessunaMail) apriMailOrdine();
         const extra = [fat.avviso, invioSubito].filter(Boolean).join(" ");
         let messaggioFinale = `Ordine ${result.ordine.numeroInterno} finalizzato. La fattura è in bozza, senza numero. Il numero, lo SDI e la mail al cliente partono quando l'ordine entra in produzione.`;
         if (invioFatturaSdi === "subito") {
@@ -2067,7 +2094,7 @@ export function OrdineNuovoWizardModal({
       }
       const mailErr = await memorizzaMail();
       if (!modificaOrdineId) {
-        if (FASE_TEST_INVIO) apriMailOrdine();
+        if (FASE_TEST_INVIO && !nessunaMail) apriMailOrdine();
         setOrdineFinalizzato(true);
         setSessioneMsg(
           FASE_TEST_INVIO
@@ -3743,93 +3770,91 @@ export function OrdineNuovoWizardModal({
                         className="mt-1"
                         checked={avvisaMercePronta}
                         onChange={(e) => {
-                          setAvvisaMercePronta(e.target.checked);
-                          if (!e.target.checked) {
-                            setAvvisoCanale("");
+                          const acceso = e.target.checked;
+                          setAvvisaMercePronta(acceso);
+                          if (!acceso) {
                             setAvvisoValore("");
                             setAvvisoEtichetta("");
+                            setAvvisoOrari(false);
+                            setAvvisoSede(false);
+                            setAvvisoMisure(false);
+                            setAvvisoPeso(false);
+                            return;
                           }
+                          const aziendale =
+                            contattiRitiro.mail.find(
+                              (voce) =>
+                                voce.etichetta.toLowerCase().includes("azienda") &&
+                                !voce.etichetta.toLowerCase().includes("pec")
+                            ) ?? contattiRitiro.mail[0];
+                          setAvvisoValore(aziendale?.valore ?? "");
+                          setAvvisoEtichetta(aziendale?.etichetta ?? "");
                         }}
                       />
                       <span>Avvisare il cliente appena merce pronta magazzino</span>
                     </label>
                     {avvisaMercePronta ? (
-                      <div className="space-y-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2">
-                        <label className="flex items-center gap-2 text-sm">
-                          <input
-                            type="radio"
-                            name="avviso-canale"
-                            checked={avvisoCanale === "tel"}
-                            onChange={() => {
-                              setAvvisoCanale("tel");
-                              setAvvisoValore("");
-                              setAvvisoEtichetta("");
+                      <div className="space-y-3 rounded-xl border border-sky-300 bg-sky-50 px-4 py-3 text-sm text-sky-950">
+                        <p>
+                          Quando la merce sarà pronta per il ritiro, una mail
+                          verrà inviata all&apos;indirizzo scelto.
+                        </p>
+                        <label className="block">
+                          <span className="mb-1 block text-xs font-medium">
+                            Indirizzo
+                          </span>
+                          <select
+                            value={avvisoValore}
+                            onChange={(e) => {
+                              const scelto = contattiRitiro.mail.find(
+                                (voce) => voce.valore === e.target.value
+                              );
+                              setAvvisoValore(e.target.value);
+                              setAvvisoEtichetta(scelto?.etichetta ?? "");
                             }}
-                          />
-                          Tel
-                        </label>
-                        <label className="flex items-center gap-2 text-sm">
-                          <input
-                            type="radio"
-                            name="avviso-canale"
-                            checked={avvisoCanale === "mail"}
-                            onChange={() => {
-                              setAvvisoCanale("mail");
-                              setAvvisoValore("");
-                              setAvvisoEtichetta("");
-                            }}
-                          />
-                          Mail
-                        </label>
-                        {avvisoCanale ? (
-                          <label className="block text-sm">
-                            <span className="mb-1 block font-medium">
-                              {avvisoCanale === "tel"
-                                ? "Numero di telefono"
-                                : "Mail"}
-                            </span>
-                            <select
-                              value={avvisoValore}
-                              onChange={(e) => {
-                                const lista =
-                                  avvisoCanale === "tel"
-                                    ? contattiRitiro.telefoni
-                                    : contattiRitiro.mail;
-                                const scelto = lista.find(
-                                  (voce) => voce.valore === e.target.value
-                                );
-                                setAvvisoValore(e.target.value);
-                                setAvvisoEtichetta(scelto?.etichetta ?? avvisoEtichetta);
-                              }}
-                              className="w-full rounded-lg border border-amber-200 bg-white px-3 py-2 text-sm"
-                            >
-                              <option value="">
-                                {avvisoCanale === "tel"
-                                  ? "Seleziona un numero…"
-                                  : "Seleziona una mail…"}
+                            className="w-full rounded-lg border border-sky-200 bg-white px-3 py-2 text-sm text-slate-900"
+                          >
+                            <option value="">Seleziona una mail…</option>
+                            {contattiRitiro.mail.map((voce) => (
+                              <option key={voce.valore} value={voce.valore}>
+                                {voce.etichetta}: {voce.valore}
                               </option>
-                              {avvisoValore &&
-                              !(avvisoCanale === "tel"
-                                ? contattiRitiro.telefoni
-                                : contattiRitiro.mail
-                              ).some((voce) => voce.valore === avvisoValore) ? (
-                                <option value={avvisoValore}>
-                                  {avvisoEtichetta
-                                    ? `${avvisoEtichetta}: ${avvisoValore}`
-                                    : avvisoValore}
-                                </option>
-                              ) : null}
-                              {(avvisoCanale === "tel"
-                                ? contattiRitiro.telefoni
-                                : contattiRitiro.mail
-                              ).map((voce) => (
-                                <option key={voce.valore} value={voce.valore}>
-                                  {voce.etichetta}: {voce.valore}
-                                </option>
-                              ))}
-                            </select>
-                          </label>
-                        ) : null}
+                            ))}
+                          </select>
+                        </label>
+                        <p className="text-xs">La mail contiene:</p>
+                        <label className="flex items-center gap-2">
+                          <input
+                            type="checkbox"
+                            checked={avvisoOrari}
+                            onChange={(e) => setAvvisoOrari(e.target.checked)}
+                          />
+                          Orari di ritiro
+                        </label>
+                        <label className="flex items-center gap-2">
+                          <input
+                            type="checkbox"
+                            checked={avvisoSede}
+                            onChange={(e) => setAvvisoSede(e.target.checked)}
+                          />
+                          Sede di ritiro
+                        </label>
+                        <label className="flex items-center gap-2">
+                          <input
+                            type="checkbox"
+                            checked={avvisoMisure}
+                            onChange={(e) => setAvvisoMisure(e.target.checked)}
+                          />
+                          Misure del collo
+                        </label>
+                        <label className="flex items-center gap-2">
+                          <input
+                            type="checkbox"
+                            checked={avvisoPeso}
+                            onChange={(e) => setAvvisoPeso(e.target.checked)}
+                          />
+                          Peso del collo
+                        </label>
                       </div>
                     ) : null}
                   </div>
@@ -4342,9 +4367,10 @@ export function OrdineNuovoWizardModal({
                   La fattura modificata resta anche se riapri l&apos;ordine.
                   Si riallinea all&apos;ordine solo se cambi la riga prodotto, e
                   solo finché non è partita allo SDI. Resta in bozza: il numero
-                  si assegna solo all&apos;invio allo SDI. La mail al cliente
-                  parte solo se lo SDI ha confermato. La proforma si può inviare
-                  anche senza SDI.
+                  che compare è provvisorio e si conferma solo all&apos;invio
+                  allo SDI. La mail al cliente parte solo se lo SDI ha
+                  confermato, salvo la scelta di non inviare alcuna mail. La
+                  proforma si può inviare anche senza SDI.
                 </p>
                 {attesaCalcoloSpedizione ? (
                   <p className="text-xs text-amber-800">
@@ -4447,6 +4473,28 @@ export function OrdineNuovoWizardModal({
                   finalizzato: nessuna fattura e nessuna mail vengono registrate.
                 </p>
               ) : null}
+              <label className="flex items-start gap-2 rounded-xl border border-slate-300 bg-slate-50 px-4 py-3 text-sm">
+                <input
+                  type="checkbox"
+                  className="mt-1"
+                  checked={nessunaMail}
+                  onChange={(e) => {
+                    const acceso = e.target.checked;
+                    setNessunaMail(acceso);
+                    if (!acceso) return;
+                    spedDraft.current = {
+                      ...spedDraft.current,
+                      inviaMailDocumento: false,
+                      allegaTrackingMail: false,
+                      documentoMail: "informativa",
+                    };
+                  }}
+                />
+                <span>
+                  Non intendo inviare alcuna mail. Non parte la mail di
+                  cortesia, né la fattura, né il tracking.
+                </span>
+              </label>
               <SpedizioneMailPanel
                 ritiroInSede={ritiroInSede}
                 notaSpedizione={titoloNota(
@@ -4485,6 +4533,7 @@ export function OrdineNuovoWizardModal({
                 onNeedEntity={(modo) => void submit(modo)}
                 sceltaOrdineFissa={Boolean(modificaOrdineId)}
                 impostazioneDocumento={!modificaOrdineId}
+                bloccaMail={nessunaMail}
               />
             </div>
           ) : null}
@@ -4499,6 +4548,18 @@ export function OrdineNuovoWizardModal({
               {formError}
             </p>
           ) : null}
+          <div className="space-y-2">
+            <OrdineAvvisoRitiroBanner
+              attivo={ritiroInSede && avvisaMercePronta}
+              email={avvisoValore}
+              etichetta={avvisoEtichetta}
+              orari={avvisoOrari}
+              sede={avvisoSede}
+              misure={avvisoMisure}
+              peso={avvisoPeso}
+            />
+            <OrdineNessunaMailBanner attivo={nessunaMail} />
+          </div>
         </div>
 
         <div className="mt-6 flex flex-wrap items-center justify-between gap-2">

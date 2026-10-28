@@ -1,6 +1,6 @@
 "use server";
 
-import { requireOrdineCreateAccess } from "@/lib/auth/ordini-access";
+import { requireOrdineCreateAccess, requireOrdineReadAccess } from "@/lib/auth/ordini-access";
 import type { ContattoRitiro } from "@/lib/amministrazione/ordine-ritiro";
 import { createServiceClient } from "@/lib/supabase/service";
 
@@ -117,4 +117,45 @@ export async function elencoContattiRitiroAction(input: {
   }
 
   return { success: true, telefoni, mail };
+}
+
+export async function leggiAvvisoRitiroOrdineAction(ordineId: string): Promise<
+  | {
+      success: true;
+      attivo: boolean;
+      email: string;
+      etichetta: string;
+      orari: boolean;
+      sede: boolean;
+      misure: boolean;
+      peso: boolean;
+      nessunaMail: boolean;
+    }
+  | { success: false; error: string }
+> {
+  await requireOrdineReadAccess();
+  if (!ordineId) {
+    return { success: false, error: "Ordine non indicato." };
+  }
+  const supabase = createServiceClient();
+  const { data, error } = await supabase
+    .from("ordini")
+    .select(
+      "ritiro_in_sede, avvisa_merce_pronta, avviso_valore, avviso_etichetta, avviso_includi_orari, avviso_includi_sede, avviso_includi_misure, avviso_includi_peso, nessuna_mail"
+    )
+    .eq("id", ordineId)
+    .is("deleted_at", null)
+    .maybeSingle();
+  if (error) return { success: false, error: error.message };
+  return {
+    success: true,
+    attivo: Boolean(data?.ritiro_in_sede && data?.avvisa_merce_pronta),
+    email: String(data?.avviso_valore ?? ""),
+    etichetta: String(data?.avviso_etichetta ?? ""),
+    orari: Boolean(data?.avviso_includi_orari),
+    sede: Boolean(data?.avviso_includi_sede),
+    misure: Boolean(data?.avviso_includi_misure),
+    peso: Boolean(data?.avviso_includi_peso),
+    nessunaMail: Boolean(data?.nessuna_mail),
+  };
 }

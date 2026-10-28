@@ -1061,6 +1061,11 @@ export interface OrdineRow {
   avviso_canale?: "tel" | "mail" | null;
   avviso_valore?: string;
   avviso_etichetta?: string;
+  avviso_includi_orari?: boolean;
+  avviso_includi_sede?: boolean;
+  avviso_includi_misure?: boolean;
+  avviso_includi_peso?: boolean;
+  nessuna_mail?: boolean;
   destinatario?: string;
   indirizzo_spedizione?: string;
   preventivo_id?: string | null;
@@ -1154,6 +1159,11 @@ export interface OrdineInsert {
   avviso_canale?: "tel" | "mail" | null;
   avviso_valore?: string;
   avviso_etichetta?: string;
+  avviso_includi_orari?: boolean;
+  avviso_includi_sede?: boolean;
+  avviso_includi_misure?: boolean;
+  avviso_includi_peso?: boolean;
+  nessuna_mail?: boolean;
   preventivo_id?: string | null;
   webmail_accettazione_id?: string | null;
   referente_accettazione_id?: string | null;
@@ -1234,6 +1244,11 @@ export interface OrdineUpdate {
   avviso_canale?: "tel" | "mail" | null;
   avviso_valore?: string;
   avviso_etichetta?: string;
+  avviso_includi_orari?: boolean;
+  avviso_includi_sede?: boolean;
+  avviso_includi_misure?: boolean;
+  avviso_includi_peso?: boolean;
+  nessuna_mail?: boolean;
   sconto_extra_pct?: number;
   sconto_fascia?: string;
   sconto_approvazione_stato?: string;

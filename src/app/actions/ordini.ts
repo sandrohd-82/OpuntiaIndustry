@@ -1648,11 +1648,11 @@ async function createOrdineWizardActionInner(
     if (
       input.ritiroInSede &&
       input.avvisaMercePronta &&
-      (!input.avvisoCanale || !input.avvisoValore?.trim())
+      !(input.avvisoValore ?? "").includes("@")
     ) {
       return {
         success: false,
-        error: "Scegli telefono o mail per l'avviso di merce pronta.",
+        error: "Scegli la mail a cui avvisare il cliente quando la merce è pronta.",
       };
     }
     const spedizione = risolviSpedizioneOrdineDiretto({
@@ -1808,7 +1808,7 @@ async function createOrdineWizardActionInner(
         : false,
       avviso_canale:
         input.ritiroInSede && input.avvisaMercePronta
-          ? (input.avvisoCanale ?? null)
+          ? "mail"
           : null,
       avviso_valore:
         input.ritiroInSede && input.avvisaMercePronta
@@ -1818,6 +1818,23 @@ async function createOrdineWizardActionInner(
         input.ritiroInSede && input.avvisaMercePronta
           ? (input.avvisoEtichetta ?? "").trim()
           : "",
+      avviso_includi_orari:
+        input.ritiroInSede && input.avvisaMercePronta
+          ? Boolean(input.avvisoIncludiOrari)
+          : false,
+      avviso_includi_sede:
+        input.ritiroInSede && input.avvisaMercePronta
+          ? Boolean(input.avvisoIncludiSede)
+          : false,
+      avviso_includi_misure:
+        input.ritiroInSede && input.avvisaMercePronta
+          ? Boolean(input.avvisoIncludiMisure)
+          : false,
+      avviso_includi_peso:
+        input.ritiroInSede && input.avvisaMercePronta
+          ? Boolean(input.avvisoIncludiPeso)
+          : false,
+      nessuna_mail: Boolean(input.nessunaMail),
       preventivo_id: campionaturaGratis ? null : (input.preventivoId ?? null),
       webmail_accettazione_id: campionaturaGratis
         ? null
@@ -2190,9 +2207,12 @@ async function createOrdineWizardActionInner(
             ? Boolean(input.avvisaMercePronta)
             : false,
           avviso_canale:
-            input.ritiroInSede && input.avvisaMercePronta
-              ? (input.avvisoCanale ?? null)
-              : null,
+            input.ritiroInSede && input.avvisaMercePronta ? "mail" : null,
+          avviso_includi_orari: Boolean(input.avvisoIncludiOrari),
+          avviso_includi_sede: Boolean(input.avvisoIncludiSede),
+          avviso_includi_misure: Boolean(input.avvisoIncludiMisure),
+          avviso_includi_peso: Boolean(input.avvisoIncludiPeso),
+          nessuna_mail: Boolean(input.nessunaMail),
         },
       });
     }
@@ -2641,7 +2661,7 @@ export async function processOrdineInScalettaAction(
     const invio = await inviaFatturaSalvataAction({
       fatturaId: fatturaDaEmettereId,
       sendToSdi: true,
-      sendCourtesyEmail: true,
+      sendCourtesyEmail: !existing.nessunaMail,
       doppiaConferma: true,
       produzioneReale: true,
     });
@@ -2651,9 +2671,12 @@ export async function processOrdineInScalettaAction(
       const sdi = invio.sdiSent
         ? "inviata allo SDI"
         : "registrata, ma lo SDI non ha confermato l'invio";
-      const mail = invio.courtesyEmailSent
-        ? "La mail è partita al cliente."
-        : "La mail al cliente non risulta partita.";
+      let mail = "La mail al cliente non risulta partita.";
+      if (existing.nessunaMail) {
+        mail = "Nessuna mail al cliente: in finalizzazione è stato scelto di non inviarne.";
+      } else if (invio.courtesyEmailSent) {
+        mail = "La mail è partita al cliente.";
+      }
       avviso = `Fattura ${invio.numeroFattura} ${sdi}. ${mail}`;
       if (invio.warning) avviso = `${avviso} ${invio.warning}`;
     }

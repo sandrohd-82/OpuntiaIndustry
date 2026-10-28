@@ -38,6 +38,11 @@ export type OrdineWizardModifica = {
   avvisoCanale: "tel" | "mail" | null;
   avvisoValore: string;
   avvisoEtichetta: string;
+  avvisoIncludiOrari: boolean;
+  avvisoIncludiSede: boolean;
+  avvisoIncludiMisure: boolean;
+  avvisoIncludiPeso: boolean;
+  nessunaMail: boolean;
   quantita: number;
   unitaMisura: OrdineUnitaMisura;
   prezzoUnitario: number;
@@ -402,6 +407,11 @@ export async function loadOrdinePerModificaWizardAction(
           : null,
       avvisoValore: String(ordine.avviso_valore ?? ""),
       avvisoEtichetta: String(ordine.avviso_etichetta ?? ""),
+      avvisoIncludiOrari: Boolean(ordine.avviso_includi_orari),
+      avvisoIncludiSede: Boolean(ordine.avviso_includi_sede),
+      avvisoIncludiMisure: Boolean(ordine.avviso_includi_misure),
+      avvisoIncludiPeso: Boolean(ordine.avviso_includi_peso),
+      nessunaMail: Boolean(ordine.nessuna_mail),
       quantita: Number(riga.quantita ?? 0),
       unitaMisura,
       prezzoUnitario: prezzoRipresa ?? prezzoListino ?? Number(riga.prezzo_unitario ?? 0),

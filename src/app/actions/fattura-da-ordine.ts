@@ -4,7 +4,7 @@ import { writeAuditLog } from "@/lib/audit";
 import { notificaOrdineInCoda } from "@/lib/amministrazione/ordine-notifica-coda";
 import { scanPromozioniDaFattureAction } from "@/app/actions/lead-promozione";
 import { requireAreaAccess } from "@/lib/areas/guard";
-import { requireOrdineProcessAccess } from "@/lib/auth/ordini-access";
+import { requireOrdineCreateAccess, requireOrdineProcessAccess } from "@/lib/auth/ordini-access";
 import {
   buildDescrizioneDocumento,
   splitNumeroForFic,
@@ -31,6 +31,7 @@ import {
 import {
   assegnaNumeroProforma,
   isNumeroFatturaEmessa,
+  anteprimaNumeroFattura,
 } from "@/lib/amministrazione/numero-fattura";
 import {
   EMAIL_CONTROLLO_DEFAULT,
@@ -270,6 +271,25 @@ function pianoFromOrdineRate(
         note: r.note ?? "",
       })),
   };
+}
+
+export async function anteprimaNumeroFatturaBozzaAction(
+  dataDocumento?: string
+): Promise<{ success: true; numero: string } | { success: false; error: string }> {
+  await requireOrdineCreateAccess();
+  const data = /^\d{4}-\d{2}-\d{2}$/.test(dataDocumento ?? "")
+    ? String(dataDocumento)
+    : todayIsoDate();
+  try {
+    const supabase = await createClient();
+    const nums = await anteprimaNumeroFattura(supabase, data);
+    return { success: true, numero: nums.numeroFattura };
+  } catch (error) {
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : "Numero provvisorio non disponibile.",
+    };
+  }
 }
 
 export async function getFatturaA4ContextAction(input: {

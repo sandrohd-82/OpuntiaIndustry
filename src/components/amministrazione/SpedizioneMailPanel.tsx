@@ -108,6 +108,8 @@ type Props = {
   ritiroInSede?: boolean;
   notaSpedizione?: ReactNode;
   notaMail?: ReactNode;
+  /** Finalizzazione: nessuna mail al cliente, né documento né tracking. */
+  bloccaMail?: boolean;
 };
 
 export function SpedizioneMailPanel({
@@ -132,6 +134,7 @@ export function SpedizioneMailPanel({
   ritiroInSede = false,
   notaSpedizione,
   notaMail,
+  bloccaMail = false,
 }: Props) {
   const [trackingUrl, setTrackingUrl] = useState("");
   const [sedePartenzaId, setSedePartenzaId] = useState(sedePartenzaIdDefault);
@@ -145,6 +148,12 @@ export function SpedizioneMailPanel({
   >("informativa");
   const [inviaMailDocumento, setInviaMailDocumento] = useState(false);
   const [allegaTrackingMail, setAllegaTrackingMail] = useState(false);
+  useEffect(() => {
+    if (!bloccaMail) return;
+    setInviaMailDocumento(false);
+    setAllegaTrackingMail(false);
+    setVuoleMail(false);
+  }, [bloccaMail]);
   const [destEmail, setDestEmail] = useState(destEmailDefault);
   const [accounts, setAccounts] = useState<
     Array<{ id: string; label: string; email: string }>
@@ -707,8 +716,14 @@ export function SpedizioneMailPanel({
         </div>
       ) : (
       <>
+      {bloccaMail ? (
+        <p className="rounded-xl border border-slate-300 bg-slate-50 px-4 py-3 text-sm text-slate-800">
+          Non è prevista alcuna mail al cliente. Fattura, tracking e cortesia
+          restano spenti.
+        </p>
+      ) : null}
       {impostazioneDocumento ? (
-        <fieldset className="space-y-2 text-sm">
+        <fieldset className="space-y-2 text-sm" disabled={bloccaMail}>
           <legend className="font-medium">
             {notaMail ?? "Mail dell'ordine"}
           </legend>
@@ -781,7 +796,7 @@ export function SpedizioneMailPanel({
         </fieldset>
       ) : null}
       {!impostazioneDocumento ? (
-      <fieldset className="space-y-2 text-sm">
+      <fieldset className="space-y-2 text-sm" disabled={bloccaMail}>
         <legend className="font-medium">
           Vuoi che il tracking venga inviato al cliente?
         </legend>

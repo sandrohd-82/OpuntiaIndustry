@@ -20,6 +20,10 @@ import {
   type OrdineSezioneChiave,
 } from "@/lib/amministrazione/ordine-sezione-note";
 import { labelRitiroMezzo } from "@/lib/amministrazione/ordine-ritiro";
+import {
+  OrdineAvvisoRitiroBanner,
+  OrdineNessunaMailBanner,
+} from "@/components/amministrazione/OrdineAvvisoRitiroBanner";
 import { labelSede } from "@/lib/impostazioni/sedi";
 import type { SpedizioneMailPrenotazione } from "@/lib/amministrazione/spedizione-mail";
 import { MailOrdineFaseTestModal } from "@/components/amministrazione/MailOrdineFaseTestModal";
@@ -459,7 +463,7 @@ export function OrdineDettaglioPanel({ ordine, onEdit }: Props) {
                 : corriereNome ||
                   (ordine.corriereId ? "Corriere scelto" : "Non indicato"))}
             {ordine.ritiroInSede && ordine.avvisaMercePronta
-              ? ` Avviso merce pronta via ${ordine.avvisoCanale === "tel" ? "telefono" : "mail"}: ${ordine.avvisoEtichetta ? `${ordine.avvisoEtichetta}, ` : ""}${ordine.avvisoValore}.`
+              ? " Avviso di merce pronta previsto."
               : (ordine.ritiroInSede ? " Nessun avviso di merce pronta." : "")}
             {nota("spedizione_mezzo")}
           </dd>
@@ -647,6 +651,17 @@ export function OrdineDettaglioPanel({ ordine, onEdit }: Props) {
           {ordine.note}
         </p>
       ) : null}
+
+      <OrdineAvvisoRitiroBanner
+        attivo={ordine.ritiroInSede && ordine.avvisaMercePronta}
+        email={ordine.avvisoValore}
+        etichetta={ordine.avvisoEtichetta}
+        orari={ordine.avvisoIncludiOrari}
+        sede={ordine.avvisoIncludiSede}
+        misure={ordine.avvisoIncludiMisure}
+        peso={ordine.avvisoIncludiPeso}
+      />
+      <OrdineNessunaMailBanner attivo={ordine.nessunaMail} />
 
       {auditOpen ? (
         <OrdineAuditLogModal

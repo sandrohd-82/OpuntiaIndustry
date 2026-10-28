@@ -194,6 +194,11 @@ export type Ordine = {
   avvisoCanale: "tel" | "mail" | null;
   avvisoValore: string;
   avvisoEtichetta: string;
+  avvisoIncludiOrari: boolean;
+  avvisoIncludiSede: boolean;
+  avvisoIncludiMisure: boolean;
+  avvisoIncludiPeso: boolean;
+  nessunaMail: boolean;
   corriereId: string | null;
   corriereDaCompilare: boolean;
   spedizioneACarico: "cliente" | "agrinsicilia" | "diviso" | null;
@@ -482,6 +487,11 @@ export function mapOrdineRow(
         : null,
     avvisoValore: String(row.avviso_valore ?? ""),
     avvisoEtichetta: String(row.avviso_etichetta ?? ""),
+    avvisoIncludiOrari: Boolean(row.avviso_includi_orari),
+    avvisoIncludiSede: Boolean(row.avviso_includi_sede),
+    avvisoIncludiMisure: Boolean(row.avviso_includi_misure),
+    avvisoIncludiPeso: Boolean(row.avviso_includi_peso),
+    nessunaMail: Boolean(row.nessuna_mail),
     corriereId: row.corriere_id ? String(row.corriere_id) : null,
     corriereDaCompilare: Boolean(row.corriere_da_compilare),
     spedizioneACarico:

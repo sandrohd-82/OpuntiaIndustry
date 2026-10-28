@@ -3,6 +3,7 @@
 import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { listPreventivoCommercialiRiferimentoAction } from "@/app/actions/preventivi";
 import {
+  anteprimaNumeroFatturaBozzaAction,
   convertProformaInFatturaAction,
   getFatturaA4ContextAction,
   saveFatturaDaOrdineAction,
@@ -144,6 +145,7 @@ export function FatturaA4Modal({
   const [destinatario, setDestinatario] =
     useState<FatturaDestinatarioSnapshot | null>(null);
   const [numero, setNumero] = useState("AA/NNNN");
+  const [numeroProvvisorio, setNumeroProvvisorio] = useState<string | null>(null);
   const numeroPrenotatoRef = useRef(numeroPrenotato);
   const numeroSeguitoRef = useRef<string | null>(null);
   numeroPrenotatoRef.current = numeroPrenotato;
@@ -158,6 +160,20 @@ export function FatturaA4Modal({
     });
   }, [numeroPrenotato]);
   const [dataDocumento, setDataDocumento] = useState("");
+  useEffect(() => {
+    if (loading || isNumeroFatturaEmessa(numero)) {
+      if (isNumeroFatturaEmessa(numero)) setNumeroProvvisorio(null);
+      return;
+    }
+    let cancel = false;
+    void anteprimaNumeroFatturaBozzaAction(dataDocumento || undefined).then((res) => {
+      if (cancel || !res.success) return;
+      setNumeroProvvisorio(res.numero);
+    });
+    return () => {
+      cancel = true;
+    };
+  }, [loading, numero, dataDocumento]);
   const [righe, setRighe] = useState<FatturaA4Riga[]>([]);
   const [noteDocumento, setNoteDocumento] = useState("");
   const [piano, setPiano] = useState<OrdinePagamentoPiano>(emptyPagamentoPiano());
@@ -905,7 +921,11 @@ export function FatturaA4Modal({
           <div className="box-border flex min-h-[297mm] flex-col px-[14mm] py-[12mm]">
             <PreventivoA4Letterhead
               numero={
-                vista === "proforma" ? proformaNumero || "PR-…" : numero
+                vista === "proforma"
+                  ? proformaNumero || "PR-…"
+                  : (isNumeroFatturaEmessa(numero)
+                    ? numero
+                    : numeroProvvisorio || "…")
               }
               dataPreventivo={dataDocumento}
               commerciale={commerciale}
@@ -913,10 +933,10 @@ export function FatturaA4Modal({
               onEditData={() => openEdit("data")}
               onEditCommerciale={() => openEdit("commerciale")}
             />
-            {vista === "fattura" && numeroPrenotato ? (
-              <p className="mt-3 rounded-md bg-slate-50 px-3 py-2 text-sm text-slate-800 print:hidden">
-                Bozza senza numero fiscale. Il numero si assegna all&apos;invio
-                allo SDI.
+            {vista === "fattura" && !isNumeroFatturaEmessa(numero) && numeroProvvisorio ? (
+              <p className="mt-3 rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-950 print:hidden">
+                Numero fattura {numeroProvvisorio}. Il numero è provvisorio: se
+                una fattura verrà emessa prima, il numero slitterà di uno.
               </p>
             ) : null}
             {vista === "proforma" ? (
