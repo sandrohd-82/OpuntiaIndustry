@@ -77,14 +77,8 @@ import {
   EMAIL_CONTROLLO_DEFAULT,
   FASE_TEST_INVIO,
 } from "@/lib/amministrazione/prova-ordine";
-import {
-  aggiudicaNumeroFatturaAction,
-  collegaPrenotazioneOrdineAction,
-} from "@/app/actions/fattura-prenotazione-numero";
-import {
-  FatturaNumeroAvvisoDialog,
-  usePrenotazioneNumero,
-} from "@/components/amministrazione/FatturaNumeroPrenotato";
+import { collegaPrenotazioneOrdineAction } from "@/app/actions/fattura-prenotazione-numero";
+import { usePrenotazioneNumero } from "@/components/amministrazione/FatturaNumeroPrenotato";
 import { inviaCopiaControlloOrdineAction } from "@/app/actions/prova-ordine";
 import { listPreventivoCommercialiRiferimentoAction } from "@/app/actions/preventivi";
 import { fatturaA4PdfComeBozza } from "@/lib/amministrazione/fattura-a4-pdf";
@@ -511,7 +505,7 @@ export function OrdineNuovoWizardModal({
   const prenotazioneNumero = usePrenotazioneNumero({
     contesto: "ordine",
     sessioneId: anteprimaSessioneId,
-    attivo: tipoOrdine === "vendita" && !modificaOrdineId,
+    attivo: false,
   });
   const lastStep: Step = tipoOrdine === "campionatura" ? 6 : 7;
 
@@ -1964,29 +1958,6 @@ export function OrdineNuovoWizardModal({
           return;
         }
         if (fat.resettata) clearFatturaAnteprimaSessione(anteprimaSessioneId);
-        let numeroAggiudicato = "";
-        if (
-          !FASE_TEST_INVIO &&
-          docMail !== "proforma" &&
-          prenotazioneNumero.pren?.id
-        ) {
-          numeroAggiudicato = prenotazioneNumero.pren.numeroFattura;
-          prenotazioneNumero.bloccaRilascio();
-          const agg = await aggiudicaNumeroFatturaAction({
-            prenotazioneId: prenotazioneNumero.pren.id,
-            ordineId: result.ordine.id,
-            fatturaId: fat.fatturaId,
-          });
-          if (!agg.success) {
-            prenotazioneNumero.consentiRilascio();
-            setFormError(
-              `Ordine registrato, ma il numero non è stato aggiudicato: ${agg.error}`
-            );
-          } else {
-            numeroAggiudicato = agg.prenotazione.numeroFattura;
-            prenotazioneNumero.applica(agg.prenotazione);
-          }
-        }
         const mailErr = await memorizzaMail();
         let invioSubito = "";
         if (invioFatturaSdi === "subito" && !fat.giaInviata && docMail !== "proforma") {
@@ -2038,20 +2009,15 @@ export function OrdineNuovoWizardModal({
         setOrdineFinalizzato(true);
         if (!modificaOrdineId && FASE_TEST_INVIO) apriMailOrdine();
         const extra = [fat.avviso, invioSubito].filter(Boolean).join(" ");
-        const numeroRiservato = numeroAggiudicato
-          ? `Numero ${numeroAggiudicato} riservato. `
-          : "";
-        let messaggioFinale = `Ordine ${result.ordine.numeroInterno} finalizzato. ${numeroRiservato}La fattura parte allo SDI e la mail di cortesia va al cliente quando l'ordine entra in produzione.`;
+        let messaggioFinale = `Ordine ${result.ordine.numeroInterno} finalizzato. La fattura è in bozza, senza numero. Il numero, lo SDI e la mail al cliente partono quando l'ordine entra in produzione.`;
         if (invioFatturaSdi === "subito") {
-          messaggioFinale = `Ordine ${result.ordine.numeroInterno} finalizzato. ${invioSubito || "Invio allo SDI non eseguito."}`;
+          messaggioFinale = `Ordine ${result.ordine.numeroInterno} finalizzato. ${invioSubito || "Invio allo SDI non eseguito. La mail non è partita."}`;
         } else if (FASE_TEST_INVIO && !modificaOrdineId) {
           const documentoSalvato =
             docMail === "proforma"
               ? "Proforma e fattura sono salvate senza numero."
               : "La fattura è salvata senza numero.";
           messaggioFinale = `Ordine ${result.ordine.numeroInterno} registrato. ${documentoSalvato} La mail si compila adesso e parte solo verso sandrohd@gmail.com. Lo SDI non parte e il progressivo non viene consumato.`;
-        } else if (numeroAggiudicato && invioFatturaSdi !== "al_processo") {
-          messaggioFinale = `Ordine ${result.ordine.numeroInterno} finalizzato. Numero ${numeroAggiudicato} aggiudicato e riservato. La fattura resta prenotata: niente mail e niente SDI.`;
         }
         if (extra && invioFatturaSdi !== "subito") {
           messaggioFinale = `${messaggioFinale} ${extra}`;
@@ -4312,37 +4278,11 @@ export function OrdineNuovoWizardModal({
                 <p className="text-xs text-[var(--muted)]">
                   La fattura modificata resta anche se riapri l&apos;ordine.
                   Si riallinea all&apos;ordine solo se cambi la riga prodotto, e
-                  solo finché non è partita allo SDI. Il numero in testata è
-                  prenotato: viene scritto quando la fattura parte.
+                  solo finché non è partita allo SDI. Resta in bozza: il numero
+                  si assegna solo all&apos;invio allo SDI. La mail al cliente
+                  parte solo se lo SDI ha confermato. La proforma si può inviare
+                  anche senza SDI.
                 </p>
-                {prenotazioneNumero.pren ? (
-                  <p
-                    className={`text-sm ${
-                      prenotazioneNumero.pren.incerto
-                        ? "text-amber-900"
-                        : "text-slate-800"
-                    }`}
-                  >
-                    Numero fattura:{" "}
-                    <strong className="font-mono text-base">
-                      {prenotazioneNumero.pren.numeroFattura}
-                    </strong>
-                    {prenotazioneNumero.pren.incerto
-                      ? ` — non sicuro, può variare fra ${prenotazioneNumero.pren.numeroMin} e ${prenotazioneNumero.pren.numeroMax}`
-                      : ""}
-                  </p>
-                ) : null}
-                {!prenotazioneNumero.pren && prenotazioneNumero.errore ? (
-                  <p className="text-xs text-red-700">{prenotazioneNumero.errore}</p>
-                ) : null}
-                {!prenotazioneNumero.pren &&
-                !prenotazioneNumero.errore &&
-                tipoOrdine === "vendita" &&
-                !modificaOrdineId ? (
-                  <p className="text-xs text-[var(--muted)]">
-                    Prenotazione del numero in corso…
-                  </p>
-                ) : null}
                 {attesaCalcoloSpedizione ? (
                   <p className="text-xs text-amber-800">
                     La fattura resta chiusa finché l&apos;operatore non conferma
@@ -4859,17 +4799,16 @@ export function OrdineNuovoWizardModal({
                   ),
                   piano: pagamentoPiano,
                   emails: emailsDaCliente(clienteSped),
-                  numeroFattura:
-                    prenotazioneNumero.pren?.numeroFattura || "…",
+                  numeroFattura: "Prenotata",
                   dataDocumento: todayIsoDate(),
                   noteDocumento: "",
                 }
           }
           pianoIniziale={pagamentoPiano}
-          numeroPrenotato={prenotazioneNumero.pren?.numeroFattura ?? null}
-          numeroIncerto={Boolean(prenotazioneNumero.pren?.incerto)}
-          numeroMin={prenotazioneNumero.pren?.numeroMin ?? null}
-          numeroMax={prenotazioneNumero.pren?.numeroMax ?? null}
+          numeroPrenotato={null}
+          numeroIncerto={false}
+          numeroMin={null}
+          numeroMax={null}
           ordineRigaFirma={firmaRigaOrdine()}
           allineaAllOrdine={(() => {
             const firma = firmaRigaOrdine();
@@ -4938,12 +4877,6 @@ export function OrdineNuovoWizardModal({
             setMailTest(null);
             setSessioneMsg(messaggio);
           }}
-        />
-      ) : null}
-      {prenotazioneNumero.avviso ? (
-        <FatturaNumeroAvvisoDialog
-          messaggio={prenotazioneNumero.avviso}
-          onClose={() => prenotazioneNumero.setAvviso(null)}
         />
       ) : null}
     </div>

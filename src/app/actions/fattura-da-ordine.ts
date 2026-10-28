@@ -29,14 +29,9 @@ import {
   type OrdinePagamentoPiano,
 } from "@/lib/amministrazione/ordine-pagamento-piano";
 import {
-  assegnaNumeroFattura,
   assegnaNumeroProforma,
   isNumeroFatturaEmessa,
 } from "@/lib/amministrazione/numero-fattura";
-import {
-  emettiNumeroPrenotato,
-  idPrenotazioneAggiudicataFattura,
-} from "@/app/actions/fattura-prenotazione-numero";
 import {
   EMAIL_CONTROLLO_DEFAULT,
   FASE_TEST_INVIO,
@@ -764,27 +759,8 @@ export async function saveFatturaDaOrdineAction(
           "L'invio della fattura richiede la doppia conferma. Il numero non è stato assegnato e nulla è partito.",
       };
     }
-    if (!input.inviaOra) {
-      numeroInterno = `Pren-${ctx.numeroOrdine}`.slice(0, 80);
-      numeroFattura = "";
-    } else {
-      try {
-        const assegnato = await assegnaNumeroFattura(
-          supabase,
-          input.dataDocumento
-        );
-        numeroInterno = assegnato.numeroInterno;
-        numeroFattura = assegnato.numeroFattura;
-      } catch (e) {
-        return {
-          success: false,
-          error:
-            e instanceof Error
-              ? e.message
-              : "Impossibile assegnare il numero fattura.",
-        };
-      }
-    }
+    numeroInterno = `Pren-${ctx.numeroOrdine}`.slice(0, 80);
+    numeroFattura = "";
     const insert: FatturaEmessaInsert & Record<string, unknown> = {
       numero_interno: numeroInterno,
       cliente_id: ctx.cliente.id,
@@ -890,7 +866,7 @@ export async function saveFatturaDaOrdineAction(
     },
   });
 
-  if (!input.inviaOra) {
+  if (!input.inviaOra || input.sendToSdi === false) {
     return {
       success: true,
       fatturaId: fatturaId!,
@@ -947,19 +923,15 @@ export async function materializzaNumeroDocumento(
   if (tipo !== "proforma" && isNumeroFatturaEmessa(numero)) {
     return { success: true, numeroFattura: numero, numeroInterno: interno || `Ft-${numero}` };
   }
+  if (tipo !== "proforma") {
+    return {
+      success: false,
+      error:
+        "Il numero fiscale si assegna solo all'invio allo SDI. La fattura resta in bozza.",
+    };
+  }
   try {
-    const prenotazioneId =
-      tipo === "proforma"
-        ? null
-        : await idPrenotazioneAggiudicataFattura(fatturaId);
-    let assegnato: { numeroFattura: string; numeroInterno: string };
-    if (prenotazioneId) {
-      assegnato = await emettiNumeroPrenotato(prenotazioneId, dataDocumento);
-    } else if (tipo === "proforma") {
-      assegnato = await assegnaNumeroProforma(supabase, dataDocumento);
-    } else {
-      assegnato = await assegnaNumeroFattura(supabase, dataDocumento);
-    }
+    const assegnato = await assegnaNumeroProforma(supabase, dataDocumento);
     const { error: upErr } = await supabase
       .from("fatture_emesse")
       .update({
@@ -1421,6 +1393,35 @@ function messaggioAliquoteFic(e: unknown, numeroCorrente: string): string {
   return `${raw}${numero}`;
 }
 
+async function assegnaNumeroAllInvioSdi(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  fatturaId: string,
+  dataDocumento: string
+): Promise<
+  | { success: true; numeroFattura: string; numeroInterno: string }
+  | { success: false; error: string }
+> {
+  const { data, error } = await supabase.rpc("assegna_numero_fattura_sdi", {
+    p_fattura_id: fatturaId,
+    p_data: dataDocumento,
+  });
+  if (error) return { success: false, error: error.message };
+  const row = Array.isArray(data) ? data[0] : data;
+  const obj =
+    typeof row === "string"
+      ? (JSON.parse(row) as { numero_fattura?: string; numero_interno?: string })
+      : (row as { numero_fattura?: string; numero_interno?: string } | null);
+  const numeroFattura = String(obj?.numero_fattura ?? "").trim();
+  if (!isNumeroFatturaEmessa(numeroFattura)) {
+    return { success: false, error: "Numerazione fattura non valida." };
+  }
+  return {
+    success: true,
+    numeroFattura,
+    numeroInterno: String(obj?.numero_interno ?? "").trim() || `Ft-${numeroFattura}`,
+  };
+}
+
 export async function inviaFatturaAttraversoSdiAction(
   fatturaId: string,
   doppiaConferma = false
@@ -1549,7 +1550,19 @@ export async function inviaFatturaSalvataAction(input: {
   const bloccoQuota = await messaggioBloccoQuotaFic();
   if (bloccoQuota) return { success: false, error: bloccoQuota };
 
-  const numeri = await materializzaNumeroDocumento(fattura.id);
+  if (input.sendToSdi === false) {
+    return {
+      success: false,
+      error:
+        "Senza invio allo SDI la fattura resta in bozza: il numero non viene assegnato e la mail non parte.",
+    };
+  }
+
+  const numeri = await assegnaNumeroAllInvioSdi(
+    supabase,
+    fattura.id,
+    String(fattura.data_emissione ?? "").slice(0, 10)
+  );
   if (!numeri.success) return numeri;
   fattura.numero_fattura = numeri.numeroFattura;
   fattura.numero_interno = numeri.numeroInterno;
@@ -1664,8 +1677,8 @@ export async function inviaFatturaSalvataAction(input: {
   }
 
   let sdiSent = false;
-  const sendToSdi = input.sendToSdi !== false;
-  if (sendToSdi && ficId && fattura.ei_status === "sent") {
+  const sendToSdi = true;
+  if (ficId && fattura.ei_status === "sent") {
     sdiSent = true;
   } else if (sendToSdi && ficId) {
     try {
@@ -1689,8 +1702,9 @@ export async function inviaFatturaSalvataAction(input: {
   }
 
   let courtesyEmailSent = Boolean(fattura.courtesy_email_sent);
-  const sendCourtesy = input.sendCourtesyEmail !== false;
-  if (sendCourtesy && mailTo) {
+  const sendCourtesy =
+    sdiSent && eiStatus === "sent" && input.sendCourtesyEmail !== false;
+  if (sendCourtesy && mailTo && !fattura.courtesy_email_sent) {
     try {
       const destSnap = parseDestinatarioSnapshot(fattura.destinatario_snapshot);
       const destinatarioMail = destSnap ?? {
@@ -1806,7 +1820,7 @@ export async function inviaFatturaSalvataAction(input: {
     sdiSent,
     warning:
       eiStatus === "send_error"
-        ? "Fattura creata su Fatture in Cloud ma l’invio SDI non è riuscito."
+        ? "Fattura creata su Fatture in Cloud ma l’invio SDI non è riuscito. La mail al cliente non è partita."
         : sendToSdi && fattura.ei_status === "sent"
           ? "La fattura risulta già inviata allo SDI."
           : undefined,

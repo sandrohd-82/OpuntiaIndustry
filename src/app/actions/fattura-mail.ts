@@ -75,7 +75,7 @@ export async function inviaFatturaDaWebmailAction(
   const { data: fattura, error: fatErr } = await supabase
     .from("fatture_emesse")
     .select(
-      "id, numero_fattura, numero_documento_esterno, data_emissione, note, cliente_id, ordine_id, cliente_ragione_sociale, destinatario_snapshot, tipo_documento"
+      "id, numero_fattura, numero_documento_esterno, data_emissione, note, cliente_id, ordine_id, cliente_ragione_sociale, destinatario_snapshot, tipo_documento, ei_status"
     )
     .eq("id", input.fatturaId)
     .is("deleted_at", null)
@@ -92,6 +92,16 @@ export async function inviaFatturaDaWebmailAction(
       success: false,
       error:
         "La fattura di prova non si invia da qui e non parte allo SDI. La mail della prova va solo all'indirizzo indicato nel test.",
+    };
+  }
+  if (
+    String(fattura.tipo_documento ?? "") !== "proforma" &&
+    String(fattura.ei_status ?? "") !== "sent"
+  ) {
+    return {
+      success: false,
+      error:
+        "La mail della fattura parte solo dopo l'invio allo SDI. La proforma è l'unico documento che si può inviare senza SDI.",
     };
   }
   const bloccoSpedizione = await motivoBloccoInvioClienteOrdine(
@@ -146,8 +156,21 @@ export async function inviaFatturaDaWebmailAction(
       indirizzo: String(cliente?.sede_amm_indirizzo ?? ""),
     },
   };
-  const numeri = await materializzaNumeroDocumento(input.fatturaId);
+  const numeri =
+    String(fattura.tipo_documento ?? "") === "proforma"
+      ? await materializzaNumeroDocumento(input.fatturaId)
+      : {
+          success: true as const,
+          numeroFattura: String(fattura.numero_fattura ?? "").trim(),
+          numeroInterno: "",
+        };
   if (!numeri.success) return numeri;
+  if (!numeri.numeroFattura) {
+    return {
+      success: false,
+      error: "La fattura non ha ancora un numero fiscale.",
+    };
+  }
   const numero = numeri.numeroFattura;
   const loghi = await caricaLoghiFatturaA4Server();
   if (!loghi.agrinsicilia) {

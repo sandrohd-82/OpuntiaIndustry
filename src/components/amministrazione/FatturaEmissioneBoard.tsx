@@ -5,10 +5,7 @@ import Link from "next/link";
 import { getAliquoteEmissioneAction } from "@/app/actions/fattura-emissione";
 import { listProdottiPropriAction } from "@/app/actions/prodotti-propri";
 import { ClienteSelectField } from "@/components/amministrazione/ClienteSelectField";
-import {
-  FatturaNumeroAvvisoDialog,
-  usePrenotazioneNumero,
-} from "@/components/amministrazione/FatturaNumeroPrenotato";
+import { usePrenotazioneNumero } from "@/components/amministrazione/FatturaNumeroPrenotato";
 import { ClearableNumberInput } from "@/components/ui/ClearableNumberInput";
 import type { Cliente } from "@/lib/amministrazione/clienti";
 import {
@@ -63,7 +60,7 @@ export function FatturaEmissioneBoard() {
   const prenotazioneNumero = usePrenotazioneNumero({
     contesto: "fattura",
     sessioneId: sessioneNumeroId,
-    attivo: true,
+    attivo: false,
     dataDocumento,
   });
   const [busy, setBusy] = useState(false);
@@ -163,7 +160,7 @@ export function FatturaEmissioneBoard() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           ...payload,
-          prenotazioneId: prenotazioneNumero.pren?.id ?? null,
+          prenotazioneId: null,
         }),
       });
       const json = (await res.json()) as {
@@ -261,26 +258,14 @@ export function FatturaEmissioneBoard() {
             </div>
           </dl>
         ) : null}
-        {prenotazioneNumero.pren ? (
-          <p
-            className={`rounded-lg px-3 py-2 text-sm ${
-              prenotazioneNumero.pren.incerto
-                ? "bg-amber-50 text-amber-950"
-                : "bg-slate-50"
-            }`}
-          >
-            Numero fattura:{" "}
-            <strong className="font-mono text-base">
-              {prenotazioneNumero.pren.numeroFattura}
-            </strong>
-            {prenotazioneNumero.pren.incerto
-              ? `. Non è sicuro: può variare fra ${prenotazioneNumero.pren.numeroMin} e ${prenotazioneNumero.pren.numeroMax}. Chi completa prima si aggiudica il numero più basso.`
-              : ". Prenotato finché non invii."}
-          </p>
-        ) : null}
         {prenotazioneNumero.errore ? (
           <p className="text-sm text-red-700">{prenotazioneNumero.errore}</p>
-        ) : null}
+        ) : (
+          <p className="rounded-lg bg-slate-50 px-3 py-2 text-sm">
+            Il numero si assegna solo all&apos;invio allo SDI. Senza SDI non
+            parte nemmeno la mail.
+          </p>
+        )}
       </section>
 
       <section className="space-y-3 rounded-xl border border-[var(--border)] bg-[var(--card)] p-4">
@@ -580,17 +565,21 @@ export function FatturaEmissioneBoard() {
             <input
               type="checkbox"
               checked={sendToSdi}
-              onChange={(e) => setSendToSdi(e.target.checked)}
+              onChange={(e) => {
+                setSendToSdi(e.target.checked);
+                if (!e.target.checked) setSendCourtesyEmail(false);
+              }}
             />
             Invia allo SDI
           </label>
           <label className="inline-flex items-center gap-2">
             <input
               type="checkbox"
-              checked={sendCourtesyEmail}
+              checked={sendToSdi && sendCourtesyEmail}
+              disabled={!sendToSdi}
               onChange={(e) => setSendCourtesyEmail(e.target.checked)}
             />
-            Mail di cortesia al cliente
+            Mail di cortesia al cliente, solo se lo SDI parte
           </label>
           <label className="inline-flex items-center gap-2 text-[var(--muted)]">
             <input
@@ -619,7 +608,7 @@ export function FatturaEmissioneBoard() {
         </div>
         <button
           type="submit"
-          disabled={busy || !cliente || !prenotazioneNumero.pren}
+          disabled={busy || !cliente}
           className="rounded-lg bg-[var(--primary)] px-5 py-2.5 text-sm font-semibold text-white hover:opacity-90 disabled:opacity-50"
         >
           {busy ? "Emissione in corso…" : "Crea e invia fattura"}
@@ -659,12 +648,6 @@ export function FatturaEmissioneBoard() {
         </div>
       ) : null}
     </form>
-    {prenotazioneNumero.avviso ? (
-      <FatturaNumeroAvvisoDialog
-        messaggio={prenotazioneNumero.avviso}
-        onClose={() => prenotazioneNumero.setAvviso(null)}
-      />
-    ) : null}
     </>
   );
 }

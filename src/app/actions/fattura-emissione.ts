@@ -14,9 +14,7 @@ import {
 import { mapCompanyFiscalProfileRow } from "@/lib/amministrazione/fiscal-profile";
 import {
   anteprimaNumeroFattura,
-  assegnaNumeroFattura,
 } from "@/lib/amministrazione/numero-fattura";
-import { emettiNumeroPrenotato } from "@/app/actions/fattura-prenotazione-numero";
 import {
   createIssuedDocument,
   aliquotePerEmissione,
@@ -217,14 +215,30 @@ export async function createAndSendInvoiceAction(
   const fiscaleErr = validateClienteFiscale(cliente);
   if (fiscaleErr) return { success: false, error: fiscaleErr };
 
+  if (!parsed.sendToSdi) {
+    return {
+      success: false,
+      error:
+        "Senza invio allo SDI il numero non viene assegnato e la mail non parte.",
+    };
+  }
+
   let numeroInterno: string;
   let numeroFattura: string;
   try {
-    const assegnato = parsed.prenotazioneId
-      ? await emettiNumeroPrenotato(parsed.prenotazioneId, parsed.dataDocumento)
-      : await assegnaNumeroFattura(supabase, parsed.dataDocumento);
-    numeroInterno = assegnato.numeroInterno;
-    numeroFattura = assegnato.numeroFattura;
+    const { data, error } = await supabase.rpc("assegna_numero_fattura_sdi", {
+      p_fattura_id: null,
+      p_data: parsed.dataDocumento,
+    });
+    if (error) throw new Error(error.message);
+    const row = Array.isArray(data) ? data[0] : data;
+    const obj =
+      typeof row === "string"
+        ? (JSON.parse(row) as { numero_fattura?: string; numero_interno?: string })
+        : (row as { numero_fattura?: string; numero_interno?: string } | null);
+    numeroFattura = String(obj?.numero_fattura ?? "").trim();
+    numeroInterno = String(obj?.numero_interno ?? "").trim() || `Ft-${numeroFattura}`;
+    if (!numeroFattura) throw new Error("Numerazione fattura non valida.");
   } catch (e) {
     return {
       success: false,

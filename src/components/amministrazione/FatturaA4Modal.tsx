@@ -126,9 +126,6 @@ export function FatturaA4Modal({
   sessioneDraft = null,
   pianoIniziale,
   numeroPrenotato = null,
-  numeroIncerto = false,
-  numeroMin = null,
-  numeroMax = null,
   ordineRigaFirma = "",
   allineaAllOrdine = false,
   onClose,
@@ -917,18 +914,9 @@ export function FatturaA4Modal({
               onEditCommerciale={() => openEdit("commerciale")}
             />
             {vista === "fattura" && numeroPrenotato ? (
-              <p
-                className={`mt-3 rounded-md px-3 py-2 text-sm print:hidden ${
-                  numeroIncerto
-                    ? "bg-amber-50 text-amber-950"
-                    : "bg-slate-50 text-slate-800"
-                }`}
-              >
-                Numero prenotato{" "}
-                <strong className="font-mono">{numeroPrenotato}</strong>
-                {numeroIncerto
-                  ? `. Non è sicuro: può variare fra ${numeroMin || numeroPrenotato} e ${numeroMax || numeroPrenotato}. Chi completa prima si aggiudica il numero più basso.`
-                  : ". Resta riservato a questa fattura finché non viene emessa."}
+              <p className="mt-3 rounded-md bg-slate-50 px-3 py-2 text-sm text-slate-800 print:hidden">
+                Bozza senza numero fiscale. Il numero si assegna all&apos;invio
+                allo SDI.
               </p>
             ) : null}
             {vista === "proforma" ? (
