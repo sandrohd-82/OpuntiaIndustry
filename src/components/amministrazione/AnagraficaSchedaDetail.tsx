@@ -24,6 +24,7 @@ import type { ConsegnaAltraAzienda, SedeCliente } from "@/lib/amministrazione/cl
 import type { ProdottoProprio } from "@/lib/amministrazione/prodotti-propri";
 import type { ClientePossibileTrattativa } from "@/lib/promemorie-e-note/trattativa";
 import { AnagraficaDocumentiPanel } from "@/components/amministrazione/AnagraficaDocumentiPanel";
+import { RichiediAnagraficaButton } from "@/components/amministrazione/RichiediAnagraficaButton";
 import {
   ANAGRAFICA_SEDE_TONE,
   AnagraficaSchedaSection,
@@ -174,6 +175,13 @@ export function AnagraficaSchedaDetail({
         <p className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-950">
           Cancellazione prenotata: in attesa di conferma Super Admin.
         </p>
+      ) : null}
+      {manageReferenti ? (
+        <RichiediAnagraficaButton
+          kind={model.kind}
+          id={model.id}
+          emailIniziale={model.email}
+        />
       ) : null}
       <AnagraficaSchedaSection title="Identità" tone="identita">
         <div className="grid gap-3 sm:grid-cols-2">

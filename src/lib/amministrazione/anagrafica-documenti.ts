@@ -9,6 +9,7 @@ export const ANAGRAFICA_DOCUMENTO_TIPI = [
   "meeting_resume",
   "nda",
   "altro",
+  "anagrafica_aziendale",
 ] as const;
 
 export type AnagraficaDocumentoTipo =
@@ -23,6 +24,7 @@ export const ANAGRAFICA_DOCUMENTO_TIPO_LABEL: Record<
   meeting_resume: "Resume meeting",
   nda: "NDA",
   altro: "Altro",
+  anagrafica_aziendale: "Anagrafica aziendale",
 };
 
 export const ANAGRAFICA_DOCUMENTO_STATI = [
