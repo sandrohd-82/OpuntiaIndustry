@@ -46,10 +46,10 @@ export async function inviaRichiestaAnagraficaAction(input: {
   kind: "cliente" | "cliente_possibile";
   id: string;
   email: string;
-}): Promise<{ success: true } | { success: false; error: string }> {
+}): Promise<{ success: true; destinatario: string } | { success: false; error: string }> {
   const { auth } = await requireAnyAreaAccess(["amministrazione", "commerciale"]);
-  const email = input.email.trim();
-  if (!emailOk(email)) {
+  const destinatario = input.email.trim();
+  if (!emailOk(destinatario)) {
     return { success: false, error: "Indica un'e-mail valida a cui inviare il link." };
   }
   const scheda = await precompilaDaScheda(input.kind, input.id);
@@ -67,7 +67,7 @@ export async function inviaRichiestaAnagraficaAction(input: {
   try {
     await sendMailViaAccount({
       account,
-      to: email,
+      to: destinatario,
       subject: "Anagrafica aziendale da compilare",
       text: [
         `Spett.le ${nome},`,
@@ -88,7 +88,7 @@ export async function inviaRichiestaAnagraficaAction(input: {
   const salvata = await preparaInvioAnagrafica({
     kind: input.kind,
     id: input.id,
-    email,
+    email: destinatario,
     actorId: auth.userId,
     token,
   });
@@ -98,7 +98,7 @@ export async function inviaRichiestaAnagraficaAction(input: {
       error: "La mail è partita, ma il link non è stato registrato. Invia di nuovo.",
     };
   }
-  return { success: true };
+  return { success: true, destinatario };
 }
 
 export async function annullaTestAnagraficaAction(input: {
