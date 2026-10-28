@@ -54,7 +54,7 @@ import {
 import { motivoBloccoInvioClienteOrdine } from "@/app/actions/ordine-calcolo-spedizione";
 import {
   createIssuedDocument,
-  fetchFicVatTypes,
+  aliquotePerEmissione,
   messaggioBloccoQuotaFic,
   resolveFicVatId,
   sendIssuedDocumentToSdi,
@@ -1519,9 +1519,9 @@ export async function inviaFatturaSalvataAction(input: {
   const fisc = validateClienteFiscale(cliente);
   if (fisc) return { success: false, error: fisc };
 
-  let vatTypes: Awaited<ReturnType<typeof fetchFicVatTypes>> = [];
+  let vatTypes: Awaited<ReturnType<typeof aliquotePerEmissione>> = [];
   try {
-    vatTypes = await fetchFicVatTypes();
+    vatTypes = await aliquotePerEmissione();
   } catch (e) {
     const message = messaggioAliquoteFic(e, fattura.numero_fattura);
     await writeAuditLog({

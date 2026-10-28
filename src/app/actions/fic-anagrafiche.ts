@@ -226,6 +226,12 @@ async function previewTarga(
   return nextSequentialCodiceTarga(prefix, used);
 }
 
+function sinceAnagrafiche(): Date {
+  const data = new Date();
+  data.setUTCDate(data.getUTCDate() - 90);
+  return data;
+}
+
 export async function startFicSyncFornitoriAction(): Promise<FicSyncStartResult> {
   const { auth } = await requireAreaAccess("amministrazione");
   try {
@@ -235,7 +241,7 @@ export async function startFicSyncFornitoriAction(): Promise<FicSyncStartResult>
     const checkpoint = await loadCheckpointCompletedIds("supplier");
     const [suppliers, received] = await Promise.all([
       fetchFicSuppliers(),
-      fetchReceivedInvoices(null),
+      fetchReceivedInvoices(sinceAnagrafiche()),
     ]);
     const merged = mergeInvoiceEnrichment(
       suppliers,
@@ -348,7 +354,7 @@ export async function startFicSyncClientiAction(): Promise<FicSyncStartResult> {
     const checkpoint = await loadCheckpointCompletedIds("client");
     const [clients, issued] = await Promise.all([
       fetchFicClients(),
-      fetchIssuedInvoices(null),
+      fetchIssuedInvoices(sinceAnagrafiche()),
     ]);
     const merged = mergeInvoiceEnrichment(
       clients,

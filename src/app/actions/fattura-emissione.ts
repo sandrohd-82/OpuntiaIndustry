@@ -19,7 +19,7 @@ import {
 import { emettiNumeroPrenotato } from "@/app/actions/fattura-prenotazione-numero";
 import {
   createIssuedDocument,
-  fetchFicVatTypes,
+  aliquotePerEmissione,
   resolveFicVatId,
   sendIssuedDocumentToSdi,
 } from "@/lib/fic";
@@ -107,7 +107,7 @@ function buildFicPayload(input: {
   parsed: EmissioneParsed;
   cliente: ClienteRow;
   numeroFattura: string;
-  vatTypes: Awaited<ReturnType<typeof fetchFicVatTypes>>;
+  vatTypes: Awaited<ReturnType<typeof aliquotePerEmissione>>;
 }): Record<string, unknown> {
   const { parsed, cliente, numeroFattura, vatTypes } = input;
   const split = splitNumeroForFic(numeroFattura);
@@ -244,9 +244,9 @@ export async function createAndSendInvoiceAction(
     spedizioneRiga && spedizioneRiga.ivaPercentuale > 0
   );
 
-  let vatTypes: Awaited<ReturnType<typeof fetchFicVatTypes>> = [];
+  let vatTypes: Awaited<ReturnType<typeof aliquotePerEmissione>> = [];
   try {
-    vatTypes = await fetchFicVatTypes();
+    vatTypes = await aliquotePerEmissione();
   } catch (e) {
     return {
       success: false,

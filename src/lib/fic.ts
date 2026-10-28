@@ -727,18 +727,51 @@ export async function enrichReceivedDocument(
   };
 }
 
+const documentiFicRecenti = new Map<
+  string,
+  { at: number; doc: FicDocumentNormalized }
+>();
+
+function chiaveDocumentoFic(type: string, ficId: number): string {
+  return `${type}:${ficId}`;
+}
+
+function ricordaDocumentoFic(doc: FicDocumentNormalized) {
+  documentiFicRecenti.set(chiaveDocumentoFic(doc.type, doc.ficId), {
+    at: Date.now(),
+    doc,
+  });
+}
+
+function documentoFicRicordato(
+  type: "issued" | "received",
+  ficId: number
+): FicDocumentNormalized | null {
+  const hit = documentiFicRecenti.get(chiaveDocumentoFic(type, ficId));
+  if (!hit) return null;
+  if (Date.now() - hit.at > 10 * 60 * 1000) {
+    documentiFicRecenti.delete(chiaveDocumentoFic(type, ficId));
+    return null;
+  }
+  return hit.doc;
+}
+
 /** Dettaglio di una fattura emessa per ID FiC, senza riascoltare tutta la lista. */
 export async function fetchIssuedDocumentById(
   ficId: number
 ): Promise<FicDocumentNormalized | null> {
   const id = Number(ficId);
   if (!Number.isFinite(id) || id <= 0) return null;
+  const gia = documentoFicRicordato("issued", id);
+  if (gia) return gia;
   try {
     const res = await ficGet<{ data?: unknown }>(
       `/issued_documents/${id}`,
       {}
     );
-    return normalizeIssuedDocument(res.data);
+    const doc = normalizeIssuedDocument(res.data);
+    if (doc) ricordaDocumentoFic(doc);
+    return doc;
   } catch (e) {
     console.error(
       "[fic] fetchIssuedDocumentById",
@@ -755,6 +788,15 @@ export async function fetchReceivedDocumentById(
 ): Promise<FicDocumentNormalized | null> {
   const id = Number(ficId);
   if (!Number.isFinite(id) || id <= 0) return null;
+  const gia = documentoFicRicordato("received", id);
+  if (gia) {
+    const raw = gia.raw;
+    const hasItems =
+      (Array.isArray(raw.items_list) && raw.items_list.length > 0) ||
+      (Array.isArray(raw.items) && raw.items.length > 0);
+    const hasEntity = Object.keys(asRecord(raw.entity)).length > 0;
+    if (hasItems && hasEntity) return gia;
+  }
   try {
     const stub: FicDocumentNormalized = {
       ficId: id,
@@ -798,7 +840,9 @@ async function listAllPages(
     lastPage = Number(res.last_page ?? 1) || 1;
     for (const item of res.data ?? []) {
       const n = normalize(item);
-      if (n) out.push(n);
+      if (!n) continue;
+      out.push(n);
+      ricordaDocumentoFic(n);
     }
     page += 1;
   } while (page <= lastPage && page <= 50); // safety cap
@@ -1421,7 +1465,24 @@ export function aliquoteNoteFic(): FicVatType[] {
   return ALIQUOTE_NOTE.map((row) => ({ ...row }));
 }
 
-/** Elenco aliquote IVA. Prima il catalogo salvato, la chiamata solo se manca. */
+/** Codici IVA per emettere un documento. Catalogo locale: nessuna chiamata a Fatture in Cloud. */
+export async function aliquotePerEmissione(): Promise<FicVatType[]> {
+  const note = aliquoteNoteFic();
+  const salvate = await leggiCatalogo<FicVatType[]>("vat_types");
+  const perValore = new Map<number, FicVatType>();
+  for (const row of note) perValore.set(row.value, row);
+  if (Array.isArray(salvate)) {
+    for (const row of salvate) {
+      if (!Number.isFinite(Number(row.id)) || !Number.isFinite(Number(row.value))) continue;
+      perValore.set(Number(row.value), {
+        id: Number(row.id),
+        value: Number(row.value),
+        description: String(row.description ?? ""),
+      });
+    }
+  }
+  return [...perValore.values()];
+}
 export async function fetchFicVatTypes(): Promise<FicVatType[]> {
   if (aliquoteCache && Date.now() - aliquoteCache.at < 6 * 60 * 60 * 1000) {
     return aliquoteCache.rows;
@@ -1709,7 +1770,7 @@ export async function createIssuedDocument(
     .map(String)
     .join("");
   let pdfUrl = asText(doc.url);
-  if (options?.includiPdf !== false) {
+  if (options?.includiPdf === true) {
     try {
       pdfUrl = (await fetchFicDocumentPdfUrl({ kind: "issued", ficId })) || pdfUrl;
     } catch {

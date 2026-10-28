@@ -26,7 +26,6 @@ import { nextSequentialCodiceTarga } from "@/lib/amministrazione/codice-targa";
 import { getUsedFornitoriCodiciTarga } from "@/app/actions/fornitori";
 import { writeAuditLog } from "@/lib/audit";
 import { scanPromozioniDaFattureAction } from "@/app/actions/lead-promozione";
-import { importaDdtDaFattureInCloud } from "@/lib/fiscale/ddt-sync";
 import { requireAreaAccess } from "@/lib/areas/guard";
 import {
   isFiscaleDocAllowed,
@@ -170,6 +169,20 @@ function resolveClienteForDoc(
   };
 }
 
+function sinceUltimiDocumenti(
+  date: Array<string | null | undefined>
+): Date | null {
+  const valide = date.filter(
+    (data): data is string => Boolean(data && /^\d{4}-\d{2}-\d{2}/.test(data))
+  );
+  if (valide.length === 0) return null;
+  const max = valide.reduce((a, b) => (a > b ? a : b)).slice(0, 10);
+  const parsed = new Date(`${max}T00:00:00.000Z`);
+  if (Number.isNaN(parsed.getTime())) return null;
+  parsed.setUTCDate(parsed.getUTCDate() - 45);
+  return parsed;
+}
+
 export async function startFattureEmesseSyncAction(): Promise<FattureSyncStartResult> {
   const { auth } = await requireAreaAccess("amministrazione");
   try {
@@ -187,32 +200,29 @@ export async function startFattureEmesseSyncAction(): Promise<FattureSyncStartRe
   // Rinumerazione spostata a fine/pausa sync (UI board): non bloccare l'apertura coda.
 
   const supabase = await createClient();
-  try {
-    await importaDdtDaFattureInCloud(supabase, auth.userId);
-  } catch (e) {
-    console.error(
-      "[ddt sync]",
-      e instanceof Error ? e.message : e
-    );
-  }
-  const [invoices, creditNotes, clientiRes, registeredPage] =
-    await Promise.all([
-      fetchIssuedInvoices(null),
-      fetchIssuedCreditNotes(null),
-      supabase.from("clienti").select("*").is("deleted_at", null),
-      pageAllSoftRows(
-        supabase,
-        "fatture_emesse",
-        "id, fic_id, numero_interno, numero_documento_esterno, numero_fattura, cliente_id, cliente_codice_targa, data_emissione, totale, tipo_documento, origine"
-      ),
-    ]);
-
+  const [clientiRes, registeredPage] = await Promise.all([
+    supabase.from("clienti").select("*").is("deleted_at", null),
+    pageAllSoftRows(
+      supabase,
+      "fatture_emesse",
+      "id, fic_id, numero_interno, numero_documento_esterno, numero_fattura, cliente_id, cliente_codice_targa, data_emissione, totale, tipo_documento, origine"
+    ),
+  ]);
   if (clientiRes.error) {
     return { success: false, error: clientiRes.error.message };
   }
   if (registeredPage.error) {
     return { success: false, error: registeredPage.error };
   }
+  const since = sinceUltimiDocumenti(
+    registeredPage.rows.map((row) =>
+      row.data_emissione ? String(row.data_emissione) : null
+    )
+  );
+  const [invoices, creditNotes] = await Promise.all([
+    fetchIssuedInvoices(since),
+    fetchIssuedCreditNotes(since),
+  ]);
 
   const registeredRows = registeredPage.rows;
   const registeredFicIds = new Set(
@@ -513,16 +523,7 @@ export async function startFattureRicevuteSyncAction(): Promise<FattureSyncStart
   }
 
   const supabase = await createClient();
-  try {
-    await importaDdtDaFattureInCloud(supabase, auth.userId);
-  } catch (e) {
-    console.error(
-      "[ddt sync]",
-      e instanceof Error ? e.message : e
-    );
-  }
-  const [docs, fornitoriRes, registeredPage] = await Promise.all([
-    fetchReceivedInvoices(null),
+  const [fornitoriRes, registeredPage] = await Promise.all([
     supabase.from("fornitori").select("*").is("deleted_at", null),
     pageAllSoftRows(
       supabase,
@@ -537,6 +538,12 @@ export async function startFattureRicevuteSyncAction(): Promise<FattureSyncStart
   if (registeredPage.error) {
     return { success: false, error: registeredPage.error };
   }
+  const since = sinceUltimiDocumenti(
+    registeredPage.rows.map((row) =>
+      row.data_emissione ? String(row.data_emissione) : null
+    )
+  );
+  const docs = await fetchReceivedInvoices(since);
 
   const fornitori = (fornitoriRes.data ?? []) as FornitoreRow[];
   const ricevuteScope = await resolveFiscaleDocScope(
@@ -926,6 +933,8 @@ export async function listPendingFicInvoicesForClienteAction(input: {
   }
 
   const supabase = await createClient();
+  const since = new Date();
+  since.setUTCMonth(since.getUTCMonth() - 24);
   const [clienteRes, registeredPage, invoices] = await Promise.all([
     supabase
       .from("clienti")
@@ -934,7 +943,7 @@ export async function listPendingFicInvoicesForClienteAction(input: {
       .is("deleted_at", null)
       .maybeSingle(),
     pageAllSoftRows(supabase, "fatture_emesse", "fic_id"),
-    fetchIssuedInvoices(null),
+    fetchIssuedInvoices(since),
   ]);
 
   if (clienteRes.error) {

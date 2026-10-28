@@ -4,7 +4,7 @@ import { writeAuditLog } from "@/lib/audit";
 import { requireAreaAccess } from "@/lib/areas/guard";
 import {
   createIssuedDocument,
-  fetchFicVatTypes,
+  aliquotePerEmissione,
   getFicConfig,
   resolveFicVatId,
 } from "@/lib/fic";
@@ -251,9 +251,9 @@ export async function creaDdtAction(
     };
   }
 
-  let vatTypes: Awaited<ReturnType<typeof fetchFicVatTypes>> = [];
+  let vatTypes: Awaited<ReturnType<typeof aliquotePerEmissione>> = [];
   try {
-    vatTypes = await fetchFicVatTypes();
+    vatTypes = await aliquotePerEmissione();
   } catch (e) {
     return {
       success: false,

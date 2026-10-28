@@ -144,7 +144,14 @@ function lastRegisteredIso(hints: RegisteredDocHint[]): string | null {
   return dates.length ? dates.reduce((a, b) => (a > b ? a : b)) : null;
 }
 
-/** Keep-sync: solo i documenti vicini all'ultima fattura già registrata. */
+/** Anteprima coda: non riscarica l'archivio intero se ci sono già fatture registrate. */
+function sinceFinestra(lastIso: string | null): Date | null {
+  if (!lastIso || !/^\d{4}-\d{2}-\d{2}/.test(lastIso)) return null;
+  const parsed = new Date(`${lastIso.slice(0, 10)}T00:00:00.000Z`);
+  if (Number.isNaN(parsed.getTime())) return null;
+  parsed.setUTCDate(parsed.getUTCDate() - 45);
+  return parsed;
+}
 function sincePerAvanti(lastIso: string | null): Date {
   if (lastIso && /^\d{4}-\d{2}-\d{2}$/.test(lastIso)) {
     const parsed = new Date(`${lastIso}T00:00:00.000Z`);
@@ -202,7 +209,9 @@ async function listPendingMeta(
     }
     const registeredHints = mapRegisteredHints(registeredPage.rows);
     const lastRegisteredDate = lastRegisteredIso(registeredHints);
-    const since = opts?.soloAvanti ? sincePerAvanti(lastRegisteredDate) : null;
+    const since = opts?.soloAvanti
+      ? sincePerAvanti(lastRegisteredDate)
+      : sinceFinestra(lastRegisteredDate);
     const [invoices, creditNotes] = await Promise.all([
       fetchIssuedInvoices(since),
       fetchIssuedCreditNotes(since),
@@ -280,7 +289,9 @@ async function listPendingMeta(
   }
   const registeredHints = mapRegisteredHints(registeredPage.rows);
   const lastRegisteredDate = lastRegisteredIso(registeredHints);
-  const since = opts?.soloAvanti ? sincePerAvanti(lastRegisteredDate) : null;
+  const since = opts?.soloAvanti
+    ? sincePerAvanti(lastRegisteredDate)
+    : sinceFinestra(lastRegisteredDate);
   const docs = await fetchReceivedInvoices(since);
   const scope = skipScope
     ? { skip: true as const, dateFloor: null, ownedIds: null }
@@ -508,47 +519,15 @@ async function buildItemsFromFicIds(
   const idSet = new Set(ficIds);
   if (idSet.size === 0) return [];
   if (kind === "emessa") {
-    if (idSet.size <= 30) {
-      const items: FatturaSyncQueueItem[] = [];
-      for (const ficId of idSet) {
-        const doc = await fetchIssuedDocumentById(ficId);
-        if (!doc) continue;
-        const tipo = String(doc.raw.type ?? "");
-        items.push(
-          buildFatturaSyncQueueItem({
-            doc,
-            kind: tipo === "credit_note" ? "nota_credito" : "emessa",
-            existingId: null,
-            existingLabel: null,
-            proposedTarga: "",
-          })
-        );
-      }
-      return items;
-    }
-    const [invoices, creditNotes] = await Promise.all([
-      fetchIssuedInvoices(null),
-      fetchIssuedCreditNotes(null),
-    ]);
     const items: FatturaSyncQueueItem[] = [];
-    for (const d of invoices) {
-      if (!idSet.has(d.ficId)) continue;
+    for (const ficId of idSet) {
+      const doc = await fetchIssuedDocumentById(ficId);
+      if (!doc) continue;
+      const tipo = String(doc.raw.type ?? "");
       items.push(
         buildFatturaSyncQueueItem({
-          doc: d,
-          kind: "emessa",
-          existingId: null,
-          existingLabel: null,
-          proposedTarga: "",
-        })
-      );
-    }
-    for (const d of creditNotes) {
-      if (!idSet.has(d.ficId)) continue;
-      items.push(
-        buildFatturaSyncQueueItem({
-          doc: d,
-          kind: "nota_credito",
+          doc,
+          kind: tipo === "credit_note" ? "nota_credito" : "emessa",
           existingId: null,
           existingLabel: null,
           proposedTarga: "",
@@ -558,25 +537,9 @@ async function buildItemsFromFicIds(
     return items;
   }
 
-  const listed =
-    idSet.size <= 30 ? [] : await fetchReceivedInvoices(null);
-  const byList = new Map(listed.map((d) => [d.ficId, d]));
   const items: FatturaSyncQueueItem[] = [];
   for (const ficId of idSet) {
-    let enriched = byList.get(ficId) ?? null;
-    if (!enriched) {
-      enriched = await fetchReceivedDocumentById(ficId);
-    } else {
-      try {
-        enriched = await enrichReceivedDocument(enriched);
-      } catch (e) {
-        console.error(
-          "[fatture-sync-keep] enrich ricevuta",
-          ficId,
-          e instanceof Error ? e.message : e
-        );
-      }
-    }
+    const enriched = await fetchReceivedDocumentById(ficId);
     if (!enriched) {
       console.error("[fatture-sync-keep] ricevuta FiC non scaricata", ficId);
       continue;
