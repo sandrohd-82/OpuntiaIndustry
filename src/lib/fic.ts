@@ -196,11 +196,16 @@ export async function messaggioBloccoQuotaFic(): Promise<string | null> {
   const blocco = await leggiCatalogo<{ fino?: string; testo?: string }>(
     "quota_blocco"
   );
-  if (!blocco?.fino || Date.parse(blocco.fino) <= Date.now()) return null;
-  return (
-    blocco.testo ||
-    "Fatture in Cloud ha esaurito le chiamate API. Nessuna altra chiamata parte prima della scadenza salvata."
-  );
+  if (!blocco?.fino) return null;
+  const finoMs = Date.parse(blocco.fino);
+  if (!Number.isFinite(finoMs) || finoMs <= Date.now()) return null;
+  const minuti = Math.max(1, Math.ceil((finoMs - Date.now()) / 60000));
+  const quando = new Intl.DateTimeFormat("it-IT", {
+    timeZone: "Europe/Rome",
+    dateStyle: "short",
+    timeStyle: "short",
+  }).format(new Date(finoMs));
+  return `Fatture in Cloud ha esaurito le chiamate API. Il blocco locale scade il ${quando} (tra ${minuti} minuti). Nessuna altra chiamata parte prima di allora.`;
 }
 
 async function ficRequest<T>(
