@@ -173,6 +173,7 @@ export const ordineWizardInputSchema = z
     avvisoIncludiMisure: z.boolean().optional().default(false),
     avvisoIncludiPeso: z.boolean().optional().default(false),
     nessunaMail: z.boolean().optional().default(false),
+    invioDelegato: z.boolean().optional().default(false),
     prezzoUnitario: z.number().min(0),
     scontoListinoPct: z.number().min(0).max(100).optional().default(0),
     scontoListinoStandardPct: z.number().min(0).max(100).optional().default(0),
@@ -384,6 +385,14 @@ export const ordineWizardInputSchema = z
         });
       }
     }
+    if (val.nessunaMail && val.invioDelegato) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message:
+          "Scegli una sola opzione: nessuna mail oppure invio delegato all'operatore.",
+        path: ["invioDelegato"],
+      });
+    }
     const richiesta = parseRichiestaPervenuta(
       String(val.noteSezioni?.quantita_mail ?? "")
     );
@@ -431,6 +440,13 @@ export const ordineProcessaScalettaSchema = z.object({
   approvvigionamento: z.enum(["magazzino", "lavorazione"]).optional(),
   usaSabato: z.boolean().optional(),
   lottoCodice: z.string().trim().max(80).optional().default(""),
+  bozzaDelegata: z
+    .object({
+      destinatarioEmail: z.string().trim().max(240),
+      oggetto: z.string().trim().max(240),
+      corpo: z.string().trim().max(20000),
+    })
+    .optional(),
   resaPercentualeOverride: z.number().positive().max(100).nullable().optional(),
   capacitaIngressoKgPerEssiccatoreOverride: z
     .number()

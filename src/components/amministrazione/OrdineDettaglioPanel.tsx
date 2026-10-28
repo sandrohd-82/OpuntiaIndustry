@@ -22,6 +22,7 @@ import {
 import { labelRitiroMezzo } from "@/lib/amministrazione/ordine-ritiro";
 import {
   OrdineAvvisoRitiroBanner,
+  OrdineInvioDelegatoBanner,
   OrdineNessunaMailBanner,
 } from "@/components/amministrazione/OrdineAvvisoRitiroBanner";
 import { labelSede } from "@/lib/impostazioni/sedi";
@@ -662,6 +663,10 @@ export function OrdineDettaglioPanel({ ordine, onEdit }: Props) {
         peso={ordine.avvisoIncludiPeso}
       />
       <OrdineNessunaMailBanner attivo={ordine.nessunaMail} />
+      <OrdineInvioDelegatoBanner
+        attivo={ordine.invioDelegato}
+        inviato={Boolean(ordine.invioDelegatoInviatoAt)}
+      />
 
       {auditOpen ? (
         <OrdineAuditLogModal

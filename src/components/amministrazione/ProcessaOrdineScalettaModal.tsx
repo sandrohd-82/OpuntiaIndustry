@@ -5,9 +5,11 @@ import { leggiCampionatureOrdineAction } from "@/app/actions/ordine-campionatura
 import { leggiNoteSezioniOrdineAction } from "@/app/actions/ordine-sezione-note";
 import { OrdineCampionaturaElenco } from "@/components/amministrazione/OrdineCampionaturaElenco";
 import { processOrdineInScalettaAction } from "@/app/actions/ordini";
+import { getPrenotazioneSpedizioneMailAction } from "@/app/actions/spedizione-mail";
 import { NoteSezioniElenco } from "@/components/amministrazione/OrdineSezioneNota";
 import {
   OrdineAvvisoRitiroBanner,
+  OrdineInvioDelegatoBanner,
   OrdineNessunaMailBanner,
 } from "@/components/amministrazione/OrdineAvvisoRitiroBanner";
 import type { CampionaturaOrdineVoce } from "@/lib/amministrazione/ordine-campionatura";
@@ -85,6 +87,53 @@ export function ProcessaOrdineScalettaModal({
   const [campionatureOrdine, setCampionatureOrdine] = useState<
     CampionaturaOrdineVoce[]
   >([]);
+  const bozzaDelegataRichiesta =
+    ordine.invioDelegato &&
+    !ordine.invioDelegatoInviatoAt &&
+    !ordine.nessunaMail &&
+    !isCamp;
+  const [bozzaDest, setBozzaDest] = useState("");
+  const [bozzaOggetto, setBozzaOggetto] = useState("");
+  const [bozzaCorpo, setBozzaCorpo] = useState("");
+  const [bozzaSenzaCasella, setBozzaSenzaCasella] = useState(false);
+
+  useEffect(() => {
+    if (!bozzaDelegataRichiesta) return;
+    let cancel = false;
+    void getPrenotazioneSpedizioneMailAction({
+      entityType: "ordine",
+      entityId: ordine.id,
+    }).then((res) => {
+      if (cancel || !res.success || !res.item) return;
+      setBozzaDest(res.item.destinatarioEmail);
+      setBozzaOggetto(res.item.oggetto);
+      setBozzaCorpo(res.item.corpo);
+      setBozzaSenzaCasella(!res.item.accountId);
+    });
+    return () => {
+      cancel = true;
+    };
+  }, [bozzaDelegataRichiesta, ordine.id]);
+
+  function bozzaDelegataPayload():
+    | { destinatarioEmail: string; oggetto: string; corpo: string }
+    | null {
+    if (!bozzaDelegataRichiesta) return null;
+    const destinatarioEmail = bozzaDest.trim();
+    const oggetto = bozzaOggetto.trim();
+    const corpo = bozzaCorpo.trim();
+    if (
+      !destinatarioEmail.includes("@") ||
+      oggetto.length < 3 ||
+      corpo.length < 3
+    ) {
+      setError(
+        "Completa destinatario, oggetto e testo della bozza. L'ordine non entra in produzione e nulla parte."
+      );
+      return null;
+    }
+    return { destinatarioEmail, oggetto, corpo };
+  }
 
   useEffect(() => {
     let cancel = false;
@@ -264,11 +313,14 @@ export function ProcessaOrdineScalettaModal({
     dataConsegna: string;
     attivitaDrafts: AttivitaOrdineDraft[];
   }) {
+    const bozzaDelegata = bozzaDelegataPayload();
+    if (bozzaDelegataRichiesta && !bozzaDelegata) return;
     setSaving(true);
     setError(null);
     try {
       const result = await processOrdineInScalettaAction({
         ordineId: ordine.id,
+        ...(bozzaDelegata ? { bozzaDelegata } : {}),
         giorniProduzione: payload.giorniProduzione,
         giorniAttivita: payload.giorniAttivita,
         attivitaSnapshot: payload.segmentiAttivita,
@@ -309,11 +361,14 @@ export function ProcessaOrdineScalettaModal({
     const dataConsegna =
       calcolo?.dataConsegnaStimata ??
       `${oggi.getFullYear()}-${pad(oggi.getMonth() + 1)}-${pad(oggi.getDate())}`;
+    const bozzaDelegata = bozzaDelegataPayload();
+    if (bozzaDelegataRichiesta && !bozzaDelegata) return;
     setSaving(true);
     setError(null);
     try {
       const result = await processOrdineInScalettaAction({
         ordineId: ordine.id,
+        ...(bozzaDelegata ? { bozzaDelegata } : {}),
         giorniProduzione: [],
         giorniAttivita: [],
         attivitaSnapshot: [],
@@ -374,11 +429,14 @@ export function ProcessaOrdineScalettaModal({
         ) : null}
         {isCamp ? null : (
           <p className="mt-3 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-950">
-            Passaggio in produzione. L&apos;ordine entra in scaletta e la fattura
-            prende il numero fiscale allo SDI.
-            {ordine.nessunaMail
-              ? " Nessuna mail al cliente è prevista."
-              : " Se lo SDI conferma, la mail di cortesia può partire."}
+            {bozzaDelegataRichiesta
+              ? "Passaggio in produzione. Completa la bozza: con la stessa conferma l'ordine entra in scaletta e partono numero, SDI e mail."
+              : "Passaggio in produzione. L'ordine entra in scaletta e la fattura prende il numero fiscale allo SDI."}
+            {bozzaDelegataRichiesta
+              ? ""
+              : (ordine.nessunaMail
+                ? " Nessuna mail al cliente è prevista."
+                : " Se lo SDI conferma, la mail di cortesia può partire.")}
           </p>
         )}
 
@@ -531,6 +589,47 @@ export function ProcessaOrdineScalettaModal({
           </div>
         ) : null}
 
+        {bozzaDelegataRichiesta ? (
+          <div className="mt-4 space-y-2 rounded-xl border border-amber-300 bg-amber-50 p-3 text-sm">
+            <p className="font-medium text-amber-950">
+              Bozza preparata dal commerciale. Completa i dati che mancano.
+            </p>
+            {bozzaSenzaCasella ? (
+              <p className="text-amber-950">
+                Manca la casella mittente scelta dal commerciale. Lo SDI può
+                partire, la mail no.
+              </p>
+            ) : null}
+            <label className="block">
+              <span className="mb-1 block text-xs font-medium">Destinatario</span>
+              <input
+                type="email"
+                value={bozzaDest}
+                onChange={(e) => setBozzaDest(e.target.value)}
+                className="w-full rounded-lg border border-amber-200 bg-white px-3 py-2 outline-none focus:border-amber-600"
+              />
+            </label>
+            <label className="block">
+              <span className="mb-1 block text-xs font-medium">Oggetto</span>
+              <input
+                type="text"
+                value={bozzaOggetto}
+                onChange={(e) => setBozzaOggetto(e.target.value)}
+                className="w-full rounded-lg border border-amber-200 bg-white px-3 py-2 outline-none focus:border-amber-600"
+              />
+            </label>
+            <label className="block">
+              <span className="mb-1 block text-xs font-medium">Testo</span>
+              <textarea
+                value={bozzaCorpo}
+                onChange={(e) => setBozzaCorpo(e.target.value)}
+                rows={5}
+                className="w-full rounded-lg border border-amber-200 bg-white px-3 py-2 outline-none focus:border-amber-600"
+              />
+            </label>
+          </div>
+        ) : null}
+
         {error ? (
           <p className="mt-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
             {error}
@@ -549,10 +648,19 @@ export function ProcessaOrdineScalettaModal({
             <button
               type="button"
               disabled={saving || !puoLavorazione}
-              onClick={() => setCalendarioOpen(true)}
+              onClick={() => {
+                const bozza = bozzaDelegataPayload();
+                if (bozzaDelegataRichiesta && !bozza) return;
+                setError(null);
+                setCalendarioOpen(true);
+              }}
               className="rounded-lg bg-[var(--primary)] px-4 py-2 text-sm font-medium text-white hover:bg-[var(--primary-hover)] disabled:opacity-50"
             >
-              {saving ? "Salvataggio…" : "Apri calendario e inserisci"}
+              {saving
+                ? "Salvataggio…"
+                : (bozzaDelegataRichiesta
+                  ? "Apri calendario e invia"
+                  : "Apri calendario e inserisci")}
             </button>
           ) : (
             <button
@@ -561,7 +669,11 @@ export function ProcessaOrdineScalettaModal({
               onClick={() => void processDaMagazzino()}
               className="rounded-lg bg-[var(--primary)] px-4 py-2 text-sm font-medium text-white hover:bg-[var(--primary-hover)] disabled:opacity-50"
             >
-              {saving ? "Salvataggio…" : "Inserisci da magazzino"}
+              {saving
+                ? "Salvataggio…"
+                : (bozzaDelegataRichiesta
+                  ? "Inserisci e invia"
+                  : "Inserisci da magazzino")}
             </button>
           )}
         </div>
@@ -576,6 +688,10 @@ export function ProcessaOrdineScalettaModal({
             peso={ordine.avvisoIncludiPeso}
           />
           <OrdineNessunaMailBanner attivo={ordine.nessunaMail} />
+          <OrdineInvioDelegatoBanner
+            attivo={ordine.invioDelegato && !ordine.nessunaMail}
+            inviato={Boolean(ordine.invioDelegatoInviatoAt)}
+          />
         </div>
       </div>
 

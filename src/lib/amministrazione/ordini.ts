@@ -199,6 +199,8 @@ export type Ordine = {
   avvisoIncludiMisure: boolean;
   avvisoIncludiPeso: boolean;
   nessunaMail: boolean;
+  invioDelegato: boolean;
+  invioDelegatoInviatoAt: string | null;
   corriereId: string | null;
   corriereDaCompilare: boolean;
   spedizioneACarico: "cliente" | "agrinsicilia" | "diviso" | null;
@@ -492,6 +494,10 @@ export function mapOrdineRow(
     avvisoIncludiMisure: Boolean(row.avviso_includi_misure),
     avvisoIncludiPeso: Boolean(row.avviso_includi_peso),
     nessunaMail: Boolean(row.nessuna_mail),
+    invioDelegato: Boolean(row.invio_delegato),
+    invioDelegatoInviatoAt: row.invio_delegato_inviato_at
+      ? String(row.invio_delegato_inviato_at)
+      : null,
     corriereId: row.corriere_id ? String(row.corriere_id) : null,
     corriereDaCompilare: Boolean(row.corriere_da_compilare),
     spedizioneACarico:

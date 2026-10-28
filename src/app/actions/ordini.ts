@@ -1509,12 +1509,13 @@ async function createOrdineWizardActionInner(
       modalitaPrecedente: string;
       calcolataBy: string | null;
       ritiroPrima: boolean;
+      delegaPrima: boolean;
     } | null = null;
     if (input.ordineId) {
       const { data: prev, error: prevErr } = await supabase
         .from("ordini")
         .select(
-          "id, numero_interno, versione, stato, tipo, giorni_produzione, sconto_extra_pct, modalita_spedizione_prezzo, spedizione_calcolata_by, ritiro_in_sede, deleted_at"
+          "id, numero_interno, versione, stato, tipo, giorni_produzione, sconto_extra_pct, modalita_spedizione_prezzo, spedizione_calcolata_by, ritiro_in_sede, invio_delegato, deleted_at"
         )
         .eq("id", input.ordineId)
         .maybeSingle();
@@ -1558,6 +1559,9 @@ async function createOrdineWizardActionInner(
             .spedizione_calcolata_by ?? null,
         ritiroPrima: Boolean(
           (prev as { ritiro_in_sede?: boolean | null }).ritiro_in_sede
+        ),
+        delegaPrima: Boolean(
+          (prev as { invio_delegato?: boolean | null }).invio_delegato
         ),
       };
     }
@@ -1835,6 +1839,13 @@ async function createOrdineWizardActionInner(
           ? Boolean(input.avvisoIncludiPeso)
           : false,
       nessuna_mail: Boolean(input.nessunaMail),
+      invio_delegato: Boolean(input.invioDelegato) && !input.nessunaMail,
+      invio_delegato_at:
+        Boolean(input.invioDelegato) && !input.nessunaMail
+          ? new Date().toISOString()
+          : null,
+      invio_delegato_by:
+        Boolean(input.invioDelegato) && !input.nessunaMail ? auth.userId : null,
       preventivo_id: campionaturaGratis ? null : (input.preventivoId ?? null),
       webmail_accettazione_id: campionaturaGratis
         ? null
@@ -2213,7 +2224,23 @@ async function createOrdineWizardActionInner(
           avviso_includi_misure: Boolean(input.avvisoIncludiMisure),
           avviso_includi_peso: Boolean(input.avvisoIncludiPeso),
           nessuna_mail: Boolean(input.nessunaMail),
+          invio_delegato: Boolean(input.invioDelegato) && !input.nessunaMail,
         },
+      });
+    }
+
+    const delegaOra = Boolean(input.invioDelegato) && !input.nessunaMail;
+    const delegaPrima = Boolean(editing?.delegaPrima);
+    if (delegaOra || delegaPrima) {
+      await writeAudit({
+        entity_type: "ordini",
+        entity_id: row.id,
+        action: "update",
+        actor_id: auth.userId,
+        summary: delegaOra
+          ? `Invio delegato all'operatore di produzione per ${numeroInterno}. La bozza resta salvata.`
+          : `Delega di invio annullata per ${numeroInterno}.`,
+        payload: { invio_delegato: delegaOra },
       });
     }
 
@@ -2410,6 +2437,25 @@ export async function processOrdineInScalettaAction(
       fatturaProvaSaltata = true;
     } else {
       fatturaDaEmettereId = pronta.id;
+    }
+  }
+
+  const bozza = input.bozzaDelegata;
+  const delegaInvio =
+    existing.invioDelegato &&
+    !existing.nessunaMail &&
+    existing.tipo !== "campionatura" &&
+    Boolean(fatturaDaEmettereId);
+  if (delegaInvio) {
+    const email = bozza?.destinatarioEmail.trim() ?? "";
+    const oggetto = bozza?.oggetto.trim() ?? "";
+    const corpo = bozza?.corpo.trim() ?? "";
+    if (!email.includes("@") || oggetto.length < 3 || corpo.length < 3) {
+      return {
+        success: false,
+        error:
+          "Completa destinatario, oggetto e testo della bozza delegata. L'ordine non è entrato in produzione e nulla è partito.",
+      };
     }
   }
 
@@ -2658,12 +2704,33 @@ export async function processOrdineInScalettaAction(
     avviso =
       "Ordine in scaletta. La fattura era già stata inviata allo SDI: non è partita una seconda volta.";
   } else if (fatturaDaEmettereId) {
+    if (delegaInvio && bozza) {
+      await supabase
+        .from("spedizione_mail_prenotazioni")
+        .update({
+          destinatario_email: bozza.destinatarioEmail.trim(),
+          oggetto: bozza.oggetto.trim(),
+          corpo: bozza.corpo.trim(),
+          updated_by: auth.userId,
+          updated_at: nowIso,
+        })
+        .eq("entity_type", "ordine")
+        .eq("entity_id", existing.id)
+        .is("deleted_at", null);
+    }
     const invio = await inviaFatturaSalvataAction({
       fatturaId: fatturaDaEmettereId,
       sendToSdi: true,
       sendCourtesyEmail: !existing.nessunaMail,
       doppiaConferma: true,
       produzioneReale: true,
+      ...(delegaInvio && bozza
+        ? {
+            invioEmail: bozza.destinatarioEmail.trim(),
+            oggettoMail: bozza.oggetto.trim(),
+            corpoMail: bozza.corpo.trim(),
+          }
+        : {}),
     });
     if (!invio.success) {
       avviso = `Ordine in scaletta. La fattura non è partita: ${invio.error}`;
@@ -2679,6 +2746,30 @@ export async function processOrdineInScalettaAction(
       }
       avviso = `Fattura ${invio.numeroFattura} ${sdi}. ${mail}`;
       if (invio.warning) avviso = `${avviso} ${invio.warning}`;
+      if (delegaInvio) {
+        await supabase
+          .from("ordini")
+          .update({
+            invio_delegato_inviato_at: nowIso,
+            invio_delegato_inviato_by: auth.userId,
+            updated_by: auth.userId,
+          })
+          .eq("id", existing.id)
+          .is("deleted_at", null);
+        await writeAudit({
+          entity_type: "ordini",
+          entity_id: existing.id,
+          action: "status_change",
+          actor_id: auth.userId,
+          summary: `Operatore di produzione ha confermato l'invio delegato di ${existing.numeroInterno}.`,
+          payload: {
+            invio_delegato: true,
+            fattura_id: fatturaDaEmettereId,
+            sdi: invio.sdiSent,
+            mail: invio.courtesyEmailSent,
+          },
+        });
+      }
     }
   }
 

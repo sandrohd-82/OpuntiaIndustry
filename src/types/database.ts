@@ -1066,6 +1066,11 @@ export interface OrdineRow {
   avviso_includi_misure?: boolean;
   avviso_includi_peso?: boolean;
   nessuna_mail?: boolean;
+  invio_delegato?: boolean;
+  invio_delegato_at?: string | null;
+  invio_delegato_by?: string | null;
+  invio_delegato_inviato_at?: string | null;
+  invio_delegato_inviato_by?: string | null;
   destinatario?: string;
   indirizzo_spedizione?: string;
   preventivo_id?: string | null;
@@ -1164,6 +1169,11 @@ export interface OrdineInsert {
   avviso_includi_misure?: boolean;
   avviso_includi_peso?: boolean;
   nessuna_mail?: boolean;
+  invio_delegato?: boolean;
+  invio_delegato_at?: string | null;
+  invio_delegato_by?: string | null;
+  invio_delegato_inviato_at?: string | null;
+  invio_delegato_inviato_by?: string | null;
   preventivo_id?: string | null;
   webmail_accettazione_id?: string | null;
   referente_accettazione_id?: string | null;
@@ -1249,6 +1259,11 @@ export interface OrdineUpdate {
   avviso_includi_misure?: boolean;
   avviso_includi_peso?: boolean;
   nessuna_mail?: boolean;
+  invio_delegato?: boolean;
+  invio_delegato_at?: string | null;
+  invio_delegato_by?: string | null;
+  invio_delegato_inviato_at?: string | null;
+  invio_delegato_inviato_by?: string | null;
   sconto_extra_pct?: number;
   sconto_fascia?: string;
   sconto_approvazione_stato?: string;

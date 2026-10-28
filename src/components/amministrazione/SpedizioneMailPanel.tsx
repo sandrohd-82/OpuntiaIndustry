@@ -111,6 +111,9 @@ type Props = {
   /** Finalizzazione: nessuna mail al cliente, né documento né tracking. */
   bloccaMail?: boolean;
   onNessunaMailChange?: (value: boolean) => void;
+  /** Il commerciale prepara la bozza; la invia l'operatore al processo. */
+  invioDelegato?: boolean;
+  onInvioDelegatoChange?: (value: boolean) => void;
 };
 
 export function SpedizioneMailPanel({
@@ -137,6 +140,8 @@ export function SpedizioneMailPanel({
   notaMail,
   bloccaMail = false,
   onNessunaMailChange,
+  invioDelegato = false,
+  onInvioDelegatoChange,
 }: Props) {
   const [trackingUrl, setTrackingUrl] = useState("");
   const [sedePartenzaId, setSedePartenzaId] = useState(sedePartenzaIdDefault);
@@ -729,6 +734,21 @@ export function SpedizioneMailPanel({
           <span>
             Non intendo inviare alcuna mail. Non parte la mail di cortesia,
             né la fattura, né il tracking.
+          </span>
+        </label>
+      ) : null}
+      {onInvioDelegatoChange ? (
+        <label className="flex items-start gap-2 rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 text-sm">
+          <input
+            type="checkbox"
+            className="mt-1"
+            checked={invioDelegato}
+            onChange={(e) => onInvioDelegatoChange(e.target.checked)}
+          />
+          <span>
+            Delego l&apos;invio all&apos;operatore che mette in produzione.
+            Preparo la bozza: resta salvata e la invia lui al processo, quando
+            ha il dato che manca.
           </span>
         </label>
       ) : null}

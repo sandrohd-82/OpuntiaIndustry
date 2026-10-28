@@ -12,6 +12,7 @@ import { getSchedaOrdineDettaglioAction } from "@/app/actions/schede-ordini";
 import { leggiAvvisoRitiroOrdineAction } from "@/app/actions/ordine-ritiro-contatti";
 import {
   OrdineAvvisoRitiroBanner,
+  OrdineInvioDelegatoBanner,
   OrdineNessunaMailBanner,
 } from "@/components/amministrazione/OrdineAvvisoRitiroBanner";
 import type { ProduzioneCorriere } from "@/lib/produzione/corrieri";
@@ -90,6 +91,8 @@ export function SchedaOrdineModal({
     misure: boolean;
     peso: boolean;
     nessunaMail: boolean;
+    invioDelegato: boolean;
+    invioDelegatoInviato: boolean;
   } | null>(null);
 
   useEffect(() => {
@@ -409,6 +412,10 @@ export function SchedaOrdineModal({
               peso={avvisoRitiro.peso}
             />
             <OrdineNessunaMailBanner attivo={avvisoRitiro.nessunaMail} />
+            <OrdineInvioDelegatoBanner
+              attivo={avvisoRitiro.invioDelegato}
+              inviato={avvisoRitiro.invioDelegatoInviato}
+            />
           </div>
         ) : null}
       </div>

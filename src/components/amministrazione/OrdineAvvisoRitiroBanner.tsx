@@ -45,3 +45,27 @@ export function OrdineNessunaMailBanner({ attivo }: { attivo: boolean }) {
     </p>
   );
 }
+
+export function OrdineInvioDelegatoBanner({
+  attivo,
+  inviato = false,
+}: {
+  attivo: boolean;
+  inviato?: boolean;
+}) {
+  if (!attivo) return null;
+  if (inviato) {
+    return (
+      <p className="rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-950">
+        L&apos;operatore di produzione ha confermato l&apos;invio della bozza
+        delegata.
+      </p>
+    );
+  }
+  return (
+    <p className="rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-950">
+      Invio delegato all&apos;operatore di produzione. La bozza è salvata e non
+      è ancora partita: numero, SDI e mail li conferma lui al processo.
+    </p>
+  );
+}

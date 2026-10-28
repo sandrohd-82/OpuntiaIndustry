@@ -1267,6 +1267,8 @@ async function inviaMailPdfComeBozza(input: {
   mailTo: string;
   numeroFattura: string;
   userId: string;
+  oggetto?: string;
+  corpo?: string;
 }): Promise<void> {
   const service = createServiceClient();
   const loghi = await caricaLoghiFatturaA4Server();
@@ -1365,11 +1367,15 @@ async function inviaMailPdfComeBozza(input: {
     )
     .filter(Boolean)
     .join(", ");
-  const subject = `Fattura ${input.numeroFattura}`;
-  const text = testoMailFatturaCortesia({
-    numeroOrdine,
-    prodotti: voci,
-  }).bodyText;
+  const oggettoScelto = input.oggetto?.trim() ?? "";
+  const corpoScelto = input.corpo?.trim() ?? "";
+  const subject = oggettoScelto || `Fattura ${input.numeroFattura}`;
+  const text =
+    corpoScelto ||
+    testoMailFatturaCortesia({
+      numeroOrdine,
+      prodotti: voci,
+    }).bodyText;
   const allegato = {
     filename: pdf.fileName,
     content: bytes,
@@ -1467,6 +1473,9 @@ export async function inviaFatturaSalvataAction(input: {
    * Qui il numero fiscale, lo SDI e la mail al cliente sono reali.
    */
   produzioneReale?: boolean;
+  /** Testo preparato dal commerciale e completato dall'operatore. */
+  oggettoMail?: string;
+  corpoMail?: string;
 }): Promise<SalvaFatturaDaOrdineResult> {
   const { auth } = input.produzioneReale
     ? await requireOrdineProcessAccess()
@@ -1748,6 +1757,8 @@ export async function inviaFatturaSalvataAction(input: {
         mailTo,
         numeroFattura,
         userId: auth.userId,
+        oggetto: input.oggettoMail,
+        corpo: input.corpoMail,
       });
       courtesyEmailSent = true;
     } catch (e) {

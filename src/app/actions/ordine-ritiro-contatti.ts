@@ -130,6 +130,8 @@ export async function leggiAvvisoRitiroOrdineAction(ordineId: string): Promise<
       misure: boolean;
       peso: boolean;
       nessunaMail: boolean;
+      invioDelegato: boolean;
+      invioDelegatoInviato: boolean;
     }
   | { success: false; error: string }
 > {
@@ -141,7 +143,7 @@ export async function leggiAvvisoRitiroOrdineAction(ordineId: string): Promise<
   const { data, error } = await supabase
     .from("ordini")
     .select(
-      "ritiro_in_sede, avvisa_merce_pronta, avviso_valore, avviso_etichetta, avviso_includi_orari, avviso_includi_sede, avviso_includi_misure, avviso_includi_peso, nessuna_mail"
+      "ritiro_in_sede, avvisa_merce_pronta, avviso_valore, avviso_etichetta, avviso_includi_orari, avviso_includi_sede, avviso_includi_misure, avviso_includi_peso, nessuna_mail, invio_delegato, invio_delegato_inviato_at"
     )
     .eq("id", ordineId)
     .is("deleted_at", null)
@@ -157,5 +159,7 @@ export async function leggiAvvisoRitiroOrdineAction(ordineId: string): Promise<
     misure: Boolean(data?.avviso_includi_misure),
     peso: Boolean(data?.avviso_includi_peso),
     nessunaMail: Boolean(data?.nessuna_mail),
+    invioDelegato: Boolean(data?.invio_delegato),
+    invioDelegatoInviato: Boolean(data?.invio_delegato_inviato_at),
   };
 }

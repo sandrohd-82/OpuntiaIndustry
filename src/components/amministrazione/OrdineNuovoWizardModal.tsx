@@ -62,6 +62,7 @@ import {
 import { OrdinePreventivoPicker } from "@/components/amministrazione/OrdinePreventivoPicker";
 import {
   OrdineAvvisoRitiroBanner,
+  OrdineInvioDelegatoBanner,
   OrdineNessunaMailBanner,
 } from "@/components/amministrazione/OrdineAvvisoRitiroBanner";
 import {
@@ -587,6 +588,7 @@ export function OrdineNuovoWizardModal({
   const [avvisoMisure, setAvvisoMisure] = useState(false);
   const [avvisoPeso, setAvvisoPeso] = useState(false);
   const [nessunaMail, setNessunaMail] = useState(false);
+  const [invioDelegato, setInvioDelegato] = useState(false);
   const [contattiRitiro, setContattiRitiro] = useState<{
     telefoni: ContattoRitiro[];
     mail: ContattoRitiro[];
@@ -780,6 +782,7 @@ export function OrdineNuovoWizardModal({
         setAvvisoPeso(d.avvisoIncludiPeso);
       }
       setNessunaMail(d.nessunaMail);
+      setInvioDelegato(d.invioDelegato);
       setQuantita(d.quantita);
       setUnitaMisura(d.unitaMisura);
       setScontoExtraPct(d.scontoExtraPct || "");
@@ -1698,6 +1701,8 @@ export function OrdineNuovoWizardModal({
           ritiroInSede && avvisaMercePronta && avvisoMisure;
         ordine.avvisoIncludiPeso = ritiroInSede && avvisaMercePronta && avvisoPeso;
         ordine.nessunaMail = nessunaMail;
+        ordine.invioDelegato = !nessunaMail && invioDelegato;
+        ordine.invioDelegatoInviatoAt = null;
         ordine.trasporto = {
           ...emptyTrasporto(),
           imponibile: ritiroInSede || attesaCalcoloSpedizione
@@ -1793,6 +1798,7 @@ export function OrdineNuovoWizardModal({
         avvisoIncludiMisure: ritiroInSede && avvisaMercePronta && avvisoMisure,
         avvisoIncludiPeso: ritiroInSede && avvisaMercePronta && avvisoPeso,
         nessunaMail,
+        invioDelegato: tipoOrdine === "campionatura" ? false : invioDelegato,
         quantita: quantitaInserita,
         unitaMisura: umEffettiva,
         prezzoUnitario: tipoOrdine === "campionatura" ? 0 : numberOrZero(prezzoUnitario),
@@ -2006,7 +2012,12 @@ export function OrdineNuovoWizardModal({
         if (fat.resettata) clearFatturaAnteprimaSessione(anteprimaSessioneId);
         const mailErr = await memorizzaMail();
         let invioSubito = "";
-        if (invioFatturaSdi === "subito" && !fat.giaInviata && docMail !== "proforma") {
+        if (
+          invioFatturaSdi === "subito" &&
+          !invioDelegato &&
+          !fat.giaInviata &&
+          docMail !== "proforma"
+        ) {
           const invio = await inviaFatturaSalvataAction({
             fatturaId: fat.fatturaId,
             sendToSdi: true,
@@ -2059,7 +2070,9 @@ export function OrdineNuovoWizardModal({
         if (!modificaOrdineId && FASE_TEST_INVIO && !nessunaMail) apriMailOrdine();
         const extra = [fat.avviso, invioSubito].filter(Boolean).join(" ");
         let messaggioFinale = `Ordine ${result.ordine.numeroInterno} finalizzato. La fattura è in bozza, senza numero. Il numero, lo SDI e la mail al cliente partono quando l'ordine entra in produzione.`;
-        if (invioFatturaSdi === "subito") {
+        if (invioDelegato) {
+          messaggioFinale = `Ordine ${result.ordine.numeroInterno} finalizzato. La bozza è salvata. Numero, SDI e mail li invia l'operatore quando mette l'ordine in produzione.`;
+        } else if (invioFatturaSdi === "subito") {
           messaggioFinale = `Ordine ${result.ordine.numeroInterno} finalizzato. ${invioSubito || "Invio allo SDI non eseguito. La mail non è partita."}`;
         } else if (FASE_TEST_INVIO && !modificaOrdineId) {
           const documentoSalvato =
@@ -4407,6 +4420,12 @@ export function OrdineNuovoWizardModal({
                     Scelta obbligatoria prima di finalizzare. Fa esattamente
                     quello che è scritto.
                   </p>
+                  {invioDelegato ? (
+                    <p className="mt-3 text-sm font-medium text-amber-950">
+                      Con la delega non parte nulla adesso. La bozza resta
+                      salvata e la invia l&apos;operatore al processo.
+                    </p>
+                  ) : null}
                   {fatturaGiaInviata ? (
                     <p className="mt-3 text-sm font-medium text-amber-950">
                       La fattura è già partita allo SDI. Quando l&apos;ordine
@@ -4514,6 +4533,7 @@ export function OrdineNuovoWizardModal({
                 bloccaMail={nessunaMail}
                 onNessunaMailChange={(acceso) => {
                   setNessunaMail(acceso);
+                  if (acceso) setInvioDelegato(false);
                   if (!acceso) return;
                   spedDraft.current = {
                     ...spedDraft.current,
@@ -4522,6 +4542,15 @@ export function OrdineNuovoWizardModal({
                     documentoMail: "informativa",
                   };
                 }}
+                invioDelegato={invioDelegato}
+                onInvioDelegatoChange={
+                  tipoOrdine === "campionatura"
+                    ? undefined
+                    : (acceso) => {
+                        setInvioDelegato(acceso);
+                        if (acceso) setNessunaMail(false);
+                      }
+                }
               />
             </div>
           ) : null}
@@ -4547,6 +4576,9 @@ export function OrdineNuovoWizardModal({
               peso={avvisoPeso}
             />
             <OrdineNessunaMailBanner attivo={nessunaMail} />
+            <OrdineInvioDelegatoBanner
+              attivo={invioDelegato && !nessunaMail && tipoOrdine !== "campionatura"}
+            />
           </div>
         </div>
 
