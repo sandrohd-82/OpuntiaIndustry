@@ -605,7 +605,10 @@ export function AziendaTimelineModal({
   const [mailQuery, setMailQuery] = useState("");
   const [mailHits, setMailHits] = useState<AziendaTimelineMailHit[]>([]);
   const [mailSearching, setMailSearching] = useState(isMailPick);
-  const [mailAmbito, setMailAmbito] = useState<"inerenti" | "tutte">("inerenti");
+  const [mailAmbito, setMailAmbito] = useState<"inerenti" | "tutte">(
+    isMailPick ? "tutte" : "inerenti"
+  );
+  const [mailModo, setMailModo] = useState<"auto" | "manuale">("auto");
   const [mailTruncated, setMailTruncated] = useState(false);
   const [cercaIoOpen, setCercaIoOpen] = useState(false);
   const [selectedMail, setSelectedMail] = useState<AziendaTimelineMailHit | null>(
@@ -659,7 +662,7 @@ export function AziendaTimelineModal({
         }
       );
     }
-    void runMailSearch("", isMailPick ? "inerenti" : undefined);
+    void runMailSearch("", isMailPick ? "tutte" : undefined);
     // eslint-disable-next-line react-hooks/exhaustive-deps -- solo all'apertura pannello
   }, [panel, aziendaTipo, aziendaId, isMailPick]);
 
@@ -1332,14 +1335,49 @@ export function AziendaTimelineModal({
               Collega mail WebMail
             </p>
             <p className="mt-0.5 text-xs text-sky-900/80">
-              {isMailPick
-                ? mailAmbito === "tutte"
-                  ? "Tutte le mail ricevute e inviate agli indirizzi di questa azienda, dalla più recente alla più lontana."
-                  : "Solo le mail inerenti. Le altre restano nascoste finché non le chiedi."
-                : "Default: indirizzi scheda/referenti e stesso dominio aziendale (escl. caselle consumer). Solo caselle con i tuoi permessi."}
+              {mailModo === "auto"
+                ? "Ricerca automatica sugli indirizzi dell'azienda, mail ricevute e inviate."
+                : "Ricerca manuale: scrivi un indirizzo oppure scegli un suggerimento."}
             </p>
-            {isMailPick ? (
-              <div className="mt-2 flex flex-wrap gap-2">
+            <div className="mt-2 flex flex-wrap gap-2">
+              <button
+                type="button"
+                onClick={() => {
+                  setMailModo("auto");
+                  setMailQuery("");
+                  if (isMailPick) setMailAmbito("tutte");
+                  setSelectedMail(null);
+                  void runMailSearch("", isMailPick ? "tutte" : undefined);
+                }}
+                className={`rounded-lg px-3 py-1.5 text-xs font-medium ${
+                  mailModo === "auto"
+                    ? "bg-sky-700 text-white"
+                    : "border border-sky-300 bg-white text-sky-950"
+                }`}
+              >
+                Ricerca automatica
+              </button>
+              <button
+                type="button"
+                onClick={() => setMailModo("manuale")}
+                className={`rounded-lg px-3 py-1.5 text-xs font-medium ${
+                  mailModo === "manuale"
+                    ? "bg-sky-700 text-white"
+                    : "border border-sky-300 bg-white text-sky-950"
+                }`}
+              >
+                Ricerca manuale
+              </button>
+              {isMailPick && mailModo === "manuale" ? (
+                <button
+                  type="button"
+                  onClick={() => setCercaIoOpen(true)}
+                  className="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-medium text-slate-800 hover:bg-slate-50"
+                >
+                  Cercherò io
+                </button>
+              ) : null}
+              {isMailPick && mailModo === "manuale" ? (
                 <button
                   type="button"
                   disabled={mailSearching}
@@ -1355,15 +1393,8 @@ export function AziendaTimelineModal({
                     ? "Mostra solo le inerenti"
                     : "Carica tutte le mail di questa azienda"}
                 </button>
-                <button
-                  type="button"
-                  onClick={() => setCercaIoOpen(true)}
-                  className="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-medium text-slate-800 hover:bg-slate-50"
-                >
-                  Cercherò io
-                </button>
-              </div>
-            ) : null}
+              ) : null}
+            </div>
             {mailHints.length > 0 || mailDomains.length > 0 ? (
               <div className="mt-2 flex flex-wrap gap-1.5">
                 {mailHints.map((h) => (
@@ -1371,6 +1402,7 @@ export function AziendaTimelineModal({
                     key={`${h.email}-${h.source}`}
                     type="button"
                     onClick={() => {
+                      setMailModo("manuale");
                       setMailQuery(h.email);
                       void runMailSearch(h.email);
                     }}
@@ -1385,6 +1417,7 @@ export function AziendaTimelineModal({
                     key={d}
                     type="button"
                     onClick={() => {
+                      setMailModo("manuale");
                       setMailQuery(`@${d}`);
                       void runMailSearch(`@${d}`);
                     }}
@@ -1395,32 +1428,30 @@ export function AziendaTimelineModal({
                 ))}
               </div>
             ) : null}
-            <div className="mt-2 flex flex-wrap gap-2">
-              <input
-                value={mailQuery}
-                onChange={(e) => setMailQuery(e.target.value)}
-                placeholder="Cerca indirizzo email…"
-                className="min-w-[14rem] flex-1 rounded-lg border border-[var(--border)] bg-white px-3 py-2 text-sm"
-              />
-              <button
-                type="button"
-                disabled={mailSearching}
-                onClick={() => void runMailSearch(mailQuery)}
-                className="rounded-lg bg-sky-700 px-3 py-2 text-xs font-medium text-white disabled:opacity-50"
-              >
-                {mailSearching ? "Cerco…" : "Cerca"}
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  setMailQuery("");
-                  void runMailSearch("");
-                }}
-                className="rounded-lg border border-[var(--border)] bg-white px-3 py-2 text-xs"
-              >
-                Suggerite
-              </button>
-            </div>
+            {mailModo === "manuale" ? (
+              <div className="mt-2 flex flex-wrap gap-2">
+                <input
+                  value={mailQuery}
+                  onChange={(e) => setMailQuery(e.target.value)}
+                  placeholder="Cerca indirizzo email…"
+                  className="min-w-[14rem] flex-1 rounded-lg border border-[var(--border)] bg-white px-3 py-2 text-sm"
+                />
+                <button
+                  type="button"
+                  disabled={mailSearching}
+                  onClick={() => void runMailSearch(mailQuery)}
+                  className="rounded-lg bg-sky-700 px-3 py-2 text-xs font-medium text-white disabled:opacity-50"
+                >
+                  {mailSearching ? "Cerco…" : "Cerca"}
+                </button>
+              </div>
+            ) : (
+              <p className="mt-2 text-xs text-sky-900/80">
+                {mailSearching
+                  ? "Cerco le mail dell'azienda…"
+                  : "Per un indirizzo preciso passa alla ricerca manuale."}
+              </p>
+            )}
             <ul
               className={`mt-3 space-y-1.5 overflow-y-auto ${
                 isMailPick ? "min-h-0 flex-1" : "max-h-[min(28rem,55vh)]"
@@ -1428,7 +1459,7 @@ export function AziendaTimelineModal({
             >
               {mailSearching && mailHits.length === 0 ? (
                 <li className="text-xs text-[var(--muted)]">
-                  Cerco le mail ricevute…
+                  Cerco le mail dell&apos;azienda…
                 </li>
               ) : mailHits.length === 0 ? (
                 <li className="text-xs text-[var(--muted)]">

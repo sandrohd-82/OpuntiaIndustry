@@ -1,7 +1,10 @@
 "use client";
 
-import { useState } from "react";
-import { cercaPreventiviPerOrdineAction } from "@/app/actions/preventivi";
+import { useEffect, useState } from "react";
+import {
+  cercaPreventiviPerOrdineAction,
+  type PreventivoMailTrovata,
+} from "@/app/actions/preventivi";
 import { PreventivoCalcoloSpedizioneSheet } from "@/components/amministrazione/PreventivoCalcoloSpedizioneSheet";
 import {
   PREVENTIVO_STATI,
@@ -30,7 +33,8 @@ function riepilogoRighe(item: Preventivo) {
 }
 
 function puoCollegare(item: Preventivo, clienteId: string) {
-  return item.stato === "accettato" && item.clienteId === clienteId;
+  const statoUtile = item.stato === "accettato" || item.stato === "inviato";
+  return statoUtile && item.clienteId === clienteId;
 }
 
 export function OrdinePreventivoPicker({
@@ -57,17 +61,21 @@ export function OrdinePreventivoPicker({
   const [archivio, setArchivio] = useState<"tutti" | "operativi" | "archivio">(
     "tutti"
   );
+  const [email, setEmail] = useState("");
+  const [modo, setModo] = useState<"auto" | "manuale">("auto");
   const [trovati, setTrovati] = useState<Preventivo[]>([]);
+  const [mailTrovate, setMailTrovate] = useState<PreventivoMailTrovata[]>([]);
   const [troncati, setTroncati] = useState(false);
   const [errore, setErrore] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [cercato, setCercato] = useState(false);
 
   function apri(item: Preventivo, alta: boolean) {
     setVistaAlta(alta);
     setVista(item);
   }
 
-  async function cerca() {
+  async function cercaManuale() {
     setBusy(true);
     setErrore(null);
     const res = await cercaPreventiviPerOrdineAction({
@@ -77,24 +85,61 @@ export function OrdinePreventivoPicker({
       numero,
       stato,
       archivio,
+      email,
+      clienteId: azienda.trim() ? "" : clienteId,
+      includiMail: true,
     });
     setBusy(false);
+    setCercato(true);
     if (!res.success) {
       setErrore(res.error);
       setTrovati([]);
+      setMailTrovate([]);
       setTroncati(false);
       return;
     }
     setTrovati(res.items);
+    setMailTrovate(res.mail);
     setTroncati(res.truncated);
   }
+
+  useEffect(() => {
+    if (!cercaOpen || modo !== "auto") return;
+    let cancel = false;
+    void (async () => {
+      setBusy(true);
+      setErrore(null);
+      const res = await cercaPreventiviPerOrdineAction({
+        clienteId,
+        azienda: clienteId ? "" : clienteNome,
+        archivio: "tutti",
+        includiMail: true,
+      });
+      if (cancel) return;
+      setBusy(false);
+      setCercato(true);
+      if (!res.success) {
+        setErrore(res.error);
+        setTrovati([]);
+        setMailTrovate([]);
+        setTroncati(false);
+        return;
+      }
+      setTrovati(res.items);
+      setMailTrovate(res.mail);
+      setTroncati(res.truncated);
+    })();
+    return () => {
+      cancel = true;
+    };
+  }, [cercaOpen, modo, clienteId, clienteNome]);
 
   return (
     <div className="space-y-3">
       <p className="text-xs text-[var(--muted)]">
-        Prima i preventivi accettati di {clienteNome || "questa azienda"}
-        inerenti al prodotto. Aprilo per leggerlo, oppure cercane uno tra
-        tutti.
+        Prima i preventivi accettati o già inviati di {clienteNome || "questa azienda"}
+        inerenti al prodotto. Aprilo per leggerlo, oppure cercane uno tra tutti:
+        la ricerca parte da sola e guarda anche le mail.
       </p>
       {selezionato ? (
         <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-950">
@@ -125,7 +170,7 @@ export function OrdinePreventivoPicker({
       ) : null}
       {inerenti.length === 0 ? (
         <p className="text-sm text-slate-500">
-          Nessun preventivo accettato inerente
+          Nessun preventivo accettato o già inviato per questo prodotto
           {clienteId ? "" : ". Scegli prima il cliente"}.
         </p>
       ) : (
@@ -200,9 +245,10 @@ export function OrdinePreventivoPicker({
                   Tutti i preventivi
                 </h2>
                 <p className="mt-1 text-xs text-[var(--muted)]">
-                  Filtra per data, azienda, numero o stato. Si collega all’ordine
-                  solo un preventivo accettato di {clienteNome || "questo cliente"}.
-                  Gli altri si possono solo aprire.
+                  Ricerca automatica su tutti i preventivi di{" "}
+                  {clienteNome || "questo cliente"}, compresi quelli già
+                  inviati, e sulle mail dell&apos;azienda. Si collega un
+                  preventivo accettato o già inviato di questa azienda.
                 </p>
               </div>
               <button
@@ -213,80 +259,123 @@ export function OrdinePreventivoPicker({
                 Chiudi
               </button>
             </div>
-            <div className="mt-3 grid gap-2 sm:grid-cols-3">
-              <label className="text-sm">
-                <span className="mb-1 block text-xs text-[var(--muted)]">Data da</span>
-                <input
-                  type="date"
-                  value={dataDa}
-                  onChange={(e) => setDataDa(e.target.value)}
-                  className={field}
-                />
-              </label>
-              <label className="text-sm">
-                <span className="mb-1 block text-xs text-[var(--muted)]">Data a</span>
-                <input
-                  type="date"
-                  value={dataA}
-                  onChange={(e) => setDataA(e.target.value)}
-                  className={field}
-                />
-              </label>
-              <label className="text-sm">
-                <span className="mb-1 block text-xs text-[var(--muted)]">Azienda</span>
-                <input
-                  value={azienda}
-                  onChange={(e) => setAzienda(e.target.value)}
-                  placeholder={clienteNome || "Ragione sociale"}
-                  className={field}
-                />
-              </label>
-              <label className="text-sm">
-                <span className="mb-1 block text-xs text-[var(--muted)]">Numero</span>
-                <input
-                  value={numero}
-                  onChange={(e) => setNumero(e.target.value)}
-                  className={field}
-                />
-              </label>
-              <label className="text-sm">
-                <span className="mb-1 block text-xs text-[var(--muted)]">Stato</span>
-                <select
-                  value={stato}
-                  onChange={(e) => setStato(e.target.value as "" | PreventivoStato)}
-                  className={field}
-                >
-                  <option value="">Tutti</option>
-                  {PREVENTIVO_STATI.map((nome) => (
-                    <option key={nome} value={nome}>
-                      {PREVENTIVO_STATO_LABEL[nome]}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <label className="text-sm">
-                <span className="mb-1 block text-xs text-[var(--muted)]">Raccolta</span>
-                <select
-                  value={archivio}
-                  onChange={(e) =>
-                    setArchivio(e.target.value as "tutti" | "operativi" | "archivio")
-                  }
-                  className={field}
-                >
-                  <option value="tutti">Operativi e archivio</option>
-                  <option value="operativi">Solo operativi</option>
-                  <option value="archivio">Solo archivio</option>
-                </select>
-              </label>
+            <div className="mt-3 flex flex-wrap gap-2">
+              <button
+                type="button"
+                onClick={() => setModo("auto")}
+                className={`rounded-lg px-3 py-1.5 text-xs font-medium ${
+                  modo === "auto"
+                    ? "bg-sky-700 text-white"
+                    : "border border-sky-300 bg-white text-sky-950"
+                }`}
+              >
+                Ricerca automatica
+              </button>
+              <button
+                type="button"
+                onClick={() => setModo("manuale")}
+                className={`rounded-lg px-3 py-1.5 text-xs font-medium ${
+                  modo === "manuale"
+                    ? "bg-sky-700 text-white"
+                    : "border border-sky-300 bg-white text-sky-950"
+                }`}
+              >
+                Ricerca manuale
+              </button>
             </div>
-            <button
-              type="button"
-              disabled={busy}
-              onClick={() => void cerca()}
-              className="mt-3 rounded-lg bg-[var(--primary)] px-3 py-2 text-sm font-medium text-white disabled:opacity-50"
-            >
-              {busy ? "Cerco…" : "Cerca"}
-            </button>
+            {modo === "auto" ? (
+              <p className="mt-2 text-xs text-sky-950">
+                {busy
+                  ? "Cerco i preventivi del cliente e le mail dell'azienda…"
+                  : "Risultati della ricerca automatica, senza filtri."}
+              </p>
+            ) : (
+              <>
+                <div className="mt-3 grid gap-2 sm:grid-cols-3">
+                  <label className="text-sm">
+                    <span className="mb-1 block text-xs text-[var(--muted)]">Data da</span>
+                    <input
+                      type="date"
+                      value={dataDa}
+                      onChange={(e) => setDataDa(e.target.value)}
+                      className={field}
+                    />
+                  </label>
+                  <label className="text-sm">
+                    <span className="mb-1 block text-xs text-[var(--muted)]">Data a</span>
+                    <input
+                      type="date"
+                      value={dataA}
+                      onChange={(e) => setDataA(e.target.value)}
+                      className={field}
+                    />
+                  </label>
+                  <label className="text-sm">
+                    <span className="mb-1 block text-xs text-[var(--muted)]">Azienda</span>
+                    <input
+                      value={azienda}
+                      onChange={(e) => setAzienda(e.target.value)}
+                      placeholder={clienteNome || "Ragione sociale"}
+                      className={field}
+                    />
+                  </label>
+                  <label className="text-sm">
+                    <span className="mb-1 block text-xs text-[var(--muted)]">Numero</span>
+                    <input
+                      value={numero}
+                      onChange={(e) => setNumero(e.target.value)}
+                      className={field}
+                    />
+                  </label>
+                  <label className="text-sm">
+                    <span className="mb-1 block text-xs text-[var(--muted)]">Email</span>
+                    <input
+                      value={email}
+                      onChange={(e) => setEmail(e.target.value)}
+                      placeholder="indirizzo usato nel preventivo"
+                      className={field}
+                    />
+                  </label>
+                  <label className="text-sm">
+                    <span className="mb-1 block text-xs text-[var(--muted)]">Stato</span>
+                    <select
+                      value={stato}
+                      onChange={(e) => setStato(e.target.value as "" | PreventivoStato)}
+                      className={field}
+                    >
+                      <option value="">Tutti</option>
+                      {PREVENTIVO_STATI.map((nome) => (
+                        <option key={nome} value={nome}>
+                          {PREVENTIVO_STATO_LABEL[nome]}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <label className="text-sm">
+                    <span className="mb-1 block text-xs text-[var(--muted)]">Raccolta</span>
+                    <select
+                      value={archivio}
+                      onChange={(e) =>
+                        setArchivio(e.target.value as "tutti" | "operativi" | "archivio")
+                      }
+                      className={field}
+                    >
+                      <option value="tutti">Operativi e archivio</option>
+                      <option value="operativi">Solo operativi</option>
+                      <option value="archivio">Solo archivio</option>
+                    </select>
+                  </label>
+                </div>
+                <button
+                  type="button"
+                  disabled={busy}
+                  onClick={() => void cercaManuale()}
+                  className="mt-3 rounded-lg bg-[var(--primary)] px-3 py-2 text-sm font-medium text-white disabled:opacity-50"
+                >
+                  {busy ? "Cerco…" : "Cerca"}
+                </button>
+              </>
+            )}
             {errore ? (
               <p className="mt-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">
                 {errore}
@@ -300,7 +389,11 @@ export function OrdinePreventivoPicker({
             <ul className="mt-3 max-h-[28rem] space-y-2 overflow-y-auto">
               {trovati.length === 0 ? (
                 <li className="text-sm text-slate-500">
-                  {busy ? "Cerco…" : "Nessun risultato. Imposta i filtri e cerca."}
+                  {busy
+                    ? "Cerco…"
+                    : (cercato
+                      ? "Nessun preventivo trovato."
+                      : "In attesa della ricerca.")}
                 </li>
               ) : (
                 trovati.map((item) => {
@@ -325,9 +418,9 @@ export function OrdinePreventivoPicker({
                           </p>
                           {collega ? null : (
                             <p className="mt-1 text-[11px] text-[var(--muted)]">
-                              {item.stato !== "accettato"
-                                ? "Si può solo consultare: non è accettato."
-                                : "Si può solo consultare: è di un’altra azienda."}
+                              {item.stato !== "accettato" && item.stato !== "inviato"
+                                ? "Si può solo consultare: non è accettato né già inviato."
+                                : "Si può solo consultare: è di un'altra azienda."}
                             </p>
                           )}
                         </div>
@@ -358,6 +451,28 @@ export function OrdinePreventivoPicker({
                 })
               )}
             </ul>
+            {mailTrovate.length > 0 ? (
+              <div className="mt-4">
+                <p className="text-xs font-semibold uppercase tracking-wide text-sky-950">
+                  Mail dell&apos;azienda
+                </p>
+                <ul className="mt-2 max-h-40 space-y-1.5 overflow-y-auto">
+                  {mailTrovate.map((voce) => (
+                    <li
+                      key={voce.id}
+                      className="rounded-lg border border-sky-100 bg-sky-50 px-3 py-2 text-xs text-sky-950"
+                    >
+                      <span className="font-medium">{voce.subject}</span>
+                      <span className="mt-0.5 block text-[11px] text-sky-900/80">
+                        {voce.direction === "outbound" ? "Inviata" : "Ricevuta"}
+                        {voce.fromAddress ? ` · ${voce.fromAddress}` : ""}
+                        {voce.at ? ` · ${formatData(voce.at)}` : ""}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ) : null}
           </div>
         </div>
       ) : null}

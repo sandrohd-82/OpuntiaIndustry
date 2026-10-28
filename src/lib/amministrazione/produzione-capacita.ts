@@ -7,6 +7,10 @@ import {
   ORDINE_UNITA_MISURA,
   quantitaInUnitaBase,
 } from "@/lib/amministrazione/ordini";
+import {
+  parseRichiestaPervenuta,
+  richiestaPervenutaValida,
+} from "@/lib/amministrazione/ordine-sezione-note";
 
 /** Linea produttiva: secco (ODR/NDR) vs gel (OGL/NGL). */
 export type LineaProduzioneCodice = "secco" | "gel";
@@ -371,6 +375,20 @@ export const ordineWizardInputSchema = z
           path: ["confezionamento", "coerenzaIgnorata"],
         });
       }
+    }
+    const richiesta = parseRichiestaPervenuta(
+      String(val.noteSezioni?.quantita_mail ?? "")
+    );
+    const erroreRichiesta = richiestaPervenutaValida(
+      richiesta.canale,
+      richiesta.nota
+    );
+    if (erroreRichiesta) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: erroreRichiesta,
+        path: ["noteSezioni", "quantita_mail"],
+      });
     }
   });
 

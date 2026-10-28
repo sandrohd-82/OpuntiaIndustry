@@ -1140,8 +1140,7 @@ export async function searchWebmailForAziendaTimelineAction(
     }
   | { success: false; error: string }
 > {
-  const { auth } = await requireAreaAccess("amministrazione");
-  await requireWebmailAccess();
+  const { auth } = await requireWebmailAccess();
   const parsed = searchSchema.safeParse(raw);
   if (!parsed.success) return { success: false, error: "Ricerca non valida." };
   const vis = await resolveWebmailAccountVisibility(auth);

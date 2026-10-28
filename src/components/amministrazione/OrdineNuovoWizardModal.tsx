@@ -14,7 +14,15 @@ import { TitoloConNota } from "@/components/amministrazione/OrdineSezioneNota";
 import { OrdineCampionaturaElenco } from "@/components/amministrazione/OrdineCampionaturaElenco";
 import { CAMPIONATURA_ORDINE_NOTA } from "@/lib/amministrazione/ordine-campionatura";
 import { InfoHint } from "@/components/ui/InfoHint";
-import type { OrdineSezioneChiave } from "@/lib/amministrazione/ordine-sezione-note";
+import {
+  parseRichiestaPervenuta,
+  RICHIESTA_CANALI,
+  RICHIESTA_CANALE_LABEL,
+  richiestaPervenutaValida,
+  testoRichiestaPervenuta,
+  type OrdineSezioneChiave,
+  type RichiestaCanale,
+} from "@/lib/amministrazione/ordine-sezione-note";
 import { labelSede, type ImpostazioniSede } from "@/lib/impostazioni/sedi";
 import {
   type ContattoRitiro,
@@ -474,6 +482,8 @@ export function OrdineNuovoWizardModal({
     id: string;
     subject: string;
   } | null>(null);
+  const [richiestaCanale, setRichiestaCanale] = useState<RichiestaCanale>("mail");
+  const [richiestaNota, setRichiestaNota] = useState("");
   const [timelineMailKind, setTimelineMailKind] = useState<
     "accettazione" | "richiesta" | null
   >(null);
@@ -730,6 +740,13 @@ export function OrdineNuovoWizardModal({
       setProdotto(trovato);
       setNotaProdotto(d.notaProdotto);
       setNoteSezioni(d.noteSezioni);
+      {
+        const richiesta = parseRichiestaPervenuta(
+          d.noteSezioni.quantita_mail ?? ""
+        );
+        setRichiestaCanale(richiesta.canale);
+        setRichiestaNota(richiesta.nota);
+      }
       setSpedisceCampionatura(d.campionatureOrdine.length > 0);
       setCampionatureOrdine(
         d.campionatureOrdine.map((riga, index) => ({
@@ -1357,6 +1374,7 @@ export function OrdineNuovoWizardModal({
         return false;
       }
       if (ordineSospeso && !dataDisponibilitaPresunta) return false;
+      if (richiestaPervenutaValida(richiestaCanale, richiestaNota)) return false;
       if (
         tipoOrdine !== "campionatura" &&
         fasciaSconto === "oltre_30" &&
@@ -1729,7 +1747,10 @@ export function OrdineNuovoWizardModal({
         prodottoCodice: prodotto.codice,
         prodottoNome: prodotto.nome,
         notaProdotto: (noteSezioni.prodotto ?? notaProdotto).trim(),
-        noteSezioni,
+        noteSezioni: {
+          ...noteSezioni,
+          quantita_mail: testoRichiestaPervenuta(richiestaCanale, richiestaNota),
+        },
         campionatureOrdine:
           tipoOrdine === "campionatura" || !spedisceCampionatura
             ? []
@@ -1821,7 +1842,8 @@ export function OrdineNuovoWizardModal({
         tipo: tipoOrdine,
         preventivoId: preventivoId || null,
         webmailAccettazioneId: mailAccettazione?.id ?? null,
-        webmailRichiestaId: mailRichiesta?.id ?? null,
+        webmailRichiestaId:
+          richiestaCanale === "mail" ? (mailRichiesta?.id ?? null) : null,
         ordineId: modificaOrdineId,
         referenteAccettazioneId: referenteAccettazione?.id ?? null,
         dataDisponibilitaPresunta: ordineSospeso
@@ -3135,43 +3157,84 @@ export function OrdineNuovoWizardModal({
               )}
 
               <div className="space-y-2 rounded-lg border border-[var(--border)] px-4 py-3">
-                <div className="text-sm font-medium">
-                  {titoloNota("quantita_mail", "Richiesta pervenuta per mail")}
-                </div>
+                <div className="text-sm font-medium">Richiesta pervenuta per</div>
                 <p className="text-xs text-[var(--muted)]">
-                  Se il cliente ha scritto per mail, collega il messaggio.
-                  Prima compaiono le inerenti: da lì puoi caricare tutte
-                  quelle dell’azienda o cercarle in casella. Il preventivo
-                  resta facoltativo.
+                  Scegli come è arrivata. Per la mail puoi collegare il
+                  messaggio: la ricerca parte da sola sugli indirizzi
+                  dell&apos;azienda, oppure passi alla ricerca manuale. Telefono,
+                  di persona e altro richiedono una nota. Il preventivo resta
+                  facoltativo.
                 </p>
-                <button
-                  type="button"
-                  disabled={
-                    anagraficaFonte === "possibile"
-                      ? !possibileClienteId
-                      : !clienteId
-                  }
-                  onClick={() => {
-                    setTimelineMailKind("richiesta");
-                    setTimelineMailOpen(true);
-                  }}
-                  className="rounded-lg border border-[var(--border)] px-3 py-2 text-sm hover:bg-slate-50 disabled:opacity-50"
-                >
-                  {mailRichiesta
-                    ? mailRichiesta.subject || "Mail collegata"
-                    : "Collega mail ricevuta"}
-                </button>
+                <label className="block text-sm">
+                  <span className="mb-1 block text-xs text-[var(--muted)]">
+                    Selezione
+                  </span>
+                  <select
+                    value={richiestaCanale}
+                    onChange={(e) => {
+                      const next = e.target.value as RichiestaCanale;
+                      setRichiestaCanale(next);
+                      if (next !== "mail") setMailRichiesta(null);
+                    }}
+                    className="w-full rounded-lg border border-[var(--border)] bg-white px-3 py-2 text-sm"
+                  >
+                    {RICHIESTA_CANALI.map((canale) => (
+                      <option key={canale} value={canale}>
+                        {RICHIESTA_CANALE_LABEL[canale]}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                {richiestaCanale === "mail" ? (
+                  <button
+                    type="button"
+                    disabled={
+                      anagraficaFonte === "possibile"
+                        ? !possibileClienteId
+                        : !clienteId
+                    }
+                    onClick={() => {
+                      setTimelineMailKind("richiesta");
+                      setTimelineMailOpen(true);
+                    }}
+                    className="rounded-lg border border-[var(--border)] px-3 py-2 text-sm hover:bg-slate-50 disabled:opacity-50"
+                  >
+                    {mailRichiesta
+                      ? mailRichiesta.subject || "Mail collegata"
+                      : "Collega mail ricevuta"}
+                  </button>
+                ) : (
+                  <label className="block text-sm">
+                    <span className="mb-1 block text-xs text-[var(--muted)]">
+                      Come è avvenuta la richiesta
+                    </span>
+                    <textarea
+                      value={richiestaNota}
+                      onChange={(e) => setRichiestaNota(e.target.value)}
+                      rows={3}
+                      maxLength={1500}
+                      placeholder="Chi ha chiamato o è passato, e quando"
+                      className="w-full rounded-lg border border-[var(--border)] bg-white px-3 py-2 text-sm"
+                    />
+                  </label>
+                )}
+                {richiestaPervenutaValida(richiestaCanale, richiestaNota) ? (
+                  <p className="text-xs text-amber-800">
+                    {richiestaPervenutaValida(richiestaCanale, richiestaNota)}
+                  </p>
+                ) : null}
               </div>
 
               {tipoOrdine !== "campionatura" ? (
                 <div className="space-y-3 rounded-lg border border-[var(--border)] px-4 py-3">
                   <div className="text-sm font-medium">
-                    {titoloNota("quantita_preventivo", "Preventivo accettato")}
+                    {titoloNota("quantita_preventivo", "Preventivo")}
                   </div>
                   <p className="text-xs text-[var(--muted)]">
-                    Facoltativo, anche se hai collegato la mail di richiesta.
-                    Solo stato Accettato, un prodotto o più righe («di tanti»).
-                    Mail e referente di accettazione restano facoltativi.
+                    Facoltativo. In elenco ci sono i preventivi accettati e
+                    quelli già inviati di questo prodotto. Da «Cerca in tutti
+                    i preventivi» la ricerca parte da sola su tutti i
+                    preventivi del cliente e sulle mail.
                   </p>
                   <OrdinePreventivoPicker
                     clienteId={clienteId}

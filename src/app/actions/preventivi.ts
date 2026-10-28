@@ -25,6 +25,7 @@ import {
   resolvePerimetroDocumenti,
   rigaNelPerimetro,
 } from "@/lib/auth/anagrafica-visibility";
+import { collectAziendaEmailHints } from "@/app/actions/azienda-timeline";
 import { createClient, createServiceClient } from "@/lib/supabase/server";
 import {
   assertWebmailAccountAccess,
@@ -957,7 +958,7 @@ export async function listPreventiviAccettatiAction(input: {
     .from("preventivi")
     .select("*")
     .eq("cliente_id", input.clienteId)
-    .eq("stato", "accettato")
+    .in("stato", ["accettato", "inviato"])
     .is("deleted_at", null)
     .order("data_preventivo", { ascending: false })
     .limit(80);
@@ -980,6 +981,87 @@ export async function listPreventiviAccettatiAction(input: {
   return { success: true, items: await conMailProfessionale(items) };
 }
 
+export type PreventivoMailTrovata = {
+  id: string;
+  subject: string;
+  fromAddress: string;
+  direction: "inbound" | "outbound";
+  at: string | null;
+};
+
+function emailPerFiltro(raw: string): string {
+  return raw
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9@._+-]/g, "")
+    .slice(0, 200);
+}
+
+async function preventiviDaMailAzienda(
+  clienteId: string,
+  auth: NonNullable<Awaited<ReturnType<typeof getAuthContext>>>
+): Promise<{ mail: PreventivoMailTrovata[]; extra: PreventivoRow[] }> {
+  const vuoto = { mail: [] as PreventivoMailTrovata[], extra: [] as PreventivoRow[] };
+  try {
+    const hints = await collectAziendaEmailHints("cliente", clienteId);
+    const emails = hints.emails
+      .map((voce) => emailPerFiltro(voce.email))
+      .filter((voce) => voce.includes("@"))
+      .slice(0, 12);
+    const vis = await resolveWebmailAccountVisibility(auth);
+    if (vis.mode === "granted" && vis.ids.length === 0) return vuoto;
+    const orParts = emails.flatMap((addr) => [
+      `from_address.ilike.%${addr}%`,
+      `to_addresses.cs.{"${addr}"}`,
+    ]);
+    orParts.push(`and(azienda_tipo.eq.cliente,azienda_id.eq.${clienteId})`);
+    const supabase = await createClient();
+    let mailQ = supabase
+      .from("webmail_messaggi")
+      .select("id, subject, from_address, direction, received_at, sent_at")
+      .is("deleted_at", null)
+      .or(orParts.join(","))
+      .order("received_at", { ascending: false })
+      .limit(40);
+    mailQ = mailQ.neq("folder", "TRASH").neq("folder", "JUNK");
+    if (vis.mode === "granted") mailQ = mailQ.in("account_id", vis.ids);
+    const { data: msgs, error } = await mailQ;
+    if (error || !msgs) return vuoto;
+    const mail: PreventivoMailTrovata[] = msgs.map((row) => ({
+      id: String(row.id),
+      subject: String(row.subject ?? "").trim() || "(senza oggetto)",
+      fromAddress: String(row.from_address ?? ""),
+      direction: row.direction === "outbound" ? "outbound" : "inbound",
+      at: row.sent_at
+        ? String(row.sent_at)
+        : (row.received_at ? String(row.received_at) : null),
+    }));
+    const ids = mail.map((voce) => voce.id);
+    const extra: PreventivoRow[] = [];
+    if (ids.length > 0) {
+      const { data } = await supabase
+        .from("preventivi")
+        .select("*")
+        .in("webmail_invio_id", ids)
+        .is("deleted_at", null)
+        .limit(40);
+      extra.push(...((data ?? []) as PreventivoRow[]));
+    }
+    if (emails.length > 0) {
+      const { data } = await supabase
+        .from("preventivi")
+        .select("*")
+        .or(emails.map((voce) => `mail_bozza_to.ilike.%${voce}%`).join(","))
+        .is("deleted_at", null)
+        .limit(40);
+      extra.push(...((data ?? []) as PreventivoRow[]));
+    }
+    return { mail, extra };
+  } catch {
+    return vuoto;
+  }
+}
+
 /** Ricerca preventivi per collegarli a un ordine. Rispetta il perimetro commerciale. */
 export async function cercaPreventiviPerOrdineAction(raw: {
   dataDa?: string;
@@ -988,8 +1070,16 @@ export async function cercaPreventiviPerOrdineAction(raw: {
   numero?: string;
   stato?: PreventivoStato | "";
   archivio?: "tutti" | "operativi" | "archivio";
+  clienteId?: string;
+  email?: string;
+  includiMail?: boolean;
 }): Promise<
-  | { success: true; items: Preventivo[]; truncated: boolean }
+  | {
+      success: true;
+      items: Preventivo[];
+      mail: PreventivoMailTrovata[];
+      truncated: boolean;
+    }
   | { success: false; error: string }
 > {
   const gate = await requirePreventiviAccess();
@@ -1000,10 +1090,16 @@ export async function cercaPreventiviPerOrdineAction(raw: {
   const numero = (raw.numero ?? "").trim().replace(/[%_]/g, "").slice(0, 40);
   const stato = raw.stato && PREVENTIVO_STATI_CERCA.includes(raw.stato) ? raw.stato : "";
   const archivio = raw.archivio ?? "tutti";
+  const clienteId = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
+    raw.clienteId ?? ""
+  )
+    ? String(raw.clienteId)
+    : "";
+  const email = emailPerFiltro(raw.email ?? "");
   const perimetro = await resolvePerimetroDocumenti();
   const filtro = perimetroPreventiviOr(perimetro);
   if (!perimetro.unrestricted && !filtro) {
-    return { success: true, items: [], truncated: false };
+    return { success: true, items: [], mail: [], truncated: false };
   }
   const supabase = await createClient();
   const limite = 80;
@@ -1020,17 +1116,42 @@ export async function cercaPreventiviPerOrdineAction(raw: {
   if (archivio === "archivio") query = query.not("archiviato_at", "is", null);
   if (numero) query = query.ilike("numero_interno", `%${numero}%`);
   if (azienda) query = query.ilike("cliente_ragione_sociale", `%${azienda}%`);
-  if (filtro) query = query.or(filtro);
+  const orCliente = clienteId
+    ? `cliente_id.eq.${clienteId},cliente_possibile_id.eq.${clienteId}`
+    : "";
+  const orEmail = email.includes("@")
+    ? `mail_bozza_to.ilike.%${email}%,commerciale_riferimento_email.ilike.%${email}%`
+    : "";
+  let orFinale = filtro ?? "";
+  if (orCliente && orEmail) {
+    orFinale = `and(or(${orCliente}),or(${orEmail}))`;
+  } else if (orCliente) {
+    orFinale = orCliente;
+  } else if (orEmail && filtro) {
+    orFinale = `and(or(${orEmail}),or(${filtro}))`;
+  } else if (orEmail) {
+    orFinale = orEmail;
+  }
+  if (orFinale) query = query.or(orFinale);
   const { data, error } = await query;
   if (error) return { success: false, error: error.message };
-  const rows = ((data ?? []) as PreventivoRow[]).filter((row) =>
-    rigaNelPerimetro(row, perimetro, { riferimento: true })
-  );
+  const daMail =
+    raw.includiMail && clienteId
+      ? await preventiviDaMailAzienda(clienteId, gate.auth)
+      : { mail: [] as PreventivoMailTrovata[], extra: [] as PreventivoRow[] };
+  const visti = new Set<string>();
+  const rows = ([...((data ?? []) as PreventivoRow[]), ...daMail.extra] as PreventivoRow[])
+    .filter((row) => {
+      if (visti.has(row.id)) return false;
+      visti.add(row.id);
+      return rigaNelPerimetro(row, perimetro, { riferimento: true });
+    });
   const righe = await attachRighe(rows.map((r) => r.id));
   const pdfEmessi = await attachPdfEmessi(rows.map((r) => r.id));
   return {
     success: true,
     truncated: (data ?? []).length >= limite,
+    mail: daMail.mail,
     items: await conMailProfessionale(
       rows.map((r) =>
         mapPreventivo(r, righe.get(r.id) ?? [], "", "", false, pdfEmessi.get(r.id) ?? [])
