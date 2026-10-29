@@ -43,6 +43,7 @@ export type AnagraficaFormPayload = {
   titolareDocumentoTipo: string;
   titolareDocumentoNumero: string;
   consensoTrattamento: boolean;
+  campiModificati: CampoAnagrafica[];
 };
 
 export const CAMPI_ANAGRAFICA = [
@@ -72,11 +73,6 @@ export const CAMPI_ANAGRAFICA = [
   "sedeAmministrativa",
   "sedeMagFonte",
   "sedeMagazzino",
-  "titolareCognome",
-  "titolareNome",
-  "titolareCf",
-  "titolareDocumentoTipo",
-  "titolareDocumentoNumero",
   "consensoTrattamento",
 ] as const;
 
@@ -134,6 +130,7 @@ export function formVuoto(): AnagraficaFormPayload {
     titolareDocumentoTipo: "",
     titolareDocumentoNumero: "",
     consensoTrattamento: false,
+    campiModificati: [],
   };
 }
 
@@ -198,7 +195,19 @@ export function normalizzaForm(value: unknown): AnagraficaFormPayload {
     titolareDocumentoTipo: testo(row.titolareDocumentoTipo, 40),
     titolareDocumentoNumero: testo(row.titolareDocumentoNumero, 40),
     consensoTrattamento: row.consensoTrattamento === true,
+    campiModificati: campiModificatiDa(row.campiModificati),
   };
+}
+
+function campiModificatiDa(value: unknown): CampoAnagrafica[] {
+  if (!Array.isArray(value)) return [];
+  const ammessi = new Set<string>(CAMPI_ANAGRAFICA);
+  const visti = new Set<CampoAnagrafica>();
+  for (const voce of value) {
+    const campo = String(voce);
+    if (ammessi.has(campo)) visti.add(campo as CampoAnagrafica);
+  }
+  return [...visti];
 }
 
 function emailOk(value: string): boolean {
@@ -279,9 +288,6 @@ export function erroriPdf(form: AnagraficaFormPayload): string[] {
   }
   if (form.respTecnicoEmail && !emailOk(form.respTecnicoEmail)) {
     errori.push("L'e-mail del responsabile tecnico non è valida.");
-  }
-  if (form.titolareCf && !/^(\d{11}|[A-Z0-9]{16})$/.test(form.titolareCf)) {
-    errori.push("Il codice fiscale del titolare effettivo non è valido.");
   }
   if (!form.consensoTrattamento) {
     errori.push("Serve l'accettazione dei termini e del trattamento dati.");

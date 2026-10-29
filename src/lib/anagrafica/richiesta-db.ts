@@ -112,8 +112,7 @@ async function carica(token: string): Promise<Richiesta | { errore: string }> {
   return row;
 }
 
-function vista(row: Richiesta): VistaPubblica {
-  const form = normalizzaForm(row.payload);
+function vista(row: Richiesta, form: AnagraficaFormPayload): VistaPubblica {
   return {
     stato: row.stato,
     form,
@@ -124,10 +123,88 @@ function vista(row: Richiesta): VistaPubblica {
   };
 }
 
+function copiaCampo(
+  dest: AnagraficaFormPayload,
+  src: AnagraficaFormPayload,
+  campo: CampoAnagrafica
+) {
+  if (campo === "sedeLegale" || campo === "sedeAmministrativa" || campo === "sedeMagazzino") {
+    dest[campo] = { ...src[campo] };
+    return;
+  }
+  if (campo === "sedeAmmUgualeLegale") {
+    dest.sedeAmmUgualeLegale = src.sedeAmmUgualeLegale;
+    return;
+  }
+  if (campo === "sedeMagFonte") {
+    dest.sedeMagFonte = src.sedeMagFonte;
+    return;
+  }
+  if (campo === "consensoTrattamento") {
+    dest.consensoTrattamento = src.consensoTrattamento;
+    return;
+  }
+  dest[campo] = src[campo];
+}
+
+function unisciDaScheda(
+  scheda: AnagraficaFormPayload,
+  salvato: AnagraficaFormPayload
+): AnagraficaFormPayload {
+  const toccati = new Set(salvato.campiModificati);
+  const next = normalizzaForm(scheda);
+  next.campiModificati = salvato.campiModificati;
+  next.consensoTrattamento = salvato.consensoTrattamento;
+  for (const campo of salvato.campiModificati) {
+    copiaCampo(next, salvato, campo);
+  }
+  if (toccati.has("sedeAmmUgualeLegale") && next.sedeAmmUgualeLegale) {
+    next.sedeAmministrativa = { ...next.sedeLegale };
+  }
+  if (next.sedeMagFonte === "legale" && (toccati.has("sedeMagFonte") || toccati.has("sedeLegale"))) {
+    next.sedeMagazzino = { ...next.sedeLegale };
+  }
+  if (
+    next.sedeMagFonte === "amministrativa" &&
+    (toccati.has("sedeMagFonte") || toccati.has("sedeAmministrativa") || toccati.has("sedeAmmUgualeLegale"))
+  ) {
+    next.sedeMagazzino = { ...next.sedeAmministrativa };
+  }
+  return next;
+}
+
+function segnaModifica(form: AnagraficaFormPayload, campo: CampoAnagrafica): AnagraficaFormPayload {
+  const extra: CampoAnagrafica[] = [campo];
+  if (campo === "sedeAmmUgualeLegale" || (campo === "sedeLegale" && form.sedeAmmUgualeLegale)) {
+    extra.push("sedeAmministrativa");
+  }
+  if (
+    campo === "sedeMagFonte" ||
+    (campo === "sedeLegale" && form.sedeMagFonte === "legale") ||
+    (campo === "sedeAmministrativa" && form.sedeMagFonte === "amministrativa") ||
+    (campo === "sedeAmmUgualeLegale" && form.sedeMagFonte === "amministrativa")
+  ) {
+    extra.push("sedeMagazzino");
+  }
+  return {
+    ...form,
+    campiModificati: [...new Set([...form.campiModificati, ...extra])],
+  };
+}
+
+async function formVisibile(row: Richiesta): Promise<AnagraficaFormPayload> {
+  const salvato = normalizzaForm(row.payload);
+  const chi = owner(row);
+  if (!chi.id) return salvato;
+  const scheda = await precompilaDaScheda(chi.kind, chi.id);
+  if ("errore" in scheda) return salvato;
+  return unisciDaScheda(scheda.form, salvato);
+}
+
 export async function leggiRichiestaPubblica(token: string): Promise<VistaPubblica | { errore: string }> {
   const row = await carica(token);
   if ("errore" in row) return row;
-  return vista(row);
+  return vista(row, await formVisibile(row));
 }
 
 function comeSede(valore: unknown): SedeAnagraficaForm {
@@ -146,7 +223,7 @@ function applica(form: AnagraficaFormPayload, campo: CampoAnagrafica, valore: un
     const fonte = String(valore ?? "");
     next.sedeMagFonte =
       fonte === "legale" || fonte === "amministrativa" || fonte === "altra" ? fonte : "";
-  } else if (campo === "partitaIva" || campo === "codiceFiscale" || campo === "sdiCode" || campo === "bancaIban" || campo === "titolareCf") {
+  } else if (campo === "partitaIva" || campo === "codiceFiscale" || campo === "sdiCode" || campo === "bancaIban" || campo === "bancaBic") {
     next[campo] = normalizzaForm({ [campo]: valore })[campo];
   } else {
     const testo = normalizzaForm({ [campo]: valore })[campo];
@@ -180,11 +257,6 @@ const COLONNE: Record<string, string> = {
   bancaFiliale: "banca_filiale",
   bancaBic: "banca_bic",
   bancaIban: "banca_iban",
-  titolareCognome: "titolare_cognome",
-  titolareNome: "titolare_nome",
-  titolareCf: "titolare_codice_fiscale",
-  titolareDocumentoTipo: "titolare_documento_tipo",
-  titolareDocumentoNumero: "titolare_documento_numero",
 };
 
 function patchSede(sede: SedeAnagraficaForm, prefisso: "sede_amm" | "sede_mag") {
@@ -242,34 +314,48 @@ async function upsertSede(
   return inserita.error ? "Sede non registrata." : null;
 }
 
-async function scriviScheda(row: Richiesta, form: AnagraficaFormPayload): Promise<string | null> {
+async function scriviScheda(
+  row: Richiesta,
+  form: AnagraficaFormPayload,
+  campo: CampoAnagrafica
+): Promise<string | null> {
   const chi = owner(row);
   if (!chi.id) return "Azienda non collegata.";
   const service = createServiceClient();
   const colonne: Record<string, string> = {};
-  for (const [campo, colonna] of Object.entries(COLONNE)) {
-    const valore = form[campo as keyof AnagraficaFormPayload];
-    if (typeof valore !== "string") continue;
-    if (
+  const colonna = COLONNE[campo];
+  if (colonna) {
+    const valore = form[campo];
+    const vuotoProtetto =
       (colonna === "ragione_sociale" || colonna === "partita_iva" || colonna === "codice_fiscale") &&
-      !valore.trim()
-    ) {
-      continue;
-    }
-    colonne[colonna] = valore;
+      typeof valore === "string" &&
+      !valore.trim();
+    if (typeof valore === "string" && !vuotoProtetto) colonne[colonna] = valore;
   }
-  Object.assign(colonne, patchSede(form.sedeAmministrativa, "sede_amm"));
-  Object.assign(colonne, patchSede(form.sedeMagazzino, "sede_mag"));
-  const aggiornata = await service.from(chi.table).update(colonne).eq("id", chi.id);
-  if (aggiornata.error) return "Questo dato non può essere scritto sulla scheda. Controlla il valore.";
-  const sedi = await Promise.all([
-    upsertSede(chi.kind, chi.id, "legale", form.sedeLegale),
-    upsertSede(chi.kind, chi.id, "amministrativa", form.sedeAmministrativa),
-    form.sedeMagFonte
-      ? upsertSede(chi.kind, chi.id, "magazzino", form.sedeMagazzino)
-      : Promise.resolve(null),
-  ]);
-  return sedi.find((voce) => voce) ?? null;
+  const scriveAmm =
+    campo === "sedeAmministrativa" ||
+    campo === "sedeAmmUgualeLegale" ||
+    (campo === "sedeLegale" && form.sedeAmmUgualeLegale);
+  const scriveMag =
+    campo === "sedeMagazzino" ||
+    campo === "sedeMagFonte" ||
+    (campo === "sedeLegale" && form.sedeMagFonte === "legale") ||
+    (campo === "sedeAmministrativa" && form.sedeMagFonte === "amministrativa") ||
+    (campo === "sedeAmmUgualeLegale" && form.sedeMagFonte === "amministrativa");
+  if (scriveAmm) Object.assign(colonne, patchSede(form.sedeAmministrativa, "sede_amm"));
+  if (scriveMag && form.sedeMagFonte) Object.assign(colonne, patchSede(form.sedeMagazzino, "sede_mag"));
+  if (Object.keys(colonne).length > 0) {
+    const aggiornata = await service.from(chi.table).update(colonne).eq("id", chi.id);
+    if (aggiornata.error) return "Questo dato non può essere scritto sulla scheda. Controlla il valore.";
+  }
+  const sedi: Array<Promise<string | null>> = [];
+  if (campo === "sedeLegale") sedi.push(upsertSede(chi.kind, chi.id, "legale", form.sedeLegale));
+  if (scriveAmm) sedi.push(upsertSede(chi.kind, chi.id, "amministrativa", form.sedeAmministrativa));
+  if (scriveMag && form.sedeMagFonte) {
+    sedi.push(upsertSede(chi.kind, chi.id, "magazzino", form.sedeMagazzino));
+  }
+  const esiti = await Promise.all(sedi);
+  return esiti.find((voce) => voce) ?? null;
 }
 
 export async function salvaCampoPubblico(
@@ -286,8 +372,8 @@ export async function salvaCampoPubblico(
   if (row.stato !== "compilazione" && !consensoSuPdf) {
     return { errore: "Il form non è modificabile in questo momento." };
   }
-  const prima = normalizzaForm(row.payload);
-  const dopo = applica(prima, campo as CampoAnagrafica, valore);
+  const prima = await formVisibile(row);
+  const dopo = segnaModifica(applica(prima, campo as CampoAnagrafica, valore), campo as CampoAnagrafica);
   const service = createServiceClient();
   const { error } = await service
     .from("anagrafica_richieste")
@@ -295,7 +381,7 @@ export async function salvaCampoPubblico(
     .eq("id", row.id)
     .eq("stato", consensoSuPdf ? "pdf_pronto" : "compilazione");
   if (error) return { errore: "Salvataggio non riuscito. Riprova." };
-  const scheda = await scriviScheda(row, dopo);
+  const scheda = await scriviScheda(row, dopo, campo as CampoAnagrafica);
   if (scheda) return { errore: scheda };
   const chi = owner(row);
   await audit(
@@ -370,7 +456,7 @@ export async function scaricaPdfPubblico(
   if (row.stato !== "compilazione") {
     return { errore: "Il PDF si scarica dal form, non da questa schermata." };
   }
-  const form = normalizzaForm(row.payload);
+  const form = await formVisibile(row);
   const mancanti = erroriPdf(form);
   if (mancanti.length) return { errore: "Per il PDF mancano dei dati.", mancanti };
   const data = oggiRoma();
@@ -423,7 +509,7 @@ export async function tornaAlFormPubblico(token: string): Promise<VistaPubblica 
   if (error) return { errore: "Riapertura del form non riuscita." };
   row.stato = "compilazione";
   await audit("anagrafica_richieste", row.id, "Il cliente ha riaperto il form anagrafica.", {}, null);
-  return vista(row);
+  return vista(row, await formVisibile(row));
 }
 
 const MIMI_FIRMA = new Set(["application/pdf", "image/jpeg", "image/png"]);
@@ -927,6 +1013,12 @@ export async function riepilogoRichiesta(kind: "cliente" | "cliente_possibile", 
     faseTest: FASE_TEST_ANAGRAFICA,
     testAttivo: Boolean(prova),
   };
+}
+
+export async function formAnagraficaPubblico(token: string) {
+  const row = await carica(token);
+  if ("errore" in row) return row;
+  return { row, form: await formVisibile(row) };
 }
 
 export async function caricaRichiestaToken(token: string) {

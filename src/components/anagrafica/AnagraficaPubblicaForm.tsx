@@ -10,7 +10,6 @@ import {
 } from "@/app/actions/anagrafica-richiesta-pubblica";
 import { FirmaOtpPannello } from "@/components/anagrafica/FirmaOtpPannello";
 import {
-  DOCUMENTI_TITOLARE,
   erroriPdf,
   type AnagraficaFormPayload,
   type SedeAnagraficaForm,
@@ -456,32 +455,6 @@ export function AnagraficaPubblicaForm({
         ) : null}
 
         <section className="space-y-3 rounded-xl border border-slate-200 bg-slate-50 p-4">
-          <h2 className="text-sm font-semibold">Titolare effettivo</h2>
-          <p className="text-sm text-slate-700">Facoltativo. Non blocca la firma.</p>
-          <div className="grid gap-4 sm:grid-cols-2">
-            <Campo label="Cognome" value={form.titolareCognome} onChange={(v) => aggiorna("titolareCognome", v)} onBlur={(valore) => void salva("titolareCognome", valore)} />
-            <Campo label="Nome" value={form.titolareNome} onChange={(v) => aggiorna("titolareNome", v)} onBlur={(valore) => void salva("titolareNome", valore)} />
-            <Campo label="Codice fiscale" value={form.titolareCf} onChange={(v) => aggiorna("titolareCf", v)} onBlur={(valore) => void salva("titolareCf", valore)} />
-            <label className="block text-sm">
-              <span className="mb-1 block font-medium text-slate-700">Documento di identità</span>
-              <select
-                value={form.titolareDocumentoTipo}
-                onChange={(event) => aggiorna("titolareDocumentoTipo", event.target.value)}
-                onBlur={(event) =>
-                  void salva("titolareDocumentoTipo", event.target.value)
-                }
-                className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2"
-              >
-                <option value="">Seleziona</option>
-                {DOCUMENTI_TITOLARE.map((tipo) => (
-                  <option key={tipo} value={tipo}>
-                    {tipo}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <Campo label="N. documento" value={form.titolareDocumentoNumero} onChange={(v) => aggiorna("titolareDocumentoNumero", v)} onBlur={(valore) => void salva("titolareDocumentoNumero", valore)} />
-          </div>
           <p className="text-sm">
             Vi autorizziamo al trattamento dei nostri dati ai sensi del Regolamento UE 2016/679, della legge 196/2003 e per i fini dichiarati.
           </p>

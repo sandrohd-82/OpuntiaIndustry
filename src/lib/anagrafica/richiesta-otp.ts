@@ -4,12 +4,13 @@ import {
   emailAnagraficaValida,
   emailRegistrateAnagrafica,
   erroriPdf,
-  normalizzaForm,
+  type AnagraficaFormPayload,
 } from "@/lib/anagrafica/richiesta-form";
 import { pdfAnagraficaAziendale } from "@/lib/anagrafica/richiesta-pdf";
 import {
   archiviaPdfCliente,
   caricaRichiestaToken,
+  formAnagraficaPubblico,
   type RichiestaAnagrafica,
 } from "@/lib/anagrafica/richiesta-db";
 import { createServiceClient } from "@/lib/supabase/service";
@@ -65,9 +66,8 @@ function apribile(row: RichiestaAnagrafica): string | null {
   return null;
 }
 
-function emailScelta(row: RichiestaAnagrafica, email: string): string | null {
-  const form = normalizzaForm(row.payload);
-  const registrate = emailRegistrateAnagrafica(String(row.email_destinatario ?? ""), form);
+function emailScelta(form: AnagraficaFormPayload, invio: string, email: string): string | null {
+  const registrate = emailRegistrateAnagrafica(invio, form);
   return (
     registrate.find((voce) => voce.toLowerCase() === email.trim().toLowerCase()) ?? null
   );
@@ -81,16 +81,16 @@ export async function richiediOtpFirma(input: {
   if (!emailAnagraficaValida(input.email)) {
     return { errore: "Indica un'e-mail valida." };
   }
-  const row = await caricaRichiestaToken(input.token);
-  if ("errore" in row) return row;
+  const contesto = await formAnagraficaPubblico(input.token);
+  if ("errore" in contesto) return contesto;
+  const { row, form } = contesto;
   const blocco = apribile(row);
   if (blocco) return { errore: blocco };
-  const form = normalizzaForm(row.payload);
   const mancanti = erroriPdf(form);
   if (mancanti.length) {
     return { errore: mancanti[0] ?? "Per firmare mancano dei dati." };
   }
-  const email = emailScelta(row, input.email);
+  const email = emailScelta(form, String(row.email_destinatario ?? ""), input.email);
   if (!email) {
     return {
       errore:
@@ -187,15 +187,15 @@ export async function verificaOtpFirma(input: {
   if (!/^\d{6}$/.test(input.codice)) {
     return { errore: "Il codice è di 6 cifre." };
   }
-  const row = await caricaRichiestaToken(input.token);
-  if ("errore" in row) return row;
+  const contesto = await formAnagraficaPubblico(input.token);
+  if ("errore" in contesto) return contesto;
+  const { row, form } = contesto;
   const blocco = apribile(row);
   if (blocco) return { errore: blocco };
-  const email = emailScelta(row, input.email);
+  const email = emailScelta(form, String(row.email_destinatario ?? ""), input.email);
   if (!email) {
     return { errore: "Questa e-mail non è registrata per la firma." };
   }
-  const form = normalizzaForm(row.payload);
   const mancanti = erroriPdf(form);
   if (mancanti.length) return { errore: mancanti[0] ?? "Per firmare mancano dei dati." };
 

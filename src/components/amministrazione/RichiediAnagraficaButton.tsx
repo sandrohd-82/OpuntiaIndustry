@@ -39,7 +39,6 @@ export function RichiediAnagraficaButton({
   const [stato, setStato] = useState<string | null>(null);
   const [scadeAt, setScadeAt] = useState<string | null>(null);
   const [banca, setBanca] = useState("");
-  const [titolare, setTitolare] = useState("");
   const [messaggio, setMessaggio] = useState("");
   const [erroreModale, setErroreModale] = useState("");
   const [occupato, setOccupato] = useState(false);
@@ -56,8 +55,6 @@ export function RichiediAnagraficaButton({
       setStato(esito.stato);
       setScadeAt(esito.scadeAt);
       setEmailScheda(esito.email);
-      const nome = [esito.form.titolareCognome, esito.form.titolareNome].filter(Boolean).join(" ");
-      setTitolare(nome);
       setBanca(esito.form.bancaAppoggio);
       setFaseTest(esito.faseTest);
       setTestAttivo(esito.testAttivo);
@@ -69,7 +66,7 @@ export function RichiediAnagraficaButton({
     scadeAt: string | null;
     faseTest: boolean;
     testAttivo: boolean;
-    form: { bancaAppoggio: string; titolareCognome: string; titolareNome: string };
+    form: { bancaAppoggio: string };
     email: string;
   }) {
     setStato(dopo.stato);
@@ -78,7 +75,6 @@ export function RichiediAnagraficaButton({
     setTestAttivo(dopo.testAttivo);
     setEmailScheda(dopo.email);
     setBanca(dopo.form.bancaAppoggio);
-    setTitolare([dopo.form.titolareCognome, dopo.form.titolareNome].filter(Boolean).join(" "));
   }
 
   function apriModale() {
@@ -189,12 +185,7 @@ export function RichiediAnagraficaButton({
         </p>
       ) : null}
       <p className="mt-1 text-sm text-[var(--muted)]">{etichettaStato(stato, scadeAt)}</p>
-      {banca || titolare ? (
-        <p className="mt-1 text-sm">
-          {banca ? `Banca: ${banca}. ` : ""}
-          {titolare ? `Titolare effettivo: ${titolare}.` : ""}
-        </p>
-      ) : null}
+      {banca ? <p className="mt-1 text-sm">Banca: {banca}.</p> : null}
       <div className="mt-3 flex flex-wrap gap-2">
         <button
           type="button"

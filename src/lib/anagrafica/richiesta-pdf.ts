@@ -102,22 +102,6 @@ export function pdfAnagraficaAziendale(
   for (const [etichetta, valore] of facoltativi) {
     if (valore) scrivi(`${etichetta}: ${valore}`);
   }
-  const titolare = [
-    form.titolareCognome,
-    form.titolareNome,
-    form.titolareCf,
-    form.titolareDocumentoTipo,
-    form.titolareDocumentoNumero,
-  ].some(Boolean);
-  if (titolare) {
-    y += 2;
-    scrivi("Titolare effettivo", 10, "bold");
-    if (form.titolareCognome) scrivi(`Cognome: ${form.titolareCognome}`);
-    if (form.titolareNome) scrivi(`Nome: ${form.titolareNome}`);
-    if (form.titolareCf) scrivi(`Codice fiscale: ${form.titolareCf}`);
-    if (form.titolareDocumentoTipo) scrivi(`Documento di identità: ${form.titolareDocumentoTipo}`);
-    if (form.titolareDocumentoNumero) scrivi(`N. documento: ${form.titolareDocumentoNumero}`);
-  }
 
   if (y > 190) {
     doc.addPage();
