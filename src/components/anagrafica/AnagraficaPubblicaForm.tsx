@@ -151,12 +151,13 @@ export function AnagraficaPubblicaForm({
       <>
         <AvvisoTest attivo={faseTest} />
         <PresaVisionePannello
+          key={privacy ? "privacy" : "condizioni"}
           token={token}
           documento={privacy ? "privacy" : "condizioni"}
           titolo={privacy ? TITOLO_PRIVACY : TITOLO_CONDIZIONI}
           avanzamento={privacy ? "Documento 2 di 3" : "Documento 3 di 3"}
           email={emailFirma}
-          firmatarioIniziale={firmatarioSuggerito}
+          firmatarioIniziale={privacy ? firmatarioSuggerito : ""}
           blocchi={privacy ? BLOCCHI_PRIVACY : BLOCCHI_CONDIZIONI}
           onFirmato={(prossimo) => {
             if (prossimo === "completato") {
