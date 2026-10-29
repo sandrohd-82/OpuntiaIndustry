@@ -72,6 +72,13 @@ export function prezzoNettoDaSconto(
   return Math.round(lordo * (1 - extra / 100) * 100) / 100;
 }
 
+/** Listino ed extra si sommano. Se il listino è 0 resta solo l'extra. */
+export function scontoSommaPct(listinoPct: number, extraPct: number): number {
+  const listino = Number.isFinite(listinoPct) ? Math.max(0, listinoPct) : 0;
+  const extra = parseScontoExtraPct(extraPct);
+  return Math.min(100, Math.round((listino + extra) * 1000) / 1000);
+}
+
 export type ScontoRequisiti = {
   senior: boolean;
   superadmin: number;

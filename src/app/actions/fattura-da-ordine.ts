@@ -461,6 +461,7 @@ export async function getFatturaA4ContextAction(input: {
         prezzoRiga: Number(r.prezzo_unitario),
         prezzoListinoHeader: listinoHeader,
         scontoExtraPct: scontoOrdine,
+        scontoListinoPct: Number(r.sconto_listino_pct ?? 0),
         isSpedizione: false,
       });
       return {

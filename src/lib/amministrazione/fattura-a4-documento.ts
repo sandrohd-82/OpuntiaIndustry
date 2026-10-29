@@ -2,7 +2,8 @@ import type { Cliente, SedeCliente } from "@/lib/amministrazione/clienti";
 import {
   calcolaTotaliEmissione,
 } from "@/lib/amministrazione/fattura-emissione";
-import { importoRiga, roundMoney } from "@/lib/amministrazione/fatture";
+import { importoRiga, prezzoScontatoUnitario, roundMoney } from "@/lib/amministrazione/fatture";
+import { scontoSommaPct } from "@/lib/amministrazione/sconto-fuori-listino";
 import { emptySede, normalizeSede } from "@/lib/amministrazione/fornitori";
 import type { DestinatarioPreventivo } from "@/lib/amministrazione/preventivo-letterhead";
 
@@ -88,28 +89,36 @@ export function parseDestinatarioSnapshot(
   };
 }
 
-/** Listino da ordine: header se presente, altrimenti ricostruisce dal netto. */
+/** Listino da ordine: header se combacia col netto, altrimenti lo ricostruisce. */
 export function listinoEScontoDaOrdine(input: {
   prezzoRiga: number;
   prezzoListinoHeader: number | null;
   scontoExtraPct: number;
+  scontoListinoPct?: number;
   isSpedizione: boolean;
 }): { prezzoUnitario: number; scontoPercentuale: number } {
   if (input.isSpedizione) {
     return { prezzoUnitario: input.prezzoRiga, scontoPercentuale: 0 };
   }
-  const sconto = Math.min(100, Math.max(0, input.scontoExtraPct));
-  if (input.prezzoListinoHeader != null && input.prezzoListinoHeader > 0) {
-    return {
-      prezzoUnitario: input.prezzoListinoHeader,
-      scontoPercentuale: sconto,
-    };
+  const sconto = scontoSommaPct(input.scontoListinoPct ?? 0, input.scontoExtraPct);
+  if (sconto <= 0) {
+    return { prezzoUnitario: input.prezzoRiga, scontoPercentuale: 0 };
   }
-  if (sconto > 0 && sconto < 100 && input.prezzoRiga > 0) {
-    const listino = Math.round((input.prezzoRiga / (1 - sconto / 100)) * 100) / 100;
-    return { prezzoUnitario: listino, scontoPercentuale: sconto };
+  const header =
+    input.prezzoListinoHeader != null && input.prezzoListinoHeader > 0
+      ? input.prezzoListinoHeader
+      : 0;
+  if (header > 0) {
+    const daHeader = prezzoScontatoUnitario(header, sconto);
+    if (Math.abs(daHeader - input.prezzoRiga) <= 0.02) {
+      return { prezzoUnitario: header, scontoPercentuale: sconto };
+    }
   }
-  return { prezzoUnitario: input.prezzoRiga, scontoPercentuale: sconto };
+  if (sconto < 100 && input.prezzoRiga > 0) {
+    const lordo = roundMoney(input.prezzoRiga / (1 - sconto / 100));
+    return { prezzoUnitario: lordo, scontoPercentuale: sconto };
+  }
+  return { prezzoUnitario: input.prezzoRiga, scontoPercentuale: 0 };
 }
 
 export function totalsFromFatturaRighe(righe: FatturaA4Riga[]): {

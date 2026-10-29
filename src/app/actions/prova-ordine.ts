@@ -621,7 +621,7 @@ export async function inviaCopiaControlloOrdineAction(raw: {
       const { data: righe, error: righeErr } = await supabase
         .from("ordini_righe")
         .select(
-          "prodotto_id, prodotto_codice, prodotto_nome, quantita, unita_misura, prezzo_unitario, iva_percentuale"
+          "prodotto_id, prodotto_codice, prodotto_nome, quantita, unita_misura, prezzo_unitario, iva_percentuale, sconto_listino_pct"
         )
         .eq("ordine_id", ordine.id)
         .order("sort_order", { ascending: true });
@@ -642,6 +642,9 @@ export async function inviaCopiaControlloOrdineAction(raw: {
           prezzoRiga: Number(riga.prezzo_unitario),
           prezzoListinoHeader: listinoHeader,
           scontoExtraPct: scontoOrdine,
+          scontoListinoPct: Number(
+            (riga as { sconto_listino_pct?: number | null }).sconto_listino_pct ?? 0
+          ),
           isSpedizione: false,
         });
         return {

@@ -32,6 +32,7 @@ import {
   fasciaScontoExtra,
   parseScontoExtraPct,
   prezzoNettoDaSconto,
+  scontoSommaPct,
   SCONTO_FUORI_LISTINO_REGOLE,
   SCONTO_FUORI_LISTINO_TITOLO,
 } from "@/lib/amministrazione/sconto-fuori-listino";
@@ -106,7 +107,7 @@ import {
   listinoEScontoDaOrdine,
   type FatturaA4Riga,
 } from "@/lib/amministrazione/fattura-a4-documento";
-import { todayIsoDate } from "@/lib/amministrazione/fatture";
+import { prezzoScontatoUnitario, todayIsoDate } from "@/lib/amministrazione/fatture";
 import {
   applyTotaleToPiano,
   emptyPagamentoPiano,
@@ -1161,10 +1162,13 @@ export function OrdineNuovoWizardModal({
       : (pianoListino?.pezzi[0]?.imballaggioVoceId ?? null));
   const scontoPct = parseScontoExtraPct(scontoExtraPct);
   const fasciaSconto = fasciaScontoExtra(scontoPct);
-  const prezzoDopoListino = accordoSconto
-    ? prezzoDopoAccordo
-    : prezzoNettoDaSconto(prezzoDopoAccordo, scontoListinoApplicato);
-  const prezzoNetto = prezzoNettoDaSconto(prezzoDopoListino, scontoPct);
+  const scontoComplessivo = accordoSconto
+    ? scontoPct
+    : scontoSommaPct(scontoListinoApplicato, scontoPct);
+  const prezzoNetto = prezzoScontatoUnitario(
+    accordoSconto ? prezzoDopoAccordo : prezzoKg,
+    scontoComplessivo
+  );
   const IVA_PCT = 22;
   const rigaImporti = useMemo(() => {
     const riga = {
@@ -1521,8 +1525,12 @@ export function OrdineNuovoWizardModal({
     const mapped = listinoEScontoDaOrdine({
       prezzoRiga: tipoOrdine === "campionatura" ? 0 : prezzoNetto,
       prezzoListinoHeader:
-        tipoOrdine === "campionatura" ? null : numberOrZero(prezzoUnitario),
+        tipoOrdine === "campionatura"
+          ? null
+          : (accordoSconto ? prezzoDopoAccordo : numberOrZero(prezzoUnitario)),
       scontoExtraPct: tipoOrdine === "campionatura" ? 0 : scontoPct,
+      scontoListinoPct:
+        tipoOrdine === "campionatura" || accordoSconto ? 0 : scontoListinoApplicato,
       isSpedizione: false,
     });
     return {
@@ -3139,16 +3147,16 @@ export function OrdineNuovoWizardModal({
                       setScontoQuotaCommerciale(next.quotaCommerciale);
                     }}
                   />
-                      {scontoPct > 0 || scontoListinoApplicato > 0 ? (
+                      {scontoComplessivo > 0 ? (
                     <p className="mt-1 text-xs text-[var(--muted)]">
                       Prezzo netto {prezzoNetto.toLocaleString("it-IT", {
                         style: "currency",
                         currency: "EUR",
                       })}
                       /{unitaBase}
-                      {scontoListinoApplicato > 0
-                        ? ` · sconto listino ${scontoListinoApplicato.toLocaleString("it-IT")}%`
-                        : ""}
+                      {scontoListinoApplicato > 0 && scontoPct > 0
+                        ? ` · sconto ${scontoComplessivo.toLocaleString("it-IT")}% (listino ${scontoListinoApplicato.toLocaleString("it-IT")}% + extra ${scontoPct.toLocaleString("it-IT")}%)`
+                        : ` · sconto ${scontoComplessivo.toLocaleString("it-IT")}%`}
                       {scontoPct <= 0
                         ? ""
                         : (fasciaSconto === "fino_10"

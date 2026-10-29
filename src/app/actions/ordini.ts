@@ -55,7 +55,8 @@ import {
   valutaScontoWizard,
 } from "@/lib/amministrazione/sconto-fuori-listino-server";
 import { accordoForzato } from "@/lib/amministrazione/accordi-prezzo";
-import { prezzoNettoDaSconto } from "@/lib/amministrazione/sconto-fuori-listino";
+import { prezzoNettoDaSconto, scontoSommaPct } from "@/lib/amministrazione/sconto-fuori-listino";
+import { prezzoScontatoUnitario } from "@/lib/amministrazione/fatture";
 import { getPreventivoProdottoContestoAction } from "@/app/actions/preventivi";
 import { elencoProfiliCalcoloSpedizioni } from "@/app/actions/ordine-calcolo-spedizione";
 import { risolviSpedizioneOrdineDiretto } from "@/lib/amministrazione/ordine-calcolo-spedizione";
@@ -1456,13 +1457,14 @@ async function createOrdineWizardActionInner(
         testoChiesto: input.confezionamentoListino ?? "",
         voceChiesta: input.imballaggioVoceId ?? null,
       });
-  const prezzoDopoListino =
-    campionaturaGratis || input.accordoModalita === "sconto_percentuale"
-      ? prezzoBase
-      : prezzoNettoDaSconto(prezzoBase, listinoRiga.applicato);
+  const prezzoDopoBase = prezzoBase;
+  const scontoComplessivo = scontoSommaPct(
+    input.accordoModalita === "sconto_percentuale" ? 0 : listinoRiga.applicato,
+    scontoVal.pct
+  );
   const prezzoUnitario = campionaturaGratis
     ? 0
-    : prezzoNettoDaSconto(prezzoDopoListino, scontoVal.pct);
+    : prezzoScontatoUnitario(prezzoDopoBase, scontoComplessivo);
   const accordoApplicato =
     input.accordoModalita === "prezzo_fisso"
       ? input.prezzoUnitario
