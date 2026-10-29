@@ -777,22 +777,22 @@ export async function annullaTestAnagrafica(input: {
   const table = input.kind === "cliente" ? "clienti" : "clienti_possibili";
   const colonne: Record<string, unknown> = { ...foto.scheda, updated_by: input.actorId };
   delete colonne.id;
+  for (const colonna of new Set(Object.values(COLONNE))) {
+    if (!(colonna in foto.scheda)) colonne[colonna] = "";
+  }
   const ripristino = await service.from(table).update(colonne).eq("id", input.id);
   if (ripristino.error) return { errore: "Ripristino della scheda non riuscito." };
   const sediFoto = Array.isArray(foto.sedi) ? foto.sedi : [];
   for (const tipo of TIPI_SEDE_TEST) {
     const precedente = sediFoto.find((sede) => sede.tipo === tipo);
-    const { data: viva } = await service
+    const { data: vive } = await service
       .from("anagrafica_sedi")
       .select("id")
       .eq("owner_kind", input.kind)
       .eq("owner_id", input.id)
       .eq("tipo", tipo)
-      .is("deleted_at", null)
-      .order("sort_order", { ascending: true })
-      .limit(1)
-      .maybeSingle();
-    const vivaId = viva && typeof viva === "object" && "id" in viva ? String((viva as { id: string }).id) : "";
+      .is("deleted_at", null);
+    const viveIds = ((vive ?? []) as Array<{ id: string }>).map((riga) => riga.id);
     if (precedente?.id) {
       const sedeErr = await service
         .from("anagrafica_sedi")
@@ -809,17 +809,14 @@ export async function annullaTestAnagrafica(input: {
         })
         .eq("id", precedente.id);
       if (sedeErr.error) return { errore: "Ripristino delle sedi non riuscito." };
-      if (vivaId && vivaId !== precedente.id) {
-        await service
-          .from("anagrafica_sedi")
-          .update({ deleted_at: new Date().toISOString(), deleted_by: input.actorId })
-          .eq("id", vivaId);
-      }
-    } else if (vivaId) {
-      await service
+    }
+    const daChiudere = viveIds.filter((id) => id !== precedente?.id);
+    if (daChiudere.length) {
+      const chiuse = await service
         .from("anagrafica_sedi")
         .update({ deleted_at: new Date().toISOString(), deleted_by: input.actorId })
-        .eq("id", vivaId);
+        .in("id", daChiudere);
+      if (chiuse.error) return { errore: "Ripristino delle sedi non riuscito." };
     }
   }
   const { data: richieste } = await service
