@@ -14,8 +14,12 @@ import {
   formAnagraficaPubblico,
   type RichiestaAnagrafica,
 } from "@/lib/anagrafica/richiesta-db";
+import {
+  casellaInvioAnagrafica,
+  ERRORE_CASELLA_ANAGRAFICA,
+} from "@/lib/anagrafica/casella-invio";
 import { createServiceClient } from "@/lib/supabase/service";
-import { sendMailViaAccount, type AccountRow } from "@/lib/webmail/sync";
+import { sendMailViaAccount } from "@/lib/webmail/sync";
 
 const MINUTI = 5;
 const TENTATIVI = 5;
@@ -38,23 +42,6 @@ function quandoRoma(data: Date): string {
     dateStyle: "short",
     timeStyle: "medium",
   }).format(data);
-}
-
-async function casellaInvio(): Promise<AccountRow | null> {
-  const service = createServiceClient();
-  const { data, error } = await service
-    .from("webmail_accounts")
-    .select(
-      "id, email_address, imap_host, imap_port, imap_secure, smtp_host, smtp_port, smtp_secure, username, password_encrypted"
-    )
-    .is("deleted_at", null)
-    .limit(8);
-  if (error) return null;
-  return (
-    ((data ?? []) as AccountRow[]).find(
-      (riga) => riga.smtp_host && riga.password_encrypted
-    ) ?? null
-  );
 }
 
 function apribile(row: RichiestaAnagrafica): string | null {
@@ -139,13 +126,13 @@ export async function richiediOtpFirma(input: {
   if (error || !creato) {
     return { errore: "Il codice non è stato preparato. Riprova." };
   }
-  const account = await casellaInvio();
+  const account = await casellaInvioAnagrafica();
   if (!account) {
     await service
       .from("otp_verifications")
       .update({ stato: "annullato" })
       .eq("id", creato.id);
-    return { errore: "Nessuna casella con SMTP. Il codice non è stato inviato." };
+    return { errore: ERRORE_CASELLA_ANAGRAFICA };
   }
   try {
     await sendMailViaAccount({

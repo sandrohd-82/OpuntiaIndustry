@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   caricaFirmatoAnagraficaAction,
   comuniCapAnagraficaAction,
@@ -58,6 +58,17 @@ function Campo({
   sottolineato?: boolean;
   type?: string;
 }) {
+  const ref = useRef<HTMLInputElement>(null);
+  useEffect(() => {
+    const el = ref.current;
+    if (!el || document.activeElement === el) return;
+    if (el.value !== value) el.value = value;
+  }, [value]);
+
+  function pubblica(grezzo: string) {
+    if (grezzo !== value) onChange(grezzo);
+  }
+
   return (
     <label className="block text-sm">
       <span
@@ -69,11 +80,17 @@ function Campo({
         {required ? " *" : ""}
       </span>
       <input
+        ref={ref}
         type={type}
-        value={value}
-        onChange={(event) => onChange(event.target.value)}
-        onBlur={(event) => onBlur(event.target.value)}
-        className={`w-full rounded-lg border bg-white px-3 py-2 ${
+        defaultValue={value}
+        autoComplete="on"
+        onInput={(event) => pubblica(event.currentTarget.value)}
+        onBlur={(event) => onBlur(event.currentTarget.value)}
+        onAnimationStart={(event) => {
+          if (event.animationName !== "anagraficaAutofillStart") return;
+          pubblica(event.currentTarget.value);
+        }}
+        className={`anagrafica-campo w-full rounded-lg border bg-white px-3 py-2 ${
           sottolineato
             ? "border-red-600 border-b-2 underline decoration-red-600 decoration-2"
             : "border-slate-300"
@@ -99,6 +116,8 @@ export function AnagraficaPubblicaForm({
   const [comuni, setComuni] = useState<Record<string, ComuneCap[]>>({});
   const [mostraMancanti, setMostraMancanti] = useState(false);
   const [modifica, setModifica] = useState(0);
+  const revisione = useRef(0);
+  const codaSalvataggio = useRef(Promise.resolve());
   const faseTest = partenza?.faseTest === true;
   const emailInvio = partenza?.emailInvio ?? "";
 
@@ -113,15 +132,33 @@ export function AnagraficaPubblicaForm({
     );
   }
 
+  function tocca() {
+    revisione.current += 1;
+  }
+
   async function salva(campo: string, valore: unknown): Promise<string | null> {
-    setMessaggio("");
-    const esito = await salvaCampoAnagraficaAction({ token, campo, valore });
-    if ("errore" in esito) {
-      setMessaggio(esito.errore);
-      return esito.errore;
-    }
-    setForm(esito.form);
-    return null;
+    const visto = revisione.current;
+    const lavoro = codaSalvataggio.current.then(async () => {
+      setMessaggio("");
+      const esito = await salvaCampoAnagraficaAction({ token, campo, valore });
+      if ("errore" in esito) {
+        setMessaggio(esito.errore);
+        return esito.errore;
+      }
+      setForm((corrente) => {
+        if (!corrente) return esito.form;
+        if (revisione.current === visto) return esito.form;
+        const chiave = campo as keyof AnagraficaFormPayload;
+        if (JSON.stringify(corrente[chiave]) !== JSON.stringify(valore)) return corrente;
+        return { ...corrente, [chiave]: esito.form[chiave] };
+      });
+      return null;
+    });
+    codaSalvataggio.current = lavoro.then(
+      () => undefined,
+      () => undefined
+    );
+    return lavoro;
   }
 
   function segnaModifica() {
@@ -129,6 +166,7 @@ export function AnagraficaPubblicaForm({
   }
 
   function aggiorna(campo: keyof AnagraficaFormPayload, valore: string) {
+    tocca();
     segnaModifica();
     setForm((corrente) => (corrente ? { ...corrente, [campo]: valore } : corrente));
   }
@@ -137,6 +175,7 @@ export function AnagraficaPubblicaForm({
     campo: "sedeLegale" | "sedeAmministrativa" | "sedeMagazzino",
     sede: SedeAnagraficaForm
   ) {
+    tocca();
     setForm((corrente) => (corrente ? { ...corrente, [campo]: sede } : corrente));
     await salva(campo, sede);
   }
@@ -303,6 +342,13 @@ export function AnagraficaPubblicaForm({
 
   return (
     <main className="mx-auto max-w-3xl px-4 py-8">
+      <style>{`
+        @keyframes anagraficaAutofillStart { from { opacity: 1; } to { opacity: 1; } }
+        input.anagrafica-campo:-webkit-autofill {
+          animation-name: anagraficaAutofillStart;
+          animation-duration: 0.01s;
+        }
+      `}</style>
       <AvvisoTest attivo={faseTest} />
       <p className="text-sm font-semibold">Spett.le</p>
       <p className="text-sm font-semibold">Agrinsicilia coop</p>

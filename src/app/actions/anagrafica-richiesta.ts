@@ -10,28 +10,14 @@ import {
   precompilaDaScheda,
   riepilogoRichiesta,
 } from "@/lib/anagrafica/richiesta-db";
-import { createServiceClient } from "@/lib/supabase/service";
-import { sendMailViaAccount, type AccountRow } from "@/lib/webmail/sync";
+import {
+  casellaInvioAnagrafica,
+  ERRORE_CASELLA_ANAGRAFICA,
+} from "@/lib/anagrafica/casella-invio";
+import { sendMailViaAccount } from "@/lib/webmail/sync";
 
 function emailOk(value: string): boolean {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value.trim());
-}
-
-async function casellaInvio(): Promise<AccountRow | null> {
-  const service = createServiceClient();
-  const { data, error } = await service
-    .from("webmail_accounts")
-    .select(
-      "id, email_address, imap_host, imap_port, imap_secure, smtp_host, smtp_port, smtp_secure, username, password_encrypted"
-    )
-    .is("deleted_at", null)
-    .limit(8);
-  if (error) return null;
-  return (
-    ((data ?? []) as AccountRow[]).find(
-      (riga) => riga.smtp_host && riga.password_encrypted
-    ) ?? null
-  );
 }
 
 export async function riepilogoAnagraficaFormAction(input: {
@@ -54,12 +40,9 @@ export async function inviaRichiestaAnagraficaAction(input: {
   }
   const scheda = await precompilaDaScheda(input.kind, input.id);
   if ("errore" in scheda) return { success: false, error: scheda.errore };
-  const account = await casellaInvio();
+  const account = await casellaInvioAnagrafica();
   if (!account) {
-    return {
-      success: false,
-      error: "Nessuna casella con SMTP. La mail non è partita.",
-    };
+    return { success: false, error: ERRORE_CASELLA_ANAGRAFICA };
   }
   const token = nuovoToken();
   const url = `${getPublicAppUrl()}/anagrafica/${token}`;
