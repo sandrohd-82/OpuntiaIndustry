@@ -368,7 +368,9 @@ export function OrdineNuovoWizardModal({
   const [formError, setFormError] = useState<string | null>(null);
   const [invioFatturaSdi, setInvioFatturaSdi] = useState<"" | "subito" | "al_processo">("");
   const [chiediPromozioneSdi, setChiediPromozioneSdi] = useState(false);
+  const [promozioneInviaOra, setPromozioneInviaOra] = useState(false);
   const promozioneSdiRef = useRef(false);
+  const promozioneDopoRef = useRef<null | (() => void)>(null);
   const [fatturaGiaInviata, setFatturaGiaInviata] = useState(false);
   const [saving, setSaving] = useState(false);
   const spedDraft = useRef({
@@ -1337,11 +1339,14 @@ export function OrdineNuovoWizardModal({
     !ritiroInSede &&
     aCarico === "cliente" &&
     modalitaSpedizionePrezzo === "richiesto";
+  const intestatarioScelto =
+    anagraficaFonte === "possibile"
+      ? Boolean(possibileClienteId)
+      : Boolean(clienteId);
   const vuoleSceltaInvio =
     ORDINI_PERSISTENZA_DEFINITIVA &&
     tipoOrdine !== "campionatura" &&
-    anagraficaFonte === "cliente" &&
-    Boolean(clienteId) &&
+    intestatarioScelto &&
     !attesaCalcoloSpedizione;
   let etichettaSalvataggio = "Salva in sessione";
   if (saving) etichettaSalvataggio = "Salvataggio…";
@@ -1990,8 +1995,7 @@ export function OrdineNuovoWizardModal({
       const serveFattura =
         ORDINI_PERSISTENZA_DEFINITIVA &&
         tipoOrdine !== "campionatura" &&
-        Boolean(clienteId) &&
-        anagraficaFonte === "cliente" &&
+        intestatarioScelto &&
         !attesaCalcoloSpedizione &&
         (docMail !== "informativa" || Boolean(invioFatturaSdi));
       if (serveFattura) {
@@ -2470,6 +2474,8 @@ export function OrdineNuovoWizardModal({
       !fatturaGiaInviata &&
       d.documentoMail !== "proforma";
     if (promuovi && !promozioneSdiRef.current) {
+      setPromozioneInviaOra(true);
+      promozioneDopoRef.current = () => void submit(modo);
       setChiediPromozioneSdi(true);
       return;
     }
@@ -4454,11 +4460,6 @@ export function OrdineNuovoWizardModal({
                     La fattura resta chiusa finché l&apos;operatore non conferma
                     il costo di spedizione. Non parte nulla verso il cliente.
                   </p>
-                ) : anagraficaFonte !== "cliente" ? (
-                  <p className="text-xs text-amber-800">
-                    Per creare la fattura serve un cliente registrato (non un
-                    possibile cliente).
-                  </p>
                 ) : (
                   <button
                     type="button"
@@ -4510,7 +4511,20 @@ export function OrdineNuovoWizardModal({
                             name="invio-fattura-sdi"
                             className="mt-1"
                             checked={invioFatturaSdi === "subito"}
-                            onChange={() => setInvioFatturaSdi("subito")}
+                            onChange={() => {
+                              if (
+                                anagraficaFonte !== "possibile" ||
+                                !possibileClienteId ||
+                                promozioneSdiRef.current
+                              ) {
+                                setInvioFatturaSdi("subito");
+                                return;
+                              }
+                              setPromozioneInviaOra(false);
+                              promozioneDopoRef.current = () =>
+                                setInvioFatturaSdi("subito");
+                              setChiediPromozioneSdi(true);
+                            }}
                           />
                           <span className="text-base font-semibold text-slate-900">
                             Invia subito la fattura allo SDI
@@ -4535,7 +4549,10 @@ export function OrdineNuovoWizardModal({
                             name="invio-fattura-sdi"
                             className="mt-1"
                             checked={invioFatturaSdi === "al_processo"}
-                            onChange={() => setInvioFatturaSdi("al_processo")}
+                            onChange={() => {
+                              promozioneSdiRef.current = false;
+                              setInvioFatturaSdi("al_processo");
+                            }}
                           />
                           <span className="text-base font-semibold text-slate-900">
                             Invia la fattura quando sarà eseguito il processo
@@ -5090,16 +5107,19 @@ export function OrdineNuovoWizardModal({
       {chiediPromozioneSdi ? (
         <ConfermaPromozioneSdiModal
           nome={clienteNome || "questo possibile cliente"}
-          onAnnulla={() => setChiediPromozioneSdi(false)}
+          etichettaConferma={
+            promozioneInviaOra ? "Conferma e invia allo SDI" : "Conferma"
+          }
+          onAnnulla={() => {
+            promozioneDopoRef.current = null;
+            setChiediPromozioneSdi(false);
+          }}
           onConferma={() => {
             promozioneSdiRef.current = true;
             setChiediPromozioneSdi(false);
-            const d = spedDraft.current;
-            const modo =
-              modificaOrdineId && d.allegaTracking && !d.trackingUrl.trim()
-                ? "prenota"
-                : "salva";
-            void submit(modo);
+            const poi = promozioneDopoRef.current;
+            promozioneDopoRef.current = null;
+            poi?.();
           }}
         />
       ) : null}

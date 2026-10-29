@@ -3,11 +3,13 @@
 export function ConfermaPromozioneSdiModal({
   nome,
   occupato,
+  etichettaConferma = "Conferma e invia allo SDI",
   onAnnulla,
   onConferma,
 }: {
   nome: string;
   occupato?: boolean;
+  etichettaConferma?: string;
   onAnnulla: () => void;
   onConferma: () => void;
 }) {
@@ -45,7 +47,7 @@ export function ConfermaPromozioneSdiModal({
             onClick={onConferma}
             className="rounded-lg bg-slate-900 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
           >
-            Conferma e invia allo SDI
+            {etichettaConferma}
           </button>
         </div>
       </div>
