@@ -165,6 +165,8 @@ export function SpedizioneMailPanel({
     if (!ritiroInSede) return;
     setAllegaTrackingMail(false);
     setVuoleMail(false);
+    setLetteraPath("");
+    setLetteraName("");
   }, [ritiroInSede]);
   const [destEmail, setDestEmail] = useState(destEmailDefault);
   const [accounts, setAccounts] = useState<
@@ -317,8 +319,8 @@ export function SpedizioneMailPanel({
   useEffect(() => {
     onDraftChange?.({
       trackingUrl: ritiroInSede ? "" : trackingUrl,
-      letteraViaPath: letteraPath,
-      letteraViaName: letteraName,
+      letteraViaPath: ritiroInSede ? "" : letteraPath,
+      letteraViaName: ritiroInSede ? "" : letteraName,
       allegati,
       allegaTracking: ritiroInSede
         ? false
@@ -655,6 +657,7 @@ export function SpedizioneMailPanel({
       </label>
       )}
 
+      {ritiroInSede ? null : (
       <div className="block text-sm">
         <span className="mb-1 block font-medium">
           Foglio di via (solo Agrinsicilia)
@@ -686,6 +689,7 @@ export function SpedizioneMailPanel({
           </span>
         ) : null}
       </div>
+      )}
 
       {sceltaOrdineFissa && item?.stato === "inviata" ? (
         <div className="space-y-2 text-sm">
