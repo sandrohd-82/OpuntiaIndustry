@@ -43,7 +43,7 @@ export function pdfAnagraficaAziendale(
   y += 4;
   doc.setFont("helvetica", "bold");
   doc.setFontSize(11);
-  const titolo = "OGGETTO: ARCHIVIO ANAGRAFICO e INFORMAZIONI PER MODELLO ORGANIZZATIVO";
+  const titolo = "OGGETTO: ARCHIVIO ANAGRAFICO";
   const titoloRighe = doc.splitTextToSize(titolo, width) as string[];
   for (const riga of titoloRighe) {
     doc.text(riga, 105, y, { align: "center" });
@@ -61,15 +61,21 @@ export function pdfAnagraficaAziendale(
     ["PEC", form.pec],
     ["Telefono", form.telefono],
     ["E-mail", form.email],
-    ["Responsabile acquisti", [form.respAcquistiNome, form.respAcquistiTel, form.respAcquistiEmail].filter(Boolean).join(" · ")],
-    ["Responsabile tecnico", [form.respTecnicoNome, form.respTecnicoTel, form.respTecnicoEmail].filter(Boolean).join(" · ")],
-    ["Banca di appoggio", form.bancaAppoggio],
-    ["Filiale", form.bancaFiliale],
-    ["IBAN", form.bancaIban],
   ];
   for (const [etichetta, valore] of campi) {
     scrivi(`${etichetta}: ${valore || "—"}`);
   }
+  y += 2;
+  scrivi("Legale rappresentante e firmatario del documento", 10, "bold");
+  scrivi(`Cognome: ${form.legaleCognome || "—"}`);
+  scrivi(`Nome: ${form.legaleNome || "—"}`);
+  scrivi(`Telefono: ${form.legaleTel || "—"}`);
+  scrivi(`E-mail: ${form.legaleEmail || "—"}`);
+  y += 2;
+  scrivi(`Banca di appoggio: ${form.bancaAppoggio || "—"}`);
+  scrivi(`BIC: ${form.bancaBic || "—"}`);
+  scrivi(`IBAN: ${form.bancaIban || "—"}`);
+  if (form.bancaFiliale) scrivi(`Filiale: ${form.bancaFiliale}`);
   y += 2;
   scrivi("Sede legale", 10, "bold");
   for (const riga of rigaSede(form.sedeLegale)) scrivi(riga);
@@ -89,19 +95,34 @@ export function pdfAnagraficaAziendale(
   if (!form.sedeMagFonte) scrivi("Non indicato");
   else for (const riga of rigaSede(mag)) scrivi(riga);
 
-  doc.addPage();
-  y = 16;
-  scrivi(
-    "Al fine di ottemperare alle disposizioni contenute nel Vostro Modello Organizzativo (ex D.Lgs. 231/2001 e successive modifiche), Vi comunichiamo altresì le seguenti informazioni e trasmettiamo gli allegati sotto elencati:",
-    10
-  );
-  y += 3;
-  scrivi("Titolare effettivo", 11, "bold");
-  scrivi(`Cognome: ${form.titolareCognome}`);
-  scrivi(`Nome: ${form.titolareNome}`);
-  scrivi(`Codice fiscale: ${form.titolareCf}`);
-  scrivi(`Documento di identità: ${form.titolareDocumentoTipo}`);
-  scrivi(`N. documento: ${form.titolareDocumentoNumero}`);
+  const facoltativi: Array<[string, string]> = [
+    ["Responsabile acquisti", [form.respAcquistiNome, form.respAcquistiTel, form.respAcquistiEmail].filter(Boolean).join(" · ")],
+    ["Responsabile tecnico", [form.respTecnicoNome, form.respTecnicoTel, form.respTecnicoEmail].filter(Boolean).join(" · ")],
+  ];
+  for (const [etichetta, valore] of facoltativi) {
+    if (valore) scrivi(`${etichetta}: ${valore}`);
+  }
+  const titolare = [
+    form.titolareCognome,
+    form.titolareNome,
+    form.titolareCf,
+    form.titolareDocumentoTipo,
+    form.titolareDocumentoNumero,
+  ].some(Boolean);
+  if (titolare) {
+    y += 2;
+    scrivi("Titolare effettivo", 10, "bold");
+    if (form.titolareCognome) scrivi(`Cognome: ${form.titolareCognome}`);
+    if (form.titolareNome) scrivi(`Nome: ${form.titolareNome}`);
+    if (form.titolareCf) scrivi(`Codice fiscale: ${form.titolareCf}`);
+    if (form.titolareDocumentoTipo) scrivi(`Documento di identità: ${form.titolareDocumentoTipo}`);
+    if (form.titolareDocumentoNumero) scrivi(`N. documento: ${form.titolareDocumentoNumero}`);
+  }
+
+  if (y > 190) {
+    doc.addPage();
+    y = 16;
+  }
   y += 4;
   scrivi(
     "Vi autorizziamo al trattamento dei nostri dati ai sensi del Regolamento UE 2016/679, della legge 196/2003 e per i fini dichiarati."
@@ -115,15 +136,12 @@ export function pdfAnagraficaAziendale(
     y += 5;
     scrivi("Firma");
     scrivi("(Rappresentante Legale)");
-    y = 285;
-    doc.setFont("helvetica", "normal");
-    doc.setFontSize(8);
-    doc.text(
-      "Da restituire compilato su carta intestata e firmato da Rappresentante Legale",
-      left,
-      y
-    );
   }
+  y += 4;
+  scrivi(
+    "Da restituire compilato su carta intestata e firmato da Rappresentante Legale oppure firmare tramite OTP: verranno salvate mail, IP, data e ora e token.",
+    8
+  );
   if (timbro) {
     const pagine = doc.getNumberOfPages();
     for (let pagina = 1; pagina <= pagine; pagina += 1) {

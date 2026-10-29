@@ -24,8 +24,13 @@ export type AnagraficaFormPayload = {
   respTecnicoNome: string;
   respTecnicoTel: string;
   respTecnicoEmail: string;
+  legaleCognome: string;
+  legaleNome: string;
+  legaleTel: string;
+  legaleEmail: string;
   bancaAppoggio: string;
   bancaFiliale: string;
+  bancaBic: string;
   bancaIban: string;
   sedeLegale: SedeAnagraficaForm;
   sedeAmmUgualeLegale: boolean;
@@ -54,8 +59,13 @@ export const CAMPI_ANAGRAFICA = [
   "respTecnicoNome",
   "respTecnicoTel",
   "respTecnicoEmail",
+  "legaleCognome",
+  "legaleNome",
+  "legaleTel",
+  "legaleEmail",
   "bancaAppoggio",
   "bancaFiliale",
+  "bancaBic",
   "bancaIban",
   "sedeLegale",
   "sedeAmmUgualeLegale",
@@ -105,8 +115,13 @@ export function formVuoto(): AnagraficaFormPayload {
     respTecnicoNome: "",
     respTecnicoTel: "",
     respTecnicoEmail: "",
+    legaleCognome: "",
+    legaleNome: "",
+    legaleTel: "",
+    legaleEmail: "",
     bancaAppoggio: "",
     bancaFiliale: "",
+    bancaBic: "",
     bancaIban: "",
     sedeLegale: sedeVuota(),
     sedeAmmUgualeLegale: false,
@@ -161,8 +176,13 @@ export function normalizzaForm(value: unknown): AnagraficaFormPayload {
     respTecnicoNome: testo(row.respTecnicoNome, 160),
     respTecnicoTel: testo(row.respTecnicoTel, 40),
     respTecnicoEmail: testo(row.respTecnicoEmail, 160),
+    legaleCognome: testo(row.legaleCognome, 80),
+    legaleNome: testo(row.legaleNome, 80),
+    legaleTel: testo(row.legaleTel, 40),
+    legaleEmail: testo(row.legaleEmail, 160),
     bancaAppoggio: testo(row.bancaAppoggio, 160),
     bancaFiliale: testo(row.bancaFiliale, 160),
+    bancaBic: testo(row.bancaBic, 11).replace(/\s+/g, "").toUpperCase(),
     bancaIban: testo(row.bancaIban, 42).replace(/\s+/g, "").toUpperCase(),
     sedeLegale: sedeDa(row.sedeLegale),
     sedeAmmUgualeLegale: row.sedeAmmUgualeLegale === true,
@@ -232,9 +252,23 @@ export function erroriPdf(form: AnagraficaFormPayload): string[] {
     errori.push("Con codice destinatario 0000000 la PEC è obbligatoria.");
   }
   if (form.pec && !emailOk(form.pec)) errori.push("La PEC non è un indirizzo valido.");
+  if (!form.telefono || form.telefono.replace(/\D/g, "").length < 6) {
+    errori.push("Manca il numero di telefono.");
+  }
   if (!form.email || !emailOk(form.email)) errori.push("Manca l'e-mail.");
+  if (!form.legaleCognome || !form.legaleNome) {
+    errori.push("Mancano cognome e nome del legale rappresentante.");
+  }
+  if (!form.legaleTel || form.legaleTel.replace(/\D/g, "").length < 6) {
+    errori.push("Manca il telefono del legale rappresentante.");
+  }
+  if (!form.legaleEmail || !emailOk(form.legaleEmail)) {
+    errori.push("Manca l'e-mail del legale rappresentante.");
+  }
   if (!form.bancaAppoggio) errori.push("Manca la banca di appoggio.");
-  if (!form.bancaFiliale) errori.push("Manca la filiale.");
+  if (!/^[A-Z]{6}[A-Z0-9]{2}([A-Z0-9]{3})?$/.test(form.bancaBic)) {
+    errori.push("Il BIC non è valido.");
+  }
   if (!ibanOk(form.bancaIban)) errori.push("L'IBAN non è valido.");
   const legale = form.sedeLegale;
   if (!legale.indirizzo || !legale.nazione || !legale.cap || !legale.citta) {
@@ -246,14 +280,8 @@ export function erroriPdf(form: AnagraficaFormPayload): string[] {
   if (form.respTecnicoEmail && !emailOk(form.respTecnicoEmail)) {
     errori.push("L'e-mail del responsabile tecnico non è valida.");
   }
-  if (!form.titolareCognome || !form.titolareNome) {
-    errori.push("Mancano cognome e nome del titolare effettivo.");
-  }
-  if (!/^(\d{11}|[A-Z0-9]{16})$/.test(form.titolareCf)) {
+  if (form.titolareCf && !/^(\d{11}|[A-Z0-9]{16})$/.test(form.titolareCf)) {
     errori.push("Il codice fiscale del titolare effettivo non è valido.");
-  }
-  if (!form.titolareDocumentoTipo || !form.titolareDocumentoNumero) {
-    errori.push("Mancano tipo e numero del documento del titolare effettivo.");
   }
   if (!form.consensoTrattamento) {
     errori.push("Serve l'accettazione dei termini e del trattamento dati.");
@@ -271,6 +299,7 @@ export function emailRegistrateAnagrafica(invio: string, form: AnagraficaFormPay
     invio,
     form.email,
     form.pec,
+    form.legaleEmail,
     form.respAcquistiEmail,
     form.respTecnicoEmail,
   ]) {

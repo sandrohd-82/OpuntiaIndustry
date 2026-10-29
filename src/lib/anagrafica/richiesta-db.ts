@@ -172,8 +172,13 @@ const COLONNE: Record<string, string> = {
   respTecnicoNome: "resp_tecnico_nome",
   respTecnicoTel: "resp_tecnico_tel",
   respTecnicoEmail: "resp_tecnico_email",
+  legaleCognome: "legale_cognome",
+  legaleNome: "legale_nome",
+  legaleTel: "legale_tel",
+  legaleEmail: "legale_email",
   bancaAppoggio: "banca_appoggio",
   bancaFiliale: "banca_filiale",
+  bancaBic: "banca_bic",
   bancaIban: "banca_iban",
   titolareCognome: "titolare_cognome",
   titolareNome: "titolare_nome",
@@ -478,7 +483,7 @@ export async function caricaFirmatoPubblico(
 }
 
 const SELECT_SCHEDA =
-  "ragione_sociale, partita_iva, codice_fiscale, sdi_code, pec, email, telefono, banca_appoggio, banca_filiale, banca_iban, resp_acquisti_nome, resp_acquisti_tel, resp_acquisti_email, resp_tecnico_nome, resp_tecnico_tel, resp_tecnico_email, titolare_cognome, titolare_nome, titolare_codice_fiscale, titolare_documento_tipo, titolare_documento_numero, sede_amm_nazione, sede_amm_provincia, sede_amm_localita, sede_amm_citta, sede_amm_cap, sede_amm_indirizzo, sede_mag_nazione, sede_mag_provincia, sede_mag_localita, sede_mag_citta, sede_mag_cap, sede_mag_indirizzo";
+  "ragione_sociale, partita_iva, codice_fiscale, sdi_code, pec, email, telefono, banca_appoggio, banca_filiale, banca_bic, banca_iban, legale_cognome, legale_nome, legale_tel, legale_email, resp_acquisti_nome, resp_acquisti_tel, resp_acquisti_email, resp_tecnico_nome, resp_tecnico_tel, resp_tecnico_email, titolare_cognome, titolare_nome, titolare_codice_fiscale, titolare_documento_tipo, titolare_documento_numero, sede_amm_nazione, sede_amm_provincia, sede_amm_localita, sede_amm_citta, sede_amm_cap, sede_amm_indirizzo, sede_mag_nazione, sede_mag_provincia, sede_mag_localita, sede_mag_citta, sede_mag_cap, sede_mag_indirizzo";
 
 function sedeDaRiga(row: Record<string, unknown>, prefisso: string): SedeAnagraficaForm {
   return {
@@ -548,7 +553,12 @@ export async function precompilaDaScheda(
   form.telefono = String(row.telefono ?? "");
   form.bancaAppoggio = String(row.banca_appoggio ?? "");
   form.bancaFiliale = String(row.banca_filiale ?? "");
+  form.bancaBic = String(row.banca_bic ?? "");
   form.bancaIban = String(row.banca_iban ?? "");
+  form.legaleCognome = String(row.legale_cognome ?? "");
+  form.legaleNome = String(row.legale_nome ?? "");
+  form.legaleTel = String(row.legale_tel ?? "");
+  form.legaleEmail = String(row.legale_email ?? "");
   form.respAcquistiNome = String(row.resp_acquisti_nome ?? "");
   form.respAcquistiTel = String(row.resp_acquisti_tel ?? "");
   form.respAcquistiEmail = String(row.resp_acquisti_email ?? "");

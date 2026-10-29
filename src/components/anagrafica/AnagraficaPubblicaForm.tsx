@@ -311,30 +311,35 @@ export function AnagraficaPubblicaForm({
         <div className="grid gap-4 sm:grid-cols-2">
           <Campo
             label="P. IVA"
+            required
             value={form.partitaIva}
             onChange={(valore) => aggiorna("partitaIva", valore)}
             onBlur={(valore) => void salva("partitaIva", valore)}
           />
           <Campo
             label="Codice fiscale"
+            required
             value={form.codiceFiscale}
             onChange={(valore) => aggiorna("codiceFiscale", valore)}
             onBlur={(valore) => void salva("codiceFiscale", valore)}
           />
           <Campo
             label="Codice destinatario"
+            required
             value={form.sdiCode}
             onChange={(valore) => aggiorna("sdiCode", valore)}
             onBlur={(valore) => void salva("sdiCode", valore)}
           />
           <Campo
             label="P.E.C."
+            required
             value={form.pec}
             onChange={(valore) => aggiorna("pec", valore)}
             onBlur={(valore) => void salva("pec", valore)}
           />
           <Campo
             label="N° tel"
+            required
             value={form.telefono}
             onChange={(valore) => aggiorna("telefono", valore)}
             onBlur={(valore) => void salva("telefono", valore)}
@@ -349,8 +354,18 @@ export function AnagraficaPubblicaForm({
           />
         </div>
         <p className="text-xs text-slate-500">
-          P. IVA oppure codice fiscale. Codice destinatario oppure PEC. Con 0000000 la PEC è obbligatoria.
+          Basta la partita IVA oppure il codice fiscale. Basta il codice destinatario oppure la PEC. Con 0000000 la PEC resta necessaria.
         </p>
+
+        <fieldset className="space-y-3 rounded-xl border border-slate-200 p-4">
+          <legend className="px-1 text-sm font-semibold">Legale rappresentante e firmatario del documento</legend>
+          <div className="grid gap-4 sm:grid-cols-2">
+            <Campo label="Cognome" required value={form.legaleCognome} onChange={(v) => aggiorna("legaleCognome", v)} onBlur={(valore) => void salva("legaleCognome", valore)} />
+            <Campo label="Nome" required value={form.legaleNome} onChange={(v) => aggiorna("legaleNome", v)} onBlur={(valore) => void salva("legaleNome", valore)} />
+            <Campo label="N° tel" required value={form.legaleTel} onChange={(v) => aggiorna("legaleTel", v)} onBlur={(valore) => void salva("legaleTel", valore)} />
+            <Campo label="E-mail" required type="email" value={form.legaleEmail} onChange={(v) => aggiorna("legaleEmail", v)} onBlur={(valore) => void salva("legaleEmail", valore)} />
+          </div>
+        </fieldset>
 
         <fieldset className="space-y-3 rounded-xl border border-slate-200 p-4">
           <legend className="px-1 text-sm font-semibold">Responsabile acquisti</legend>
@@ -368,14 +383,16 @@ export function AnagraficaPubblicaForm({
             <Campo label="E-mail" value={form.respTecnicoEmail} onChange={(v) => aggiorna("respTecnicoEmail", v)} onBlur={(valore) => void salva("respTecnicoEmail", valore)} />
           </div>
         </fieldset>
-        <div className="grid gap-4 sm:grid-cols-3">
+        <div className="grid gap-4 sm:grid-cols-2">
           <Campo label="Banca appoggio" required value={form.bancaAppoggio} onChange={(v) => aggiorna("bancaAppoggio", v)} onBlur={(valore) => void salva("bancaAppoggio", valore)} />
-          <Campo label="Filiale" required value={form.bancaFiliale} onChange={(v) => aggiorna("bancaFiliale", v)} onBlur={(valore) => void salva("bancaFiliale", valore)} />
+          <Campo label="BIC" required value={form.bancaBic} onChange={(v) => aggiorna("bancaBic", v)} onBlur={(valore) => void salva("bancaBic", valore)} />
           <Campo label="IBAN" required value={form.bancaIban} onChange={(v) => aggiorna("bancaIban", v)} onBlur={(valore) => void salva("bancaIban", valore)} />
+          <Campo label="Filiale" value={form.bancaFiliale} onChange={(v) => aggiorna("bancaFiliale", v)} onBlur={(valore) => void salva("bancaFiliale", valore)} />
         </div>
 
         <SedeBlocco
           titolo="Sede legale"
+          richiesti
           sede={form.sedeLegale}
           comuni={comuni.sedeLegale ?? []}
           onChange={(sede) => setForm((c) => (c ? { ...c, sedeLegale: sede } : c))}
@@ -440,15 +457,13 @@ export function AnagraficaPubblicaForm({
 
         <section className="space-y-3 rounded-xl border border-slate-200 bg-slate-50 p-4">
           <h2 className="text-sm font-semibold">Titolare effettivo</h2>
-          <p className="text-sm text-slate-700">
-            Al fine di ottemperare alle disposizioni contenute nel Vostro Modello Organizzativo (ex D.Lgs. 231/2001 e successive modifiche), Vi comunichiamo altresì le seguenti informazioni.
-          </p>
+          <p className="text-sm text-slate-700">Facoltativo. Non blocca la firma.</p>
           <div className="grid gap-4 sm:grid-cols-2">
-            <Campo label="Cognome" required value={form.titolareCognome} onChange={(v) => aggiorna("titolareCognome", v)} onBlur={(valore) => void salva("titolareCognome", valore)} />
-            <Campo label="Nome" required value={form.titolareNome} onChange={(v) => aggiorna("titolareNome", v)} onBlur={(valore) => void salva("titolareNome", valore)} />
-            <Campo label="Codice fiscale" required value={form.titolareCf} onChange={(v) => aggiorna("titolareCf", v)} onBlur={(valore) => void salva("titolareCf", valore)} />
+            <Campo label="Cognome" value={form.titolareCognome} onChange={(v) => aggiorna("titolareCognome", v)} onBlur={(valore) => void salva("titolareCognome", valore)} />
+            <Campo label="Nome" value={form.titolareNome} onChange={(v) => aggiorna("titolareNome", v)} onBlur={(valore) => void salva("titolareNome", valore)} />
+            <Campo label="Codice fiscale" value={form.titolareCf} onChange={(v) => aggiorna("titolareCf", v)} onBlur={(valore) => void salva("titolareCf", valore)} />
             <label className="block text-sm">
-              <span className="mb-1 block font-medium text-slate-700">Documento di identità *</span>
+              <span className="mb-1 block font-medium text-slate-700">Documento di identità</span>
               <select
                 value={form.titolareDocumentoTipo}
                 onChange={(event) => aggiorna("titolareDocumentoTipo", event.target.value)}
@@ -465,14 +480,14 @@ export function AnagraficaPubblicaForm({
                 ))}
               </select>
             </label>
-            <Campo label="N. documento" required value={form.titolareDocumentoNumero} onChange={(v) => aggiorna("titolareDocumentoNumero", v)} onBlur={(valore) => void salva("titolareDocumentoNumero", valore)} />
+            <Campo label="N. documento" value={form.titolareDocumentoNumero} onChange={(v) => aggiorna("titolareDocumentoNumero", v)} onBlur={(valore) => void salva("titolareDocumentoNumero", valore)} />
           </div>
           <p className="text-sm">
             Vi autorizziamo al trattamento dei nostri dati ai sensi del Regolamento UE 2016/679, della legge 196/2003 e per i fini dichiarati.
           </p>
           <p className="text-sm">La data di compilazione è quella del giorno in cui firmate o scaricate il PDF.</p>
           <p className="text-sm">
-            Potete firmare qui con un codice OTP, oppure scaricare il PDF e restituirlo firmato su carta.
+            Potete firmare qui con un codice OTP, oppure scaricare il PDF e restituirlo firmato su carta. Con l&apos;OTP restano mail, IP, data e ora e token.
           </p>
         </section>
 
@@ -507,6 +522,7 @@ function SedeBlocco({
   titolo,
   sede,
   comuni,
+  richiesti = false,
   onChange,
   onBlurCampo,
   onCap,
@@ -514,6 +530,7 @@ function SedeBlocco({
   titolo: string;
   sede: SedeAnagraficaForm;
   comuni: ComuneCap[];
+  richiesti?: boolean;
   onChange: (sede: SedeAnagraficaForm) => void;
   onBlurCampo: (sede: SedeAnagraficaForm) => void;
   onCap: (sede: SedeAnagraficaForm) => void;
@@ -523,14 +540,18 @@ function SedeBlocco({
     <fieldset className="space-y-3 rounded-xl border border-slate-200 p-4">
       <legend className="px-1 text-sm font-semibold">{titolo}</legend>
       <Campo
-        label="Via"
+        label="Via/Viale/P.zza"
+        required={richiesti}
         value={sede.indirizzo}
         onChange={(indirizzo) => onChange({ ...sede, indirizzo })}
         onBlur={(valore) => onBlurCampo({ ...sede, indirizzo: valore })}
       />
       <div className="grid gap-4 sm:grid-cols-2">
         <label className="block text-sm">
-          <span className="mb-1 block font-medium text-slate-700">Nazione</span>
+          <span className="mb-1 block font-medium text-slate-700">
+            Nazione
+            {richiesti ? " *" : ""}
+          </span>
           <select
             value={nota}
             onChange={(event) => {
@@ -559,12 +580,14 @@ function SedeBlocco({
         ) : null}
         <Campo
           label="CAP"
+          required={richiesti}
           value={sede.cap}
           onChange={(cap) => onChange({ ...sede, cap })}
           onBlur={(valore) => onCap({ ...sede, cap: valore })}
         />
         <Campo
           label="Città"
+          required={richiesti}
           value={sede.citta}
           onChange={(citta) => onChange({ ...sede, citta })}
           onBlur={(valore) => onBlurCampo({ ...sede, citta: valore })}
