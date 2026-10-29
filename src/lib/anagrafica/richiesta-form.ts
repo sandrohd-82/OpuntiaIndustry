@@ -295,6 +295,58 @@ export function erroriPdf(form: AnagraficaFormPayload): string[] {
   return errori;
 }
 
+export const MESSAGGIO_DATI_OBBLIGATORI =
+  "Completa i dati obbligatori prima di chiedere il codice.";
+
+/** Campi che bloccano la richiesta del codice, consenso escluso. */
+export function campiDaCompletare(form: AnagraficaFormPayload): string[] {
+  const mancanti: string[] = [];
+  if (!form.ragioneSociale) mancanti.push("ragioneSociale");
+  const piva = form.partitaIva.replace(/^IT/, "");
+  const cf = form.codiceFiscale;
+  if (!piva && !cf) {
+    mancanti.push("partitaIva", "codiceFiscale");
+  }
+  if (piva && !/^\d{11}$/.test(piva) && !/^[A-Z]{2}[A-Z0-9]{5,13}$/.test(form.partitaIva)) {
+    mancanti.push("partitaIva");
+  }
+  if (cf && !/^(\d{11}|[A-Z0-9]{16})$/.test(cf)) {
+    mancanti.push("codiceFiscale");
+  }
+  const sdi = form.sdiCode;
+  if (sdi && !/^[A-Z0-9]{7}$/.test(sdi)) mancanti.push("sdiCode");
+  if (!sdi && !form.pec) mancanti.push("sdiCode", "pec");
+  if (sdi === "0000000" && !form.pec) mancanti.push("pec");
+  if (form.pec && !emailOk(form.pec)) mancanti.push("pec");
+  if (!form.telefono || form.telefono.replace(/\D/g, "").length < 6) {
+    mancanti.push("telefono");
+  }
+  if (!form.email || !emailOk(form.email)) mancanti.push("email");
+  if (!form.legaleCognome) mancanti.push("legaleCognome");
+  if (!form.legaleNome) mancanti.push("legaleNome");
+  if (!form.legaleTel || form.legaleTel.replace(/\D/g, "").length < 6) {
+    mancanti.push("legaleTel");
+  }
+  if (!form.legaleEmail || !emailOk(form.legaleEmail)) mancanti.push("legaleEmail");
+  if (!form.bancaAppoggio) mancanti.push("bancaAppoggio");
+  if (!/^[A-Z]{6}[A-Z0-9]{2}([A-Z0-9]{3})?$/.test(form.bancaBic)) {
+    mancanti.push("bancaBic");
+  }
+  if (!ibanOk(form.bancaIban)) mancanti.push("bancaIban");
+  const legale = form.sedeLegale;
+  if (!legale.indirizzo) mancanti.push("sedeLegale.indirizzo");
+  if (!legale.nazione) mancanti.push("sedeLegale.nazione");
+  if (!legale.cap) mancanti.push("sedeLegale.cap");
+  if (!legale.citta) mancanti.push("sedeLegale.citta");
+  if (form.respAcquistiEmail && !emailOk(form.respAcquistiEmail)) {
+    mancanti.push("respAcquistiEmail");
+  }
+  if (form.respTecnicoEmail && !emailOk(form.respTecnicoEmail)) {
+    mancanti.push("respTecnicoEmail");
+  }
+  return mancanti;
+}
+
 export function emailAnagraficaValida(value: string): boolean {
   return emailOk(value.trim());
 }

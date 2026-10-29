@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { emailRegistrateAnagrafica } from "@/lib/anagrafica/richiesta-form";
+import { emailRegistrateAnagrafica, MESSAGGIO_DATI_OBBLIGATORI } from "@/lib/anagrafica/richiesta-form";
 import type { AnagraficaFormPayload } from "@/lib/anagrafica/richiesta-form";
 
 function formato(secondi: number): string {
@@ -15,6 +15,9 @@ export function FirmaOtpPannello({
   form,
   emailInvio,
   pronto,
+  modifica,
+  onModifica,
+  onMancanti,
   onConsenso,
   onFirmato,
 }: {
@@ -22,6 +25,9 @@ export function FirmaOtpPannello({
   form: AnagraficaFormPayload;
   emailInvio: string;
   pronto: boolean;
+  modifica: number;
+  onModifica?: () => void;
+  onMancanti?: () => void;
   onConsenso: (valore: boolean) => Promise<string | null>;
   onFirmato: () => void;
 }) {
@@ -31,8 +37,11 @@ export function FirmaOtpPannello({
   const [secondi, setSecondi] = useState(0);
   const [codice, setCodice] = useState("");
   const [errore, setErrore] = useState("");
+  const [erroreAllaModifica, setErroreAllaModifica] = useState(-1);
   const [occupato, setOccupato] = useState(false);
   const [consenso, setConsenso] = useState(form.consensoTrattamento);
+  const erroreVisibile =
+    (errore === MESSAGGIO_DATI_OBBLIGATORI && modifica !== erroreAllaModifica) ? "" : errore;
 
   useEffect(() => {
     if (!scelta && email[0]) setScelta(email[0]);
@@ -52,7 +61,9 @@ export function FirmaOtpPannello({
   async function chiedi() {
     setErrore("");
     if (!pronto) {
-      setErrore("Completa i dati obbligatori prima di chiedere il codice.");
+      onMancanti?.();
+      setErroreAllaModifica(modifica);
+      setErrore(MESSAGGIO_DATI_OBBLIGATORI);
       return;
     }
     if (!scelta) {
@@ -126,7 +137,10 @@ export function FirmaOtpPannello({
           <span className="mb-1 block font-medium text-slate-700">E-mail registrata</span>
           <select
             value={scelta}
-            onChange={(event) => setScelta(event.target.value)}
+            onChange={(event) => {
+              onModifica?.();
+              setScelta(event.target.value);
+            }}
             className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2"
           >
             {email.map((voce) => (
@@ -177,7 +191,7 @@ export function FirmaOtpPannello({
           </button>
         </div>
       ) : null}
-      {errore ? <p className="text-sm text-red-700">{errore}</p> : null}
+      {erroreVisibile ? <p className="text-sm text-red-700">{erroreVisibile}</p> : null}
     </section>
   );
 }

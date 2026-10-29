@@ -10,6 +10,7 @@ import {
 } from "@/app/actions/anagrafica-richiesta-pubblica";
 import { FirmaOtpPannello } from "@/components/anagrafica/FirmaOtpPannello";
 import {
+  campiDaCompletare,
   erroriPdf,
   type AnagraficaFormPayload,
   type SedeAnagraficaForm,
@@ -46,6 +47,7 @@ function Campo({
   onChange,
   onBlur,
   required,
+  sottolineato,
   type = "text",
 }: {
   label: string;
@@ -53,11 +55,16 @@ function Campo({
   onChange: (value: string) => void;
   onBlur: (value: string) => void;
   required?: boolean;
+  sottolineato?: boolean;
   type?: string;
 }) {
   return (
     <label className="block text-sm">
-      <span className="mb-1 block font-medium text-slate-700">
+      <span
+        className={`mb-1 block font-medium ${
+          sottolineato ? "text-red-700 underline decoration-red-600 decoration-2" : "text-slate-700"
+        }`}
+      >
         {label}
         {required ? " *" : ""}
       </span>
@@ -66,7 +73,11 @@ function Campo({
         value={value}
         onChange={(event) => onChange(event.target.value)}
         onBlur={(event) => onBlur(event.target.value)}
-        className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2"
+        className={`w-full rounded-lg border bg-white px-3 py-2 ${
+          sottolineato
+            ? "border-red-600 border-b-2 underline decoration-red-600 decoration-2"
+            : "border-slate-300"
+        }`}
       />
     </label>
   );
@@ -86,6 +97,8 @@ export function AnagraficaPubblicaForm({
   const [mancanti, setMancanti] = useState<string[]>([]);
   const [occupato, setOccupato] = useState(false);
   const [comuni, setComuni] = useState<Record<string, ComuneCap[]>>({});
+  const [mostraMancanti, setMostraMancanti] = useState(false);
+  const [modifica, setModifica] = useState(0);
   const faseTest = partenza?.faseTest === true;
   const emailInvio = partenza?.emailInvio ?? "";
 
@@ -111,7 +124,12 @@ export function AnagraficaPubblicaForm({
     return null;
   }
 
+  function segnaModifica() {
+    setModifica((n) => n + 1);
+  }
+
   function aggiorna(campo: keyof AnagraficaFormPayload, valore: string) {
+    segnaModifica();
     setForm((corrente) => (corrente ? { ...corrente, [campo]: valore } : corrente));
   }
 
@@ -208,7 +226,11 @@ export function AnagraficaPubblicaForm({
             form={form}
             emailInvio={emailInvio}
             pronto={erroriPdf({ ...form, consensoTrattamento: true }).length === 0}
+            modifica={modifica}
+            onModifica={segnaModifica}
+            onMancanti={() => setMostraMancanti(true)}
             onConsenso={async (valore) => {
+              segnaModifica();
               setForm((corrente) =>
                 corrente ? { ...corrente, consensoTrattamento: valore } : corrente
               );
@@ -276,6 +298,9 @@ export function AnagraficaPubblicaForm({
     );
   }
 
+  const incompleti = new Set(campiDaCompletare(form));
+  const rosso = (campo: string) => mostraMancanti && incompleti.has(campo);
+
   return (
     <main className="mx-auto max-w-3xl px-4 py-8">
       <AvvisoTest attivo={faseTest} />
@@ -303,6 +328,7 @@ export function AnagraficaPubblicaForm({
         <Campo
           label="Ragione sociale"
           required
+          sottolineato={rosso("ragioneSociale")}
           value={form.ragioneSociale}
           onChange={(valore) => aggiorna("ragioneSociale", valore)}
           onBlur={(valore) => void salva("ragioneSociale", valore)}
@@ -311,6 +337,7 @@ export function AnagraficaPubblicaForm({
           <Campo
             label="P. IVA"
             required
+            sottolineato={rosso("partitaIva")}
             value={form.partitaIva}
             onChange={(valore) => aggiorna("partitaIva", valore)}
             onBlur={(valore) => void salva("partitaIva", valore)}
@@ -318,6 +345,7 @@ export function AnagraficaPubblicaForm({
           <Campo
             label="Codice fiscale"
             required
+            sottolineato={rosso("codiceFiscale")}
             value={form.codiceFiscale}
             onChange={(valore) => aggiorna("codiceFiscale", valore)}
             onBlur={(valore) => void salva("codiceFiscale", valore)}
@@ -325,6 +353,7 @@ export function AnagraficaPubblicaForm({
           <Campo
             label="Codice destinatario"
             required
+            sottolineato={rosso("sdiCode")}
             value={form.sdiCode}
             onChange={(valore) => aggiorna("sdiCode", valore)}
             onBlur={(valore) => void salva("sdiCode", valore)}
@@ -332,6 +361,7 @@ export function AnagraficaPubblicaForm({
           <Campo
             label="P.E.C."
             required
+            sottolineato={rosso("pec")}
             value={form.pec}
             onChange={(valore) => aggiorna("pec", valore)}
             onBlur={(valore) => void salva("pec", valore)}
@@ -339,6 +369,7 @@ export function AnagraficaPubblicaForm({
           <Campo
             label="N° tel"
             required
+            sottolineato={rosso("telefono")}
             value={form.telefono}
             onChange={(valore) => aggiorna("telefono", valore)}
             onBlur={(valore) => void salva("telefono", valore)}
@@ -347,6 +378,7 @@ export function AnagraficaPubblicaForm({
             label="E-mail"
             required
             type="email"
+            sottolineato={rosso("email")}
             value={form.email}
             onChange={(valore) => aggiorna("email", valore)}
             onBlur={(valore) => void salva("email", valore)}
@@ -359,10 +391,10 @@ export function AnagraficaPubblicaForm({
         <fieldset className="space-y-3 rounded-xl border border-slate-200 p-4">
           <legend className="px-1 text-sm font-semibold">Legale rappresentante e firmatario del documento</legend>
           <div className="grid gap-4 sm:grid-cols-2">
-            <Campo label="Cognome" required value={form.legaleCognome} onChange={(v) => aggiorna("legaleCognome", v)} onBlur={(valore) => void salva("legaleCognome", valore)} />
-            <Campo label="Nome" required value={form.legaleNome} onChange={(v) => aggiorna("legaleNome", v)} onBlur={(valore) => void salva("legaleNome", valore)} />
-            <Campo label="N° tel" required value={form.legaleTel} onChange={(v) => aggiorna("legaleTel", v)} onBlur={(valore) => void salva("legaleTel", valore)} />
-            <Campo label="E-mail" required type="email" value={form.legaleEmail} onChange={(v) => aggiorna("legaleEmail", v)} onBlur={(valore) => void salva("legaleEmail", valore)} />
+            <Campo label="Cognome" required sottolineato={rosso("legaleCognome")} value={form.legaleCognome} onChange={(v) => aggiorna("legaleCognome", v)} onBlur={(valore) => void salva("legaleCognome", valore)} />
+            <Campo label="Nome" required sottolineato={rosso("legaleNome")} value={form.legaleNome} onChange={(v) => aggiorna("legaleNome", v)} onBlur={(valore) => void salva("legaleNome", valore)} />
+            <Campo label="N° tel" required sottolineato={rosso("legaleTel")} value={form.legaleTel} onChange={(v) => aggiorna("legaleTel", v)} onBlur={(valore) => void salva("legaleTel", valore)} />
+            <Campo label="E-mail" required type="email" sottolineato={rosso("legaleEmail")} value={form.legaleEmail} onChange={(v) => aggiorna("legaleEmail", v)} onBlur={(valore) => void salva("legaleEmail", valore)} />
           </div>
         </fieldset>
 
@@ -371,7 +403,7 @@ export function AnagraficaPubblicaForm({
           <div className="grid gap-4 sm:grid-cols-3">
             <Campo label="Nome" value={form.respAcquistiNome} onChange={(v) => aggiorna("respAcquistiNome", v)} onBlur={(valore) => void salva("respAcquistiNome", valore)} />
             <Campo label="Tel" value={form.respAcquistiTel} onChange={(v) => aggiorna("respAcquistiTel", v)} onBlur={(valore) => void salva("respAcquistiTel", valore)} />
-            <Campo label="E-mail" value={form.respAcquistiEmail} onChange={(v) => aggiorna("respAcquistiEmail", v)} onBlur={(valore) => void salva("respAcquistiEmail", valore)} />
+            <Campo label="E-mail" sottolineato={rosso("respAcquistiEmail")} value={form.respAcquistiEmail} onChange={(v) => aggiorna("respAcquistiEmail", v)} onBlur={(valore) => void salva("respAcquistiEmail", valore)} />
           </div>
         </fieldset>
         <fieldset className="space-y-3 rounded-xl border border-slate-200 p-4">
@@ -379,13 +411,13 @@ export function AnagraficaPubblicaForm({
           <div className="grid gap-4 sm:grid-cols-3">
             <Campo label="Nome" value={form.respTecnicoNome} onChange={(v) => aggiorna("respTecnicoNome", v)} onBlur={(valore) => void salva("respTecnicoNome", valore)} />
             <Campo label="Tel" value={form.respTecnicoTel} onChange={(v) => aggiorna("respTecnicoTel", v)} onBlur={(valore) => void salva("respTecnicoTel", valore)} />
-            <Campo label="E-mail" value={form.respTecnicoEmail} onChange={(v) => aggiorna("respTecnicoEmail", v)} onBlur={(valore) => void salva("respTecnicoEmail", valore)} />
+            <Campo label="E-mail" sottolineato={rosso("respTecnicoEmail")} value={form.respTecnicoEmail} onChange={(v) => aggiorna("respTecnicoEmail", v)} onBlur={(valore) => void salva("respTecnicoEmail", valore)} />
           </div>
         </fieldset>
         <div className="grid gap-4 sm:grid-cols-2">
-          <Campo label="Banca appoggio" required value={form.bancaAppoggio} onChange={(v) => aggiorna("bancaAppoggio", v)} onBlur={(valore) => void salva("bancaAppoggio", valore)} />
-          <Campo label="BIC" required value={form.bancaBic} onChange={(v) => aggiorna("bancaBic", v)} onBlur={(valore) => void salva("bancaBic", valore)} />
-          <Campo label="IBAN" required value={form.bancaIban} onChange={(v) => aggiorna("bancaIban", v)} onBlur={(valore) => void salva("bancaIban", valore)} />
+          <Campo label="Banca appoggio" required sottolineato={rosso("bancaAppoggio")} value={form.bancaAppoggio} onChange={(v) => aggiorna("bancaAppoggio", v)} onBlur={(valore) => void salva("bancaAppoggio", valore)} />
+          <Campo label="BIC" required sottolineato={rosso("bancaBic")} value={form.bancaBic} onChange={(v) => aggiorna("bancaBic", v)} onBlur={(valore) => void salva("bancaBic", valore)} />
+          <Campo label="IBAN" required sottolineato={rosso("bancaIban")} value={form.bancaIban} onChange={(v) => aggiorna("bancaIban", v)} onBlur={(valore) => void salva("bancaIban", valore)} />
           <Campo label="Filiale" value={form.bancaFiliale} onChange={(v) => aggiorna("bancaFiliale", v)} onBlur={(valore) => void salva("bancaFiliale", valore)} />
         </div>
 
@@ -394,7 +426,11 @@ export function AnagraficaPubblicaForm({
           richiesti
           sede={form.sedeLegale}
           comuni={comuni.sedeLegale ?? []}
-          onChange={(sede) => setForm((c) => (c ? { ...c, sedeLegale: sede } : c))}
+          rosso={(parte) => rosso(`sedeLegale.${parte}`)}
+          onChange={(sede) => {
+            segnaModifica();
+            setForm((c) => (c ? { ...c, sedeLegale: sede } : c));
+          }}
           onBlurCampo={(sede) => void salvaSede("sedeLegale", sede)}
           onCap={(sede) => void alCap("sedeLegale", sede)}
         />
@@ -405,6 +441,7 @@ export function AnagraficaPubblicaForm({
             checked={form.sedeAmmUgualeLegale}
             onChange={(event) => {
               const acceso = event.target.checked;
+              segnaModifica();
               setForm((c) => (c ? { ...c, sedeAmmUgualeLegale: acceso } : c));
               void salva("sedeAmmUgualeLegale", acceso);
             }}
@@ -416,7 +453,10 @@ export function AnagraficaPubblicaForm({
             titolo="Sede amministrativa"
             sede={form.sedeAmministrativa}
             comuni={comuni.sedeAmministrativa ?? []}
-            onChange={(sede) => setForm((c) => (c ? { ...c, sedeAmministrativa: sede } : c))}
+            onChange={(sede) => {
+              segnaModifica();
+              setForm((c) => (c ? { ...c, sedeAmministrativa: sede } : c));
+            }}
             onBlurCampo={(sede) => void salvaSede("sedeAmministrativa", sede)}
             onCap={(sede) => void alCap("sedeAmministrativa", sede)}
           />
@@ -430,6 +470,7 @@ export function AnagraficaPubblicaForm({
             value={form.sedeMagFonte}
             onChange={(event) => {
               const fonte = event.target.value;
+              segnaModifica();
               setForm((c) =>
                 c ? { ...c, sedeMagFonte: fonte as AnagraficaFormPayload["sedeMagFonte"] } : c
               );
@@ -448,7 +489,10 @@ export function AnagraficaPubblicaForm({
             titolo="Magazzino"
             sede={form.sedeMagazzino}
             comuni={comuni.sedeMagazzino ?? []}
-            onChange={(sede) => setForm((c) => (c ? { ...c, sedeMagazzino: sede } : c))}
+            onChange={(sede) => {
+              segnaModifica();
+              setForm((c) => (c ? { ...c, sedeMagazzino: sede } : c));
+            }}
             onBlurCampo={(sede) => void salvaSede("sedeMagazzino", sede)}
             onCap={(sede) => void alCap("sedeMagazzino", sede)}
           />
@@ -469,7 +513,11 @@ export function AnagraficaPubblicaForm({
           form={form}
           emailInvio={emailInvio}
           pronto={erroriPdf({ ...form, consensoTrattamento: true }).length === 0}
+          modifica={modifica}
+          onModifica={segnaModifica}
+          onMancanti={() => setMostraMancanti(true)}
           onConsenso={async (valore) => {
+            segnaModifica();
             setForm((corrente) =>
               corrente ? { ...corrente, consensoTrattamento: valore } : corrente
             );
@@ -496,6 +544,7 @@ function SedeBlocco({
   sede,
   comuni,
   richiesti = false,
+  rosso,
   onChange,
   onBlurCampo,
   onCap,
@@ -504,24 +553,31 @@ function SedeBlocco({
   sede: SedeAnagraficaForm;
   comuni: ComuneCap[];
   richiesti?: boolean;
+  rosso?: (parte: "indirizzo" | "nazione" | "cap" | "citta") => boolean;
   onChange: (sede: SedeAnagraficaForm) => void;
   onBlurCampo: (sede: SedeAnagraficaForm) => void;
   onCap: (sede: SedeAnagraficaForm) => void;
 }) {
   const nota = NAZIONI.includes(sede.nazione) ? sede.nazione : "Altro";
+  const nazioneRossa = rosso?.("nazione") === true;
   return (
     <fieldset className="space-y-3 rounded-xl border border-slate-200 p-4">
       <legend className="px-1 text-sm font-semibold">{titolo}</legend>
       <Campo
         label="Via/Viale/P.zza"
         required={richiesti}
+        sottolineato={rosso?.("indirizzo")}
         value={sede.indirizzo}
         onChange={(indirizzo) => onChange({ ...sede, indirizzo })}
         onBlur={(valore) => onBlurCampo({ ...sede, indirizzo: valore })}
       />
       <div className="grid gap-4 sm:grid-cols-2">
         <label className="block text-sm">
-          <span className="mb-1 block font-medium text-slate-700">
+          <span
+            className={`mb-1 block font-medium ${
+              nazioneRossa ? "text-red-700 underline decoration-red-600 decoration-2" : "text-slate-700"
+            }`}
+          >
             Nazione
             {richiesti ? " *" : ""}
           </span>
@@ -533,7 +589,9 @@ function SedeBlocco({
               onChange(prossima);
               onBlurCampo(prossima);
             }}
-            className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2"
+            className={`w-full rounded-lg border bg-white px-3 py-2 ${
+              nazioneRossa ? "border-red-600 border-b-2" : "border-slate-300"
+            }`}
           >
             {NAZIONI.map((nazione) => (
               <option key={nazione} value={nazione}>
@@ -546,6 +604,7 @@ function SedeBlocco({
         {nota === "Altro" ? (
           <Campo
             label="Nazione, se altra"
+            sottolineato={nazioneRossa}
             value={sede.nazione}
             onChange={(nazione) => onChange({ ...sede, nazione })}
             onBlur={(valore) => onBlurCampo({ ...sede, nazione: valore })}
@@ -554,6 +613,7 @@ function SedeBlocco({
         <Campo
           label="CAP"
           required={richiesti}
+          sottolineato={rosso?.("cap")}
           value={sede.cap}
           onChange={(cap) => onChange({ ...sede, cap })}
           onBlur={(valore) => onCap({ ...sede, cap: valore })}
@@ -561,6 +621,7 @@ function SedeBlocco({
         <Campo
           label="Città"
           required={richiesti}
+          sottolineato={rosso?.("citta")}
           value={sede.citta}
           onChange={(citta) => onChange({ ...sede, citta })}
           onBlur={(valore) => onBlurCampo({ ...sede, citta: valore })}
