@@ -37,6 +37,24 @@ type Richiesta = {
   firma_email?: string;
   firma_ip?: string;
   firma_hash?: string;
+  passo?: "anagrafica" | "privacy" | "condizioni" | "completato";
+  privacy_firmatario?: string;
+  privacy_accetto?: boolean;
+  privacy_consenso_marketing?: string;
+  privacy_firmata_at?: string | null;
+  privacy_firma_email?: string;
+  privacy_firma_ip?: string;
+  privacy_firma_hash?: string;
+  privacy_storage_path?: string;
+  privacy_file_name?: string;
+  condizioni_firmatario?: string;
+  condizioni_accetto?: boolean;
+  condizioni_firmata_at?: string | null;
+  condizioni_firma_email?: string;
+  condizioni_firma_ip?: string;
+  condizioni_firma_hash?: string;
+  condizioni_storage_path?: string;
+  condizioni_file_name?: string;
 };
 
 function hashToken(token: string): string {
@@ -96,7 +114,7 @@ async function carica(token: string): Promise<Richiesta | { errore: string }> {
   const { data, error } = await service
     .from("anagrafica_richieste")
     .select(
-      "id, cliente_id, cliente_possibile_id, stato, scade_at, payload, pdf_storage_path, firmato_storage_path, firmato_file_name, email_destinatario, versione, created_by, fase_test, firmata_at, firma_email, firma_ip, firma_hash"
+      "id, cliente_id, cliente_possibile_id, stato, passo, scade_at, payload, pdf_storage_path, firmato_storage_path, firmato_file_name, email_destinatario, versione, created_by, fase_test, firmata_at, firma_email, firma_ip, firma_hash, privacy_firmatario, privacy_accetto, privacy_consenso_marketing, privacy_firmata_at, privacy_firma_email, privacy_firma_ip, privacy_firma_hash, privacy_storage_path, privacy_file_name, condizioni_firmatario, condizioni_accetto, condizioni_firmata_at, condizioni_firma_email, condizioni_firma_ip, condizioni_firma_hash, condizioni_storage_path, condizioni_file_name"
     )
     .eq("token_hash", hashToken(pulito))
     .is("deleted_at", null)
@@ -117,13 +135,26 @@ async function carica(token: string): Promise<Richiesta | { errore: string }> {
 }
 
 function vista(row: Richiesta, form: AnagraficaFormPayload): VistaPubblica {
+  const passo =
+    row.passo === "privacy" || row.passo === "condizioni" || row.passo === "completato"
+      ? row.passo
+      : (row.stato === "COMPLETED" || row.stato === "firmata" ? "completato" : "anagrafica");
+  const suggerito = [form.legaleNome, form.legaleCognome].filter(Boolean).join(" ").trim();
   return {
     stato: row.stato,
+    passo,
     form,
     scadeAt: row.scade_at,
     ragioneSociale: form.ragioneSociale,
     faseTest: row.fase_test === true,
     emailInvio: String(row.email_destinatario ?? ""),
+    emailFirma: String(row.firma_email || row.email_destinatario || ""),
+    firmatarioSuggerito: suggerito,
+    copie: {
+      anagrafica: Boolean(row.firmato_storage_path),
+      privacy: Boolean(row.privacy_storage_path),
+      condizioni: Boolean(row.condizioni_storage_path),
+    },
   };
 }
 
@@ -428,17 +459,18 @@ async function archiviaPdfCliente(
   bytes: number,
   titolo: string,
   stato: "approvato" | "chiuso",
-  mime: string
+  mime: string,
+  tipo: "anagrafica_aziendale" | "informativa_privacy" | "condizioni_vendita" = "anagrafica_aziendale"
 ) {
   if (!row.cliente_id) return;
   const service = createServiceClient();
   await service.from("anagrafica_documenti").insert({
     cliente_id: row.cliente_id,
-    tipo: "anagrafica_aziendale",
+    tipo,
     titolo,
     note: row.fase_test
       ? "Prova anagrafica. Ritirata se il test viene annullato."
-      : "Archivio permanente del form anagrafica.",
+      : "Archivio permanente collegato all'azienda.",
     storage_path: path,
     file_name: fileName,
     mime,
@@ -503,7 +535,9 @@ export async function scaricaPdfPubblico(
 export async function tornaAlFormPubblico(token: string): Promise<VistaPubblica | { errore: string }> {
   const row = await carica(token);
   if ("errore" in row) return row;
-  if (row.stato !== "pdf_pronto") return { errore: "Non puoi modificare i dati da questa schermata." };
+  if (row.stato !== "pdf_pronto" || (row.passo && row.passo !== "anagrafica")) {
+    return { errore: "Non puoi modificare i dati da questa schermata." };
+  }
   const service = createServiceClient();
   const { error } = await service
     .from("anagrafica_richieste")
@@ -524,7 +558,7 @@ export async function caricaFirmatoPubblico(
 ): Promise<{ ok: true } | { errore: string }> {
   const row = await carica(token);
   if ("errore" in row) return row;
-  if (row.stato !== "pdf_pronto") {
+  if (row.stato !== "pdf_pronto" || (row.passo && row.passo !== "anagrafica")) {
     return { errore: "Il documento firmato si carica dopo aver scaricato il PDF." };
   }
   if (!MIMI_FIRMA.has(file.type) || file.size <= 0 || file.size > 20 * 1024 * 1024) {
@@ -544,8 +578,9 @@ export async function caricaFirmatoPubblico(
   const { error } = await service
     .from("anagrafica_richieste")
     .update({
-      stato: "firmata",
-      documento_stato: "chiuso",
+      stato: "pdf_pronto",
+      documento_stato: "approvato",
+      passo: "privacy",
       firmato_storage_path: path,
       firmato_file_name: fileName,
       firmata_at: new Date().toISOString(),
@@ -825,7 +860,7 @@ export async function annullaTestAnagrafica(input: {
   }
   const { data: richieste } = await service
     .from("anagrafica_richieste")
-    .select("id, pdf_storage_path, firmato_storage_path")
+    .select("id, pdf_storage_path, firmato_storage_path, privacy_storage_path, condizioni_storage_path")
     .eq(colonna, input.id)
     .eq("fase_test", true)
     .is("deleted_at", null);
@@ -833,6 +868,8 @@ export async function annullaTestAnagrafica(input: {
     id: string;
     pdf_storage_path: string;
     firmato_storage_path: string;
+    privacy_storage_path?: string;
+    condizioni_storage_path?: string;
   }>;
   const ora = new Date().toISOString();
   for (const prova of prove) {
@@ -842,7 +879,12 @@ export async function annullaTestAnagrafica(input: {
       .map((file) => String(file.name ?? ""))
       .filter((nome) => nome.includes(prova.id))
       .map((nome) => `${cartella}/${nome}`);
-    for (const extra of [prova.pdf_storage_path, prova.firmato_storage_path]) {
+    for (const extra of [
+      prova.pdf_storage_path,
+      prova.firmato_storage_path,
+      prova.privacy_storage_path,
+      prova.condizioni_storage_path,
+    ]) {
       if (extra && !percorsi.includes(extra)) percorsi.push(extra);
     }
     if (percorsi.length) {
@@ -853,7 +895,7 @@ export async function annullaTestAnagrafica(input: {
         .from("anagrafica_documenti")
         .update({ deleted_at: ora, deleted_by: input.actorId })
         .eq("cliente_id", input.id)
-        .eq("tipo", "anagrafica_aziendale")
+        .in("tipo", ["anagrafica_aziendale", "informativa_privacy", "condizioni_vendita"])
         .like("storage_path", `%/anagrafica-richiesta/${prova.id}%`)
         .is("deleted_at", null);
     }

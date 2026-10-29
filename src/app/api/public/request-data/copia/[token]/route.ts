@@ -5,7 +5,8 @@ export async function GET(
   context: { params: Promise<{ token: string }> }
 ) {
   const { token } = await context.params;
-  const esito = await leggiCopiaFirmata(token);
+  const documento = new URL(_request.url).searchParams.get("documento");
+  const esito = await leggiCopiaFirmata(token, documento);
   if ("errore" in esito) {
     return new Response(esito.errore, { status: 400 });
   }

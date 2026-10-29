@@ -5,6 +5,7 @@ import { richiediOtpFirma } from "@/lib/anagrafica/richiesta-otp";
 const schema = z.object({
   token: z.string().trim().min(20).max(200),
   email: z.string().trim().max(160),
+  documento: z.enum(["anagrafica", "privacy", "condizioni"]).optional(),
 });
 
 function ipDi(request: Request): string {
@@ -26,6 +27,7 @@ export async function POST(request: Request) {
   const esito = await richiediOtpFirma({
     token: parsed.data.token,
     email: parsed.data.email,
+    documento: parsed.data.documento,
     ip: ipDi(request),
   });
   if ("errore" in esito) {

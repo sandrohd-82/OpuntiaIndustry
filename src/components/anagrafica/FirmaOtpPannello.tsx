@@ -29,7 +29,7 @@ export function FirmaOtpPannello({
   onModifica?: () => void;
   onMancanti?: () => void;
   onConsenso: (valore: boolean) => Promise<string | null>;
-  onFirmato: () => void;
+  onFirmato: (passo?: string) => void;
 }) {
   const email = emailRegistrateAnagrafica(emailInvio, form);
   const [scelta, setScelta] = useState(email[0] ?? "");
@@ -105,13 +105,13 @@ export function FirmaOtpPannello({
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ token, email: scelta, codice }),
     });
-    const corpo = (await risposta.json()) as { errore?: string };
+    const corpo = (await risposta.json()) as { errore?: string; passo?: string };
     setOccupato(false);
     if (!risposta.ok) {
       setErrore(corpo.errore || "Firma non riuscita.");
       return;
     }
-    onFirmato();
+    onFirmato(corpo.passo);
   }
 
   return (

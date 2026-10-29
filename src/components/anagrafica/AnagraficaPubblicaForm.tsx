@@ -9,6 +9,13 @@ import {
   scaricaPdfAnagraficaAction,
 } from "@/app/actions/anagrafica-richiesta-pubblica";
 import { FirmaOtpPannello } from "@/components/anagrafica/FirmaOtpPannello";
+import { PresaVisionePannello } from "@/components/anagrafica/PresaVisionePannello";
+import {
+  BLOCCHI_CONDIZIONI,
+  BLOCCHI_PRIVACY,
+  TITOLO_CONDIZIONI,
+  TITOLO_PRIVACY,
+} from "@/lib/anagrafica/presa-visione-testi";
 import {
   campiDaCompletare,
   erroriPdf,
@@ -109,6 +116,10 @@ export function AnagraficaPubblicaForm({
 }) {
   const partenza = "errore" in iniziale ? null : iniziale;
   const [stato, setStato] = useState(partenza?.stato ?? "scaduta");
+  const [passo, setPasso] = useState(partenza?.passo ?? "anagrafica");
+  const [copie, setCopie] = useState(
+    partenza?.copie ?? { anagrafica: false, privacy: false, condizioni: false }
+  );
   const [form, setForm] = useState<AnagraficaFormPayload | null>(partenza?.form ?? null);
   const [messaggio, setMessaggio] = useState("errore" in iniziale ? iniziale.errore : "");
   const [mancanti, setMancanti] = useState<string[]>([]);
@@ -120,6 +131,8 @@ export function AnagraficaPubblicaForm({
   const codaSalvataggio = useRef(Promise.resolve());
   const faseTest = partenza?.faseTest === true;
   const emailInvio = partenza?.emailInvio ?? "";
+  const emailFirma = partenza?.emailFirma || emailInvio;
+  const firmatarioSuggerito = partenza?.firmatarioSuggerito ?? "";
 
   if (!form || stato === "scaduta" || stato === "annullata") {
     return (
@@ -128,6 +141,70 @@ export function AnagraficaPubblicaForm({
         <p className="mt-3 text-sm text-slate-700">
           {messaggio || "Il link non è più valido. Chiedete all'azienda di inviarne uno nuovo."}
         </p>
+      </main>
+    );
+  }
+
+  if (passo === "privacy" || passo === "condizioni") {
+    const privacy = passo === "privacy";
+    return (
+      <>
+        <AvvisoTest attivo={faseTest} />
+        <PresaVisionePannello
+          token={token}
+          documento={privacy ? "privacy" : "condizioni"}
+          titolo={privacy ? TITOLO_PRIVACY : TITOLO_CONDIZIONI}
+          avanzamento={privacy ? "Documento 2 di 3" : "Documento 3 di 3"}
+          email={emailFirma}
+          firmatarioIniziale={firmatarioSuggerito}
+          blocchi={privacy ? BLOCCHI_PRIVACY : BLOCCHI_CONDIZIONI}
+          onFirmato={(prossimo) => {
+            if (prossimo === "completato") {
+              setCopie((correnti) => ({ ...correnti, condizioni: true }));
+            } else {
+              setCopie((correnti) => ({ ...correnti, privacy: true }));
+            }
+            setPasso(prossimo);
+          }}
+        />
+      </>
+    );
+  }
+
+  if (passo === "completato") {
+    return (
+      <main className="mx-auto max-w-3xl px-4 py-10">
+        <AvvisoTest attivo={faseTest} />
+        <h1 className="text-xl font-semibold">Documenti firmati</h1>
+        <p className="mt-3 text-sm text-slate-700">
+          Grazie. Anagrafica, informativa privacy e condizioni generali di vendita sono firmati. Potete scaricare le copie.
+        </p>
+        <div className="mt-6 flex flex-col gap-3">
+          {copie.anagrafica ? (
+            <a
+              href={`/api/public/request-data/copia/${encodeURIComponent(token)}`}
+              className="inline-block w-fit rounded-lg bg-slate-900 px-4 py-2 text-sm font-semibold text-white"
+            >
+              Scarica anagrafica firmata
+            </a>
+          ) : null}
+          {copie.privacy ? (
+            <a
+              href={`/api/public/request-data/copia/${encodeURIComponent(token)}?documento=privacy`}
+              className="inline-block w-fit rounded-lg bg-slate-900 px-4 py-2 text-sm font-semibold text-white"
+            >
+              Scarica informativa privacy
+            </a>
+          ) : null}
+          {copie.condizioni ? (
+            <a
+              href={`/api/public/request-data/copia/${encodeURIComponent(token)}?documento=condizioni`}
+              className="inline-block w-fit rounded-lg bg-slate-900 px-4 py-2 text-sm font-semibold text-white"
+            >
+              Scarica condizioni di vendita
+            </a>
+          ) : null}
+        </div>
       </main>
     );
   }
@@ -229,31 +306,12 @@ export function AnagraficaPubblicaForm({
     setStato("pdf_pronto");
   }
 
-  if (stato === "firmata" || stato === "COMPLETED") {
-    return (
-      <main className="mx-auto max-w-3xl px-4 py-10">
-        <AvvisoTest attivo={faseTest} />
-        <h1 className="text-xl font-semibold">Anagrafica aziendale</h1>
-        <p className="mt-3 text-sm text-slate-700">
-          Grazie. Il documento firmato è stato ricevuto e la procedura è chiusa.
-        </p>
-        {stato === "COMPLETED" ? (
-          <a
-            href={`/api/public/request-data/copia/${encodeURIComponent(token)}`}
-            className="mt-6 inline-block rounded-lg bg-slate-900 px-4 py-2 text-sm font-semibold text-white"
-          >
-            Scarica copia firmata
-          </a>
-        ) : null}
-      </main>
-    );
-  }
-
   if (stato === "pdf_pronto") {
     return (
       <main className="mx-auto max-w-3xl px-4 py-10">
         <AvvisoTest attivo={faseTest} />
-        <h1 className="text-xl font-semibold">Anagrafica aziendale</h1>
+        <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Documento 1 di 3</p>
+        <h1 className="mt-1 text-xl font-semibold">Anagrafica aziendale</h1>
         <p className="mt-3 text-sm text-slate-700">
           Stampate il PDF su carta intestata, timbratelo e fatelo firmare dal Rappresentante Legale.
           Poi caricatelo qui, oppure correggete i dati e scaricate un nuovo PDF.
@@ -275,7 +333,10 @@ export function AnagraficaPubblicaForm({
               );
               return salva("consensoTrattamento", valore);
             }}
-            onFirmato={() => setStato("COMPLETED")}
+            onFirmato={() => {
+              setCopie((correnti) => ({ ...correnti, anagrafica: true }));
+              setPasso("privacy");
+            }}
           />
         </div>
         <div className="mt-6 flex flex-col gap-3 sm:flex-row">
@@ -312,7 +373,8 @@ export function AnagraficaPubblicaForm({
               setMessaggio(esito.errore);
               return;
             }
-            setStato("firmata");
+            setCopie((correnti) => ({ ...correnti, anagrafica: true }));
+            setPasso("privacy");
           }}
         >
           <label className="block text-sm font-medium text-slate-700">
@@ -354,7 +416,10 @@ export function AnagraficaPubblicaForm({
       <p className="text-sm font-semibold">Agrinsicilia coop</p>
       <p className="text-sm">Sede legale: Via Pacini Giovanni 6</p>
       <p className="text-sm">92027 Licata (AG)</p>
-      <h1 className="mt-6 text-center text-base font-semibold">
+      <p className="mt-6 text-center text-xs font-semibold uppercase tracking-wide text-slate-500">
+        Documento 1 di 3
+      </p>
+      <h1 className="mt-1 text-center text-base font-semibold">
         OGGETTO: ARCHIVIO ANAGRAFICO e INFORMAZIONI PER MODELLO ORGANIZZATIVO
       </h1>
       <p className="mt-4 text-sm">Vi trasmettiamo di seguito i nostri dati:</p>
@@ -569,7 +634,10 @@ export function AnagraficaPubblicaForm({
             );
             return salva("consensoTrattamento", valore);
           }}
-          onFirmato={() => setStato("COMPLETED")}
+          onFirmato={() => {
+            setCopie((correnti) => ({ ...correnti, anagrafica: true }));
+            setPasso("privacy");
+          }}
         />
 
         <button

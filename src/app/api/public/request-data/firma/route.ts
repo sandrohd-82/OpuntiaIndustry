@@ -6,6 +6,11 @@ const schema = z.object({
   token: z.string().trim().min(20).max(200),
   email: z.string().trim().max(160),
   codice: z.string().trim().regex(/^\d{6}$/),
+  documento: z.enum(["anagrafica", "privacy", "condizioni"]).optional(),
+  firmatario: z.string().trim().max(120).optional(),
+  accettoInformativa: z.boolean().optional(),
+  consensoMarketing: z.enum(["presto", "nego"]).optional(),
+  accettoCondizioni: z.boolean().optional(),
 });
 
 function ipDi(request: Request): string {
@@ -28,6 +33,11 @@ export async function POST(request: Request) {
     token: parsed.data.token,
     email: parsed.data.email,
     codice: parsed.data.codice,
+    documento: parsed.data.documento,
+    firmatario: parsed.data.firmatario,
+    accettoInformativa: parsed.data.accettoInformativa,
+    consensoMarketing: parsed.data.consensoMarketing,
+    accettoCondizioni: parsed.data.accettoCondizioni,
     ip: ipDi(request),
   });
   if ("errore" in esito) {

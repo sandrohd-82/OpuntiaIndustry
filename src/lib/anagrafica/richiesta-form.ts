@@ -227,13 +227,23 @@ export type StatoRichiestaPubblica =
   | "scaduta"
   | "annullata";
 
+export type PassoAnagrafica = "anagrafica" | "privacy" | "condizioni" | "completato";
+
 export type VistaPubblica = {
   stato: StatoRichiestaPubblica;
+  passo: PassoAnagrafica;
   form: AnagraficaFormPayload;
   scadeAt: string;
   ragioneSociale: string;
   faseTest: boolean;
   emailInvio: string;
+  emailFirma: string;
+  firmatarioSuggerito: string;
+  copie: {
+    anagrafica: boolean;
+    privacy: boolean;
+    condizioni: boolean;
+  };
 };
 
 export function erroriPdf(form: AnagraficaFormPayload): string[] {

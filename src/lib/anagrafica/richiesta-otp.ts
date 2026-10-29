@@ -8,6 +8,7 @@ import {
   type AnagraficaFormPayload,
 } from "@/lib/anagrafica/richiesta-form";
 import { pdfAnagraficaAziendale } from "@/lib/anagrafica/richiesta-pdf";
+import { pdfPresaVisione, type ConsensoMarketing } from "@/lib/anagrafica/presa-visione-pdf";
 import {
   archiviaPdfCliente,
   caricaRichiestaToken,
@@ -25,8 +26,49 @@ const MINUTI = 5;
 const TENTATIVI = 5;
 const ATTESA_NUOVO_MS = 60_000;
 
-function hashCodice(richiestaId: string, codice: string): string {
-  return createHash("sha256").update(`${richiestaId}:${codice}`).digest("hex");
+export type DocumentoFirma = "anagrafica" | "privacy" | "condizioni";
+
+function hashCodice(richiestaId: string, documento: DocumentoFirma, codice: string): string {
+  return createHash("sha256").update(`${richiestaId}:${documento}:${codice}`).digest("hex");
+}
+
+export function documentoFirmaDi(value: unknown): DocumentoFirma {
+  if (value === "privacy" || value === "condizioni") return value;
+  return "anagrafica";
+}
+
+function dataRoma(data: Date): string {
+  return new Intl.DateTimeFormat("it-IT", {
+    timeZone: "Europe/Rome",
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+  }).format(data);
+}
+
+function firmatarioOk(value: unknown): string | null {
+  const nome = String(value ?? "").replace(/\s+/g, " ").trim();
+  if (nome.length < 5 || !nome.includes(" ")) return null;
+  return nome.slice(0, 120);
+}
+
+function testoOtp(documento: DocumentoFirma): { subject: string; cosa: string } {
+  if (documento === "privacy") {
+    return {
+      subject: "Codice per firmare l'informativa privacy",
+      cosa: "l'informativa privacy",
+    };
+  }
+  if (documento === "condizioni") {
+    return {
+      subject: "Codice per firmare le condizioni generali di vendita",
+      cosa: "le condizioni generali di vendita",
+    };
+  }
+  return {
+    subject: "Codice per firmare l'anagrafica aziendale",
+    cosa: "l'anagrafica aziendale",
+  };
 }
 
 function hashUguale(atteso: string, calcolato: string): boolean {
@@ -44,14 +86,24 @@ function quandoRoma(data: Date): string {
   }).format(data);
 }
 
-function apribile(row: RichiestaAnagrafica): string | null {
-  if (row.stato === "COMPLETED" || row.stato === "firmata") {
-    return "Questa richiesta è già firmata.";
-  }
-  if (row.stato !== "compilazione" && row.stato !== "pdf_pronto") {
+function apribile(row: RichiestaAnagrafica, documento: DocumentoFirma): string | null {
+  if (row.stato === "annullata" || row.stato === "scaduta") {
     return "Il link non è più valido.";
   }
-  return null;
+  if (row.passo === "completato" || row.stato === "COMPLETED") {
+    return "Questa richiesta è già firmata.";
+  }
+  if (documento === "anagrafica") {
+    if (row.passo && row.passo !== "anagrafica") return "L'anagrafica è già firmata.";
+    if (row.stato !== "compilazione" && row.stato !== "pdf_pronto") {
+      return "Il link non è più valido.";
+    }
+    return null;
+  }
+  if (documento === "privacy") {
+    return row.passo === "privacy" ? null : "Questo documento non è ancora apribile.";
+  }
+  return row.passo === "condizioni" ? null : "Questo documento non è ancora apribile.";
 }
 
 function emailScelta(form: AnagraficaFormPayload, invio: string, email: string): string | null {
@@ -65,18 +117,22 @@ export async function richiediOtpFirma(input: {
   token: string;
   email: string;
   ip: string;
+  documento?: unknown;
 }): Promise<{ scadeAt: string } | { errore: string }> {
+  const documento = documentoFirmaDi(input.documento);
   if (!emailAnagraficaValida(input.email)) {
     return { errore: "Indica un'e-mail valida." };
   }
   const contesto = await formAnagraficaPubblico(input.token);
   if ("errore" in contesto) return contesto;
   const { row, form } = contesto;
-  const blocco = apribile(row);
+  const blocco = apribile(row, documento);
   if (blocco) return { errore: blocco };
-  const mancanti = erroriPdf(form);
-  if (mancanti.length) {
-    return { errore: mancanti[0] ?? "Per firmare mancano dei dati." };
+  if (documento === "anagrafica") {
+    const mancanti = erroriPdf(form);
+    if (mancanti.length) {
+      return { errore: mancanti[0] ?? "Per firmare mancano dei dati." };
+    }
   }
   const email = emailScelta(form, String(row.email_destinatario ?? ""), input.email);
   if (!email) {
@@ -91,6 +147,7 @@ export async function richiediOtpFirma(input: {
     .from("otp_verifications")
     .select("id, scade_at, created_at, stato")
     .eq("richiesta_id", row.id)
+    .eq("documento", documento)
     .eq("stato", "attivo")
     .is("deleted_at", null)
     .order("created_at", { ascending: false })
@@ -106,17 +163,20 @@ export async function richiediOtpFirma(input: {
     .from("otp_verifications")
     .update({ stato: "annullato", updated_at: new Date().toISOString() })
     .eq("richiesta_id", row.id)
+    .eq("documento", documento)
     .eq("stato", "attivo")
     .is("deleted_at", null);
 
   const codice = String(randomInt(0, 1_000_000)).padStart(6, "0");
+  const avviso = testoOtp(documento);
   const scade = new Date(ora + MINUTI * 60_000);
   const { data: creato, error } = await service
     .from("otp_verifications")
     .insert({
       richiesta_id: row.id,
+      documento,
       email,
-      codice_hash: hashCodice(row.id, codice),
+      codice_hash: hashCodice(row.id, documento, codice),
       stato: "attivo",
       scade_at: scade.toISOString(),
       ip_richiesta: input.ip.slice(0, 80),
@@ -138,9 +198,9 @@ export async function richiediOtpFirma(input: {
     await sendMailViaAccount({
       account,
       to: email,
-      subject: "Codice per firmare l'anagrafica aziendale",
+      subject: avviso.subject,
       text: [
-        "Il codice per firmare l'anagrafica aziendale è:",
+        `Il codice per firmare ${avviso.cosa} è:`,
         "",
         codice,
         "",
@@ -171,27 +231,36 @@ export async function verificaOtpFirma(input: {
   email: string;
   codice: string;
   ip: string;
-}): Promise<{ fileName: string } | { errore: string }> {
+  documento?: unknown;
+  firmatario?: unknown;
+  accettoInformativa?: unknown;
+  consensoMarketing?: unknown;
+  accettoCondizioni?: unknown;
+}): Promise<{ fileName: string; passo: "privacy" | "condizioni" | "completato" } | { errore: string }> {
+  const documento = documentoFirmaDi(input.documento);
   if (!/^\d{6}$/.test(input.codice)) {
     return { errore: "Il codice è di 6 cifre." };
   }
   const contesto = await formAnagraficaPubblico(input.token);
   if ("errore" in contesto) return contesto;
   const { row, form } = contesto;
-  const blocco = apribile(row);
+  const blocco = apribile(row, documento);
   if (blocco) return { errore: blocco };
   const email = emailScelta(form, String(row.email_destinatario ?? ""), input.email);
   if (!email) {
     return { errore: "Questa e-mail non è registrata per la firma." };
   }
-  const mancanti = erroriPdf(form);
-  if (mancanti.length) return { errore: mancanti[0] ?? "Per firmare mancano dei dati." };
+  if (documento === "anagrafica") {
+    const mancanti = erroriPdf(form);
+    if (mancanti.length) return { errore: mancanti[0] ?? "Per firmare mancano dei dati." };
+  }
 
   const service = createServiceClient();
   const { data: otpData } = await service
     .from("otp_verifications")
     .select("id, codice_hash, scade_at, tentativi, stato, email")
     .eq("richiesta_id", row.id)
+    .eq("documento", documento)
     .eq("stato", "attivo")
     .is("deleted_at", null)
     .order("created_at", { ascending: false })
@@ -212,7 +281,7 @@ export async function verificaOtpFirma(input: {
     await service.from("otp_verifications").update({ stato: "scaduto" }).eq("id", otp.id);
     return { errore: "Il codice è scaduto. Richiedine uno nuovo." };
   }
-  if (!hashUguale(otp.codice_hash, hashCodice(row.id, input.codice))) {
+  if (!hashUguale(otp.codice_hash, hashCodice(row.id, documento, input.codice))) {
     const tentativi = Number(otp.tentativi) + 1;
     await service
       .from("otp_verifications")
@@ -229,39 +298,110 @@ export async function verificaOtpFirma(input: {
     };
   }
 
+  const nomeFirma = firmatarioOk(input.firmatario);
+  const marketing =
+    input.consensoMarketing === "presto" || input.consensoMarketing === "nego"
+      ? input.consensoMarketing
+      : null;
+  if (documento === "privacy") {
+    if (!nomeFirma) return { errore: "Indica nome e cognome di chi firma." };
+    if (input.accettoInformativa !== true) {
+      return { errore: "Per firmare serve accettare l'informativa privacy." };
+    }
+    if (!marketing) return { errore: "Scegli se prestare o negare il consenso." };
+  }
+  if (documento === "condizioni") {
+    if (!nomeFirma) return { errore: "Indica nome e cognome di chi firma." };
+    if (input.accettoCondizioni !== true) {
+      return { errore: "Per firmare serve accettare le condizioni generali di vendita." };
+    }
+  }
+
   const firmataIl = new Date();
   const ip = input.ip.slice(0, 80) || "sconosciuto";
   const transazione = createHash("sha256")
-    .update(`${row.id}|${email}|${firmataIl.toISOString()}|${ip}|${otp.id}`)
+    .update(`${row.id}|${documento}|${email}|${firmataIl.toISOString()}|${ip}|${otp.id}`)
     .digest("hex");
-  const timbro = `Firmato digitalmente via OTP | Mail: ${email} | Data e Ora: ${quandoRoma(firmataIl)} | IP: ${ip} | Codice Transazione: ${transazione}`;
-  const bytes = pdfAnagraficaAziendale(form, quandoRoma(firmataIl), timbro);
+  const quando = quandoRoma(firmataIl);
+  const timbro = `Firmato digitalmente via OTP | Mail: ${email} | Data e Ora: ${quando} | IP: ${ip} | Codice Transazione: ${transazione}`;
   const versione = row.versione + 1;
   const chiId = row.cliente_id || row.cliente_possibile_id || row.id;
-  const fileName = "Anagrafica-Aziendale-firmata.pdf";
-  const path = `${chiId}/anagrafica-richiesta/${row.id}-otp-${versione}.pdf`;
+  const fileName =
+    documento === "privacy"
+      ? "Informativa-Privacy-firmata.pdf"
+      : (documento === "condizioni"
+          ? "Condizioni-generali-di-vendita-firmate.pdf"
+          : "Anagrafica-Aziendale-firmata.pdf");
+  const suffisso =
+    documento === "privacy" ? "privacy-otp" : (documento === "condizioni" ? "condizioni-otp" : "otp");
+  const path = `${chiId}/anagrafica-richiesta/${row.id}-${suffisso}-${versione}.pdf`;
+  const bytes =
+    documento === "anagrafica"
+      ? pdfAnagraficaAziendale(form, quando, timbro)
+      : pdfPresaVisione({
+          tipo: documento,
+          dataFirma: dataRoma(firmataIl),
+          firmatario: nomeFirma ?? "",
+          consensoMarketing: (marketing ?? undefined) as ConsensoMarketing | undefined,
+          timbro,
+        });
   const upload = await service.storage.from(ANAGRAFICA_DOCUMENTI_BUCKET).upload(path, bytes, {
     contentType: "application/pdf",
     upsert: false,
   });
   if (upload.error) return { errore: "Archivio del PDF firmato non riuscito. Riprova." };
 
+  const passo =
+    documento === "anagrafica" ? "privacy" : (documento === "privacy" ? "condizioni" : "completato");
+  const aggiornamento =
+    documento === "anagrafica"
+      ? {
+          stato: "pdf_pronto",
+          documento_stato: "approvato",
+          passo,
+          payload: form,
+          firmato_storage_path: path,
+          firmato_file_name: fileName,
+          firmata_at: firmataIl.toISOString(),
+          firma_email: email,
+          firma_ip: ip,
+          firma_hash: transazione,
+          versione,
+        }
+      : (documento === "privacy"
+        ? {
+            passo,
+            documento_stato: "approvato",
+            privacy_firmatario: nomeFirma ?? "",
+            privacy_accetto: true,
+            privacy_consenso_marketing: marketing,
+            privacy_firmata_at: firmataIl.toISOString(),
+            privacy_firma_email: email,
+            privacy_firma_ip: ip,
+            privacy_firma_hash: transazione,
+            privacy_storage_path: path,
+            privacy_file_name: fileName,
+            versione,
+          }
+        : {
+            stato: "COMPLETED",
+            documento_stato: "chiuso",
+            passo,
+            condizioni_firmatario: nomeFirma ?? "",
+            condizioni_accetto: true,
+            condizioni_firmata_at: firmataIl.toISOString(),
+            condizioni_firma_email: email,
+            condizioni_firma_ip: ip,
+            condizioni_firma_hash: transazione,
+            condizioni_storage_path: path,
+            condizioni_file_name: fileName,
+            versione,
+          });
   const { data: chiusa, error } = await service
     .from("anagrafica_richieste")
-    .update({
-      stato: "COMPLETED",
-      documento_stato: "chiuso",
-      payload: form,
-      firmato_storage_path: path,
-      firmato_file_name: fileName,
-      firmata_at: firmataIl.toISOString(),
-      firma_email: email,
-      firma_ip: ip,
-      firma_hash: transazione,
-      versione,
-    })
+    .update(aggiornamento)
     .eq("id", row.id)
-    .in("stato", ["compilazione", "pdf_pronto"])
+    .eq("passo", documento === "anagrafica" ? "anagrafica" : documento)
     .select("id");
   if (error || !chiusa?.length) {
     return { errore: "La firma non è stata registrata. Riprova." };
@@ -280,31 +420,96 @@ export async function verificaOtpFirma(input: {
     path,
     fileName,
     bytes.length,
-    "Anagrafica aziendale firmata via OTP",
+    documento === "privacy"
+      ? "Informativa privacy firmata via OTP"
+      : (documento === "condizioni"
+          ? "Condizioni generali di vendita firmate via OTP"
+          : "Anagrafica aziendale firmata via OTP"),
     "chiuso",
-    "application/pdf"
+    "application/pdf",
+    documento === "privacy"
+      ? "informativa_privacy"
+      : (documento === "condizioni" ? "condizioni_vendita" : "anagrafica_aziendale")
   );
   await service.from("audit_log").insert({
     entity_type: "anagrafica_richieste",
     entity_id: row.id,
     action: "status_change",
     actor_id: null,
-    summary: "Anagrafica firmata via OTP. Stato COMPLETED.",
+    summary:
+      documento === "anagrafica"
+        ? "Anagrafica firmata via OTP. Si passa all'informativa privacy."
+        : (documento === "privacy"
+            ? "Informativa privacy firmata via OTP. Si passa alle condizioni di vendita."
+            : "Condizioni di vendita firmate via OTP. Procedura chiusa."),
     payload: {
       otp_id: otp.id,
+      documento,
+      passo,
       firma_hash: transazione,
       storage_path: path,
     },
   });
-  return { fileName };
+  return { fileName, passo };
+}
+
+async function copiaPresaVisione(
+  row: RichiestaAnagrafica,
+  documento: "privacy" | "condizioni"
+): Promise<{ bytes: Buffer; fileName: string; mime: string } | { errore: string }> {
+  const path = String(
+    documento === "privacy" ? row.privacy_storage_path : row.condizioni_storage_path
+  );
+  const quandoIso =
+    documento === "privacy" ? row.privacy_firmata_at : row.condizioni_firmata_at;
+  const emailFirma = String(
+    documento === "privacy" ? row.privacy_firma_email : row.condizioni_firma_email
+  );
+  const hash = String(
+    documento === "privacy" ? row.privacy_firma_hash : row.condizioni_firma_hash
+  );
+  const nome = String(
+    documento === "privacy" ? row.privacy_firmatario : row.condizioni_firmatario
+  );
+  const fileName =
+    documento === "privacy"
+      ? "Informativa-Privacy-firmata.pdf"
+      : "Condizioni-generali-di-vendita-firmate.pdf";
+  if (!path || !quandoIso || !emailFirma || !hash || !nome) {
+    return { errore: "La copia firmata non è ancora disponibile." };
+  }
+  const quandoData = new Date(quandoIso);
+  const ip =
+    String(documento === "privacy" ? row.privacy_firma_ip : row.condizioni_firma_ip) ||
+    "sconosciuto";
+  const timbro = `Firmato digitalmente via OTP | Mail: ${emailFirma} | Data e Ora: ${quandoRoma(quandoData)} | IP: ${ip} | Codice Transazione: ${hash}`;
+  const marketing = row.privacy_consenso_marketing === "nego" ? "nego" : "presto";
+  const bytes = pdfPresaVisione({
+    tipo: documento,
+    dataFirma: dataRoma(quandoData),
+    firmatario: nome,
+    consensoMarketing: documento === "privacy" ? marketing : undefined,
+    timbro,
+  });
+  const service = createServiceClient();
+  await service.storage.from(ANAGRAFICA_DOCUMENTI_BUCKET).upload(path, bytes, {
+    contentType: "application/pdf",
+    upsert: true,
+  });
+  return { bytes, fileName, mime: "application/pdf" };
 }
 
 export async function leggiCopiaFirmata(
-  token: string
+  token: string,
+  documentoGrezzo?: string | null
 ): Promise<{ bytes: Buffer; fileName: string; mime: string } | { errore: string }> {
+  const documento = documentoFirmaDi(documentoGrezzo);
   const row = await caricaRichiestaToken(token);
   if ("errore" in row) return row;
-  if (row.stato !== "COMPLETED" && row.stato !== "firmata") {
+  if (documento === "privacy" || documento === "condizioni") {
+    return copiaPresaVisione(row, documento);
+  }
+  if (!row.firmato_storage_path) {
     return { errore: "La copia firmata non è ancora disponibile." };
   }
   const path = String(row.firmato_storage_path ?? "");
