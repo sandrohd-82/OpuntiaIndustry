@@ -526,6 +526,7 @@ export function OrdineDettaglioPanel({ ordine, onEdit }: Props) {
           quantita_sconto_extra: testoNota(noteSezioni, "quantita_sconto_extra"),
           quantita_mail: testoNota(noteSezioni, "quantita_mail"),
           quantita_preventivo: testoNota(noteSezioni, "quantita_preventivo"),
+          quantita_conferma: testoNota(noteSezioni, "quantita_conferma"),
           quantita_referente: testoNota(noteSezioni, "quantita_referente"),
           confezione_chi: testoNota(noteSezioni, "confezione_chi"),
           confezione_movimentazione: testoNota(

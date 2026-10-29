@@ -19,7 +19,6 @@ import {
   parseRichiestaPervenuta,
   RICHIESTA_CANALI,
   RICHIESTA_CANALE_LABEL,
-  richiestaPervenutaValida,
   testoRichiestaPervenuta,
   type OrdineSezioneChiave,
   type RichiestaCanale,
@@ -492,6 +491,8 @@ export function OrdineNuovoWizardModal({
   } | null>(null);
   const [richiestaCanale, setRichiestaCanale] = useState<RichiestaCanale>("mail");
   const [richiestaNota, setRichiestaNota] = useState("");
+  const [confermaCanale, setConfermaCanale] = useState<RichiestaCanale>("mail");
+  const [confermaNota, setConfermaNota] = useState("");
   const [timelineMailKind, setTimelineMailKind] = useState<
     "accettazione" | "richiesta" | null
   >(null);
@@ -759,6 +760,15 @@ export function OrdineNuovoWizardModal({
         );
         setRichiestaCanale(richiesta.canale);
         setRichiestaNota(richiesta.nota);
+      }
+      {
+        const conferma = parseRichiestaPervenuta(
+          d.noteSezioni.quantita_conferma ?? ""
+        );
+        setConfermaCanale(
+          d.noteSezioni.quantita_conferma ? conferma.canale : "mail"
+        );
+        setConfermaNota(d.noteSezioni.quantita_conferma ? conferma.nota : "");
       }
       setSpedisceCampionatura(d.campionatureOrdine.length > 0);
       setCampionatureOrdine(
@@ -1392,7 +1402,6 @@ export function OrdineNuovoWizardModal({
         return false;
       }
       if (ordineSospeso && !dataDisponibilitaPresunta) return false;
-      if (richiestaPervenutaValida(richiestaCanale, richiestaNota)) return false;
       if (
         tipoOrdine !== "campionatura" &&
         fasciaSconto === "oltre_30" &&
@@ -1776,6 +1785,13 @@ export function OrdineNuovoWizardModal({
         noteSezioni: {
           ...noteSezioni,
           quantita_mail: testoRichiestaPervenuta(richiestaCanale, richiestaNota),
+          quantita_conferma:
+            confermaCanale === "mail" && !mailAccettazione && !confermaNota.trim()
+              ? ""
+              : testoRichiestaPervenuta(
+                  confermaCanale,
+                  confermaCanale === "mail" ? "" : confermaNota
+                ),
         },
         campionatureOrdine:
           tipoOrdine === "campionatura" || !spedisceCampionatura
@@ -1873,7 +1889,8 @@ export function OrdineNuovoWizardModal({
         pagamentoPiano,
         tipo: tipoOrdine,
         preventivoId: preventivoId || null,
-        webmailAccettazioneId: mailAccettazione?.id ?? null,
+        webmailAccettazioneId:
+          confermaCanale === "mail" ? (mailAccettazione?.id ?? null) : null,
         webmailRichiestaId:
           richiestaCanale === "mail" ? (mailRichiesta?.id ?? null) : null,
         ordineId: modificaOrdineId,
@@ -3201,11 +3218,10 @@ export function OrdineNuovoWizardModal({
               <div className="space-y-2 rounded-lg border border-[var(--border)] px-4 py-3">
                 <div className="text-sm font-medium">Richiesta pervenuta per</div>
                 <p className="text-xs text-[var(--muted)]">
-                  Scegli come è arrivata. Per la mail puoi collegare il
-                  messaggio: la ricerca parte da sola sugli indirizzi
-                  dell&apos;azienda, oppure passi alla ricerca manuale. Telefono,
-                  di persona e altro richiedono una nota. Il preventivo resta
-                  facoltativo.
+                  Come è arrivata la richiesta, di preventivo o direttamente di
+                  ordine: mail, telefono o altro. Se è una mail, collegala. Se
+                  è telefono o altro, puoi scrivere una nota. Non è obbligatorio
+                  e non condiziona né il preventivo né la conferma.
                 </p>
                 <label className="block text-sm">
                   <span className="mb-1 block text-xs text-[var(--muted)]">
@@ -3260,23 +3276,20 @@ export function OrdineNuovoWizardModal({
                     />
                   </label>
                 )}
-                {richiestaPervenutaValida(richiestaCanale, richiestaNota) ? (
-                  <p className="text-xs text-amber-800">
-                    {richiestaPervenutaValida(richiestaCanale, richiestaNota)}
-                  </p>
-                ) : null}
               </div>
 
               {tipoOrdine !== "campionatura" ? (
+                <>
                 <div className="space-y-3 rounded-lg border border-[var(--border)] px-4 py-3">
                   <div className="text-sm font-medium">
                     {titoloNota("quantita_preventivo", "Preventivo")}
                   </div>
                   <p className="text-xs text-[var(--muted)]">
-                    Facoltativo. In elenco ci sono i preventivi accettati e
-                    quelli già inviati di questo prodotto. Da «Cerca in tutti
-                    i preventivi» la ricerca parte da sola su tutti i
-                    preventivi del cliente e sulle mail.
+                    Facoltativo e indipendente dalla richiesta e dalla conferma.
+                    Il commerciale può inviare un preventivo, ma il cliente può
+                    ordinare anche senza se conosce già il prezzo. In elenco ci
+                    sono i preventivi accettati e quelli già inviati di questo
+                    prodotto.
                   </p>
                   <OrdinePreventivoPicker
                     clienteId={clienteId}
@@ -3285,46 +3298,95 @@ export function OrdineNuovoWizardModal({
                     inerenti={preventiviAccettati}
                     onSelect={applyPreventivo}
                   />
-                  <div className="grid gap-3 sm:grid-cols-2">
-                    <div className="text-sm">
-                      <span className="mb-1 block font-medium">
-                        Mail di accettazione
+                </div>
+                <div className="space-y-2 rounded-lg border border-[var(--border)] px-4 py-3">
+                    <div className="text-sm font-medium">
+                      {titoloNota("quantita_conferma", "Conferma")}
+                    </div>
+                    <p className="text-xs text-[var(--muted)]">
+                      Facoltativa e indipendente. Può essere la risposta a un
+                      preventivo, a una chiamata o a qualsiasi altra conferma.
+                      Mail, telefono o altro: non dipende da come è arrivata la
+                      richiesta e non serve un preventivo.
+                    </p>
+                    <label className="block text-sm">
+                      <span className="mb-1 block text-xs text-[var(--muted)]">
+                        Selezione
                       </span>
+                      <select
+                        value={confermaCanale}
+                        onChange={(e) => {
+                          const next = e.target.value as RichiestaCanale;
+                          setConfermaCanale(next);
+                          if (next !== "mail") setMailAccettazione(null);
+                        }}
+                        className="w-full rounded-lg border border-[var(--border)] bg-white px-3 py-2 text-sm"
+                      >
+                        {RICHIESTA_CANALI.map((canale) => (
+                          <option key={canale} value={canale}>
+                            {RICHIESTA_CANALE_LABEL[canale]}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                    {confermaCanale === "mail" ? (
                       <button
                         type="button"
-                        disabled={!clienteId}
+                        disabled={!(clienteId || possibileClienteId)}
                         onClick={() => {
                           setTimelineMailKind("accettazione");
                           setTimelineMailOpen(true);
                         }}
-                        className="rounded-lg border border-[var(--border)] px-3 py-2 text-sm hover:bg-slate-50 disabled:opacity-50"
+                        className="rounded-lg border border-[var(--border)] bg-white px-3 py-2 text-sm hover:bg-slate-50 disabled:opacity-50"
                       >
                         {mailAccettazione
                           ? mailAccettazione.subject || "Mail collegata"
                           : "Collega mail"}
                       </button>
-                    </div>
-                    <div className="text-sm">
-                      <span className="mb-1 block font-medium">
-                        {titoloNota(
-                          "quantita_referente",
-                          "Referente che ha inviato"
-                        )}
-                      </span>
-                      <ReferentiPickerField
-                        value={
-                          referenteAccettazione ? [referenteAccettazione] : []
-                        }
-                        onChange={(next) =>
-                          void onReferenteAccettazioneChange(next)
-                        }
-                        defaultAziendaTipo="cliente"
-                        defaultAziendaLabel={clienteNome}
-                        defaultAziendaId={clienteId}
-                      />
-                    </div>
-                  </div>
+                    ) : (
+                      <label className="block text-sm">
+                        <span className="mb-1 block text-xs text-[var(--muted)]">
+                          Come è avvenuta la conferma
+                        </span>
+                        <textarea
+                          value={confermaNota}
+                          onChange={(e) => setConfermaNota(e.target.value)}
+                          rows={3}
+                          maxLength={1500}
+                          placeholder="Chi ha confermato, e quando"
+                          className="w-full rounded-lg border border-[var(--border)] bg-white px-3 py-2 text-sm"
+                        />
+                      </label>
+                    )}
                 </div>
+                <div className="space-y-2 rounded-lg border border-[var(--border)] px-4 py-3 text-sm">
+                    <span className="mb-1 block font-medium">
+                      {titoloNota("quantita_referente", "Referente")}
+                    </span>
+                    <p className="mb-2 text-xs text-[var(--muted)]">
+                      Facoltativo. Chi ha parlato o scritto, se lo indichi.
+                    </p>
+                    <ReferentiPickerField
+                      value={
+                        referenteAccettazione ? [referenteAccettazione] : []
+                      }
+                      onChange={(next) =>
+                        void onReferenteAccettazioneChange(next)
+                      }
+                      defaultAziendaTipo={
+                        anagraficaFonte === "possibile"
+                          ? "cliente_possibile"
+                          : "cliente"
+                      }
+                      defaultAziendaLabel={clienteNome}
+                      defaultAziendaId={
+                        anagraficaFonte === "possibile"
+                          ? possibileClienteId
+                          : clienteId
+                      }
+                    />
+                  </div>
+                </>
               ) : null}
               {tipoOrdine !== "campionatura" && spedisceCampionatura ? (
                 <div className="space-y-3 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3">

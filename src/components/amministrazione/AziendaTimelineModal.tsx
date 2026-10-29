@@ -1072,7 +1072,7 @@ export function AziendaTimelineModal({
               {pickMode?.purpose === "campionatura-nota"
                 ? "Seleziona la nota da collegare alla richiesta di campionatura, oppure creane una."
                 : pickMode?.purpose === "ordine-accettazione-mail"
-                  ? "Prima le mail inerenti all’accettazione. Poi puoi caricare tutte quelle dell’azienda o cercarle in casella."
+                  ? "Prima le mail inerenti alla conferma. Poi puoi caricare tutte quelle dell’azienda o cercarle in casella."
                 : pickMode?.purpose === "ordine-richiesta-mail"
                   ? "Prima le mail inerenti alla richiesta. Poi puoi caricare tutte quelle dell’azienda o cercarle in casella."
                   : pickMode?.purpose === "campionatura-mail"
