@@ -85,6 +85,68 @@ async function sendCommand(
   return expectCode(socket, allowed);
 }
 
+export async function sendSmtpPlain(input: {
+  host: string;
+  port: number;
+  user: string;
+  pass: string;
+  from: string;
+  to: string;
+  subject: string;
+  text: string;
+}): Promise<void> {
+  const subject = input.subject.replace(/[\r\n]/g, " ").trim();
+  const text = input.text
+    .replace(/\r?\n/g, "\n")
+    .split("\n")
+    .map((riga) => (riga.startsWith(".") ? `.${riga}` : riga))
+    .join("\r\n");
+  const socket = await new Promise<TLSSocket>((resolve, reject) => {
+    const s = tlsConnect(
+      {
+        host: input.host,
+        port: input.port,
+        servername: input.host,
+        rejectUnauthorized: true,
+      },
+      () => resolve(s)
+    );
+    s.setEncoding("utf8");
+    s.setTimeout(20_000);
+    s.once("timeout", () => {
+      s.destroy(new Error("Timeout SMTP"));
+    });
+    s.once("error", reject);
+  });
+
+  try {
+    await expectCode(socket, [220]);
+    await sendCommand(socket, "EHLO opuntiaindustry.com", [250]);
+    await sendCommand(socket, "AUTH LOGIN", [334]);
+    await sendCommand(socket, encodeLogin(input.user), [334]);
+    await sendCommand(socket, encodeLogin(input.pass), [235]);
+    await sendCommand(socket, `MAIL FROM:<${input.from}>`, [250]);
+    await sendCommand(socket, `RCPT TO:<${input.to}>`, [250, 251]);
+    await sendCommand(socket, "DATA", [354]);
+    const message = [
+      `From: Agrinsicilia <${input.from}>`,
+      `To: <${input.to}>`,
+      `Subject: ${subject}`,
+      "MIME-Version: 1.0",
+      "Content-Type: text/plain; charset=UTF-8",
+      "Content-Transfer-Encoding: 8bit",
+      "",
+      text,
+      ".",
+    ].join("\r\n");
+    socket.write(`${message}\r\n`);
+    await expectCode(socket, [250]);
+    await sendCommand(socket, "QUIT", [221]);
+  } finally {
+    socket.end();
+  }
+}
+
 /** Invio email via SMTPS (es. Aruba porta 465) */
 export async function sendSmtpMail(options: {
   to: string;

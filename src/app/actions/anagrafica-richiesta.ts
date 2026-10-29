@@ -13,8 +13,8 @@ import {
 import {
   casellaInvioAnagrafica,
   ERRORE_CASELLA_ANAGRAFICA,
+  inviaDaCasellaAnagrafica,
 } from "@/lib/anagrafica/casella-invio";
-import { sendMailViaAccount } from "@/lib/webmail/sync";
 
 function emailOk(value: string): boolean {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value.trim());
@@ -48,8 +48,7 @@ export async function inviaRichiestaAnagraficaAction(input: {
   const url = `${getPublicAppUrl()}/anagrafica/${token}`;
   const nome = scheda.ragioneSociale || "Spettabile azienda";
   try {
-    await sendMailViaAccount({
-      account,
+    await inviaDaCasellaAnagrafica({
       to: destinatario,
       subject: "Anagrafica aziendale da compilare",
       text: [
@@ -65,7 +64,33 @@ export async function inviaRichiestaAnagraficaAction(input: {
           : []),
       ].join("\n"),
     });
-  } catch {
+  } catch (errore) {
+    const testo = errore instanceof Error ? errore.message : "";
+    console.error(
+      "[anagrafica invio]",
+      testo.replace(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi, "[mail]").slice(0, 300)
+    );
+    if (testo === ERRORE_CASELLA_ANAGRAFICA) {
+      return { success: false, error: testo };
+    }
+    if (/535|autentic/i.test(testo)) {
+      return {
+        success: false,
+        error: "La casella info@agrinsicilia.com ha rifiutato l'accesso. Il link non è stato attivato.",
+      };
+    }
+    if (/550|553|554/.test(testo)) {
+      return {
+        success: false,
+        error: "L'indirizzo del destinatario è stato rifiutato. Il link non è stato attivato.",
+      };
+    }
+    if (/timeout|ETIMEDOUT|chiusa inaspettatamente|ECONN/i.test(testo)) {
+      return {
+        success: false,
+        error: "Il server non raggiunge la posta in uscita. Il link non è stato attivato.",
+      };
+    }
     return { success: false, error: "Invio della mail non riuscito. Il link non è stato attivato." };
   }
   const salvata = await preparaInvioAnagrafica({

@@ -1,4 +1,6 @@
+import { sendSmtpPlain } from "@/lib/email/smtp";
 import { createServiceClient } from "@/lib/supabase/service";
+import { decryptWebmailSecret } from "@/lib/webmail/crypto";
 import type { AccountRow } from "@/lib/webmail/sync";
 
 export const CASELLA_ANAGRAFICA = "info@agrinsicilia.com";
@@ -23,3 +25,23 @@ export async function casellaInvioAnagrafica(): Promise<AccountRow | null> {
 
 export const ERRORE_CASELLA_ANAGRAFICA =
   "La mail non è partita: manca la casella info@agrinsicilia.com con SMTP.";
+
+/** Link e OTP escono dalla casella info, con lo stesso canale SMTP degli accessi. */
+export async function inviaDaCasellaAnagrafica(input: {
+  to: string;
+  subject: string;
+  text: string;
+}): Promise<void> {
+  const account = await casellaInvioAnagrafica();
+  if (!account) throw new Error(ERRORE_CASELLA_ANAGRAFICA);
+  await sendSmtpPlain({
+    host: account.smtp_host,
+    port: Number(account.smtp_port) || 465,
+    user: account.username,
+    pass: decryptWebmailSecret(account.password_encrypted),
+    from: account.email_address,
+    to: input.to,
+    subject: input.subject,
+    text: input.text,
+  });
+}

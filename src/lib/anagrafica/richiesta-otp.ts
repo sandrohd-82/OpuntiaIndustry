@@ -18,9 +18,9 @@ import {
 import {
   casellaInvioAnagrafica,
   ERRORE_CASELLA_ANAGRAFICA,
+  inviaDaCasellaAnagrafica,
 } from "@/lib/anagrafica/casella-invio";
 import { createServiceClient } from "@/lib/supabase/service";
-import { sendMailViaAccount } from "@/lib/webmail/sync";
 
 const MINUTI = 5;
 const TENTATIVI = 5;
@@ -195,8 +195,7 @@ export async function richiediOtpFirma(input: {
     return { errore: ERRORE_CASELLA_ANAGRAFICA };
   }
   try {
-    await sendMailViaAccount({
-      account,
+    await inviaDaCasellaAnagrafica({
       to: email,
       subject: avviso.subject,
       text: [
