@@ -161,6 +161,11 @@ export function SpedizioneMailPanel({
     setAllegaTrackingMail(false);
     setVuoleMail(false);
   }, [bloccaMail]);
+  useEffect(() => {
+    if (!ritiroInSede) return;
+    setAllegaTrackingMail(false);
+    setVuoleMail(false);
+  }, [ritiroInSede]);
   const [destEmail, setDestEmail] = useState(destEmailDefault);
   const [accounts, setAccounts] = useState<
     Array<{ id: string; label: string; email: string }>
@@ -311,16 +316,18 @@ export function SpedizioneMailPanel({
 
   useEffect(() => {
     onDraftChange?.({
-      trackingUrl,
+      trackingUrl: ritiroInSede ? "" : trackingUrl,
       letteraViaPath: letteraPath,
       letteraViaName: letteraName,
       allegati,
-      allegaTracking: impostazioneDocumento ? allegaTrackingMail : vuoleMail,
+      allegaTracking: ritiroInSede
+        ? false
+        : (impostazioneDocumento ? allegaTrackingMail : vuoleMail),
       allegaLettera: false,
       allegaFile: false,
       documentoMail,
       inviaMailDocumento,
-      allegaTrackingMail,
+      allegaTrackingMail: ritiroInSede ? false : allegaTrackingMail,
       destinatarioEmail: destEmail,
       sedePartenzaId,
       bozzaPronta,
@@ -348,6 +355,7 @@ export function SpedizioneMailPanel({
     mailCorpo,
     item?.id,
     item?.stato,
+    ritiroInSede,
   ]);
 
   function applyItem(next: SpedizioneMailPrenotazione) {
@@ -375,7 +383,7 @@ export function SpedizioneMailPanel({
     );
   }
 
-  const mancaTracking = vuoleMail && !trackingUrl.trim();
+  const mancaTracking = !ritiroInSede && vuoleMail && !trackingUrl.trim();
   const casella = accounts.find((a) => a.id === mailAccountId);
   const casellaTesto = casella ? `${casella.label} · ${casella.email}` : "—";
 
@@ -596,6 +604,7 @@ export function SpedizioneMailPanel({
         })}
       </p>
 
+      {ritiroInSede ? null : (
       <label className="block text-sm">
         <span className="mb-1 block font-medium">Tracking (URL)</span>
         <input
@@ -610,7 +619,9 @@ export function SpedizioneMailPanel({
           className="w-full rounded-lg border border-[var(--border)] px-3 py-2 text-sm"
         />
       </label>
+      )}
 
+      {ritiroInSede ? null : (
       <label className="block text-sm">
         <span className="mb-1 block font-medium">Luogo di partenza</span>
         <span className="mb-1 block text-xs text-[var(--muted)]">
@@ -642,6 +653,7 @@ export function SpedizioneMailPanel({
           ))}
         </select>
       </label>
+      )}
 
       <div className="block text-sm">
         <span className="mb-1 block font-medium">
@@ -768,8 +780,9 @@ export function SpedizioneMailPanel({
             {notaMail ?? "Mail dell'ordine"}
           </legend>
           <p className="text-xs text-[var(--muted)]">
-            Scelta libera. Il tracking, se c&apos;è, si allega solo se lo
-            spunti. Non si crea una bozza in attesa del tracking.
+            {ritiroInSede
+              ? "Scelta libera. Il cliente ritira in sede: non c'è tracking da allegare."
+              : "Scelta libera. Il tracking, se c'è, si allega solo se lo spunti. Non si crea una bozza in attesa del tracking."}
           </p>
           <label className="flex items-center gap-2">
             <input
@@ -819,6 +832,7 @@ export function SpedizioneMailPanel({
                 : "Invia mail con fattura"}
             </label>
           ) : null}
+          {ritiroInSede ? null : (
           <label className="flex items-center gap-2">
             <input
               type="checkbox"
@@ -827,7 +841,8 @@ export function SpedizioneMailPanel({
             />
             Allega anche tracking
           </label>
-          {allegaTrackingMail && !trackingUrl.trim() ? (
+          )}
+          {!ritiroInSede && allegaTrackingMail && !trackingUrl.trim() ? (
             <p className="text-xs text-amber-800">
               Senza il link il tracking non entra nella mail. L&apos;invio non
               resta in attesa.
@@ -835,7 +850,7 @@ export function SpedizioneMailPanel({
           ) : null}
         </fieldset>
       ) : null}
-      {!impostazioneDocumento ? (
+      {!impostazioneDocumento && !ritiroInSede ? (
       <fieldset className="space-y-2 text-sm">
         <legend className="font-medium">
           Vuoi che il tracking venga inviato al cliente?
@@ -868,7 +883,7 @@ export function SpedizioneMailPanel({
       </fieldset>
       ) : null}
 
-      {vuoleMail || impostazioneDocumento ? (
+      {impostazioneDocumento || (vuoleMail && !ritiroInSede) ? (
         <div className="space-y-3 rounded-lg border border-[var(--border)] bg-white px-3 py-3">
           <label className="block text-sm">
             <span className="mb-1 block font-medium">Casella mittente</span>
@@ -1023,6 +1038,7 @@ export function SpedizioneMailPanel({
       ) : null}
 
       {entityType === "ordine" &&
+      !ritiroInSede &&
       sceltaOrdineFissa &&
       vuoleMail &&
       item?.stato !== "inviata" ? (
@@ -1069,7 +1085,7 @@ export function SpedizioneMailPanel({
         )
       ) : null}
 
-      {item?.stato !== "inviata" && !sceltaOrdineFissa && !impostazioneDocumento ? (
+      {item?.stato !== "inviata" && !ritiroInSede && !sceltaOrdineFissa && !impostazioneDocumento ? (
         <div className="flex flex-wrap gap-2">
           {!vuoleMail && !nascondiAttesaTracking ? (
             <button

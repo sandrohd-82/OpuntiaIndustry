@@ -344,7 +344,7 @@ export const ordineWizardInputSchema = z
         path: ["dataRichiesta"],
       });
     }
-    if (!val.corriereDaCompilare && !val.corriereId) {
+    if (!val.ritiroInSede && !val.corriereDaCompilare && !val.corriereId) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
         message: "Seleziona un corriere oppure «Compilerò dopo».",
@@ -352,6 +352,7 @@ export const ordineWizardInputSchema = z
       });
     }
     if (
+      !val.ritiroInSede &&
       val.spedizioneACarico === "diviso" &&
       (val.spedizionePctAgrinsicilia == null ||
         !Number.isFinite(val.spedizionePctAgrinsicilia))

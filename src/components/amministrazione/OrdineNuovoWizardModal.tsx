@@ -1956,7 +1956,7 @@ export function OrdineNuovoWizardModal({
         setMailPronto(payload);
         setMailTest(payload);
       }
-      if (spedDraft.current.sedePartenzaId) {
+      if (!ritiroInSede && spedDraft.current.sedePartenzaId) {
         await updateSedePartenzaAction({
           entityType: "ordine",
           entityId: result.ordine.id,
@@ -4052,7 +4052,7 @@ export function OrdineNuovoWizardModal({
                     {label}
                   </label>
                 ))}
-                {aCarico === "diviso" ? (
+                {aCarico === "diviso" && !ritiroInSede ? (
                   <label className="mt-2 block text-sm">
                     <span className="mb-1 block font-medium">
                       % Agrinsicilia (resto al cliente)
@@ -4864,20 +4864,20 @@ export function OrdineNuovoWizardModal({
                     void avviaSalvataggio("salva");
                     return;
                   }
-                  if (d.allegaTracking && !d.destinatarioEmail.includes("@")) {
+                  if (!ritiroInSede && d.allegaTracking && !d.destinatarioEmail.includes("@")) {
                     setFormError(
                       "Indica il destinatario della mail di tracking."
                     );
                     return;
                   }
-                  if (d.allegaTracking && !d.mailAccountId) {
+                  if (!ritiroInSede && d.allegaTracking && !d.mailAccountId) {
                     setFormError(
                       "Seleziona la casella da cui partirà la mail di tracking."
                     );
                     return;
                   }
                   const modo =
-                    d.allegaTracking && !d.trackingUrl.trim()
+                    !ritiroInSede && d.allegaTracking && !d.trackingUrl.trim()
                       ? "prenota"
                       : "salva";
                   void avviaSalvataggio(modo);
