@@ -153,7 +153,8 @@ export type Ordine = {
   /** Alias UI legacy */
   numero: string;
   numeroCliente: string;
-  clienteId: string | null;
+    clienteId: string | null;
+  possibileClienteId: string | null;
   cliente: string;
   clienteCodiceTarga: string;
   dataOrdine: string;
@@ -430,6 +431,7 @@ export function mapOrdineRow(
     numero: row.numero_interno,
     numeroCliente: row.numero_cliente ?? "",
     clienteId: row.cliente_id,
+    possibileClienteId: row.cliente_possibile_id ?? null,
     cliente: row.cliente_ragione_sociale,
     clienteCodiceTarga: row.cliente_codice_targa,
     dataOrdine: row.data_ordine,

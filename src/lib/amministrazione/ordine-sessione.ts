@@ -205,6 +205,7 @@ export function buildOrdineSessioneLocale(input: {
     numero,
     numeroCliente: "",
     clienteId: input.clienteId,
+    possibileClienteId: null,
     cliente: input.clienteNome,
     clienteCodiceTarga: input.clienteTarga || "C000",
     dataOrdine: input.dataOrdine,

@@ -11,6 +11,7 @@ import { getScontoFuoriListinoContextAction } from "@/app/actions/ordine-sconto"
 import { listSediAttiveAction } from "@/app/actions/impostazioni-sedi";
 import { elencoContattiRitiroAction } from "@/app/actions/ordine-ritiro-contatti";
 import { TitoloConNota } from "@/components/amministrazione/OrdineSezioneNota";
+import { ConfermaPromozioneSdiModal } from "@/components/amministrazione/ConfermaPromozioneSdiModal";
 import { OrdineCampionaturaElenco } from "@/components/amministrazione/OrdineCampionaturaElenco";
 import { CAMPIONATURA_ORDINE_NOTA } from "@/lib/amministrazione/ordine-campionatura";
 import { InfoHint } from "@/components/ui/InfoHint";
@@ -367,6 +368,8 @@ export function OrdineNuovoWizardModal({
   const firmaOrdineIniziale = useRef("");
   const [formError, setFormError] = useState<string | null>(null);
   const [invioFatturaSdi, setInvioFatturaSdi] = useState<"" | "subito" | "al_processo">("");
+  const [chiediPromozioneSdi, setChiediPromozioneSdi] = useState(false);
+  const promozioneSdiRef = useRef(false);
   const [fatturaGiaInviata, setFatturaGiaInviata] = useState(false);
   const [saving, setSaving] = useState(false);
   const spedDraft = useRef({
@@ -2023,6 +2026,7 @@ export function OrdineNuovoWizardModal({
             sendToSdi: true,
             sendCourtesyEmail: !nessunaMail,
             doppiaConferma: true,
+            confermaPromozione: promozioneSdiRef.current,
             produzioneReale: true,
           });
           if (!invio.success) {
@@ -2436,6 +2440,23 @@ export function OrdineNuovoWizardModal({
         }}
       />
     );
+  }
+
+  function avviaSalvataggio(modo: "salva" | "prenota") {
+    const d = spedDraft.current;
+    const promuovi =
+      anagraficaFonte === "possibile" &&
+      Boolean(possibileClienteId) &&
+      tipoOrdine !== "campionatura" &&
+      invioFatturaSdi === "subito" &&
+      !invioDelegato &&
+      !fatturaGiaInviata &&
+      d.documentoMail !== "proforma";
+    if (promuovi && !promozioneSdiRef.current) {
+      setChiediPromozioneSdi(true);
+      return;
+    }
+    void submit(modo);
   }
 
   return (
@@ -4746,7 +4767,7 @@ export function OrdineNuovoWizardModal({
                       );
                       return;
                     }
-                    void submit("salva");
+                    void avviaSalvataggio("salva");
                     return;
                   }
                   if (d.allegaTracking && !d.destinatarioEmail.includes("@")) {
@@ -4765,7 +4786,7 @@ export function OrdineNuovoWizardModal({
                     d.allegaTracking && !d.trackingUrl.trim()
                       ? "prenota"
                       : "salva";
-                  void submit(modo);
+                  void avviaSalvataggio(modo);
                 }}
                 className="rounded-lg bg-[var(--primary)] px-4 py-2 text-sm font-medium text-white hover:bg-[var(--primary-hover)] disabled:opacity-50"
               >
@@ -5001,6 +5022,22 @@ export function OrdineNuovoWizardModal({
           onInviata={(messaggio) => {
             setMailTest(null);
             setSessioneMsg(messaggio);
+          }}
+        />
+      ) : null}
+      {chiediPromozioneSdi ? (
+        <ConfermaPromozioneSdiModal
+          nome={clienteNome || "questo possibile cliente"}
+          onAnnulla={() => setChiediPromozioneSdi(false)}
+          onConferma={() => {
+            promozioneSdiRef.current = true;
+            setChiediPromozioneSdi(false);
+            const d = spedDraft.current;
+            const modo =
+              modificaOrdineId && d.allegaTracking && !d.trackingUrl.trim()
+                ? "prenota"
+                : "salva";
+            void submit(modo);
           }}
         />
       ) : null}

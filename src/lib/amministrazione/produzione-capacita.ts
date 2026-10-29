@@ -440,6 +440,7 @@ export const ordineProcessaScalettaSchema = z.object({
   approvvigionamento: z.enum(["magazzino", "lavorazione"]).optional(),
   usaSabato: z.boolean().optional(),
   lottoCodice: z.string().trim().max(80).optional().default(""),
+  confermaPromozione: z.boolean().optional(),
   bozzaDelegata: z
     .object({
       destinatarioEmail: z.string().trim().max(240),

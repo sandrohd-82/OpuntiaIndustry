@@ -2,7 +2,8 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { inviaFatturaSalvataAction } from "@/app/actions/fattura-da-ordine";
+import { fatturaRichiedePromozioneSdiAction, inviaFatturaSalvataAction } from "@/app/actions/fattura-da-ordine";
+import { ConfermaPromozioneSdiModal } from "@/components/amministrazione/ConfermaPromozioneSdiModal";
 import { getFatturaByIdAction } from "@/app/actions/fatture";
 import { FatturaDettaglioView } from "@/components/amministrazione/FatturaDettaglioView";
 import { DocumentoOriginaleFattura } from "@/components/amministrazione/DocumentoOriginaleFattura";
@@ -29,6 +30,8 @@ export function FatturaDettaglioClient({ initial }: Props) {
   const [inviaBusy, setInviaBusy] = useState(false);
   const [inviaMsg, setInviaMsg] = useState<string | null>(null);
   const [passoInvio, setPassoInvio] = useState(0);
+  const [chiediPromozione, setChiediPromozione] = useState(false);
+  const [nomePromozione, setNomePromozione] = useState("");
 
   useEffect(() => {
     setFattura(initial);
@@ -99,6 +102,35 @@ export function FatturaDettaglioClient({ initial }: Props) {
     fattura.modalitaCollegamento,
   ]);
 
+  async function inviaSdi(confermaPromozione: boolean) {
+    setChiediPromozione(false);
+    setInviaBusy(true);
+    setInviaMsg(null);
+    const res = await inviaFatturaSalvataAction({
+      fatturaId: fattura.id,
+      sendToSdi: true,
+      sendCourtesyEmail: false,
+      doppiaConferma: true,
+      confermaPromozione,
+    });
+    setInviaBusy(false);
+    if (!res.success) {
+      setInviaMsg(res.error);
+      setPassoInvio(0);
+      return;
+    }
+    setPassoInvio(2);
+    const esito =
+      `Inviata ${res.numeroFattura}` +
+      (res.sdiSent ? " allo SDI" : "") +
+      (res.courtesyEmailSent ? " e per email" : "") +
+      ".";
+    setInviaMsg(res.warning ? `${esito} ${res.warning}` : esito);
+    const refreshed = await getFatturaByIdAction("emessa", fattura.id);
+    if (refreshed.success) setFattura(refreshed.fattura);
+    router.refresh();
+  }
+
   const prova = isFatturaProva(fattura);
   return (
     <div className="mx-auto w-[94%] max-w-none space-y-8">
@@ -126,41 +158,28 @@ export function FatturaDettaglioClient({ initial }: Props) {
         onInviaFic={
           !prova && fattura.kind === "emessa" && !fattura.ficId
             ? () => {
-                if (passoInvio < 1) {
-                  setPassoInvio(1);
-                  setInviaMsg(
-                    "Prima conferma. Premi di nuovo: solo allora la fattura prende il numero progressivo e parte allo SDI. Nessuna mail parte da qui."
-                  );
-                  return;
-                }
                 void (async () => {
-                  setInviaBusy(true);
-                  setInviaMsg(null);
-                  const res = await inviaFatturaSalvataAction({
-                    fatturaId: fattura.id,
-                    sendToSdi: true,
-                    sendCourtesyEmail: false,
-                    doppiaConferma: true,
-                  });
-                  setInviaBusy(false);
-                  if (!res.success) {
-                    setInviaMsg(res.error);
-                    setPassoInvio(0);
+                  if (passoInvio < 1) {
+                    try {
+                      const probe = await fatturaRichiedePromozioneSdiAction(fattura.id);
+                      if (probe.promuove) {
+                        setNomePromozione(probe.nome);
+                        setChiediPromozione(true);
+                        return;
+                      }
+                    } catch (err) {
+                      setInviaMsg(
+                        err instanceof Error ? err.message : "Verifica del cliente non riuscita."
+                      );
+                      return;
+                    }
+                    setPassoInvio(1);
+                    setInviaMsg(
+                      "Prima conferma. Premi di nuovo: solo allora la fattura prende il numero progressivo e parte allo SDI. Nessuna mail parte da qui."
+                    );
                     return;
                   }
-                  setPassoInvio(2);
-                  setInviaMsg(
-                    `Inviata ${res.numeroFattura}` +
-                      (res.sdiSent ? " allo SDI" : "") +
-                      (res.courtesyEmailSent ? " e per email" : "") +
-                      "."
-                  );
-                  const refreshed = await getFatturaByIdAction(
-                    "emessa",
-                    fattura.id
-                  );
-                  if (refreshed.success) setFattura(refreshed.fattura);
-                  router.refresh();
+                  void inviaSdi(false);
                 })();
               }
             : undefined
@@ -244,6 +263,14 @@ export function FatturaDettaglioClient({ initial }: Props) {
             setEditing(false);
             router.refresh();
           }}
+        />
+      ) : null}
+      {chiediPromozione ? (
+        <ConfermaPromozioneSdiModal
+          nome={nomePromozione}
+          occupato={inviaBusy}
+          onAnnulla={() => setChiediPromozione(false)}
+          onConferma={() => void inviaSdi(true)}
         />
       ) : null}
     </div>

@@ -1,10 +1,14 @@
 "use client";
 
-import { useEffect, useId, useMemo, useState } from "react";
+import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { leggiCampionatureOrdineAction } from "@/app/actions/ordine-campionatura";
 import { leggiNoteSezioniOrdineAction } from "@/app/actions/ordine-sezione-note";
 import { OrdineCampionaturaElenco } from "@/components/amministrazione/OrdineCampionaturaElenco";
-import { processOrdineInScalettaAction } from "@/app/actions/ordini";
+import { ConfermaPromozioneSdiModal } from "@/components/amministrazione/ConfermaPromozioneSdiModal";
+import {
+  ordineRichiedePromozioneSdiAction,
+  processOrdineInScalettaAction,
+} from "@/app/actions/ordini";
 import { getPrenotazioneSpedizioneMailAction } from "@/app/actions/spedizione-mail";
 import { NoteSezioniElenco } from "@/components/amministrazione/OrdineSezioneNota";
 import {
@@ -71,6 +75,10 @@ export function ProcessaOrdineScalettaModal({
   const [lottoLoading, setLottoLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  const [chiediPromozione, setChiediPromozione] = useState(false);
+  const [nomePromozione, setNomePromozione] = useState("");
+  const promozioneConfermata = useRef(false);
+  const dopoPromozione = useRef<null | (() => void)>(null);
   const [calcolo, setCalcolo] = useState<CapacitaCalcoloResult | null>(null);
   const [calcoloLoading, setCalcoloLoading] = useState(false);
   const [calendarioOpen, setCalendarioOpen] = useState(false);
@@ -301,6 +309,23 @@ export function ProcessaOrdineScalettaModal({
     usaSabato,
   ]);
 
+  async function attendiPromozione(poi: () => void): Promise<boolean> {
+    if (promozioneConfermata.current || isCamp || ordine.clienteId || !ordine.possibileClienteId) {
+      return true;
+    }
+    try {
+      const probe = await ordineRichiedePromozioneSdiAction(ordine.id);
+      if (!probe.promuove) return true;
+      setNomePromozione(probe.nome || ordine.cliente);
+      dopoPromozione.current = poi;
+      setChiediPromozione(true);
+      return false;
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Verifica del cliente non riuscita.");
+      return false;
+    }
+  }
+
   async function confirmCalendario(payload: {
     giorniProduzione: string[];
     giorniAttivita: string[];
@@ -315,6 +340,7 @@ export function ProcessaOrdineScalettaModal({
   }) {
     const bozzaDelegata = bozzaDelegataPayload();
     if (bozzaDelegataRichiesta && !bozzaDelegata) return;
+    if (!(await attendiPromozione(() => void confirmCalendario(payload)))) return;
     setSaving(true);
     setError(null);
     try {
@@ -330,6 +356,7 @@ export function ProcessaOrdineScalettaModal({
         approvvigionamento: fonte,
         usaSabato,
         lottoCodice: lottoCodice.trim(),
+        confermaPromozione: promozioneConfermata.current,
       });
       if (!result.success) {
         setError(result.error);
@@ -363,6 +390,7 @@ export function ProcessaOrdineScalettaModal({
       `${oggi.getFullYear()}-${pad(oggi.getMonth() + 1)}-${pad(oggi.getDate())}`;
     const bozzaDelegata = bozzaDelegataPayload();
     if (bozzaDelegataRichiesta && !bozzaDelegata) return;
+    if (!(await attendiPromozione(() => void processDaMagazzino()))) return;
     setSaving(true);
     setError(null);
     try {
@@ -378,6 +406,7 @@ export function ProcessaOrdineScalettaModal({
         approvvigionamento: "magazzino",
         usaSabato: false,
         lottoCodice: lottoCodice.trim(),
+        confermaPromozione: promozioneConfermata.current,
       });
       if (!result.success) {
         setError(result.error);
@@ -710,6 +739,23 @@ export function ProcessaOrdineScalettaModal({
             void confirmCalendario(payload);
           }}
           onClose={() => setCalendarioOpen(false)}
+        />
+      ) : null}
+      {chiediPromozione ? (
+        <ConfermaPromozioneSdiModal
+          nome={nomePromozione || ordine.cliente}
+          occupato={saving}
+          onAnnulla={() => {
+            dopoPromozione.current = null;
+            setChiediPromozione(false);
+          }}
+          onConferma={() => {
+            promozioneConfermata.current = true;
+            setChiediPromozione(false);
+            const poi = dopoPromozione.current;
+            dopoPromozione.current = null;
+            poi?.();
+          }}
         />
       ) : null}
     </div>

@@ -3,6 +3,8 @@
 import { writeAuditLog } from "@/lib/audit";
 import { notificaOrdineInCoda } from "@/lib/amministrazione/ordine-notifica-coda";
 import { scanPromozioniDaFattureAction } from "@/app/actions/lead-promozione";
+import { convertClientePossibileAdClienteAction } from "@/app/actions/clienti";
+import { PROMOZIONE_DA_SDI } from "@/lib/amministrazione/promozione-sdi";
 import { requireAreaAccess } from "@/lib/areas/guard";
 import { requireOrdineCreateAccess, requireOrdineProcessAccess } from "@/lib/auth/ordini-access";
 import {
@@ -69,6 +71,57 @@ import type {
   OrdineRigaRow,
   OrdineRow,
 } from "@/types/database";
+
+function clienteUiDaLead(row: Record<string, unknown>): Cliente {
+  const sede = {
+    nazione: String(row.sede_amm_nazione ?? ""),
+    provincia: String(row.sede_amm_provincia ?? ""),
+    citta: String(row.sede_amm_citta ?? ""),
+    cap: String(row.sede_amm_cap ?? ""),
+    indirizzo: String(row.sede_amm_indirizzo ?? ""),
+  };
+  return {
+    id: String(row.id ?? ""),
+    codiceTarga: String(row.codice_targa ?? "PC"),
+    ragioneSociale: String(row.ragione_sociale ?? ""),
+    partitaIva: String(row.partita_iva ?? ""),
+    codiceFiscale: String(row.codice_fiscale ?? ""),
+    isPrivato: Boolean(row.is_privato),
+    email: String(row.email ?? ""),
+    pec: String(row.pec ?? ""),
+    sdiCode: String(row.sdi_code ?? ""),
+    telefono: String(row.telefono ?? ""),
+    sitoWeb: String(row.sito_web ?? ""),
+    emailGeneriche: [],
+    telefoniGenerici: [],
+    sitiWebGenerici: [],
+    sedeAmministrativa: sede,
+    sedeMagazzino: {
+      nazione: String(row.sede_mag_nazione ?? ""),
+      provincia: String(row.sede_mag_provincia ?? ""),
+      citta: String(row.sede_mag_citta ?? ""),
+      cap: String(row.sede_mag_cap ?? ""),
+      indirizzo: String(row.sede_mag_indirizzo ?? ""),
+    },
+    consegneAltraAzienda: [],
+    prodottiAcquistati: [],
+    createdAt: String(row.created_at ?? ""),
+    createdBy: row.created_by ? String(row.created_by) : null,
+    commercialeId: row.commerciale_id ? String(row.commerciale_id) : null,
+    commercialeNome: "",
+    commercialeGrado: null,
+    aziendaMadreId: null,
+    inviaPreventivi: false,
+    fatturare: true,
+    inviaCampionature: false,
+    inviaProdotti: false,
+    tipologiaRispettoMadre: "",
+  };
+}
+
+function rigaFiscale(row: Record<string, unknown>): ClienteRow {
+  return row as unknown as ClienteRow;
+}
 
 function validateClienteFiscale(c: ClienteRow): string | null {
   const sedeOk =
@@ -319,6 +372,7 @@ export async function getFatturaA4ContextAction(input: {
       proformaNumero: string | null;
       proformaConvertitaNumero: string | null;
       noteDocumento: string;
+      possibileClienteId: string | null;
     }
   | { success: false; error: string }
 > {
@@ -337,15 +391,52 @@ export async function getFatturaA4ContextAction(input: {
     const ordine = ordineData as OrdineRow;
     const bloccoSpedizione = await motivoBloccoInvioClienteOrdine(ordine.id);
     if (bloccoSpedizione) return { success: false, error: bloccoSpedizione };
-    if (!ordine.cliente_id) {
-      return {
-        success: false,
-        error:
-          "La fattura si emette solo su un cliente registrato (non su possibile cliente).",
-      };
+    let possibileClienteId: string | null = null;
+    let cliente: Cliente;
+    if (ordine.cliente_id) {
+      const { data: clienteData } = await supabase
+        .from("clienti")
+        .select("*")
+        .eq("id", ordine.cliente_id)
+        .is("deleted_at", null)
+        .maybeSingle();
+      if (!clienteData) {
+        return { success: false, error: "Cliente dell’ordine non trovato." };
+      }
+      cliente = mapClienteRow(clienteData as ClienteRow);
+    } else if (ordine.cliente_possibile_id) {
+      const { data: leadData } = await supabase
+        .from("clienti_possibili")
+        .select("*")
+        .eq("id", ordine.cliente_possibile_id)
+        .is("deleted_at", null)
+        .maybeSingle();
+      if (!leadData) {
+        return { success: false, error: "Possibile cliente dell’ordine non trovato." };
+      }
+      const lead = leadData as Record<string, unknown>;
+      if (String(lead.stato ?? "") === "scartato") {
+        return { success: false, error: "Il possibile cliente è scartato." };
+      }
+      if (String(lead.stato ?? "") === "convertito" && lead.cliente_id) {
+        const { data: gia } = await supabase
+          .from("clienti")
+          .select("*")
+          .eq("id", String(lead.cliente_id))
+          .is("deleted_at", null)
+          .maybeSingle();
+        if (!gia) {
+          return { success: false, error: "Cliente collegato non trovato." };
+        }
+        cliente = mapClienteRow(gia as ClienteRow);
+      } else {
+        possibileClienteId = String(lead.id);
+        cliente = clienteUiDaLead(lead);
+      }
+    } else {
+      return { success: false, error: "Manca il cliente dell’ordine." };
     }
-    const [{ data: righeData }, { data: rateData }, { data: clienteData }] =
-      await Promise.all([
+    const [{ data: righeData }, { data: rateData }] = await Promise.all([
         supabase
           .from("ordini_righe")
           .select("*")
@@ -357,18 +448,7 @@ export async function getFatturaA4ContextAction(input: {
           .eq("ordine_id", ordine.id)
           .is("deleted_at", null)
           .order("sort_order", { ascending: true }),
-        supabase
-          .from("clienti")
-          .select("*")
-          .eq("id", ordine.cliente_id)
-          .is("deleted_at", null)
-          .maybeSingle(),
       ]);
-    if (!clienteData) {
-      return { success: false, error: "Cliente dell’ordine non trovato." };
-    }
-    const clienteRow = clienteData as ClienteRow;
-    const cliente = mapClienteRow(clienteRow);
     const scontoOrdine = Number(ordine.sconto_extra_pct ?? 0);
     const listinoHeader =
       ordine.prezzo_listino_unitario != null
@@ -539,6 +619,7 @@ export async function getFatturaA4ContextAction(input: {
           : null,
       proformaConvertitaNumero,
       noteDocumento,
+      possibileClienteId,
     };
   } catch (e) {
     return {
@@ -645,14 +726,26 @@ export async function saveFatturaDaOrdineAction(
   if (pianoErr) return { success: false, error: pianoErr };
 
   const supabase = await createClient();
-  const { data: clienteData } = await supabase
-    .from("clienti")
-    .select("*")
-    .eq("id", ctx.cliente.id)
-    .is("deleted_at", null)
-    .maybeSingle();
-  if (!clienteData) return { success: false, error: "Cliente non trovato." };
-  const clienteRow = clienteData as ClienteRow;
+  let clienteRow: ClienteRow;
+  if (ctx.possibileClienteId) {
+    const { data: leadData } = await supabase
+      .from("clienti_possibili")
+      .select("*")
+      .eq("id", ctx.possibileClienteId)
+      .is("deleted_at", null)
+      .maybeSingle();
+    if (!leadData) return { success: false, error: "Possibile cliente non trovato." };
+    clienteRow = rigaFiscale(leadData as Record<string, unknown>);
+  } else {
+    const { data: clienteData } = await supabase
+      .from("clienti")
+      .select("*")
+      .eq("id", ctx.cliente.id)
+      .is("deleted_at", null)
+      .maybeSingle();
+    if (!clienteData) return { success: false, error: "Cliente non trovato." };
+    clienteRow = clienteData as ClienteRow;
+  }
 
   if (input.inviaOra) {
     const fisc = validateClienteFiscale(clienteRow);
@@ -783,9 +876,10 @@ export async function saveFatturaDaOrdineAction(
     numeroFattura = "";
     const insert: FatturaEmessaInsert & Record<string, unknown> = {
       numero_interno: numeroInterno,
-      cliente_id: ctx.cliente.id,
+      cliente_id: ctx.possibileClienteId ? null : ctx.cliente.id,
+      cliente_possibile_id: ctx.possibileClienteId,
       cliente_ragione_sociale: destinatario.ragioneSociale,
-      cliente_codice_targa: ctx.cliente.codiceTarga,
+      cliente_codice_targa: ctx.cliente.codiceTarga || "PC",
       destinatario_snapshot: destinatario,
       data_emissione: input.dataDocumento,
       numero_documento_esterno: numeroFattura,
@@ -1448,15 +1542,62 @@ async function assegnaNumeroAllInvioSdi(
   };
 }
 
+export async function fatturaRichiedePromozioneSdiAction(
+  fatturaId: string
+): Promise<{ promuove: boolean; nome: string }> {
+  await requireAreaAccess("amministrazione");
+  const id = z.string().uuid().safeParse(fatturaId);
+  if (!id.success) return { promuove: false, nome: "" };
+  const supabase = await createClient();
+  const { data } = await supabase
+    .from("fatture_emesse")
+    .select(
+      "cliente_id, cliente_possibile_id, cliente_ragione_sociale, tipo_documento, ei_status, numero_fattura, numero_interno"
+    )
+    .eq("id", id.data)
+    .is("deleted_at", null)
+    .maybeSingle();
+  const row = data as {
+    cliente_id?: string | null;
+    cliente_possibile_id?: string | null;
+    cliente_ragione_sociale?: string | null;
+    tipo_documento?: string | null;
+    ei_status?: string | null;
+    numero_fattura?: string | null;
+    numero_interno?: string | null;
+  } | null;
+  if (!row || row.cliente_id || !row.cliente_possibile_id) {
+    return { promuove: false, nome: "" };
+  }
+  if (String(row.tipo_documento ?? "fattura") !== "fattura") {
+    return { promuove: false, nome: "" };
+  }
+  if (row.ei_status === "sent") return { promuove: false, nome: "" };
+  if (
+    isFatturaProva({
+      numero_fattura: row.numero_fattura,
+      numero_interno: row.numero_interno,
+    })
+  ) {
+    return { promuove: false, nome: "" };
+  }
+  return {
+    promuove: true,
+    nome: String(row.cliente_ragione_sociale ?? ""),
+  };
+}
+
 export async function inviaFatturaAttraversoSdiAction(
   fatturaId: string,
-  doppiaConferma = false
+  doppiaConferma = false,
+  confermaPromozione = false
 ): Promise<SalvaFatturaDaOrdineResult> {
   return inviaFatturaSalvataAction({
     fatturaId,
     sendToSdi: true,
     sendCourtesyEmail: false,
     doppiaConferma,
+    confermaPromozione,
   });
 }
 
@@ -1476,6 +1617,8 @@ export async function inviaFatturaSalvataAction(input: {
   /** Testo preparato dal commerciale e completato dall'operatore. */
   oggettoMail?: string;
   corpoMail?: string;
+  /** Conferma esplicita del passaggio da possibile cliente a cliente. */
+  confermaPromozione?: boolean;
 }): Promise<SalvaFatturaDaOrdineResult> {
   const { auth } = input.produzioneReale
     ? await requireOrdineProcessAccess()
@@ -1521,20 +1664,65 @@ export async function inviaFatturaSalvataAction(input: {
         "L'invio della fattura richiede la doppia conferma. Il numero non è stato assegnato e nulla è partito.",
     };
   }
-  const [{ data: dilazioni }, { data: clienteData }] = await Promise.all([
+  const [{ data: dilazioni }, { data: clienteData }, { data: ordineInvio }] =
+    await Promise.all([
     supabase
       .from("fatture_emesse_dilazioni")
       .select("*")
       .eq("fattura_id", fattura.id)
       .is("deleted_at", null)
       .order("sort_order", { ascending: true }),
-    supabase
-      .from("clienti")
-      .select("*")
-      .eq("id", fattura.cliente_id)
-      .is("deleted_at", null)
-      .maybeSingle(),
+    fattura.cliente_id
+      ? supabase
+          .from("clienti")
+          .select("*")
+          .eq("id", fattura.cliente_id)
+          .is("deleted_at", null)
+          .maybeSingle()
+      : Promise.resolve({ data: null }),
+    fattura.ordine_id
+      ? supabase
+          .from("ordini")
+          .select("cliente_id, cliente_possibile_id")
+          .eq("id", fattura.ordine_id)
+          .maybeSingle()
+      : Promise.resolve({ data: null }),
   ]);
+  const ordineMeta = ordineInvio as {
+    cliente_id?: string | null;
+    cliente_possibile_id?: string | null;
+  } | null;
+  let possibileId = String(
+    (fattura as FatturaEmessaRow & { cliente_possibile_id?: string | null })
+      .cliente_possibile_id ??
+      ordineMeta?.cliente_possibile_id ??
+      ""
+  );
+  let anagrafica = clienteData as ClienteRow | null;
+  if (!anagrafica && possibileId) {
+    const { data: leadData } = await supabase
+      .from("clienti_possibili")
+      .select("*")
+      .eq("id", possibileId)
+      .is("deleted_at", null)
+      .maybeSingle();
+    const lead = leadData as Record<string, unknown> | null;
+    const giaClienteId = lead?.cliente_id ? String(lead.cliente_id) : "";
+    if (lead && String(lead.stato ?? "") === "convertito" && giaClienteId) {
+      const { data: gia } = await supabase
+        .from("clienti")
+        .select("*")
+        .eq("id", giaClienteId)
+        .is("deleted_at", null)
+        .maybeSingle();
+      anagrafica = (gia as ClienteRow | null) ?? null;
+      possibileId = "";
+    } else if (!ordineMeta?.cliente_id) {
+      anagrafica = lead ? rigaFiscale(lead) : null;
+    }
+  } else if (anagrafica) {
+    possibileId = "";
+  }
   let righe: Awaited<ReturnType<typeof loadFatturaRighe>> = [];
   try {
     righe = await loadFatturaRighe(supabase, fattura.id);
@@ -1544,10 +1732,17 @@ export async function inviaFatturaSalvataAction(input: {
       error: e instanceof Error ? e.message : "Righe fattura non leggibili.",
     };
   }
-  if (!clienteData) return { success: false, error: "Cliente non trovato." };
-  const cliente = clienteData as ClienteRow;
+  if (!anagrafica) return { success: false, error: "Cliente non trovato." };
+  const cliente = anagrafica;
   const fisc = validateClienteFiscale(cliente);
   if (fisc) return { success: false, error: fisc };
+  if (possibileId && input.confermaPromozione !== true) {
+    return {
+      success: false,
+      error:
+        "Conferma il passaggio da possibile cliente a cliente prima dell'invio allo SDI. Il numero non è stato assegnato e nulla è partito.",
+    };
+  }
 
   let vatTypes: Awaited<ReturnType<typeof aliquotePerEmissione>> = [];
   try {
@@ -1807,7 +2002,7 @@ export async function inviaFatturaSalvataAction(input: {
       last_synced_at: now,
       created_by: auth.userId,
       updated_by: auth.userId,
-      cliente_id: cliente.id,
+      cliente_id: possibileId ? null : cliente.id,
       fattura_emessa_id: fattura.id,
       pdf_url: pdfUrl,
       ei_status: eiStatus,
@@ -1838,6 +2033,112 @@ export async function inviaFatturaSalvataAction(input: {
   });
   void scanPromozioniDaFattureAction();
 
+  let avvisoPromozione = "";
+  if (sdiSent && eiStatus === "sent" && possibileId) {
+    try {
+      const converted = await convertClientePossibileAdClienteAction(
+        possibileId,
+        PROMOZIONE_DA_SDI
+      );
+      if (!converted.success) {
+        avvisoPromozione = `La fattura è allo SDI, ma il passaggio a cliente non è riuscito: ${converted.error}`;
+      } else {
+        const service = createServiceClient();
+        await service
+          .from("fatture_emesse")
+          .update({
+            cliente_id: converted.cliente.id,
+            cliente_codice_targa: converted.cliente.codiceTarga,
+            updated_by: auth.userId,
+          })
+          .eq("id", fattura.id);
+        await service
+          .from("ordini")
+          .update({
+            cliente_id: converted.cliente.id,
+            cliente_codice_targa: converted.cliente.codiceTarga,
+            updated_by: auth.userId,
+          })
+          .eq("cliente_possibile_id", possibileId)
+          .is("deleted_at", null);
+        await service
+          .from("campionature")
+          .update({
+            cliente_id: converted.cliente.id,
+            cliente_codice_targa: converted.cliente.codiceTarga,
+            updated_by: auth.userId,
+          })
+          .eq("cliente_possibile_id", possibileId)
+          .is("deleted_at", null);
+        if (ficId) {
+          await service
+            .from("fic_invoices")
+            .update({
+              cliente_id: converted.cliente.id,
+              updated_by: auth.userId,
+            })
+            .eq("fic_id", ficId)
+            .eq("type", "issued");
+        }
+        const { data: pratica } = await service
+          .from("clienti_possibili_promozioni")
+          .select("id")
+          .eq("cliente_possibile_id", possibileId)
+          .eq("stato", "aperta")
+          .is("deleted_at", null)
+          .maybeSingle();
+        const chiusura = {
+          stato: "completata",
+          cliente_id: converted.cliente.id,
+          fattura_emessa_id: fattura.id,
+          numero_fattura: numeroFattura,
+          fic_id: ficId,
+          completed_at: now,
+          completed_by: auth.userId,
+          updated_by: auth.userId,
+        };
+        if (pratica && typeof pratica === "object" && "id" in pratica) {
+          await service
+            .from("clienti_possibili_promozioni")
+            .update(chiusura)
+            .eq("id", String((pratica as { id: string }).id));
+        } else {
+          await service.from("clienti_possibili_promozioni").insert({
+            ...chiusura,
+            cliente_possibile_id: possibileId,
+            created_by: auth.userId,
+          });
+        }
+        await writeAuditLog({
+          entity_type: "clienti_possibili",
+          entity_id: possibileId,
+          action: "status_change",
+          actor_id: auth.userId,
+          summary: `${converted.cliente.ragioneSociale} è passato da possibile cliente a cliente dopo l'invio SDI.`,
+          payload: {
+            cliente_id: converted.cliente.id,
+            fattura_id: fattura.id,
+            numero_fattura: numeroFattura,
+          },
+        });
+        avvisoPromozione = `${converted.cliente.ragioneSociale} è passato da possibile cliente a cliente.`;
+      }
+    } catch (e) {
+      avvisoPromozione = `La fattura è allo SDI, ma il passaggio a cliente non è riuscito: ${
+        e instanceof Error ? e.message : "errore di collegamento"
+      }`;
+    }
+  }
+  void scanPromozioniDaFattureAction();
+
+  const warningSdi =
+    eiStatus === "send_error"
+      ? "Fattura creata su Fatture in Cloud ma l’invio SDI non è riuscito. La mail al cliente non è partita."
+      : sendToSdi && fattura.ei_status === "sent"
+        ? "La fattura risulta già inviata allo SDI."
+        : "";
+  const warning = [warningSdi, avvisoPromozione].filter(Boolean).join(" ") || undefined;
+
   return {
     success: true,
     fatturaId: fattura.id,
@@ -1849,12 +2150,7 @@ export async function inviaFatturaSalvataAction(input: {
     eiStatus,
     courtesyEmailSent,
     sdiSent,
-    warning:
-      eiStatus === "send_error"
-        ? "Fattura creata su Fatture in Cloud ma l’invio SDI non è riuscito. La mail al cliente non è partita."
-        : sendToSdi && fattura.ei_status === "sent"
-          ? "La fattura risulta già inviata allo SDI."
-          : undefined,
+    warning,
   };
 }
 
@@ -1946,9 +2242,10 @@ export async function saveProformaDaOrdineAction(raw: unknown): Promise<
         numero_fattura: "",
         numero_documento_esterno: "",
         tipo_documento: "proforma",
-        cliente_id: ctx.cliente.id,
+        cliente_id: ctx.possibileClienteId ? null : ctx.cliente.id,
+        cliente_possibile_id: ctx.possibileClienteId,
         cliente_ragione_sociale: input.destinatario.ragioneSociale,
-        cliente_codice_targa: ctx.cliente.codiceTarga,
+        cliente_codice_targa: ctx.cliente.codiceTarga || "PC",
         destinatario_snapshot: input.destinatario,
         data_emissione: input.dataDocumento,
         imponibile: totals.imponibile,

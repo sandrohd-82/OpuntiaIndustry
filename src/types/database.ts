@@ -1914,6 +1914,7 @@ export interface FatturaEmessaRow {
   origine: "manuale" | "sync_fic" | "emissione_gestionale";
   /** Intestazione documento (può differire da anagrafica/ordine). */
   destinatario_snapshot?: Record<string, unknown>;
+  cliente_possibile_id?: string | null;
   created_by: string | null;
   updated_by: string | null;
   created_at: string;
@@ -1925,7 +1926,8 @@ export interface FatturaEmessaRow {
 export type FatturaEmessaInsert = {
   id?: string;
   numero_interno: string;
-  cliente_id: string;
+  cliente_id: string | null;
+  cliente_possibile_id?: string | null;
   cliente_ragione_sociale: string;
   cliente_codice_targa: string;
   data_emissione: string;

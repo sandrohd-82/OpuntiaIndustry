@@ -1,6 +1,7 @@
 "use server";
 
 import { LEAD_TARGA_PLACEHOLDER } from "@/lib/amministrazione/lead-promozione";
+import { PROMOZIONE_DA_SDI } from "@/lib/amministrazione/promozione-sdi";
 import { createClient, createServiceClient } from "@/lib/supabase/server";
 import { nextSequentialCodiceTarga } from "@/lib/amministrazione/codice-targa";
 import {
@@ -1091,12 +1092,15 @@ async function markLeadConvertito(opts: {
 }
 
 export async function convertClientePossibileAdClienteAction(
-  possibileClienteId: string
+  possibileClienteId: string,
+  origine?: typeof PROMOZIONE_DA_SDI
 ): Promise<ClientiActionResult> {
-  const { auth } = await requireAnyAreaAccess([
-    "amministrazione",
-    "commerciale",
-  ]);
+  const daSdi = origine === PROMOZIONE_DA_SDI;
+  const { auth } = await requireAnyAreaAccess(
+    daSdi
+      ? ["amministrazione", "commerciale", "produzione"]
+      : ["amministrazione", "commerciale"]
+  );
   if (!z.string().uuid().safeParse(possibileClienteId).success) {
     return { success: false, error: "Possibile cliente non valido." };
   }
@@ -1115,7 +1119,9 @@ export async function convertClientePossibileAdClienteAction(
     };
   }
 
-  const gate = await assertAnagraficaPrivilege({
+  const gate = daSdi
+    ? { ok: true as const }
+    : await assertAnagraficaPrivilege({
     kind: "cliente_possibile",
     op: "update",
     createdBy: leadRow.created_by ? String(leadRow.created_by) : null,

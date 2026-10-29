@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useId, useState } from "react";
-import { inviaFatturaAttraversoSdiAction } from "@/app/actions/fattura-da-ordine";
+import { fatturaRichiedePromozioneSdiAction, inviaFatturaAttraversoSdiAction } from "@/app/actions/fattura-da-ordine";
+import { ConfermaPromozioneSdiModal } from "@/components/amministrazione/ConfermaPromozioneSdiModal";
 import {
   generaCorpoMailFatturaAction,
   inviaFatturaDaWebmailAction,
@@ -47,6 +48,8 @@ export function FatturaWebmailComposeModal({ draft, onClose }: Props) {
   const [sdiInviato, setSdiInviato] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [msg, setMsg] = useState<string | null>(null);
+  const [chiediPromozione, setChiediPromozione] = useState(false);
+  const [nomePromozione, setNomePromozione] = useState("");
 
   useEffect(() => {
     const prev = document.body.style.overflow;
@@ -173,15 +176,36 @@ export function FatturaWebmailComposeModal({ draft, onClose }: Props) {
       return;
     }
     if (passoSdi < 1) {
+      try {
+        const probe = await fatturaRichiedePromozioneSdiAction(draft.fatturaId);
+        if (probe.promuove) {
+          setNomePromozione(probe.nome);
+          setChiediPromozione(true);
+          return;
+        }
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "Verifica del cliente non riuscita.");
+        return;
+      }
       setPassoSdi(1);
       setMsg(
         "Prima conferma. Premi di nuovo per inviare allo SDI: solo allora la fattura prende il numero progressivo."
       );
       return;
     }
+    await completaInvioSdi(false);
+  }
+
+  async function completaInvioSdi(confermaPromozione: boolean) {
+    if (!draft.fatturaId) return;
+    setChiediPromozione(false);
     setSendingSdi(true);
     setError(null);
-    const res = await inviaFatturaAttraversoSdiAction(draft.fatturaId, true);
+    const res = await inviaFatturaAttraversoSdiAction(
+      draft.fatturaId,
+      true,
+      confermaPromozione
+    );
     setSendingSdi(false);
     if (!res.success) {
       setError(res.error);
@@ -362,6 +386,14 @@ export function FatturaWebmailComposeModal({ draft, onClose }: Props) {
           </button>
         </div>
       </div>
+      {chiediPromozione ? (
+        <ConfermaPromozioneSdiModal
+          nome={nomePromozione}
+          occupato={sendingSdi}
+          onAnnulla={() => setChiediPromozione(false)}
+          onConferma={() => void completaInvioSdi(true)}
+        />
+      ) : null}
     </div>
   );
 }

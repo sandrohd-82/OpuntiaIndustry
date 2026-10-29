@@ -2329,6 +2329,62 @@ async function writeImpegniScaletta(input: {
 }
 
 /**
+ * Vero solo se processare questo ordine invierà la prima fattura SDI
+ * di un possibile cliente.
+ */
+export async function ordineRichiedePromozioneSdiAction(
+  ordineId: string
+): Promise<{ promuove: boolean; nome: string }> {
+  await requireOrdineProcessAccess();
+  if (!/^[0-9a-f-]{36}$/i.test(ordineId)) return { promuove: false, nome: "" };
+  const supabase = await createClient();
+  const { data: ordine } = await supabase
+    .from("ordini")
+    .select("cliente_id, cliente_possibile_id, cliente_ragione_sociale, tipo")
+    .eq("id", ordineId)
+    .is("deleted_at", null)
+    .maybeSingle();
+  const row = ordine as {
+    cliente_id?: string | null;
+    cliente_possibile_id?: string | null;
+    cliente_ragione_sociale?: string | null;
+    tipo?: string | null;
+  } | null;
+  if (!row || row.cliente_id || !row.cliente_possibile_id || row.tipo === "campionatura") {
+    return { promuove: false, nome: "" };
+  }
+  const { data: fattura } = await supabase
+    .from("fatture_emesse")
+    .select(
+      "tipo_documento, ei_status, courtesy_email_sent, numero_fattura, numero_interno"
+    )
+    .eq("ordine_id", ordineId)
+    .is("deleted_at", null)
+    .limit(1)
+    .maybeSingle();
+  const fat = fattura as {
+    tipo_documento?: string | null;
+    ei_status?: string | null;
+    courtesy_email_sent?: boolean | null;
+    numero_fattura?: string | null;
+    numero_interno?: string | null;
+  } | null;
+  if (!fat || fat.tipo_documento !== "fattura") return { promuove: false, nome: "" };
+  if (fat.courtesy_email_sent || fat.ei_status === "sent") {
+    return { promuove: false, nome: "" };
+  }
+  if (
+    isFatturaProva({
+      numero_fattura: fat.numero_fattura,
+      numero_interno: fat.numero_interno,
+    })
+  ) {
+    return { promuove: false, nome: "" };
+  }
+  return { promuove: true, nome: String(row.cliente_ragione_sociale ?? "") };
+}
+
+/**
  * Processa un ordine in attesa e lo inserisce in scaletta produzione.
  */
 export async function processOrdineInScalettaAction(
@@ -2393,7 +2449,8 @@ export async function processOrdineInScalettaAction(
   let fatturaProvaSaltata = false;
   let documentoNonFattura = false;
   let fatturaGiaInviata = false;
-  if (existing.clienteId && existing.tipo !== "campionatura") {
+  const intestatario = existing.clienteId || existing.possibileClienteId;
+  if (intestatario && existing.tipo !== "campionatura") {
     const supabaseCheck = await createClient();
     const { data: fatturaPronta, error: fatErr } = await supabaseCheck
       .from("fatture_emesse")
@@ -2438,6 +2495,19 @@ export async function processOrdineInScalettaAction(
     } else {
       fatturaDaEmettereId = pronta.id;
     }
+  }
+
+  if (
+    !existing.clienteId &&
+    existing.possibileClienteId &&
+    fatturaDaEmettereId &&
+    input.confermaPromozione !== true
+  ) {
+    return {
+      success: false,
+      error:
+        "Conferma il passaggio da possibile cliente a cliente prima dell'invio allo SDI. L'ordine non è entrato in produzione e nulla è partito.",
+    };
   }
 
   const bozza = input.bozzaDelegata;
@@ -2723,6 +2793,7 @@ export async function processOrdineInScalettaAction(
       sendToSdi: true,
       sendCourtesyEmail: !existing.nessunaMail,
       doppiaConferma: true,
+      confermaPromozione: input.confermaPromozione === true,
       produzioneReale: true,
       ...(delegaInvio && bozza
         ? {
