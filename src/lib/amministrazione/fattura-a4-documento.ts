@@ -2,8 +2,11 @@ import type { Cliente, SedeCliente } from "@/lib/amministrazione/clienti";
 import {
   calcolaTotaliEmissione,
 } from "@/lib/amministrazione/fattura-emissione";
-import { importoRiga, prezzoScontatoUnitario, roundMoney } from "@/lib/amministrazione/fatture";
-import { scontoSommaPct } from "@/lib/amministrazione/sconto-fuori-listino";
+import { importoRiga, prezzoNettoRiga, prezzoScontatoUnitario, roundMoney } from "@/lib/amministrazione/fatture";
+import {
+  prezzoNettoDueSconti,
+  scontoSommaPct,
+} from "@/lib/amministrazione/sconto-fuori-listino";
 import { emptySede, normalizeSede } from "@/lib/amministrazione/fornitori";
 import type { DestinatarioPreventivo } from "@/lib/amministrazione/preventivo-letterhead";
 
@@ -22,6 +25,10 @@ export type FatturaA4Riga = {
   note: string;
   /** Imponibile già registrato. Se manca, si ricalcola sulla riga. */
   importo?: number;
+  /** Sconto di listino, applicato prima dell'extra. */
+  scontoListinoPct?: number;
+  /** Sconto extra, applicato sul prezzo già scontato di listino. */
+  scontoExtraPct?: number;
 };
 
 export type FatturaDestinatarioSnapshot = {
@@ -91,40 +98,83 @@ export function parseDestinatarioSnapshot(
   };
 }
 
-/** Listino da ordine: header se combacia col netto, altrimenti lo ricostruisce. */
+/** Listino e i due sconti, in sequenza come il preventivo. */
 export function listinoEScontoDaOrdine(input: {
   prezzoRiga: number;
   prezzoListinoHeader: number | null;
   scontoExtraPct: number;
   scontoListinoPct?: number;
   isSpedizione: boolean;
-}): { prezzoUnitario: number; scontoPercentuale: number } {
-  if (input.isSpedizione) {
-    return { prezzoUnitario: input.prezzoRiga, scontoPercentuale: 0 };
-  }
-  const sconto = scontoSommaPct(input.scontoListinoPct ?? 0, input.scontoExtraPct);
-  if (sconto <= 0) {
-    return { prezzoUnitario: input.prezzoRiga, scontoPercentuale: 0 };
-  }
+}): {
+  prezzoUnitario: number;
+  scontoPercentuale: number;
+  scontoListinoPct: number;
+  scontoExtraPct: number;
+} {
+  const fermo = {
+    prezzoUnitario: input.prezzoRiga,
+    scontoPercentuale: 0,
+    scontoListinoPct: 0,
+    scontoExtraPct: 0,
+  };
+  if (input.isSpedizione) return fermo;
+  const listino = Number.isFinite(input.scontoListinoPct)
+    ? Math.max(0, input.scontoListinoPct ?? 0)
+    : 0;
+  const extra = Number.isFinite(input.scontoExtraPct)
+    ? Math.max(0, input.scontoExtraPct)
+    : 0;
+  if (listino <= 0 && extra <= 0) return fermo;
   const header =
     input.prezzoListinoHeader != null && input.prezzoListinoHeader > 0
       ? input.prezzoListinoHeader
       : 0;
-  if (header > 0) {
-    const daHeader = prezzoScontatoUnitario(header, sconto);
-    if (Math.abs(daHeader - input.prezzoRiga) <= 0.02) {
-      return { prezzoUnitario: header, scontoPercentuale: sconto };
-    }
+  if (header <= 0) return fermo;
+  const sequenziale = prezzoNettoDueSconti(header, listino, extra);
+  const sommato = scontoSommaPct(listino, extra);
+  const vicino =
+    Math.abs(sequenziale - input.prezzoRiga) <= 0.02 ||
+    Math.abs(prezzoScontatoUnitario(header, sommato) - input.prezzoRiga) <= 0.02 ||
+    Math.abs(prezzoNettoRiga(header, sommato) - input.prezzoRiga) <= 0.02;
+  if (!vicino) return fermo;
+  return {
+    prezzoUnitario: header,
+    scontoPercentuale: 0,
+    scontoListinoPct: listino,
+    scontoExtraPct: extra,
+  };
+}
+
+export function etichettaScontoDocumento(r: FatturaA4Riga): string {
+  const listino = r.scontoListinoPct ?? 0;
+  const extra = r.scontoExtraPct ?? 0;
+  const fmt = (n: number) =>
+    n.toLocaleString("it-IT", { maximumFractionDigits: 2 });
+  if (listino > 0 && extra > 0) return `${fmt(listino)}% + ${fmt(extra)}%`;
+  if (listino > 0) return `${fmt(listino)}%`;
+  if (extra > 0) return `${fmt(extra)}%`;
+  if (r.scontoPercentuale > 0) return `${r.scontoPercentuale} %`;
+  return "—";
+}
+
+export function nettoUnitarioDocumento(r: FatturaA4Riga): number {
+  const listino = r.scontoListinoPct ?? 0;
+  const extra = r.scontoExtraPct ?? 0;
+  if (listino > 0 || extra > 0) {
+    return prezzoNettoDueSconti(r.prezzoUnitario, listino, extra);
   }
-  if (sconto < 100 && input.prezzoRiga > 0) {
-    const lordo = roundMoney(input.prezzoRiga / (1 - sconto / 100));
-    return { prezzoUnitario: lordo, scontoPercentuale: sconto };
-  }
-  return { prezzoUnitario: input.prezzoRiga, scontoPercentuale: 0 };
+  return prezzoScontatoUnitario(r.prezzoUnitario, r.scontoPercentuale);
 }
 
 export function imponibileDocumentoRiga(r: FatturaA4Riga): number {
   if (r.importo != null && Number.isFinite(r.importo)) return roundMoney(r.importo);
+  const listino = r.scontoListinoPct ?? 0;
+  const extra = r.scontoExtraPct ?? 0;
+  if (listino > 0 || extra > 0) {
+    return roundMoney(
+      r.quantita * prezzoNettoDueSconti(r.prezzoUnitario, listino, extra)
+    );
+  }
   return importoRiga(r.quantita, r.prezzoUnitario, r.scontoPercentuale);
 }
 

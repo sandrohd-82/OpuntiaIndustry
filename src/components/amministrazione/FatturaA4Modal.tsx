@@ -28,7 +28,9 @@ import {
   destinatarioFromCliente,
   destinatarioFromPreventivo,
   destinatarioToPreventivo,
+  etichettaScontoDocumento,
   isRigaContributoSpedizione,
+  nettoUnitarioDocumento,
   totalsFromFatturaRighe,
   type FatturaA4Riga,
   type FatturaDestinatarioSnapshot,
@@ -38,7 +40,6 @@ import {
   PROFORMA_DICITURA_FISCALE,
 } from "@/lib/amministrazione/fattura-a4-pdf";
 import type { FatturaInvioMailDraft } from "@/lib/amministrazione/fattura-invio-mail";
-import { prezzoNettoRiga } from "@/lib/amministrazione/fatture";
 import { isNumeroFatturaEmessa } from "@/lib/amministrazione/numero-fattura";
 import {
   applyTotaleToPiano,
@@ -778,6 +779,16 @@ export function FatturaA4Modal({
           >
             Chiudi
           </button>
+          {vista === "fattura" ? (
+            <button
+              type="button"
+              onClick={() => void scaricaDocumento(false, numero)}
+              disabled={saving || loading || !destinatario}
+              className="rounded-lg border border-white/20 bg-white px-3 py-1.5 text-sm font-semibold text-slate-900 hover:bg-slate-100 disabled:opacity-50"
+            >
+              Scarica fattura
+            </button>
+          ) : null}
           {vista === "fattura" && modificaDaApplicare ? (
             <button
               type="button"
@@ -992,10 +1003,7 @@ export function FatturaA4Modal({
                   </thead>
                   <tbody>
                     {righe.map((r, i) => {
-                      const netto = prezzoNettoRiga(
-                        r.prezzoUnitario,
-                        r.scontoPercentuale
-                      );
+                      const netto = nettoUnitarioDocumento(r);
                       const totRiga = totalsFromFatturaRighe([r]).totale;
                       return (
                         <tr
@@ -1015,9 +1023,7 @@ export function FatturaA4Modal({
                             {euro(r.prezzoUnitario)} €
                           </td>
                           <td className="border border-slate-300 px-2 py-1.5 tabular-nums">
-                            {r.scontoPercentuale > 0
-                              ? `${r.scontoPercentuale} %`
-                              : "—"}
+                            {etichettaScontoDocumento(r)}
                           </td>
                           <td className="border border-slate-300 px-2 py-1.5 tabular-nums font-medium">
                             {prezzo(netto)} €
@@ -1271,7 +1277,17 @@ export function FatturaA4Modal({
                 precedente.prezzoUnitario !== draftRiga.prezzoUnitario ||
                 precedente.scontoPercentuale !== draftRiga.scontoPercentuale ||
                 precedente.ivaPercentuale !== draftRiga.ivaPercentuale;
-              const next = cambiata ? { ...draftRiga, importo: undefined } : draftRiga;
+              const scontoSingoloCambiato = Boolean(
+                precedente &&
+                  precedente.scontoPercentuale !== draftRiga.scontoPercentuale
+              );
+              const next = {
+                ...draftRiga,
+                ...(scontoSingoloCambiato
+                  ? { scontoListinoPct: 0, scontoExtraPct: 0 }
+                  : {}),
+                ...(cambiata ? { importo: undefined } : {}),
+              };
               if (editRigaIndex == null) return [...prev, next];
               return prev.map((r, i) => (i === editRigaIndex ? next : r));
             });

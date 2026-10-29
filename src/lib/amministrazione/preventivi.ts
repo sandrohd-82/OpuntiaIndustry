@@ -11,6 +11,7 @@ import {
   SPEDIZIONE_MARKUP_SICUREZZA_PCT,
   type PreventivoSpedizioneFonte,
 } from "@/lib/amministrazione/preventivo-spedizione";
+import { prezzoNettoDueSconti } from "@/lib/amministrazione/sconto-fuori-listino";
 
 export { SPEDIZIONE_MARKUP_SICUREZZA_PCT };
 export type { PreventivoSpedizioneFonte };
@@ -261,15 +262,7 @@ export function prezzoNettoRigaPreventivo(
   scontoExtraPct: number,
   scontoListinoPct = 0
 ): number {
-  if (!Number.isFinite(prezzoListino) || prezzoListino < 0) return 0;
-  const listino = Number.isFinite(scontoListinoPct)
-    ? Math.min(100, Math.max(0, scontoListinoPct))
-    : 0;
-  const extra = Number.isFinite(scontoExtraPct)
-    ? Math.min(100, Math.max(0, scontoExtraPct))
-    : 0;
-  const dopoListino = prezzoListino * (1 - listino / 100);
-  return Math.round(dopoListino * (1 - extra / 100) * 100) / 100;
+  return prezzoNettoDueSconti(prezzoListino, scontoListinoPct, scontoExtraPct);
 }
 
 export type Preventivo = {

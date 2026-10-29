@@ -5,7 +5,7 @@ import { notificaOrdineInCoda } from "@/lib/amministrazione/ordine-notifica-coda
 import { scanPromozioniDaFattureAction } from "@/app/actions/lead-promozione";
 import { convertClientePossibileAdClienteAction } from "@/app/actions/clienti";
 import { PROMOZIONE_DA_SDI } from "@/lib/amministrazione/promozione-sdi";
-import { requireAreaAccess } from "@/lib/areas/guard";
+import { requireAnyAreaAccess, requireAreaAccess } from "@/lib/areas/guard";
 import { requireOrdineCreateAccess, requireOrdineProcessAccess } from "@/lib/auth/ordini-access";
 import {
   buildDescrizioneDocumento,
@@ -23,6 +23,11 @@ import {
   type FatturaDestinatarioSnapshot,
 } from "@/lib/amministrazione/fattura-a4-documento";
 import { todayIsoDate } from "@/lib/amministrazione/fatture";
+import {
+  leggiMarcaSconti,
+  notaConMarcaSconti,
+  prezzoNettoDueSconti,
+} from "@/lib/amministrazione/sconto-fuori-listino";
 import {
   applyTotaleToPiano,
   emailsClienteUniche,
@@ -190,12 +195,19 @@ function toRigaInsert(
     quantita: r.quantita,
     unita_misura: r.unitaMisura,
     prezzo_unitario: r.prezzoUnitario,
-    sconto_percentuale: r.scontoPercentuale,
+    sconto_percentuale:
+      (r.scontoListinoPct ?? 0) > 0 || (r.scontoExtraPct ?? 0) > 0
+        ? 0
+        : r.scontoPercentuale,
     importo: imponibileDocumentoRiga(r),
     sort_order: i,
     iva_percentuale: r.ivaPercentuale,
     is_spedizione: r.isSpedizione,
-    note: r.note,
+    note: notaConMarcaSconti(
+      r.note,
+      r.scontoListinoPct ?? 0,
+      r.scontoExtraPct ?? 0
+    ),
     created_by: userId,
     updated_by: userId,
   };
@@ -377,9 +389,21 @@ export async function getFatturaA4ContextAction(input: {
     }
   | { success: false; error: string }
 > {
-  await requireAreaAccess("amministrazione");
+  await requireAnyAreaAccess(["amministrazione", "commerciale", "produzione"]);
   try {
-    const supabase = await createClient();
+    const vistoDa = await createClient();
+    const { data: ordineVisibile } = await vistoDa
+      .from("ordini")
+      .select("id")
+      .eq("id", input.ordineId)
+      .is("deleted_at", null)
+      .maybeSingle();
+    if (!ordineVisibile) {
+      return { success: false, error: "Ordine non trovato." };
+    }
+    const supabase = createServiceClient() as unknown as Awaited<
+      ReturnType<typeof createClient>
+    >;
     const { data: ordineData, error: ordErr } = await supabase
       .from("ordini")
       .select("*")
@@ -473,6 +497,8 @@ export async function getFatturaA4ContextAction(input: {
         unitaMisura: r.unita_misura ?? "kg",
         prezzoUnitario: mapped.prezzoUnitario,
         scontoPercentuale: mapped.scontoPercentuale,
+        scontoListinoPct: mapped.scontoListinoPct,
+        scontoExtraPct: mapped.scontoExtraPct,
         ivaPercentuale: Number(r.iva_percentuale) || 22,
         isSpedizione: false,
         note: "",
@@ -525,23 +551,40 @@ export async function getFatturaA4ContextAction(input: {
       }
       if (!input.ignoraRigheFattura && fatturaRighe && fatturaRighe.length > 0) {
         righeDaFatturaSalvata = true;
+        const daOrdine = righe;
+        const giaEmessa = Boolean(
+          existingRow.numero_fattura?.trim() &&
+            isNumeroFatturaEmessa(existingRow.numero_fattura)
+        );
         righe = fatturaRighe.map((r) => {
-          const giaEmessa = Boolean(
-            existingRow.numero_fattura?.trim() &&
-              isNumeroFatturaEmessa(existingRow.numero_fattura)
-          );
-          return {
+          const marca = leggiMarcaSconti(r.note ?? "");
+          const doppio = marca.listino > 0 || marca.extra > 0;
+          const salvata: FatturaA4Riga = {
             prodottoId: r.prodotto_id,
             codice: r.codice,
             descrizione: r.descrizione,
             quantita: Number(r.quantita),
             unitaMisura: r.unita_misura || "nr",
             prezzoUnitario: Number(r.prezzo_unitario),
-            scontoPercentuale: Number(r.sconto_percentuale) || 0,
+            scontoPercentuale: doppio ? 0 : Number(r.sconto_percentuale) || 0,
+            scontoListinoPct: marca.listino,
+            scontoExtraPct: marca.extra,
             ivaPercentuale: Number(r.iva_percentuale) || 22,
             isSpedizione: Boolean(r.is_spedizione),
-            note: r.note ?? "",
+            note: marca.note,
             ...(giaEmessa ? { importo: Number(r.importo) } : {}),
+          };
+          if (giaEmessa || salvata.isSpedizione || doppio) return salvata;
+          const origine = daOrdine.find(
+            (o) => !o.isSpedizione && o.codice === salvata.codice
+          );
+          if (!origine) return salvata;
+          return {
+            ...salvata,
+            prezzoUnitario: origine.prezzoUnitario,
+            scontoPercentuale: origine.scontoPercentuale,
+            scontoListinoPct: origine.scontoListinoPct,
+            scontoExtraPct: origine.scontoExtraPct,
           };
         });
       }
@@ -1297,21 +1340,26 @@ export async function creaFatturaOrdineSenzaInvioAction(
 function righeBozzaFattura(
   rows: Array<Record<string, unknown>>
 ): FatturaA4Riga[] {
-  return rows.map((riga) => ({
-    prodottoId: riga.prodotto_id ? String(riga.prodotto_id) : null,
-    codice: String(riga.codice ?? ""),
-    descrizione: String(riga.descrizione ?? ""),
-    quantita: Number(riga.quantita) || 0,
-    unitaMisura: String(riga.unita_misura ?? "nr"),
-    prezzoUnitario: Number(riga.prezzo_unitario) || 0,
-    scontoPercentuale: Number(riga.sconto_percentuale) || 0,
-    ivaPercentuale: Number(riga.iva_percentuale) || 22,
-    isSpedizione: Boolean(riga.is_spedizione),
-    note: String(riga.note ?? ""),
-    ...(Number.isFinite(Number(riga.importo))
-      ? { importo: Number(riga.importo) }
-      : {}),
-  }));
+  return rows.map((riga) => {
+    const marca = leggiMarcaSconti(String(riga.note ?? ""));
+    const doppio = marca.listino > 0 || marca.extra > 0;
+    const importo = Number(riga.importo);
+    return {
+      prodottoId: riga.prodotto_id ? String(riga.prodotto_id) : null,
+      codice: String(riga.codice ?? ""),
+      descrizione: String(riga.descrizione ?? ""),
+      quantita: Number(riga.quantita) || 0,
+      unitaMisura: String(riga.unita_misura ?? "nr"),
+      prezzoUnitario: Number(riga.prezzo_unitario) || 0,
+      scontoPercentuale: doppio ? 0 : Number(riga.sconto_percentuale) || 0,
+      scontoListinoPct: marca.listino,
+      scontoExtraPct: marca.extra,
+      ivaPercentuale: Number(riga.iva_percentuale) || 22,
+      isSpedizione: Boolean(riga.is_spedizione),
+      note: marca.note,
+      ...(Number.isFinite(importo) ? { importo } : {}),
+    };
+  });
 }
 
 function pianoBozzaFattura(
@@ -1635,8 +1683,11 @@ export async function inviaFatturaSalvataAction(input: {
 }): Promise<SalvaFatturaDaOrdineResult> {
   const { auth } = input.produzioneReale
     ? await requireOrdineProcessAccess()
-    : await requireAreaAccess("amministrazione");
-  const supabase = await createClient();
+    : await requireAnyAreaAccess(["amministrazione", "commerciale"]);
+  const vistoDa = await createClient();
+  const supabase = createServiceClient() as unknown as Awaited<
+    ReturnType<typeof createClient>
+  >;
   const { data: fatturaData, error } = await supabase
     .from("fatture_emesse")
     .select("*")
@@ -1647,6 +1698,19 @@ export async function inviaFatturaSalvataAction(input: {
     return { success: false, error: error?.message ?? "Fattura non trovata." };
   }
   const fattura = fatturaData as FatturaEmessaRow;
+  if (fattura.ordine_id) {
+    const { data: ordineVisibile } = await vistoDa
+      .from("ordini")
+      .select("id")
+      .eq("id", fattura.ordine_id)
+      .is("deleted_at", null)
+      .maybeSingle();
+    if (!ordineVisibile) {
+      return { success: false, error: "Fattura non trovata." };
+    }
+  } else {
+    await requireAreaAccess("amministrazione");
+  }
   if (isFatturaProva(fattura)) {
     return {
       success: false,
@@ -1808,14 +1872,25 @@ export async function inviaFatturaSalvataAction(input: {
   const numeroFattura =
     fattura.numero_fattura || fattura.numero_documento_esterno;
   const split = splitNumeroForFic(numeroFattura);
-  const items_list = (righe ?? []).map((r) => ({
-    code: r.codice,
-    name: buildDescrizioneDocumento(r.descrizione, r.note ?? ""),
-    net_price: Number(r.prezzo_unitario),
-    discount: Number(r.sconto_percentuale) || 0,
-    qty: Number(r.quantita),
-    vat: { id: resolveFicVatId(vatTypes, Number(r.iva_percentuale) || 22) },
-  }));
+  const items_list = (righe ?? []).map((r) => {
+    const marca = leggiMarcaSconti(String(r.note ?? ""));
+    const doppio = marca.listino > 0 || marca.extra > 0;
+    const netto = doppio
+      ? prezzoNettoDueSconti(
+          Number(r.prezzo_unitario),
+          marca.listino,
+          marca.extra
+        )
+      : Number(r.prezzo_unitario);
+    return {
+      code: r.codice,
+      name: buildDescrizioneDocumento(r.descrizione, marca.note),
+      net_price: netto,
+      discount: doppio ? 0 : Number(r.sconto_percentuale) || 0,
+      qty: Number(r.quantita),
+      vat: { id: resolveFicVatId(vatTypes, Number(r.iva_percentuale) || 22) },
+    };
+  });
   const destSnap = parseDestinatarioSnapshot(fattura.destinatario_snapshot);
   const entity: Record<string, unknown> = {
     name: destSnap?.ragioneSociale || cliente.ragione_sociale,
@@ -2386,19 +2461,25 @@ export async function convertProformaInFatturaAction(input: {
       error: e instanceof Error ? e.message : "Righe proforma non leggibili.",
     };
   }
-  const righe = rawRighe.map((r) => ({
-    prodottoId: r.prodotto_id,
-    codice: r.codice,
-    descrizione: r.descrizione,
-    quantita: Number(r.quantita),
-    unitaMisura: r.unita_misura || "nr",
-    prezzoUnitario: Number(r.prezzo_unitario),
-    scontoPercentuale: Number(r.sconto_percentuale) || 0,
-    ivaPercentuale: Number(r.iva_percentuale) || 22,
-    isSpedizione: Boolean(r.is_spedizione),
-    note: r.note ?? "",
-    importo: Number(r.importo),
-  }));
+  const righe = rawRighe.map((r) => {
+    const marca = leggiMarcaSconti(r.note ?? "");
+    const doppio = marca.listino > 0 || marca.extra > 0;
+    return {
+      prodottoId: r.prodotto_id,
+      codice: r.codice,
+      descrizione: r.descrizione,
+      quantita: Number(r.quantita),
+      unitaMisura: r.unita_misura || "nr",
+      prezzoUnitario: Number(r.prezzo_unitario),
+      scontoPercentuale: doppio ? 0 : Number(r.sconto_percentuale) || 0,
+      scontoListinoPct: marca.listino,
+      scontoExtraPct: marca.extra,
+      ivaPercentuale: Number(r.iva_percentuale) || 22,
+      isSpedizione: Boolean(r.is_spedizione),
+      note: marca.note,
+      importo: Number(r.importo),
+    };
+  });
   const righeErr = await replaceFatturaRighe(
     supabase,
     fatturaId,

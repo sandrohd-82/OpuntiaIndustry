@@ -5,10 +5,11 @@ import { getListinoVoceVigenteAction } from "@/app/actions/listini";
 import { listProdottiPropriAction } from "@/app/actions/prodotti-propri";
 import { ClearableNumberInput } from "@/components/ui/ClearableNumberInput";
 import {
+  etichettaScontoDocumento,
+  nettoUnitarioDocumento,
   totalsFromFatturaRighe,
   type FatturaA4Riga,
 } from "@/lib/amministrazione/fattura-a4-documento";
-import { prezzoScontatoUnitario } from "@/lib/amministrazione/fatture";
 import type { ProdottoProprio } from "@/lib/amministrazione/prodotti-propri";
 import type { ListinoVoceVigente } from "@/lib/ecosystem/listino-vigente";
 
@@ -83,10 +84,11 @@ export function FatturaA4RigaEditor({ value, onChange }: Props) {
     };
   }, [fonte, value.prodottoId]);
 
-  const prezzoUnitarioNetto = prezzoScontatoUnitario(
-    value.prezzoUnitario,
-    value.scontoPercentuale
-  );
+  const prezzoUnitarioNetto = nettoUnitarioDocumento(value);
+  const etichettaDueSconti =
+    (value.scontoListinoPct ?? 0) > 0 || (value.scontoExtraPct ?? 0) > 0
+      ? etichettaScontoDocumento(value)
+      : "";
   const totaliRiga = totalsFromFatturaRighe([value]);
   const unita = value.unitaMisura.trim();
 
@@ -299,6 +301,11 @@ export function FatturaA4RigaEditor({ value, onChange }: Props) {
             }
             className="w-full rounded border border-slate-300 px-3 py-2 text-sm"
           />
+          {etichettaDueSconti ? (
+            <span className="mt-1 block text-xs text-slate-600">
+              In fattura: {etichettaDueSconti}. Prima lo standard, poi l&apos;extra.
+            </span>
+          ) : null}
         </label>
         <label className="block text-sm">
           <span className="mb-1 block font-medium">IVA (%)</span>

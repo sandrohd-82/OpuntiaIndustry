@@ -72,11 +72,63 @@ export function prezzoNettoDaSconto(
   return Math.round(lordo * (1 - extra / 100) * 100) / 100;
 }
 
-/** Listino ed extra si sommano. Se il listino è 0 resta solo l'extra. */
+/** Listino ed extra si sommano. Resta solo per riconoscere i netti già salvati. */
 export function scontoSommaPct(listinoPct: number, extraPct: number): number {
   const listino = Number.isFinite(listinoPct) ? Math.max(0, listinoPct) : 0;
   const extra = parseScontoExtraPct(extraPct);
   return Math.min(100, Math.round((listino + extra) * 1000) / 1000);
+}
+
+/**
+ * Prima lo sconto di listino, poi l'extra sul risultato.
+ * L'unità è arrotondata al centesimo, come nel preventivo.
+ */
+export function prezzoNettoDueSconti(
+  prezzoListino: number,
+  scontoListinoPct: number,
+  scontoExtraPct: number
+): number {
+  if (!Number.isFinite(prezzoListino) || prezzoListino < 0) return 0;
+  const listino = Number.isFinite(scontoListinoPct)
+    ? Math.min(100, Math.max(0, scontoListinoPct))
+    : 0;
+  const extra = Number.isFinite(scontoExtraPct)
+    ? Math.min(100, Math.max(0, scontoExtraPct))
+    : 0;
+  const dopoListino = prezzoListino * (1 - listino / 100);
+  return Math.round(dopoListino * (1 - extra / 100) * 100) / 100;
+}
+
+const MARCA_SCONTI = /\{\{sconti:(\d+(?:\.\d+)?)\+(\d+(?:\.\d+)?)\}\}/;
+
+/** Tiene i due sconti nella nota, senza una colonna nuova. */
+export function notaConMarcaSconti(
+  note: string,
+  scontoListinoPct: number,
+  scontoExtraPct: number
+): string {
+  const pulita = String(note ?? "").replace(MARCA_SCONTI, "").trim();
+  const listino = Number.isFinite(scontoListinoPct) ? Math.max(0, scontoListinoPct) : 0;
+  const extra = Number.isFinite(scontoExtraPct) ? Math.max(0, scontoExtraPct) : 0;
+  if (listino <= 0 && extra <= 0) return pulita;
+  const marca = `{{sconti:${listino}+${extra}}}`;
+  return pulita ? `${pulita}\n${marca}` : marca;
+}
+
+export function leggiMarcaSconti(note: string): {
+  listino: number;
+  extra: number;
+  note: string;
+} {
+  const testo = String(note ?? "");
+  const marca = testo.match(MARCA_SCONTI);
+  const pulita = testo.replace(MARCA_SCONTI, "").replace(/\n{3,}/g, "\n\n").trim();
+  if (!marca) return { listino: 0, extra: 0, note: pulita };
+  return {
+    listino: Number(marca[1]) || 0,
+    extra: Number(marca[2]) || 0,
+    note: pulita,
+  };
 }
 
 export type ScontoRequisiti = {

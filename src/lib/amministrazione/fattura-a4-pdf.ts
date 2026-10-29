@@ -1,11 +1,12 @@
 import { jsPDF } from "jspdf";
 import autoTable from "jspdf-autotable";
 import {
+  etichettaScontoDocumento,
+  nettoUnitarioDocumento,
   totalsFromFatturaRighe,
   type FatturaA4Riga,
   type FatturaDestinatarioSnapshot,
 } from "@/lib/amministrazione/fattura-a4-documento";
-import { prezzoNettoRiga } from "@/lib/amministrazione/fatture";
 import { formatIbanDisplay } from "@/lib/iban";
 import {
   labelModalitaPagamentoFattura,
@@ -280,14 +281,14 @@ export function buildFatturaA4PdfBlob(input: FatturaA4PdfInput): {
     theme: "grid",
     head: [["Prodotto", "Qty", "Listino", "Sconto", "Netto", "IVA", "Tot"]],
     body: input.righe.map((r) => {
-      const netto = prezzoNettoRiga(r.prezzoUnitario, r.scontoPercentuale);
+      const netto = nettoUnitarioDocumento(r);
       const totRiga = totalsFromFatturaRighe([r]).totale;
       const nome = [r.codice, r.descrizione].filter(Boolean).join(" — ");
       return [
         nome,
         `${r.quantita} ${r.unitaMisura}`,
         `${euro(r.prezzoUnitario)} €`,
-        r.scontoPercentuale > 0 ? `${r.scontoPercentuale} %` : "—",
+        etichettaScontoDocumento(r),
         `${prezzo(netto)} €`,
         `${r.ivaPercentuale}%`,
         `${euro(totRiga)} €`,

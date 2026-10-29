@@ -55,8 +55,7 @@ import {
   valutaScontoWizard,
 } from "@/lib/amministrazione/sconto-fuori-listino-server";
 import { accordoForzato } from "@/lib/amministrazione/accordi-prezzo";
-import { prezzoNettoDaSconto, scontoSommaPct } from "@/lib/amministrazione/sconto-fuori-listino";
-import { prezzoNettoRiga } from "@/lib/amministrazione/fatture";
+import { prezzoNettoDaSconto, prezzoNettoDueSconti } from "@/lib/amministrazione/sconto-fuori-listino";
 import { getPreventivoProdottoContestoAction } from "@/app/actions/preventivi";
 import { elencoProfiliCalcoloSpedizioni } from "@/app/actions/ordine-calcolo-spedizione";
 import { risolviSpedizioneOrdineDiretto } from "@/lib/amministrazione/ordine-calcolo-spedizione";
@@ -410,16 +409,51 @@ export async function listOrdiniAction(
   const labels = await resolveOperatorLabels(
     rows.flatMap((r) => [r.created_by, r.updated_by, r.processed_by])
   );
+  const fattureElenco = await fattureElencoPerOrdini(ids);
 
   return {
     success: true,
-    ordini: rows.map((row) =>
-      mapOrdineRow(row, righeByOrdine.get(row.id) ?? [], labels, {
+    ordini: rows.map((row) => ({
+      ...mapOrdineRow(row, righeByOrdine.get(row.id) ?? [], labels, {
         userId: auth.userId,
         isSuperadmin: isSuperadminProfile(auth.profile),
-      })
-    ),
+      }),
+      fatturaElenco: fattureElenco.get(row.id) ?? null,
+    })),
   };
+}
+
+async function fattureElencoPerOrdini(ids: string[]) {
+  const map = new Map<
+    string,
+    { id: string; numero: string; inviata: boolean }
+  >();
+  if (ids.length === 0) return map;
+  const service = createServiceClient();
+  const { data } = await service
+    .from("fatture_emesse")
+    .select("id, ordine_id, numero_fattura, ei_status, created_at")
+    .in("ordine_id", ids)
+    .eq("tipo_documento", "fattura")
+    .is("deleted_at", null)
+    .order("created_at", { ascending: false });
+  for (const raw of data ?? []) {
+    const row = raw as {
+      id: string;
+      ordine_id?: string | null;
+      numero_fattura?: string | null;
+      ei_status?: string | null;
+    };
+    const ordineId = String(row.ordine_id ?? "");
+    if (!ordineId || map.has(ordineId)) continue;
+    const numero = String(row.numero_fattura ?? "").trim();
+    map.set(ordineId, {
+      id: String(row.id),
+      numero,
+      inviata: row.ei_status === "sent" || isNumeroFatturaEmessa(numero),
+    });
+  }
+  return map;
 }
 
 /** Badge sidebar: ordini inseriti da passare in produzione. */
@@ -1458,13 +1492,13 @@ async function createOrdineWizardActionInner(
         voceChiesta: input.imballaggioVoceId ?? null,
       });
   const prezzoDopoBase = prezzoBase;
-  const scontoComplessivo = scontoSommaPct(
-    input.accordoModalita === "sconto_percentuale" ? 0 : listinoRiga.applicato,
-    scontoVal.pct
-  );
   const prezzoUnitario = campionaturaGratis
     ? 0
-    : prezzoNettoRiga(prezzoDopoBase, scontoComplessivo);
+    : prezzoNettoDueSconti(
+        prezzoDopoBase,
+        input.accordoModalita === "sconto_percentuale" ? 0 : listinoRiga.applicato,
+        scontoVal.pct
+      );
   const accordoApplicato =
     input.accordoModalita === "prezzo_fisso"
       ? input.prezzoUnitario

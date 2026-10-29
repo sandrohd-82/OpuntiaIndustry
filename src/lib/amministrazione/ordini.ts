@@ -225,6 +225,12 @@ export type Ordine = {
   accettazioneSeniorNota: string;
   accettazioneSeniorPuoRispondere: boolean;
   prezzoListinoUnitario: number | null;
+  /** Fattura collegata, se è stata creata. `inviata` è vero solo dopo lo SDI. */
+  fatturaElenco?: {
+    id: string;
+    numero: string;
+    inviata: boolean;
+  } | null;
   righe: OrdineRigaProdotto[];
   createdAt: string;
   updatedAt: string;

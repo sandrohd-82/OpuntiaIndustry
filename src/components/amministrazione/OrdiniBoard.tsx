@@ -9,6 +9,7 @@ import {
   FaTrash,
 } from "react-icons/fa6";
 import { getOrdineAllegatoSignedUrlAction } from "@/app/actions/ordini";
+import { inviaFatturaAttraversoSdiAction } from "@/app/actions/fattura-da-ordine";
 import { approveOrdineScontoAction } from "@/app/actions/ordine-sconto";
 import { approveScontoSuddivisioneOrdineAction } from "@/app/actions/sconto-suddivisione";
 import { ActionGate } from "@/components/layout/ActionAccessProvider";
@@ -18,6 +19,8 @@ import { CampionatureBoard } from "@/components/amministrazione/CampionatureBoar
 import { OrdineDettaglioPanel } from "@/components/amministrazione/OrdineDettaglioPanel";
 import { OrdineEliminaConfirmModal } from "@/components/amministrazione/OrdineEliminaConfirmModal";
 import { OrdineFormModal } from "@/components/amministrazione/OrdineFormModal";
+import { FatturaA4Modal } from "@/components/amministrazione/FatturaA4Modal";
+import { ConfermaPromozioneSdiModal } from "@/components/amministrazione/ConfermaPromozioneSdiModal";
 import { OrdineNuovoWizardModal } from "@/components/amministrazione/OrdineNuovoWizardModal";
 import { SortableTh } from "@/components/ui/SortableTh";
 import { useOrdini } from "@/hooks/useOrdini";
@@ -127,6 +130,8 @@ function OrdineTableRow({
   onApproveSconto,
   onApproveSuddivisione,
   onChanged,
+  onVisualizzaFattura,
+  onStaccaFattura,
 }: {
   ordine: Ordine;
   open: boolean;
@@ -139,6 +144,8 @@ function OrdineTableRow({
   onApproveSconto: () => void;
   onApproveSuddivisione: () => void;
   onChanged: () => void;
+  onVisualizzaFattura: () => void;
+  onStaccaFattura: () => void;
 }) {
   return (
     <>
@@ -274,6 +281,26 @@ function OrdineTableRow({
                 </button>
               </ActionGate>
             ) : null}
+            {ordine.fatturaElenco ? (
+              <button
+                type="button"
+                title="Apri la fattura, inviata o in bozza"
+                onClick={onVisualizzaFattura}
+                className="rounded-lg bg-slate-800 px-2.5 py-1.5 text-xs font-medium text-white hover:bg-slate-700"
+              >
+                Visualizza fattura
+              </button>
+            ) : null}
+            {ordine.fatturaElenco && !ordine.fatturaElenco.inviata ? (
+              <button
+                type="button"
+                title="Assegna il numero e invia allo SDI"
+                onClick={onStaccaFattura}
+                className="rounded-lg bg-red-700 px-2.5 py-1.5 text-xs font-medium text-white hover:bg-red-600"
+              >
+                Stacca fattura
+              </button>
+            ) : null}
             <button
               type="button"
               title={open ? "Chiudi dettaglio" : "Espandi dettaglio"}
@@ -368,6 +395,10 @@ export function OrdiniBoard({
   const [processAvviso, setProcessAvviso] = useState<string | null>(null);
   const [esitoOrdine, setEsitoOrdine] = useState<string | null>(null);
   const [approvingId, setApprovingId] = useState<string | null>(null);
+  const [fatturaVistaId, setFatturaVistaId] = useState<string | null>(null);
+  const [staccaOrdine, setStaccaOrdine] = useState<Ordine | null>(null);
+  const [staccaPromozione, setStaccaPromozione] = useState(false);
+  const [staccaOccupato, setStaccaOccupato] = useState(false);
   const [campionaturaTick, setCampionaturaTick] = useState(0);
   const [sort, setSort] = useState<SortState<OrdineSortKey> | null>({
     key: "dataOrdine",
@@ -407,6 +438,32 @@ export function OrdiniBoard({
       return compareSortValues(av, bv, sort.dir);
     });
   }, [ordini, sort, processMode]);
+
+  async function confermaStacca(confermaPromozione: boolean) {
+    const fatturaId = staccaOrdine?.fatturaElenco?.id;
+    if (!fatturaId) return;
+    setStaccaOccupato(true);
+    setActionError(null);
+    const res = await inviaFatturaAttraversoSdiAction(
+      fatturaId,
+      true,
+      confermaPromozione
+    );
+    setStaccaOccupato(false);
+    if (!res.success) {
+      setActionError(res.error);
+      return;
+    }
+    const numero = res.numeroFattura || staccaOrdine?.numeroInterno || "";
+    setEsitoOrdine(
+      res.warning
+        ? `Fattura ${numero} inviata allo SDI. ${res.warning}`
+        : `Fattura ${numero} inviata allo SDI.`
+    );
+    setStaccaOrdine(null);
+    setStaccaPromozione(false);
+    void refresh();
+  }
 
   if (!ready) {
     if (hideWhenEmpty) return null;
@@ -655,6 +712,19 @@ export function OrdiniBoard({
                     });
                   }}
                   onChanged={() => void refresh()}
+                  onVisualizzaFattura={() => {
+                    setActionError(null);
+                    setFatturaVistaId(ordine.id);
+                  }}
+                  onStaccaFattura={() => {
+                    setActionError(null);
+                    setStaccaOrdine(ordine);
+                    setStaccaPromozione(
+                      !ordine.clienteId &&
+                        Boolean(ordine.possibileClienteId) &&
+                        ordine.tipo !== "campionatura"
+                    );
+                  }}
                   onApproveSuddivisione={() => {
                     setActionError(null);
                     setApprovingId(ordine.id);
@@ -767,6 +837,65 @@ export function OrdiniBoard({
             setExpandedId(ordine.id);
           }}
         />
+      ) : null}
+
+      {fatturaVistaId ? (
+        <FatturaA4Modal
+          ordineId={fatturaVistaId}
+          onClose={() => {
+            setFatturaVistaId(null);
+            void refresh();
+          }}
+        />
+      ) : null}
+
+      {staccaOrdine && staccaPromozione ? (
+        <ConfermaPromozioneSdiModal
+          nome={staccaOrdine.cliente}
+          occupato={staccaOccupato}
+          onAnnulla={() => {
+            if (staccaOccupato) return;
+            setStaccaOrdine(null);
+            setStaccaPromozione(false);
+          }}
+          onConferma={() => void confermaStacca(true)}
+        />
+      ) : null}
+
+      {staccaOrdine && !staccaPromozione ? (
+        <div className="fixed inset-0 z-[90] flex items-center justify-center bg-black/40 p-4">
+          <div
+            role="dialog"
+            aria-modal="true"
+            className="w-full max-w-lg rounded-2xl border border-slate-200 bg-white p-5 shadow-xl"
+          >
+            <h2 className="text-base font-semibold text-slate-900">
+              Stacca fattura
+            </h2>
+            <p className="mt-3 text-sm text-slate-800">
+              La fattura di {staccaOrdine.numeroInterno} riceve il numero
+              fiscale e parte allo SDI.
+            </p>
+            <div className="mt-5 flex flex-wrap justify-end gap-2">
+              <button
+                type="button"
+                disabled={staccaOccupato}
+                onClick={() => setStaccaOrdine(null)}
+                className="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium"
+              >
+                Annulla
+              </button>
+              <button
+                type="button"
+                disabled={staccaOccupato}
+                onClick={() => void confermaStacca(false)}
+                className="rounded-lg bg-red-700 px-4 py-2 text-sm font-semibold text-white disabled:opacity-60"
+              >
+                {staccaOccupato ? "Invio…" : "Stacca e invia allo SDI"}
+              </button>
+            </div>
+          </div>
+        </div>
       ) : null}
 
       {deleting && (

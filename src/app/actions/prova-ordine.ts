@@ -655,6 +655,8 @@ export async function inviaCopiaControlloOrdineAction(raw: {
           unitaMisura: String(riga.unita_misura ?? "kg"),
           prezzoUnitario: mapped.prezzoUnitario,
           scontoPercentuale: mapped.scontoPercentuale,
+          scontoListinoPct: mapped.scontoListinoPct,
+          scontoExtraPct: mapped.scontoExtraPct,
           ivaPercentuale: Number(riga.iva_percentuale) || 22,
           isSpedizione: false,
           note: "",
