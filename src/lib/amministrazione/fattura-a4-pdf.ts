@@ -5,7 +5,7 @@ import {
   type FatturaA4Riga,
   type FatturaDestinatarioSnapshot,
 } from "@/lib/amministrazione/fattura-a4-documento";
-import { prezzoScontatoUnitario } from "@/lib/amministrazione/fatture";
+import { prezzoNettoRiga } from "@/lib/amministrazione/fatture";
 import { formatIbanDisplay } from "@/lib/iban";
 import {
   labelModalitaPagamentoFattura,
@@ -24,6 +24,13 @@ function euro(n: number) {
   return n.toLocaleString("it-IT", {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
+  });
+}
+
+function prezzo(n: number) {
+  return n.toLocaleString("it-IT", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 4,
   });
 }
 
@@ -273,7 +280,7 @@ export function buildFatturaA4PdfBlob(input: FatturaA4PdfInput): {
     theme: "grid",
     head: [["Prodotto", "Qty", "Listino", "Sconto", "Netto", "IVA", "Tot"]],
     body: input.righe.map((r) => {
-      const netto = prezzoScontatoUnitario(r.prezzoUnitario, r.scontoPercentuale);
+      const netto = prezzoNettoRiga(r.prezzoUnitario, r.scontoPercentuale);
       const totRiga = totalsFromFatturaRighe([r]).totale;
       const nome = [r.codice, r.descrizione].filter(Boolean).join(" — ");
       return [
@@ -281,7 +288,7 @@ export function buildFatturaA4PdfBlob(input: FatturaA4PdfInput): {
         `${r.quantita} ${r.unitaMisura}`,
         `${euro(r.prezzoUnitario)} €`,
         r.scontoPercentuale > 0 ? `${r.scontoPercentuale} %` : "—",
-        `${euro(netto)} €`,
+        `${prezzo(netto)} €`,
         `${r.ivaPercentuale}%`,
         `${euro(totRiga)} €`,
       ];

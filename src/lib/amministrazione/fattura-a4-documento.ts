@@ -20,6 +20,8 @@ export type FatturaA4Riga = {
   ivaPercentuale: number;
   isSpedizione: boolean;
   note: string;
+  /** Imponibile già registrato. Se manca, si ricalcola sulla riga. */
+  importo?: number;
 };
 
 export type FatturaDestinatarioSnapshot = {
@@ -121,6 +123,11 @@ export function listinoEScontoDaOrdine(input: {
   return { prezzoUnitario: input.prezzoRiga, scontoPercentuale: 0 };
 }
 
+export function imponibileDocumentoRiga(r: FatturaA4Riga): number {
+  if (r.importo != null && Number.isFinite(r.importo)) return roundMoney(r.importo);
+  return importoRiga(r.quantita, r.prezzoUnitario, r.scontoPercentuale);
+}
+
 export function totalsFromFatturaRighe(righe: FatturaA4Riga[]): {
   imponibile: number;
   imposta: number;
@@ -128,7 +135,7 @@ export function totalsFromFatturaRighe(righe: FatturaA4Riga[]): {
 } {
   return calcolaTotaliEmissione(
     righe.map((r) => ({
-      importo: importoRiga(r.quantita, r.prezzoUnitario, r.scontoPercentuale),
+      importo: imponibileDocumentoRiga(r),
       ivaPercentuale: r.ivaPercentuale,
     }))
   );

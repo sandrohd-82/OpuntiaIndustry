@@ -107,7 +107,7 @@ import {
   listinoEScontoDaOrdine,
   type FatturaA4Riga,
 } from "@/lib/amministrazione/fattura-a4-documento";
-import { prezzoScontatoUnitario, todayIsoDate } from "@/lib/amministrazione/fatture";
+import { prezzoNettoRiga, todayIsoDate } from "@/lib/amministrazione/fatture";
 import {
   applyTotaleToPiano,
   emptyPagamentoPiano,
@@ -1165,7 +1165,7 @@ export function OrdineNuovoWizardModal({
   const scontoComplessivo = accordoSconto
     ? scontoPct
     : scontoSommaPct(scontoListinoApplicato, scontoPct);
-  const prezzoNetto = prezzoScontatoUnitario(
+  const prezzoNetto = prezzoNettoRiga(
     accordoSconto ? prezzoDopoAccordo : prezzoKg,
     scontoComplessivo
   );
@@ -3150,9 +3150,9 @@ export function OrdineNuovoWizardModal({
                       {scontoComplessivo > 0 ? (
                     <p className="mt-1 text-xs text-[var(--muted)]">
                       Prezzo netto {prezzoNetto.toLocaleString("it-IT", {
-                        style: "currency",
-                        currency: "EUR",
-                      })}
+                        minimumFractionDigits: 2,
+                        maximumFractionDigits: 4,
+                      })} €
                       /{unitaBase}
                       {scontoListinoApplicato > 0 && scontoPct > 0
                         ? ` · sconto ${scontoComplessivo.toLocaleString("it-IT")}% (listino ${scontoListinoApplicato.toLocaleString("it-IT")}% + extra ${scontoPct.toLocaleString("it-IT")}%)`

@@ -263,13 +263,22 @@ export function clampSconto(value: number): number {
   return Math.min(100, Math.max(0, value));
 }
 
-/** Prezzo unitario dopo sconto %. */
+/** Prezzo unitario dopo sconto %, arrotondato al centesimo (solo per lettura). */
 export function prezzoScontatoUnitario(
   prezzoUnitario: number,
   scontoPercentuale: number
 ): number {
   const sconto = clampSconto(scontoPercentuale);
   return roundMoney(prezzoUnitario * (1 - sconto / 100));
+}
+
+/** Netto unitario con 4 decimali: la riga si arrotonda solo dopo la quantità. */
+export function prezzoNettoRiga(
+  prezzoUnitario: number,
+  scontoPercentuale: number
+): number {
+  const sconto = clampSconto(scontoPercentuale);
+  return Math.round(prezzoUnitario * (1 - sconto / 100) * 10000) / 10000;
 }
 
 function aliquotaO(value: unknown, seManca: number): number {
@@ -283,9 +292,8 @@ export function importoRiga(
   prezzoUnitario: number,
   scontoPercentuale = 0
 ): number {
-  return roundMoney(
-    quantita * prezzoScontatoUnitario(prezzoUnitario, scontoPercentuale)
-  );
+  const sconto = clampSconto(scontoPercentuale);
+  return roundMoney(quantita * prezzoUnitario * (1 - sconto / 100));
 }
 
 export function calcolaTotaliFattura(input: {

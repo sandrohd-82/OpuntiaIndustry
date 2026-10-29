@@ -38,7 +38,7 @@ import {
   PROFORMA_DICITURA_FISCALE,
 } from "@/lib/amministrazione/fattura-a4-pdf";
 import type { FatturaInvioMailDraft } from "@/lib/amministrazione/fattura-invio-mail";
-import { prezzoScontatoUnitario } from "@/lib/amministrazione/fatture";
+import { prezzoNettoRiga } from "@/lib/amministrazione/fatture";
 import { isNumeroFatturaEmessa } from "@/lib/amministrazione/numero-fattura";
 import {
   applyTotaleToPiano,
@@ -105,6 +105,13 @@ function euro(n: number) {
   return n.toLocaleString("it-IT", {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
+  });
+}
+
+function prezzo(n: number) {
+  return n.toLocaleString("it-IT", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 4,
   });
 }
 
@@ -985,7 +992,7 @@ export function FatturaA4Modal({
                   </thead>
                   <tbody>
                     {righe.map((r, i) => {
-                      const netto = prezzoScontatoUnitario(
+                      const netto = prezzoNettoRiga(
                         r.prezzoUnitario,
                         r.scontoPercentuale
                       );
@@ -1013,7 +1020,7 @@ export function FatturaA4Modal({
                               : "—"}
                           </td>
                           <td className="border border-slate-300 px-2 py-1.5 tabular-nums font-medium">
-                            {euro(netto)} €
+                            {prezzo(netto)} €
                           </td>
                           <td className="border border-slate-300 px-2 py-1.5 tabular-nums">
                             {r.ivaPercentuale}%
@@ -1257,8 +1264,16 @@ export function FatturaA4Modal({
               return;
             }
             setRighe((prev) => {
-              if (editRigaIndex == null) return [...prev, draftRiga];
-              return prev.map((r, i) => (i === editRigaIndex ? draftRiga : r));
+              const precedente = editRigaIndex == null ? null : prev[editRigaIndex];
+              const cambiata =
+                !precedente ||
+                precedente.quantita !== draftRiga.quantita ||
+                precedente.prezzoUnitario !== draftRiga.prezzoUnitario ||
+                precedente.scontoPercentuale !== draftRiga.scontoPercentuale ||
+                precedente.ivaPercentuale !== draftRiga.ivaPercentuale;
+              const next = cambiata ? { ...draftRiga, importo: undefined } : draftRiga;
+              if (editRigaIndex == null) return [...prev, next];
+              return prev.map((r, i) => (i === editRigaIndex ? next : r));
             });
             setEditKind(null);
           }}

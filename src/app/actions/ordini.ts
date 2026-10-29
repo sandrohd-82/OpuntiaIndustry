@@ -56,7 +56,7 @@ import {
 } from "@/lib/amministrazione/sconto-fuori-listino-server";
 import { accordoForzato } from "@/lib/amministrazione/accordi-prezzo";
 import { prezzoNettoDaSconto, scontoSommaPct } from "@/lib/amministrazione/sconto-fuori-listino";
-import { prezzoScontatoUnitario } from "@/lib/amministrazione/fatture";
+import { prezzoNettoRiga } from "@/lib/amministrazione/fatture";
 import { getPreventivoProdottoContestoAction } from "@/app/actions/preventivi";
 import { elencoProfiliCalcoloSpedizioni } from "@/app/actions/ordine-calcolo-spedizione";
 import { risolviSpedizioneOrdineDiretto } from "@/lib/amministrazione/ordine-calcolo-spedizione";
@@ -1464,7 +1464,7 @@ async function createOrdineWizardActionInner(
   );
   const prezzoUnitario = campionaturaGratis
     ? 0
-    : prezzoScontatoUnitario(prezzoDopoBase, scontoComplessivo);
+    : prezzoNettoRiga(prezzoDopoBase, scontoComplessivo);
   const accordoApplicato =
     input.accordoModalita === "prezzo_fisso"
       ? input.prezzoUnitario

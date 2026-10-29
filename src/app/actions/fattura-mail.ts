@@ -119,7 +119,7 @@ export async function inviaFatturaDaWebmailAction(
   const { data: righeRaw, error: righeErr } = await supabase
     .from("fatture_emesse_righe")
     .select(
-      "prodotto_id, codice, descrizione, quantita, unita_misura, prezzo_unitario, sconto_percentuale, iva_percentuale, is_spedizione, note, sort_order"
+      "prodotto_id, codice, descrizione, quantita, unita_misura, prezzo_unitario, sconto_percentuale, iva_percentuale, is_spedizione, note, sort_order, importo"
     )
     .eq("fattura_id", input.fatturaId)
     .is("deleted_at", null)
@@ -136,6 +136,7 @@ export async function inviaFatturaDaWebmailAction(
     ivaPercentuale: Number(r.iva_percentuale) || 22,
     isSpedizione: Boolean(r.is_spedizione),
     note: String(r.note ?? ""),
+    importo: Number(r.importo),
   }));
   if (righe.length === 0) {
     return { success: false, error: "La fattura non ha righe da allegare." };

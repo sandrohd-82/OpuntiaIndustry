@@ -18,10 +18,11 @@ import {
   listinoEScontoDaOrdine,
   parseDestinatarioSnapshot,
   totalsFromFatturaRighe,
+  imponibileDocumentoRiga,
   type FatturaA4Riga,
   type FatturaDestinatarioSnapshot,
 } from "@/lib/amministrazione/fattura-a4-documento";
-import { importoRiga, todayIsoDate } from "@/lib/amministrazione/fatture";
+import { todayIsoDate } from "@/lib/amministrazione/fatture";
 import {
   applyTotaleToPiano,
   emailsClienteUniche,
@@ -190,7 +191,7 @@ function toRigaInsert(
     unita_misura: r.unitaMisura,
     prezzo_unitario: r.prezzoUnitario,
     sconto_percentuale: r.scontoPercentuale,
-    importo: importoRiga(r.quantita, r.prezzoUnitario, r.scontoPercentuale),
+    importo: imponibileDocumentoRiga(r),
     sort_order: i,
     iva_percentuale: r.ivaPercentuale,
     is_spedizione: r.isSpedizione,
@@ -524,18 +525,25 @@ export async function getFatturaA4ContextAction(input: {
       }
       if (!input.ignoraRigheFattura && fatturaRighe && fatturaRighe.length > 0) {
         righeDaFatturaSalvata = true;
-        righe = fatturaRighe.map((r) => ({
-          prodottoId: r.prodotto_id,
-          codice: r.codice,
-          descrizione: r.descrizione,
-          quantita: Number(r.quantita),
-          unitaMisura: r.unita_misura || "nr",
-          prezzoUnitario: Number(r.prezzo_unitario),
-          scontoPercentuale: Number(r.sconto_percentuale) || 0,
-          ivaPercentuale: Number(r.iva_percentuale) || 22,
-          isSpedizione: Boolean(r.is_spedizione),
-          note: r.note ?? "",
-        }));
+        righe = fatturaRighe.map((r) => {
+          const giaEmessa = Boolean(
+            existingRow.numero_fattura?.trim() &&
+              isNumeroFatturaEmessa(existingRow.numero_fattura)
+          );
+          return {
+            prodottoId: r.prodotto_id,
+            codice: r.codice,
+            descrizione: r.descrizione,
+            quantita: Number(r.quantita),
+            unitaMisura: r.unita_misura || "nr",
+            prezzoUnitario: Number(r.prezzo_unitario),
+            scontoPercentuale: Number(r.sconto_percentuale) || 0,
+            ivaPercentuale: Number(r.iva_percentuale) || 22,
+            isSpedizione: Boolean(r.is_spedizione),
+            note: r.note ?? "",
+            ...(giaEmessa ? { importo: Number(r.importo) } : {}),
+          };
+        });
       }
     }
     const totals = totalsFromFatturaRighe(righe);
@@ -649,6 +657,7 @@ const rigaDocumentoSchema = z.object({
   ivaPercentuale: z.number().min(0).max(100),
   isSpedizione: z.boolean(),
   note: z.string().optional().default(""),
+  importo: z.number().optional(),
 });
 
 const destinatarioSchema = z.object({
@@ -1299,6 +1308,9 @@ function righeBozzaFattura(
     ivaPercentuale: Number(riga.iva_percentuale) || 22,
     isSpedizione: Boolean(riga.is_spedizione),
     note: String(riga.note ?? ""),
+    ...(Number.isFinite(Number(riga.importo))
+      ? { importo: Number(riga.importo) }
+      : {}),
   }));
 }
 
@@ -2385,6 +2397,7 @@ export async function convertProformaInFatturaAction(input: {
     ivaPercentuale: Number(r.iva_percentuale) || 22,
     isSpedizione: Boolean(r.is_spedizione),
     note: r.note ?? "",
+    importo: Number(r.importo),
   }));
   const righeErr = await replaceFatturaRighe(
     supabase,
