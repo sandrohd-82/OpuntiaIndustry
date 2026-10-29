@@ -8,8 +8,10 @@ import {
   salvaCampoAnagraficaAction,
   scaricaPdfAnagraficaAction,
 } from "@/app/actions/anagrafica-richiesta-pubblica";
+import { FirmaOtpPannello } from "@/components/anagrafica/FirmaOtpPannello";
 import {
   DOCUMENTI_TITOLARE,
+  erroriPdf,
   type AnagraficaFormPayload,
   type SedeAnagraficaForm,
   type VistaPubblica,
@@ -86,6 +88,7 @@ export function AnagraficaPubblicaForm({
   const [occupato, setOccupato] = useState(false);
   const [comuni, setComuni] = useState<Record<string, ComuneCap[]>>({});
   const faseTest = partenza?.faseTest === true;
+  const emailInvio = partenza?.emailInvio ?? "";
 
   if (!form || stato === "scaduta" || stato === "annullata") {
     return (
@@ -98,14 +101,15 @@ export function AnagraficaPubblicaForm({
     );
   }
 
-  async function salva(campo: string, valore: unknown) {
+  async function salva(campo: string, valore: unknown): Promise<string | null> {
     setMessaggio("");
     const esito = await salvaCampoAnagraficaAction({ token, campo, valore });
     if ("errore" in esito) {
       setMessaggio(esito.errore);
-      return;
+      return esito.errore;
     }
     setForm(esito.form);
+    return null;
   }
 
   function aggiorna(campo: keyof AnagraficaFormPayload, valore: string) {
@@ -169,7 +173,7 @@ export function AnagraficaPubblicaForm({
     setStato("pdf_pronto");
   }
 
-  if (stato === "firmata") {
+  if (stato === "firmata" || stato === "COMPLETED") {
     return (
       <main className="mx-auto max-w-3xl px-4 py-10">
         <AvvisoTest attivo={faseTest} />
@@ -177,6 +181,14 @@ export function AnagraficaPubblicaForm({
         <p className="mt-3 text-sm text-slate-700">
           Grazie. Il documento firmato è stato ricevuto e la procedura è chiusa.
         </p>
+        {stato === "COMPLETED" ? (
+          <a
+            href={`/api/public/request-data/copia/${encodeURIComponent(token)}`}
+            className="mt-6 inline-block rounded-lg bg-slate-900 px-4 py-2 text-sm font-semibold text-white"
+          >
+            Scarica copia firmata
+          </a>
+        ) : null}
       </main>
     );
   }
@@ -191,6 +203,21 @@ export function AnagraficaPubblicaForm({
           Poi caricatelo qui, oppure correggete i dati e scaricate un nuovo PDF.
         </p>
         {messaggio ? <p className="mt-3 text-sm text-red-700">{messaggio}</p> : null}
+        <div className="mt-6">
+          <FirmaOtpPannello
+            token={token}
+            form={form}
+            emailInvio={emailInvio}
+            pronto={erroriPdf({ ...form, consensoTrattamento: true }).length === 0}
+            onConsenso={async (valore) => {
+              setForm((corrente) =>
+                corrente ? { ...corrente, consensoTrattamento: valore } : corrente
+              );
+              return salva("consensoTrattamento", valore);
+            }}
+            onFirmato={() => setStato("COMPLETED")}
+          />
+        </div>
         <div className="mt-6 flex flex-col gap-3 sm:flex-row">
           <button
             type="button"
@@ -443,12 +470,25 @@ export function AnagraficaPubblicaForm({
           <p className="text-sm">
             Vi autorizziamo al trattamento dei nostri dati ai sensi del Regolamento UE 2016/679, della legge 196/2003 e per i fini dichiarati.
           </p>
-          <p className="text-sm">La data di compilazione è quella del giorno in cui scaricate il PDF.</p>
-          <p className="text-sm">Firma in calce al PDF, come Rappresentante Legale.</p>
-          <p className="text-xs text-slate-500">
-            Da restituire compilato su carta intestata e firmato da Rappresentante Legale.
+          <p className="text-sm">La data di compilazione è quella del giorno in cui firmate o scaricate il PDF.</p>
+          <p className="text-sm">
+            Potete firmare qui con un codice OTP, oppure scaricare il PDF e restituirlo firmato su carta.
           </p>
         </section>
+
+        <FirmaOtpPannello
+          token={token}
+          form={form}
+          emailInvio={emailInvio}
+          pronto={erroriPdf({ ...form, consensoTrattamento: true }).length === 0}
+          onConsenso={async (valore) => {
+            setForm((corrente) =>
+              corrente ? { ...corrente, consensoTrattamento: valore } : corrente
+            );
+            return salva("consensoTrattamento", valore);
+          }}
+          onFirmato={() => setStato("COMPLETED")}
+        />
 
         <button
           type="button"

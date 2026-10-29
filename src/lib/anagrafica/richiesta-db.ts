@@ -28,6 +28,8 @@ type Richiesta = {
   payload: unknown;
   pdf_storage_path: string;
   firmato_storage_path?: string;
+  firmato_file_name?: string;
+  email_destinatario?: string;
   versione: number;
   created_by: string | null;
   fase_test?: boolean;
@@ -90,7 +92,7 @@ async function carica(token: string): Promise<Richiesta | { errore: string }> {
   const { data, error } = await service
     .from("anagrafica_richieste")
     .select(
-      "id, cliente_id, cliente_possibile_id, stato, scade_at, payload, pdf_storage_path, firmato_storage_path, versione, created_by, fase_test"
+      "id, cliente_id, cliente_possibile_id, stato, scade_at, payload, pdf_storage_path, firmato_storage_path, firmato_file_name, email_destinatario, versione, created_by, fase_test"
     )
     .eq("token_hash", hashToken(pulito))
     .is("deleted_at", null)
@@ -118,6 +120,7 @@ function vista(row: Richiesta): VistaPubblica {
     scadeAt: row.scade_at,
     ragioneSociale: form.ragioneSociale,
     faseTest: row.fase_test === true,
+    emailInvio: String(row.email_destinatario ?? ""),
   };
 }
 
@@ -137,6 +140,8 @@ function applica(form: AnagraficaFormPayload, campo: CampoAnagrafica, valore: un
     next[campo] = comeSede(valore);
   } else if (campo === "sedeAmmUgualeLegale") {
     next.sedeAmmUgualeLegale = valore === true;
+  } else if (campo === "consensoTrattamento") {
+    next.consensoTrattamento = valore === true;
   } else if (campo === "sedeMagFonte") {
     const fonte = String(valore ?? "");
     next.sedeMagFonte =
@@ -272,7 +277,8 @@ export async function salvaCampoPubblico(
   }
   const row = await carica(token);
   if ("errore" in row) return row;
-  if (row.stato !== "compilazione") {
+  const consensoSuPdf = campo === "consensoTrattamento" && row.stato === "pdf_pronto";
+  if (row.stato !== "compilazione" && !consensoSuPdf) {
     return { errore: "Il form non è modificabile in questo momento." };
   }
   const prima = normalizzaForm(row.payload);
@@ -282,7 +288,7 @@ export async function salvaCampoPubblico(
     .from("anagrafica_richieste")
     .update({ payload: dopo, compilata_at: new Date().toISOString() })
     .eq("id", row.id)
-    .eq("stato", "compilazione");
+    .eq("stato", consensoSuPdf ? "pdf_pronto" : "compilazione");
   if (error) return { errore: "Salvataggio non riuscito. Riprova." };
   const scheda = await scriviScheda(row, dopo);
   if (scheda) return { errore: scheda };
@@ -763,6 +769,15 @@ export async function annullaTestAnagrafica(input: {
         deleted_by: input.actorId,
       })
       .eq("id", prova.id);
+    await service
+      .from("otp_verifications")
+      .update({
+        stato: "annullato",
+        deleted_at: ora,
+        deleted_by: input.actorId,
+      })
+      .eq("richiesta_id", prova.id)
+      .is("deleted_at", null);
   }
   await service
     .from("anagrafica_test_ripristini")
@@ -903,3 +918,10 @@ export async function riepilogoRichiesta(kind: "cliente" | "cliente_possibile", 
     testAttivo: Boolean(prova),
   };
 }
+
+export async function caricaRichiestaToken(token: string) {
+  return carica(token);
+}
+
+export { archiviaPdfCliente };
+export type { Richiesta as RichiestaAnagrafica };

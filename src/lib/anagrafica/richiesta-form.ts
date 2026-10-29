@@ -37,6 +37,7 @@ export type AnagraficaFormPayload = {
   titolareCf: string;
   titolareDocumentoTipo: string;
   titolareDocumentoNumero: string;
+  consensoTrattamento: boolean;
 };
 
 export const CAMPI_ANAGRAFICA = [
@@ -66,6 +67,7 @@ export const CAMPI_ANAGRAFICA = [
   "titolareCf",
   "titolareDocumentoTipo",
   "titolareDocumentoNumero",
+  "consensoTrattamento",
 ] as const;
 
 export type CampoAnagrafica = (typeof CAMPI_ANAGRAFICA)[number];
@@ -116,6 +118,7 @@ export function formVuoto(): AnagraficaFormPayload {
     titolareCf: "",
     titolareDocumentoTipo: "",
     titolareDocumentoNumero: "",
+    consensoTrattamento: false,
   };
 }
 
@@ -174,6 +177,7 @@ export function normalizzaForm(value: unknown): AnagraficaFormPayload {
     titolareCf: testo(row.titolareCf, 16).toUpperCase(),
     titolareDocumentoTipo: testo(row.titolareDocumentoTipo, 40),
     titolareDocumentoNumero: testo(row.titolareDocumentoNumero, 40),
+    consensoTrattamento: row.consensoTrattamento === true,
   };
 }
 
@@ -190,6 +194,7 @@ export type StatoRichiestaPubblica =
   | "compilazione"
   | "pdf_pronto"
   | "firmata"
+  | "COMPLETED"
   | "scaduta"
   | "annullata";
 
@@ -199,6 +204,7 @@ export type VistaPubblica = {
   scadeAt: string;
   ragioneSociale: string;
   faseTest: boolean;
+  emailInvio: string;
 };
 
 export function erroriPdf(form: AnagraficaFormPayload): string[] {
@@ -249,5 +255,29 @@ export function erroriPdf(form: AnagraficaFormPayload): string[] {
   if (!form.titolareDocumentoTipo || !form.titolareDocumentoNumero) {
     errori.push("Mancano tipo e numero del documento del titolare effettivo.");
   }
+  if (!form.consensoTrattamento) {
+    errori.push("Serve l'accettazione dei termini e del trattamento dati.");
+  }
   return errori;
+}
+
+export function emailAnagraficaValida(value: string): boolean {
+  return emailOk(value.trim());
+}
+
+export function emailRegistrateAnagrafica(invio: string, form: AnagraficaFormPayload): string[] {
+  const viste = new Map<string, string>();
+  for (const raw of [
+    invio,
+    form.email,
+    form.pec,
+    form.respAcquistiEmail,
+    form.respTecnicoEmail,
+  ]) {
+    const testoMail = raw.trim();
+    if (!emailOk(testoMail)) continue;
+    const chiave = testoMail.toLowerCase();
+    if (!viste.has(chiave)) viste.set(chiave, testoMail);
+  }
+  return [...viste.values()];
 }

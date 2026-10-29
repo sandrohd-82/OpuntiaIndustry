@@ -14,7 +14,8 @@ function rigaSede(sede: SedeAnagraficaForm): string[] {
 
 export function pdfAnagraficaAziendale(
   form: AnagraficaFormPayload,
-  dataCompilazione: string
+  dataCompilazione: string,
+  timbro?: string
 ): Buffer {
   const doc = new jsPDF({ unit: "mm", format: "a4" });
   const left = 16;
@@ -108,19 +109,38 @@ export function pdfAnagraficaAziendale(
   y += 6;
   scrivi(`Data: ${dataCompilazione}`);
   y += 14;
-  doc.setDrawColor(30);
-  doc.line(left, y, left + 70, y);
-  y += 5;
-  scrivi("Firma");
-  scrivi("(Rappresentante Legale)");
-  y = 285;
-  doc.setFont("helvetica", "normal");
-  doc.setFontSize(8);
-  doc.text(
-    "Da restituire compilato su carta intestata e firmato da Rappresentante Legale",
-    left,
-    y
-  );
+  if (!timbro) {
+    doc.setDrawColor(30);
+    doc.line(left, y, left + 70, y);
+    y += 5;
+    scrivi("Firma");
+    scrivi("(Rappresentante Legale)");
+    y = 285;
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(8);
+    doc.text(
+      "Da restituire compilato su carta intestata e firmato da Rappresentante Legale",
+      left,
+      y
+    );
+  }
+  if (timbro) {
+    const pagine = doc.getNumberOfPages();
+    for (let pagina = 1; pagina <= pagine; pagina += 1) {
+      doc.setPage(pagina);
+      doc.setFont("helvetica", "normal");
+      doc.setFontSize(7);
+      doc.setTextColor(30);
+      const righe = doc.splitTextToSize(timbro, width) as string[];
+      let base = 292 - righe.length * 3.2;
+      doc.setDrawColor(30);
+      doc.line(left, base - 3, left + width, base - 3);
+      for (const riga of righe) {
+        doc.text(riga, left, base);
+        base += 3.2;
+      }
+    }
+  }
   doc.setProperties({ title: "Anagrafica Aziendale" });
   return Buffer.from(doc.output("arraybuffer"));
 }

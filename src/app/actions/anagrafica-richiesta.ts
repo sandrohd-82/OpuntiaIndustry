@@ -76,7 +76,7 @@ export async function inviaRichiestaAnagraficaAction(input: {
         url,
         "",
         "Ogni campo viene salvato appena uscite dal campo. Potete chiudere e riprendere più tardi, entro la scadenza.",
-        "Al termine scaricate il PDF, stampatelo su carta intestata, timbratelo, firmatelo e ricaricatelo sullo stesso link.",
+        "Al termine potete firmare il documento sullo stesso link con un codice inviato a questa e-mail, oppure scaricare il PDF, stamparlo su carta intestata, timbrarlo, firmarlo e ricaricarlo.",
         ...(FASE_TEST_ANAGRAFICA
           ? ["", "Questa è una prova: i dati potranno essere annullati e la scheda ripristinata."]
           : []),
