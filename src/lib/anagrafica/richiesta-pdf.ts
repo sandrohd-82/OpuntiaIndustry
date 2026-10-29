@@ -26,8 +26,9 @@ export function pdfAnagraficaAziendale(
     doc.setFont("helvetica", style);
     doc.setFontSize(size);
     const righe = doc.splitTextToSize(testo, width) as string[];
+    const limite = timbro ? 232 : 272;
     for (const riga of righe) {
-      if (y > 280) {
+      if (y > limite) {
         doc.addPage();
         y = 16;
       }
@@ -121,27 +122,45 @@ export function pdfAnagraficaAziendale(
     scrivi("Firma");
     scrivi("(Rappresentante Legale)");
   }
-  y += 4;
-  scrivi(
-    "Da restituire compilato su carta intestata e firmato da Rappresentante Legale oppure firmare tramite OTP: verranno salvate mail, IP, data e ora e token.",
-    8
-  );
   if (timbro) {
     const pagine = doc.getNumberOfPages();
     for (let pagina = 1; pagina <= pagine; pagina += 1) {
       doc.setPage(pagina);
+      const testo = `${timbro} | ${pagina} di ${pagine}`;
+      doc.setFont("helvetica", "normal");
+      doc.setFontSize(7);
+      const colonna = 118;
+      const destra = 194;
+      const righe = doc.splitTextToSize(testo, colonna) as string[];
+      const interlinea = 3.2;
+      const fondo = 285;
+      const yPrima = fondo - Math.max(0, righe.length - 1) * interlinea;
+      const raggio = 8.5;
+      const cx = destra - raggio;
+      const cy = yPrima - 5 - raggio;
+      doc.setDrawColor(20, 60, 140);
+      doc.setLineWidth(0.7);
+      doc.circle(cx, cy, raggio, "S");
+      doc.setLineWidth(0.25);
+      doc.circle(cx, cy, raggio - 1.3, "S");
+      doc.setTextColor(20, 60, 140);
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(6.5);
+      doc.text("FIRMATO", cx, cy - 0.5, { align: "center" });
+      doc.setFontSize(5.5);
+      doc.text("OTP", cx, cy + 2.6, { align: "center" });
       doc.setFont("helvetica", "normal");
       doc.setFontSize(7);
       doc.setTextColor(30);
-      const righe = doc.splitTextToSize(timbro, width) as string[];
-      let base = 292 - righe.length * 3.2;
-      doc.setDrawColor(30);
-      doc.line(left, base - 3, left + width, base - 3);
+      let base = yPrima;
       for (const riga of righe) {
-        doc.text(riga, left, base);
-        base += 3.2;
+        doc.text(riga, destra, base, { align: "right" });
+        base += interlinea;
       }
     }
+    doc.setTextColor(0);
+    doc.setDrawColor(0);
+    doc.setLineWidth(0.2);
   }
   doc.setProperties({ title: "Anagrafica Aziendale" });
   return Buffer.from(doc.output("arraybuffer"));

@@ -4,6 +4,7 @@ import {
   emailAnagraficaValida,
   emailRegistrateAnagrafica,
   erroriPdf,
+  normalizzaForm,
   type AnagraficaFormPayload,
 } from "@/lib/anagrafica/richiesta-form";
 import { pdfAnagraficaAziendale } from "@/lib/anagrafica/richiesta-pdf";
@@ -322,12 +323,25 @@ export async function leggiCopiaFirmata(
   const path = String(row.firmato_storage_path ?? "");
   if (!path) return { errore: "La copia firmata non è ancora disponibile." };
   const service = createServiceClient();
+  const fileName = String(row.firmato_file_name ?? "Anagrafica-Aziendale-firmata.pdf");
+  const hash = String(row.firma_hash ?? "");
+  const emailFirma = String(row.firma_email ?? "");
+  if (path.includes("-otp-") && hash && emailFirma && row.firmata_at) {
+    const quando = quandoRoma(new Date(row.firmata_at));
+    const ip = String(row.firma_ip ?? "") || "sconosciuto";
+    const timbro = `Firmato digitalmente via OTP | Mail: ${emailFirma} | Data e Ora: ${quando} | IP: ${ip} | Codice Transazione: ${hash}`;
+    const bytes = pdfAnagraficaAziendale(normalizzaForm(row.payload), quando, timbro);
+    await service.storage.from(ANAGRAFICA_DOCUMENTI_BUCKET).upload(path, bytes, {
+      contentType: "application/pdf",
+      upsert: true,
+    });
+    return { bytes, fileName: "Anagrafica-Aziendale-firmata.pdf", mime: "application/pdf" };
+  }
   const scaricato = await service.storage.from(ANAGRAFICA_DOCUMENTI_BUCKET).download(path);
   if (scaricato.error || !scaricato.data) {
     return { errore: "Copia firmata non leggibile. Riprova." };
   }
   const bytes = Buffer.from(await scaricato.data.arrayBuffer());
-  const fileName = String(row.firmato_file_name ?? "Anagrafica-Aziendale-firmata.pdf");
   const mime = fileName.endsWith(".png")
     ? "image/png"
     : (fileName.endsWith(".jpg") ? "image/jpeg" : "application/pdf");

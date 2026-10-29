@@ -33,6 +33,10 @@ type Richiesta = {
   versione: number;
   created_by: string | null;
   fase_test?: boolean;
+  firmata_at?: string | null;
+  firma_email?: string;
+  firma_ip?: string;
+  firma_hash?: string;
 };
 
 function hashToken(token: string): string {
@@ -92,7 +96,7 @@ async function carica(token: string): Promise<Richiesta | { errore: string }> {
   const { data, error } = await service
     .from("anagrafica_richieste")
     .select(
-      "id, cliente_id, cliente_possibile_id, stato, scade_at, payload, pdf_storage_path, firmato_storage_path, firmato_file_name, email_destinatario, versione, created_by, fase_test"
+      "id, cliente_id, cliente_possibile_id, stato, scade_at, payload, pdf_storage_path, firmato_storage_path, firmato_file_name, email_destinatario, versione, created_by, fase_test, firmata_at, firma_email, firma_ip, firma_hash"
     )
     .eq("token_hash", hashToken(pulito))
     .is("deleted_at", null)
