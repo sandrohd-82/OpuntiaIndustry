@@ -186,7 +186,10 @@ export function AddressSedeFields({
     onChange({
       ...value,
       citta: paese.citta,
-      provincia: paese.provincia || value.provincia,
+      provincia:
+        (isNazioneItalia(paese.nazione || value.nazione)
+          ? paese.siglaProvincia || paese.provincia
+          : paese.provincia) || value.provincia,
       nazione: paese.nazione || value.nazione || "Italia",
       // Con più CAP non precompilare: l'utente sceglie dall'elenco.
       cap: caps.length === 1 ? caps[0] : "",

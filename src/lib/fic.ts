@@ -1791,6 +1791,43 @@ export async function createIssuedDocument(
   };
 }
 
+/**
+ * Allinea la provincia già scritta su un documento FiC non ancora inviato.
+ * Lo SDI accetta solo la sigla di due lettere.
+ */
+export async function aggiornaProvinciaDocumentoEmesso(
+  ficId: number,
+  addressProvince: string
+): Promise<void> {
+  const id = Number(ficId);
+  if (!Number.isFinite(id) || id <= 0) return;
+  const res = await ficGet<{ data?: unknown }>(`/issued_documents/${id}`, {});
+  const data = asRecord(res.data);
+  const entity = asRecord(data.entity);
+  const attuale = asText(entity.address_province).trim().toUpperCase();
+  const attesa = addressProvince.trim().toUpperCase();
+  if (attuale === attesa) return;
+  const nextEntity = { ...entity };
+  if (attesa) nextEntity.address_province = attesa;
+  else delete nextEntity.address_province;
+  const copia: Record<string, unknown> = { ...data, entity: nextEntity };
+  for (const chiave of [
+    "created_at",
+    "updated_at",
+    "ei_raw",
+    "ei_status",
+    "url",
+    "attachment_url",
+    "attachment_token",
+    "seen_date",
+  ]) {
+    delete copia[chiave];
+  }
+  await ficRequest("PUT", `/issued_documents/${id}`, {
+    body: { data: copia },
+  });
+}
+
 /** Invia e-fattura allo SDI. */
 export async function sendIssuedDocumentToSdi(input: {
   ficId: number;

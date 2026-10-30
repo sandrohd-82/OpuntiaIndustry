@@ -2,6 +2,7 @@
 
 import { writeAuditLog } from "@/lib/audit";
 import { requireAreaAccess } from "@/lib/areas/guard";
+import { provinciaCessionarioSdi } from "@/lib/address/province-regioni";
 import {
   createIssuedDocument,
   aliquotePerEmissione,
@@ -235,6 +236,11 @@ export async function creaDdtAction(
   if (!cliente.is_privato && !String(cliente.partita_iva ?? "").trim()) {
     return { success: false, error: "Il cliente non ha la partita IVA." };
   }
+  const provinciaPrima = provinciaCessionarioSdi(
+    String(cliente.sede_amm_provincia ?? ""),
+    String(cliente.sede_amm_nazione || "Italia")
+  );
+  if (!provinciaPrima.ok) return { success: false, error: provinciaPrima.error };
 
   const supabase = await createClient();
   let numeroInterno: string;
@@ -265,6 +271,11 @@ export async function creaDdtAction(
   }
 
   const totals = totaliDdt(parsed.righe);
+  const provinciaSdi = provinciaCessionarioSdi(
+    String(cliente.sede_amm_provincia ?? ""),
+    String(cliente.sede_amm_nazione || "Italia")
+  );
+  if (!provinciaSdi.ok) return { success: false, error: provinciaSdi.error };
   const entity: Record<string, unknown> = {
     name: cliente.ragione_sociale,
     vat_number: cliente.is_privato ? "" : cliente.partita_iva ?? "",
@@ -272,9 +283,9 @@ export async function creaDdtAction(
     address_street: cliente.sede_amm_indirizzo ?? "",
     address_postal_code: cliente.sede_amm_cap ?? "",
     address_city: cliente.sede_amm_citta ?? "",
-    address_province: cliente.sede_amm_provincia ?? "",
     country: cliente.sede_amm_nazione || "Italia",
   };
+  if (provinciaSdi.provincia) entity.address_province = provinciaSdi.provincia;
   if (String(cliente.sdi_code ?? "").trim()) entity.ei_code = String(cliente.sdi_code).trim();
   if (String(cliente.pec ?? "").trim()) entity.certified_email = String(cliente.pec).trim();
   if (String(cliente.email ?? "").trim()) entity.email = String(cliente.email).trim();

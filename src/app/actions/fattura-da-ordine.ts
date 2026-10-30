@@ -59,7 +59,9 @@ import {
   ORDINI_PERSISTENZA_DEFINITIVA,
 } from "@/lib/amministrazione/ordine-sessione";
 import { motivoBloccoInvioClienteOrdine } from "@/app/actions/ordine-calcolo-spedizione";
+import { provinciaCessionarioSdi } from "@/lib/address/province-regioni";
 import {
+  aggiornaProvinciaDocumentoEmesso,
   createIssuedDocument,
   aliquotePerEmissione,
   messaggioBloccoQuotaFic,
@@ -2180,6 +2182,15 @@ export async function inviaFatturaSalvataAction(input: {
 
   // La numerazione legge auth.uid(). La chiave tecnica non ha un utente, quindi
   // va usata la sessione di chi ha cliccato. Il resto della fattura resta sulla chiave tecnica.
+  const destSnap = parseDestinatarioSnapshot(fattura.destinatario_snapshot);
+  const nazioneCliente =
+    destSnap?.sede.nazione || cliente.sede_amm_nazione || "Italia";
+  const provinciaSdi = provinciaCessionarioSdi(
+    destSnap?.sede.provincia || cliente.sede_amm_provincia || "",
+    nazioneCliente
+  );
+  if (!provinciaSdi.ok) return { success: false, error: provinciaSdi.error };
+
   const numeri = await assegnaNumeroAllInvioSdi(
     vistoDa,
     fattura.id,
@@ -2194,7 +2205,6 @@ export async function inviaFatturaSalvataAction(input: {
     fattura.numero_fattura || fattura.numero_documento_esterno;
   const split = splitNumeroForFic(numeroFattura);
   const items_list = vociFic.map((v) => v.item);
-  const destSnap = parseDestinatarioSnapshot(fattura.destinatario_snapshot);
   const entity: Record<string, unknown> = {
     name: destSnap?.ragioneSociale || cliente.ragione_sociale,
     vat_number: cliente.is_privato
@@ -2204,10 +2214,9 @@ export async function inviaFatturaSalvataAction(input: {
     address_street: destSnap?.sede.indirizzo || cliente.sede_amm_indirizzo || "",
     address_postal_code: destSnap?.sede.cap || cliente.sede_amm_cap || "",
     address_city: destSnap?.sede.citta || cliente.sede_amm_citta || "",
-    address_province:
-      destSnap?.sede.provincia || cliente.sede_amm_provincia || "",
-    country: destSnap?.sede.nazione || cliente.sede_amm_nazione || "Italia",
+    country: nazioneCliente,
   };
+  if (provinciaSdi.provincia) entity.address_province = provinciaSdi.provincia;
   if (cliente.sdi_code?.trim()) entity.ei_code = cliente.sdi_code.trim();
   if (cliente.pec?.trim()) entity.certified_email = cliente.pec.trim();
   const candidatiMail = [
@@ -2297,6 +2306,7 @@ export async function inviaFatturaSalvataAction(input: {
     sdiSent = true;
   } else if (sendToSdi && ficId) {
     try {
+      await aggiornaProvinciaDocumentoEmesso(ficId, provinciaSdi.provincia);
       await sendIssuedDocumentToSdi({ ficId, dryRun: false });
       sdiSent = true;
       eiStatus = "sent";

@@ -1,3 +1,5 @@
+import { isNazioneItalia } from "@/lib/address/formato-nazione";
+
 /** Sigla provincia ISTAT → regione. Include anche sigle storiche della Sardegna. */
 const SIGLA_TO_REGIONE: Record<string, string> = {
   AG: "Sicilia",
@@ -298,4 +300,24 @@ export function sameProvincia(a: string, b: string): boolean {
 export function provinciaInRegione(provincia: string, regione: string): boolean {
   const mapped = regioneOfProvincia(provincia);
   return Boolean(mapped && foldItalian(mapped) === foldItalian(regione));
+}
+
+/**
+ * Provincia del cessionario/committente per lo SDI.
+ * In Italia è obbligatoria la sigla di due lettere. All'estero il campo non si invia.
+ */
+export function provinciaCessionarioSdi(
+  provincia: string,
+  nazione: string
+): { ok: true; provincia: string } | { ok: false; error: string } {
+  if (!isNazioneItalia(nazione)) return { ok: true, provincia: "" };
+  const sigla = normalizeProvinciaSigla(provincia);
+  if (sigla) return { ok: true, provincia: sigla };
+  const visto = provincia.trim();
+  return {
+    ok: false,
+    error: visto
+      ? `Lo SDI non accetta la provincia "${visto}". Serve la sigla di due lettere, per esempio CT per Catania o RN per Rimini.`
+      : "Manca la provincia del cliente. Lo SDI vuole la sigla di due lettere, per esempio CT o RN.",
+  };
 }

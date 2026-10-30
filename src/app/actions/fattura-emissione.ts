@@ -15,7 +15,9 @@ import { mapCompanyFiscalProfileRow } from "@/lib/amministrazione/fiscal-profile
 import {
   anteprimaNumeroFattura,
 } from "@/lib/amministrazione/numero-fattura";
+import { provinciaCessionarioSdi } from "@/lib/address/province-regioni";
 import {
+  aggiornaProvinciaDocumentoEmesso,
   createIssuedDocument,
   aliquotePerEmissione,
   resolveFicVatId,
@@ -120,6 +122,10 @@ function buildFicPayload(input: {
     vat: { id: resolveFicVatId(vatTypes, r.ivaPercentuale) },
   }));
 
+  const provinciaSdi = provinciaCessionarioSdi(
+    cliente.sede_amm_provincia ?? "",
+    cliente.sede_amm_nazione || "Italia"
+  );
   const entity: Record<string, unknown> = {
     name: cliente.ragione_sociale,
     vat_number: cliente.is_privato ? "" : cliente.partita_iva ?? "",
@@ -127,9 +133,11 @@ function buildFicPayload(input: {
     address_street: cliente.sede_amm_indirizzo ?? "",
     address_postal_code: cliente.sede_amm_cap ?? "",
     address_city: cliente.sede_amm_citta ?? "",
-    address_province: cliente.sede_amm_provincia ?? "",
     country: cliente.sede_amm_nazione || "Italia",
   };
+  if (provinciaSdi.ok && provinciaSdi.provincia) {
+    entity.address_province = provinciaSdi.provincia;
+  }
   if (cliente.sdi_code?.trim()) entity.ei_code = cliente.sdi_code.trim();
   if (cliente.pec?.trim()) entity.certified_email = cliente.pec.trim();
   if (cliente.email?.trim()) entity.email = cliente.email.trim();
@@ -223,6 +231,12 @@ export async function createAndSendInvoiceAction(
     };
   }
 
+  const provinciaSdi = provinciaCessionarioSdi(
+    cliente.sede_amm_provincia ?? "",
+    cliente.sede_amm_nazione || "Italia"
+  );
+  if (!provinciaSdi.ok) return { success: false, error: provinciaSdi.error };
+
   let numeroInterno: string;
   let numeroFattura: string;
   try {
@@ -306,6 +320,10 @@ export async function createAndSendInvoiceAction(
   let sdiSent = false;
   if (parsed.sendToSdi) {
     try {
+      await aggiornaProvinciaDocumentoEmesso(
+        created.ficId,
+        provinciaSdi.provincia
+      );
       await sendIssuedDocumentToSdi({
         ficId: created.ficId,
         dryRun: parsed.dryRunSdi,
