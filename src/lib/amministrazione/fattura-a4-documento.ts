@@ -145,6 +145,77 @@ export function listinoEScontoDaOrdine(input: {
   };
 }
 
+/**
+ * Voce verso Fatture in Cloud.
+ * Due sconti in sequenza non hanno un campo proprio: il prezzo inviato è il
+ * netto già arrotondato al centesimo e la descrizione riporta le percentuali.
+ * Un solo sconto resta prezzo di listino + percentuale, come calcola FiC.
+ * `coerente` è vero solo se sia il totale riga sia l'unità arrotondata
+ * danno lo stesso imponibile: altrimenti l'invio va bloccato.
+ */
+export function voceScontoFattureInCloud(r: {
+  prezzoUnitario: number;
+  quantita: number;
+  scontoPercentuale: number;
+  scontoListinoPct?: number;
+  scontoExtraPct?: number;
+}): {
+  netPrice: number;
+  discount: number;
+  imponibile: number;
+  dettaglio: string;
+  coerente: boolean;
+} {
+  const listino = r.scontoListinoPct ?? 0;
+  const extra = r.scontoExtraPct ?? 0;
+  if (listino > 0 || extra > 0) {
+    const unit = prezzoNettoDueSconti(r.prezzoUnitario, listino, extra);
+    const imponibile = roundMoney(r.quantita * unit);
+    const daRiga = roundMoney(unit * r.quantita);
+    const daUnita = roundMoney(r.quantita * roundMoney(unit));
+    const etichetta = etichettaScontoDocumento({
+      prodottoId: null,
+      codice: "",
+      descrizione: "",
+      quantita: r.quantita,
+      unitaMisura: "",
+      prezzoUnitario: r.prezzoUnitario,
+      scontoPercentuale: 0,
+      scontoListinoPct: listino,
+      scontoExtraPct: extra,
+      ivaPercentuale: 0,
+      isSpedizione: false,
+      note: "",
+    });
+    const listinoTxt = r.prezzoUnitario.toLocaleString("it-IT", {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    });
+    return {
+      netPrice: unit,
+      discount: 0,
+      imponibile,
+      dettaglio: `Sconto ${etichetta} sul listino di ${listinoTxt} €`,
+      coerente: daRiga === imponibile && daUnita === imponibile,
+    };
+  }
+  const imponibile = importoRiga(
+    r.quantita,
+    r.prezzoUnitario,
+    r.scontoPercentuale
+  );
+  const daRiga = roundMoney(
+    r.prezzoUnitario * r.quantita * (1 - r.scontoPercentuale / 100)
+  );
+  return {
+    netPrice: r.prezzoUnitario,
+    discount: r.scontoPercentuale,
+    imponibile,
+    dettaglio: "",
+    coerente: daRiga === imponibile,
+  };
+}
+
 export function etichettaScontoDocumento(r: FatturaA4Riga): string {
   const listino = r.scontoListinoPct ?? 0;
   const extra = r.scontoExtraPct ?? 0;

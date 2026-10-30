@@ -9,6 +9,7 @@ import { requireAnyAreaAccess, requireAreaAccess } from "@/lib/areas/guard";
 import { requireOrdineCreateAccess, requireOrdineProcessAccess } from "@/lib/auth/ordini-access";
 import {
   buildDescrizioneDocumento,
+  calcolaTotaliEmissione,
   splitNumeroForFic,
 } from "@/lib/amministrazione/fattura-emissione";
 import { mapClienteRow, type Cliente } from "@/lib/amministrazione/clienti";
@@ -19,6 +20,7 @@ import {
   parseDestinatarioSnapshot,
   totalsFromFatturaRighe,
   imponibileDocumentoRiga,
+  voceScontoFattureInCloud,
   type FatturaA4Riga,
   type FatturaDestinatarioSnapshot,
 } from "@/lib/amministrazione/fattura-a4-documento";
@@ -26,7 +28,6 @@ import { todayIsoDate } from "@/lib/amministrazione/fatture";
 import {
   leggiMarcaSconti,
   notaConMarcaSconti,
-  prezzoNettoDueSconti,
 } from "@/lib/amministrazione/sconto-fuori-listino";
 import {
   applyTotaleToPiano,
@@ -199,7 +200,13 @@ function toRigaInsert(
       (r.scontoListinoPct ?? 0) > 0 || (r.scontoExtraPct ?? 0) > 0
         ? 0
         : r.scontoPercentuale,
-    importo: imponibileDocumentoRiga(r),
+    importo: imponibileDocumentoRiga(
+      (r.scontoListinoPct ?? 0) > 0 ||
+        (r.scontoExtraPct ?? 0) > 0 ||
+        r.scontoPercentuale > 0
+        ? { ...r, importo: undefined }
+        : r
+    ),
     sort_order: i,
     iva_percentuale: r.ivaPercentuale,
     is_spedizione: r.isSpedizione,
@@ -697,6 +704,8 @@ const rigaDocumentoSchema = z.object({
   unitaMisura: z.string().trim().min(1).max(16),
   prezzoUnitario: z.number().min(0),
   scontoPercentuale: z.number().min(0).max(100),
+  scontoListinoPct: z.number().min(0).max(100).optional().default(0),
+  scontoExtraPct: z.number().min(0).max(100).optional().default(0),
   ivaPercentuale: z.number().min(0).max(100),
   isSpedizione: z.boolean(),
   note: z.string().optional().default(""),
@@ -767,9 +776,16 @@ export async function saveFatturaDaOrdineAction(
     unitaMisura: r.unitaMisura,
     prezzoUnitario: r.prezzoUnitario,
     scontoPercentuale: r.scontoPercentuale,
+    scontoListinoPct: r.scontoListinoPct ?? 0,
+    scontoExtraPct: r.scontoExtraPct ?? 0,
     ivaPercentuale: r.ivaPercentuale,
     isSpedizione: r.isSpedizione,
     note: r.note ?? "",
+    ...((r.scontoListinoPct ?? 0) > 0 ||
+    (r.scontoExtraPct ?? 0) > 0 ||
+    r.scontoPercentuale > 0
+      ? {}
+      : (r.importo != null ? { importo: r.importo } : {})),
   }));
   const destinatario = input.destinatario ?? ctx.destinatario;
   const totals = totalsFromFatturaRighe(righeDoc);
@@ -1767,6 +1783,53 @@ export async function inviaFatturaAttraversoSdiAction(
   });
 }
 
+/** Blocca l'invio se l'ordine ha sconti e la riga salvata li ha persi. */
+async function motivoScontiOrdineAssenti(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  ordineId: string,
+  righe: Array<{
+    codice: string;
+    prezzo_unitario: number;
+    sconto_percentuale: number | null;
+    note: string | null;
+    is_spedizione: boolean | null;
+  }>
+): Promise<string | null> {
+  const [{ data: ordine }, { data: righeOrdine, error }] = await Promise.all([
+    supabase
+      .from("ordini")
+      .select("sconto_extra_pct")
+      .eq("id", ordineId)
+      .maybeSingle(),
+    supabase
+      .from("ordini_righe")
+      .select("prodotto_codice, sconto_listino_pct")
+      .eq("ordine_id", ordineId),
+  ]);
+  if (error) {
+    return `Invio bloccato: sconti dell'ordine non letti (${error.message}). Nessuna chiamata è partita.`;
+  }
+  const extra = Number(
+    (ordine as { sconto_extra_pct?: number | null } | null)?.sconto_extra_pct ?? 0
+  );
+  const origini = (righeOrdine ?? []) as Array<{
+    prodotto_codice: string;
+    sconto_listino_pct: number | null;
+  }>;
+  for (const riga of righe) {
+    if (riga.is_spedizione || Number(riga.prezzo_unitario) <= 0) continue;
+    const marca = leggiMarcaSconti(String(riga.note ?? ""));
+    if (marca.listino > 0 || marca.extra > 0 || Number(riga.sconto_percentuale) > 0) {
+      continue;
+    }
+    const origine = origini.find((o) => o.prodotto_codice === riga.codice);
+    const listino = Number(origine?.sconto_listino_pct ?? 0);
+    if (listino <= 0 && extra <= 0) continue;
+    return `Invio bloccato: la riga ${riga.codice} non ha gli sconti dell'ordine (${listino}% di listino + ${extra}% extra). Il totale non è stato mandato a Fatture in Cloud e il numero non è stato assegnato.`;
+  }
+  return null;
+}
+
 export async function inviaFatturaSalvataAction(input: {
   fatturaId: string;
   invioEmail?: string;
@@ -1977,6 +2040,78 @@ export async function inviaFatturaSalvataAction(input: {
     };
   }
 
+  if (fattura.ordine_id) {
+    const motivoSconti = await motivoScontiOrdineAssenti(
+      supabase,
+      fattura.ordine_id,
+      righe ?? []
+    );
+    if (motivoSconti) return { success: false, error: motivoSconti };
+  }
+
+  const vociFic = (righe ?? []).map((r) => {
+    const marca = leggiMarcaSconti(String(r.note ?? ""));
+    const voce = voceScontoFattureInCloud({
+      prezzoUnitario: Number(r.prezzo_unitario),
+      quantita: Number(r.quantita),
+      scontoPercentuale: Number(r.sconto_percentuale) || 0,
+      scontoListinoPct: marca.listino,
+      scontoExtraPct: marca.extra,
+    });
+    const nome = buildDescrizioneDocumento(
+      String(r.descrizione ?? ""),
+      marca.note
+    );
+    return {
+      voce,
+      codice: String(r.codice ?? ""),
+      ivaPercentuale: Number(r.iva_percentuale) || 0,
+      item: {
+        code: r.codice,
+        name: voce.dettaglio ? `${nome}\n${voce.dettaglio}` : nome,
+        net_price: voce.netPrice,
+        discount: voce.discount,
+        qty: Number(r.quantita),
+        vat: { id: resolveFicVatId(vatTypes, Number(r.iva_percentuale) || 22) },
+      },
+    };
+  });
+  const voceStorta = vociFic.find((v) => !v.voce.coerente);
+  if (voceStorta) {
+    return {
+      success: false,
+      error: `Invio bloccato: lo sconto della riga ${voceStorta.codice} non chiude al centesimo. Nessuna chiamata è partita e il numero non è stato cambiato.`,
+    };
+  }
+  const totaliVoci = calcolaTotaliEmissione(
+    vociFic.map((v) => ({
+      importo: v.voce.imponibile,
+      ivaPercentuale: v.ivaPercentuale,
+    }))
+  );
+  if (
+    Math.abs(totaliVoci.imponibile - Number(fattura.imponibile)) > 0.009 ||
+    Math.abs(totaliVoci.totale - Number(fattura.totale)) > 0.009
+  ) {
+    return {
+      success: false,
+      error: `Invio bloccato: il totale salvato (${Number(fattura.totale).toFixed(2)} €) non coincide con gli sconti delle righe (${totaliVoci.totale.toFixed(2)} €). Nessuna chiamata è partita e il numero non è stato cambiato.`,
+    };
+  }
+  const sommaRate = (dilazioni ?? []).reduce(
+    (somma, rata) => somma + Number(rata.importo),
+    0
+  );
+  if (
+    (dilazioni ?? []).length > 0 &&
+    Math.abs(sommaRate - totaliVoci.totale) > 0.009
+  ) {
+    return {
+      success: false,
+      error: `Invio bloccato: le scadenze (${sommaRate.toFixed(2)} €) non coincidono con il totale scontato (${totaliVoci.totale.toFixed(2)} €). Nessuna chiamata è partita e il numero non è stato cambiato.`,
+    };
+  }
+
   // La numerazione legge auth.uid(). La chiave tecnica non ha un utente, quindi
   // va usata la sessione di chi ha cliccato. Il resto della fattura resta sulla chiave tecnica.
   const numeri = await assegnaNumeroAllInvioSdi(
@@ -1992,25 +2127,7 @@ export async function inviaFatturaSalvataAction(input: {
   const numeroFattura =
     fattura.numero_fattura || fattura.numero_documento_esterno;
   const split = splitNumeroForFic(numeroFattura);
-  const items_list = (righe ?? []).map((r) => {
-    const marca = leggiMarcaSconti(String(r.note ?? ""));
-    const doppio = marca.listino > 0 || marca.extra > 0;
-    const netto = doppio
-      ? prezzoNettoDueSconti(
-          Number(r.prezzo_unitario),
-          marca.listino,
-          marca.extra
-        )
-      : Number(r.prezzo_unitario);
-    return {
-      code: r.codice,
-      name: buildDescrizioneDocumento(r.descrizione, marca.note),
-      net_price: netto,
-      discount: doppio ? 0 : Number(r.sconto_percentuale) || 0,
-      qty: Number(r.quantita),
-      vat: { id: resolveFicVatId(vatTypes, Number(r.iva_percentuale) || 22) },
-    };
-  });
+  const items_list = vociFic.map((v) => v.item);
   const destSnap = parseDestinatarioSnapshot(fattura.destinatario_snapshot);
   const entity: Record<string, unknown> = {
     name: destSnap?.ragioneSociale || cliente.ragione_sociale,
