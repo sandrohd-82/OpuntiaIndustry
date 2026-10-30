@@ -72,7 +72,13 @@ export function PreventivoA4Letterhead({
             stampa={stampa}
           >
             <p className="text-[12px] font-bold tracking-wide">
-              {etichettaPreventivo(etichette, "documento", documentoLabel)}{" "}
+              <span
+                className={
+                  documentoLabel === "FATTURA PROFORMA" ? "text-red-700" : undefined
+                }
+              >
+                {etichettaPreventivo(etichette, "documento", documentoLabel)}
+              </span>{" "}
               {etichettaPreventivo(etichette, "nr", "nr.")} {numero}{" "}
               {etichettaPreventivo(etichette, "del", "del")}{" "}
               {formatPreventivoDataIt(dataPreventivo)}

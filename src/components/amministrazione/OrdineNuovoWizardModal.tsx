@@ -369,6 +369,9 @@ export function OrdineNuovoWizardModal({
   const [formError, setFormError] = useState<string | null>(null);
   const [invioFatturaSdi, setInvioFatturaSdi] = useState<"" | "subito" | "al_processo">("");
   const [passaProforma, setPassaProforma] = useState(false);
+  useEffect(() => {
+    if (passaProforma) setInvioFatturaSdi("");
+  }, [passaProforma]);
   const [chiediPromozioneSdi, setChiediPromozioneSdi] = useState(false);
   const [promozioneInviaOra, setPromozioneInviaOra] = useState(false);
   const promozioneSdiRef = useRef(false);
@@ -1359,7 +1362,8 @@ export function OrdineNuovoWizardModal({
     ORDINI_PERSISTENZA_DEFINITIVA &&
     tipoOrdine !== "campionatura" &&
     intestatarioScelto &&
-    !attesaCalcoloSpedizione;
+    !attesaCalcoloSpedizione &&
+    !passaProforma;
   let etichettaSalvataggio = "Salva in sessione";
   if (saving) etichettaSalvataggio = "Salvataggio…";
   else if (attesaCalcoloSpedizione) {
@@ -2029,7 +2033,7 @@ export function OrdineNuovoWizardModal({
         const bozza = !resetDaOrdine ? bozzaSessione : null;
         const fat = await creaFatturaOrdineSenzaInvioAction(result.ordine.id, {
           resetDaOrdine,
-          invioFatturaSdi: invioFatturaSdi || null,
+          invioFatturaSdi: passaProforma ? null : invioFatturaSdi || null,
           bozza: bozza
             ? {
                 righe: bozza.righe,
@@ -2086,6 +2090,7 @@ export function OrdineNuovoWizardModal({
           }
         }
         let notaProforma = "";
+        let numeroProformaSalvato = "";
         if (comeProforma) {
           const ctx = await getFatturaA4ContextAction({
             ordineId: result.ordine.id,
@@ -2102,6 +2107,8 @@ export function OrdineNuovoWizardModal({
             });
             if (!pr.success) {
               notaProforma = `La fattura senza numero è sull'ordine, ma la proforma no: ${pr.error}`;
+            } else {
+              numeroProformaSalvato = pr.numeroProforma;
             }
           }
         }
@@ -2110,17 +2117,21 @@ export function OrdineNuovoWizardModal({
         setOrdineFinalizzato(true);
         if (!modificaOrdineId && FASE_TEST_INVIO && !nessunaMail) apriMailOrdine();
         const extra = [fat.avviso, invioSubito].filter(Boolean).join(" ");
+        const numeroProformaTesto = numeroProformaSalvato
+          ? ` ${numeroProformaSalvato}`
+          : "";
         let messaggioFinale = `Ordine ${result.ordine.numeroInterno} finalizzato. La fattura è in bozza, senza numero. Il numero, lo SDI e la mail al cliente partono quando l'ordine entra in produzione.`;
-        if (invioDelegato) {
+        if (comeProforma) {
+          messaggioFinale =
+            FASE_TEST_INVIO && !modificaOrdineId
+              ? `Ordine ${result.ordine.numeroInterno} registrato. Fattura proforma${numeroProformaTesto} salvata. La mail si compila adesso e parte solo verso sandrohd@gmail.com. Lo SDI non parte e il numero fiscale non viene consumato.`
+              : `Ordine ${result.ordine.numeroInterno} finalizzato. Fattura proforma${numeroProformaTesto} salvata. Non parte allo SDI.`;
+        } else if (invioDelegato) {
           messaggioFinale = `Ordine ${result.ordine.numeroInterno} finalizzato. La bozza è salvata. Numero, SDI e mail li invia l'operatore quando mette l'ordine in produzione.`;
         } else if (invioFatturaSdi === "subito") {
           messaggioFinale = `Ordine ${result.ordine.numeroInterno} finalizzato. ${invioSubito || "Invio allo SDI non eseguito. La mail non è partita."}`;
         } else if (FASE_TEST_INVIO && !modificaOrdineId) {
-          const documentoSalvato =
-            comeProforma
-              ? "La fattura proforma è salvata senza numero, come la fattura."
-              : "La fattura è salvata senza numero.";
-          messaggioFinale = `Ordine ${result.ordine.numeroInterno} registrato. ${documentoSalvato} La mail si compila adesso e parte solo verso sandrohd@gmail.com. Lo SDI non parte e il progressivo non viene consumato.`;
+          messaggioFinale = `Ordine ${result.ordine.numeroInterno} registrato. La fattura è salvata senza numero. La mail si compila adesso e parte solo verso sandrohd@gmail.com. Lo SDI non parte e il progressivo non viene consumato.`;
         }
         if (extra && invioFatturaSdi !== "subito") {
           messaggioFinale = `${messaggioFinale} ${extra}`;
@@ -4465,12 +4476,9 @@ export function OrdineNuovoWizardModal({
                   {titoloNota("pagamento_fattura", "Fattura")}
                 </div>
                 <p className="text-xs text-[var(--muted)]">
-                  La fattura modificata resta anche se riapri l&apos;ordine.
-                  Si riallinea all&apos;ordine solo se cambi la riga prodotto, e
-                  solo finché non è partita allo SDI. Resta in bozza: il numero
-                  che compare è provvisorio e si conferma solo all&apos;invio
-                  allo SDI. La mail al cliente parte solo se lo SDI ha
-                  confermato, salvo la scelta di non inviare alcuna mail.
+                  {passaProforma
+                    ? "La proforma resta sull'ordine con il suo numero. Non si invia allo SDI e non usa il numero fiscale."
+                    : "La fattura modificata resta anche se riapri l'ordine. Si riallinea all'ordine solo se cambi la riga prodotto, e solo finché non è partita allo SDI. Resta in bozza: il numero che compare è provvisorio e si conferma solo all'invio allo SDI. La mail al cliente parte solo se lo SDI ha confermato, salvo la scelta di non inviare alcuna mail."}
                 </p>
                 <label className="flex items-start gap-2 text-sm">
                   <input

@@ -44,9 +44,6 @@ export function fatturaA4PdfFileName(numeroFattura: string, proforma = false) {
   return `${prefix}_${safeFilePart(numeroFattura || "bozza")}.pdf`;
 }
 
-export const PROFORMA_DICITURA_FISCALE =
-  "Documento privo di valenza fiscale emesso ai sensi dell'art. 21 D.P.R. 633/72. La fattura definitiva verrà emessa al saldo del pagamento.";
-
 export type FatturaA4Logo = {
   dataUrl: string;
   widthMm: number;
@@ -202,15 +199,30 @@ export function buildFatturaA4PdfBlob(input: FatturaA4PdfInput): {
   );
   doc.setFont("helvetica", "bold");
   doc.setFontSize(11);
-  const etichetta = input.proforma ? "FATTURA PROFORMA" : "FATTURA";
-  rightY =
-    testoDestra(
-      doc,
-      `${etichetta} nr. ${input.numeroFattura || "NN/ANNO"} del ${formatPreventivoDataIt(input.dataDocumento)}`,
-      right,
-      rightY + 1,
-      96
-    ) + 1;
+  const numeroDoc = input.numeroFattura || "NN/ANNO";
+  const dataDoc = formatPreventivoDataIt(input.dataDocumento);
+  if (input.proforma) {
+    const label = "FATTURA PROFORMA";
+    const coda = ` nr. ${numeroDoc} del ${dataDoc}`;
+    const labelW = doc.getTextWidth(label);
+    const codaW = doc.getTextWidth(coda);
+    const yRiga = rightY + 1;
+    doc.setTextColor(185, 28, 28);
+    doc.text(label, right - codaW - labelW, yRiga);
+    doc.setTextColor(15, 23, 42);
+    doc.text(coda, right - codaW, yRiga);
+    const mm = (doc.getFontSize() * doc.getLineHeightFactor() * 25.4) / 72;
+    rightY = yRiga + mm + 1;
+  } else {
+    rightY =
+      testoDestra(
+        doc,
+        `FATTURA nr. ${numeroDoc} del ${dataDoc}`,
+        right,
+        rightY + 1,
+        96
+      ) + 1;
+  }
   const commerciale = input.commerciale;
   doc.setFontSize(8);
   rightY = testoDestra(doc, "Commerciale di riferimento", right, rightY, 96);
@@ -242,19 +254,6 @@ export function buildFatturaA4PdfBlob(input: FatturaA4PdfInput): {
   doc.setLineWidth(0.3);
   doc.line(left, y, right, y);
   y += 12;
-
-  if (input.proforma) {
-    const lines = doc.splitTextToSize(PROFORMA_DICITURA_FISCALE, 176);
-    const boxH = 8 + lines.length * 4.2;
-    doc.setFillColor(220, 38, 38);
-    doc.rect(left, y, 182, boxH, "F");
-    doc.setTextColor(255, 255, 255);
-    doc.setFont("helvetica", "bold");
-    doc.setFontSize(9);
-    doc.text(lines, left + 4, y + 6);
-    doc.setTextColor(15, 23, 42);
-    y += boxH + 6;
-  }
 
   const dest = input.destinatario;
   const addr = formatDestinatarioIndirizzo(dest.sede);

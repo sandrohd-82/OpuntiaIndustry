@@ -6,6 +6,12 @@
 
 /** 22/2026, 01/2026 */
 export const NUMERO_FATTURA_ANNO_RE = /^(\d+)\/(20\d{2})$/;
+
+/** Serie proforma: 14/2026. I documenti già salvati come PR-01/2026 restano validi. */
+export function isNumeroProformaAssegnato(value: string): boolean {
+  const s = value.trim();
+  return /^PR-\d+\/20\d{2}$/.test(s) || NUMERO_FATTURA_ANNO_RE.test(s);
+}
 /** 27/0001 */
 export const NUMERO_FATTURA_PROGRESSIVO_RE = /^(\d{2})\/(\d{4})$/;
 
@@ -89,7 +95,7 @@ function parsePayloadProforma(data: unknown): NumeroFatturaAssegnato {
       ? (JSON.parse(row) as { numero_fattura?: string; numero_interno?: string })
       : (row as { numero_fattura?: string; numero_interno?: string } | null);
   const numeroFattura = String(obj?.numero_fattura ?? "").trim();
-  if (!/^PR-\d+\/20\d{2}$/.test(numeroFattura)) {
+  if (!isNumeroProformaAssegnato(numeroFattura)) {
     throw new Error("Numerazione proforma non valida.");
   }
   return {

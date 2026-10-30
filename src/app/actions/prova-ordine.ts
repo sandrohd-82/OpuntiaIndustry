@@ -19,7 +19,9 @@ import { buildNumeroInternoOrdine } from "@/lib/amministrazione/ordini";
 import {
   anteprimaNumeroFattura,
   anteprimaNumeroProforma,
+  isNumeroProformaAssegnato,
 } from "@/lib/amministrazione/numero-fattura";
+import { leggiMarcaSconti } from "@/lib/amministrazione/sconto-fuori-listino";
 import {
   EMAIL_CONTROLLO_DEFAULT,
   isOrdineProva,
@@ -449,6 +451,8 @@ const bozzaControlloSchema = z.object({
         unitaMisura: z.string().trim().min(1).max(16),
         prezzoUnitario: z.number().min(0),
         scontoPercentuale: z.number().min(0).max(100),
+        scontoListinoPct: z.number().min(0).max(100).optional().default(0),
+        scontoExtraPct: z.number().min(0).max(100).optional().default(0),
         ivaPercentuale: z.number().min(0).max(100),
         isSpedizione: z.boolean(),
         note: z.string().max(2000).optional().default(""),
@@ -608,6 +612,8 @@ export async function inviaCopiaControlloOrdineAction(raw: {
       unitaMisura: riga.unitaMisura,
       prezzoUnitario: riga.prezzoUnitario,
       scontoPercentuale: riga.scontoPercentuale,
+      scontoListinoPct: riga.scontoListinoPct ?? 0,
+      scontoExtraPct: riga.scontoExtraPct ?? 0,
       ivaPercentuale: riga.ivaPercentuale,
       isSpedizione: riga.isSpedizione,
       note: riga.note,
@@ -615,7 +621,7 @@ export async function inviaCopiaControlloOrdineAction(raw: {
   } else {
     const { data: fatturaSalvata, error: fatErr } = await supabase
       .from("fatture_emesse")
-      .select("id, data_emissione, note, destinatario_snapshot, cliente_ragione_sociale")
+      .select("id, data_emissione, note, destinatario_snapshot, cliente_ragione_sociale, numero_fattura")
       .eq("ordine_id", ordine.id)
       .eq(
         "tipo_documento",
@@ -637,18 +643,24 @@ export async function inviaCopiaControlloOrdineAction(raw: {
         .is("deleted_at", null)
         .order("sort_order", { ascending: true });
       if (salvateErr) return { success: false, error: salvateErr.message };
-      fatturaRighe = (salvate ?? []).map((riga) => ({
-        prodottoId: riga.prodotto_id ? String(riga.prodotto_id) : null,
-        codice: String(riga.codice ?? ""),
-        descrizione: String(riga.descrizione ?? ""),
-        quantita: Number(riga.quantita) || 0,
-        unitaMisura: String(riga.unita_misura ?? "nr"),
-        prezzoUnitario: Number(riga.prezzo_unitario) || 0,
-        scontoPercentuale: Number(riga.sconto_percentuale) || 0,
-        ivaPercentuale: Number(riga.iva_percentuale) || 22,
-        isSpedizione: Boolean(riga.is_spedizione),
-        note: String(riga.note ?? ""),
-      }));
+      fatturaRighe = (salvate ?? []).map((riga) => {
+        const marca = leggiMarcaSconti(String(riga.note ?? ""));
+        const doppio = marca.listino > 0 || marca.extra > 0;
+        return {
+          prodottoId: riga.prodotto_id ? String(riga.prodotto_id) : null,
+          codice: String(riga.codice ?? ""),
+          descrizione: String(riga.descrizione ?? ""),
+          quantita: Number(riga.quantita) || 0,
+          unitaMisura: String(riga.unita_misura ?? "nr"),
+          prezzoUnitario: Number(riga.prezzo_unitario) || 0,
+          scontoPercentuale: doppio ? 0 : Number(riga.sconto_percentuale) || 0,
+          scontoListinoPct: marca.listino,
+          scontoExtraPct: marca.extra,
+          ivaPercentuale: Number(riga.iva_percentuale) || 22,
+          isSpedizione: Boolean(riga.is_spedizione),
+          note: marca.note,
+        };
+      });
       noteDocumento = String(fatturaSalvata.note ?? "");
       dataDocumento = String(fatturaSalvata.data_emissione || dataDocumento);
       const snap = parseDestinatarioSnapshot(fatturaSalvata.destinatario_snapshot);
@@ -763,6 +775,22 @@ export async function inviaCopiaControlloOrdineAction(raw: {
     if (documento === "fattura" && /^\d+\/20\d{2}$/.test(numeroBozza)) {
       numeroFattura = numeroBozza;
     }
+    if (documento === "proforma") {
+      const { data: proformaSalvata } = await supabase
+        .from("fatture_emesse")
+        .select("numero_fattura")
+        .eq("ordine_id", ordine.id)
+        .eq("tipo_documento", "proforma")
+        .is("deleted_at", null)
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      const salvato = String(
+        (proformaSalvata as { numero_fattura?: string | null } | null)
+          ?.numero_fattura ?? ""
+      ).trim();
+      if (isNumeroProformaAssegnato(salvato)) numeroFattura = salvato;
+    }
   }
 
   const destinatario = destinatarioDocumento ?? {
@@ -809,7 +837,9 @@ export async function inviaCopiaControlloOrdineAction(raw: {
           .filter((riga) => riga !== "")
           .join("\n")
       : [
-          "Copia di controllo. Non inviata al cliente e non trasmessa allo SDI. Il numero non è stato assegnato.",
+          documento === "proforma"
+            ? "Copia di controllo. Non inviata al cliente e non trasmessa allo SDI."
+            : "Copia di controllo. Non inviata al cliente e non trasmessa allo SDI. Il numero non è stato assegnato.",
           "",
           `Gentile ${destinatario.ragioneSociale},`,
           "",

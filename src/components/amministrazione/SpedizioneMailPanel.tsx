@@ -830,7 +830,7 @@ export function SpedizioneMailPanel({
                 setInviaMailDocumento(true);
               }}
             />
-            Fattura proforma. Resta sull&apos;ordine, senza numero e senza SDI
+            Fattura proforma. Resta sull&apos;ordine, con il suo numero, senza SDI
           </label>
           ) : null}
           {passaProforma !== true ? (

@@ -39,7 +39,9 @@ import {
 } from "@/lib/amministrazione/ordine-pagamento-piano";
 import {
   assegnaNumeroProforma,
+  anteprimaNumeroProforma,
   isNumeroFatturaEmessa,
+  isNumeroProformaAssegnato,
   anteprimaNumeroFattura,
 } from "@/lib/amministrazione/numero-fattura";
 import {
@@ -365,6 +367,23 @@ export async function anteprimaNumeroFatturaBozzaAction(
   }
 }
 
+async function numeroProformaVisibile(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  dataDocumento: string,
+  numeroSalvato: string | null,
+  giaConvertita: boolean
+): Promise<string | null> {
+  if (giaConvertita) return null;
+  const salvato = String(numeroSalvato ?? "").trim();
+  if (isNumeroProformaAssegnato(salvato)) return salvato;
+  try {
+    const anteprima = await anteprimaNumeroProforma(supabase, dataDocumento);
+    return anteprima.numeroFattura;
+  } catch {
+    return null;
+  }
+}
+
 export async function getFatturaA4ContextAction(input: {
   ordineId: string;
   /** Ricostruisce le righe dall'ordine, senza leggere la fattura già salvata. */
@@ -672,10 +691,12 @@ export async function getFatturaA4ContextAction(input: {
       fatturaEsistenteId: existingRow?.id ?? null,
       righeDaFatturaSalvata,
       proformaId: proforma && !proforma.fattura_definitiva_id ? proforma.id : null,
-      proformaNumero:
-        proforma && !proforma.fattura_definitiva_id
-          ? proforma.numero_fattura || proforma.numero_interno
-          : null,
+      proformaNumero: await numeroProformaVisibile(
+        supabase,
+        dataDocumento,
+        proforma && !proforma.fattura_definitiva_id ? proforma.numero_fattura : null,
+        Boolean(proforma?.fattura_definitiva_id)
+      ),
       proformaConvertitaNumero,
       noteDocumento,
       possibileClienteId,
@@ -1100,7 +1121,7 @@ export async function materializzaNumeroDocumento(
     };
   }
   const dataDocumento = String(data.data_emissione ?? "").slice(0, 10);
-  if (tipo === "proforma" && /^PR-\d+\/20\d{2}$/.test(numero)) {
+  if (tipo === "proforma" && isNumeroProformaAssegnato(numero)) {
     return { success: true, numeroFattura: numero, numeroInterno: interno || numero };
   }
   if (tipo !== "proforma" && isNumeroFatturaEmessa(numero)) {
@@ -2535,7 +2556,30 @@ export async function saveProformaDaOrdineAction(raw: unknown): Promise<
         error: "Questa proforma è già stata convertita in fattura.",
       };
     }
-    numeroProforma = row.numero_fattura;
+    numeroProforma = isNumeroProformaAssegnato(row.numero_fattura)
+      ? row.numero_fattura
+      : "";
+    if (!numeroProforma) {
+      try {
+        const assegnato = await assegnaNumeroProforma(supabase, input.dataDocumento);
+        numeroProforma = assegnato.numeroFattura;
+      } catch (e) {
+        return {
+          success: false,
+          error: e instanceof Error ? e.message : "Numerazione proforma non disponibile.",
+        };
+      }
+      const { error: numErr } = await supabase
+        .from("fatture_emesse")
+        .update({
+          numero_fattura: numeroProforma,
+          numero_interno: numeroProforma,
+          numero_documento_esterno: numeroProforma,
+          updated_by: auth.userId,
+        })
+        .eq("id", proformaId);
+      if (numErr) return { success: false, error: numErr.message };
+    }
     const { error: upErr } = await supabase
       .from("fatture_emesse")
       .update({
@@ -2592,6 +2636,25 @@ export async function saveProformaDaOrdineAction(raw: unknown): Promise<
       return { success: false, error: insErr?.message ?? "Proforma non salvata." };
     }
     proformaId = String((inserted as { id: string }).id);
+    try {
+      const assegnato = await assegnaNumeroProforma(supabase, input.dataDocumento);
+      numeroProforma = assegnato.numeroFattura;
+    } catch (e) {
+      return {
+        success: false,
+        error: e instanceof Error ? e.message : "Numerazione proforma non disponibile.",
+      };
+    }
+    const { error: numErr } = await supabase
+      .from("fatture_emesse")
+      .update({
+        numero_fattura: numeroProforma,
+        numero_interno: numeroProforma,
+        numero_documento_esterno: numeroProforma,
+        updated_by: auth.userId,
+      })
+      .eq("id", proformaId);
+    if (numErr) return { success: false, error: numErr.message };
     const righeErr = await replaceFatturaRighe(
       supabase,
       proformaId,
@@ -2604,7 +2667,7 @@ export async function saveProformaDaOrdineAction(raw: unknown): Promise<
       entity_id: proformaId,
       action: "create",
       actor_id: auth.userId,
-      summary: `Proforma prenotata senza numero da ordine ${ctx.numeroOrdine}`,
+      summary: `Proforma ${numeroProforma} da ordine ${ctx.numeroOrdine}`,
       payload: { ordineId: input.ordineId, numeroProforma },
     });
   }

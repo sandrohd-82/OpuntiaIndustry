@@ -35,10 +35,7 @@ import {
   type FatturaA4Riga,
   type FatturaDestinatarioSnapshot,
 } from "@/lib/amministrazione/fattura-a4-documento";
-import {
-  buildFatturaA4PdfPronto,
-  PROFORMA_DICITURA_FISCALE,
-} from "@/lib/amministrazione/fattura-a4-pdf";
+import { buildFatturaA4PdfPronto } from "@/lib/amministrazione/fattura-a4-pdf";
 import type { FatturaInvioMailDraft } from "@/lib/amministrazione/fattura-invio-mail";
 import { isNumeroFatturaEmessa } from "@/lib/amministrazione/numero-fattura";
 import {
@@ -953,7 +950,7 @@ export function FatturaA4Modal({
             <PreventivoA4Letterhead
               numero={
                 vista === "proforma"
-                  ? proformaNumero || "PR-…"
+                  ? proformaNumero || "…"
                   : (isNumeroFatturaEmessa(numero)
                     ? numero
                     : numeroProvvisorio || "…")
@@ -968,11 +965,6 @@ export function FatturaA4Modal({
               <p className="mt-3 rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-950 print:hidden">
                 Numero fattura {numeroProvvisorio}. Il numero è provvisorio: se
                 una fattura verrà emessa prima, il numero slitterà di uno.
-              </p>
-            ) : null}
-            {vista === "proforma" ? (
-              <p className="mt-4 rounded-md bg-red-600 px-4 py-3 text-base font-bold leading-snug text-white">
-                {PROFORMA_DICITURA_FISCALE}
               </p>
             ) : null}
             {proformaConvertitaNumero && vista === "fattura" ? (
