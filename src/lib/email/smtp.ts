@@ -1,3 +1,4 @@
+import { randomBytes } from "crypto";
 import { connect as tlsConnect, type TLSSocket } from "tls";
 import { EMAIL_OTP_TTL_MINUTES } from "@/lib/auth/constants";
 
@@ -128,10 +129,13 @@ export async function sendSmtpPlain(input: {
     await sendCommand(socket, `MAIL FROM:<${input.from}>`, [250]);
     await sendCommand(socket, `RCPT TO:<${input.to}>`, [250, 251]);
     await sendCommand(socket, "DATA", [354]);
+    const dominio = input.from.split("@")[1] || "localhost";
     const message = [
       `From: Agrinsicilia <${input.from}>`,
       `To: <${input.to}>`,
       `Subject: ${subject}`,
+      `Date: ${new Date().toUTCString()}`,
+      `Message-ID: <${Date.now()}.${randomBytes(8).toString("hex")}@${dominio}>`,
       "MIME-Version: 1.0",
       "Content-Type: text/plain; charset=UTF-8",
       "Content-Transfer-Encoding: 8bit",
@@ -181,10 +185,13 @@ export async function sendSmtpMail(options: {
     await sendCommand(socket, "DATA", [354]);
 
     const boundary = `----=_Industry_${Date.now()}`;
+    const dominio = config.from.split("@")[1] || "localhost";
     const message = [
       `From: Industry Gestionale <${config.from}>`,
       `To: <${options.to}>`,
       `Subject: ${options.subject}`,
+      `Date: ${new Date().toUTCString()}`,
+      `Message-ID: <${Date.now()}.${randomBytes(8).toString("hex")}@${dominio}>`,
       "MIME-Version: 1.0",
       `Content-Type: multipart/alternative; boundary="${boundary}"`,
       "",

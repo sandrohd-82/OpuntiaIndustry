@@ -1,7 +1,5 @@
-import { sendSmtpPlain } from "@/lib/email/smtp";
 import { createServiceClient } from "@/lib/supabase/service";
-import { decryptWebmailSecret } from "@/lib/webmail/crypto";
-import type { AccountRow } from "@/lib/webmail/sync";
+import { sendMailViaAccount, type AccountRow } from "@/lib/webmail/sync";
 
 export const CASELLA_ANAGRAFICA = "info@agrinsicilia.com";
 
@@ -26,9 +24,9 @@ export async function casellaInvioAnagrafica(): Promise<AccountRow | null> {
 export const ERRORE_CASELLA_ANAGRAFICA =
   "La mail non è partita: manca la casella info@agrinsicilia.com con SMTP.";
 
-/** Risposta SMTP 525: l'invio è sospeso anche se Stato casella è già «Casella attiva». */
+/** Risposta SMTP 525: rifiuto temporaneo dell'invio, con la casella e la password ancora valide. */
 export const ERRORE_INVIO_SOSPESO_ARUBA =
-  "Aruba ha sospeso solo l'invio di info@agrinsicilia.com. Se in Stato casella leggi già Casella attiva, non c'è Abilita: da Dettagli cambia la password della casella e salva la stessa password nel gestionale.";
+  "Aruba ha rifiutato l'invio di info@agrinsicilia.com. La password è valida e la casella è attiva. Riprova tra un minuto.";
 
 export function arubaHaSospesoInvio(testo: string): boolean {
   return /\b525\b|disabilitato per la casella|sending temporarily disabled/i.test(testo);
@@ -42,14 +40,17 @@ export async function inviaDaCasellaAnagrafica(input: {
 }): Promise<void> {
   const account = await casellaInvioAnagrafica();
   if (!account) throw new Error(ERRORE_CASELLA_ANAGRAFICA);
-  await sendSmtpPlain({
-    host: account.smtp_host,
-    port: Number(account.smtp_port) || 465,
-    user: account.username,
-    pass: decryptWebmailSecret(account.password_encrypted),
-    from: account.email_address,
+  const html = input.text
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/\n/g, "<br/>");
+  await sendMailViaAccount({
+    account,
     to: input.to,
     subject: input.subject,
     text: input.text,
+    html,
+    fromName: "Agrinsicilia",
   });
 }

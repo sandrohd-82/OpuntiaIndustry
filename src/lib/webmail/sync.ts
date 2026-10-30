@@ -2779,6 +2779,7 @@ export async function sendMailViaAccount(input: {
   subject: string;
   text: string;
   html?: string;
+  fromName?: string;
   attachments?: Array<{
     filename: string;
     content: Buffer;
@@ -2795,8 +2796,11 @@ export async function sendMailViaAccount(input: {
       pass: password,
     },
   });
+  const nome = input.fromName?.trim();
   const info = await transporter.sendMail({
-    from: input.account.email_address,
+    from: nome
+      ? { name: nome, address: input.account.email_address }
+      : input.account.email_address,
     to: input.to,
     cc: input.cc || undefined,
     subject: input.subject,

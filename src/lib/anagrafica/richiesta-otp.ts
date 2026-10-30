@@ -225,9 +225,11 @@ export async function richiediOtpFirma(input: {
         .replace(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi, "[email]")
         .replace(/\s+/g, " ")
         .slice(0, 180);
-      if (tentativo === 0) {
+      const rifiutoPermanente = /\b5\d\d\b/.test(motivo);
+      if (tentativo === 0 && !rifiutoPermanente) {
         await new Promise((resolve) => setTimeout(resolve, 3000));
       }
+      if (rifiutoPermanente) break;
     }
   }
   if (motivo) {
