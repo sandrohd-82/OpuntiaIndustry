@@ -524,25 +524,61 @@ export async function inviaCopiaControlloOrdineAction(raw: {
   const { data: ordine, error: ordineErr } = await supabase
     .from("ordini")
     .select(
-      "id, numero_interno, cliente_id, cliente_ragione_sociale, sconto_extra_pct, prezzo_listino_unitario, spedizione_importo, spedizione_a_carico, spedizione_iva_modo, trasporto_imponibile, trasporto_iva_percentuale"
+      "id, numero_interno, cliente_id, cliente_possibile_id, cliente_ragione_sociale, sconto_extra_pct, prezzo_listino_unitario, spedizione_importo, spedizione_a_carico, spedizione_iva_modo, trasporto_imponibile, trasporto_iva_percentuale"
     )
     .eq("id", parsed.data.ordineId)
     .is("deleted_at", null)
     .maybeSingle();
   if (ordineErr) return { success: false, error: ordineErr.message };
-  if (!ordine?.cliente_id) {
-    return { success: false, error: "L'ordine non ha un cliente registrato." };
+  if (!ordine) return { success: false, error: "Ordine non trovato." };
+  type AnagraficaMail = {
+    ragione_sociale: string;
+    partita_iva: string | null;
+    codice_fiscale: string | null;
+    email: string | null;
+    sede_amm_nazione: string | null;
+    sede_amm_provincia: string | null;
+    sede_amm_citta: string | null;
+    sede_amm_cap: string | null;
+    sede_amm_indirizzo: string | null;
+  };
+  let cliente: AnagraficaMail | null = null;
+  if (ordine.cliente_id) {
+    const { data: clienteRow, error: clienteErr } = await supabase
+      .from("clienti")
+      .select(
+        "ragione_sociale, partita_iva, codice_fiscale, email, sede_amm_nazione, sede_amm_provincia, sede_amm_citta, sede_amm_cap, sede_amm_indirizzo"
+      )
+      .eq("id", ordine.cliente_id)
+      .is("deleted_at", null)
+      .maybeSingle();
+    if (clienteErr) return { success: false, error: clienteErr.message };
+    cliente = (clienteRow as AnagraficaMail | null) ?? null;
+  } else if (ordine.cliente_possibile_id) {
+    const { data: lead, error: leadErr } = await supabase
+      .from("clienti_possibili")
+      .select(
+        "ragione_sociale, partita_iva, codice_fiscale, email, sede_amm_nazione, sede_amm_provincia, sede_amm_citta, sede_amm_cap, sede_amm_indirizzo"
+      )
+      .eq("id", ordine.cliente_possibile_id)
+      .is("deleted_at", null)
+      .maybeSingle();
+    if (leadErr) return { success: false, error: leadErr.message };
+    cliente = (lead as AnagraficaMail | null) ?? null;
   }
-  const { data: cliente, error: clienteErr } = await supabase
-    .from("clienti")
-    .select(
-      "id, ragione_sociale, partita_iva, codice_fiscale, email, pec, sede_amm_nazione, sede_amm_provincia, sede_amm_citta, sede_amm_cap, sede_amm_indirizzo"
-    )
-    .eq("id", ordine.cliente_id)
-    .is("deleted_at", null)
-    .maybeSingle();
-  if (clienteErr) return { success: false, error: clienteErr.message };
-  if (!cliente) return { success: false, error: "Cliente non trovato." };
+  if (!cliente) {
+    cliente = {
+      ragione_sociale: String(ordine.cliente_ragione_sociale ?? "Cliente"),
+      partita_iva: "",
+      codice_fiscale: "",
+      email: "",
+      sede_amm_nazione: "",
+      sede_amm_provincia: "",
+      sede_amm_citta: "",
+      sede_amm_cap: "",
+      sede_amm_indirizzo: "",
+    };
+  }
   const bozza = parsed.data.bozza;
   let righeDocumento: FatturaA4Riga[] = [];
   let destinatarioDocumento: FatturaDestinatarioSnapshot | null = bozza
@@ -581,7 +617,10 @@ export async function inviaCopiaControlloOrdineAction(raw: {
       .from("fatture_emesse")
       .select("id, data_emissione, note, destinatario_snapshot, cliente_ragione_sociale")
       .eq("ordine_id", ordine.id)
-      .eq("tipo_documento", "fattura")
+      .eq(
+        "tipo_documento",
+        (parsed.data.documento ?? "fattura") === "proforma" ? "proforma" : "fattura"
+      )
       .is("deleted_at", null)
       .order("created_at", { ascending: false })
       .limit(1)
@@ -742,7 +781,7 @@ export async function inviaCopiaControlloOrdineAction(raw: {
   };
   const dataIt = data.split("-").reverse().join("/");
   const prodotti = righeDocumento.map((riga) => riga.descrizione).join(", ");
-  const titoloDoc = documento === "proforma" ? "Proforma" : "Fattura";
+  const titoloDoc = documento === "proforma" ? "Fattura proforma" : "Fattura";
   const subject =
     parsed.data.oggetto?.trim() ||
     (documento === "informativa"
@@ -774,7 +813,7 @@ export async function inviaCopiaControlloOrdineAction(raw: {
           "",
           `Gentile ${destinatario.ragioneSociale},`,
           "",
-          `in allegato trova ${documento === "proforma" ? "la proforma" : "la fattura"} ${numeroFattura} del ${dataIt}.`,
+          `in allegato trova ${documento === "proforma" ? "la fattura proforma" : "la fattura"} ${numeroFattura} del ${dataIt}.`,
           `Ordine di riferimento: ${ordine.numero_interno}.`,
           `Voci: ${prodotti}.`,
           tracking ? `Tracking: ${tracking}` : "",

@@ -2116,7 +2116,7 @@ export function OrdineNuovoWizardModal({
         } else if (FASE_TEST_INVIO && !modificaOrdineId) {
           const documentoSalvato =
             docMail === "proforma"
-              ? "Proforma e fattura sono salvate senza numero."
+              ? "La fattura proforma è salvata senza numero, come la fattura."
               : "La fattura è salvata senza numero.";
           messaggioFinale = `Ordine ${result.ordine.numeroInterno} registrato. ${documentoSalvato} La mail si compila adesso e parte solo verso sandrohd@gmail.com. Lo SDI non parte e il progressivo non viene consumato.`;
         }

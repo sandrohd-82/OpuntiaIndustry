@@ -2,10 +2,10 @@
 export const EMAIL_CONTROLLO_DEFAULT = "sandrohd@gmail.com";
 
 /**
- * Fase test spenta: dal passaggio in produzione la fattura va allo SDI
- * e la mail di cortesia va al cliente.
+ * Fase test accesa sugli ordini: lo SDI non parte e il numero fiscale
+ * non viene consumato. Ogni mail di ordine va solo a sandrohd@gmail.com.
  */
-export const FASE_TEST_INVIO = false;
+export const FASE_TEST_INVIO = true;
 
 /** Serie lasciata solo per riconoscere un eventuale ordine di prova già salvato. */
 export const PREFISSO_FATTURA_PROVA = "PROVA-";

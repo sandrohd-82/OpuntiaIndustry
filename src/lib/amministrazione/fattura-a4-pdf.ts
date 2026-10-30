@@ -40,7 +40,7 @@ function safeFilePart(value: string) {
 }
 
 export function fatturaA4PdfFileName(numeroFattura: string, proforma = false) {
-  const prefix = proforma ? "Proforma" : "Fattura";
+  const prefix = proforma ? "Fattura-proforma" : "Fattura";
   return `${prefix}_${safeFilePart(numeroFattura || "bozza")}.pdf`;
 }
 
@@ -202,7 +202,7 @@ export function buildFatturaA4PdfBlob(input: FatturaA4PdfInput): {
   );
   doc.setFont("helvetica", "bold");
   doc.setFontSize(11);
-  const etichetta = input.proforma ? "PROFORMA" : "FATTURA";
+  const etichetta = input.proforma ? "FATTURA PROFORMA" : "FATTURA";
   rightY =
     testoDestra(
       doc,

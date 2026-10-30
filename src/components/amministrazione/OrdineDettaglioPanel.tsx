@@ -27,7 +27,7 @@ import {
 } from "@/components/amministrazione/OrdineAvvisoRitiroBanner";
 import { labelSede } from "@/lib/impostazioni/sedi";
 import type { SpedizioneMailPrenotazione } from "@/lib/amministrazione/spedizione-mail";
-import { MailOrdineFaseTestModal } from "@/components/amministrazione/MailOrdineFaseTestModal";
+import { StaccaFatturaModal } from "@/components/amministrazione/StaccaFatturaModal";
 import { OrdineAuditLogModal } from "@/components/amministrazione/OrdineAuditLogModal";
 import { OrdineSchedaAziendaModal } from "@/components/amministrazione/OrdineSchedaAziendaModal";
 import {
@@ -119,9 +119,14 @@ function labelCarico(ordine: Ordine): string {
 type Props = {
   ordine: Ordine;
   onEdit?: () => void;
+  onStaccaFattura?: () => void;
 };
 
-export function OrdineDettaglioPanel({ ordine, onEdit }: Props) {
+export function OrdineDettaglioPanel({
+  ordine,
+  onEdit,
+  onStaccaFattura,
+}: Props) {
   const [auditOpen, setAuditOpen] = useState(false);
   const [schedaAzienda, setSchedaAzienda] = useState(false);
   const [stacca, setStacca] = useState(false);
@@ -211,7 +216,10 @@ export function OrdineDettaglioPanel({ ordine, onEdit }: Props) {
           {ordine.tipo === "vendita" ? (
             <button
               type="button"
-              onClick={() => setStacca(true)}
+              onClick={() => {
+                if (onStaccaFattura) onStaccaFattura();
+                else setStacca(true);
+              }}
               className="rounded-lg border border-[var(--primary)] px-3 py-1.5 text-xs font-medium text-[var(--primary)]"
             >
               Stacca fattura
@@ -278,19 +286,11 @@ export function OrdineDettaglioPanel({ ordine, onEdit }: Props) {
           onClose={() => setSchedaAzienda(false)}
         />
       ) : null}
-      {stacca ? (
-        <MailOrdineFaseTestModal
-          ordineId={ordine.id}
-          numeroOrdine={ordine.numeroInterno}
-          accountId={mail?.accountId ?? ""}
-          documento="fattura"
-          allegaPdf
-          allegaTracking={Boolean(mail && mail.trackingUrl.trim())}
-          trackingUrl={mail?.trackingUrl ?? ""}
-          oggetto={`Fattura ordine ${ordine.numeroInterno}`}
-          corpo={`Gentile ${ordine.cliente},\n\nin allegato la fattura dell'ordine ${ordine.numeroInterno}.\n\nCordiali saluti,\nUfficio Amministrazione`}
+      {stacca && !onStaccaFattura ? (
+        <StaccaFatturaModal
+          ordine={ordine}
           onClose={() => setStacca(false)}
-          onInviata={(messaggio) => {
+          onFatto={(messaggio) => {
             setStacca(false);
             setStaccaMsg(messaggio);
           }}

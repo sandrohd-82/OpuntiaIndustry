@@ -31,7 +31,10 @@ import {
   AGRINSICILIA_LETTERHEAD,
   AGRINSICILIA_MAIL_FIRMA,
 } from "@/lib/amministrazione/preventivo-letterhead";
-import { FASE_TEST_INVIO } from "@/lib/amministrazione/prova-ordine";
+import {
+  EMAIL_CONTROLLO_DEFAULT,
+  FASE_TEST_INVIO,
+} from "@/lib/amministrazione/prova-ordine";
 
 function testoIntroSpedizione(input: {
   persistDisabled: boolean;
@@ -330,7 +333,7 @@ export function SpedizioneMailPanel({
       documentoMail,
       inviaMailDocumento,
       allegaTrackingMail: ritiroInSede ? false : allegaTrackingMail,
-      destinatarioEmail: destEmail,
+      destinatarioEmail: FASE_TEST_INVIO ? EMAIL_CONTROLLO_DEFAULT : destEmail,
       sedePartenzaId,
       bozzaPronta,
       mailAccountId,
@@ -471,7 +474,7 @@ export function SpedizioneMailPanel({
         allegaTracking: vuoleMail,
         allegaLettera: false,
         allegaFile: false,
-        destinatarioEmail: destEmail,
+        destinatarioEmail: FASE_TEST_INVIO ? EMAIL_CONTROLLO_DEFAULT : destEmail,
         oggetto,
         corpo,
         accountId: mailAccountId || null,
@@ -546,7 +549,7 @@ export function SpedizioneMailPanel({
         allegaTracking: true,
         allegaLettera: false,
         allegaFile: false,
-        destinatarioEmail: destEmail,
+        destinatarioEmail: FASE_TEST_INVIO ? EMAIL_CONTROLLO_DEFAULT : destEmail,
         oggetto: mailOggetto,
         corpo: mailCorpo,
         accountId: mailAccountId || null,
@@ -565,7 +568,9 @@ export function SpedizioneMailPanel({
       const inviata = await inviaMailSpedizioneAction({
         prenotazioneId: salvata.item.id,
         accountId,
-        to: salvata.item.destinatarioEmail,
+        to: FASE_TEST_INVIO
+          ? EMAIL_CONTROLLO_DEFAULT
+          : salvata.item.destinatarioEmail,
         subject: salvata.item.oggetto,
         bodyText: salvata.item.corpo,
       });
@@ -810,7 +815,7 @@ export function SpedizioneMailPanel({
                 setInviaMailDocumento(true);
               }}
             />
-            Proforma. La fattura resta sull&apos;ordine, senza numero
+            Fattura proforma. Resta sull&apos;ordine, senza numero e senza SDI
           </label>
           <label className="flex items-center gap-2">
             <input
@@ -832,7 +837,7 @@ export function SpedizioneMailPanel({
                 onChange={(e) => setInviaMailDocumento(e.target.checked)}
               />
               {documentoMail === "proforma"
-                ? "Invia mail con proforma"
+                ? "Invia mail con fattura proforma"
                 : "Invia mail con fattura"}
             </label>
           ) : null}

@@ -767,7 +767,7 @@ export function FatturaA4Modal({
       ) : null}
       <div className="mx-auto mb-4 flex max-w-[210mm] items-center justify-between gap-3 print:hidden">
         <h2 id={titleId} className="text-sm font-semibold text-white">
-          {vista === "proforma" ? "Proforma da ordine" : "Fattura da ordine"}
+          {vista === "proforma" ? "Fattura proforma da ordine" : "Fattura da ordine"}
           {soloSessione && !ORDINI_PERSISTENZA_DEFINITIVA ? " · sessione" : ""}
         </h2>
         <div className="flex flex-wrap justify-end gap-2">
@@ -947,7 +947,7 @@ export function FatturaA4Modal({
               }
               dataPreventivo={dataDocumento}
               commerciale={commerciale}
-              documentoLabel={vista === "proforma" ? "PROFORMA" : "FATTURA"}
+              documentoLabel={vista === "proforma" ? "FATTURA PROFORMA" : "FATTURA"}
               onEditData={() => openEdit("data")}
               onEditCommerciale={() => openEdit("commerciale")}
             />

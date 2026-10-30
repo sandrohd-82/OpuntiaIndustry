@@ -39,7 +39,7 @@ export function bozzaMailOrdine(input: {
     };
   }
   const proforma = input.documento === "proforma";
-  const titolo = proforma ? "Proforma" : "Fattura";
+  const titolo = proforma ? "Fattura proforma" : "Fattura";
   if (!proforma && input.allegaPdf) {
     const cortesia = testoMailFatturaCortesia({
       numeroOrdine: ordine,
@@ -50,7 +50,7 @@ export function bozzaMailOrdine(input: {
       bodyText: righe([cortesia.bodyText, trackingRiga]),
     };
   }
-  const nomeDoc = proforma ? "la proforma" : "la fattura";
+  const nomeDoc = proforma ? "la fattura proforma" : "la fattura";
   const corpoAllegato = input.allegaPdf
     ? `in allegato trova ${nomeDoc} dell'ordine${ordineTesto}.`
     : `le scriviamo in merito all'ordine${ordineTesto}. ${titolo} non è allegata a questa mail.`;

@@ -37,7 +37,9 @@ type Props = {
 function titolo(documento: Documento, allegaPdf: boolean): string {
   if (documento === "informativa") return "Mail informativa";
   if (documento === "proforma") {
-    return allegaPdf ? "Mail con proforma" : "Mail senza proforma allegata";
+    return allegaPdf
+      ? "Mail con fattura proforma"
+      : "Mail senza fattura proforma allegata";
   }
   return allegaPdf ? "Mail con fattura" : "Mail senza fattura allegata";
 }
@@ -133,7 +135,9 @@ export function MailOrdineFaseTestModal({
         return;
       }
       onInviata(
-        `Mail dell'ordine ${res.numeroOrdine} inviata solo a ${res.email}. In allegato c'è la fattura della bozza. Lo SDI non è stato chiamato e il numero non è stato consumato.`
+        documento === "proforma"
+          ? `Mail dell'ordine ${res.numeroOrdine} inviata solo a ${res.email}. In allegato c'è la fattura proforma. Lo SDI non è stato chiamato e il numero non è stato consumato.`
+          : `Mail dell'ordine ${res.numeroOrdine} inviata solo a ${res.email}. In allegato c'è la fattura della bozza. Lo SDI non è stato chiamato e il numero non è stato consumato.`
       );
     } catch (e) {
       setBusy(false);

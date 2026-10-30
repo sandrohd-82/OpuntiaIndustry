@@ -606,16 +606,9 @@ export async function inviaMailSpedizioneAction(
     d.produzioneReale === true &&
     ((await documentoInCodaDaProcessare(item.entityType, item.entityId)) ||
       (await spedizioneUnicaMailInAttesa(item.entityType, item.entityId)));
-  if (
-    FASE_TEST_INVIO &&
-    !invioReale &&
-    d.to.trim().toLowerCase() !== EMAIL_CONTROLLO_DEFAULT
-  ) {
-    return {
-      success: false,
-      error: `Fase test: la mail parte solo verso ${EMAIL_CONTROLLO_DEFAULT}. Il cliente e lo SDI non vengono contattati.`,
-    };
-  }
+  const destinatarioMail = FASE_TEST_INVIO
+    ? EMAIL_CONTROLLO_DEFAULT
+    : d.to.trim();
   if (item.stato === "inviata") {
     return { success: false, error: "Mail già inviata." };
   }
@@ -691,7 +684,7 @@ export async function inviaMailSpedizioneAction(
         username: string;
         password_encrypted: string;
       },
-      to: d.to,
+      to: destinatarioMail,
       subject: d.subject,
       text,
       html: htmlMailSpedizioneConFirma(body, trackingNelTesto),
@@ -710,7 +703,7 @@ export async function inviaMailSpedizioneAction(
     .update({
       stato: "inviata",
       documento_stato: "chiuso",
-      destinatario_email: d.to,
+      destinatario_email: destinatarioMail,
       oggetto: d.subject,
       corpo: text,
       account_id: accountEffettivo,
@@ -727,14 +720,14 @@ export async function inviaMailSpedizioneAction(
     entity_id: item.id,
     action: "status_change",
     actor_id: auth.userId,
-    summary: `Inviata mail spedizione a ${d.to}`,
+    summary: `Inviata mail spedizione a ${destinatarioMail}`,
     payload: {
       entity_type: item.entityType,
       entity_id: item.entityId,
       stato_da: item.stato,
       stato_a: "inviata",
       produzione_reale: invioReale,
-      destinatario: d.to,
+      destinatario: destinatarioMail,
     },
   });
   return { success: true };

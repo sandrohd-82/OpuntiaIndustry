@@ -4,12 +4,14 @@ export function ConfermaPromozioneSdiModal({
   nome,
   occupato,
   etichettaConferma = "Conferma e invia allo SDI",
+  nota,
   onAnnulla,
   onConferma,
 }: {
   nome: string;
   occupato?: boolean;
   etichettaConferma?: string;
+  nota?: string;
   onAnnulla: () => void;
   onConferma: () => void;
 }) {
@@ -32,6 +34,7 @@ export function ConfermaPromozioneSdiModal({
         <p className="mt-2 text-sm text-slate-700">
           Se l&apos;invio allo SDI non riesce, resta possibile cliente.
         </p>
+        {nota ? <p className="mt-2 text-sm text-slate-700">{nota}</p> : null}
         <div className="mt-5 flex flex-wrap justify-end gap-2">
           <button
             type="button"

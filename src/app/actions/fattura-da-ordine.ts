@@ -1424,6 +1424,7 @@ async function inviaMailPdfComeBozza(input: {
   userId: string;
   oggetto?: string;
   corpo?: string;
+  accountId?: string;
 }): Promise<void> {
   const service = createServiceClient();
   const loghi = await caricaLoghiFatturaA4Server();
@@ -1457,8 +1458,8 @@ async function inviaMailPdfComeBozza(input: {
     loghi,
   });
   const bytes = Buffer.from(await pdf.blob.arrayBuffer());
-  let accountIdScelto = "";
-  if (input.fattura.ordine_id) {
+  let accountIdScelto = (input.accountId ?? "").trim();
+  if (!accountIdScelto && input.fattura.ordine_id) {
     const { data: prenotazione } = await service
       .from("spedizione_mail_prenotazioni")
       .select("account_id")
@@ -1648,17 +1649,121 @@ export async function fatturaRichiedePromozioneSdiAction(
   };
 }
 
+/** Prova ordine: nessun numero fiscale e nessuna chiamata allo SDI. La copia, se chiesta, va solo alla casella di controllo. */
+async function invioProvaSenzaSdi(input: {
+  fattura: FatturaEmessaRow;
+  supabase: Awaited<ReturnType<typeof createClient>>;
+  userId: string;
+  sendCourtesyEmail?: boolean;
+  oggettoMail?: string;
+  corpoMail?: string;
+  accountIdMail?: string;
+}): Promise<SalvaFatturaDaOrdineResult> {
+  const numeroBozza =
+    input.fattura.numero_fattura?.trim() ||
+    input.fattura.numero_interno?.trim() ||
+    "bozza";
+  let courtesyEmailSent = false;
+  if (input.sendCourtesyEmail) {
+    const dest = parseDestinatarioSnapshot(input.fattura.destinatario_snapshot) ?? {
+      ragioneSociale: input.fattura.cliente_ragione_sociale || "Cliente",
+      partitaIva: "",
+      codiceFiscale: "",
+      email: EMAIL_CONTROLLO_DEFAULT,
+      sede: {
+        nazione: "",
+        provincia: "",
+        citta: "",
+        cap: "",
+        indirizzo: "",
+      },
+    };
+    let righe: Awaited<ReturnType<typeof loadFatturaRighe>> = [];
+    try {
+      righe = await loadFatturaRighe(input.supabase, input.fattura.id);
+    } catch (e) {
+      return {
+        success: false,
+        error: e instanceof Error ? e.message : "Righe fattura non leggibili.",
+      };
+    }
+    const { data: dilazioni } = await input.supabase
+      .from("fatture_emesse_dilazioni")
+      .select("*")
+      .eq("fattura_id", input.fattura.id)
+      .is("deleted_at", null)
+      .order("sort_order", { ascending: true });
+    try {
+      await inviaMailPdfComeBozza({
+        fattura: input.fattura,
+        righe: righe as unknown as Array<Record<string, unknown>>,
+        dilazioni: (dilazioni ?? []) as Array<Record<string, unknown>>,
+        destinatario: dest,
+        mailTo: EMAIL_CONTROLLO_DEFAULT,
+        numeroFattura: numeroBozza,
+        userId: input.userId,
+        oggetto: input.oggettoMail,
+        corpo: input.corpoMail,
+        accountId: input.accountIdMail,
+      });
+      courtesyEmailSent = true;
+    } catch (e) {
+      return {
+        success: false,
+        error:
+          e instanceof Error
+            ? e.message
+            : "La copia non è partita. Lo SDI non è stato chiamato.",
+      };
+    }
+  }
+  await writeAuditLog({
+    entity_type: "fatture_emesse",
+    entity_id: input.fattura.id,
+    action: "update",
+    actor_id: input.userId,
+    summary:
+      "Fase test: invio allo SDI non eseguito. Il numero fiscale non è stato assegnato.",
+    payload: { copia_inviata: courtesyEmailSent },
+  });
+  const avvisoCopia = courtesyEmailSent
+    ? ` La copia è partita solo verso ${EMAIL_CONTROLLO_DEFAULT}.`
+    : " Nessuna copia è stata inviata.";
+  return {
+    success: true,
+    fatturaId: input.fattura.id,
+    numeroInterno: input.fattura.numero_interno || numeroBozza,
+    numeroFattura: input.fattura.numero_fattura?.trim() || numeroBozza,
+    inviata: false,
+    ficId: null,
+    pdfUrl: "",
+    eiStatus: input.fattura.ei_status || "",
+    courtesyEmailSent,
+    sdiSent: false,
+    warning: `Fase test: lo SDI non è partito e il numero fiscale non è stato usato.${avvisoCopia}`,
+  };
+}
+
 export async function inviaFatturaAttraversoSdiAction(
   fatturaId: string,
   doppiaConferma = false,
-  confermaPromozione = false
+  confermaPromozione = false,
+  copia?: {
+    invia: boolean;
+    oggetto?: string;
+    corpo?: string;
+    accountId?: string;
+  }
 ): Promise<SalvaFatturaDaOrdineResult> {
   return inviaFatturaSalvataAction({
     fatturaId,
     sendToSdi: true,
-    sendCourtesyEmail: false,
+    sendCourtesyEmail: Boolean(copia?.invia),
     doppiaConferma,
     confermaPromozione,
+    oggettoMail: copia?.oggetto,
+    corpoMail: copia?.corpo,
+    accountIdMail: copia?.accountId,
   });
 }
 
@@ -1678,6 +1783,8 @@ export async function inviaFatturaSalvataAction(input: {
   /** Testo preparato dal commerciale e completato dall'operatore. */
   oggettoMail?: string;
   corpoMail?: string;
+  /** Casella scelta nella conferma. Se manca, si usa quella salvata sull'ordine. */
+  accountIdMail?: string;
   /** Conferma esplicita del passaggio da possibile cliente a cliente. */
   confermaPromozione?: boolean;
 }): Promise<SalvaFatturaDaOrdineResult> {
@@ -1718,13 +1825,6 @@ export async function inviaFatturaSalvataAction(input: {
         "Fattura di prova: non viene inviata allo SDI, non riceve un numero fiscale e non parte al cliente.",
     };
   }
-  if (FASE_TEST_INVIO && !input.produzioneReale && input.sendToSdi !== false) {
-    return {
-      success: false,
-      error:
-        "Fase test: lo SDI è spento. La fattura si invia solo per mail a sandrohd@gmail.com e il numero non viene consumato.",
-    };
-  }
   const bloccoSpedizione = await motivoBloccoInvioClienteOrdine(fattura.ordine_id);
   if (bloccoSpedizione) return { success: false, error: bloccoSpedizione };
   if (fattura.tipo_documento === "proforma") {
@@ -1733,6 +1833,24 @@ export async function inviaFatturaSalvataAction(input: {
       error:
         "La proforma non si invia allo SDI. Convertila in fattura e poi usa Invia fattura attraverso SDI.",
     };
+  }
+  if (FASE_TEST_INVIO && input.sendToSdi !== false) {
+    if (input.doppiaConferma !== true) {
+      return {
+        success: false,
+        error:
+          "L'invio della fattura richiede la doppia conferma. Il numero non è stato assegnato e nulla è partito.",
+      };
+    }
+    return invioProvaSenzaSdi({
+      fattura,
+      supabase,
+      userId: auth.userId,
+      sendCourtesyEmail: input.sendCourtesyEmail,
+      oggettoMail: input.oggettoMail,
+      corpoMail: input.corpoMail,
+      accountIdMail: input.accountIdMail,
+    });
   }
   if (input.doppiaConferma !== true) {
     return {

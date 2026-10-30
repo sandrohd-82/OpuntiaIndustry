@@ -118,7 +118,9 @@ export async function richiediOtpFirma(input: {
   email: string;
   ip: string;
   documento?: unknown;
-}): Promise<{ scadeAt: string } | { errore: string }> {
+}): Promise<
+  { scadeAt: string; riusa?: boolean; messaggio?: string } | { errore: string }
+> {
   const documento = documentoFirmaDi(input.documento);
   if (!emailAnagraficaValida(input.email)) {
     return { errore: "Indica un'e-mail valida." };
