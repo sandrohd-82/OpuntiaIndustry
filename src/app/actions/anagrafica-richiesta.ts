@@ -73,6 +73,13 @@ export async function inviaRichiestaAnagraficaAction(input: {
     if (testo === ERRORE_CASELLA_ANAGRAFICA) {
       return { success: false, error: testo };
     }
+    if (/525|disabilitato per la casella|change password/i.test(testo)) {
+      return {
+        success: false,
+        error:
+          "La casella info@agrinsicilia.com ha l'invio in uscita disattivato: va cambiata la password della casella e aggiornata nel gestionale. Il link non è stato attivato.",
+      };
+    }
     if (/535|autentic/i.test(testo)) {
       return {
         success: false,

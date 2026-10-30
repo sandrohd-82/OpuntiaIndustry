@@ -242,6 +242,12 @@ export async function richiediOtpFirma(input: {
       summary: "Invio del codice OTP non riuscito.",
       payload: { motivo },
     });
+    if (/525|disabilitato per la casella|change password/i.test(motivo)) {
+      return {
+        errore:
+          "La casella di invio ha la posta in uscita disattivata. Va cambiata la password e aggiornata nel gestionale.",
+      };
+    }
     return {
       errore: "Invio del codice non riuscito. Attendi un minuto e riprova.",
     };
