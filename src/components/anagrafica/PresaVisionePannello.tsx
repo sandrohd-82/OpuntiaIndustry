@@ -35,6 +35,7 @@ export function PresaVisionePannello({
   const [secondi, setSecondi] = useState(0);
   const [codice, setCodice] = useState("");
   const [errore, setErrore] = useState("");
+  const [avviso, setAvviso] = useState("");
   const [occupato, setOccupato] = useState(false);
   const nomePulito = firmatario.replace(/\s+/g, " ").trim();
   const nomeOk = nomePulito.length >= 5 && nomePulito.includes(" ");
@@ -79,7 +80,12 @@ export function PresaVisionePannello({
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ token, email, documento }),
     });
-    const corpo = (await risposta.json()) as { scadeAt?: string; errore?: string };
+    const corpo = (await risposta.json()) as {
+      scadeAt?: string;
+      errore?: string;
+      riusa?: boolean;
+      messaggio?: string;
+    };
     setOccupato(false);
     if (!risposta.ok || !corpo.scadeAt) {
       setErrore(corpo.errore || "Il codice non è stato inviato.");
@@ -87,6 +93,7 @@ export function PresaVisionePannello({
     }
     setScadeAt(corpo.scadeAt);
     setCodice("");
+    setAvviso(corpo.riusa && corpo.messaggio ? corpo.messaggio : "");
   }
 
   async function firma() {
@@ -205,6 +212,7 @@ export function PresaVisionePannello({
           Richiedi Codice OTP per Firmare
         </button>
         {mancaPerOtp && !scadeAt ? <p className="text-sm text-slate-600">{mancaPerOtp}</p> : null}
+        {avviso ? <p className="text-sm font-medium text-slate-800">{avviso}</p> : null}
         {scadeAt ? (
           <div className="space-y-2">
             <p className="text-sm text-slate-700">

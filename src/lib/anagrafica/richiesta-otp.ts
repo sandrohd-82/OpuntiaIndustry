@@ -24,7 +24,7 @@ import { createServiceClient } from "@/lib/supabase/service";
 
 const MINUTI = 5;
 const TENTATIVI = 5;
-const ATTESA_NUOVO_MS = 60_000;
+const MESSAGGIO_OTP_ANCORA_VALIDO = "Sei ancora in tempo per utilizzare lo stesso OTP";
 
 export type DocumentoFirma = "anagrafica" | "privacy" | "condizioni";
 
@@ -145,25 +145,28 @@ export async function richiediOtpFirma(input: {
   const ora = Date.now();
   const { data: recente } = await service
     .from("otp_verifications")
-    .select("id, scade_at, created_at, stato")
+    .select("id, scade_at, email")
     .eq("richiesta_id", row.id)
-    .eq("documento", documento)
     .eq("stato", "attivo")
     .is("deleted_at", null)
     .order("created_at", { ascending: false })
     .limit(1)
     .maybeSingle();
-  if (recente?.created_at) {
-    const nato = Date.parse(String(recente.created_at));
-    if (Number.isFinite(nato) && ora - nato < ATTESA_NUOVO_MS && Date.parse(String(recente.scade_at)) > ora) {
-      return { scadeAt: String(recente.scade_at) };
-    }
+  if (
+    recente &&
+    Date.parse(String(recente.scade_at)) > ora &&
+    String(recente.email ?? "").toLowerCase() === email.toLowerCase()
+  ) {
+    return {
+      scadeAt: String(recente.scade_at),
+      riusa: true,
+      messaggio: MESSAGGIO_OTP_ANCORA_VALIDO,
+    };
   }
   await service
     .from("otp_verifications")
     .update({ stato: "annullato", updated_at: new Date().toISOString() })
     .eq("richiesta_id", row.id)
-    .eq("documento", documento)
     .eq("stato", "attivo")
     .is("deleted_at", null);
 
@@ -284,9 +287,8 @@ export async function verificaOtpFirma(input: {
   const service = createServiceClient();
   const { data: otpData } = await service
     .from("otp_verifications")
-    .select("id, codice_hash, scade_at, tentativi, stato, email")
+    .select("id, codice_hash, scade_at, tentativi, stato, email, documento")
     .eq("richiesta_id", row.id)
-    .eq("documento", documento)
     .eq("stato", "attivo")
     .is("deleted_at", null)
     .order("created_at", { ascending: false })
@@ -298,6 +300,7 @@ export async function verificaOtpFirma(input: {
     scade_at: string;
     tentativi: number;
     email: string;
+    documento: string;
   } | null;
   if (!otp) return { errore: "Richiedi un nuovo codice." };
   if (otp.email.toLowerCase() !== email.toLowerCase()) {
@@ -307,7 +310,7 @@ export async function verificaOtpFirma(input: {
     await service.from("otp_verifications").update({ stato: "scaduto" }).eq("id", otp.id);
     return { errore: "Il codice è scaduto. Richiedine uno nuovo." };
   }
-  if (!hashUguale(otp.codice_hash, hashCodice(row.id, documento, input.codice))) {
+  if (!hashUguale(otp.codice_hash, hashCodice(row.id, documentoFirmaDi(otp.documento), input.codice))) {
     const tentativi = Number(otp.tentativi) + 1;
     await service
       .from("otp_verifications")
@@ -436,7 +439,7 @@ export async function verificaOtpFirma(input: {
   await service
     .from("otp_verifications")
     .update({
-      stato: "usato",
+      stato: documento === "condizioni" ? "usato" : "attivo",
       verificata_at: firmataIl.toISOString(),
       ip_richiesta: ip,
     })

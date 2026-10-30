@@ -37,6 +37,7 @@ export function FirmaOtpPannello({
   const [secondi, setSecondi] = useState(0);
   const [codice, setCodice] = useState("");
   const [errore, setErrore] = useState("");
+  const [avviso, setAvviso] = useState("");
   const [erroreAllaModifica, setErroreAllaModifica] = useState(-1);
   const [occupato, setOccupato] = useState(false);
   const [consenso, setConsenso] = useState(form.consensoTrattamento);
@@ -83,7 +84,12 @@ export function FirmaOtpPannello({
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ token, email: scelta }),
     });
-    const corpo = (await risposta.json()) as { scadeAt?: string; errore?: string };
+    const corpo = (await risposta.json()) as {
+      scadeAt?: string;
+      errore?: string;
+      riusa?: boolean;
+      messaggio?: string;
+    };
     setOccupato(false);
     if (!risposta.ok || !corpo.scadeAt) {
       setErrore(corpo.errore || "Il codice non è stato inviato.");
@@ -91,6 +97,7 @@ export function FirmaOtpPannello({
     }
     setScadeAt(corpo.scadeAt);
     setCodice("");
+    setAvviso(corpo.riusa && corpo.messaggio ? corpo.messaggio : "");
   }
 
   async function firma() {
@@ -163,6 +170,7 @@ export function FirmaOtpPannello({
       >
         Richiedi Codice OTP per Firmare
       </button>
+      {avviso ? <p className="text-sm font-medium text-slate-800">{avviso}</p> : null}
       {scadeAt ? (
         <div className="space-y-2">
           <p className="text-sm text-slate-700">
