@@ -231,6 +231,11 @@ export type Ordine = {
     numero: string;
     inviata: boolean;
   } | null;
+  /** Proforma salvata sull'ordine, con numero già assegnato. */
+  proformaElenco?: {
+    id: string;
+    numero: string;
+  } | null;
   righe: OrdineRigaProdotto[];
   createdAt: string;
   updatedAt: string;

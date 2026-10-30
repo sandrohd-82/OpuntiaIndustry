@@ -19,6 +19,7 @@ import { OrdineDettaglioPanel } from "@/components/amministrazione/OrdineDettagl
 import { OrdineEliminaConfirmModal } from "@/components/amministrazione/OrdineEliminaConfirmModal";
 import { OrdineFormModal } from "@/components/amministrazione/OrdineFormModal";
 import { FatturaA4Modal } from "@/components/amministrazione/FatturaA4Modal";
+import { ProformaElencoAzioni } from "@/components/amministrazione/ProformaElencoAzioni";
 import { StaccaFatturaModal } from "@/components/amministrazione/StaccaFatturaModal";
 import { OrdineNuovoWizardModal } from "@/components/amministrazione/OrdineNuovoWizardModal";
 import { SortableTh } from "@/components/ui/SortableTh";
@@ -299,6 +300,13 @@ function OrdineTableRow({
               >
                 Stacca fattura
               </button>
+            ) : null}
+            {ordine.proformaElenco ? (
+              <ProformaElencoAzioni
+                ordineId={ordine.id}
+                numero={ordine.proformaElenco.numero}
+                compatto
+              />
             ) : null}
             <button
               type="button"

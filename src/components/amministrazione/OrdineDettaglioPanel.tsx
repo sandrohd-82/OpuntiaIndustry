@@ -28,6 +28,7 @@ import {
 import { labelSede } from "@/lib/impostazioni/sedi";
 import type { SpedizioneMailPrenotazione } from "@/lib/amministrazione/spedizione-mail";
 import { StaccaFatturaModal } from "@/components/amministrazione/StaccaFatturaModal";
+import { ProformaElencoAzioni } from "@/components/amministrazione/ProformaElencoAzioni";
 import { OrdineAuditLogModal } from "@/components/amministrazione/OrdineAuditLogModal";
 import { OrdineSchedaAziendaModal } from "@/components/amministrazione/OrdineSchedaAziendaModal";
 import {
@@ -224,6 +225,12 @@ export function OrdineDettaglioPanel({
             >
               Stacca fattura
             </button>
+          ) : null}
+          {ordine.proformaElenco ? (
+            <ProformaElencoAzioni
+              ordineId={ordine.id}
+              numero={ordine.proformaElenco.numero}
+            />
           ) : null}
           {onEdit ? (
             <button

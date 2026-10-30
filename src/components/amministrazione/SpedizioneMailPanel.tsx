@@ -122,6 +122,11 @@ type Props = {
    * e non la fattura. Se è spenta, c'è la fattura e non la proforma.
    */
   passaProforma?: boolean;
+  /**
+   * Scelta fatta dopo il salvataggio della proforma.
+   * `undefined` lascia i radio del documento. Stringa vuota: scelta ancora da fare.
+   */
+  invioProforma?: "" | "finalizzazione" | "elenco";
 };
 
 export function SpedizioneMailPanel({
@@ -151,6 +156,7 @@ export function SpedizioneMailPanel({
   invioDelegato = false,
   onInvioDelegatoChange,
   passaProforma,
+  invioProforma,
 }: Props) {
   const [trackingUrl, setTrackingUrl] = useState("");
   const [sedePartenzaId, setSedePartenzaId] = useState(sedePartenzaIdDefault);
@@ -178,6 +184,16 @@ export function SpedizioneMailPanel({
       return prev;
     });
   }, [passaProforma]);
+  useEffect(() => {
+    if (invioProforma === undefined) return;
+    if (invioProforma === "finalizzazione") {
+      setDocumentoMail("proforma");
+      setInviaMailDocumento(true);
+      return;
+    }
+    setDocumentoMail("informativa");
+    setInviaMailDocumento(false);
+  }, [invioProforma]);
   useEffect(() => {
     if (!ritiroInSede) return;
     setAllegaTrackingMail(false);
@@ -807,6 +823,16 @@ export function SpedizioneMailPanel({
               ? "Scelta libera. Il cliente ritira in sede: non c'è tracking da allegare."
               : "Scelta libera. Il tracking, se c'è, si allega solo se lo spunti. Non si crea una bozza in attesa del tracking."}
           </p>
+          {invioProforma !== undefined ? (
+            <p className="text-sm text-slate-800">
+              {invioProforma === "finalizzazione"
+                ? "La proforma parte con la finalizzazione dell'ordine."
+                : (invioProforma === "elenco"
+                  ? "La proforma non parte adesso. Si scarica e si invia dall'elenco ordini."
+                  : "Dopo aver salvato la bozza scegli se inviare la proforma alla finalizzazione o dall'elenco.")}
+            </p>
+          ) : (
+          <>
           <label className="flex items-center gap-2">
             <input
               type="radio"
@@ -859,6 +885,8 @@ export function SpedizioneMailPanel({
                 : "Invia mail con fattura"}
             </label>
           ) : null}
+          </>
+          )}
           {ritiroInSede ? null : (
           <label className="flex items-center gap-2">
             <input

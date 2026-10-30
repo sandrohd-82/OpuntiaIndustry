@@ -4,6 +4,7 @@ import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { listPreventivoCommercialiRiferimentoAction } from "@/app/actions/preventivi";
 import {
   anteprimaNumeroFatturaBozzaAction,
+  anteprimaNumeroProformaBozzaAction,
   convertProformaInFatturaAction,
   getFatturaA4ContextAction,
   saveFatturaDaOrdineAction,
@@ -88,6 +89,8 @@ type Props = {
   bloccaInvio?: boolean;
   /** Scelta fatta nel riquadro Fattura. Cambia solo la dicitura del documento. */
   etichettaDocumento?: "fattura" | "proforma";
+  /** Salva la proforma e chiude la bozza, senza scaricare il PDF. */
+  onProformaSalvata?: (numero: string) => void;
 };
 
 type EditKind =
@@ -141,6 +144,7 @@ export function FatturaA4Modal({
   onSimulaInvio,
   bloccaInvio = false,
   etichettaDocumento,
+  onProformaSalvata,
 }: Props) {
   const soloSessione =
     !ORDINI_PERSISTENZA_DEFINITIVA || Boolean(sessioneDraft) || !ordineId;
@@ -252,6 +256,21 @@ export function FatturaA4Modal({
   useEffect(() => {
     setPiano((prev) => applyTotaleToPiano(prev, totals.totale));
   }, [totals.totale]);
+
+  useEffect(() => {
+    if (etichettaDocumento !== "proforma") return;
+    let cancelled = false;
+    void (async () => {
+      const res = await anteprimaNumeroProformaBozzaAction(
+        /^\d{4}-\d{2}-\d{2}$/.test(dataDocumento) ? dataDocumento : undefined
+      );
+      if (cancelled || !res.success) return;
+      setProformaNumero((prev) => prev || res.numero);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [etichettaDocumento, dataDocumento]);
 
   useEffect(() => {
     let cancelled = false;
@@ -653,6 +672,51 @@ export function FatturaA4Modal({
     onClose();
   }
 
+  async function salvaProformaEChiudi() {
+    if (!destinatario) {
+      setError("Intestazione mancante.");
+      return;
+    }
+    if (ordineId && !soloSessione) {
+      setSaving(true);
+      setError(null);
+      const res = await saveProformaDaOrdineAction({
+        ordineId,
+        proformaId,
+        dataDocumento,
+        noteDocumento,
+        righe,
+        destinatario,
+      });
+      setSaving(false);
+      if (!res.success) {
+        setError(res.error);
+        return;
+      }
+      setProformaNumero(res.numeroProforma);
+      const corrente = anteprimaCorrente();
+      if (corrente) {
+        saveFatturaAnteprimaSessione({
+          ...corrente,
+          numeroFattura: res.numeroProforma,
+        });
+      }
+      onProformaSalvata?.(res.numeroProforma);
+      onClose();
+      return;
+    }
+    const corrente = anteprimaCorrente();
+    const numeroDoc = proformaNumero || corrente?.numeroFattura || "";
+    if (corrente) {
+      saveFatturaAnteprimaSessione({
+        ...corrente,
+        numeroFattura: numeroDoc || corrente.numeroFattura,
+      });
+    }
+    onProformaSalvata?.(numeroDoc);
+    onClose();
+  }
+
   async function convertiProforma(apriInvio: boolean) {
     if (!ordineId || !destinatario) {
       setError("Ordine o intestazione mancante.");
@@ -785,18 +849,23 @@ export function FatturaA4Modal({
           >
             Chiudi
           </button>
-          {vista === "fattura" || etichettaDocumento === "proforma" ? (
+          {etichettaDocumento === "proforma" ? (
             <button
               type="button"
-              onClick={() =>
-                void scaricaDocumento(etichettaDocumento === "proforma", numero)
-              }
+              onClick={() => void salvaProformaEChiudi()}
+              disabled={saving || loading || !destinatario}
+              className="rounded-lg bg-[var(--primary)] px-3 py-1.5 text-sm font-medium text-white disabled:opacity-50"
+            >
+              {saving ? "Salvataggio…" : "Salva"}
+            </button>
+          ) : vista === "fattura" ? (
+            <button
+              type="button"
+              onClick={() => void scaricaDocumento(false, numero)}
               disabled={saving || loading || !destinatario}
               className="rounded-lg border border-white/20 bg-white px-3 py-1.5 text-sm font-semibold text-slate-900 hover:bg-slate-100 disabled:opacity-50"
             >
-              {etichettaDocumento === "proforma"
-                ? "Scarica fattura proforma"
-                : "Scarica fattura"}
+              Scarica fattura
             </button>
           ) : null}
           {vista === "fattura" && modificaDaApplicare ? (

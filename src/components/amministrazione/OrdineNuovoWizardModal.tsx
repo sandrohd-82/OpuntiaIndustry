@@ -86,6 +86,7 @@ import {
   getFatturaA4ContextAction,
   inviaFatturaSalvataAction,
   saveProformaDaOrdineAction,
+  anteprimaNumeroProformaBozzaAction,
 } from "@/app/actions/fattura-da-ordine";
 import {
   EMAIL_CONTROLLO_DEFAULT,
@@ -369,8 +370,24 @@ export function OrdineNuovoWizardModal({
   const [formError, setFormError] = useState<string | null>(null);
   const [invioFatturaSdi, setInvioFatturaSdi] = useState<"" | "subito" | "al_processo">("");
   const [passaProforma, setPassaProforma] = useState(false);
+  const [proformaSalvata, setProformaSalvata] = useState(false);
+  const [numeroProformaBozza, setNumeroProformaBozza] = useState("");
+  const [invioProforma, setInvioProforma] = useState<
+    "" | "finalizzazione" | "elenco"
+  >("");
   useEffect(() => {
     if (passaProforma) setInvioFatturaSdi("");
+  }, [passaProforma]);
+  useEffect(() => {
+    if (!passaProforma) return;
+    let cancelled = false;
+    void anteprimaNumeroProformaBozzaAction(todayIsoDate()).then((res) => {
+      if (cancelled || !res.success) return;
+      setNumeroProformaBozza((prev) => prev || res.numero);
+    });
+    return () => {
+      cancelled = true;
+    };
   }, [passaProforma]);
   const [chiediPromozioneSdi, setChiediPromozioneSdi] = useState(false);
   const [promozioneInviaOra, setPromozioneInviaOra] = useState(false);
@@ -1612,6 +1629,18 @@ export function OrdineNuovoWizardModal({
       );
       return;
     }
+    if (!opts?.keepOpen && passaProforma && !proformaSalvata) {
+      setFormError(
+        "Salva la proforma dalla bozza. Poi scegli se inviarla alla finalizzazione o dall'elenco ordini."
+      );
+      return;
+    }
+    if (!opts?.keepOpen && passaProforma && !invioProforma) {
+      setFormError(
+        "Scegli se inviare la proforma alla finalizzazione dell'ordine oppure lasciarla all'operatore nell'elenco."
+      );
+      return;
+    }
     if (savedOrdine) {
       if (opts?.keepOpen) {
         if (attesaCalcoloSpedizione) {
@@ -2109,19 +2138,42 @@ export function OrdineNuovoWizardModal({
               notaProforma = `La fattura senza numero è sull'ordine, ma la proforma no: ${pr.error}`;
             } else {
               numeroProformaSalvato = pr.numeroProforma;
+              setNumeroProformaBozza(pr.numeroProforma);
             }
           }
         }
         setFatturaPrenotataId(fat.fatturaId);
         setConfermaInvioFattura(0);
         setOrdineFinalizzato(true);
-        if (!modificaOrdineId && FASE_TEST_INVIO && !nessunaMail) apriMailOrdine();
+        if (passaProforma && invioProforma === "finalizzazione") {
+          spedDraft.current = {
+            ...spedDraft.current,
+            documentoMail: "proforma",
+            inviaMailDocumento: true,
+          };
+        } else if (passaProforma && invioProforma === "elenco") {
+          spedDraft.current = {
+            ...spedDraft.current,
+            documentoMail: "informativa",
+            inviaMailDocumento: false,
+          };
+        }
+        if (
+          !modificaOrdineId &&
+          FASE_TEST_INVIO &&
+          !nessunaMail &&
+          !(passaProforma && invioProforma === "elenco")
+        ) {
+          apriMailOrdine();
+        }
         const extra = [fat.avviso, invioSubito].filter(Boolean).join(" ");
         const numeroProformaTesto = numeroProformaSalvato
           ? ` ${numeroProformaSalvato}`
           : "";
         let messaggioFinale = `Ordine ${result.ordine.numeroInterno} finalizzato. La fattura è in bozza, senza numero. Il numero, lo SDI e la mail al cliente partono quando l'ordine entra in produzione.`;
-        if (comeProforma) {
+        if (comeProforma && invioProforma === "elenco") {
+          messaggioFinale = `Ordine ${result.ordine.numeroInterno} finalizzato. Fattura proforma${numeroProformaTesto} salvata. Non parte adesso: dall'elenco ordini si scarica e si invia a mano.`;
+        } else if (comeProforma) {
           messaggioFinale =
             FASE_TEST_INVIO && !modificaOrdineId
               ? `Ordine ${result.ordine.numeroInterno} registrato. Fattura proforma${numeroProformaTesto} salvata. La mail si compila adesso e parte solo verso sandrohd@gmail.com. Lo SDI non parte e il numero fiscale non viene consumato.`
@@ -4477,7 +4529,7 @@ export function OrdineNuovoWizardModal({
                 </div>
                 <p className="text-xs text-[var(--muted)]">
                   {passaProforma
-                    ? "La proforma resta sull'ordine con il suo numero. Non si invia allo SDI e non usa il numero fiscale."
+                    ? "Il numero proforma compare in bozza. Premi Salva: la bozza si chiude e sotto scegli se inviarla alla finalizzazione oppure lasciarla all'operatore, che la scarica e la invia dall'elenco ordini. Non va allo SDI e non usa il numero fiscale."
                     : "La fattura modificata resta anche se riapri l'ordine. Si riallinea all'ordine solo se cambi la riga prodotto, e solo finché non è partita allo SDI. Resta in bozza: il numero che compare è provvisorio e si conferma solo all'invio allo SDI. La mail al cliente parte solo se lo SDI ha confermato, salvo la scelta di non inviare alcuna mail."}
                 </p>
                 <label className="flex items-start gap-2 text-sm">
@@ -4501,20 +4553,27 @@ export function OrdineNuovoWizardModal({
                     il costo di spedizione. Non parte nulla verso il cliente.
                   </p>
                 ) : (
-                  <button
-                    type="button"
-                    disabled={saving || !canNext()}
-                    onClick={() => void submit("salva", { keepOpen: true })}
-                    className="rounded-lg bg-[var(--primary)] px-3 py-2 text-sm font-medium text-white disabled:opacity-50"
-                  >
-                    {savedOrdine
-                      ? (passaProforma
-                        ? "Apri fattura proforma"
-                        : "Apri documento fattura")
-                      : (passaProforma
-                        ? "Anteprima fattura proforma"
-                        : "Anteprima fattura")}
-                  </button>
+                  <>
+                    {passaProforma ? (
+                      <p className="font-mono text-sm font-semibold text-slate-900">
+                        Numero proforma {numeroProformaBozza || "…"}
+                      </p>
+                    ) : null}
+                    <button
+                      type="button"
+                      disabled={saving || !canNext()}
+                      onClick={() => void submit("salva", { keepOpen: true })}
+                      className="rounded-lg bg-[var(--primary)] px-3 py-2 text-sm font-medium text-white disabled:opacity-50"
+                    >
+                      {((savedOrdine || (passaProforma && proformaSalvata))
+                        ? (passaProforma
+                          ? "Apri fattura proforma"
+                          : "Apri documento fattura")
+                        : (passaProforma
+                          ? "Anteprima fattura proforma"
+                          : "Anteprima fattura"))}
+                    </button>
+                  </>
                 )}
               </div>
             </div>
@@ -4613,6 +4672,83 @@ export function OrdineNuovoWizardModal({
                   )}
                 </div>
               ) : null}
+              {passaProforma ? (
+                <div className="rounded-xl border-2 border-amber-600 bg-amber-50 p-4">
+                  <div className="text-base font-semibold text-amber-950">
+                    Invio della fattura proforma
+                  </div>
+                  {proformaSalvata ? (
+                    <>
+                      <p className="mt-1 text-sm text-amber-950">
+                        Scelta obbligatoria prima di finalizzare. Il numero
+                        proforma è {numeroProformaBozza || "…"}.
+                      </p>
+                      <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                        <label
+                          className={`flex cursor-pointer flex-col gap-1 rounded-lg border-2 bg-white p-3 ${
+                            invioProforma === "finalizzazione"
+                              ? "border-amber-700"
+                              : "border-amber-200"
+                          }`}
+                        >
+                          <span className="flex items-start gap-2">
+                            <input
+                              type="radio"
+                              name="invio-proforma"
+                              className="mt-1"
+                              checked={invioProforma === "finalizzazione"}
+                              onChange={() => setInvioProforma("finalizzazione")}
+                            />
+                            <span className="text-base font-semibold text-slate-900">
+                              Invia la proforma alla finalizzazione dell&apos;ordine
+                            </span>
+                          </span>
+                          <span className="pl-6 text-sm text-slate-700">
+                            La mail con il PDF parte quando finalizzi.
+                            {FASE_TEST_INVIO
+                              ? " In questa fase di prova arriva solo a sandrohd@gmail.com."
+                              : ""}
+                          </span>
+                        </label>
+                        <label
+                          className={`flex cursor-pointer flex-col gap-1 rounded-lg border-2 bg-white p-3 ${
+                            invioProforma === "elenco"
+                              ? "border-amber-700"
+                              : "border-amber-200"
+                          }`}
+                        >
+                          <span className="flex items-start gap-2">
+                            <input
+                              type="radio"
+                              name="invio-proforma"
+                              className="mt-1"
+                              checked={invioProforma === "elenco"}
+                              onChange={() => setInvioProforma("elenco")}
+                            />
+                            <span className="text-base font-semibold text-slate-900">
+                              L&apos;operatore la scarica e la invia dall&apos;elenco
+                              ordini
+                            </span>
+                          </span>
+                          <span className="pl-6 text-sm text-slate-700">
+                            Non parte nulla adesso. Dall&apos;elenco si scarica
+                            il PDF e si invia a mano.
+                            {FASE_TEST_INVIO
+                              ? " In questa fase di prova anche quell'invio arriva solo a sandrohd@gmail.com."
+                              : ""}
+                          </span>
+                        </label>
+                      </div>
+                    </>
+                  ) : (
+                    <p className="mt-1 text-sm text-amber-950">
+                      Apri la bozza e premi Salva. Poi qui scegli se inviare la
+                      proforma alla finalizzazione oppure lasciarla
+                      all&apos;operatore nell&apos;elenco ordini.
+                    </p>
+                  )}
+                </div>
+              ) : null}
               {attesaCalcoloSpedizione ? (
                 <p className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-950">
                   Finché manca il costo di spedizione l&apos;ordine non è
@@ -4670,6 +4806,7 @@ export function OrdineNuovoWizardModal({
                   };
                 }}
                 passaProforma={passaProforma}
+                invioProforma={passaProforma ? invioProforma : undefined}
                 invioDelegato={invioDelegato}
                 onInvioDelegatoChange={
                   tipoOrdine === "campionatura"
@@ -4866,10 +5003,23 @@ export function OrdineNuovoWizardModal({
                   saving ||
                   !modificaPronta ||
                   calcoloLoading ||
-                  (vuoleSceltaInvio && !fatturaGiaInviata && !invioFatturaSdi)
+                  (vuoleSceltaInvio && !fatturaGiaInviata && !invioFatturaSdi) ||
+                  (passaProforma && (!proformaSalvata || !invioProforma))
                 }
                 onClick={() => {
                   const d = spedDraft.current;
+                  if (passaProforma && !proformaSalvata) {
+                    setFormError(
+                      "Salva la proforma dalla bozza. Poi scegli se inviarla alla finalizzazione o dall'elenco ordini."
+                    );
+                    return;
+                  }
+                  if (passaProforma && !invioProforma) {
+                    setFormError(
+                      "Scegli se inviare la proforma alla finalizzazione dell'ordine oppure lasciarla all'operatore nell'elenco."
+                    );
+                    return;
+                  }
                   if (vuoleSceltaInvio && !fatturaGiaInviata && !invioFatturaSdi) {
                     setFormError(
                       "Scegli se inviare la fattura allo SDI adesso oppure quando l'ordine entra in produzione."
@@ -4886,7 +5036,7 @@ export function OrdineNuovoWizardModal({
                     );
                     return;
                   }
-                  if (!modificaOrdineId) {
+                  if (!modificaOrdineId && !(passaProforma && invioProforma === "elenco")) {
                     if (!d.mailAccountId) {
                       setFormError(
                         "Seleziona la casella mittente. Da qui parte la mail di cortesia al cliente."
@@ -5099,6 +5249,11 @@ export function OrdineNuovoWizardModal({
           })()}
           bloccaInvio
           etichettaDocumento={passaProforma ? "proforma" : "fattura"}
+          onProformaSalvata={(numero) => {
+            setProformaSalvata(true);
+            if (numero) setNumeroProformaBozza(numero);
+            setFatturaA4Open(false);
+          }}
           onClose={() => setFatturaA4Open(false)}
           onSaved={() => {
             setFatturaA4Open(false);

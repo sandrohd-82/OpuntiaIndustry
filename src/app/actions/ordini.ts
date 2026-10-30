@@ -62,7 +62,7 @@ import { risolviSpedizioneOrdineDiretto } from "@/lib/amministrazione/ordine-cal
 import { salvaCampionatureOrdine } from "@/app/actions/ordine-campionatura";
 import { salvaNoteSezioniOrdine } from "@/app/actions/ordine-sezione-note";
 import { inviaFatturaSalvataAction } from "@/app/actions/fattura-da-ordine";
-import { isNumeroFatturaEmessa } from "@/lib/amministrazione/numero-fattura";
+import { isNumeroFatturaEmessa, isNumeroProformaAssegnato } from "@/lib/amministrazione/numero-fattura";
 import { rilasciaPrenotazioniOrdine } from "@/lib/amministrazione/prenotazione-ordine";
 import { notificaOrdineInCoda } from "@/lib/amministrazione/ordine-notifica-coda";
 import { isFatturaProva } from "@/lib/amministrazione/prova-ordine";
@@ -410,6 +410,7 @@ export async function listOrdiniAction(
     rows.flatMap((r) => [r.created_by, r.updated_by, r.processed_by])
   );
   const fattureElenco = await fattureElencoPerOrdini(ids);
+  const proformeElenco = await proformeElencoPerOrdini(ids);
 
   return {
     success: true,
@@ -419,6 +420,7 @@ export async function listOrdiniAction(
         isSuperadmin: isSuperadminProfile(auth.profile),
       }),
       fatturaElenco: fattureElenco.get(row.id) ?? null,
+      proformaElenco: proformeElenco.get(row.id) ?? null,
     })),
   };
 }
@@ -452,6 +454,32 @@ async function fattureElencoPerOrdini(ids: string[]) {
       numero,
       inviata: row.ei_status === "sent" || isNumeroFatturaEmessa(numero),
     });
+  }
+  return map;
+}
+
+async function proformeElencoPerOrdini(ids: string[]) {
+  const map = new Map<string, { id: string; numero: string }>();
+  if (ids.length === 0) return map;
+  const service = createServiceClient();
+  const { data } = await service
+    .from("fatture_emesse")
+    .select("id, ordine_id, numero_fattura, created_at")
+    .in("ordine_id", ids)
+    .eq("tipo_documento", "proforma")
+    .is("deleted_at", null)
+    .order("created_at", { ascending: false });
+  for (const raw of data ?? []) {
+    const row = raw as {
+      id: string;
+      ordine_id?: string | null;
+      numero_fattura?: string | null;
+    };
+    const ordineId = String(row.ordine_id ?? "");
+    if (!ordineId || map.has(ordineId)) continue;
+    const numero = String(row.numero_fattura ?? "").trim();
+    if (!isNumeroProformaAssegnato(numero)) continue;
+    map.set(ordineId, { id: String(row.id), numero });
   }
   return map;
 }

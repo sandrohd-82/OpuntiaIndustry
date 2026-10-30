@@ -367,6 +367,29 @@ export async function anteprimaNumeroFatturaBozzaAction(
   }
 }
 
+/** Anteprima del prossimo numero proforma. Non consuma la serie. */
+export async function anteprimaNumeroProformaBozzaAction(
+  dataDocumento?: string
+): Promise<{ success: true; numero: string } | { success: false; error: string }> {
+  await requireOrdineCreateAccess();
+  const data = /^\d{4}-\d{2}-\d{2}$/.test(dataDocumento ?? "")
+    ? String(dataDocumento)
+    : todayIsoDate();
+  try {
+    const supabase = await createClient();
+    const nums = await anteprimaNumeroProforma(supabase, data);
+    return { success: true, numero: nums.numeroFattura };
+  } catch (error) {
+    return {
+      success: false,
+      error:
+        error instanceof Error
+          ? error.message
+          : "Numero proforma non disponibile.",
+    };
+  }
+}
+
 async function numeroProformaVisibile(
   supabase: Awaited<ReturnType<typeof createClient>>,
   dataDocumento: string,
@@ -1450,20 +1473,15 @@ function pianoBozzaFattura(
   return { modalita, tipoUnica, rate };
 }
 
-/** Mail al cliente con lo stesso PDF della bozza ordine: logo e intestazione. */
-async function inviaMailPdfComeBozza(input: {
+async function pdfDocumentoSalvato(input: {
   fattura: FatturaEmessaRow;
   righe: Array<Record<string, unknown>>;
   dilazioni: Array<Record<string, unknown>>;
   destinatario: FatturaDestinatarioSnapshot;
-  mailTo: string;
   numeroFattura: string;
   userId: string;
-  oggetto?: string;
-  corpo?: string;
-  accountId?: string;
-}): Promise<void> {
-  const service = createServiceClient();
+  proforma?: boolean;
+}) {
   const loghi = await caricaLoghiFatturaA4Server();
   if (!loghi.agrinsicilia) {
     throw new Error(
@@ -1477,13 +1495,13 @@ async function inviaMailPdfComeBozza(input: {
     persone.find((item) => item.id === input.fattura.created_by) ??
     persone.find((item) => item.id === input.userId) ??
     null;
-  const pdf = buildFatturaA4PdfBlob({
+  return buildFatturaA4PdfBlob({
     numeroFattura: input.numeroFattura,
     dataDocumento: String(input.fattura.data_emissione ?? ""),
     destinatario: input.destinatario,
     righe: righeBozzaFattura(input.righe),
     noteDocumento: String(input.fattura.note ?? ""),
-    proforma: false,
+    proforma: input.proforma === true,
     piano: pianoBozzaFattura(input.fattura, input.dilazioni),
     commerciale: persona
       ? {
@@ -1494,6 +1512,24 @@ async function inviaMailPdfComeBozza(input: {
       : null,
     loghi,
   });
+}
+
+/** Mail al cliente con lo stesso PDF della bozza ordine: logo e intestazione. */
+async function inviaMailPdfComeBozza(input: {
+  fattura: FatturaEmessaRow;
+  righe: Array<Record<string, unknown>>;
+  dilazioni: Array<Record<string, unknown>>;
+  destinatario: FatturaDestinatarioSnapshot;
+  mailTo: string;
+  numeroFattura: string;
+  userId: string;
+  oggetto?: string;
+  corpo?: string;
+  accountId?: string;
+  proforma?: boolean;
+}): Promise<void> {
+  const service = createServiceClient();
+  const pdf = await pdfDocumentoSalvato(input);
   const bytes = Buffer.from(await pdf.blob.arrayBuffer());
   let accountIdScelto = (input.accountId ?? "").trim();
   if (!accountIdScelto && input.fattura.ordine_id) {
@@ -1562,13 +1598,22 @@ async function inviaMailPdfComeBozza(input: {
     .join(", ");
   const oggettoScelto = input.oggetto?.trim() ?? "";
   const corpoScelto = input.corpo?.trim() ?? "";
-  const subject = oggettoScelto || `Fattura ${input.numeroFattura}`;
+  const subject =
+    oggettoScelto ||
+    (input.proforma
+      ? `Fattura proforma ${input.numeroFattura}`
+      : `Fattura ${input.numeroFattura}`);
+  const testoProforma = `In allegato la fattura proforma ${input.numeroFattura}${
+    numeroOrdine ? ` dell'ordine ${numeroOrdine}` : ""
+  }. Non è una fattura fiscale e non va allo SDI.`;
   const text =
     corpoScelto ||
-    testoMailFatturaCortesia({
-      numeroOrdine,
-      prodotti: voci,
-    }).bodyText;
+    (input.proforma
+      ? testoProforma
+      : testoMailFatturaCortesia({
+          numeroOrdine,
+          prodotti: voci,
+        }).bodyText);
   const allegato = {
     filename: pdf.fileName,
     content: bytes,
@@ -2673,6 +2718,173 @@ export async function saveProformaDaOrdineAction(raw: unknown): Promise<
   }
 
   return { success: true, proformaId, numeroProforma };
+}
+
+async function caricaProformaOrdine(ordineId: string): Promise<
+  | { error: string }
+  | {
+      authUserId: string;
+      fattura: FatturaEmessaRow;
+      righe: Array<Record<string, unknown>>;
+      dilazioni: Array<Record<string, unknown>>;
+      destinatario: FatturaDestinatarioSnapshot;
+      numero: string;
+      emailCliente: string;
+    }
+> {
+  const id = ordineId.trim();
+  if (!id) return { error: "Ordine non indicato." };
+  const { auth } = await requireAnyAreaAccess([
+    "amministrazione",
+    "commerciale",
+    "produzione",
+  ]);
+  const supabase = await createClient();
+  const { data: rows, error } = await supabase
+    .from("fatture_emesse")
+    .select("*")
+    .eq("ordine_id", id)
+    .eq("tipo_documento", "proforma")
+    .is("deleted_at", null)
+    .order("created_at", { ascending: false })
+    .limit(1);
+  const row = rows?.[0];
+  if (error || !row) {
+    return { error: error?.message ?? "Proforma non trovata su questo ordine." };
+  }
+  const fattura = row as FatturaEmessaRow;
+  const numero = String(fattura.numero_fattura ?? "").trim();
+  if (!isNumeroProformaAssegnato(numero)) {
+    return {
+      error: "La proforma non ha ancora un numero. Riapri l'ordine e salvala.",
+    };
+  }
+  const dest = parseDestinatarioSnapshot(fattura.destinatario_snapshot);
+  if (!dest) return { error: "Intestazione della proforma mancante." };
+  let righe: Array<Record<string, unknown>> = [];
+  try {
+    righe = (await loadFatturaRighe(supabase, fattura.id)) as Array<
+      Record<string, unknown>
+    >;
+  } catch (e) {
+    return {
+      error: e instanceof Error ? e.message : "Righe proforma non leggibili.",
+    };
+  }
+  const { data: dilazioni } = await supabase
+    .from("fatture_emesse_dilazioni")
+    .select("*")
+    .eq("fattura_id", fattura.id)
+    .is("deleted_at", null);
+  return {
+    authUserId: auth.userId,
+    fattura,
+    righe,
+    dilazioni: (dilazioni ?? []) as Array<Record<string, unknown>>,
+    destinatario: dest,
+    numero,
+    emailCliente: String(dest.email ?? "").trim(),
+  };
+}
+
+/** PDF della proforma già salvata sull'ordine. Non assegna numeri e non invia mail. */
+export async function scaricaProformaOrdineAction(ordineId: string): Promise<
+  | { success: true; fileName: string; base64: string; numero: string }
+  | { success: false; error: string }
+> {
+  const caricata = await caricaProformaOrdine(ordineId);
+  if ("error" in caricata) return { success: false, error: caricata.error };
+  try {
+    const pdf = await pdfDocumentoSalvato({
+      fattura: caricata.fattura,
+      righe: caricata.righe,
+      dilazioni: caricata.dilazioni,
+      destinatario: caricata.destinatario,
+      numeroFattura: caricata.numero,
+      userId: caricata.authUserId,
+      proforma: true,
+    });
+    const base64 = Buffer.from(await pdf.blob.arrayBuffer()).toString("base64");
+    return {
+      success: true,
+      fileName: pdf.fileName,
+      base64,
+      numero: caricata.numero,
+    };
+  } catch (e) {
+    return {
+      success: false,
+      error: e instanceof Error ? e.message : "PDF proforma non disponibile.",
+    };
+  }
+}
+
+/**
+ * Invio manuale della proforma dall'elenco ordini.
+ * In fase di prova la mail resta sulla casella di controllo. Nessuno SDI.
+ */
+export async function inviaProformaOrdineAction(input: {
+  ordineId: string;
+  accountId: string;
+  oggetto?: string;
+  corpo?: string;
+}): Promise<
+  | { success: true; destinatario: string; numero: string; prova: boolean }
+  | { success: false; error: string }
+> {
+  const caricata = await caricaProformaOrdine(input.ordineId);
+  if ("error" in caricata) return { success: false, error: caricata.error };
+  const accountId = String(input.accountId ?? "").trim();
+  if (!accountId) {
+    return { success: false, error: "Seleziona la casella mittente." };
+  }
+  const email = FASE_TEST_INVIO
+    ? EMAIL_CONTROLLO_DEFAULT
+    : caricata.emailCliente;
+  if (!email.includes("@")) {
+    return {
+      success: false,
+      error:
+        "Manca l'email del cliente. Scarica la proforma e inviala a mano.",
+    };
+  }
+  try {
+    await inviaMailPdfComeBozza({
+      fattura: caricata.fattura,
+      righe: caricata.righe,
+      dilazioni: caricata.dilazioni,
+      destinatario: caricata.destinatario,
+      mailTo: email,
+      numeroFattura: caricata.numero,
+      userId: caricata.authUserId,
+      oggetto: input.oggetto,
+      corpo: input.corpo,
+      accountId,
+      proforma: true,
+    });
+  } catch (e) {
+    return {
+      success: false,
+      error: e instanceof Error ? e.message : "Invio proforma non riuscito.",
+    };
+  }
+  await writeAuditLog({
+    entity_type: "fatture_emesse",
+    entity_id: caricata.fattura.id,
+    action: "update",
+    actor_id: caricata.authUserId,
+    summary: `Invio manuale proforma ${caricata.numero}`,
+    payload: {
+      ordineId: input.ordineId,
+      prova: FASE_TEST_INVIO,
+    },
+  });
+  return {
+    success: true,
+    destinatario: email,
+    numero: caricata.numero,
+    prova: FASE_TEST_INVIO,
+  };
 }
 
 export async function convertProformaInFatturaAction(input: {
