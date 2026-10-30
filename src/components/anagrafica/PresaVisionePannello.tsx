@@ -36,7 +36,8 @@ export function PresaVisionePannello({
   const [codice, setCodice] = useState("");
   const [errore, setErrore] = useState("");
   const [occupato, setOccupato] = useState(false);
-  const nomeOk = firmatario.trim().length >= 5 && firmatario.trim().includes(" ");
+  const nomePulito = firmatario.replace(/\s+/g, " ").trim();
+  const nomeOk = nomePulito.length >= 5 && nomePulito.includes(" ");
   const scelteOk = documento === "privacy" ? accetto && marketing !== "" : accetto;
   const mancaPerOtp = !email
     ? "Manca l'e-mail a cui inviare il codice."
@@ -103,7 +104,7 @@ export function PresaVisionePannello({
         email,
         codice,
         documento,
-        firmatario: firmatario.trim(),
+        firmatario: nomePulito,
         accettoInformativa: documento === "privacy" ? accetto : undefined,
         consensoMarketing: documento === "privacy" ? marketing : undefined,
         accettoCondizioni: documento === "condizioni" ? accetto : undefined,
@@ -160,18 +161,22 @@ export function PresaVisionePannello({
               <label className="flex items-center gap-2">
                 <input
                   type="radio"
-                  name="marketing"
+                  name="consenso-marketing"
+                  value="presto"
                   checked={marketing === "presto"}
                   onChange={() => setMarketing("presto")}
+                  onClick={() => setMarketing("presto")}
                 />
                 Presto il consenso
               </label>
               <label className="flex items-center gap-2">
                 <input
                   type="radio"
-                  name="marketing"
+                  name="consenso-marketing"
+                  value="nego"
                   checked={marketing === "nego"}
                   onChange={() => setMarketing("nego")}
+                  onClick={() => setMarketing("nego")}
                 />
                 Nego il consenso
               </label>
