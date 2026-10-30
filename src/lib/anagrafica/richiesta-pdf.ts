@@ -4,6 +4,7 @@ import {
   altezzaTimbro,
   disegnaTimbroSottoNome,
   logoAgrinsiciliaPdf,
+  numeraPagine,
 } from "@/lib/anagrafica/presa-visione-pdf";
 
 function rigaSede(sede: SedeAnagraficaForm): string[] {
@@ -25,10 +26,10 @@ export function pdfAnagraficaAziendale(
   const doc = new jsPDF({ unit: "mm", format: "a4" });
   const left = 16;
   const width = 178;
-  const limite = 272;
-  let y = 28;
+  const limite = 278;
+  let y = 26;
 
-  const passoDi = (size: number) => size * 0.45 + 2.2;
+  const passoDi = (size: number) => size * 0.36 + 1.15;
   const misura = (testo: string, size = 10) => {
     doc.setFontSize(size);
     const righe = doc.splitTextToSize(testo, width) as string[];
@@ -37,7 +38,7 @@ export function pdfAnagraficaAziendale(
 
   const nuova = () => {
     doc.addPage();
-    y = 28;
+    y = 26;
   };
 
   const scrivi = (testo: string, size = 10, style: "normal" | "bold" = "normal") => {
@@ -59,7 +60,7 @@ export function pdfAnagraficaAziendale(
     for (const riga of corpo) hCorpo += misura(riga, 10);
     const minimo = hTitolo + Math.min(hCorpo, passoDi(10) * 2);
     if (y + minimo > limite) nuova();
-    y += 1;
+    y += 0.6;
     scrivi(titolo, 10, "bold");
     for (const riga of corpo) scrivi(riga);
   };
@@ -88,9 +89,9 @@ export function pdfAnagraficaAziendale(
   doc.setTextColor(15, 23, 42);
   for (const riga of titoloRighe) {
     doc.text(riga, 105, y, { align: "center" });
-    y += 6;
+    y += 5;
   }
-  y += 4;
+  y += 2;
   for (const [etichetta, valore] of campi) {
     scrivi(`${etichetta}: ${valore || "—"}`);
   }
@@ -138,30 +139,33 @@ export function pdfAnagraficaAziendale(
   scrivi(
     "Vi autorizziamo al trattamento dei nostri dati ai sensi del Regolamento UE 2016/679, della legge 196/2003 e per i fini dichiarati."
   );
-  y += 6;
+  y += 4;
 
   const firmatario = [form.legaleNome, form.legaleCognome].filter(Boolean).join(" ").trim() || "—";
+  const xFirma = 118;
+  const larghezzaFirma = 76;
   doc.setFont("helvetica", "normal");
   doc.setFontSize(11);
-  const nomeRighe = doc.splitTextToSize(`Firma: ${firmatario}`, width) as string[];
-  const hFirma = misura(`Data: ${dataCompilazione}`, 11) + 6 + nomeRighe.length * 5 + (timbro ? altezzaTimbro(doc, timbro, width) : 12);
+  const nomeRighe = doc.splitTextToSize(`Firma: ${firmatario}`, larghezzaFirma) as string[];
+  const hNome = Math.max(1, nomeRighe.length) * 5;
+  const hTimbro = timbro ? altezzaTimbro(doc, timbro, larghezzaFirma) : 8;
+  const hFirma = Math.max(6, hNome) + hTimbro;
   if (y + hFirma > limite) nuova();
-  scrivi(`Data: ${dataCompilazione}`, 11);
-  y += 6;
-  let yNome = y;
   doc.setFont("helvetica", "normal");
   doc.setFontSize(11);
   doc.setTextColor(15, 23, 42);
+  doc.text(`Data: ${dataCompilazione}`, left, y);
+  let yNome = y;
   for (const riga of nomeRighe) {
-    doc.text(riga, left, yNome);
+    doc.text(riga, xFirma, yNome);
     yNome += 5;
   }
   if (timbro) {
-    disegnaTimbroSottoNome(doc, left, yNome - 5, timbro, width);
+    disegnaTimbroSottoNome(doc, xFirma, yNome - 5, timbro, larghezzaFirma);
   } else {
-    const yLinea = yNome + 8;
+    const yLinea = yNome + 2;
     doc.setDrawColor(30);
-    doc.line(left, yLinea, left + 70, yLinea);
+    doc.line(xFirma, yLinea, xFirma + 70, yLinea);
   }
 
   const logo = logoAgrinsiciliaPdf();
@@ -170,6 +174,7 @@ export function pdfAnagraficaAziendale(
     doc.setPage(pagina);
     if (logo) doc.addImage(logo, "PNG", 168, 8, 28, 12);
   }
+  numeraPagine(doc);
   doc.setProperties({ title: "Anagrafica Aziendale" });
   return Buffer.from(doc.output("arraybuffer"));
 }

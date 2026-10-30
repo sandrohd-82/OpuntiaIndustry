@@ -47,7 +47,7 @@ function spunta(doc: jsPDF, x: number, y: number, testo: string, attiva: boolean
 export function altezzaTimbro(doc: jsPDF, timbro: string, larghezza = 120): number {
   doc.setFont("helvetica", "normal");
   doc.setFontSize(7);
-  const righe = doc.splitTextToSize(`${timbro} | 1 di 1`, larghezza) as string[];
+  const righe = doc.splitTextToSize(timbro, larghezza) as string[];
   return 2 + 17 + 3.5 + righe.length * 3.2;
 }
 
@@ -59,8 +59,6 @@ export function disegnaTimbroSottoNome(
   timbro: string,
   larghezza = 120
 ): number {
-  const pagine = doc.getNumberOfPages();
-  const testo = `${timbro} | ${pagine} di ${pagine}`;
   const raggio = 8.5;
   const cx = x + raggio;
   const cy = yNome + 2 + raggio;
@@ -78,7 +76,7 @@ export function disegnaTimbroSottoNome(
   doc.setFont("helvetica", "normal");
   doc.setFontSize(7);
   doc.setTextColor(30);
-  const righe = doc.splitTextToSize(testo, larghezza) as string[];
+  const righe = doc.splitTextToSize(timbro, larghezza) as string[];
   let base = cy + raggio + 3.5;
   for (const riga of righe) {
     doc.text(riga, x, base);
@@ -96,16 +94,30 @@ export function logoAgrinsiciliaPdf(): string | null {
 
 function piePagina(doc: jsPDF) {
   const L = AGRINSICILIA_LETTERHEAD;
+  const centro = 105;
   const y = 268;
   doc.setFont("helvetica", "bold");
   doc.setFontSize(8);
   doc.setTextColor(15, 23, 42);
-  const nome = doc.splitTextToSize(L.ragioneSociale, 150) as string[];
-  doc.text(nome, 88, y, { align: "center" });
+  const nome = doc.splitTextToSize(L.ragioneSociale, 170) as string[];
+  doc.text(nome, centro, y, { align: "center" });
   doc.setFont("helvetica", "normal");
   const sotto = y + nome.length * 3.4;
-  doc.text(`${L.sito} - ${L.email}`, 88, sotto, { align: "center" });
-  doc.text(`cell: ${L.cell}`, 88, sotto + 4, { align: "center" });
+  doc.text(`${L.sito} - ${L.email}`, centro, sotto, { align: "center" });
+  doc.text(`cell: ${L.cell}`, centro, sotto + 4, { align: "center" });
+}
+
+/** In basso a destra di ogni pagina: 1 di 2, 2 di 2. */
+export function numeraPagine(doc: jsPDF) {
+  const totale = doc.getNumberOfPages();
+  for (let n = 1; n <= totale; n += 1) {
+    doc.setPage(n);
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(9);
+    doc.setTextColor(71, 85, 105);
+    doc.text(`${n} di ${totale}`, 194, 290, { align: "right" });
+  }
+  doc.setTextColor(0);
 }
 
 export function pdfPresaVisione(input: InputPdf): Buffer {
@@ -114,14 +126,14 @@ export function pdfPresaVisione(input: InputPdf): Buffer {
   const width = 178;
   const titolo = input.tipo === "privacy" ? TITOLO_PRIVACY : TITOLO_CONDIZIONI;
   const blocchi = input.tipo === "privacy" ? BLOCCHI_PRIVACY : BLOCCHI_CONDIZIONI;
-  let y = 28;
+  let y = 26;
 
   const nuova = () => {
     doc.addPage();
-    y = 28;
+    y = 26;
   };
 
-  const limiteTesto = 228;
+  const limiteTesto = 258;
   const passoDi = (size: number) => size * 0.42 + 1.8;
   const misura = (testo: string, size: number, style: "normal" | "bold" = "normal") => {
     doc.setFont("helvetica", style);
@@ -211,6 +223,7 @@ export function pdfPresaVisione(input: InputPdf): Buffer {
   }
   doc.setPage(pagine);
   piePagina(doc);
+  numeraPagine(doc);
   doc.setProperties({ title: titolo });
   return Buffer.from(doc.output("arraybuffer"));
 }
