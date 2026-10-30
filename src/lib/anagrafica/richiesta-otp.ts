@@ -16,8 +16,10 @@ import {
   type RichiestaAnagrafica,
 } from "@/lib/anagrafica/richiesta-db";
 import {
+  arubaHaSospesoInvio,
   casellaInvioAnagrafica,
   ERRORE_CASELLA_ANAGRAFICA,
+  ERRORE_INVIO_SOSPESO_ARUBA,
   inviaDaCasellaAnagrafica,
 } from "@/lib/anagrafica/casella-invio";
 import { createServiceClient } from "@/lib/supabase/service";
@@ -242,11 +244,8 @@ export async function richiediOtpFirma(input: {
       summary: "Invio del codice OTP non riuscito.",
       payload: { motivo },
     });
-    if (/525|disabilitato per la casella|change password/i.test(motivo)) {
-      return {
-        errore:
-          "Aruba ha ancora l'invio sospeso. Entra in Webmail con la casella postmaster, apri la casella info e in Stato casella premi Abilita, poi Attiva.",
-      };
+    if (arubaHaSospesoInvio(motivo)) {
+      return { errore: ERRORE_INVIO_SOSPESO_ARUBA };
     }
     return {
       errore: "Invio del codice non riuscito. Attendi un minuto e riprova.",

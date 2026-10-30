@@ -26,6 +26,14 @@ export async function casellaInvioAnagrafica(): Promise<AccountRow | null> {
 export const ERRORE_CASELLA_ANAGRAFICA =
   "La mail non è partita: manca la casella info@agrinsicilia.com con SMTP.";
 
+/** Risposta SMTP 525: l'invio è sospeso anche se Stato casella è già «Casella attiva». */
+export const ERRORE_INVIO_SOSPESO_ARUBA =
+  "Aruba ha sospeso solo l'invio di info@agrinsicilia.com. Se in Stato casella leggi già Casella attiva, non c'è Abilita: da Dettagli cambia la password della casella e salva la stessa password nel gestionale.";
+
+export function arubaHaSospesoInvio(testo: string): boolean {
+  return /\b525\b|disabilitato per la casella|sending temporarily disabled/i.test(testo);
+}
+
 /** Link e OTP escono dalla casella info, con lo stesso canale SMTP degli accessi. */
 export async function inviaDaCasellaAnagrafica(input: {
   to: string;

@@ -11,8 +11,10 @@ import {
   riepilogoRichiesta,
 } from "@/lib/anagrafica/richiesta-db";
 import {
+  arubaHaSospesoInvio,
   casellaInvioAnagrafica,
   ERRORE_CASELLA_ANAGRAFICA,
+  ERRORE_INVIO_SOSPESO_ARUBA,
   inviaDaCasellaAnagrafica,
 } from "@/lib/anagrafica/casella-invio";
 
@@ -73,11 +75,10 @@ export async function inviaRichiestaAnagraficaAction(input: {
     if (testo === ERRORE_CASELLA_ANAGRAFICA) {
       return { success: false, error: testo };
     }
-    if (/525|disabilitato per la casella|change password/i.test(testo)) {
+    if (arubaHaSospesoInvio(testo)) {
       return {
         success: false,
-        error:
-          "Aruba ha ancora l'invio di info@agrinsicilia.com sospeso. La password nel gestionale è già aggiornata. Entra in Webmail con postmaster@agrinsicilia.com, apri Gestione caselle, Dettagli di info@ e in Stato casella premi Abilita, poi Attiva. Il link non è stato attivato.",
+        error: `${ERRORE_INVIO_SOSPESO_ARUBA} Il link non è stato attivato.`,
       };
     }
     if (/535|autentic/i.test(testo)) {
