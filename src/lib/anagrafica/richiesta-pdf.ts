@@ -150,12 +150,18 @@ export function pdfAnagraficaAziendale(
   const hNome = Math.max(1, nomeRighe.length) * 5;
   const hTimbro = timbro ? altezzaTimbro(doc, timbro, larghezzaFirma) : 8;
   const hFirma = Math.max(6, hNome) + hTimbro;
-  if (y + hFirma > limite) nuova();
+  if (y > limite) nuova();
   doc.setFont("helvetica", "normal");
   doc.setFontSize(11);
   doc.setTextColor(15, 23, 42);
   doc.text(`Data: ${dataCompilazione}`, left, y);
-  let yNome = y;
+  const inizioQuarto = 297 * 0.75;
+  let yFirma = Math.max(y, inizioQuarto + 8);
+  if (yFirma + hFirma > 282) {
+    nuova();
+    yFirma = inizioQuarto + 8;
+  }
+  let yNome = yFirma;
   for (const riga of nomeRighe) {
     doc.text(riga, xFirma, yNome);
     yNome += 5;
