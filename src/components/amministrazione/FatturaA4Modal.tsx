@@ -89,6 +89,8 @@ type Props = {
   onSimulaInvio?: (draft: FatturaInvioMailDraft) => void;
   /** Dall'ordine: la fattura si crea, non si invia. */
   bloccaInvio?: boolean;
+  /** Scelta fatta nel riquadro Fattura. Cambia solo la dicitura del documento. */
+  etichettaDocumento?: "fattura" | "proforma";
 };
 
 type EditKind =
@@ -141,6 +143,7 @@ export function FatturaA4Modal({
   onSaved,
   onSimulaInvio,
   bloccaInvio = false,
+  etichettaDocumento,
 }: Props) {
   const soloSessione =
     !ORDINI_PERSISTENZA_DEFINITIVA || Boolean(sessioneDraft) || !ordineId;
@@ -186,7 +189,11 @@ export function FatturaA4Modal({
   const [noteDocumento, setNoteDocumento] = useState("");
   const [piano, setPiano] = useState<OrdinePagamentoPiano>(emptyPagamentoPiano());
   const [fatturaId, setFatturaId] = useState<string | null>(null);
-  const [vista, setVista] = useState<"fattura" | "proforma">("fattura");
+  const [vista, setVista] = useState<"fattura" | "proforma">(
+    etichettaDocumento ?? "fattura"
+  );
+  const etichettaDocumentoRef = useRef(etichettaDocumento);
+  etichettaDocumentoRef.current = etichettaDocumento;
   const [proformaId, setProformaId] = useState<string | null>(null);
   const [proformaNumero, setProformaNumero] = useState<string | null>(null);
   const [proformaConvertitaNumero, setProformaConvertitaNumero] = useState<
@@ -374,7 +381,9 @@ export function FatturaA4Modal({
       setProformaId(ctx.proformaId);
       setProformaNumero(ctx.proformaNumero);
       setProformaConvertitaNumero(ctx.proformaConvertitaNumero);
-      if (ctx.proformaId) setVista("proforma");
+      const sceltaDocumento = etichettaDocumentoRef.current;
+      if (sceltaDocumento) setVista(sceltaDocumento);
+      else if (ctx.proformaId) setVista("proforma");
       setPiano(
         usaMemorizzata?.piano ??
           applyTotaleToPiano(pianoIniziale ?? ctx.piano, ctx.totale)
@@ -779,14 +788,18 @@ export function FatturaA4Modal({
           >
             Chiudi
           </button>
-          {vista === "fattura" ? (
+          {vista === "fattura" || etichettaDocumento === "proforma" ? (
             <button
               type="button"
-              onClick={() => void scaricaDocumento(false, numero)}
+              onClick={() =>
+                void scaricaDocumento(etichettaDocumento === "proforma", numero)
+              }
               disabled={saving || loading || !destinatario}
               className="rounded-lg border border-white/20 bg-white px-3 py-1.5 text-sm font-semibold text-slate-900 hover:bg-slate-100 disabled:opacity-50"
             >
-              Scarica fattura
+              {etichettaDocumento === "proforma"
+                ? "Scarica fattura proforma"
+                : "Scarica fattura"}
             </button>
           ) : null}
           {vista === "fattura" && modificaDaApplicare ? (
@@ -799,7 +812,7 @@ export function FatturaA4Modal({
               {saving ? "Applico…" : "Applica modifica"}
             </button>
           ) : null}
-          {!soloSessione && vista === "fattura" ? (
+          {!soloSessione && !etichettaDocumento && vista === "fattura" ? (
             <button
               type="button"
               onClick={() => setVista("proforma")}
@@ -809,7 +822,7 @@ export function FatturaA4Modal({
               Proforma
             </button>
           ) : null}
-          {!soloSessione && vista === "proforma" ? (
+          {!soloSessione && !etichettaDocumento && vista === "proforma" ? (
             <>
               <button
                 type="button"

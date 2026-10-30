@@ -368,6 +368,7 @@ export function OrdineNuovoWizardModal({
   const firmaOrdineIniziale = useRef("");
   const [formError, setFormError] = useState<string | null>(null);
   const [invioFatturaSdi, setInvioFatturaSdi] = useState<"" | "subito" | "al_processo">("");
+  const [passaProforma, setPassaProforma] = useState(false);
   const [chiediPromozioneSdi, setChiediPromozioneSdi] = useState(false);
   const [promozioneInviaOra, setPromozioneInviaOra] = useState(false);
   const promozioneSdiRef = useRef(false);
@@ -2009,6 +2010,7 @@ export function OrdineNuovoWizardModal({
         return up.success ? null : up.error;
       }
       const docMail = spedDraft.current.documentoMail ?? "fattura";
+      const comeProforma = passaProforma || docMail === "proforma";
       const serveFattura =
         ORDINI_PERSISTENZA_DEFINITIVA &&
         tipoOrdine !== "campionatura" &&
@@ -2057,7 +2059,7 @@ export function OrdineNuovoWizardModal({
           invioFatturaSdi === "subito" &&
           !invioDelegato &&
           !fat.giaInviata &&
-          docMail !== "proforma"
+          !comeProforma
         ) {
           const invio = await inviaFatturaSalvataAction({
             fatturaId: fat.fatturaId,
@@ -2084,7 +2086,7 @@ export function OrdineNuovoWizardModal({
           }
         }
         let notaProforma = "";
-        if (docMail === "proforma") {
+        if (comeProforma) {
           const ctx = await getFatturaA4ContextAction({
             ordineId: result.ordine.id,
           });
@@ -2115,7 +2117,7 @@ export function OrdineNuovoWizardModal({
           messaggioFinale = `Ordine ${result.ordine.numeroInterno} finalizzato. ${invioSubito || "Invio allo SDI non eseguito. La mail non è partita."}`;
         } else if (FASE_TEST_INVIO && !modificaOrdineId) {
           const documentoSalvato =
-            docMail === "proforma"
+            comeProforma
               ? "La fattura proforma è salvata senza numero, come la fattura."
               : "La fattura è salvata senza numero.";
           messaggioFinale = `Ordine ${result.ordine.numeroInterno} registrato. ${documentoSalvato} La mail si compila adesso e parte solo verso sandrohd@gmail.com. Lo SDI non parte e il progressivo non viene consumato.`;
@@ -2489,6 +2491,7 @@ export function OrdineNuovoWizardModal({
       invioFatturaSdi === "subito" &&
       !invioDelegato &&
       !fatturaGiaInviata &&
+      !passaProforma &&
       d.documentoMail !== "proforma";
     if (promuovi && !promozioneSdiRef.current) {
       setPromozioneInviaOra(true);
@@ -4467,9 +4470,23 @@ export function OrdineNuovoWizardModal({
                   solo finché non è partita allo SDI. Resta in bozza: il numero
                   che compare è provvisorio e si conferma solo all&apos;invio
                   allo SDI. La mail al cliente parte solo se lo SDI ha
-                  confermato, salvo la scelta di non inviare alcuna mail. La
-                  proforma si può inviare anche senza SDI.
+                  confermato, salvo la scelta di non inviare alcuna mail.
                 </p>
+                <label className="flex items-start gap-2 text-sm">
+                  <input
+                    type="checkbox"
+                    className="mt-1"
+                    checked={passaProforma}
+                    onChange={(e) => setPassaProforma(e.target.checked)}
+                  />
+                  <span>
+                    Passa a proforma
+                    <span className="mt-0.5 block text-xs text-[var(--muted)]">
+                      La fattura resta uguale. Sul documento si aggiunge solo
+                      la dicitura Fattura proforma.
+                    </span>
+                  </span>
+                </label>
                 {attesaCalcoloSpedizione ? (
                   <p className="text-xs text-amber-800">
                     La fattura resta chiusa finché l&apos;operatore non conferma
@@ -4482,7 +4499,13 @@ export function OrdineNuovoWizardModal({
                     onClick={() => void submit("salva", { keepOpen: true })}
                     className="rounded-lg bg-[var(--primary)] px-3 py-2 text-sm font-medium text-white disabled:opacity-50"
                   >
-                    {savedOrdine ? "Apri documento fattura" : "Anteprima fattura"}
+                    {savedOrdine
+                      ? (passaProforma
+                        ? "Apri fattura proforma"
+                        : "Apri documento fattura")
+                      : (passaProforma
+                        ? "Anteprima fattura proforma"
+                        : "Anteprima fattura")}
                   </button>
                 )}
               </div>
@@ -4638,6 +4661,7 @@ export function OrdineNuovoWizardModal({
                     documentoMail: "informativa",
                   };
                 }}
+                passaProforma={passaProforma}
                 invioDelegato={invioDelegato}
                 onInvioDelegatoChange={
                   tipoOrdine === "campionatura"
@@ -5066,6 +5090,7 @@ export function OrdineNuovoWizardModal({
             return dopoModificaFattura || dopoRigaSalvata;
           })()}
           bloccaInvio
+          etichettaDocumento={passaProforma ? "proforma" : "fattura"}
           onClose={() => setFatturaA4Open(false)}
           onSaved={() => {
             setFatturaA4Open(false);

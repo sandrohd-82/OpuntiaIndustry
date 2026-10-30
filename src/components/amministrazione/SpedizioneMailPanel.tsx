@@ -117,6 +117,11 @@ type Props = {
   /** Il commerciale prepara la bozza; la invia l'operatore al processo. */
   invioDelegato?: boolean;
   onInvioDelegatoChange?: (value: boolean) => void;
+  /**
+   * Spunta del riquadro Fattura. Se è accesa, in mail c'è la fattura proforma
+   * e non la fattura. Se è spenta, c'è la fattura e non la proforma.
+   */
+  passaProforma?: boolean;
 };
 
 export function SpedizioneMailPanel({
@@ -145,6 +150,7 @@ export function SpedizioneMailPanel({
   onNessunaMailChange,
   invioDelegato = false,
   onInvioDelegatoChange,
+  passaProforma,
 }: Props) {
   const [trackingUrl, setTrackingUrl] = useState("");
   const [sedePartenzaId, setSedePartenzaId] = useState(sedePartenzaIdDefault);
@@ -164,6 +170,14 @@ export function SpedizioneMailPanel({
     setAllegaTrackingMail(false);
     setVuoleMail(false);
   }, [bloccaMail]);
+  useEffect(() => {
+    if (passaProforma === undefined) return;
+    setDocumentoMail((prev) => {
+      if (passaProforma && prev === "fattura") return "proforma";
+      if (!passaProforma && prev === "proforma") return "fattura";
+      return prev;
+    });
+  }, [passaProforma]);
   useEffect(() => {
     if (!ritiroInSede) return;
     setAllegaTrackingMail(false);
@@ -805,6 +819,7 @@ export function SpedizioneMailPanel({
             />
             Solo informativa: l&apos;ordine è in fase di elaborazione
           </label>
+          {passaProforma !== false ? (
           <label className="flex items-center gap-2">
             <input
               type="radio"
@@ -817,6 +832,8 @@ export function SpedizioneMailPanel({
             />
             Fattura proforma. Resta sull&apos;ordine, senza numero e senza SDI
           </label>
+          ) : null}
+          {passaProforma !== true ? (
           <label className="flex items-center gap-2">
             <input
               type="radio"
@@ -829,6 +846,7 @@ export function SpedizioneMailPanel({
             />
             Fattura
           </label>
+          ) : null}
           {documentoMail !== "informativa" ? (
             <label className="flex items-center gap-2">
               <input
