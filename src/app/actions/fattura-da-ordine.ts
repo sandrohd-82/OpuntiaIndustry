@@ -1859,8 +1859,10 @@ export async function inviaFatturaSalvataAction(input: {
     };
   }
 
+  // La numerazione legge auth.uid(). La chiave tecnica non ha un utente, quindi
+  // va usata la sessione di chi ha cliccato. Il resto della fattura resta sulla chiave tecnica.
   const numeri = await assegnaNumeroAllInvioSdi(
-    supabase,
+    vistoDa,
     fattura.id,
     String(fattura.data_emissione ?? "").slice(0, 10)
   );
