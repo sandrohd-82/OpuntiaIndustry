@@ -147,6 +147,10 @@ export function AnagraficaPubblicaForm({
 
   if (passo === "privacy" || passo === "condizioni") {
     const privacy = passo === "privacy";
+    const firmatarioDalForm = [form.legaleNome, form.legaleCognome]
+      .map((voce) => voce.trim())
+      .filter(Boolean)
+      .join(" ");
     return (
       <>
         <AvvisoTest attivo={faseTest} />
@@ -157,7 +161,7 @@ export function AnagraficaPubblicaForm({
           titolo={privacy ? TITOLO_PRIVACY : TITOLO_CONDIZIONI}
           avanzamento={privacy ? "Documento 2 di 3" : "Documento 3 di 3"}
           email={emailFirma}
-          firmatarioIniziale={privacy ? firmatarioSuggerito : ""}
+          firmatarioIniziale={privacy ? (firmatarioDalForm || firmatarioSuggerito) : ""}
           blocchi={privacy ? BLOCCHI_PRIVACY : BLOCCHI_CONDIZIONI}
           onFirmato={(prossimo) => {
             if (prossimo === "completato") {

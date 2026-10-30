@@ -38,6 +38,15 @@ export function PresaVisionePannello({
   const [occupato, setOccupato] = useState(false);
   const nomeOk = firmatario.trim().length >= 5 && firmatario.trim().includes(" ");
   const scelteOk = documento === "privacy" ? accetto && marketing !== "" : accetto;
+  const mancaPerOtp = !email
+    ? "Manca l'e-mail a cui inviare il codice."
+    : (!nomeOk
+        ? "Scrivi nome e cognome di chi firma."
+        : (!scelteOk
+            ? (documento === "privacy"
+                ? "Spunta Accetto e scegli se prestare o negare il consenso."
+                : "Spunta l'accettazione delle condizioni.")
+            : ""));
 
   useEffect(() => {
     if (!scadeAt) return;
@@ -190,6 +199,7 @@ export function PresaVisionePannello({
         >
           Richiedi Codice OTP per Firmare
         </button>
+        {mancaPerOtp && !scadeAt ? <p className="text-sm text-slate-600">{mancaPerOtp}</p> : null}
         {scadeAt ? (
           <div className="space-y-2">
             <p className="text-sm text-slate-700">
