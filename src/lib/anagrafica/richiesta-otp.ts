@@ -245,7 +245,7 @@ export async function richiediOtpFirma(input: {
     if (/525|disabilitato per la casella|change password/i.test(motivo)) {
       return {
         errore:
-          "La casella di invio ha la posta in uscita disattivata. Va cambiata la password e aggiornata nel gestionale.",
+          "Aruba ha ancora l'invio sospeso. Entra in Webmail con la casella postmaster, apri la casella info e in Stato casella premi Abilita, poi Attiva.",
       };
     }
     return {

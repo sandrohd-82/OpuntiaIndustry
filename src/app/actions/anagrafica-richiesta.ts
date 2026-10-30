@@ -77,7 +77,7 @@ export async function inviaRichiestaAnagraficaAction(input: {
       return {
         success: false,
         error:
-          "La casella info@agrinsicilia.com ha l'invio in uscita disattivato: va cambiata la password della casella e aggiornata nel gestionale. Il link non è stato attivato.",
+          "Aruba ha ancora l'invio di info@agrinsicilia.com sospeso. La password nel gestionale è già aggiornata. Entra in Webmail con postmaster@agrinsicilia.com, apri Gestione caselle, Dettagli di info@ e in Stato casella premi Abilita, poi Attiva. Il link non è stato attivato.",
       };
     }
     if (/535|autentic/i.test(testo)) {
