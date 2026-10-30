@@ -194,25 +194,52 @@ export async function richiediOtpFirma(input: {
       .eq("id", creato.id);
     return { errore: ERRORE_CASELLA_ANAGRAFICA };
   }
-  try {
-    await inviaDaCasellaAnagrafica({
-      to: email,
-      subject: avviso.subject,
-      text: [
-        `Il codice per firmare ${avviso.cosa} è:`,
-        "",
-        codice,
-        "",
-        "Vale 5 minuti e si usa una sola volta.",
-        "Se non avete chiesto voi il codice, ignorate questa mail.",
-      ].join("\n"),
-    });
-  } catch {
+  const testo = [
+    `Il codice per firmare ${avviso.cosa} è:`,
+    "",
+    codice,
+    "",
+    "Vale 5 minuti e si usa una sola volta.",
+    "Se non avete chiesto voi il codice, ignorate questa mail.",
+  ].join("\n");
+  let motivo = "";
+  for (let tentativo = 0; tentativo < 2; tentativo += 1) {
+    try {
+      await inviaDaCasellaAnagrafica({
+        to: email,
+        subject: avviso.subject,
+        text: testo,
+      });
+      motivo = "";
+      break;
+    } catch (errore) {
+      const grezzo = errore instanceof Error ? errore.message : "invio";
+      motivo = grezzo
+        .replace(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi, "[email]")
+        .replace(/\s+/g, " ")
+        .slice(0, 180);
+      if (tentativo === 0) {
+        await new Promise((resolve) => setTimeout(resolve, 3000));
+      }
+    }
+  }
+  if (motivo) {
+    console.error("[anagrafica otp]", motivo);
     await service
       .from("otp_verifications")
       .update({ stato: "annullato" })
       .eq("id", creato.id);
-    return { errore: "Invio del codice non riuscito. Riprova." };
+    await service.from("audit_log").insert({
+      entity_type: "otp_verifications",
+      entity_id: creato.id,
+      action: "update",
+      actor_id: null,
+      summary: "Invio del codice OTP non riuscito.",
+      payload: { motivo },
+    });
+    return {
+      errore: "Invio del codice non riuscito. Attendi un minuto e riprova.",
+    };
   }
   await service.from("audit_log").insert({
     entity_type: "otp_verifications",
