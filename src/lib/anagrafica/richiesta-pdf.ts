@@ -1,5 +1,10 @@
 import { jsPDF } from "jspdf";
 import type { AnagraficaFormPayload, SedeAnagraficaForm } from "@/lib/anagrafica/richiesta-form";
+import {
+  altezzaTimbro,
+  disegnaTimbroSottoNome,
+  logoAgrinsiciliaPdf,
+} from "@/lib/anagrafica/presa-visione-pdf";
 
 function rigaSede(sede: SedeAnagraficaForm): string[] {
   const luogo = [sede.cap, sede.citta, sede.provincia].filter(Boolean).join(" ");
@@ -7,8 +12,8 @@ function rigaSede(sede: SedeAnagraficaForm): string[] {
     sede.indirizzo,
     [luogo, sede.localita].filter(Boolean).join(" — "),
     sede.nazione,
+    sede.telefono ? `Tel ${sede.telefono}` : "",
   ].filter(Boolean);
-  if (sede.telefono) lines.push(`Tel ${sede.telefono}`);
   return lines.length ? lines : ["—"];
 }
 
@@ -20,40 +25,50 @@ export function pdfAnagraficaAziendale(
   const doc = new jsPDF({ unit: "mm", format: "a4" });
   const left = 16;
   const width = 178;
-  let y = 16;
+  const limite = 272;
+  let y = 28;
+
+  const passoDi = (size: number) => size * 0.45 + 2.2;
+  const misura = (testo: string, size = 10) => {
+    doc.setFontSize(size);
+    const righe = doc.splitTextToSize(testo, width) as string[];
+    return righe.length * passoDi(size);
+  };
+
+  const nuova = () => {
+    doc.addPage();
+    y = 28;
+  };
 
   const scrivi = (testo: string, size = 10, style: "normal" | "bold" = "normal") => {
     doc.setFont("helvetica", style);
     doc.setFontSize(size);
+    doc.setTextColor(15, 23, 42);
     const righe = doc.splitTextToSize(testo, width) as string[];
-    const limite = timbro ? 232 : 272;
+    const passo = passoDi(size);
     for (const riga of righe) {
-      if (y > limite) {
-        doc.addPage();
-        y = 16;
-      }
+      if (y > limite) nuova();
       doc.text(riga, left, y);
-      y += size * 0.45 + 2.2;
+      y += passo;
     }
   };
 
-  scrivi("Spett.le", 11, "bold");
-  scrivi("Agrinsicilia coop", 11, "bold");
-  scrivi("Sede legale: Via Pacini Giovanni 6");
-  scrivi("92027 Licata (AG)");
-  y += 4;
-  doc.setFont("helvetica", "bold");
-  doc.setFontSize(11);
-  const titolo = "OGGETTO: ARCHIVIO ANAGRAFICO";
-  const titoloRighe = doc.splitTextToSize(titolo, width) as string[];
-  for (const riga of titoloRighe) {
-    doc.text(riga, 105, y, { align: "center" });
-    y += 6;
-  }
-  y += 2;
-  scrivi("Vi trasmettiamo di seguito i nostri dati:", 10, "bold");
-  y += 2;
+  const blocco = (titolo: string, corpo: string[]) => {
+    const hTitolo = misura(titolo, 10) + 1;
+    let hCorpo = 0;
+    for (const riga of corpo) hCorpo += misura(riga, 10);
+    const minimo = hTitolo + Math.min(hCorpo, passoDi(10) * 2);
+    if (y + minimo > limite) nuova();
+    y += 1;
+    scrivi(titolo, 10, "bold");
+    for (const riga of corpo) scrivi(riga);
+  };
 
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(12);
+  doc.setTextColor(15, 23, 42);
+  const titolo = "ARCHIVIO ANAGRAFICO";
+  const titoloRighe = doc.splitTextToSize(titolo, width) as string[];
   const campi: Array<[string, string]> = [
     ["Ragione sociale", form.ragioneSociale],
     ["Partita IVA", form.partitaIva],
@@ -63,38 +78,54 @@ export function pdfAnagraficaAziendale(
     ["Telefono", form.telefono],
     ["E-mail", form.email],
   ];
+  const hAnagrafica =
+    titoloRighe.length * 6 +
+    4 +
+    campi.reduce((sum, [etichetta, valore]) => sum + misura(`${etichetta}: ${valore || "—"}`), 0);
+  if (y + Math.min(hAnagrafica, 24) > limite) nuova();
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(12);
+  doc.setTextColor(15, 23, 42);
+  for (const riga of titoloRighe) {
+    doc.text(riga, 105, y, { align: "center" });
+    y += 6;
+  }
+  y += 4;
   for (const [etichetta, valore] of campi) {
     scrivi(`${etichetta}: ${valore || "—"}`);
   }
-  y += 2;
-  scrivi("Legale rappresentante e firmatario del documento", 10, "bold");
-  scrivi(`Cognome: ${form.legaleCognome || "—"}`);
-  scrivi(`Nome: ${form.legaleNome || "—"}`);
-  scrivi(`Telefono: ${form.legaleTel || "—"}`);
-  scrivi(`E-mail: ${form.legaleEmail || "—"}`);
-  y += 2;
-  scrivi(`Banca di appoggio: ${form.bancaAppoggio || "—"}`);
-  scrivi(`BIC: ${form.bancaBic || "—"}`);
-  scrivi(`IBAN: ${form.bancaIban || "—"}`);
-  if (form.bancaFiliale) scrivi(`Filiale: ${form.bancaFiliale}`);
-  y += 2;
-  scrivi("Sede legale", 10, "bold");
-  for (const riga of rigaSede(form.sedeLegale)) scrivi(riga);
-  y += 1;
-  scrivi("Sede amministrativa", 10, "bold");
+
+  blocco("Legale rappresentante e firmatario del documento", [
+    `Cognome: ${form.legaleCognome || "—"}`,
+    `Nome: ${form.legaleNome || "—"}`,
+    `Telefono: ${form.legaleTel || "—"}`,
+    `E-mail: ${form.legaleEmail || "—"}`,
+  ]);
+
+  const banca = [`${form.bancaAppoggio || "—"}`, `BIC: ${form.bancaBic || "—"}`, `IBAN: ${form.bancaIban || "—"}`];
+  if (form.bancaFiliale) banca.push(`Filiale: ${form.bancaFiliale}`);
+  blocco("Banca di appoggio", banca);
+
+  blocco("Sede legale", rigaSede(form.sedeLegale));
+
   const amm = form.sedeAmmUgualeLegale ? form.sedeLegale : form.sedeAmministrativa;
-  if (form.sedeAmmUgualeLegale) scrivi("Uguale alla sede legale");
-  for (const riga of rigaSede(amm)) scrivi(riga);
-  y += 1;
-  scrivi("Indirizzo di consegna o ritiro magazzino", 10, "bold");
+  const righeAmm = form.sedeAmmUgualeLegale
+    ? ["Uguale alla sede legale", ...rigaSede(amm)]
+    : rigaSede(amm);
+  blocco("Sede amministrativa", righeAmm);
+
   const mag =
     form.sedeMagFonte === "legale"
       ? form.sedeLegale
       : (form.sedeMagFonte === "amministrativa" ? amm : form.sedeMagazzino);
-  if (form.sedeMagFonte === "legale") scrivi("Uguale alla sede legale");
-  if (form.sedeMagFonte === "amministrativa") scrivi("Uguale alla sede amministrativa");
-  if (!form.sedeMagFonte) scrivi("Non indicato");
-  else for (const riga of rigaSede(mag)) scrivi(riga);
+  const righeMag = !form.sedeMagFonte
+    ? ["Non indicato"]
+    : [
+        ...(form.sedeMagFonte === "legale" ? ["Uguale alla sede legale"] : []),
+        ...(form.sedeMagFonte === "amministrativa" ? ["Uguale alla sede amministrativa"] : []),
+        ...rigaSede(mag),
+      ];
+  blocco("Indirizzo di consegna o ritiro magazzino", righeMag);
 
   const facoltativi: Array<[string, string]> = [
     ["Responsabile acquisti", [form.respAcquistiNome, form.respAcquistiTel, form.respAcquistiEmail].filter(Boolean).join(" · ")],
@@ -104,63 +135,40 @@ export function pdfAnagraficaAziendale(
     if (valore) scrivi(`${etichetta}: ${valore}`);
   }
 
-  if (y > 190) {
-    doc.addPage();
-    y = 16;
-  }
-  y += 4;
   scrivi(
     "Vi autorizziamo al trattamento dei nostri dati ai sensi del Regolamento UE 2016/679, della legge 196/2003 e per i fini dichiarati."
   );
   y += 6;
-  scrivi(`Data: ${dataCompilazione}`);
-  y += 14;
-  if (!timbro) {
-    doc.setDrawColor(30);
-    doc.line(left, y, left + 70, y);
-    y += 5;
-    scrivi("Firma");
-    scrivi("(Rappresentante Legale)");
+
+  const firmatario = [form.legaleNome, form.legaleCognome].filter(Boolean).join(" ").trim() || "—";
+  doc.setFont("helvetica", "normal");
+  doc.setFontSize(11);
+  const nomeRighe = doc.splitTextToSize(`Firma: ${firmatario}`, width) as string[];
+  const hFirma = misura(`Data: ${dataCompilazione}`, 11) + 6 + nomeRighe.length * 5 + (timbro ? altezzaTimbro(doc, timbro, width) : 12);
+  if (y + hFirma > limite) nuova();
+  scrivi(`Data: ${dataCompilazione}`, 11);
+  y += 6;
+  let yNome = y;
+  doc.setFont("helvetica", "normal");
+  doc.setFontSize(11);
+  doc.setTextColor(15, 23, 42);
+  for (const riga of nomeRighe) {
+    doc.text(riga, left, yNome);
+    yNome += 5;
   }
   if (timbro) {
-    const pagine = doc.getNumberOfPages();
-    for (let pagina = 1; pagina <= pagine; pagina += 1) {
-      doc.setPage(pagina);
-      const testo = `${timbro} | ${pagina} di ${pagine}`;
-      doc.setFont("helvetica", "normal");
-      doc.setFontSize(7);
-      const colonna = 118;
-      const destra = 194;
-      const righe = doc.splitTextToSize(testo, colonna) as string[];
-      const interlinea = 3.2;
-      const fondo = 285;
-      const yPrima = fondo - Math.max(0, righe.length - 1) * interlinea;
-      const raggio = 8.5;
-      const cx = destra - raggio;
-      const cy = yPrima - 5 - raggio;
-      doc.setDrawColor(20, 60, 140);
-      doc.setLineWidth(0.7);
-      doc.circle(cx, cy, raggio, "S");
-      doc.setLineWidth(0.25);
-      doc.circle(cx, cy, raggio - 1.3, "S");
-      doc.setTextColor(20, 60, 140);
-      doc.setFont("helvetica", "bold");
-      doc.setFontSize(6.5);
-      doc.text("FIRMATO", cx, cy - 0.5, { align: "center" });
-      doc.setFontSize(5.5);
-      doc.text("OTP", cx, cy + 2.6, { align: "center" });
-      doc.setFont("helvetica", "normal");
-      doc.setFontSize(7);
-      doc.setTextColor(30);
-      let base = yPrima;
-      for (const riga of righe) {
-        doc.text(riga, destra, base, { align: "right" });
-        base += interlinea;
-      }
-    }
-    doc.setTextColor(0);
-    doc.setDrawColor(0);
-    doc.setLineWidth(0.2);
+    disegnaTimbroSottoNome(doc, left, yNome - 5, timbro, width);
+  } else {
+    const yLinea = yNome + 8;
+    doc.setDrawColor(30);
+    doc.line(left, yLinea, left + 70, yLinea);
+  }
+
+  const logo = logoAgrinsiciliaPdf();
+  const pagine = doc.getNumberOfPages();
+  for (let pagina = 1; pagina <= pagine; pagina += 1) {
+    doc.setPage(pagina);
+    if (logo) doc.addImage(logo, "PNG", 168, 8, 28, 12);
   }
   doc.setProperties({ title: "Anagrafica Aziendale" });
   return Buffer.from(doc.output("arraybuffer"));

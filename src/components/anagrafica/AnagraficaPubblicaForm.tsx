@@ -417,17 +417,12 @@ export function AnagraficaPubblicaForm({
         }
       `}</style>
       <AvvisoTest attivo={faseTest} />
-      <p className="text-sm font-semibold">Spett.le</p>
-      <p className="text-sm font-semibold">Agrinsicilia coop</p>
-      <p className="text-sm">Sede legale: Via Pacini Giovanni 6</p>
-      <p className="text-sm">92027 Licata (AG)</p>
-      <p className="mt-6 text-center text-xs font-semibold uppercase tracking-wide text-slate-500">
+      <p className="text-center text-xs font-semibold uppercase tracking-wide text-slate-500">
         Documento 1 di 3
       </p>
-      <h1 className="mt-1 text-center text-base font-semibold">
-        OGGETTO: ARCHIVIO ANAGRAFICO e INFORMAZIONI PER MODELLO ORGANIZZATIVO
+      <h1 className="mt-1 text-center text-base font-bold">
+        ARCHIVIO ANAGRAFICO
       </h1>
-      <p className="mt-4 text-sm">Vi trasmettiamo di seguito i nostri dati:</p>
       <p className="mt-2 text-xs text-slate-500">
         Ogni campo viene salvato appena uscite dal campo. Potete chiudere e riprendere da qui.
       </p>
@@ -505,7 +500,7 @@ export function AnagraficaPubblicaForm({
         </p>
 
         <fieldset className="space-y-3 rounded-xl border border-slate-200 p-4">
-          <legend className="px-1 text-sm font-semibold">Legale rappresentante e firmatario del documento</legend>
+          <legend className="px-1 text-sm font-bold">Legale rappresentante e firmatario del documento</legend>
           <div className="grid gap-4 sm:grid-cols-2">
             <Campo label="Cognome" required sottolineato={rosso("legaleCognome")} value={form.legaleCognome} onChange={(v) => aggiorna("legaleCognome", v)} onBlur={(valore) => void salva("legaleCognome", valore)} />
             <Campo label="Nome" required sottolineato={rosso("legaleNome")} value={form.legaleNome} onChange={(v) => aggiorna("legaleNome", v)} onBlur={(valore) => void salva("legaleNome", valore)} />
@@ -530,12 +525,15 @@ export function AnagraficaPubblicaForm({
             <Campo label="E-mail" sottolineato={rosso("respTecnicoEmail")} value={form.respTecnicoEmail} onChange={(v) => aggiorna("respTecnicoEmail", v)} onBlur={(valore) => void salva("respTecnicoEmail", valore)} />
           </div>
         </fieldset>
-        <div className="grid gap-4 sm:grid-cols-2">
-          <Campo label="Banca appoggio" required sottolineato={rosso("bancaAppoggio")} value={form.bancaAppoggio} onChange={(v) => aggiorna("bancaAppoggio", v)} onBlur={(valore) => void salva("bancaAppoggio", valore)} />
-          <Campo label="BIC" required sottolineato={rosso("bancaBic")} value={form.bancaBic} onChange={(v) => aggiorna("bancaBic", v)} onBlur={(valore) => void salva("bancaBic", valore)} />
-          <Campo label="IBAN" required sottolineato={rosso("bancaIban")} value={form.bancaIban} onChange={(v) => aggiorna("bancaIban", v)} onBlur={(valore) => void salva("bancaIban", valore)} />
-          <Campo label="Filiale" value={form.bancaFiliale} onChange={(v) => aggiorna("bancaFiliale", v)} onBlur={(valore) => void salva("bancaFiliale", valore)} />
-        </div>
+        <fieldset className="space-y-3 rounded-xl border border-slate-200 p-4">
+          <legend className="px-1 text-sm font-bold">Banca di appoggio</legend>
+          <div className="grid gap-4 sm:grid-cols-2">
+            <Campo label="Banca appoggio" required sottolineato={rosso("bancaAppoggio")} value={form.bancaAppoggio} onChange={(v) => aggiorna("bancaAppoggio", v)} onBlur={(valore) => void salva("bancaAppoggio", valore)} />
+            <Campo label="BIC" required sottolineato={rosso("bancaBic")} value={form.bancaBic} onChange={(v) => aggiorna("bancaBic", v)} onBlur={(valore) => void salva("bancaBic", valore)} />
+            <Campo label="IBAN" required sottolineato={rosso("bancaIban")} value={form.bancaIban} onChange={(v) => aggiorna("bancaIban", v)} onBlur={(valore) => void salva("bancaIban", valore)} />
+            <Campo label="Filiale" value={form.bancaFiliale} onChange={(v) => aggiorna("bancaFiliale", v)} onBlur={(valore) => void salva("bancaFiliale", valore)} />
+          </div>
+        </fieldset>
 
         <SedeBlocco
           titolo="Sede legale"
@@ -579,8 +577,8 @@ export function AnagraficaPubblicaForm({
         )}
 
         <label className="block text-sm">
-          <span className="mb-1 block font-medium text-slate-700">
-            Indirizzo di consegna o ritiro, se diverso
+          <span className="mb-1 block font-bold text-slate-900">
+            Indirizzo di consegna o ritiro magazzino
           </span>
           <select
             value={form.sedeMagFonte}
@@ -681,7 +679,7 @@ function SedeBlocco({
   const nazioneRossa = rosso?.("nazione") === true;
   return (
     <fieldset className="space-y-3 rounded-xl border border-slate-200 p-4">
-      <legend className="px-1 text-sm font-semibold">{titolo}</legend>
+      <legend className="px-1 text-sm font-bold">{titolo}</legend>
       <Campo
         label="Via/Viale/P.zza"
         required={richiesti}
