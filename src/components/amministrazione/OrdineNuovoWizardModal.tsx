@@ -85,6 +85,7 @@ import {
   creaFatturaOrdineSenzaInvioAction,
   getFatturaA4ContextAction,
   inviaFatturaSalvataAction,
+  inviaProformaOrdineAction,
   saveProformaDaOrdineAction,
   anteprimaNumeroProformaBozzaAction,
 } from "@/app/actions/fattura-da-ordine";
@@ -2140,6 +2141,27 @@ export function OrdineNuovoWizardModal({
             } else {
               numeroProformaSalvato = pr.numeroProforma;
               setNumeroProformaBozza(pr.numeroProforma);
+              if (
+                !FASE_TEST_INVIO &&
+                !modificaOrdineId &&
+                !nessunaMail &&
+                invioProforma === "finalizzazione"
+              ) {
+                const accountId = spedDraft.current.mailAccountId;
+                if (!accountId) {
+                  notaProforma = `Proforma ${pr.numeroProforma} salvata. La mail non è partita: manca la casella mittente.`;
+                } else {
+                  const inviata = await inviaProformaOrdineAction({
+                    ordineId: result.ordine.id,
+                    accountId,
+                    oggetto: spedDraft.current.mailOggetto,
+                    corpo: spedDraft.current.mailCorpo,
+                  });
+                  notaProforma = inviata.success
+                    ? `Proforma ${inviata.numero} inviata a ${inviata.destinatario}.`
+                    : `Proforma ${pr.numeroProforma} salvata, ma la mail non è partita: ${inviata.error}`;
+                }
+              }
             }
           }
         }
@@ -2179,7 +2201,7 @@ export function OrdineNuovoWizardModal({
           messaggioFinale =
             FASE_TEST_INVIO && !modificaOrdineId
               ? `Ordine ${result.ordine.numeroInterno} registrato. Fattura proforma${numeroProformaTesto} salvata. La mail con la proforma non è partita.`
-              : `Ordine ${result.ordine.numeroInterno} finalizzato. Fattura proforma${numeroProformaTesto} salvata. La mail con la proforma parte al cliente.`;
+              : `Ordine ${result.ordine.numeroInterno} finalizzato. Fattura proforma${numeroProformaTesto} salvata.`;
         } else if (invioDelegato) {
           messaggioFinale = `Ordine ${result.ordine.numeroInterno} finalizzato. La bozza è salvata. Numero, SDI e mail li invia l'operatore quando mette l'ordine in produzione.`;
         } else if (invioFatturaSdi === "subito") {
