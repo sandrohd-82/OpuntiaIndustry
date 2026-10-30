@@ -136,7 +136,7 @@ export function MailOrdineFaseTestModal({
       }
       onInviata(
         documento === "proforma"
-          ? `Mail dell'ordine ${res.numeroOrdine} inviata solo a ${res.email}. In allegato c'è la fattura proforma. Lo SDI non è stato chiamato e il numero non è stato consumato.`
+          ? `Mail con la proforma dell'ordine ${res.numeroOrdine} inviata solo a ${res.email}.`
           : `Mail dell'ordine ${res.numeroOrdine} inviata solo a ${res.email}. In allegato c'è la fattura della bozza. Lo SDI non è stato chiamato e il numero non è stato consumato.`
       );
     } catch (e) {
@@ -161,8 +161,9 @@ export function MailOrdineFaseTestModal({
           {titolo(documento, allegaPdf)}
         </h3>
         <p className="mt-1 text-sm text-[var(--muted)]">
-          Ordine {numeroOrdine}. Fase di prova: destinatario fisso{" "}
-          {EMAIL_CONTROLLO_DEFAULT}. Nessun invio al cliente e nessuno SDI.
+          {documento === "proforma"
+            ? `Ordine ${numeroOrdine}. Fase di prova: la proforma parte solo verso ${EMAIL_CONTROLLO_DEFAULT}, dopo la conferma. Non parte al cliente.`
+            : `Ordine ${numeroOrdine}. Fase di prova: destinatario fisso ${EMAIL_CONTROLLO_DEFAULT}. Nessun invio al cliente e nessuno SDI.`}
           {allegaTracking && trackingUrl.trim()
             ? " Il tracking entra nel testo."
             : " Il tracking non è allegato."}

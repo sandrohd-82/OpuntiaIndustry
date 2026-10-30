@@ -393,6 +393,7 @@ export function OrdineNuovoWizardModal({
   const [promozioneInviaOra, setPromozioneInviaOra] = useState(false);
   const promozioneSdiRef = useRef(false);
   const promozioneDopoRef = useRef<null | (() => void)>(null);
+  const dopoMailRef = useRef<{ ordine: Ordine; esito: string } | null>(null);
   const [fatturaGiaInviata, setFatturaGiaInviata] = useState(false);
   const [saving, setSaving] = useState(false);
   const spedDraft = useRef({
@@ -2145,6 +2146,7 @@ export function OrdineNuovoWizardModal({
         setFatturaPrenotataId(fat.fatturaId);
         setConfermaInvioFattura(0);
         setOrdineFinalizzato(true);
+        let apreMailProva = false;
         if (passaProforma && invioProforma === "finalizzazione") {
           spedDraft.current = {
             ...spedDraft.current,
@@ -2164,7 +2166,7 @@ export function OrdineNuovoWizardModal({
           !nessunaMail &&
           !(passaProforma && invioProforma === "elenco")
         ) {
-          apriMailOrdine();
+          apreMailProva = true;
         }
         const extra = [fat.avviso, invioSubito].filter(Boolean).join(" ");
         const numeroProformaTesto = numeroProformaSalvato
@@ -2176,8 +2178,8 @@ export function OrdineNuovoWizardModal({
         } else if (comeProforma) {
           messaggioFinale =
             FASE_TEST_INVIO && !modificaOrdineId
-              ? `Ordine ${result.ordine.numeroInterno} registrato. Fattura proforma${numeroProformaTesto} salvata. La mail si compila adesso e parte solo verso sandrohd@gmail.com. Lo SDI non parte e il numero fiscale non viene consumato.`
-              : `Ordine ${result.ordine.numeroInterno} finalizzato. Fattura proforma${numeroProformaTesto} salvata. Non parte allo SDI.`;
+              ? `Ordine ${result.ordine.numeroInterno} registrato. Fattura proforma${numeroProformaTesto} salvata. La mail con la proforma non è partita.`
+              : `Ordine ${result.ordine.numeroInterno} finalizzato. Fattura proforma${numeroProformaTesto} salvata. La mail con la proforma parte al cliente.`;
         } else if (invioDelegato) {
           messaggioFinale = `Ordine ${result.ordine.numeroInterno} finalizzato. La bozza è salvata. Numero, SDI e mail li invia l'operatore quando mette l'ordine in produzione.`;
         } else if (invioFatturaSdi === "subito") {
@@ -2185,7 +2187,7 @@ export function OrdineNuovoWizardModal({
         } else if (FASE_TEST_INVIO && !modificaOrdineId) {
           messaggioFinale = `Ordine ${result.ordine.numeroInterno} registrato. La fattura è salvata senza numero. La mail si compila adesso e parte solo verso sandrohd@gmail.com. Lo SDI non parte e il progressivo non viene consumato.`;
         }
-        if (extra && invioFatturaSdi !== "subito") {
+        if (extra && !comeProforma && invioFatturaSdi !== "subito") {
           messaggioFinale = `${messaggioFinale} ${extra}`;
         } else if (fat.avviso && invioFatturaSdi === "subito") {
           messaggioFinale = `${messaggioFinale} ${fat.avviso}`;
@@ -2197,6 +2199,11 @@ export function OrdineNuovoWizardModal({
         ]
           .filter(Boolean)
           .join(" ");
+        if (apreMailProva) {
+          dopoMailRef.current = { ordine: result.ordine, esito };
+          apriMailOrdine();
+          return;
+        }
         onSaved(result.ordine, esito);
         return;
       }
@@ -4704,10 +4711,9 @@ export function OrdineNuovoWizardModal({
                             </span>
                           </span>
                           <span className="pl-6 text-sm text-slate-700">
-                            La mail con il PDF parte quando finalizzi.
                             {FASE_TEST_INVIO
-                              ? " In questa fase di prova arriva solo a sandrohd@gmail.com."
-                              : ""}
+                              ? "Alla finalizzazione si apre la mail con la proforma. In questa fase di prova parte solo verso sandrohd@gmail.com, dopo la conferma."
+                              : "La mail con il PDF parte quando finalizzi."}
                           </span>
                         </label>
                         <label
@@ -5300,10 +5306,18 @@ export function OrdineNuovoWizardModal({
           oggetto={mailTest.oggetto}
           corpo={mailTest.corpo}
           bozza={mailTest.bozza}
-          onClose={() => setMailTest(null)}
-          onInviata={(messaggio) => {
+          onClose={() => {
+            const pending = dopoMailRef.current;
+            dopoMailRef.current = null;
             setMailTest(null);
-            setSessioneMsg(messaggio);
+            if (pending) onSaved(pending.ordine, pending.esito);
+          }}
+          onInviata={(messaggio) => {
+            const pending = dopoMailRef.current;
+            dopoMailRef.current = null;
+            setMailTest(null);
+            if (pending) onSaved(pending.ordine, messaggio);
+            else setSessioneMsg(messaggio);
           }}
         />
       ) : null}

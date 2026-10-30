@@ -89,6 +89,8 @@ type Props = {
   bloccaInvio?: boolean;
   /** Scelta fatta nel riquadro Fattura. Cambia solo la dicitura del documento. */
   etichettaDocumento?: "fattura" | "proforma";
+  /** Dall'elenco: apre la proforma già salvata, con il download. */
+  mostraProforma?: boolean;
   /** Salva la proforma e chiude la bozza, senza scaricare il PDF. */
   onProformaSalvata?: (numero: string) => void;
 };
@@ -144,6 +146,7 @@ export function FatturaA4Modal({
   onSimulaInvio,
   bloccaInvio = false,
   etichettaDocumento,
+  mostraProforma = false,
   onProformaSalvata,
 }: Props) {
   const soloSessione =
@@ -191,7 +194,7 @@ export function FatturaA4Modal({
   const [piano, setPiano] = useState<OrdinePagamentoPiano>(emptyPagamentoPiano());
   const [fatturaId, setFatturaId] = useState<string | null>(null);
   const [vista, setVista] = useState<"fattura" | "proforma">(
-    etichettaDocumento ?? "fattura"
+    etichettaDocumento ?? (mostraProforma ? "proforma" : "fattura")
   );
   const etichettaDocumentoRef = useRef(etichettaDocumento);
   etichettaDocumentoRef.current = etichettaDocumento;
@@ -398,7 +401,8 @@ export function FatturaA4Modal({
       setProformaNumero(ctx.proformaNumero);
       setProformaConvertitaNumero(ctx.proformaConvertitaNumero);
       const sceltaDocumento = etichettaDocumentoRef.current;
-      if (sceltaDocumento) setVista(sceltaDocumento);
+      if (mostraProforma) setVista("proforma");
+      else if (sceltaDocumento) setVista(sceltaDocumento);
       else if (ctx.proformaId) setVista("proforma");
       setPiano(
         usaMemorizzata?.piano ??
@@ -849,7 +853,16 @@ export function FatturaA4Modal({
           >
             Chiudi
           </button>
-          {etichettaDocumento === "proforma" ? (
+          {mostraProforma ? (
+            <button
+              type="button"
+              onClick={() => void scaricaDocumento(true, proformaNumero || "")}
+              disabled={saving || loading || !destinatario || !proformaNumero}
+              className="rounded-lg border border-white/20 bg-white px-3 py-1.5 text-sm font-semibold text-slate-900 hover:bg-slate-100 disabled:opacity-50"
+            >
+              Scarica proforma
+            </button>
+          ) : etichettaDocumento === "proforma" ? (
             <button
               type="button"
               onClick={() => void salvaProformaEChiudi()}
@@ -888,7 +901,7 @@ export function FatturaA4Modal({
               Proforma
             </button>
           ) : null}
-          {!soloSessione && !etichettaDocumento && vista === "proforma" ? (
+          {!mostraProforma && !soloSessione && !etichettaDocumento && vista === "proforma" ? (
             <>
               <button
                 type="button"
@@ -1114,13 +1127,15 @@ export function FatturaA4Modal({
                   </tbody>
                 </table>
               </PreventivoDocField>
-              <button
-                type="button"
-                onClick={() => openEdit("prodotto")}
-                className="mt-1 text-[10px] text-slate-400 print:hidden"
-              >
-                + Aggiungi riga
-              </button>
+              {!mostraProforma ? (
+                <button
+                  type="button"
+                  onClick={() => openEdit("prodotto")}
+                  className="mt-1 text-[10px] text-slate-400 print:hidden"
+                >
+                  + Aggiungi riga
+                </button>
+              ) : null}
               <PreventivoDocField
                 label="Modifica note e dicitura"
                 onEdit={() => openEdit("note")}

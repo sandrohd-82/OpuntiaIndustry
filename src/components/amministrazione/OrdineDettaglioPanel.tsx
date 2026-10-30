@@ -28,7 +28,7 @@ import {
 import { labelSede } from "@/lib/impostazioni/sedi";
 import type { SpedizioneMailPrenotazione } from "@/lib/amministrazione/spedizione-mail";
 import { StaccaFatturaModal } from "@/components/amministrazione/StaccaFatturaModal";
-import { ProformaElencoAzioni } from "@/components/amministrazione/ProformaElencoAzioni";
+import { FatturaA4Modal } from "@/components/amministrazione/FatturaA4Modal";
 import { OrdineAuditLogModal } from "@/components/amministrazione/OrdineAuditLogModal";
 import { OrdineSchedaAziendaModal } from "@/components/amministrazione/OrdineSchedaAziendaModal";
 import {
@@ -132,6 +132,7 @@ export function OrdineDettaglioPanel({
   const [schedaAzienda, setSchedaAzienda] = useState(false);
   const [stacca, setStacca] = useState(false);
   const [staccaMsg, setStaccaMsg] = useState<string | null>(null);
+  const [mostraProforma, setMostraProforma] = useState(false);
   const [sedeLabel, setSedeLabel] = useState("");
   const [corriereNome, setCorriereNome] = useState("");
   const [mail, setMail] = useState<SpedizioneMailPrenotazione | null | undefined>(
@@ -227,10 +228,13 @@ export function OrdineDettaglioPanel({
             </button>
           ) : null}
           {ordine.proformaElenco ? (
-            <ProformaElencoAzioni
-              ordineId={ordine.id}
-              numero={ordine.proformaElenco.numero}
-            />
+            <button
+              type="button"
+              onClick={() => setMostraProforma(true)}
+              className="rounded-lg border border-[var(--primary)] px-3 py-1.5 text-xs font-medium text-[var(--primary)]"
+            >
+              Mostra proforma
+            </button>
           ) : null}
           {onEdit ? (
             <button
@@ -291,6 +295,13 @@ export function OrdineDettaglioPanel({
         <OrdineSchedaAziendaModal
           ordineId={ordine.id}
           onClose={() => setSchedaAzienda(false)}
+        />
+      ) : null}
+      {mostraProforma ? (
+        <FatturaA4Modal
+          ordineId={ordine.id}
+          mostraProforma
+          onClose={() => setMostraProforma(false)}
         />
       ) : null}
       {stacca && !onStaccaFattura ? (
