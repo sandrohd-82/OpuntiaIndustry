@@ -37,6 +37,7 @@ import {
   labelStatoOrdineConSconto,
   labelTipoOrdine,
   labelTipoPagamento,
+  totaleVisibileOrdine,
   type Ordine,
 } from "@/lib/amministrazione/ordini";
 import { labelScontoFascia } from "@/lib/amministrazione/sconto-fuori-listino";
@@ -62,6 +63,14 @@ type OrdineSortKey =
   | "tipoPagamento"
   | "pagato"
   | "versione";
+
+function valoreSortOrdine(ordine: Ordine, key: OrdineSortKey): string | number {
+  if (key === "pagato") return ordine.pagato ? 1 : 0;
+  if (key === "stato") return labelStatoOrdine(ordine.stato);
+  if (key === "importoEuro") return totaleVisibileOrdine(ordine);
+  if (key === "versione") return ordine.versione;
+  return ordine[key] ?? "";
+}
 
 function classeEsitoOrdine(testo: string) {
   const attenzione =
@@ -206,7 +215,7 @@ function OrdineTableRow({
           {formatDate(ordine.dataConsegna)}
         </td>
         <td className="px-4 py-3 text-right font-medium tabular-nums">
-          {formatEuro(ordine.importoEuro)}
+          {formatEuro(totaleVisibileOrdine(ordine))}
         </td>
         <td className="px-4 py-3 text-[var(--muted)]">
           {labelTipoPagamento(ordine.tipoPagamento)}
@@ -423,29 +432,13 @@ export function OrdiniBoard({
         })
       : ordini;
     if (!sort) return ranked;
-    return [...ranked].sort((a, b) => {
-      const av =
-        sort.key === "pagato"
-          ? a.pagato
-            ? 1
-            : 0
-          : sort.key === "stato"
-            ? labelStatoOrdine(a.stato)
-            : sort.key === "importoEuro" || sort.key === "versione"
-              ? a[sort.key]
-              : (a[sort.key] ?? "");
-      const bv =
-        sort.key === "pagato"
-          ? b.pagato
-            ? 1
-            : 0
-          : sort.key === "stato"
-            ? labelStatoOrdine(b.stato)
-            : sort.key === "importoEuro" || sort.key === "versione"
-              ? b[sort.key]
-              : (b[sort.key] ?? "");
-      return compareSortValues(av, bv, sort.dir);
-    });
+    return [...ranked].sort((a, b) =>
+      compareSortValues(
+        valoreSortOrdine(a, sort.key),
+        valoreSortOrdine(b, sort.key),
+        sort.dir
+      )
+    );
   }, [ordini, sort, processMode]);
 
   if (!ready) {

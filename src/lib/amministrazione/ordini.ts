@@ -230,11 +230,13 @@ export type Ordine = {
     id: string;
     numero: string;
     inviata: boolean;
+    totale: number;
   } | null;
-  /** Proforma salvata sull'ordine, con numero già assegnato. */
+  /** Proforma salvata sull'ordine, con numero già assegnato. `totale` è il totale del documento. */
   proformaElenco?: {
     id: string;
     numero: string;
+    totale: number;
   } | null;
   righe: OrdineRigaProdotto[];
   createdAt: string;
@@ -298,6 +300,19 @@ export function totaleOrdine(
 ): number {
   const prodotti = righe.reduce((sum, r) => sum + totaleRiga(r), 0);
   return roundMoney(prodotti + totaleTrasporto(trasporto));
+}
+
+/** In elenco il totale è quello del documento (fattura o proforma), spedizione compresa. */
+export function totaleVisibileOrdine(ordine: {
+  importoEuro: number;
+  fatturaElenco?: { totale: number } | null;
+  proformaElenco?: { totale: number } | null;
+}): number {
+  const fattura = ordine.fatturaElenco?.totale;
+  if (fattura != null && Number.isFinite(fattura) && fattura > 0) return fattura;
+  const proforma = ordine.proformaElenco?.totale;
+  if (proforma != null && Number.isFinite(proforma) && proforma > 0) return proforma;
+  return ordine.importoEuro;
 }
 
 export function year2FromDataOrdine(dataOrdine: string): string {

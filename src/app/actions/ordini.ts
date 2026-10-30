@@ -428,13 +428,13 @@ export async function listOrdiniAction(
 async function fattureElencoPerOrdini(ids: string[]) {
   const map = new Map<
     string,
-    { id: string; numero: string; inviata: boolean }
+    { id: string; numero: string; inviata: boolean; totale: number }
   >();
   if (ids.length === 0) return map;
   const service = createServiceClient();
   const { data } = await service
     .from("fatture_emesse")
-    .select("id, ordine_id, numero_fattura, ei_status, created_at")
+    .select("id, ordine_id, numero_fattura, ei_status, totale, created_at")
     .in("ordine_id", ids)
     .eq("tipo_documento", "fattura")
     .is("deleted_at", null)
@@ -445,6 +445,7 @@ async function fattureElencoPerOrdini(ids: string[]) {
       ordine_id?: string | null;
       numero_fattura?: string | null;
       ei_status?: string | null;
+      totale?: number | null;
     };
     const ordineId = String(row.ordine_id ?? "");
     if (!ordineId || map.has(ordineId)) continue;
@@ -453,18 +454,19 @@ async function fattureElencoPerOrdini(ids: string[]) {
       id: String(row.id),
       numero,
       inviata: row.ei_status === "sent" || isNumeroFatturaEmessa(numero),
+      totale: Number(row.totale) || 0,
     });
   }
   return map;
 }
 
 async function proformeElencoPerOrdini(ids: string[]) {
-  const map = new Map<string, { id: string; numero: string }>();
+  const map = new Map<string, { id: string; numero: string; totale: number }>();
   if (ids.length === 0) return map;
   const service = createServiceClient();
   const { data } = await service
     .from("fatture_emesse")
-    .select("id, ordine_id, numero_fattura, created_at")
+    .select("id, ordine_id, numero_fattura, totale, created_at")
     .in("ordine_id", ids)
     .eq("tipo_documento", "proforma")
     .is("deleted_at", null)
@@ -474,12 +476,17 @@ async function proformeElencoPerOrdini(ids: string[]) {
       id: string;
       ordine_id?: string | null;
       numero_fattura?: string | null;
+      totale?: number | null;
     };
     const ordineId = String(row.ordine_id ?? "");
     if (!ordineId || map.has(ordineId)) continue;
     const numero = String(row.numero_fattura ?? "").trim();
     if (!isNumeroProformaAssegnato(numero)) continue;
-    map.set(ordineId, { id: String(row.id), numero });
+    map.set(ordineId, {
+      id: String(row.id),
+      numero,
+      totale: Number(row.totale) || 0,
+    });
   }
   return map;
 }

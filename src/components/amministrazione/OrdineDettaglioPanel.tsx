@@ -41,6 +41,7 @@ import {
   labelTipoPagamento,
   totaleRiga,
   totaleTrasporto,
+  totaleVisibileOrdine,
   type Ordine,
 } from "@/lib/amministrazione/ordini";
 
@@ -353,7 +354,7 @@ export function OrdineDettaglioPanel({
             Totale
           </dt>
           <dd className="mt-0.5 font-semibold tabular-nums">
-            {formatEuro(ordine.importoEuro)}
+            {formatEuro(totaleVisibileOrdine(ordine))}
           </dd>
         </div>
         {ordine.scontoExtraPct > 0 ? (
