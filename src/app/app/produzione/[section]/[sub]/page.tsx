@@ -13,6 +13,12 @@ import { OrdiniDaProcessareBoard } from "@/components/amministrazione/OrdiniDaPr
 import { ScalettaProduzioneBoard } from "@/components/produzione/ScalettaProduzioneBoard";
 import { SchedeOrdiniBoard } from "@/components/produzione/SchedeOrdiniBoard";
 import { InAttesaRitiroBoard } from "@/components/produzione/InAttesaRitiroBoard";
+import { HaccpLineeGuida } from "@/components/produzione/HaccpLineeGuida";
+import { HaccpRoutineBoard } from "@/components/produzione/HaccpRoutineBoard";
+import {
+  listHaccpLineeGuidaAction,
+  listHaccpRoutineAction,
+} from "@/app/actions/haccp";
 import { Suspense } from "react";
 import { requireAreaAccess } from "@/lib/areas/guard";
 import { requireOrdiniDaProcessarePageAccess } from "@/lib/auth/ordini-access";
@@ -194,6 +200,38 @@ export default async function ProduzioneSubPage({ params, searchParams }: Props)
         <AppHeader title={page.label} subtitle={page.description} />
         <div className="p-6">
           <ScalettaProduzioneBoard />
+        </div>
+      </>
+    );
+  }
+
+  if (section === "controlli-haccp" && sub === "linee-guida") {
+    const guida = await listHaccpLineeGuidaAction();
+    return (
+      <>
+        <AppHeader title={page.label} subtitle={page.description} />
+        <div className="p-6">
+          {guida.success ? (
+            <HaccpLineeGuida sezioni={guida.sezioni} />
+          ) : (
+            <p className="text-sm text-red-700">{guida.error}</p>
+          )}
+        </div>
+      </>
+    );
+  }
+
+  if (section === "controlli-haccp" && sub === "routine") {
+    const routine = await listHaccpRoutineAction();
+    return (
+      <>
+        <AppHeader title={page.label} subtitle={page.description} />
+        <div className="p-6">
+          {routine.success ? (
+            <HaccpRoutineBoard categorie={routine.categorie} voci={routine.voci} />
+          ) : (
+            <p className="text-sm text-red-700">{routine.error}</p>
+          )}
         </div>
       </>
     );

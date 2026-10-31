@@ -157,6 +157,27 @@ export const PRODUZIONE_SECTIONS: readonly NavItem[] = [
     ],
   },
   {
+    slug: "controlli-haccp",
+    label: "Controlli e HACCP",
+    description: "Linee guida e routine periodiche di pulizia, sanificazione e controlli",
+    path: "/app/produzione/controlli-haccp",
+    children: [
+      {
+        slug: "linee-guida",
+        label: "Linee guida",
+        description:
+          "Pagine di stabilimento su HACCP, pulizia, sanificazione e procedure operative standard",
+        path: "/app/produzione/controlli-haccp/linee-guida",
+      },
+      {
+        slug: "routine",
+        label: "Routine",
+        description: "Tutti i processi che devono essere fatti periodicamente",
+        path: "/app/produzione/controlli-haccp/routine",
+      },
+    ],
+  },
+  {
     slug: "calendario",
     label: "Calendario",
     description: "Turni e ruoli per area produttiva",
