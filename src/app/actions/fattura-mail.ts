@@ -205,6 +205,7 @@ export async function inviaFatturaDaWebmailAction(
   }
 
   let smtpMessageId: string | null = null;
+  let messaggioGiaRegistrato: string | null = null;
   try {
     const sent = await sendMailViaAccount({
       account: account as {
@@ -222,6 +223,12 @@ export async function inviaFatturaDaWebmailAction(
       to: input.to,
       subject: input.subject,
       text: input.bodyText,
+      traccia: {
+        userId: auth.userId,
+        aziendaTipo: "cliente",
+        aziendaId: fattura.cliente_id ? String(fattura.cliente_id) : null,
+        aziendaLabel: destinatario.ragioneSociale,
+      },
       attachments: [
         {
           filename: pdf.fileName,
@@ -231,6 +238,7 @@ export async function inviaFatturaDaWebmailAction(
       ],
     });
     smtpMessageId = sent.messageId;
+    messaggioGiaRegistrato = sent.messaggioId;
   } catch (e) {
     return {
       success: false,
@@ -239,7 +247,9 @@ export async function inviaFatturaDaWebmailAction(
   }
 
   const sentAt = new Date().toISOString();
-  const { data: inserted, error: insErr } = await service
+  const { data: inserted, error: insErr } = messaggioGiaRegistrato
+    ? { data: { id: messaggioGiaRegistrato }, error: null }
+    : await service
     .from("webmail_messaggi")
     .insert({
       account_id: input.accountId,
@@ -274,7 +284,7 @@ export async function inviaFatturaDaWebmailAction(
     };
   }
   const messaggioId = String(inserted.id);
-  try {
+  if (!messaggioGiaRegistrato) try {
     await persistMessaggioAttachments({
       supabase: service,
       messaggioId,

@@ -313,6 +313,7 @@ export async function anteprimaNumerazioneRealeAction(raw: {
   const pdfBytes = Buffer.from(await pdf.blob.arrayBuffer());
 
   let smtpMessageId: string | null = null;
+  let messaggioRegistrato: string | null = null;
   try {
     const sent = await sendMailViaAccount({
       account,
@@ -328,6 +329,7 @@ export async function anteprimaNumerazioneRealeAction(raw: {
       ],
     });
     smtpMessageId = sent.messageId;
+    messaggioRegistrato = sent.messaggioId;
   } catch (e) {
     return {
       success: false,
@@ -339,7 +341,9 @@ export async function anteprimaNumerazioneRealeAction(raw: {
   }
 
   const sentAt = new Date().toISOString();
-  const { data: inserted, error: mailErr } = await service
+  const { data: inserted } = messaggioRegistrato
+    ? { data: { id: messaggioRegistrato }, error: null }
+    : await service
     .from("webmail_messaggi")
     .insert({
       account_id: account.id,
@@ -362,7 +366,7 @@ export async function anteprimaNumerazioneRealeAction(raw: {
     })
     .select("id")
     .single();
-  if (inserted?.id) {
+  if (inserted?.id && !messaggioRegistrato) {
     try {
       await persistMessaggioAttachments({
         supabase: service,
@@ -910,6 +914,7 @@ export async function inviaCopiaControlloOrdineAction(raw: {
             ]
           : [],
     });
+    if (!sent.messaggioId) {
     const sentAt = new Date().toISOString();
     const { data: inserted } = await service
       .from("webmail_messaggi")
@@ -953,6 +958,7 @@ export async function inviaCopiaControlloOrdineAction(raw: {
       } catch (e) {
         console.error("[controllo ordine allegato]", e);
       }
+    }
     }
   } catch (e) {
     return {

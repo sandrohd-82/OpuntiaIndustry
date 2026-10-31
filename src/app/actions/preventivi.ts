@@ -2991,6 +2991,7 @@ export async function inviaPreventivoMailAction(
       text: mailTestoFirmato,
       html: mailHtmlFirmato,
       attachments: allegatiMail,
+      traccia: { userId: gate.auth.userId },
     });
     smtpMessageId = sent.messageId;
   } catch (e) {
@@ -3360,6 +3361,7 @@ export async function completaCalcoloSpedizionePreventivoAction(input: {
       text: mailTestoFirmato,
       html: mailHtmlFirmato,
       attachments: allegatiMail,
+      traccia: { userId: auth.userId },
     });
     smtpMessageId = sent.messageId;
   } catch (e) {

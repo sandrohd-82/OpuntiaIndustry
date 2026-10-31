@@ -1627,6 +1627,12 @@ async function inviaMailPdfComeBozza(input: {
     subject,
     text,
     attachments: [allegato],
+    traccia: {
+      userId: input.userId,
+      aziendaTipo: "cliente",
+      aziendaId: input.fattura.cliente_id,
+      aziendaLabel: input.destinatario.ragioneSociale,
+    },
   });
   await registraCopiaMailInviata({
     supabase: service,

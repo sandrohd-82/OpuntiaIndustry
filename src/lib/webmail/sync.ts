@@ -1,3 +1,4 @@
+import { randomUUID } from "crypto";
 import { ImapFlow } from "imapflow";
 import { simpleParser, type Attachment } from "mailparser";
 import nodemailer from "nodemailer";
@@ -13,6 +14,7 @@ import { persistMessaggioAttachments } from "@/lib/webmail/attachments";
 import { normalizeBlacklistEmail } from "@/lib/webmail/blacklist";
 import { applyLearningOnImport } from "@/lib/webmail/category-learn-db";
 import { decryptWebmailSecret } from "@/lib/webmail/crypto";
+import { createServiceClient } from "@/lib/supabase/service";
 import { extractPlainFromHtml } from "@/lib/webmail/html-render";
 import { scanFattureMailDopoSync } from "@/lib/amministrazione/fatture-mail-coda";
 import type { createServiceClient } from "@/lib/supabase/server";
@@ -2772,6 +2774,82 @@ export async function importImapMessagesByEmails(
   return { imported, importedIds, accountsTried, errors };
 }
 
+function indirizziMail(value: string | undefined): string[] {
+  return (value ?? "")
+    .split(/[,;]/)
+    .map((parte) => parte.trim())
+    .filter((parte) => parte.includes("@"));
+}
+
+async function componiRawMail(mail: Record<string, unknown>): Promise<Buffer> {
+  const mod = (await import("nodemailer/lib/mail-composer")) as {
+    default?: new (opts: Record<string, unknown>) => {
+      compile: () => { build: () => Promise<Buffer> };
+    };
+  };
+  const Ctor = mod.default;
+  if (!Ctor) throw new Error("Compositore mail non disponibile.");
+  return new Ctor(mail).compile().build();
+}
+
+/** La stessa mail SMTP va nella cartella Inviate di quella casella. */
+async function copiaNellaCartellaInviate(
+  account: AccountRow,
+  raw: Buffer,
+  messageId: string
+): Promise<boolean> {
+  const password = decryptWebmailSecret(account.password_encrypted);
+  const client = new ImapFlow({
+    host: account.imap_host,
+    port: account.imap_port,
+    secure: account.imap_secure,
+    auth: { user: account.username, pass: password },
+    logger: false,
+  });
+  try {
+    await client.connect();
+    const sentBox = await resolveImapSentMailbox(client);
+    if (!sentBox) {
+      console.error("[webmail copia inviate] cartella Inviate non trovata");
+      return false;
+    }
+    const lock = await client.getMailboxLock(sentBox);
+    try {
+      let giaPresente = false;
+      try {
+        const trovati = await client.search(
+          { header: { "Message-ID": messageId } },
+          { uid: true }
+        );
+        giaPresente = Array.isArray(trovati) && trovati.length > 0;
+      } catch {
+        giaPresente = false;
+      }
+      if (giaPresente) return true;
+      const appeso = await client.append(sentBox, raw, ["\\Seen"], new Date());
+      return Boolean(appeso);
+    } finally {
+      try {
+        lock.release();
+      } catch {
+        /* sessione IMAP già chiusa */
+      }
+    }
+  } catch (e) {
+    console.error(
+      "[webmail copia inviate]",
+      e instanceof Error ? e.message : "append non riuscito"
+    );
+    return false;
+  } finally {
+    try {
+      await client.logout();
+    } catch {
+      /* ignore */
+    }
+  }
+}
+
 export async function sendMailViaAccount(input: {
   account: AccountRow;
   to: string;
@@ -2785,7 +2863,13 @@ export async function sendMailViaAccount(input: {
     content: Buffer;
     contentType?: string;
   }>;
-}): Promise<{ messageId: string | null }> {
+  traccia?: {
+    userId?: string | null;
+    aziendaTipo?: "cliente" | "fornitore" | "cliente_possibile" | null;
+    aziendaId?: string | null;
+    aziendaLabel?: string | null;
+  };
+}): Promise<{ messageId: string | null; messaggioId: string | null }> {
   const password = decryptWebmailSecret(input.account.password_encrypted);
   const transporter = nodemailer.createTransport({
     host: input.account.smtp_host,
@@ -2797,7 +2881,10 @@ export async function sendMailViaAccount(input: {
     },
   });
   const nome = input.fromName?.trim();
-  const info = await transporter.sendMail({
+  const dominio = input.account.email_address.split("@")[1] || "localhost";
+  const messageId = `<${randomUUID()}@${dominio}>`;
+  const html = input.html || input.text.replace(/\n/g, "<br/>");
+  const mail = {
     from: nome
       ? { name: nome, address: input.account.email_address }
       : input.account.email_address,
@@ -2805,12 +2892,47 @@ export async function sendMailViaAccount(input: {
     cc: input.cc || undefined,
     subject: input.subject,
     text: input.text,
-    html: input.html || input.text.replace(/\n/g, "<br/>"),
+    html,
+    messageId,
+    date: new Date(),
     attachments: input.attachments,
+  };
+  const raw = await componiRawMail(mail);
+  const destinatari = [...indirizziMail(input.to), ...indirizziMail(input.cc)];
+  await transporter.sendMail({
+    envelope: {
+      from: input.account.email_address,
+      to: destinatari.length ? destinatari : input.to,
+    },
+    raw,
   });
-  const messageId =
-    typeof info.messageId === "string" ? info.messageId.trim() : "";
-  return { messageId: messageId || null };
+  await copiaNellaCartellaInviate(input.account, raw, messageId);
+  let messaggioId: string | null = null;
+  try {
+    messaggioId = await registraCopiaMailInviata({
+      supabase: createServiceClient(),
+      accountId: input.account.id,
+      fromAddress: input.account.email_address,
+      fromName: nome || "",
+      to: input.to,
+      cc: input.cc,
+      subject: input.subject,
+      text: input.text,
+      html,
+      messageId,
+      userId: input.traccia?.userId,
+      aziendaTipo: input.traccia?.aziendaTipo,
+      aziendaId: input.traccia?.aziendaId,
+      aziendaLabel: input.traccia?.aziendaLabel,
+      attachments: input.attachments,
+    });
+  } catch (e) {
+    console.error(
+      "[webmail copia inviata]",
+      e instanceof Error ? e.message : "registrazione non riuscita"
+    );
+  }
+  return { messageId, messaggioId };
 }
 
 /** Copia in Inviate la mail appena spedita via SMTP, allegati compresi. */
@@ -2818,7 +2940,9 @@ export async function registraCopiaMailInviata(input: {
   supabase: Service;
   accountId: string;
   fromAddress: string;
+  fromName?: string;
   to: string;
+  cc?: string;
   subject: string;
   text: string;
   html?: string;
@@ -2832,19 +2956,38 @@ export async function registraCopiaMailInviata(input: {
     content: Buffer;
     contentType?: string;
   }>;
-}): Promise<void> {
+}): Promise<string | null> {
   const header = input.messageId?.trim() || null;
   if (header) {
     const { data: existing } = await input.supabase
       .from("webmail_messaggi")
-      .select("id")
+      .select("id, direction, folder, azienda_id")
       .eq("account_id", input.accountId)
       .eq("message_id_header", header)
-      .limit(1);
-    if (existing?.[0]?.id) return;
+      .is("deleted_at", null)
+      .limit(8);
+    const giaInviata = (existing ?? []).find(
+      (row) =>
+        String(row.direction) === "outbound" &&
+        String(row.folder ?? "").toUpperCase() === WEBMAIL_SENT_FOLDER
+    );
+    if (giaInviata?.id) {
+      if (input.aziendaId && !giaInviata.azienda_id) {
+        await input.supabase
+          .from("webmail_messaggi")
+          .update({
+            azienda_tipo: input.aziendaTipo ?? null,
+            azienda_id: input.aziendaId,
+            azienda_label: input.aziendaLabel ?? "",
+            link_stato: "collegata",
+            updated_by: input.userId ?? null,
+          })
+          .eq("id", giaInviata.id);
+      }
+      return String(giaInviata.id);
+    }
   }
   const nowIso = new Date().toISOString();
-  const { randomUUID } = await import("crypto");
   const { data: inserted, error } = await input.supabase
     .from("webmail_messaggi")
     .insert({
@@ -2854,9 +2997,11 @@ export async function registraCopiaMailInviata(input: {
       message_id_header: header,
       folder: WEBMAIL_SENT_FOLDER,
       from_address: input.fromAddress,
-      from_name: "",
-      to_addresses: [input.to],
-      cc_addresses: [],
+      from_name: input.fromName?.trim() || "",
+      to_addresses: indirizziMail(input.to).length
+        ? indirizziMail(input.to)
+        : [input.to.trim()].filter(Boolean),
+      cc_addresses: indirizziMail(input.cc),
       subject: input.subject,
       body_text: input.text,
       body_html: input.html || input.text.replace(/\n/g, "<br/>"),
@@ -2874,13 +3019,14 @@ export async function registraCopiaMailInviata(input: {
     .single();
   if (error || !inserted?.id) {
     console.error("[webmail copia inviata]", error?.message ?? "insert vuoto");
-    return;
+    return null;
   }
+  const messaggioId = String(inserted.id);
   const files = (input.attachments ?? []).filter((file) => file.content.length > 0);
-  if (!files.length) return;
+  if (!files.length) return messaggioId;
   const saved = await persistMessaggioAttachments({
     supabase: input.supabase,
-    messaggioId: String(inserted.id),
+    messaggioId,
     accountId: input.accountId,
     userId: input.userId,
     attachments: files.map((file) => ({
@@ -2893,6 +3039,7 @@ export async function registraCopiaMailInviata(input: {
   if (saved.errors.length) {
     console.error("[webmail copia inviata allegati]", saved.errors.slice(0, 3).join("; "));
   }
+  return messaggioId;
 }
 
 /**

@@ -1832,6 +1832,7 @@ export async function sendWebmailBozzaAction(
   }
 
   let smtpMessageId: string | null = null;
+  let messaggioBozza: string | null = null;
   try {
     const sent = await sendMailViaAccount({
       account: account as {
@@ -1853,6 +1854,7 @@ export async function sendWebmailBozzaAction(
       attachments,
     });
     smtpMessageId = sent.messageId;
+    messaggioBozza = sent.messaggioId;
   } catch (e) {
     return {
       success: false,
@@ -1901,30 +1903,44 @@ export async function sendWebmailBozzaAction(
       };
     }
   }
-  await service.from("webmail_messaggi").insert({
-    account_id: bozza.account_id,
-    direction: "outbound",
-    message_uid: `compose-${randomUUID()}`,
-    message_id_header: smtpMessageId,
-    folder: WEBMAIL_SENT_FOLDER,
-    from_address: String(account.email_address),
-    from_name: "",
-    to_addresses: toList,
-    cc_addresses: [],
-    subject: String(bozza.subject ?? ""),
-    body_text: String(bozza.body_text ?? ""),
-    body_html: String(bozza.body_html || bozza.body_text || ""),
-    received_at: sentAt,
-    sent_at: sentAt,
-    is_seen: true,
-    azienda_tipo: anagrafica.aziendaTipo,
-    azienda_id: anagrafica.aziendaId,
-    azienda_label: anagrafica.aziendaLabel,
-    contatto_id: anagrafica.contattoId,
-    link_stato: anagrafica.linkStato,
-    created_by: auth.userId,
-    updated_by: auth.userId,
-  });
+  if (messaggioBozza) {
+    await service
+      .from("webmail_messaggi")
+      .update({
+        azienda_tipo: anagrafica.aziendaTipo,
+        azienda_id: anagrafica.aziendaId,
+        azienda_label: anagrafica.aziendaLabel,
+        contatto_id: anagrafica.contattoId,
+        link_stato: anagrafica.linkStato,
+        updated_by: auth.userId,
+      })
+      .eq("id", messaggioBozza);
+  } else {
+    await service.from("webmail_messaggi").insert({
+      account_id: bozza.account_id,
+      direction: "outbound",
+      message_uid: `compose-${randomUUID()}`,
+      message_id_header: smtpMessageId,
+      folder: WEBMAIL_SENT_FOLDER,
+      from_address: String(account.email_address),
+      from_name: "",
+      to_addresses: toList,
+      cc_addresses: [],
+      subject: String(bozza.subject ?? ""),
+      body_text: String(bozza.body_text ?? ""),
+      body_html: String(bozza.body_html || bozza.body_text || ""),
+      received_at: sentAt,
+      sent_at: sentAt,
+      is_seen: true,
+      azienda_tipo: anagrafica.aziendaTipo,
+      azienda_id: anagrafica.aziendaId,
+      azienda_label: anagrafica.aziendaLabel,
+      contatto_id: anagrafica.contattoId,
+      link_stato: anagrafica.linkStato,
+      created_by: auth.userId,
+      updated_by: auth.userId,
+    });
+  }
 
   await supabase.from("webmail_ai_elaborazioni").insert({
     messaggio_id: bozza.messaggio_id,
@@ -3846,6 +3862,7 @@ export async function sendWebmailNuovaMailAction(
   }
 
   let smtpMessageId: string | null = null;
+  let messaggioComposto: string | null = null;
   try {
     const sent = await sendMailViaAccount({
       account: account as {
@@ -3866,6 +3883,7 @@ export async function sendWebmailNuovaMailAction(
       text: d.bodyText,
     });
     smtpMessageId = sent.messageId;
+    messaggioComposto = sent.messaggioId;
   } catch (e) {
     return {
       success: false,
@@ -3880,7 +3898,9 @@ export async function sendWebmailNuovaMailAction(
     [...toList, ...ccList],
     String(account.email_address)
   );
-  const { data: inserted, error: insErr } = await service
+  const { data: inserted, error: insErr } = messaggioComposto
+    ? { data: { id: messaggioComposto }, error: null }
+    : await service
     .from("webmail_messaggi")
     .insert({
       account_id: d.accountId,
@@ -3908,6 +3928,19 @@ export async function sendWebmailNuovaMailAction(
     })
     .select("id")
     .single();
+  if (messaggioComposto && inserted?.id) {
+    await service
+      .from("webmail_messaggi")
+      .update({
+        azienda_tipo: anagrafica.aziendaTipo,
+        azienda_id: anagrafica.aziendaId,
+        azienda_label: anagrafica.aziendaLabel,
+        contatto_id: anagrafica.contattoId,
+        link_stato: anagrafica.linkStato,
+        updated_by: auth.userId,
+      })
+      .eq("id", inserted.id);
+  }
   if (insErr || !inserted) {
     return {
       success: false,
