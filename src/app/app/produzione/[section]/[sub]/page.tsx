@@ -26,7 +26,7 @@ import { resolveProduzioneDynamic } from "../../_resolve";
 
 type Props = {
   params: Promise<{ section: string; sub: string }>;
-  searchParams: Promise<{ id?: string; codice?: string }>;
+  searchParams: Promise<{ id?: string; codice?: string; voce?: string }>;
 };
 
 export default async function ProduzioneSubPage({ params, searchParams }: Props) {
@@ -228,7 +228,11 @@ export default async function ProduzioneSubPage({ params, searchParams }: Props)
         <AppHeader title={page.label} subtitle={page.description} />
         <div className="p-6">
           {routine.success ? (
-            <HaccpRoutineBoard categorie={routine.categorie} voci={routine.voci} />
+            <HaccpRoutineBoard
+              categorie={routine.categorie}
+              voci={routine.voci}
+              voceId={query.voce}
+            />
           ) : (
             <p className="text-sm text-red-700">{routine.error}</p>
           )}

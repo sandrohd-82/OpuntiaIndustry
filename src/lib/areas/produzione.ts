@@ -5,6 +5,7 @@ import {
   type NavItem,
 } from "@/lib/areas/nav-tree";
 import type { ProduzioneArea } from "@/lib/produzione/aree-posti";
+import { abbreviaTitoloRoutine } from "@/lib/produzione/haccp";
 import { nestMacchinari, type ProduzioneMacchinario } from "@/lib/produzione/macchinari";
 
 export type { NavBranch, NavLeaf, NavItem as ProduzioneNavItem } from "@/lib/areas/nav-tree";
@@ -12,6 +13,8 @@ export { isNavBranch };
 
 /** Sidebar: ricarica il menu aree/posti dopo CRUD catalogo. */
 export const PRODUZIONE_AREE_NAV_EVENT = "opuntia-aree-updated";
+/** Sidebar: ricarica l'elenco routine HACCP. */
+export const HACCP_ROUTINE_NAV_EVENT = "opuntia-haccp-routine-updated";
 
 export const GESTIONE_AREE_ELENCO_NAV = {
   slug: "elenco",
@@ -365,6 +368,54 @@ export function mergeProduzioneNavWithAree(
         )
         ),
       ],
+    };
+  });
+}
+
+/** Barre leggibili sul blu scuro del menu. Il colore di famiglia resta riconoscibile. */
+const ROUTINE_MARK_MENU: Record<string, string> = {
+  pulizia: "#60a5fa",
+  sanificazione: "#4ade80",
+  controlli: "#facc15",
+  manutenzione: "#e7c4a4",
+};
+
+export function mergeProduzioneNavWithRoutine(
+  sections: readonly NavItem[],
+  categorie: readonly { id: string; codice: string; nome: string; colore: string }[],
+  voci: readonly { id: string; categoriaId: string; titolo: string; scadenzaAt: string }[]
+): readonly NavItem[] {
+  if (!voci.length) return sections;
+  const perId = new Map(categorie.map((categoria) => [categoria.id, categoria]));
+  const children: NavItem[] = [...voci]
+    .sort((a, b) => {
+      const ta = new Date(a.scadenzaAt).getTime();
+      const tb = new Date(b.scadenzaAt).getTime();
+      if (!Number.isFinite(ta) && !Number.isFinite(tb)) return 0;
+      if (!Number.isFinite(ta)) return 1;
+      if (!Number.isFinite(tb)) return -1;
+      return ta - tb;
+    })
+    .map((voce) => {
+      const categoria = perId.get(voce.categoriaId);
+      return {
+        slug: `routine-${voce.id}`,
+        label: abbreviaTitoloRoutine(voce.titolo),
+        description: categoria ? `${categoria.nome}: ${voce.titolo}` : voce.titolo,
+        path: `/app/produzione/controlli-haccp/routine?voce=${voce.id}`,
+        markColor:
+          (categoria && ROUTINE_MARK_MENU[categoria.codice]) || categoria?.colore || "#94a3b8",
+        countdownTo: voce.scadenzaAt,
+      };
+    });
+
+  return sections.map((section) => {
+    if (section.slug !== "controlli-haccp" || !isNavBranch(section)) return section;
+    return {
+      ...section,
+      children: section.children.map((child) =>
+        child.slug === "routine" ? { ...child, children } : child
+      ),
     };
   });
 }

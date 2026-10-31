@@ -79,11 +79,19 @@ import {
   type MappaMenuNodo,
 } from "@/lib/magazzino/menu-mappa";
 import {
+  HACCP_ROUTINE_NAV_EVENT,
   mergeProduzioneNavWithAree,
+  mergeProduzioneNavWithRoutine,
   PRODUZIONE_AREE_NAV_EVENT,
   PRODUZIONE_SECTIONS,
 } from "@/lib/areas/produzione";
 import { listProduzioneAreeAction } from "@/app/actions/produzione-aree";
+import { listHaccpRoutineAction } from "@/app/actions/haccp";
+import {
+  formatResiduoHaccp,
+  type HaccpCategoria,
+  type HaccpVoce,
+} from "@/lib/produzione/haccp";
 import { PROMEMORIE_E_NOTE_SECTIONS } from "@/lib/areas/promemorie-e-note";
 import { RICERCA_SVILUPPO_SECTIONS } from "@/lib/areas/ricerca-sviluppo";
 import {
@@ -491,6 +499,7 @@ function NavTree({
   pageAccess,
   colorMenu,
   branchToggle = false,
+  now,
 }: {
   sections: readonly NavItem[];
   pathname: string;
@@ -501,6 +510,7 @@ function NavTree({
   pageAccess?: PageAccessMap;
   colorMenu?: boolean;
   branchToggle?: boolean;
+  now: number;
 }) {
   const parentLayer = depth - 1;
   return (
@@ -549,6 +559,7 @@ function NavTree({
                   pageAccess={pageAccess}
                   colorMenu={colorMenu}
                   branchToggle={branchToggle}
+                  now={now}
                 />
               )}
             </li>
@@ -569,9 +580,33 @@ function NavTree({
               <Link
                 href={item.path}
                 prefetch
+                title={item.countdownTo ? item.description : undefined}
                 className={`min-w-0 flex-1 ${itemClass(pathname === item.path, true, false, tone, contrast)}`}
               >
-                <span className="truncate">{item.label}</span>
+                {item.markColor || item.countdownTo ? (
+                  <span className="flex min-w-0 flex-1 items-baseline gap-1.5">
+                    {item.markColor ? (
+                      <span
+                        className="shrink-0 font-semibold leading-none"
+                        style={{ color: item.markColor }}
+                        aria-hidden
+                      >
+                        |
+                      </span>
+                    ) : null}
+                    <span className="min-w-0 truncate">{item.label}</span>
+                    {item.countdownTo ? (
+                      <span
+                        suppressHydrationWarning
+                        className="shrink-0 font-mono text-[11px] tabular-nums opacity-80"
+                      >
+                        ({formatResiduoHaccp(item.countdownTo, now, { compatto: true })})
+                      </span>
+                    ) : null}
+                  </span>
+                ) : (
+                  <span className="truncate">{item.label}</span>
+                )}
                 {item.badge ? <NavBadgeDot badge={item.badge} /> : null}
               </Link>
               {leafAccess ? (
@@ -608,6 +643,22 @@ export function AppSidebar({
   const pathname = usePathname();
   const [produzioneNav, setProduzioneNav] =
     useState<readonly NavItem[]>(PRODUZIONE_SECTIONS);
+  const [haccpRoutine, setHaccpRoutine] = useState<{
+    categorie: HaccpCategoria[];
+    voci: HaccpVoce[];
+  } | null>(null);
+  const [navNow, setNavNow] = useState(() => Date.now());
+  const produzioneMenu = useMemo(
+    () =>
+      haccpRoutine
+        ? mergeProduzioneNavWithRoutine(
+            produzioneNav,
+            haccpRoutine.categorie,
+            haccpRoutine.voci
+          )
+        : produzioneNav,
+    [haccpRoutine, produzioneNav]
+  );
   const [magazzinoNav] = useState<readonly NavItem[]>(MAGAZZINO_SECTIONS);
   const [mappaMenuNodi, setMappaMenuNodi] = useState<MappaMenuNodo[]>([]);
   const [mappaMenuMappe, setMappaMenuMappe] = useState<MappaMenuFogliaNav[]>([]);
@@ -709,6 +760,12 @@ export function AppSidebar({
         }
         if (res.produzione && res.produzione.success) {
           setProduzioneNav(mergeProduzioneNavWithAree(res.produzione.items));
+        }
+        if (res.haccp && res.haccp.success) {
+          setHaccpRoutine({
+            categorie: res.haccp.categorie,
+            voci: res.haccp.voci,
+          });
         }
         if (res.webmailAccounts && res.webmailAccounts.success) {
           setArchivioNav(
@@ -959,6 +1016,33 @@ export function AppSidebar({
   }, [hasProduzione]);
 
   useEffect(() => {
+    const id = window.setInterval(() => setNavNow(Date.now()), 15000);
+    return () => window.clearInterval(id);
+  }, []);
+
+  useEffect(() => {
+    if (!hasProduzione) return;
+    let cancelled = false;
+    function loadRoutine() {
+      void listHaccpRoutineAction()
+        .then((res) => {
+          if (cancelled || !res.success) return;
+          setHaccpRoutine({ categorie: res.categorie, voci: res.voci });
+        })
+        .catch(() => {
+          /* elenco routine opzionale */
+        });
+    }
+    window.addEventListener(HACCP_ROUTINE_NAV_EVENT, loadRoutine);
+    window.addEventListener("focus", loadRoutine);
+    return () => {
+      cancelled = true;
+      window.removeEventListener(HACCP_ROUTINE_NAV_EVENT, loadRoutine);
+      window.removeEventListener("focus", loadRoutine);
+    };
+  }, [hasProduzione]);
+
+  useEffect(() => {
     setArchivioNav(filterArchivioNavByAccess(areas));
   }, [areaSlugsKey]);
 
@@ -994,7 +1078,7 @@ export function AppSidebar({
       const sections =
         sectionsForArea(
           areaSlug,
-          produzioneNav,
+          produzioneMenu,
           archivioNav,
           magazzinoNav,
           mappaMenuNodi,
@@ -1032,7 +1116,7 @@ export function AppSidebar({
   }, [
     pathname,
     webSections,
-    produzioneNav,
+    produzioneMenu,
     archivioNav,
     magazzinoNav,
     mappaMenuNodi,
@@ -1080,7 +1164,7 @@ export function AppSidebar({
     return (
       sectionsForArea(
         slug,
-        produzioneNav,
+        produzioneMenu,
         archivioNav,
         magazzinoNav,
         mappaMenuNodi,
@@ -1216,6 +1300,7 @@ export function AppSidebar({
                       pageAccess={pageAccess}
                       colorMenu={testMenuMode}
                       branchToggle={canToggleAreas}
+                      now={navNow}
                     />
                   ) : null}
                 </li>
@@ -1230,7 +1315,7 @@ export function AppSidebar({
                 : pathMatches(pathname, href);
             const treeSectionsRaw = sectionsForArea(
               area.slug,
-              produzioneNav,
+              produzioneMenu,
               archivioNav,
               magazzinoNav,
               mappaMenuNodi,
@@ -1357,6 +1442,7 @@ export function AppSidebar({
                       pageAccess={pageAccess}
                       colorMenu={testMenuMode}
                       branchToggle={canToggleAreas}
+                      now={navNow}
                     />
                   )}
                 </li>

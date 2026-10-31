@@ -5,6 +5,7 @@ import { countPreventiviAttesaSpedizioneNavAction } from "@/app/actions/preventi
 import { countUnreadNotificheAction } from "@/app/actions/notifiche";
 import { getTicketNavBadgeAction } from "@/app/actions/strumenti-ticket-impostazioni";
 import { listMappaMenuNavAction } from "@/app/actions/magazzino-mappa";
+import { listHaccpRoutineAction } from "@/app/actions/haccp";
 import { listProduzioneAreeAction } from "@/app/actions/produzione-aree";
 import {
   listWebmailAccountsAction,
@@ -27,6 +28,7 @@ export async function bootstrapAppNavAction(flags: {
     ticket,
     mappa,
     produzione,
+    haccp,
     webmailAccounts,
     webmailGrant,
     spedizione,
@@ -40,6 +42,7 @@ export async function bootstrapAppNavAction(flags: {
     flags.ticket ? getTicketNavBadgeAction() : Promise.resolve(null),
     flags.mappa ? listMappaMenuNavAction() : Promise.resolve(null),
     flags.produzione ? listProduzioneAreeAction() : Promise.resolve(null),
+    flags.produzione ? listHaccpRoutineAction() : Promise.resolve(null),
     flags.webmailAccounts
       ? listWebmailAccountsAction()
       : Promise.resolve(null),
@@ -57,6 +60,7 @@ export async function bootstrapAppNavAction(flags: {
     ticket,
     mappa,
     produzione,
+    haccp,
     webmailAccounts,
     webmailGrant,
     spedizione,

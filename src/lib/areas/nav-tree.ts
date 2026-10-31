@@ -18,6 +18,10 @@ export type NavLeaf = {
   adminOnly?: boolean;
   /** Voce visibile solo al Super Admin (non agli Admin). */
   superAdminOnly?: boolean;
+  /** Colore della barra | davanti al nome (routine HACCP). */
+  markColor?: string;
+  /** Scadenza ISO: il menu accoda il tempo mancante e lo aggiorna. */
+  countdownTo?: string;
 };
 
 export type NavBranch = {

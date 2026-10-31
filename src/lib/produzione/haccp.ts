@@ -31,22 +31,47 @@ export type HaccpVoce = {
   stato: HaccpStatoVoce;
 };
 
-/** Tempo che manca. Da un giorno in su: giorni e ore. Sotto il giorno: ore e minuti. */
-export function formatResiduoHaccp(scadenzaIso: string, now = Date.now()): string {
+/**
+ * Tempo che manca. Da un giorno in su: giorni e ore. Sotto il giorno: ore e minuti.
+ * Nel menu la forma è compatta: 1g : 11h / 3h : 16m.
+ */
+export function formatResiduoHaccp(
+  scadenzaIso: string,
+  now = Date.now(),
+  opts?: { compatto?: boolean }
+): string {
   const fine = new Date(scadenzaIso).getTime();
   if (!Number.isFinite(fine)) return "";
   const ms = fine - now;
   if (ms <= 0) return "scaduto";
   const minutiTotali = Math.floor(ms / 60000);
   const giorno = 24 * 60;
+  const compatto = opts?.compatto === true;
   if (minutiTotali >= giorno) {
     const giorni = Math.floor(minutiTotali / giorno);
     const ore = Math.floor((minutiTotali % giorno) / 60);
-    return `${giorni} g : ${ore} h`;
+    return compatto ? `${giorni}g : ${ore}h` : `${giorni} g : ${ore} h`;
   }
   const ore = Math.floor(minutiTotali / 60);
   const minuti = minutiTotali % 60;
-  return `${ore} h : ${minuti} m`;
+  return compatto ? `${ore}h : ${minuti}m` : `${ore} h : ${minuti} m`;
+}
+
+/** Prima parola intera; le altre si accorciano. «Lavaggio pavimenti linea» → «Lavaggio pav. l.». */
+export function abbreviaTitoloRoutine(titolo: string): string {
+  const parole = titolo.trim().split(/\s+/).filter(Boolean);
+  if (parole.length === 0) return titolo.trim();
+  const intero = parole.join(" ");
+  if (intero.length <= 18) return intero;
+  return parole
+    .map((parola, index) => {
+      if (index === 0) return parola;
+      const nuda = parola.replace(/\.$/, "");
+      if (nuda.length <= 3) return parola;
+      if (index === parole.length - 1) return `${nuda.slice(0, 1)}.`;
+      return `${nuda.slice(0, 3)}.`;
+    })
+    .join(" ");
 }
 
 export function paragrafiGuida(corpo: string): string[] {

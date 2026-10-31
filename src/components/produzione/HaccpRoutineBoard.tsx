@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
 import { salvaHaccpRoutineVoceAction } from "@/app/actions/haccp";
+import { HACCP_ROUTINE_NAV_EVENT } from "@/lib/areas/produzione";
 import {
   formatResiduoHaccp,
   type HaccpCategoria,
@@ -12,9 +13,11 @@ import {
 export function HaccpRoutineBoard({
   categorie,
   voci,
+  voceId,
 }: {
   categorie: HaccpCategoria[];
   voci: HaccpVoce[];
+  voceId?: string;
 }) {
   const router = useRouter();
   const [now, setNow] = useState(() => Date.now());
@@ -28,6 +31,11 @@ export function HaccpRoutineBoard({
     const id = window.setInterval(() => setNow(Date.now()), 15000);
     return () => window.clearInterval(id);
   }, []);
+
+  useEffect(() => {
+    if (!voceId) return;
+    document.getElementById(`haccp-voce-${voceId}`)?.scrollIntoView({ block: "center" });
+  }, [voceId, voci]);
 
   const gruppi = useMemo(
     () =>
@@ -55,6 +63,7 @@ export function HaccpRoutineBoard({
     }
     setTitolo("");
     setScadenza("");
+    window.dispatchEvent(new Event(HACCP_ROUTINE_NAV_EVENT));
     router.refresh();
   }
 
@@ -87,8 +96,11 @@ export function HaccpRoutineBoard({
                 const scaduto = residuo === "scaduto";
                 return (
                   <li
+                    id={`haccp-voce-${voce.id}`}
                     key={voce.id}
-                    className="flex items-center gap-3 border-t border-slate-100 px-4 py-3"
+                    className={`flex items-center gap-3 border-t border-slate-100 px-4 py-3 ${
+                      voceId === voce.id ? "bg-slate-50" : ""
+                    }`}
                   >
                     <span
                       className="h-8 w-1.5 shrink-0 rounded-full"
