@@ -342,7 +342,7 @@ export async function anteprimaNumerazioneRealeAction(raw: {
 
   const sentAt = new Date().toISOString();
   const { data: inserted } = messaggioRegistrato
-    ? { data: { id: messaggioRegistrato }, error: null }
+    ? { data: { id: messaggioRegistrato } }
     : await service
     .from("webmail_messaggi")
     .insert({
