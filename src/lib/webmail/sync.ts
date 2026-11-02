@@ -17,7 +17,6 @@ import { decryptWebmailSecret } from "@/lib/webmail/crypto";
 import { createServiceClient } from "@/lib/supabase/service";
 import { extractPlainFromHtml } from "@/lib/webmail/html-render";
 import { scanFattureMailDopoSync } from "@/lib/amministrazione/fatture-mail-coda";
-import type { createServiceClient } from "@/lib/supabase/server";
 
 type Service = ReturnType<typeof createServiceClient>;
 
@@ -2902,7 +2901,7 @@ export async function sendMailViaAccount(input: {
   await transporter.sendMail({
     envelope: {
       from: input.account.email_address,
-      to: destinatari.length ? destinatari : input.to,
+      to: destinatari.length ? destinatari : [input.to],
     },
     raw,
   });

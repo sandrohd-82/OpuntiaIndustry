@@ -341,36 +341,40 @@ export async function anteprimaNumerazioneRealeAction(raw: {
   }
 
   const sentAt = new Date().toISOString();
-  const { data: inserted } = messaggioRegistrato
-    ? { data: { id: messaggioRegistrato } }
-    : await service
-    .from("webmail_messaggi")
-    .insert({
-      account_id: account.id,
-      direction: "outbound",
-      message_uid: `controllo-numerazione-${randomUUID()}`,
-      message_id_header: smtpMessageId,
-      folder: WEBMAIL_SENT_FOLDER,
-      from_address: account.email_address,
-      from_name: "",
-      to_addresses: [email],
-      cc_addresses: [],
-      subject,
-      body_text: bodyText,
-      body_html: bodyText.replace(/\n/g, "<br/>"),
-      received_at: sentAt,
-      sent_at: sentAt,
-      is_seen: true,
-      created_by: accesso.auth.userId,
-      updated_by: accesso.auth.userId,
-    })
-    .select("id")
-    .single();
-  if (inserted?.id && !messaggioRegistrato) {
+  let insertedId = messaggioRegistrato;
+  let webmailErrore: string | null = null;
+  if (!insertedId) {
+    const salvato = await service
+      .from("webmail_messaggi")
+      .insert({
+        account_id: account.id,
+        direction: "outbound",
+        message_uid: `controllo-numerazione-${randomUUID()}`,
+        message_id_header: smtpMessageId,
+        folder: WEBMAIL_SENT_FOLDER,
+        from_address: account.email_address,
+        from_name: "",
+        to_addresses: [email],
+        cc_addresses: [],
+        subject,
+        body_text: bodyText,
+        body_html: bodyText.replace(/\n/g, "<br/>"),
+        received_at: sentAt,
+        sent_at: sentAt,
+        is_seen: true,
+        created_by: accesso.auth.userId,
+        updated_by: accesso.auth.userId,
+      })
+      .select("id")
+      .single();
+    insertedId = salvato.data?.id ? String(salvato.data.id) : null;
+    webmailErrore = salvato.error?.message ?? null;
+  }
+  if (insertedId && !messaggioRegistrato) {
     try {
       await persistMessaggioAttachments({
         supabase: service,
-        messaggioId: String(inserted.id),
+        messaggioId: insertedId,
         accountId: account.id,
         userId: accesso.auth.userId,
         attachments: [
@@ -403,7 +407,7 @@ export async function anteprimaNumerazioneRealeAction(raw: {
       sdi: false,
       salvato: false,
       numero_fiscale_consumato: false,
-      webmail_errore: mailErr?.message ?? null,
+      webmail_errore: webmailErrore,
     },
   });
 
