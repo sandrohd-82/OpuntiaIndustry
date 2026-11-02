@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import type { MqttClient } from "mqtt";
 import { FaPaperPlane, FaRotate, FaXmark } from "react-icons/fa6";
 import { salvaIotBrokerAction } from "@/app/actions/iot-broker";
 import {
@@ -20,6 +19,26 @@ type RigaLog = {
   ora: string;
   topic: string;
   payload: string;
+};
+
+type ClientMqtt = {
+  connected: boolean;
+  on(event: "connect" | "reconnect" | "close", cb: () => void): void;
+  on(event: "error", cb: (err: Error) => void): void;
+  on(
+    event: "message",
+    cb: (topic: string, message: { toString: (encoding?: string) => string }) => void
+  ): void;
+  subscribe(topic: string | string[]): void;
+  unsubscribe(topic: string): void;
+  publish(
+    topic: string,
+    payload: string,
+    opts: { qos: 0 },
+    cb: (err?: Error | null) => void
+  ): void;
+  removeAllListeners(): void;
+  end(force?: boolean): void;
 };
 
 const inputClass =
@@ -45,7 +64,7 @@ export function IotTestBoard({ iniziale }: { iniziale: IotBrokerImpostazioni }) 
   const [autoScroll, setAutoScroll] = useState(true);
   const [salvataggio, setSalvataggio] = useState(false);
   const [esitoSalva, setEsitoSalva] = useState<string | null>(null);
-  const clientRef = useRef<MqttClient | null>(null);
+  const clientRef = useRef<ClientMqtt | null>(null);
   const topicsRef = useRef<string[]>([]);
   const logRef = useRef<HTMLDivElement | null>(null);
   const autoScrollRef = useRef(true);
@@ -96,9 +115,12 @@ export function IotTestBoard({ iniziale }: { iniziale: IotBrokerImpostazioni }) 
     clientRef.current = null;
     precedente?.removeAllListeners();
     precedente?.end(true);
-    const mqtt = await import("mqtt");
-    const connect =
-      typeof mqtt.connect === "function" ? mqtt.connect : mqtt.default.connect;
+    const mqtt = (await import("mqtt/dist/mqtt.esm.js")) as {
+      default: {
+        connect: (url: string, opts: Record<string, unknown>) => ClientMqtt;
+      };
+    };
+    const connect = mqtt.default.connect;
     const clientId = `${form.webClientIdPrefix}-${crypto.randomUUID().slice(0, 8)}`;
     const client = connect(urlWebSocketBroker(form), {
       clientId,
