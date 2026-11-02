@@ -53,6 +53,12 @@ export const STRUMENTI_SECTIONS: readonly NavItem[] = [
     path: "/app/strumenti/caricamento-spese",
   },
   {
+    slug: "test-iot",
+    label: "Test comunicazione IoT",
+    description: "Broker Mosquitto, WebSocket e prova di publish e subscribe",
+    path: "/app/strumenti/test-iot",
+  },
+  {
     slug: "ticket",
     label: "Ticket",
     description:

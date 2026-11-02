@@ -8,6 +8,8 @@ import { LottiEsterniBoard } from "@/components/produzione/LottiEsterniBoard";
 import { LottoEsternoDecoderBoard } from "@/components/produzione/LottoEsternoDecoderBoard";
 import { SpeseCaricamentoBoard } from "@/components/fiscale/SpeseCaricamentoBoard";
 import { TicketBoard } from "@/components/strumenti/TicketBoard";
+import { IotTestBoard } from "@/components/strumenti/IotTestBoard";
+import { leggiIotBrokerAction } from "@/app/actions/iot-broker";
 import { requireAnyAreaAccess, requireAreaAccess } from "@/lib/areas/guard";
 import { resolveStrumentiPage } from "@/lib/areas/strumenti";
 
@@ -43,6 +45,9 @@ export default async function StrumentiSectionPage({ params }: Props) {
         ) : null}
         {section === "editor-aree" ? <EditorAreeBoard /> : null}
         {section === "caricamento-spese" ? <SpeseCaricamentoBoard /> : null}
+        {section === "test-iot" ? (
+          <TestIotSection />
+        ) : null}
         {section === "ticket" ? (
           <Suspense fallback={<p className="text-sm text-slate-600">Apro i ticket…</p>}>
             <TicketBoard mode="viva" />
@@ -51,4 +56,12 @@ export default async function StrumentiSectionPage({ params }: Props) {
       </div>
     </>
   );
+}
+
+async function TestIotSection() {
+  const res = await leggiIotBrokerAction();
+  if (!res.success) {
+    return <p className="text-sm text-red-700">{res.error}</p>;
+  }
+  return <IotTestBoard iniziale={res.impostazioni} />;
 }

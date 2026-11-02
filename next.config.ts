@@ -2,6 +2,21 @@ import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
   serverExternalPackages: ["pdf-parse", "pdfjs-dist", "web-push"],
+  webpack: (config, { isServer }) => {
+    if (!isServer) {
+      config.resolve.alias = {
+        ...config.resolve.alias,
+        mqtt: "mqtt/dist/mqtt.esm.js",
+      };
+      config.resolve.fallback = {
+        ...(config.resolve.fallback ?? {}),
+        fs: false,
+        net: false,
+        tls: false,
+      };
+    }
+    return config;
+  },
   experimental: {
     serverActions: {
       bodySizeLimit: "100mb",

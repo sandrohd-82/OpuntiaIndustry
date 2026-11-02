@@ -25,6 +25,7 @@
     "jspdf-autotable": "^5.0.8",
     "mailparser": "^3.9.15",
     "modern-screenshot": "^4.7.0",
+    "mqtt": "^5.14.1",
     "next": "^15.3.3",
     "nodemailer": "^9.0.4",
     "otpauth": "^9.5.1",
