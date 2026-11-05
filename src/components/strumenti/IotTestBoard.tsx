@@ -29,6 +29,18 @@ function oraAdesso(): string {
   return new Date().toLocaleTimeString("it-IT", { hour12: false });
 }
 
+function testoErrore(err: unknown, url: string): string {
+  const messaggio = err instanceof Error ? err.message.trim() : "";
+  if (messaggio) return messaggio;
+  return `Connessione non riuscita verso ${url}.`;
+}
+
+function erroreWsSuHttps(url: string, protocollo: IotProtocolloWeb): string | null {
+  if (typeof window === "undefined") return null;
+  if (window.location.protocol !== "https:" || protocollo !== "ws") return null;
+  return `Pagina HTTPS: il browser blocca ${url}. Imposta il protocollo wss.`;
+}
+
 export function IotTestBoard({ iniziale }: { iniziale: IotBrokerImpostazioni }) {
   const [form, setForm] = useState(iniziale);
   const [deviceId, setDeviceId] = useState("WAVESHARE-01");
@@ -49,6 +61,22 @@ export function IotTestBoard({ iniziale }: { iniziale: IotBrokerImpostazioni }) 
   const topicsRef = useRef<string[]>([]);
   const logRef = useRef<HTMLDivElement | null>(null);
   const autoScrollRef = useRef(true);
+  const attesaRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const erroreVistoRef = useRef<string | null>(null);
+
+  function fermaAttesa() {
+    if (attesaRef.current == null) return;
+    clearTimeout(attesaRef.current);
+    attesaRef.current = null;
+  }
+
+  function segnalaErrore(client: MqttClient, testo: string) {
+    if (clientRef.current !== client) return;
+    const messaggio = testo.trim() || "Connessione non riuscita.";
+    erroreVistoRef.current = messaggio;
+    setErroreLink(messaggio);
+    setStatoLink("disconnesso");
+  }
 
   useEffect(() => {
     topicsRef.current = topicAttivi;
@@ -67,6 +95,7 @@ export function IotTestBoard({ iniziale }: { iniziale: IotBrokerImpostazioni }) 
 
   useEffect(() => {
     return () => {
+      if (attesaRef.current != null) clearTimeout(attesaRef.current);
       const client = clientRef.current;
       clientRef.current = null;
       client?.removeAllListeners();
@@ -90,42 +119,82 @@ export function IotTestBoard({ iniziale }: { iniziale: IotBrokerImpostazioni }) 
   }
 
   async function connetti() {
+    fermaAttesa();
+    erroreVistoRef.current = null;
     setErroreLink(null);
     setStatoLink("connessione");
     const precedente = clientRef.current;
     clientRef.current = null;
     precedente?.removeAllListeners();
     precedente?.end(true);
-    const mqtt = await import("mqtt");
-    const connect = mqtt.default.connect;
-    const clientId = `${form.webClientIdPrefix}-${crypto.randomUUID().slice(0, 8)}`;
-    const client = connect(urlWebSocketBroker(form), {
-      clientId,
-      username: form.webUtente || undefined,
-      password: form.webPassword || undefined,
-      reconnectPeriod: 4000,
-      connectTimeout: 10000,
-      clean: true,
-      protocolVersion: 4,
-    });
-    clientRef.current = client;
-    client.on("connect", () => {
-      setStatoLink("connesso");
-      setErroreLink(null);
-      const attivi = topicsRef.current;
-      if (attivi.length) client.subscribe(attivi);
-    });
-    client.on("reconnect", () => setStatoLink("connessione"));
-    client.on("close", () => {
-      if (clientRef.current === client) setStatoLink("disconnesso");
-    });
-    client.on("error", (err) => {
-      setErroreLink(err.message || "Connessione non riuscita.");
+    const url = urlWebSocketBroker(form);
+    const blocco = erroreWsSuHttps(url, form.webProtocollo);
+    if (blocco) {
+      erroreVistoRef.current = blocco;
+      setErroreLink(blocco);
       setStatoLink("disconnesso");
-    });
-    client.on("message", (topic, message) => {
-      aggiungiLog(topic, message.toString("utf8"));
-    });
+      return;
+    }
+    try {
+      const mqtt = await import("mqtt");
+      const connect = mqtt.connect ?? mqtt.default?.connect;
+      if (!connect) {
+        erroreVistoRef.current = "Client MQTT non disponibile in questa pagina.";
+        setErroreLink(erroreVistoRef.current);
+        setStatoLink("disconnesso");
+        return;
+      }
+      const clientId = `${form.webClientIdPrefix}-${crypto.randomUUID().slice(0, 8)}`;
+      const client = connect(url, {
+        clientId,
+        username: form.webUtente || undefined,
+        password: form.webPassword || undefined,
+        reconnectPeriod: 4000,
+        connectTimeout: 10000,
+        clean: true,
+        protocolVersion: 4,
+      });
+      clientRef.current = client;
+      attesaRef.current = setTimeout(() => {
+        if (clientRef.current !== client || client.connected || erroreVistoRef.current) return;
+        segnalaErrore(client, `Nessuna risposta da ${url} entro 10 secondi.`);
+      }, 10000);
+      client.on("connect", () => {
+        if (clientRef.current !== client) return;
+        fermaAttesa();
+        erroreVistoRef.current = null;
+        setStatoLink("connesso");
+        setErroreLink(null);
+        const attivi = topicsRef.current;
+        if (attivi.length) client.subscribe(attivi);
+      });
+      client.on("reconnect", () => {
+        if (clientRef.current === client) setStatoLink("connessione");
+      });
+      client.on("close", () => {
+        if (clientRef.current !== client || client.connected) return;
+        if (erroreVistoRef.current) {
+          setStatoLink("disconnesso");
+          return;
+        }
+        segnalaErrore(client, `Connessione chiusa verso ${url}.`);
+      });
+      client.on("offline", () => {
+        if (erroreVistoRef.current) return;
+        segnalaErrore(client, `Broker non raggiungibile: ${url}.`);
+      });
+      client.on("error", (err) => {
+        fermaAttesa();
+        segnalaErrore(client, testoErrore(err, url));
+      });
+      client.on("message", (topic, message) => {
+        aggiungiLog(topic, message.toString("utf8"));
+      });
+    } catch (err) {
+      erroreVistoRef.current = testoErrore(err, url);
+      setErroreLink(erroreVistoRef.current);
+      setStatoLink("disconnesso");
+    }
   }
 
   function pubblica() {
@@ -227,7 +296,14 @@ export function IotTestBoard({ iniziale }: { iniziale: IotBrokerImpostazioni }) 
             </button>
           </div>
         </div>
-        {erroreLink ? <p className="mt-3 text-sm text-red-700">{erroreLink}</p> : null}
+        {erroreLink ? (
+          <div
+            className="mt-3 rounded-lg border border-red-300 bg-red-50 px-3 py-2 text-sm text-red-800"
+            role="alert"
+          >
+            {erroreLink}
+          </div>
+        ) : null}
         <p className="mt-3 text-xs text-slate-500">
           Versione impostazioni {form.versione}, stato {form.stato}. Prefisso client{" "}
           {form.webClientIdPrefix}.
