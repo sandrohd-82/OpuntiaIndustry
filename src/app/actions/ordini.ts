@@ -1355,12 +1355,12 @@ async function scontoListinoPerOrdine(input: {
       voceId: input.voceChiesta,
     };
   }
+  const applicatoChiesto = Math.min(100, Math.max(0, input.chiestoPct));
   if (input.preventivoId) {
     const standard = Math.min(100, Math.max(0, input.chiestoStandard));
-    const applicato = Math.min(standard, Math.max(0, input.chiestoPct));
     return {
       standard,
-      applicato,
+      applicato: applicatoChiesto,
       testo: input.testoChiesto,
       voceId: input.voceChiesta,
     };
@@ -1370,7 +1370,7 @@ async function scontoListinoPerOrdine(input: {
     const standard = Math.min(100, Math.max(0, input.chiestoStandard));
     return {
       standard,
-      applicato: Math.min(standard, Math.max(0, input.chiestoPct)),
+      applicato: applicatoChiesto,
       testo: input.testoChiesto,
       voceId: input.voceChiesta,
     };
@@ -1386,7 +1386,7 @@ async function scontoListinoPerOrdine(input: {
     : (piano.pezzi[0]?.imballaggioVoceId ?? null);
   return {
     standard,
-    applicato: Math.min(standard, Math.max(0, input.chiestoPct)),
+    applicato: applicatoChiesto,
     testo: piano.testo,
     voceId,
   };
@@ -1512,7 +1512,11 @@ async function createOrdineWizardActionInner(
           accordoPct
         )
       : input.prezzoUnitario;
-  const prezzoListino = campionaturaGratis ? 0 : prezzoCatalogo;
+  const prezzoListino = campionaturaGratis
+    ? 0
+    : prezzoBase > 0
+      ? prezzoBase
+      : prezzoCatalogo;
   const listinoRiga = campionaturaGratis
     ? { standard: 0, applicato: 0, testo: "", voceId: null as string | null }
     : await scontoListinoPerOrdine({

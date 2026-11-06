@@ -33,7 +33,6 @@ import {
   parseScontoExtraPct,
   prezzoNettoDaSconto,
   prezzoNettoDueSconti,
-  ripartiAumentoScontoStandard,
   SCONTO_FUORI_LISTINO_REGOLE,
   SCONTO_FUORI_LISTINO_TITOLO,
 } from "@/lib/amministrazione/sconto-fuori-listino";
@@ -1165,18 +1164,11 @@ export function OrdineNuovoWizardModal({
     : (fontePreventivo
         ? (scontoListinoDalPreventivo ?? 0)
         : (pianoListino?.scontoPct ?? 0));
-  const scontoStandardChiesto = accordoSconto
+  const scontoListinoApplicato = accordoSconto
     ? 0
     : (scontoListinoManuale == null
         ? scontoListinoOrigine
         : Math.min(100, Math.max(0, scontoListinoManuale)));
-  const ripartoScontoStandard = ripartiAumentoScontoStandard({
-    standardPct: scontoListinoOrigine,
-    chiestoPct: scontoStandardChiesto,
-    extraPct: parseScontoExtraPct(scontoExtraPct),
-  });
-  const scontoListinoApplicato = accordoSconto ? 0 : ripartoScontoStandard.listinoPct;
-  const aumentoScontoStandard = accordoSconto ? 0 : ripartoScontoStandard.aumentoPct;
   const testoConfezione =
     fontePreventivo && testoConfezionePreventivo
       ? testoConfezionePreventivo
@@ -1191,9 +1183,7 @@ export function OrdineNuovoWizardModal({
     (pianoListino?.manuale
       ? pianoListino.modo
       : (pianoListino?.pezzi[0]?.imballaggioVoceId ?? null));
-  const scontoPct = accordoSconto
-    ? parseScontoExtraPct(scontoExtraPct)
-    : ripartoScontoStandard.extraPct;
+  const scontoPct = parseScontoExtraPct(scontoExtraPct);
   const fasciaSconto = fasciaScontoExtra(scontoPct);
   const scontoListinoRiga = accordoSconto ? 0 : scontoListinoApplicato;
   const prezzoNetto = prezzoNettoDueSconti(
@@ -3157,25 +3147,16 @@ export function OrdineNuovoWizardModal({
                         </span>
                         {scontoListinoApplicato + 0.0001 < scontoListinoOrigine
                           ? ` su ${scontoListinoOrigine.toLocaleString("it-IT")}% di listino`
-                          : " di listino"}
+                          : (scontoListinoApplicato > scontoListinoOrigine + 0.0001
+                              ? ` (listino ${scontoListinoOrigine.toLocaleString("it-IT")}%)`
+                              : " di listino")}
                         .
                       </p>
-                      {aumentoScontoStandard > 0 ? (
-                        <p className="mt-1 text-xs text-[var(--muted)]">
-                          Portato a {scontoStandardChiesto.toLocaleString("it-IT")}%. Il{" "}
-                          {aumentoScontoStandard.toLocaleString("it-IT")}% in più è sconto extra
-                          sul prezzo già scontato.
-                        </p>
-                      ) : null}
                       <button
                         type="button"
                         onClick={() => {
                           setModificaScontoListino(true);
-                          setScontoListinoInput(
-                            scontoListinoManuale == null
-                              ? scontoListinoApplicato
-                              : scontoStandardChiesto
-                          );
+                          setScontoListinoInput(scontoListinoApplicato);
                         }}
                         className="mt-2 rounded-lg border border-[var(--border)] bg-white px-3 py-1.5 text-sm font-medium hover:bg-slate-50"
                       >
@@ -3184,9 +3165,9 @@ export function OrdineNuovoWizardModal({
                       {modificaScontoListino ? (
                         <label className="mt-2 block">
                           <span className="mb-1 block text-xs text-[var(--muted)]">
-                            Da 0 a 100%. 0 annulla lo sconto. Sopra il{" "}
-                            {scontoListinoOrigine.toLocaleString("it-IT")}% di listino, la
-                            differenza è uno sconto extra sul prezzo già scontato.
+                            Da 0 a 100%. Questo valore resta lo sconto standard in fattura.
+                            Lo sconto extra del campo sotto non cambia e si calcola sul prezzo
+                            già scontato.
                           </span>
                           <ClearableNumberInput
                             min={0}

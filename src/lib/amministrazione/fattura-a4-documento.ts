@@ -2,10 +2,10 @@ import type { Cliente, SedeCliente } from "@/lib/amministrazione/clienti";
 import {
   calcolaTotaliEmissione,
 } from "@/lib/amministrazione/fattura-emissione";
-import { importoRiga, prezzoNettoRiga, prezzoScontatoUnitario, roundMoney } from "@/lib/amministrazione/fatture";
+import { importoRiga, prezzoScontatoUnitario, roundMoney } from "@/lib/amministrazione/fatture";
 import {
+  leggiMarcaSconti,
   prezzoNettoDueSconti,
-  scontoSommaPct,
 } from "@/lib/amministrazione/sconto-fuori-listino";
 import { emptySede, normalizeSede } from "@/lib/amministrazione/fornitori";
 import type { DestinatarioPreventivo } from "@/lib/amministrazione/preventivo-letterhead";
@@ -129,19 +129,69 @@ export function listinoEScontoDaOrdine(input: {
     input.prezzoListinoHeader != null && input.prezzoListinoHeader > 0
       ? input.prezzoListinoHeader
       : 0;
-  if (header <= 0) return fermo;
-  const sequenziale = prezzoNettoDueSconti(header, listino, extra);
-  const sommato = scontoSommaPct(listino, extra);
-  const vicino =
-    Math.abs(sequenziale - input.prezzoRiga) <= 0.02 ||
-    Math.abs(prezzoScontatoUnitario(header, sommato) - input.prezzoRiga) <= 0.02 ||
-    Math.abs(prezzoNettoRiga(header, sommato) - input.prezzoRiga) <= 0.02;
-  if (!vicino) return fermo;
+  const base = baseListinoCheRiproduce(input.prezzoRiga, listino, extra, header);
+  if (base == null) return fermo;
   return {
-    prezzoUnitario: header,
+    prezzoUnitario: base,
     scontoPercentuale: 0,
     scontoListinoPct: listino,
     scontoExtraPct: extra,
+  };
+}
+
+function baseListinoCheRiproduce(
+  netto: number,
+  listino: number,
+  extra: number,
+  header: number
+): number | null {
+  const candidato = (base: number) =>
+    base > 0 && Math.abs(prezzoNettoDueSconti(base, listino, extra) - netto) <= 0.02;
+  if (candidato(header)) return header;
+  const fattore = (1 - Math.min(100, listino) / 100) * (1 - Math.min(100, extra) / 100);
+  if (!(fattore > 0) || !(netto > 0)) return null;
+  const stimato = Math.round((netto / fattore) * 100);
+  for (let delta = 0; delta <= 30; delta += 1) {
+    for (const segno of delta === 0 ? [0] : [delta, -delta]) {
+      const cent = stimato + segno;
+      if (cent <= 0) continue;
+      const base = cent / 100;
+      if (candidato(base)) return base;
+    }
+  }
+  return null;
+}
+
+export function rigaA4DaRigaSalvata(riga: {
+  prodotto_id?: string | null;
+  codice?: string | null;
+  descrizione?: string | null;
+  quantita?: number | null;
+  unita_misura?: string | null;
+  prezzo_unitario?: number | null;
+  sconto_percentuale?: number | null;
+  iva_percentuale?: number | null;
+  is_spedizione?: boolean | null;
+  note?: string | null;
+  importo?: number | null;
+}): FatturaA4Riga {
+  const marca = leggiMarcaSconti(String(riga.note ?? ""));
+  const doppio = marca.listino > 0 || marca.extra > 0;
+  const importo = Number(riga.importo);
+  return {
+    prodottoId: riga.prodotto_id ? String(riga.prodotto_id) : null,
+    codice: String(riga.codice ?? ""),
+    descrizione: String(riga.descrizione ?? ""),
+    quantita: Number(riga.quantita) || 0,
+    unitaMisura: String(riga.unita_misura ?? "nr"),
+    prezzoUnitario: Number(riga.prezzo_unitario) || 0,
+    scontoPercentuale: doppio ? 0 : Number(riga.sconto_percentuale) || 0,
+    scontoListinoPct: marca.listino,
+    scontoExtraPct: marca.extra,
+    ivaPercentuale: Number(riga.iva_percentuale) || 22,
+    isSpedizione: Boolean(riga.is_spedizione),
+    note: marca.note,
+    ...(Number.isFinite(importo) ? { importo } : {}),
   };
 }
 

@@ -39,35 +39,6 @@ export function parseScontoExtraPct(value: unknown): number {
   return Math.min(100, Math.round(n * 100) / 100);
 }
 
-function pctScontoChiuso(value: number): number {
-  if (!Number.isFinite(value) || value <= 0) return 0;
-  return Math.min(100, Math.round(value * 100) / 100);
-}
-
-/**
- * Lo sconto di listino resta il primo sconto.
- * Se l'operatore scrive un valore più alto, la differenza è uno sconto extra
- * sul prezzo già scontato, sommato all'extra già indicato.
- */
-export function ripartiAumentoScontoStandard(input: {
-  standardPct: number;
-  chiestoPct: number;
-  extraPct: number;
-}): { listinoPct: number; extraPct: number; aumentoPct: number } {
-  const standard = pctScontoChiuso(input.standardPct);
-  const chiesto = pctScontoChiuso(input.chiestoPct);
-  const extra = parseScontoExtraPct(input.extraPct);
-  if (chiesto <= standard) {
-    return { listinoPct: chiesto, extraPct: extra, aumentoPct: 0 };
-  }
-  const aumento = Math.round((chiesto - standard) * 100) / 100;
-  return {
-    listinoPct: standard,
-    extraPct: Math.min(100, Math.round((extra + aumento) * 100) / 100),
-    aumentoPct: aumento,
-  };
-}
-
 export function fasciaScontoExtra(pct: number): ScontoFascia {
   const n = parseScontoExtraPct(pct);
   if (n <= 0) return "nessuno";

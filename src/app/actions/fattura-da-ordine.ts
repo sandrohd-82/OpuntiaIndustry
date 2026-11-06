@@ -17,6 +17,7 @@ import {
   applyContributoSpeseSpedizione,
   destinatarioFromCliente,
   listinoEScontoDaOrdine,
+  rigaA4DaRigaSalvata,
   parseDestinatarioSnapshot,
   totalsFromFatturaRighe,
   imponibileDocumentoRiga,
@@ -608,23 +609,10 @@ export async function getFatturaA4ContextAction(input: {
             isNumeroFatturaEmessa(existingRow.numero_fattura)
         );
         righe = fatturaRighe.map((r) => {
-          const marca = leggiMarcaSconti(r.note ?? "");
-          const doppio = marca.listino > 0 || marca.extra > 0;
-          const salvata: FatturaA4Riga = {
-            prodottoId: r.prodotto_id,
-            codice: r.codice,
-            descrizione: r.descrizione,
-            quantita: Number(r.quantita),
-            unitaMisura: r.unita_misura || "nr",
-            prezzoUnitario: Number(r.prezzo_unitario),
-            scontoPercentuale: doppio ? 0 : Number(r.sconto_percentuale) || 0,
-            scontoListinoPct: marca.listino,
-            scontoExtraPct: marca.extra,
-            ivaPercentuale: Number(r.iva_percentuale) || 22,
-            isSpedizione: Boolean(r.is_spedizione),
-            note: marca.note,
-            ...(giaEmessa ? { importo: Number(r.importo) } : {}),
-          };
+          const letta = rigaA4DaRigaSalvata(r);
+          const salvata = giaEmessa ? letta : { ...letta, importo: undefined };
+          const doppio =
+            (salvata.scontoListinoPct ?? 0) > 0 || (salvata.scontoExtraPct ?? 0) > 0;
           if (giaEmessa || salvata.isSpedizione || doppio) return salvata;
           const origine = daOrdine.find(
             (o) => !o.isSpedizione && o.codice === salvata.codice
@@ -1402,26 +1390,21 @@ export async function creaFatturaOrdineSenzaInvioAction(
 function righeBozzaFattura(
   rows: Array<Record<string, unknown>>
 ): FatturaA4Riga[] {
-  return rows.map((riga) => {
-    const marca = leggiMarcaSconti(String(riga.note ?? ""));
-    const doppio = marca.listino > 0 || marca.extra > 0;
-    const importo = Number(riga.importo);
-    return {
-      prodottoId: riga.prodotto_id ? String(riga.prodotto_id) : null,
-      codice: String(riga.codice ?? ""),
-      descrizione: String(riga.descrizione ?? ""),
+  return rows.map((riga) =>
+    rigaA4DaRigaSalvata({
+      prodotto_id: riga.prodotto_id ? String(riga.prodotto_id) : null,
+      codice: riga.codice == null ? null : String(riga.codice),
+      descrizione: riga.descrizione == null ? null : String(riga.descrizione),
       quantita: Number(riga.quantita) || 0,
-      unitaMisura: String(riga.unita_misura ?? "nr"),
-      prezzoUnitario: Number(riga.prezzo_unitario) || 0,
-      scontoPercentuale: doppio ? 0 : Number(riga.sconto_percentuale) || 0,
-      scontoListinoPct: marca.listino,
-      scontoExtraPct: marca.extra,
-      ivaPercentuale: Number(riga.iva_percentuale) || 22,
-      isSpedizione: Boolean(riga.is_spedizione),
-      note: marca.note,
-      ...(Number.isFinite(importo) ? { importo } : {}),
-    };
-  });
+      unita_misura: riga.unita_misura == null ? null : String(riga.unita_misura),
+      prezzo_unitario: Number(riga.prezzo_unitario) || 0,
+      sconto_percentuale: Number(riga.sconto_percentuale) || 0,
+      iva_percentuale: Number(riga.iva_percentuale) || 22,
+      is_spedizione: Boolean(riga.is_spedizione),
+      note: riga.note == null ? null : String(riga.note),
+      importo: riga.importo == null ? null : Number(riga.importo),
+    })
+  );
 }
 
 function pianoBozzaFattura(

@@ -5,6 +5,7 @@ import { writeAuditLog } from "@/lib/audit";
 import { generaTestoMailFattura } from "@/lib/amministrazione/fattura-mail-ai";
 import {
   parseDestinatarioSnapshot,
+  rigaA4DaRigaSalvata,
   type FatturaA4Riga,
 } from "@/lib/amministrazione/fattura-a4-documento";
 import { buildFatturaA4PdfBlob } from "@/lib/amministrazione/fattura-a4-pdf";
@@ -125,19 +126,9 @@ export async function inviaFatturaDaWebmailAction(
     .is("deleted_at", null)
     .order("sort_order", { ascending: true });
   if (righeErr) return { success: false, error: righeErr.message };
-  const righe: FatturaA4Riga[] = (righeRaw ?? []).map((r) => ({
-    prodottoId: r.prodotto_id ? String(r.prodotto_id) : null,
-    codice: String(r.codice ?? ""),
-    descrizione: String(r.descrizione ?? ""),
-    quantita: Number(r.quantita) || 0,
-    unitaMisura: String(r.unita_misura ?? "nr"),
-    prezzoUnitario: Number(r.prezzo_unitario) || 0,
-    scontoPercentuale: Number(r.sconto_percentuale) || 0,
-    ivaPercentuale: Number(r.iva_percentuale) || 22,
-    isSpedizione: Boolean(r.is_spedizione),
-    note: String(r.note ?? ""),
-    importo: Number(r.importo),
-  }));
+  const righe: FatturaA4Riga[] = (righeRaw ?? []).map((r) =>
+    rigaA4DaRigaSalvata(r)
+  );
   if (righe.length === 0) {
     return { success: false, error: "La fattura non ha righe da allegare." };
   }
