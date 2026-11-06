@@ -251,6 +251,8 @@ export function buildOrdineSessioneLocale(input: {
     avvisoIncludiMisure: false,
     avvisoIncludiPeso: false,
     nessunaMail: false,
+    cortesiaSdi: null,
+    invioFatturaSdi: null,
     invioDelegato: false,
     invioDelegatoInviatoAt: null,
     corriereId: null,

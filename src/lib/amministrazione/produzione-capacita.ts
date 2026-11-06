@@ -169,6 +169,7 @@ export const ordineWizardInputSchema = z
     avvisoIncludiMisure: z.boolean().optional().default(false),
     avvisoIncludiPeso: z.boolean().optional().default(false),
     nessunaMail: z.boolean().optional().default(false),
+    cortesiaSdi: z.boolean().nullable().optional(),
     invioDelegato: z.boolean().optional().default(false),
     prezzoUnitario: z.number().min(0),
     scontoListinoPct: z.number().min(0).max(100).optional().default(0),

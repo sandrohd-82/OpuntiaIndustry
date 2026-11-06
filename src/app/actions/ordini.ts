@@ -1914,13 +1914,26 @@ async function createOrdineWizardActionInner(
           ? Boolean(input.avvisoIncludiPeso)
           : false,
       nessuna_mail: Boolean(input.nessunaMail),
-      invio_delegato: Boolean(input.invioDelegato) && !input.nessunaMail,
+      cortesia_sdi:
+        input.cortesiaSdi === true
+          ? true
+          : (input.cortesiaSdi === false ? false : null),
+      invio_delegato:
+        input.cortesiaSdi == null &&
+        Boolean(input.invioDelegato) &&
+        !input.nessunaMail,
       invio_delegato_at:
-        Boolean(input.invioDelegato) && !input.nessunaMail
+        input.cortesiaSdi == null &&
+        Boolean(input.invioDelegato) &&
+        !input.nessunaMail
           ? new Date().toISOString()
           : null,
       invio_delegato_by:
-        Boolean(input.invioDelegato) && !input.nessunaMail ? auth.userId : null,
+        input.cortesiaSdi == null &&
+        Boolean(input.invioDelegato) &&
+        !input.nessunaMail
+          ? auth.userId
+          : null,
       preventivo_id: campionaturaGratis ? null : (input.preventivoId ?? null),
       webmail_accettazione_id: campionaturaGratis
         ? null
@@ -2299,12 +2312,22 @@ async function createOrdineWizardActionInner(
           avviso_includi_misure: Boolean(input.avvisoIncludiMisure),
           avviso_includi_peso: Boolean(input.avvisoIncludiPeso),
           nessuna_mail: Boolean(input.nessunaMail),
-          invio_delegato: Boolean(input.invioDelegato) && !input.nessunaMail,
+          cortesia_sdi:
+            input.cortesiaSdi === true
+              ? true
+              : (input.cortesiaSdi === false ? false : null),
+          invio_delegato:
+            input.cortesiaSdi == null &&
+            Boolean(input.invioDelegato) &&
+            !input.nessunaMail,
         },
       });
     }
 
-    const delegaOra = Boolean(input.invioDelegato) && !input.nessunaMail;
+    const delegaOra =
+      input.cortesiaSdi == null &&
+      Boolean(input.invioDelegato) &&
+      !input.nessunaMail;
     const delegaPrima = Boolean(editing?.delegaPrima);
     if (delegaOra || delegaPrima) {
       await writeAudit({
@@ -2524,6 +2547,7 @@ export async function processOrdineInScalettaAction(
   let fatturaProvaSaltata = false;
   let documentoNonFattura = false;
   let fatturaGiaInviata = false;
+  let fatturaLasciata = false;
   const intestatario = existing.clienteId || existing.possibileClienteId;
   if (intestatario && existing.tipo !== "campionatura") {
     const supabaseCheck = await createClient();
@@ -2553,9 +2577,14 @@ export async function processOrdineInScalettaAction(
       numero_fattura?: string | null;
       numero_interno?: string | null;
     };
-    const giaInviata = Boolean(
-      pronta.courtesy_email_sent || pronta.ei_status === "sent"
-    );
+    const giaInviata = pronta.ei_status === "sent";
+    const sceltaNuova =
+      existing.cortesiaSdi !== null || existing.invioFatturaSdi != null;
+    const invioRichiesto = sceltaNuova
+      ? existing.invioFatturaSdi === "subito" ||
+        existing.invioFatturaSdi === "al_processo" ||
+        Boolean(existing.invioDelegato)
+      : true;
     if (giaInviata) {
       fatturaGiaInviata = true;
     } else if (pronta.tipo_documento !== "fattura") {
@@ -2567,6 +2596,8 @@ export async function processOrdineInScalettaAction(
       })
     ) {
       fatturaProvaSaltata = true;
+    } else if (!invioRichiesto) {
+      fatturaLasciata = true;
     } else {
       fatturaDaEmettereId = pronta.id;
     }
@@ -2847,7 +2878,10 @@ export async function processOrdineInScalettaAction(
       "Ordine in scaletta. Il documento collegato non è una fattura: non è partito allo SDI.";
   } else if (fatturaGiaInviata) {
     avviso =
-      "Ordine in scaletta. La fattura era già stata inviata allo SDI: non è partita una seconda volta.";
+      "Ordine in scaletta. La fattura era già stata inviata allo SDI: non è partita una seconda volta e la mail di cortesia non parte adesso.";
+  } else if (fatturaLasciata) {
+    avviso =
+      "Ordine in scaletta. La fattura resta in bozza: allo SDI si invia solo se è stato chiesto alla finalizzazione. La mail di cortesia non parte.";
   } else if (fatturaDaEmettereId) {
     if (delegaInvio && bozza) {
       await supabase
@@ -2866,7 +2900,10 @@ export async function processOrdineInScalettaAction(
     const invio = await inviaFatturaSalvataAction({
       fatturaId: fatturaDaEmettereId,
       sendToSdi: true,
-      sendCourtesyEmail: !existing.nessunaMail,
+      sendCourtesyEmail:
+        existing.cortesiaSdi === true
+          ? true
+          : (existing.cortesiaSdi === false ? false : !existing.nessunaMail),
       doppiaConferma: true,
       confermaPromozione: input.confermaPromozione === true,
       produzioneReale: true,
@@ -2885,7 +2922,9 @@ export async function processOrdineInScalettaAction(
         ? "inviata allo SDI"
         : "registrata, ma lo SDI non ha confermato l'invio";
       let mail = "La mail al cliente non risulta partita.";
-      if (existing.nessunaMail) {
+      if (existing.cortesiaSdi === false) {
+        mail = "Nessuna mail di cortesia: il PDF si scarica e si invia a mano.";
+      } else if (existing.nessunaMail && existing.cortesiaSdi == null) {
         mail = "Nessuna mail al cliente: in finalizzazione è stato scelto di non inviarne.";
       } else if (invio.courtesyEmailSent) {
         mail = "La mail è partita al cliente.";

@@ -1066,6 +1066,8 @@ export interface OrdineRow {
   avviso_includi_misure?: boolean;
   avviso_includi_peso?: boolean;
   nessuna_mail?: boolean;
+  cortesia_sdi?: boolean | null;
+  invio_fattura_sdi?: "subito" | "al_processo" | null;
   invio_delegato?: boolean;
   invio_delegato_at?: string | null;
   invio_delegato_by?: string | null;
@@ -1169,6 +1171,8 @@ export interface OrdineInsert {
   avviso_includi_misure?: boolean;
   avviso_includi_peso?: boolean;
   nessuna_mail?: boolean;
+  cortesia_sdi?: boolean | null;
+  invio_fattura_sdi?: "subito" | "al_processo" | null;
   invio_delegato?: boolean;
   invio_delegato_at?: string | null;
   invio_delegato_by?: string | null;
@@ -1259,6 +1263,8 @@ export interface OrdineUpdate {
   avviso_includi_misure?: boolean;
   avviso_includi_peso?: boolean;
   nessuna_mail?: boolean;
+  cortesia_sdi?: boolean | null;
+  invio_fattura_sdi?: "subito" | "al_processo" | null;
   invio_delegato?: boolean;
   invio_delegato_at?: string | null;
   invio_delegato_by?: string | null;

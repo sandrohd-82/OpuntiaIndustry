@@ -40,8 +40,8 @@ export function OrdineNessunaMailBanner({ attivo }: { attivo: boolean }) {
   if (!attivo) return null;
   return (
     <p className="rounded-xl border border-slate-300 bg-slate-50 px-4 py-3 text-sm text-slate-800">
-      Non è prevista alcuna mail al cliente: né fattura, né tracking, né
-      cortesia.
+      Non parte la mail dell&apos;ordine né il tracking. La fattura allo SDI
+      e l&apos;avviso di merce pronta restano scelte a parte.
     </p>
   );
 }
@@ -64,8 +64,9 @@ export function OrdineInvioDelegatoBanner({
   }
   return (
     <p className="rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-950">
-      Invio delegato all&apos;operatore di produzione. La bozza è salvata e non
-      è ancora partita: numero, SDI e mail li conferma lui al processo.
+      Invio delegato all&apos;operatore. Vale solo se l&apos;ordine è incompleto,
+      per esempio manca il costo di spedizione. Una fattura già compilata non
+      si delega.
     </p>
   );
 }

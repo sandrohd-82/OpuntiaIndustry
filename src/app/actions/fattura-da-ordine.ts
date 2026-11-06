@@ -1239,6 +1239,9 @@ export async function creaFatturaOrdineSenzaInvioAction(
         invio_fattura_sdi: scelta,
         invio_fattura_sdi_scelto_at: new Date().toISOString(),
         invio_fattura_sdi_scelto_by: auth.userId,
+        ...(scelta === "subito"
+          ? { invio_delegato: false, invio_delegato_at: null, invio_delegato_by: null }
+          : {}),
         updated_by: auth.userId,
       })
       .eq("id", ordineId)

@@ -783,8 +783,8 @@ export function SpedizioneMailPanel({
             onChange={(e) => onNessunaMailChange(e.target.checked)}
           />
           <span>
-            Non intendo inviare alcuna mail. Non parte la mail di cortesia,
-            né la fattura, né il tracking.
+            Non inviare la mail dell&apos;ordine né il tracking. Non blocca la
+            fattura allo SDI e non blocca l&apos;avviso di merce pronta.
           </span>
         </label>
       ) : null}
@@ -797,9 +797,9 @@ export function SpedizioneMailPanel({
             onChange={(e) => onInvioDelegatoChange(e.target.checked)}
           />
           <span>
-            Delego l&apos;invio all&apos;operatore che mette in produzione.
-            Preparo la bozza: resta salvata e la invia lui al processo, quando
-            ha il dato che manca.
+            Delego l&apos;invio all&apos;operatore. Si usa solo se l&apos;ordine
+            è incompleto, per esempio manca il costo di spedizione. Se la
+            fattura è già compilata, parte solo con la spunta dello SDI.
           </span>
         </label>
       ) : null}

@@ -200,6 +200,8 @@ export type Ordine = {
   avvisoIncludiMisure: boolean;
   avvisoIncludiPeso: boolean;
   nessunaMail: boolean;
+  cortesiaSdi: boolean | null;
+  invioFatturaSdi: "subito" | "al_processo" | null;
   invioDelegato: boolean;
   invioDelegatoInviatoAt: string | null;
   corriereId: string | null;
@@ -522,6 +524,14 @@ export function mapOrdineRow(
     avvisoIncludiMisure: Boolean(row.avviso_includi_misure),
     avvisoIncludiPeso: Boolean(row.avviso_includi_peso),
     nessunaMail: Boolean(row.nessuna_mail),
+    cortesiaSdi:
+      row.cortesia_sdi === true
+        ? true
+        : (row.cortesia_sdi === false ? false : null),
+    invioFatturaSdi:
+      row.invio_fattura_sdi === "subito" || row.invio_fattura_sdi === "al_processo"
+        ? row.invio_fattura_sdi
+        : null,
     invioDelegato: Boolean(row.invio_delegato),
     invioDelegatoInviatoAt: row.invio_delegato_inviato_at
       ? String(row.invio_delegato_inviato_at)

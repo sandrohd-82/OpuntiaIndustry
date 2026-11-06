@@ -370,6 +370,7 @@ export function OrdineNuovoWizardModal({
   const firmaOrdineIniziale = useRef("");
   const [formError, setFormError] = useState<string | null>(null);
   const [invioFatturaSdi, setInvioFatturaSdi] = useState<"" | "subito" | "al_processo">("");
+  const [inviaCortesia, setInviaCortesia] = useState(false);
   const [passaProforma, setPassaProforma] = useState(false);
   const [proformaSalvata, setProformaSalvata] = useState(false);
   const [numeroProformaBozza, setNumeroProformaBozza] = useState("");
@@ -822,6 +823,7 @@ export function OrdineNuovoWizardModal({
       }
       setNessunaMail(d.nessunaMail);
       setInvioDelegato(d.invioDelegato);
+      setInviaCortesia(d.cortesiaSdi === true && d.invioFatturaSdi === "subito");
       setQuantita(d.quantita);
       setUnitaMisura(d.unitaMisura);
       setScontoExtraPct(d.scontoExtraPct || "");
@@ -884,7 +886,7 @@ export function OrdineNuovoWizardModal({
         setOverridesSeeded(true);
       }
       setSedePartenzaId(d.sedePartenzaId);
-      setInvioFatturaSdi(d.invioFatturaSdi ?? "");
+      setInvioFatturaSdi(d.invioFatturaSdi === "subito" ? "subito" : "");
       setFatturaGiaInviata(d.fatturaGiaInviata);
       firmaOrdineIniziale.current = [
         d.prodottoId,
@@ -1620,17 +1622,6 @@ export function OrdineNuovoWizardModal({
     if (!prodotto) return;
     if (anagraficaFonte === "possibile" && !possibileClienteId) return;
     if (anagraficaFonte === "cliente" && !clienteId) return;
-    if (
-      !opts?.keepOpen &&
-      vuoleSceltaInvio &&
-      !fatturaGiaInviata &&
-      !invioFatturaSdi
-    ) {
-      setFormError(
-        "Scegli se inviare la fattura allo SDI adesso oppure quando l'ordine entra in produzione."
-      );
-      return;
-    }
     if (!opts?.keepOpen && passaProforma && !proformaSalvata) {
       setFormError(
         "Salva la proforma dalla bozza. Poi scegli se inviarla alla finalizzazione o dall'elenco ordini."
@@ -1771,7 +1762,13 @@ export function OrdineNuovoWizardModal({
           ritiroInSede && avvisaMercePronta && avvisoMisure;
         ordine.avvisoIncludiPeso = ritiroInSede && avvisaMercePronta && avvisoPeso;
         ordine.nessunaMail = nessunaMail;
-        ordine.invioDelegato = !nessunaMail && invioDelegato;
+        ordine.invioDelegato = attesaCalcoloSpedizione && !nessunaMail && invioDelegato;
+        ordine.cortesiaSdi = passaProforma
+          ? false
+          : (vuoleSceltaInvio
+            ? invioFatturaSdi === "subito" && inviaCortesia
+            : null);
+        ordine.invioFatturaSdi = invioFatturaSdi === "subito" ? "subito" : null;
         ordine.invioDelegatoInviatoAt = null;
         ordine.trasporto = {
           ...emptyTrasporto(),
@@ -1875,7 +1872,15 @@ export function OrdineNuovoWizardModal({
         avvisoIncludiMisure: ritiroInSede && avvisaMercePronta && avvisoMisure,
         avvisoIncludiPeso: ritiroInSede && avvisaMercePronta && avvisoPeso,
         nessunaMail,
-        invioDelegato: tipoOrdine === "campionatura" ? false : invioDelegato,
+        cortesiaSdi: passaProforma
+          ? false
+          : (vuoleSceltaInvio
+            ? invioFatturaSdi === "subito" && inviaCortesia
+            : null),
+        invioDelegato:
+          tipoOrdine === "campionatura" || !attesaCalcoloSpedizione
+            ? false
+            : invioDelegato,
         quantita: quantitaInserita,
         unitaMisura: umEffettiva,
         prezzoUnitario: tipoOrdine === "campionatura" ? 0 : numberOrZero(prezzoUnitario),
@@ -2092,14 +2097,13 @@ export function OrdineNuovoWizardModal({
         let invioSubito = "";
         if (
           invioFatturaSdi === "subito" &&
-          !invioDelegato &&
           !fat.giaInviata &&
           !comeProforma
         ) {
           const invio = await inviaFatturaSalvataAction({
             fatturaId: fat.fatturaId,
             sendToSdi: true,
-            sendCourtesyEmail: !nessunaMail,
+            sendCourtesyEmail: inviaCortesia && !nessunaMail,
             doppiaConferma: true,
             confermaPromozione: promozioneSdiRef.current,
             produzioneReale: true,
@@ -2112,8 +2116,8 @@ export function OrdineNuovoWizardModal({
               ? `Fattura ${invio.numeroFattura} inviata allo SDI.`
               : `Fattura ${invio.numeroFattura} registrata, ma lo SDI non ha confermato l'invio.`;
             let mail = "La mail di cortesia al cliente non risulta partita.";
-            if (nessunaMail) {
-              mail = "Nessuna mail al cliente: è stato scelto di non inviarne.";
+            if (!inviaCortesia || nessunaMail) {
+              mail = "Nessuna mail di cortesia: il PDF si scarica e si invia a mano.";
             } else if (invio.courtesyEmailSent) {
               mail = "La mail di cortesia è partita al cliente.";
             }
@@ -2194,7 +2198,7 @@ export function OrdineNuovoWizardModal({
         const numeroProformaTesto = numeroProformaSalvato
           ? ` ${numeroProformaSalvato}`
           : "";
-        let messaggioFinale = `Ordine ${result.ordine.numeroInterno} finalizzato. La fattura è in bozza, senza numero. Il numero, lo SDI e la mail al cliente partono quando l'ordine entra in produzione.`;
+        let messaggioFinale = `Ordine ${result.ordine.numeroInterno} finalizzato. La fattura resta in bozza, senza numero. Non è partita allo SDI e la mail di cortesia non è partita.`;
         if (comeProforma && invioProforma === "elenco") {
           messaggioFinale = `Ordine ${result.ordine.numeroInterno} finalizzato. Fattura proforma${numeroProformaTesto} salvata. Non parte adesso: dall'elenco ordini si scarica e si invia a mano.`;
         } else if (comeProforma) {
@@ -2202,8 +2206,6 @@ export function OrdineNuovoWizardModal({
             FASE_TEST_INVIO && !modificaOrdineId
               ? `Ordine ${result.ordine.numeroInterno} registrato. Fattura proforma${numeroProformaTesto} salvata. La mail con la proforma non è partita.`
               : `Ordine ${result.ordine.numeroInterno} finalizzato. Fattura proforma${numeroProformaTesto} salvata.`;
-        } else if (invioDelegato) {
-          messaggioFinale = `Ordine ${result.ordine.numeroInterno} finalizzato. La bozza è salvata. Numero, SDI e mail li invia l'operatore quando mette l'ordine in produzione.`;
         } else if (invioFatturaSdi === "subito") {
           messaggioFinale = `Ordine ${result.ordine.numeroInterno} finalizzato. ${invioSubito || "Invio allo SDI non eseguito. La mail non è partita."}`;
         } else if (FASE_TEST_INVIO && !modificaOrdineId) {
@@ -2581,7 +2583,6 @@ export function OrdineNuovoWizardModal({
       Boolean(possibileClienteId) &&
       tipoOrdine !== "campionatura" &&
       invioFatturaSdi === "subito" &&
-      !invioDelegato &&
       !fatturaGiaInviata &&
       !passaProforma &&
       d.documentoMail !== "proforma";
@@ -4619,36 +4620,28 @@ export function OrdineNuovoWizardModal({
                     {titoloNota("pagamento_sdi", "Invio della fattura allo SDI")}
                   </div>
                   <p className="mt-1 text-sm text-amber-950">
-                    Scelta obbligatoria prima di finalizzare. Fa esattamente
-                    quello che è scritto.
+                    La fattura è completa: se spunti lo SDI parte adesso. La
+                    mail di cortesia si può inviare solo in quel momento.
                   </p>
-                  {invioDelegato ? (
-                    <p className="mt-3 text-sm font-medium text-amber-950">
-                      Con la delega non parte nulla adesso. La bozza resta
-                      salvata e la invia l&apos;operatore al processo.
-                    </p>
-                  ) : null}
                   {fatturaGiaInviata ? (
                     <p className="mt-3 text-sm font-medium text-amber-950">
                       La fattura è già partita allo SDI. Quando l&apos;ordine
                       entra in produzione non parte una seconda volta.
                     </p>
                   ) : (
-                    <div className="mt-3 grid gap-3 sm:grid-cols-2">
-                      <label
-                        className={`flex cursor-pointer flex-col gap-1 rounded-lg border-2 bg-white p-3 ${
-                          invioFatturaSdi === "subito"
-                            ? "border-amber-700"
-                            : "border-amber-200"
-                        }`}
-                      >
+                    <div className="mt-3 grid gap-3">
+                      <label className="flex cursor-pointer flex-col gap-1 rounded-lg border-2 border-amber-200 bg-white p-3">
                         <span className="flex items-start gap-2">
                           <input
-                            type="radio"
-                            name="invio-fattura-sdi"
+                            type="checkbox"
                             className="mt-1"
                             checked={invioFatturaSdi === "subito"}
-                            onChange={() => {
+                            onChange={(e) => {
+                              if (!e.target.checked) {
+                                setInvioFatturaSdi("");
+                                setInviaCortesia(false);
+                                return;
+                              }
                               if (
                                 anagraficaFonte !== "possibile" ||
                                 !possibileClienteId ||
@@ -4664,40 +4657,36 @@ export function OrdineNuovoWizardModal({
                             }}
                           />
                           <span className="text-base font-semibold text-slate-900">
-                            Invia subito la fattura allo SDI
+                            Invia la fattura allo SDI
                           </span>
                         </span>
                         <span className="pl-6 text-sm text-slate-700">
-                          Parte adesso allo SDI. La mail di cortesia parte al
-                          cliente insieme a questo invio. L&apos;ordine resta da
-                          mettere in produzione e la fattura non parte di nuovo.
+                          Parte adesso allo SDI. L&apos;ordine resta da mettere
+                          in produzione e la fattura non parte una seconda volta.
                         </span>
                       </label>
                       <label
-                        className={`flex cursor-pointer flex-col gap-1 rounded-lg border-2 bg-white p-3 ${
-                          invioFatturaSdi === "al_processo"
-                            ? "border-amber-700"
-                            : "border-amber-200"
+                        className={`flex flex-col gap-1 rounded-lg border-2 bg-white p-3 ${
+                          invioFatturaSdi === "subito"
+                            ? "cursor-pointer border-amber-200"
+                            : "border-slate-200 opacity-60"
                         }`}
                       >
                         <span className="flex items-start gap-2">
                           <input
-                            type="radio"
-                            name="invio-fattura-sdi"
+                            type="checkbox"
                             className="mt-1"
-                            checked={invioFatturaSdi === "al_processo"}
-                            onChange={() => {
-                              promozioneSdiRef.current = false;
-                              setInvioFatturaSdi("al_processo");
-                            }}
+                            checked={inviaCortesia && invioFatturaSdi === "subito"}
+                            disabled={invioFatturaSdi !== "subito" || nessunaMail}
+                            onChange={(e) => setInviaCortesia(e.target.checked)}
                           />
                           <span className="text-base font-semibold text-slate-900">
-                            Invia la fattura quando sarà eseguito il processo
+                            Invia la mail di cortesia al cliente
                           </span>
                         </span>
                         <span className="pl-6 text-sm text-slate-700">
-                          Non parte ora. Allo SDI e la mail di cortesia al
-                          cliente quando l&apos;ordine entra in produzione.
+                          Solo insieme a questo invio allo SDI. Se non la spunti,
+                          la copia si scarica e si invia a mano.
                         </span>
                       </label>
                     </div>
@@ -4757,8 +4746,8 @@ export function OrdineNuovoWizardModal({
                               onChange={() => setInvioProforma("elenco")}
                             />
                             <span className="text-base font-semibold text-slate-900">
-                              L&apos;operatore la scarica e la invia dall&apos;elenco
-                              ordini
+                              Delega l&apos;invio all&apos;operatore: la scarica
+                              e la invia dall&apos;elenco ordini
                             </span>
                           </span>
                           <span className="pl-6 text-sm text-slate-700">
@@ -4827,7 +4816,10 @@ export function OrdineNuovoWizardModal({
                 bloccaMail={nessunaMail}
                 onNessunaMailChange={(acceso) => {
                   setNessunaMail(acceso);
-                  if (acceso) setInvioDelegato(false);
+                  if (acceso) {
+                    setInvioDelegato(false);
+                    setInviaCortesia(false);
+                  }
                   if (!acceso) return;
                   spedDraft.current = {
                     ...spedDraft.current,
@@ -4840,7 +4832,7 @@ export function OrdineNuovoWizardModal({
                 invioProforma={passaProforma ? invioProforma : undefined}
                 invioDelegato={invioDelegato}
                 onInvioDelegatoChange={
-                  tipoOrdine === "campionatura"
+                  tipoOrdine === "campionatura" || !attesaCalcoloSpedizione
                     ? undefined
                     : (acceso) => {
                         setInvioDelegato(acceso);
@@ -4873,7 +4865,7 @@ export function OrdineNuovoWizardModal({
             />
             <OrdineNessunaMailBanner attivo={nessunaMail} />
             <OrdineInvioDelegatoBanner
-              attivo={invioDelegato && !nessunaMail && tipoOrdine !== "campionatura"}
+              attivo={invioDelegato && attesaCalcoloSpedizione && !nessunaMail}
             />
           </div>
         </div>
@@ -5034,7 +5026,6 @@ export function OrdineNuovoWizardModal({
                   saving ||
                   !modificaPronta ||
                   calcoloLoading ||
-                  (vuoleSceltaInvio && !fatturaGiaInviata && !invioFatturaSdi) ||
                   (passaProforma && (!proformaSalvata || !invioProforma))
                 }
                 onClick={() => {
@@ -5047,34 +5038,33 @@ export function OrdineNuovoWizardModal({
                   }
                   if (passaProforma && !invioProforma) {
                     setFormError(
-                      "Scegli se inviare la proforma alla finalizzazione dell'ordine oppure lasciarla all'operatore nell'elenco."
+                      "Scegli se inviare la proforma alla finalizzazione dell'ordine oppure delegarla all'operatore."
                     );
                     return;
                   }
-                  if (vuoleSceltaInvio && !fatturaGiaInviata && !invioFatturaSdi) {
-                    setFormError(
-                      "Scegli se inviare la fattura allo SDI adesso oppure quando l'ordine entra in produzione."
-                    );
-                    return;
-                  }
-                  if (
+                  const cortesiaOra =
                     invioFatturaSdi === "subito" &&
+                    inviaCortesia &&
                     !fatturaGiaInviata &&
-                    !d.mailAccountId
-                  ) {
+                    !passaProforma;
+                  if (cortesiaOra && !d.mailAccountId) {
                     setFormError(
                       "Seleziona la casella mittente. Da qui parte la mail di cortesia al cliente."
                     );
                     return;
                   }
-                  if (!modificaOrdineId && !(passaProforma && invioProforma === "elenco")) {
-                    if (!d.mailAccountId) {
-                      setFormError(
-                        "Seleziona la casella mittente. Da qui parte la mail di cortesia al cliente."
-                      );
-                      return;
-                    }
-                    void avviaSalvataggio("salva");
+                  if (cortesiaOra && !d.destinatarioEmail.includes("@")) {
+                    setFormError("Indica il destinatario della mail di cortesia.");
+                    return;
+                  }
+                  if (
+                    passaProforma &&
+                    invioProforma === "finalizzazione" &&
+                    !d.mailAccountId
+                  ) {
+                    setFormError(
+                      "Seleziona la casella mittente. Da qui parte la mail con la proforma."
+                    );
                     return;
                   }
                   if (!ritiroInSede && d.allegaTracking && !d.destinatarioEmail.includes("@")) {

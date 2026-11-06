@@ -43,6 +43,7 @@ export type OrdineWizardModifica = {
   avvisoIncludiMisure: boolean;
   avvisoIncludiPeso: boolean;
   nessunaMail: boolean;
+  cortesiaSdi: boolean | null;
   invioDelegato: boolean;
   quantita: number;
   unitaMisura: OrdineUnitaMisura;
@@ -413,6 +414,10 @@ export async function loadOrdinePerModificaWizardAction(
       avvisoIncludiMisure: Boolean(ordine.avviso_includi_misure),
       avvisoIncludiPeso: Boolean(ordine.avviso_includi_peso),
       nessunaMail: Boolean(ordine.nessuna_mail),
+      cortesiaSdi:
+        ordine.cortesia_sdi === true
+          ? true
+          : (ordine.cortesia_sdi === false ? false : null),
       invioDelegato: Boolean(ordine.invio_delegato),
       quantita: Number(riga.quantita ?? 0),
       unitaMisura,
