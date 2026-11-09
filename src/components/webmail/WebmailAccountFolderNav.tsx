@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
-import { usePathname, useRouter } from "next/navigation";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { WebmailBoard } from "@/components/commerciale/WebmailBoard";
 import { WebmailComposeForm } from "@/components/webmail/WebmailComposeForm";
 import { parseWebmailCasellaFolder } from "@/lib/webmail/casella-path";
@@ -357,6 +357,8 @@ export function WebmailCasellaShell({
   accountEmail,
 }: ShellProps) {
   const pathname = usePathname() || "";
+  const search = useSearchParams();
+  const messaggioId = search.get("m");
   const folder = parseWebmailCasellaFolder(pathname, accountId);
 
   return (
@@ -379,11 +381,12 @@ export function WebmailCasellaShell({
           ) : null)
         ) : folder.view ? (
           <WebmailBoard
-            key={`${folder.view}-${folder.categoriaId ?? ""}`}
+            key={`${folder.view}-${folder.categoriaId ?? ""}-${messaggioId ?? ""}`}
             initialAccountId={accountId}
             view={folder.view}
             categoriaId={folder.categoriaId}
             hideTopFilters
+            initialMessageId={messaggioId}
           />
         ) : (
           children

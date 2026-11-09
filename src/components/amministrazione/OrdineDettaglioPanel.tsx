@@ -20,6 +20,7 @@ import {
   type OrdineSezioneChiave,
 } from "@/lib/amministrazione/ordine-sezione-note";
 import { labelRitiroMezzo } from "@/lib/amministrazione/ordine-ritiro";
+import { OrdineMailElenco } from "@/components/amministrazione/OrdineMailElenco";
 import {
   OrdineAvvisoRitiroBanner,
   OrdineInvioDelegatoBanner,
@@ -673,6 +674,7 @@ export function OrdineDettaglioPanel({
         </p>
       ) : null}
 
+      <OrdineMailElenco ordineId={ordine.id} />
       <OrdineAvvisoRitiroBanner
         attivo={ordine.ritiroInSede && ordine.avvisaMercePronta}
         email={ordine.avvisoValore}

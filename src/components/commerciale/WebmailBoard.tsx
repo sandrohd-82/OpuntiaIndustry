@@ -40,6 +40,7 @@ import {
   updateWebmailBozzaAction,
   reloadWebmailMessaggioBodyAction,
   getWebmailMessaggioTextAction,
+  getWebmailMessaggioAction,
   countWebmailImportParzialiAction,
   riparaWebmailImportParzialiAction,
   type WebmailMessaggioAllegatoPublic,
@@ -156,12 +157,15 @@ export function WebmailBoard({
   categoriaId = null,
   hideTopFilters = false,
   pick = null,
+  initialMessageId = null,
 }: {
   initialAccountId?: string | null;
   view?: WebmailMailboxView;
   categoriaId?: string | null;
   /** Nasconde filtri account/categoria quando la vista è guidata dal menu. */
   hideTopFilters?: boolean;
+  /** Apre subito questa mail (collegamento dal dettaglio ordine). */
+  initialMessageId?: string | null;
   /** Se valorizzato, la mail aperta si può scegliere e la finestra si chiude. */
   pick?: {
     onSelect: (msg: { id: string; subject: string }) => void;
@@ -206,6 +210,7 @@ export function WebmailBoard({
   const filterKeyRef = useRef("");
   const totalCountRef = useRef(0);
   const reloadGenRef = useRef(0);
+  const apertoDaLinkRef = useRef("");
   const listBoxRef = useRef<HTMLDivElement | null>(null);
   const listScrollRef = useRef<HTMLUListElement | null>(null);
   const [catTargetIds, setCatTargetIds] = useState<string[]>([]);
@@ -385,7 +390,23 @@ export function WebmailBoard({
         return;
       }
       if (reloadGenRef.current !== gen) return;
-      setMessaggi(m.messaggi);
+      let righe = m.messaggi;
+      if (
+        initialMessageId &&
+        !righe.some((riga) => riga.id === initialMessageId)
+      ) {
+        const uno = await getWebmailMessaggioAction(initialMessageId);
+        if (reloadGenRef.current !== gen) return;
+        if (uno.success) righe = [uno.messaggio, ...righe];
+      }
+      setMessaggi(righe);
+      if (
+        initialMessageId &&
+        apertoDaLinkRef.current !== initialMessageId
+      ) {
+        apertoDaLinkRef.current = initialMessageId;
+        setSelectedId(initialMessageId);
+      }
       if (m.total >= 0) {
         setTotalCount(m.total);
         totalCountRef.current = m.total;
@@ -415,6 +436,7 @@ export function WebmailBoard({
     appliedSubject,
     appliedDateFrom,
     appliedDateTo,
+    initialMessageId,
   ]);
 
   const reloadRef = useRef(reload);

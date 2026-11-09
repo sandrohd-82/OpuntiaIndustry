@@ -62,7 +62,11 @@ const invioWebmailSchema = z.object({
 export async function inviaFatturaDaWebmailAction(
   raw: z.input<typeof invioWebmailSchema>
 ): Promise<{ success: true } | { success: false; error: string }> {
-  const { auth } = await requireAnyAreaAccess(["amministrazione", "webmail"]);
+  const { auth } = await requireAnyAreaAccess([
+    "amministrazione",
+    "webmail",
+    "produzione",
+  ]);
   const parsed = invioWebmailSchema.safeParse(raw);
   if (!parsed.success) {
     return {

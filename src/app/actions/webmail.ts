@@ -4443,6 +4443,29 @@ export type WebmailMessaggioAllegatoPublic = {
   url: string | null;
 };
 
+/** Una riga di elenco, anche se non è nella pagina corrente. */
+export async function getWebmailMessaggioAction(
+  messaggioId: string
+): Promise<
+  { success: true; messaggio: WebmailMessaggio } | { success: false; error: string }
+> {
+  await requireWebmailAccess();
+  const parsedId = messaggioIdSchema.safeParse(messaggioId);
+  if (!parsedId.success) {
+    return { success: false, error: "Messaggio non valido." };
+  }
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from("webmail_messaggi")
+    .select(MESSAGGIO_LIST_SELECT)
+    .eq("id", parsedId.data)
+    .is("deleted_at", null)
+    .maybeSingle();
+  if (error) return { success: false, error: error.message };
+  if (!data) return { success: false, error: "Messaggio non trovato." };
+  return { success: true, messaggio: mapMessaggio(data as Record<string, unknown>) };
+}
+
 /** Testo mail per traduzione / azioni (l’elenco non carica più il body). */
 export async function getWebmailMessaggioTextAction(
   messaggioId: string
