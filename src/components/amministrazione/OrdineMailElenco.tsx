@@ -3,8 +3,10 @@
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import {
+  apriAllegatoMailOrdineAction,
   elencoMailOrdineAction,
   inviaBozzaMailOrdineAction,
+  type AllegatoVoceMail,
   type VoceMailOrdine,
 } from "@/app/actions/ordine-mail-elenco";
 
@@ -46,6 +48,33 @@ export function OrdineMailElenco({ ordineId }: { ordineId: string }) {
   useEffect(() => {
     void carica();
   }, [carica]);
+
+  async function apriAllegato(allegato: AllegatoVoceMail) {
+    setBusy(true);
+    setErrore("");
+    const res = await apriAllegatoMailOrdineAction({
+      ordineId,
+      kind: allegato.kind,
+      fatturaId: allegato.fatturaId,
+      path: allegato.path,
+      nome: allegato.nome,
+    });
+    setBusy(false);
+    if (!res.success) {
+      setErrore(res.error);
+      return;
+    }
+    if (res.url) {
+      window.open(res.url, "_blank", "noopener,noreferrer");
+      return;
+    }
+    const binario = atob(res.base64);
+    const bytes = new Uint8Array(binario.length);
+    for (let i = 0; i < binario.length; i += 1) bytes[i] = binario.charCodeAt(i);
+    const url = URL.createObjectURL(new Blob([bytes], { type: res.contentType }));
+    const finestra = window.open(url, "_blank", "noopener,noreferrer");
+    if (!finestra) setErrore("Il browser ha bloccato l'apertura dell'allegato.");
+  }
 
   async function invia(voce: VoceMailOrdine) {
     if (!voce.invio) return;
@@ -128,6 +157,22 @@ export function OrdineMailElenco({ ordineId }: { ordineId: string }) {
                     {voce.motivo ? (
                       <p className="mt-1 text-xs text-[var(--muted)]">{voce.motivo}</p>
                     ) : null}
+                    {voce.allegati.length > 0 ? (
+                      <ul className="mt-2 space-y-1">
+                        {voce.allegati.map((allegato) => (
+                          <li key={`${allegato.kind}-${allegato.nome}-${allegato.path ?? allegato.fatturaId}`}>
+                            <button
+                              type="button"
+                              disabled={busy}
+                              onClick={() => void apriAllegato(allegato)}
+                              className="text-xs font-medium text-[var(--primary)] underline-offset-2 hover:underline disabled:opacity-60"
+                            >
+                              Vedi allegato: {allegato.nome}
+                            </button>
+                          </li>
+                        ))}
+                      </ul>
+                    ) : null}
                   </div>
                   <div className="flex flex-wrap gap-2">
                     {voce.situazione === "inviata" && voce.messaggioId && voce.accountId ? (
@@ -171,6 +216,9 @@ export function OrdineMailElenco({ ordineId }: { ordineId: string }) {
                   <div className="mt-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-950">
                     <p>
                       Confermi l&apos;invio di «{voce.tipologia}» al destinatario della bozza?
+                      {voce.allegati.length > 0
+                        ? ` Parte con ${voce.allegati.map((allegato) => allegato.nome).join(", ")}.`
+                        : ""}
                     </p>
                     <div className="mt-2 flex gap-2">
                       <button

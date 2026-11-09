@@ -655,16 +655,36 @@ export async function inviaMailSpedizioneAction(
     content: Buffer;
     contentType?: string;
   }> = [];
+  const richiesti: Array<{ path: string; name: string; contentType: string }> = [];
   if (item.allegaFile) {
-    for (const a of item.allegati) {
-      const { data: file } = await service.storage.from(BUCKET).download(a.path);
-      if (!file) continue;
-      attachments.push({
-        filename: a.name,
-        content: Buffer.from(await file.arrayBuffer()),
-        contentType: a.contentType || undefined,
-      });
+    for (const a of item.allegati) richiesti.push(a);
+  }
+  if (item.allegaLettera && item.letteraViaPath) {
+    richiesti.push({
+      path: item.letteraViaPath,
+      name: item.letteraViaName || "Lettera di via",
+      contentType: "application/pdf",
+    });
+  }
+  if ((item.allegaFile || item.allegaLettera) && richiesti.length === 0) {
+    return {
+      success: false,
+      error: "La bozza indica un allegato, ma il file non c'è. La mail non è partita.",
+    };
+  }
+  for (const a of richiesti) {
+    const { data: file } = await service.storage.from(BUCKET).download(a.path);
+    if (!file) {
+      return {
+        success: false,
+        error: `Allegato non trovato: ${a.name}. La mail non è partita.`,
+      };
     }
+    attachments.push({
+      filename: a.name,
+      content: Buffer.from(await file.arrayBuffer()),
+      contentType: a.contentType || undefined,
+    });
   }
   const body = d.bodyText;
   const trackingNelTesto = item.allegaTracking ? item.trackingUrl : "";

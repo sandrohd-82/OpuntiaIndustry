@@ -1,12 +1,18 @@
 "use server";
 
 import { writeAuditLog } from "@/lib/audit";
-import { inviaFatturaDaWebmailAction } from "@/app/actions/fattura-mail";
+import {
+  anteprimaPdfDocumentoSalvatoAction,
+  inviaDocumentoSalvatoComeBozzaAction,
+} from "@/app/actions/fattura-da-ordine";
 import { inviaMailSpedizioneAction } from "@/app/actions/spedizione-mail";
 import { requireAnyAreaAccess } from "@/lib/areas/guard";
+import { fatturaA4PdfFileName } from "@/lib/amministrazione/fattura-a4-pdf";
 import { createServiceClient } from "@/lib/supabase/server";
 import { WEBMAIL_SENT_FOLDER } from "@/lib/webmail/types";
 import { z } from "zod";
+
+const BUCKET_ALLEGATI = "spedizione-mail";
 
 export type InvioVoceMailOrdine = {
   tipo: "cortesia" | "proforma" | "spedizione";
@@ -16,6 +22,13 @@ export type InvioVoceMailOrdine = {
   to: string;
   subject: string;
   bodyText: string;
+};
+
+export type AllegatoVoceMail = {
+  nome: string;
+  kind: "fattura" | "file";
+  fatturaId: string | null;
+  path: string | null;
 };
 
 export type VoceMailOrdine = {
@@ -29,6 +42,7 @@ export type VoceMailOrdine = {
   messaggioId: string | null;
   motivo: string;
   invio: InvioVoceMailOrdine | null;
+  allegati: AllegatoVoceMail[];
 };
 
 type FatturaMail = {
@@ -81,6 +95,37 @@ function tipologiaDaOggetto(subject: string, tipoDocumento: string): string {
   return "Mail ordine";
 }
 
+function allegatiFilePrenotazione(pren: Record<string, unknown>): AllegatoVoceMail[] {
+  const out: AllegatoVoceMail[] = [];
+  if (pren.allega_file && Array.isArray(pren.allegati)) {
+    for (const raw of pren.allegati) {
+      const file = raw as Record<string, unknown>;
+      const path = testo(file.path);
+      const nome = testo(file.name);
+      if (!path || !nome) continue;
+      out.push({ nome, kind: "file", fatturaId: null, path });
+    }
+  }
+  if (pren.allega_lettera && testo(pren.lettera_via_path)) {
+    out.push({
+      nome: testo(pren.lettera_via_name) || "Lettera di via",
+      kind: "file",
+      fatturaId: null,
+      path: testo(pren.lettera_via_path),
+    });
+  }
+  return out;
+}
+
+function allegatoFatturaBozza(fat: FatturaMail): AllegatoVoceMail {
+  return {
+    nome: fatturaA4PdfFileName(fat.numero || fat.interno || "bozza", fat.tipo === "proforma"),
+    kind: "fattura",
+    fatturaId: fat.id,
+    path: null,
+  };
+}
+
 async function gate() {
   return requireAnyAreaAccess(["amministrazione", "produzione", "webmail"]);
 }
@@ -114,7 +159,7 @@ export async function elencoMailOrdineAction(
     service
       .from("spedizione_mail_prenotazioni")
       .select(
-        "id, stato, oggetto, corpo, destinatario_email, account_id, prenotata_at, inviata_at, allega_tracking, tracking_url"
+        "id, stato, oggetto, corpo, destinatario_email, account_id, prenotata_at, inviata_at, allega_tracking, tracking_url, allegati, allega_file, allega_lettera, lettera_via_path, lettera_via_name"
       )
       .eq("entity_type", "ordine")
       .eq("entity_id", id)
@@ -236,6 +281,7 @@ export async function elencoMailOrdineAction(
       messaggioId: msg.id,
       motivo: "",
       invio: null,
+      allegati: [],
     });
   }
 
@@ -269,6 +315,7 @@ export async function elencoMailOrdineAction(
       messaggioId: null,
       motivo: "Inviata. Nella casella Inviati non risulta la copia.",
       invio: null,
+      allegati: [],
     });
   }
 
@@ -305,6 +352,7 @@ export async function elencoMailOrdineAction(
             messaggioId: null,
             motivo: "In attesa del tracking.",
             invio: null,
+            allegati: allegatiFilePrenotazione(pren),
           });
         }
         continue;
@@ -321,6 +369,7 @@ export async function elencoMailOrdineAction(
         messaggioId: null,
         motivo: "Inviata. Nella casella Inviati non risulta la copia.",
         invio: null,
+      allegati: [],
       });
       continue;
     }
@@ -364,6 +413,9 @@ export async function elencoMailOrdineAction(
     } else {
       invio = { ...baseInvio, tipo: "spedizione", fatturaId: null };
     }
+    const fileAllegati = allegatiFilePrenotazione(pren);
+    const pdfAllegato =
+      doc && (sembraFattura || sembraProforma) ? [allegatoFatturaBozza(doc)] : [];
     voci.push({
       id: `pren-${testo(pren.id)}`,
       tipologia,
@@ -375,6 +427,7 @@ export async function elencoMailOrdineAction(
       messaggioId: null,
       motivo,
       invio,
+      allegati: [...pdfAllegato, ...fileAllegati],
     });
   }
 
@@ -413,6 +466,7 @@ export async function elencoMailOrdineAction(
             ? ""
             : "Prenotata con la spedizione di gruppo. Si invia da lì.",
           invio: null,
+      allegati: [],
         });
       }
     }
@@ -446,6 +500,7 @@ export async function elencoMailOrdineAction(
       messaggioId: null,
       motivo: "Parte quando la merce è pronta per il ritiro.",
       invio: null,
+      allegati: [],
     });
   }
 
@@ -456,6 +511,115 @@ export async function elencoMailOrdineAction(
     return (b.quando ?? "").localeCompare(a.quando ?? "");
   });
   return { success: true, voci };
+}
+
+async function scaricaAllegatiBozzaOrdine(
+  ordineId: string,
+  prenotazioneId: string
+): Promise<
+  | {
+      files: Array<{ filename: string; content: Buffer; contentType?: string }>;
+    }
+  | { error: string }
+> {
+  const service = createServiceClient();
+  const { data, error } = await service
+    .from("spedizione_mail_prenotazioni")
+    .select("allegati, allega_file, allega_lettera, lettera_via_path, lettera_via_name")
+    .eq("id", prenotazioneId)
+    .eq("entity_type", "ordine")
+    .eq("entity_id", ordineId)
+    .is("deleted_at", null)
+    .maybeSingle();
+  if (error) return { error: error.message };
+  if (!data) return { files: [] };
+  const richiesti = allegatiFilePrenotazione(data as Record<string, unknown>);
+  const files: Array<{ filename: string; content: Buffer; contentType?: string }> = [];
+  for (const allegato of richiesti) {
+    if (!allegato.path) {
+      return { error: `Allegato non trovato: ${allegato.nome}. La mail non è partita.` };
+    }
+    const scaricato = await service.storage.from(BUCKET_ALLEGATI).download(allegato.path);
+    if (scaricato.error || !scaricato.data) {
+      return { error: `Allegato non trovato: ${allegato.nome}. La mail non è partita.` };
+    }
+    files.push({
+      filename: allegato.nome,
+      content: Buffer.from(await scaricato.data.arrayBuffer()),
+      contentType: allegato.nome.toLowerCase().endsWith(".pdf")
+        ? "application/pdf"
+        : "application/octet-stream",
+    });
+  }
+  return { files };
+}
+
+const apriSchema = z.object({
+  ordineId: z.string().uuid(),
+  kind: z.enum(["fattura", "file"]),
+  fatturaId: z.string().uuid().nullable(),
+  path: z.string().trim().max(500).nullable(),
+  nome: z.string().trim().min(1).max(240),
+});
+
+export async function apriAllegatoMailOrdineAction(
+  raw: unknown
+): Promise<
+  | { success: true; fileName: string; contentType: string; base64: string; url: string | null }
+  | { success: false; error: string }
+> {
+  await gate();
+  const parsed = apriSchema.safeParse(raw);
+  if (!parsed.success) {
+    return { success: false, error: "Allegato non valido." };
+  }
+  const d = parsed.data;
+  if (d.kind === "fattura") {
+    if (!d.fatturaId) return { success: false, error: "Fattura della bozza non indicata." };
+    const pdf = await anteprimaPdfDocumentoSalvatoAction({
+      fatturaId: d.fatturaId,
+      ordineId: d.ordineId,
+    });
+    if (!pdf.success) return pdf;
+    return {
+      success: true,
+      fileName: pdf.fileName,
+      contentType: "application/pdf",
+      base64: pdf.base64,
+      url: null,
+    };
+  }
+  if (!d.path) return { success: false, error: "File non indicato." };
+  const service = createServiceClient();
+  const { data: righe, error } = await service
+    .from("spedizione_mail_prenotazioni")
+    .select("allegati, allega_file, allega_lettera, lettera_via_path, lettera_via_name")
+    .eq("entity_type", "ordine")
+    .eq("entity_id", d.ordineId)
+    .is("deleted_at", null);
+  if (error) return { success: false, error: error.message };
+  const consentiti = (righe ?? []).flatMap((row) =>
+    allegatiFilePrenotazione(row as Record<string, unknown>)
+  );
+  if (!consentiti.some((file) => file.path === d.path)) {
+    return { success: false, error: "Questo allegato non è nella bozza dell'ordine." };
+  }
+  const firmato = await service.storage.from(BUCKET_ALLEGATI).createSignedUrl(d.path, 180);
+  if (firmato.error || !firmato.data?.signedUrl) {
+    return {
+      success: false,
+      error: firmato.error?.message ?? "Allegato non apribile.",
+    };
+  }
+  return {
+    success: true,
+    fileName: d.nome,
+    contentType: d.nome.toLowerCase().endsWith(".pdf")
+      ? "application/pdf"
+      : "application/octet-stream",
+    base64: "",
+    url: firmato.data.signedUrl,
+  };
 }
 
 const invioSchema = z.object({
@@ -550,13 +714,18 @@ export async function inviaBozzaMailOrdineAction(
         "La copia fattura si invia solo dopo lo SDI. Altrimenti si scarica e si manda a mano.",
     };
   }
-  const sent = await inviaFatturaDaWebmailAction({
+  const extra = d.prenotazioneId
+    ? await scaricaAllegatiBozzaOrdine(d.ordineId, d.prenotazioneId)
+    : { files: [] as Array<{ filename: string; content: Buffer; contentType?: string }> };
+  if ("error" in extra) return { success: false, error: extra.error };
+  const sent = await inviaDocumentoSalvatoComeBozzaAction({
     fatturaId: d.fatturaId,
+    ordineId: d.ordineId,
     accountId: d.accountId,
     to: d.to,
     subject: d.subject,
     bodyText: d.bodyText,
-    doppiaConferma: true,
+    extraAllegati: extra.files,
   });
   if (!sent.success) return sent;
   await writeAuditLog({

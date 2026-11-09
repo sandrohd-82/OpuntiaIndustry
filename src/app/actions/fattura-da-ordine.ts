@@ -1515,6 +1515,12 @@ async function inviaMailPdfComeBozza(input: {
   corpo?: string;
   accountId?: string;
   proforma?: boolean;
+  /** File già presenti nella bozza, oltre al PDF della fattura salvata. */
+  extraAllegati?: Array<{
+    filename: string;
+    content: Buffer;
+    contentType?: string;
+  }>;
 }): Promise<void> {
   const service = createServiceClient();
   const pdf = await pdfDocumentoSalvato(input);
@@ -1607,12 +1613,13 @@ async function inviaMailPdfComeBozza(input: {
     content: bytes,
     contentType: "application/pdf",
   };
+  const allegatiMail = [allegato, ...(input.extraAllegati ?? [])];
   const sent = await sendMailViaAccount({
     account,
     to: input.mailTo,
     subject,
     text,
-    attachments: [allegato],
+    attachments: allegatiMail,
     traccia: {
       userId: input.userId,
       aziendaTipo: "cliente",
@@ -1632,8 +1639,189 @@ async function inviaMailPdfComeBozza(input: {
     aziendaTipo: "cliente",
     aziendaId: input.fattura.cliente_id,
     aziendaLabel: input.destinatario.ragioneSociale,
-    attachments: [allegato],
+    attachments: allegatiMail,
   });
+}
+
+async function caricaFatturaBozzaOrdine(
+  fatturaId: string,
+  ordineId: string
+): Promise<
+  | { ok: false; error: string }
+  | {
+      ok: true;
+      fattura: FatturaEmessaRow;
+      righe: Array<Record<string, unknown>>;
+      dilazioni: Array<Record<string, unknown>>;
+      destinatario: FatturaDestinatarioSnapshot;
+      numero: string;
+      proforma: boolean;
+    }
+> {
+  const service = createServiceClient();
+  const { data: row, error } = await service
+    .from("fatture_emesse")
+    .select("*")
+    .eq("id", fatturaId)
+    .eq("ordine_id", ordineId)
+    .is("deleted_at", null)
+    .maybeSingle();
+  if (error || !row) {
+    return { ok: false, error: error?.message ?? "Fattura della bozza non trovata su questo ordine." };
+  }
+  const fattura = row as FatturaEmessaRow;
+  const numero = String(fattura.numero_fattura ?? "").trim();
+  if (!numero) {
+    return { ok: false, error: "La fattura della bozza non ha ancora il numero con cui è stata creata." };
+  }
+  const destinatario = parseDestinatarioSnapshot(fattura.destinatario_snapshot);
+  if (!destinatario) {
+    return { ok: false, error: "Intestazione della fattura in bozza mancante." };
+  }
+  const { data: righe, error: righeErr } = await service
+    .from("fatture_emesse_righe")
+    .select("*")
+    .eq("fattura_id", fatturaId)
+    .is("deleted_at", null)
+    .order("sort_order", { ascending: true });
+  if (righeErr) return { ok: false, error: righeErr.message };
+  if (!righe || righe.length === 0) {
+    return { ok: false, error: "La fattura della bozza non ha righe." };
+  }
+  const { data: dilazioni, error: dilErr } = await service
+    .from("fatture_emesse_dilazioni")
+    .select("*")
+    .eq("fattura_id", fatturaId)
+    .is("deleted_at", null)
+    .order("sort_order", { ascending: true });
+  if (dilErr) return { ok: false, error: dilErr.message };
+  return {
+    ok: true,
+    fattura,
+    righe: righe as Array<Record<string, unknown>>,
+    dilazioni: (dilazioni ?? []) as Array<Record<string, unknown>>,
+    destinatario,
+    numero,
+    proforma: String(fattura.tipo_documento ?? "") === "proforma",
+  };
+}
+
+/** Stesso PDF della fattura registrata in ordine, per vederlo prima dell'invio. */
+export async function anteprimaPdfDocumentoSalvatoAction(input: {
+  fatturaId: string;
+  ordineId: string;
+}): Promise<
+  { success: true; fileName: string; base64: string } | { success: false; error: string }
+> {
+  const { auth } = await requireAnyAreaAccess([
+    "amministrazione",
+    "produzione",
+    "webmail",
+  ]);
+  const caricata = await caricaFatturaBozzaOrdine(input.fatturaId, input.ordineId);
+  if (!caricata.ok) return { success: false, error: caricata.error };
+  try {
+    const pdf = await pdfDocumentoSalvato({
+      fattura: caricata.fattura,
+      righe: caricata.righe,
+      dilazioni: caricata.dilazioni,
+      destinatario: caricata.destinatario,
+      numeroFattura: caricata.numero,
+      userId: auth.userId,
+      proforma: caricata.proforma,
+    });
+    const bytes = Buffer.from(await pdf.blob.arrayBuffer());
+    if (bytes.subarray(0, 4).toString() !== "%PDF") {
+      return {
+        success: false,
+        error: "Il file non è la fattura della bozza.",
+      };
+    }
+    return {
+      success: true,
+      fileName: pdf.fileName,
+      base64: bytes.toString("base64"),
+    };
+  } catch (e) {
+    return {
+      success: false,
+      error: e instanceof Error ? e.message : "PDF della bozza non generato.",
+    };
+  }
+}
+
+/** Invia la mail con il PDF della fattura già salvata in ordine, non un altro documento. */
+export async function inviaDocumentoSalvatoComeBozzaAction(input: {
+  fatturaId: string;
+  ordineId: string;
+  accountId: string;
+  to: string;
+  subject: string;
+  bodyText: string;
+  extraAllegati?: Array<{
+    filename: string;
+    content: Buffer;
+    contentType?: string;
+  }>;
+}): Promise<{ success: true; fileName: string } | { success: false; error: string }> {
+  const { auth } = await requireAnyAreaAccess([
+    "amministrazione",
+    "produzione",
+    "webmail",
+  ]);
+  const caricata = await caricaFatturaBozzaOrdine(input.fatturaId, input.ordineId);
+  if (!caricata.ok) return { success: false, error: caricata.error };
+  try {
+    await inviaMailPdfComeBozza({
+      fattura: caricata.fattura,
+      righe: caricata.righe,
+      dilazioni: caricata.dilazioni,
+      destinatario: caricata.destinatario,
+      mailTo: input.to,
+      numeroFattura: caricata.numero,
+      userId: auth.userId,
+      oggetto: input.subject,
+      corpo: input.bodyText,
+      accountId: input.accountId,
+      proforma: caricata.proforma,
+      extraAllegati: input.extraAllegati,
+    });
+  } catch (e) {
+    return {
+      success: false,
+      error: e instanceof Error ? e.message : "Invio della bozza non riuscito.",
+    };
+  }
+  const now = new Date().toISOString();
+  const service = createServiceClient();
+  await service
+    .from("fatture_emesse")
+    .update({
+      courtesy_email_sent: true,
+      invio_email: input.to,
+      updated_by: auth.userId,
+      updated_at: now,
+    })
+    .eq("id", input.fatturaId)
+    .eq("ordine_id", input.ordineId)
+    .is("deleted_at", null);
+  const pdfNome = `${caricata.proforma ? "Fattura-proforma" : "Fattura"}_${caricata.numero}.pdf`;
+  await writeAuditLog({
+    entity_type: "fatture_emesse",
+    entity_id: input.fatturaId,
+    action: "fattura_mail_webmail",
+    actor_id: auth.userId,
+    summary: `Inviata la mail con la fattura della bozza ${caricata.numero}`,
+    payload: {
+      ordine_id: input.ordineId,
+      account_id: input.accountId,
+      to: input.to,
+      subject: input.subject,
+      allegato: pdfNome,
+      extra: (input.extraAllegati ?? []).map((file) => file.filename),
+    },
+  });
+  return { success: true, fileName: pdfNome };
 }
 
 function messaggioAliquoteFic(e: unknown, numeroCorrente: string): string {
