@@ -3,7 +3,11 @@
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { anteprimaNumeroFatturaBozzaAction } from "@/app/actions/fattura-da-ordine";
-import { getAliquoteEmissioneAction } from "@/app/actions/fattura-emissione";
+import {
+  getAliquoteEmissioneAction,
+  inviaMailBozzaNuovaFatturaAction,
+  listCaselleNuovaFatturaAction,
+} from "@/app/actions/fattura-emissione";
 import { listPreventivoCommercialiRiferimentoAction } from "@/app/actions/preventivi";
 import { listProdottiPropriAction } from "@/app/actions/prodotti-propri";
 import { ClienteSelectField } from "@/components/amministrazione/ClienteSelectField";
@@ -27,6 +31,10 @@ import {
   emptyPagamentoPiano,
   type OrdinePagamentoPiano,
 } from "@/lib/amministrazione/ordine-pagamento-piano";
+import { FASE_TEST_NUOVA_FATTURA } from "@/lib/amministrazione/fattura-emissione-test";
+import { EMAIL_CONTROLLO_DEFAULT } from "@/lib/amministrazione/prova-ordine";
+import { buildFatturaA4PdfPronto } from "@/lib/amministrazione/fattura-a4-pdf";
+import { destinatarioFromCliente } from "@/lib/amministrazione/fattura-a4-documento";
 import { AGRINSICILIA_COORDINATE } from "@/lib/amministrazione/preventivo-letterhead";
 import type { PreventivoCommercialeRiferimento } from "@/lib/amministrazione/preventivo-commerciale-riferimento";
 import type { ProdottoProprio } from "@/lib/amministrazione/prodotti-propri";
@@ -70,6 +78,23 @@ export function FatturaEmissioneBoard() {
     pdfUrl: string;
     eiStatus: string;
   } | null>(null);
+  const prova = FASE_TEST_NUOVA_FATTURA;
+  const [caselle, setCaselle] = useState<
+    Array<{ id: string; label: string; email: string }>
+  >([]);
+  const [caselleErrore, setCaselleErrore] = useState<string | null>(null);
+  const [casellaId, setCasellaId] = useState("");
+  const [mailOggetto, setMailOggetto] = useState("");
+  const [mailCorpo, setMailCorpo] = useState("");
+  const [mailTo, setMailTo] = useState("");
+  const [allegato, setAllegato] = useState<{
+    name: string;
+    base64: string;
+    url: string;
+  } | null>(null);
+  const [allegatoErrore, setAllegatoErrore] = useState<string | null>(null);
+  const [improntaSalvata, setImprontaSalvata] = useState<string | null>(null);
+  const [provaEsito, setProvaEsito] = useState<string | null>(null);
 
   useEffect(() => {
     void listProdottiPropriAction().then((r) => {
@@ -139,6 +164,182 @@ export function FatturaEmissioneBoard() {
     setPiano((prev) => applyTotaleToPiano(prev, totals.totale));
   }, [totals.totale]);
 
+  const pianoDocumento = useMemo(
+    () => applyTotaleToPiano(piano, totals.totale),
+    [piano, totals.totale]
+  );
+
+  const improntaMail = useMemo(
+    () =>
+      JSON.stringify({
+        clienteId: cliente?.id ?? "",
+        dataDocumento,
+        noteDocumento,
+        piano: pianoDocumento,
+        righe: righeBozza,
+        casellaId,
+        mailOggetto,
+        mailCorpo,
+        destinazione: prova ? EMAIL_CONTROLLO_DEFAULT : mailTo.trim(),
+        pdf: allegato?.name ?? "",
+      }),
+    [
+      cliente?.id,
+      dataDocumento,
+      noteDocumento,
+      pianoDocumento,
+      righeBozza,
+      casellaId,
+      mailOggetto,
+      mailCorpo,
+      prova,
+      mailTo,
+      allegato?.name,
+    ]
+  );
+  const bozzaPronta =
+    sendCourtesyEmail && improntaSalvata === improntaMail && Boolean(allegato);
+
+  useEffect(() => {
+    if (!sendCourtesyEmail) return;
+    void listCaselleNuovaFatturaAction().then((res) => {
+      if (!res.success) {
+        setCaselleErrore(res.error);
+        return;
+      }
+      setCaselleErrore(null);
+      setCaselle(res.accounts);
+      setCasellaId((prev) => {
+        if (prev) return prev;
+        return res.accounts.length === 1 ? res.accounts[0].id : "";
+      });
+    });
+  }, [sendCourtesyEmail]);
+
+  useEffect(() => {
+    if (!sendCourtesyEmail) return;
+    setMailOggetto((prev) => {
+      if (!prev || prev === "Fattura") {
+        return numeroBozza ? `Fattura ${numeroBozza}` : "Fattura";
+      }
+      return prev;
+    });
+    setMailCorpo(
+      (prev) =>
+        prev ||
+        "Gentile cliente,\n\nIn allegato la fattura.\n\nCordiali saluti."
+    );
+  }, [sendCourtesyEmail, numeroBozza]);
+
+  useEffect(() => {
+    if (!sendCourtesyEmail || !cliente) return;
+    let cancel = false;
+    void (async () => {
+      try {
+        const pronto = await buildFatturaA4PdfPronto({
+          numeroFattura: numeroBozza || "bozza",
+          dataDocumento,
+          destinatario: destinatarioFromCliente(cliente),
+          righe: righeBozza.map((r) => ({
+            prodottoId: r.prodottoId,
+            codice: r.codice,
+            descrizione: r.descrizione,
+            quantita: r.quantita,
+            unitaMisura: r.unitaMisura,
+            prezzoUnitario: r.prezzoUnitario,
+            scontoPercentuale: 0,
+            ivaPercentuale: r.ivaPercentuale,
+            isSpedizione: r.isSpedizione,
+            note: r.note,
+            importo: importoEmissioneRiga(r),
+            scontoListinoPct: r.scontoListinoPct,
+            scontoExtraPct: r.scontoExtraPct,
+          })),
+          noteDocumento,
+          piano: pianoDocumento,
+          commerciale: commerciale
+            ? {
+                nome: commerciale.nome,
+                telefono: commerciale.telefono,
+                email: commerciale.email,
+              }
+            : null,
+        });
+        const base64 = await new Promise<string>((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onload = () => {
+            const raw = String(reader.result ?? "");
+            const comma = raw.indexOf(",");
+            resolve(comma >= 0 ? raw.slice(comma + 1) : raw);
+          };
+          reader.onerror = () => reject(reader.error);
+          reader.readAsDataURL(pronto.blob);
+        });
+        if (cancel) return;
+        const url = URL.createObjectURL(pronto.blob);
+        setAllegato((prev) => {
+          if (prev?.url) URL.revokeObjectURL(prev.url);
+          return { name: pronto.fileName, base64, url };
+        });
+        setAllegatoErrore(null);
+      } catch (err) {
+        if (cancel) return;
+        setAllegato(null);
+        setAllegatoErrore(
+          err instanceof Error ? err.message : "PDF non disponibile."
+        );
+      }
+    })();
+    return () => {
+      cancel = true;
+    };
+  }, [
+    sendCourtesyEmail,
+    cliente,
+    numeroBozza,
+    dataDocumento,
+    righeBozza,
+    noteDocumento,
+    pianoDocumento,
+    commerciale,
+  ]);
+
+  function salvaBozzaMail() {
+    setError(null);
+    setProvaEsito(null);
+    if (!casellaId) {
+      setError("Seleziona la casella di uscita.");
+      return;
+    }
+    if (!mailOggetto.trim() || !mailCorpo.trim()) {
+      setError("Oggetto e corpo della mail sono obbligatori.");
+      return;
+    }
+    const destinazione = prova ? EMAIL_CONTROLLO_DEFAULT : mailTo.trim();
+    if (!destinazione.includes("@")) {
+      setError("Manca la mail di destinazione.");
+      return;
+    }
+    if (!allegato) {
+      setError(allegatoErrore ?? "L'allegato PDF non è pronto.");
+      return;
+    }
+    setImprontaSalvata(improntaMail);
+    try {
+      sessionStorage.setItem(
+        "opuntia-nuova-fattura-mail-bozza",
+        JSON.stringify({
+          casellaId,
+          mailOggetto,
+          mailCorpo,
+          mailTo: destinazione,
+        })
+      );
+    } catch {
+      /* la bozza resta in pagina anche se il browser rifiuta la sessione */
+    }
+  }
+
   function updateRiga(index: number, patch: Partial<EmissioneRigaInput>) {
     setRighe((prev) =>
       prev.map((r, i) => (i === index ? { ...r, ...patch } : r))
@@ -171,8 +372,51 @@ export function FatturaEmissioneBoard() {
     e.preventDefault();
     setError(null);
     setSuccess(null);
+    setProvaEsito(null);
     if (!cliente) {
       setError("Seleziona un cliente.");
+      return;
+    }
+    if (sendCourtesyEmail && !bozzaPronta) {
+      setError("Salva prima la bozza della mail.");
+      return;
+    }
+
+    if (prova) {
+      setBusy(true);
+      try {
+        if (!sendCourtesyEmail) {
+          setProvaEsito(
+            "Fase di prova: nessuna fattura è partita allo SDI e nessuna mail è stata inviata."
+          );
+          return;
+        }
+        if (!allegato) {
+          setError("L'allegato PDF non è pronto.");
+          return;
+        }
+        const mail = await inviaMailBozzaNuovaFatturaAction({
+          accountId: casellaId,
+          subject: mailOggetto.trim(),
+          body: mailCorpo.trim(),
+          pdfBase64: allegato.base64,
+          pdfName: allegato.name,
+          clienteId: cliente.id,
+          to: EMAIL_CONTROLLO_DEFAULT,
+          fatturaId: null,
+        });
+        if (!mail.success) {
+          setError(mail.error);
+          return;
+        }
+        setProvaEsito(
+          "Fase di prova: la mail è partita all'indirizzo di controllo. Lo SDI non è stato chiamato."
+        );
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "Errore di rete.");
+      } finally {
+        setBusy(false);
+      }
       return;
     }
 
@@ -216,6 +460,23 @@ export function FatturaEmissioneBoard() {
         prenotazioneNumero.consentiRilascio();
         setError(json.error ?? "Emissione non riuscita.");
         return;
+      }
+      if (sendCourtesyEmail && !allegato) {
+        setError("Fattura emessa. L'allegato della mail non è pronto.");
+      } else if (sendCourtesyEmail && allegato) {
+        const mail = await inviaMailBozzaNuovaFatturaAction({
+          accountId: casellaId,
+          subject: mailOggetto.trim(),
+          body: mailCorpo.trim(),
+          pdfBase64: allegato.base64,
+          pdfName: allegato.name,
+          clienteId: cliente.id,
+          to: mailTo.trim(),
+          fatturaId: json.fatturaId ?? null,
+        });
+        if (!mail.success) {
+          setError(`Fattura emessa. Mail non inviata: ${mail.error}`);
+        }
       }
       if (prenotazioneNumero.pren) {
         prenotazioneNumero.applica({
@@ -648,7 +909,8 @@ export function FatturaEmissioneBoard() {
           <label className="inline-flex items-center gap-2">
             <input
               type="checkbox"
-              checked={sendToSdi}
+              checked={prova ? false : sendToSdi}
+              disabled={prova}
               onChange={(e) => {
                 setSendToSdi(e.target.checked);
                 if (!e.target.checked) setSendCourtesyEmail(false);
@@ -659,23 +921,121 @@ export function FatturaEmissioneBoard() {
           <label className="inline-flex items-center gap-2">
             <input
               type="checkbox"
-              checked={sendToSdi && sendCourtesyEmail}
-              disabled={!sendToSdi}
+              checked={sendCourtesyEmail && (prova || sendToSdi)}
+              disabled={prova ? false : !sendToSdi}
               onChange={(e) => setSendCourtesyEmail(e.target.checked)}
             />
-            Mail di cortesia al cliente, solo se lo SDI parte
+            {prova
+              ? "Mail di cortesia"
+              : "Mail di cortesia al cliente, solo se lo SDI parte"}
           </label>
-          <label className="inline-flex items-center gap-2 text-[var(--muted)]">
-            <input
-              type="checkbox"
-              checked={dryRunSdi}
-              onChange={(e) => setDryRunSdi(e.target.checked)}
-              disabled={!sendToSdi}
-            />
-            Dry-run SDI (test)
-          </label>
+          {prova ? null : (
+            <label className="inline-flex items-center gap-2 text-[var(--muted)]">
+              <input
+                type="checkbox"
+                checked={dryRunSdi}
+                onChange={(e) => setDryRunSdi(e.target.checked)}
+                disabled={!sendToSdi}
+              />
+              Dry-run SDI (test)
+            </label>
+          )}
         </div>
+        {prova ? (
+          <p className="text-sm text-amber-800">
+            Fase di prova di questa pagina: lo SDI non parte. Con la mail
+            selezionata il destinatario è solo l&apos;indirizzo di controllo.
+          </p>
+        ) : null}
       </section>
+
+      {sendCourtesyEmail ? (
+        <section className="space-y-3 rounded-xl border border-[var(--border)] bg-[var(--card)] p-4">
+          <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-700">
+            Bozza mail
+          </h2>
+          <label className="block text-sm">
+            <span className="mb-1 block font-medium">Casella di uscita</span>
+            <select
+              value={casellaId}
+              onChange={(e) => setCasellaId(e.target.value)}
+              className="w-full rounded-lg border border-[var(--border)] px-3 py-2 text-sm"
+            >
+              <option value="">Seleziona la casella</option>
+              {caselle.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.label ? `${c.label} — ${c.email}` : c.email}
+                </option>
+              ))}
+            </select>
+            {caselleErrore ? (
+              <p className="mt-1 text-xs text-red-700">{caselleErrore}</p>
+            ) : null}
+          </label>
+          <label className="block text-sm">
+            <span className="mb-1 block font-medium">Oggetto</span>
+            <input
+              value={mailOggetto}
+              onChange={(e) => setMailOggetto(e.target.value)}
+              className="w-full rounded-lg border border-[var(--border)] px-3 py-2 text-sm"
+            />
+          </label>
+          <label className="block text-sm">
+            <span className="mb-1 block font-medium">Mail di destinazione</span>
+            <input
+              value={prova ? EMAIL_CONTROLLO_DEFAULT : mailTo}
+              readOnly={prova}
+              onChange={(e) => {
+                if (!prova) setMailTo(e.target.value);
+              }}
+              className="w-full rounded-lg border border-[var(--border)] px-3 py-2 text-sm read-only:bg-slate-50"
+            />
+          </label>
+          <label className="block text-sm">
+            <span className="mb-1 block font-medium">Corpo mail</span>
+            <textarea
+              value={mailCorpo}
+              onChange={(e) => setMailCorpo(e.target.value)}
+              rows={6}
+              className="w-full rounded-lg border border-[var(--border)] px-3 py-2 text-sm"
+            />
+          </label>
+          <div className="text-sm">
+            <p className="mb-1 font-medium">File allegato</p>
+            {allegato ? (
+              <a
+                href={allegato.url}
+                download={allegato.name}
+                className="font-medium text-[var(--primary)] hover:underline"
+              >
+                {allegato.name}
+              </a>
+            ) : (
+              <p className="text-[var(--muted)]">
+                {allegatoErrore ?? "Preparazione del PDF…"}
+              </p>
+            )}
+          </div>
+          <div className="flex flex-wrap items-center gap-3">
+            <button
+              type="button"
+              onClick={salvaBozzaMail}
+              className="rounded-lg border border-[var(--border)] bg-white px-4 py-2 text-sm font-semibold hover:bg-slate-50"
+            >
+              Salva bozza
+            </button>
+            {bozzaPronta ? (
+              <p className="text-sm text-emerald-800">
+                Bozza salvata. Crea e invia usa questa mail.
+              </p>
+            ) : improntaSalvata ? (
+              <p className="text-sm text-amber-800">
+                La bozza non è aggiornata. Salvala di nuovo.
+              </p>
+            ) : null}
+          </div>
+        </section>
+      ) : null}
 
       <section className="flex flex-wrap items-end justify-between gap-4 rounded-xl border border-[var(--border)] bg-[var(--card)] p-4">
         <div>
@@ -692,10 +1052,12 @@ export function FatturaEmissioneBoard() {
         </div>
         <button
           type="submit"
-          disabled={busy || !cliente}
+          disabled={busy || !cliente || (sendCourtesyEmail && !bozzaPronta)}
           className="rounded-lg bg-[var(--primary)] px-5 py-2.5 text-sm font-semibold text-white hover:opacity-90 disabled:opacity-50"
         >
-          {busy ? "Emissione in corso…" : "Crea e invia fattura"}
+          {busy
+            ? "Invio in corso…"
+            : (sendCourtesyEmail ? "Crea e invia" : "Crea e invia fattura")}
         </button>
       </section>
 
@@ -703,6 +1065,12 @@ export function FatturaEmissioneBoard() {
         <p className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
           {error}
         </p>
+      ) : null}
+
+      {provaEsito ? (
+        <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-900">
+          <p className="font-semibold">{provaEsito}</p>
+        </div>
       ) : null}
 
       {success ? (

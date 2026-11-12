@@ -2,7 +2,12 @@
 
 import { writeAuditLog } from "@/lib/audit";
 import { scanPromozioniDaFattureAction } from "@/app/actions/lead-promozione";
-import { requireAreaAccess } from "@/lib/areas/guard";
+import { requireAnyAreaAccess, requireAreaAccess } from "@/lib/areas/guard";
+import { FASE_TEST_NUOVA_FATTURA } from "@/lib/amministrazione/fattura-emissione-test";
+import { EMAIL_CONTROLLO_DEFAULT } from "@/lib/amministrazione/prova-ordine";
+import { createClient, createServiceClient } from "@/lib/supabase/server";
+import { sendMailViaAccount, type AccountRow } from "@/lib/webmail/sync";
+import { z } from "zod";
 import {
   aliquoteIvaOptions,
   buildDescrizioneDocumento,
@@ -25,7 +30,6 @@ import {
   resolveFicVatId,
   sendIssuedDocumentToSdi,
 } from "@/lib/fic";
-import { createClient } from "@/lib/supabase/server";
 import type {
   ClienteRow,
   CompanyFiscalProfileRow,
@@ -544,4 +548,159 @@ export async function createAndSendInvoiceAction(
     courtesyEmailSent,
     sdiSent,
   };
+}
+
+const mailBozzaSchema = z.object({
+  accountId: z.string().uuid(),
+  subject: z.string().trim().min(1).max(200),
+  body: z.string().trim().min(1).max(8000),
+  pdfBase64: z.string().min(32).max(8_000_000),
+  pdfName: z.string().trim().min(5).max(120),
+  clienteId: z.string().uuid(),
+  to: z.string().trim().max(200).optional(),
+  fatturaId: z.string().uuid().nullable().optional(),
+});
+
+async function areeNuovaFattura() {
+  return requireAnyAreaAccess(["commerciale", "area-fiscale", "amministrazione"]);
+}
+
+export async function listCaselleNuovaFatturaAction(): Promise<
+  | { success: true; accounts: Array<{ id: string; label: string; email: string }> }
+  | { success: false; error: string }
+> {
+  await areeNuovaFattura();
+  const service = createServiceClient();
+  const { data, error } = await service
+    .from("webmail_accounts")
+    .select("id, label, email_address")
+    .is("deleted_at", null)
+    .order("created_at", { ascending: true });
+  if (error) return { success: false, error: error.message };
+  return {
+    success: true,
+    accounts: ((data ?? []) as Array<{
+      id: string;
+      label: string;
+      email_address: string;
+    }>).map((a) => ({
+      id: a.id,
+      label: a.label,
+      email: a.email_address,
+    })),
+  };
+}
+
+/**
+ * Invia la bozza mail della nuova fattura.
+ * Con la fase di prova di questa pagina il destinatario è solo l'indirizzo
+ * di controllo e non esiste alcun invio SDI in questa funzione.
+ */
+export async function inviaMailBozzaNuovaFatturaAction(raw: unknown): Promise<
+  | { success: true; prova: boolean }
+  | { success: false; error: string }
+> {
+  const { auth } = await areeNuovaFattura();
+  const parsed = mailBozzaSchema.safeParse(raw);
+  if (!parsed.success) {
+    return {
+      success: false,
+      error: parsed.error.issues[0]?.message ?? "Bozza mail non valida.",
+    };
+  }
+
+  const destinatario = FASE_TEST_NUOVA_FATTURA
+    ? EMAIL_CONTROLLO_DEFAULT
+    : String(parsed.data.to ?? "").trim();
+  if (!destinatario.includes("@")) {
+    return { success: false, error: "Manca la mail di destinazione." };
+  }
+
+  if (!FASE_TEST_NUOVA_FATTURA) {
+    const fatturaId = parsed.data.fatturaId ?? "";
+    if (!fatturaId) {
+      return {
+        success: false,
+        error: "La mail parte dopo la fattura inviata allo SDI.",
+      };
+    }
+    const supabase = await createClient();
+    const { data: fattura, error: fatturaErr } = await supabase
+      .from("fatture_emesse")
+      .select("id, created_by, deleted_at")
+      .eq("id", fatturaId)
+      .maybeSingle();
+    if (fatturaErr) return { success: false, error: fatturaErr.message };
+    if (!fattura || fattura.deleted_at) {
+      return { success: false, error: "Fattura non trovata." };
+    }
+    if (fattura.created_by && fattura.created_by !== auth.userId) {
+      return { success: false, error: "Fattura di un altro operatore." };
+    }
+  }
+
+  const pdf = Buffer.from(parsed.data.pdfBase64, "base64");
+  if (pdf.subarray(0, 5).toString("utf8") !== "%PDF-") {
+    return { success: false, error: "L'allegato non è un PDF." };
+  }
+  const pdfName = parsed.data.pdfName.toLowerCase().endsWith(".pdf")
+    ? parsed.data.pdfName
+    : `${parsed.data.pdfName}.pdf`;
+
+  const service = createServiceClient();
+  const { data: account, error: accErr } = await service
+    .from("webmail_accounts")
+    .select(
+      "id, email_address, imap_host, imap_port, imap_secure, smtp_host, smtp_port, smtp_secure, username, password_encrypted"
+    )
+    .eq("id", parsed.data.accountId)
+    .is("deleted_at", null)
+    .maybeSingle();
+  if (accErr || !account) {
+    return { success: false, error: accErr?.message ?? "Casella non trovata." };
+  }
+
+  try {
+    await sendMailViaAccount({
+      account: account as AccountRow,
+      to: destinatario,
+      subject: parsed.data.subject,
+      text: parsed.data.body,
+      attachments: [
+        {
+          filename: pdfName.replace(/[\\/]/g, "_"),
+          content: pdf,
+          contentType: "application/pdf",
+        },
+      ],
+      traccia: {
+        userId: auth.userId,
+        aziendaTipo: "cliente",
+        aziendaId: parsed.data.clienteId,
+      },
+    });
+  } catch (e) {
+    return {
+      success: false,
+      error: e instanceof Error ? e.message : "Invio mail non riuscito.",
+    };
+  }
+
+  await writeAuditLog({
+    entity_type: "fatture_emesse",
+    entity_id: parsed.data.fatturaId ?? parsed.data.clienteId,
+    action: "create",
+    actor_id: auth.userId,
+    summary: FASE_TEST_NUOVA_FATTURA
+      ? "Mail di prova della nuova fattura, senza SDI"
+      : "Mail di cortesia della nuova fattura",
+    payload: {
+      prova: FASE_TEST_NUOVA_FATTURA,
+      clienteId: parsed.data.clienteId,
+      accountId: parsed.data.accountId,
+      oggetto: parsed.data.subject,
+    },
+  });
+
+  return { success: true, prova: FASE_TEST_NUOVA_FATTURA };
 }
