@@ -11,6 +11,7 @@ import { formatIbanDisplay } from "@/lib/iban";
 import {
   labelModalitaPagamentoFattura,
   labelTipoScadenza,
+  testoCausaleRataDilazione,
   type OrdinePagamentoPiano,
 } from "@/lib/amministrazione/ordine-pagamento-piano";
 import {
@@ -350,16 +351,25 @@ export function buildFatturaA4PdfBlob(input: FatturaA4PdfInput): {
   const pagamento = piano
     ? labelModalitaPagamentoFattura(piano)
     : "Pagamento";
+  const dataDocLabel = formatPreventivoDataIt(input.dataDocumento);
   const rate =
     piano?.modalita === "dilazione"
-      ? piano.rate.map((rata, i) => {
+      ? piano.rate.flatMap((rata, i) => {
           const quando =
             i === 0
               ? labelTipoScadenza(rata.tipoScadenza ?? piano.tipoUnica)
               : rata.dataPagamento
                 ? formatPreventivoDataIt(rata.dataPagamento)
                 : "data da definire";
-          return `Rata ${i + 1}: ${quando} · ${euro(rata.importo)} €`;
+          return [
+            `Rata ${i + 1}: ${quando} · ${euro(rata.importo)} €`,
+            `Causale ${i + 1}: ${testoCausaleRataDilazione({
+              indice: i,
+              totaleRate: piano.rate.length,
+              numeroFattura: input.numeroFattura || "—",
+              dataDocumento: dataDocLabel,
+            })}`,
+          ];
         })
       : [];
   const payLines = [
@@ -369,9 +379,19 @@ export function buildFatturaA4PdfBlob(input: FatturaA4PdfInput): {
     `IBAN: ${formatIbanDisplay(AGRINSICILIA_COORDINATE.iban)}`,
     `BIC: ${AGRINSICILIA_COORDINATE.bic}`,
     `Importo: ${euro(totals.totale)} €`,
-    `Causale: Pagamento Fattura n. ${input.numeroFattura || "—"} del ${formatPreventivoDataIt(input.dataDocumento)}.`,
+    ...(piano?.modalita === "dilazione"
+      ? []
+      : [
+          `Causale: Pagamento Fattura n. ${input.numeroFattura || "—"} del ${dataDocLabel}.`,
+        ]),
   ];
-  const boxH = Math.max(42, 16 + payLines.length * 3.8);
+  doc.setFont("helvetica", "normal");
+  doc.setFontSize(8);
+  const altezzaTesto = payLines.reduce((sum, line) => {
+    const wrapped = doc.splitTextToSize(line, 84) as string[];
+    return sum + Math.max(wrapped.length, 1) * 3.5;
+  }, 0);
+  const boxH = Math.max(42, 12 + altezzaTesto);
   const piedeLoghi = 268;
   const marginePiede = 18;
   const fondoUtile = piedeLoghi - marginePiede;

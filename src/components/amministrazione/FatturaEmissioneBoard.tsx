@@ -224,11 +224,14 @@ export function FatturaEmissioneBoard() {
       }
       return prev;
     });
-    setMailCorpo(
-      (prev) =>
-        prev ||
-        "Gentile cliente,\n\nIn allegato la fattura.\n\nCordiali saluti."
-    );
+    setMailCorpo((prev) => {
+      const corpo =
+        'Gentile cliente,\n\nIn allegato copia fattura "Non contabile", l\'originale arriverà a mezzo SDI.\n\nCordiali saluti.';
+      if (!prev || prev === "Gentile cliente,\n\nIn allegato la fattura.\n\nCordiali saluti.") {
+        return corpo;
+      }
+      return prev;
+    });
   }, [sendCourtesyEmail, numeroBozza]);
 
   useEffect(() => {

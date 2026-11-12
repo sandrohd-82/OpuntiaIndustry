@@ -10,6 +10,7 @@ import { formatIbanDisplay } from "@/lib/iban";
 import {
   labelModalitaPagamentoFattura,
   labelTipoScadenza,
+  testoCausaleRataDilazione,
   type OrdinePagamentoPiano,
 } from "@/lib/amministrazione/ordine-pagamento-piano";
 import {
@@ -63,16 +64,27 @@ export function FatturaA4PiePagina({
             <p className="text-[12px] font-bold">Pagamento e dilazione</p>
             <p className="mt-0.5">{labelModalitaPagamentoFattura(piano)}</p>
             {piano.modalita === "dilazione" ? (
-              <ul className="mt-1 space-y-0.5">
+              <ul className="mt-1 space-y-1">
                 {piano.rate.map((r, i) => (
                   <li key={i}>
-                    Rata {i + 1}:{" "}
-                    {i === 0
-                      ? labelTipoScadenza(r.tipoScadenza ?? piano.tipoUnica)
-                      : r.dataPagamento
-                        ? formatPreventivoDataIt(r.dataPagamento)
-                        : "data da definire"}{" "}
-                    · {euro(r.importo)} €
+                    <p>
+                      Rata {i + 1}:{" "}
+                      {i === 0
+                        ? labelTipoScadenza(r.tipoScadenza ?? piano.tipoUnica)
+                        : r.dataPagamento
+                          ? formatPreventivoDataIt(r.dataPagamento)
+                          : "data da definire"}{" "}
+                      · {euro(r.importo)} €
+                    </p>
+                    <p>
+                      Causale {i + 1}:{" "}
+                      {testoCausaleRataDilazione({
+                        indice: i,
+                        totaleRate: piano.rate.length,
+                        numeroFattura: numero,
+                        dataDocumento: formatPreventivoDataIt(dataDocumento),
+                      })}
+                    </p>
                   </li>
                 ))}
               </ul>
@@ -94,10 +106,12 @@ export function FatturaA4PiePagina({
                 domanda="Importo"
                 risposta={`${euro(totale)} €`}
               />
-              <PreventivoDocQa
-                domanda="Causale"
-                risposta={`Pagamento Fattura n. ${numero} del ${formatPreventivoDataIt(dataDocumento)}.`}
-              />
+              {piano.modalita === "dilazione" ? null : (
+                <PreventivoDocQa
+                  domanda="Causale"
+                  risposta={`Pagamento Fattura n. ${numero} del ${formatPreventivoDataIt(dataDocumento)}.`}
+                />
+              )}
             </div>
           </PreventivoDocField>
         </div>

@@ -63,6 +63,40 @@ export function labelModalitaPagamentoFattura(
   return `Pagamento dilazionato in ${n} rate (1ª ${labelTipoScadenza(prima).toLowerCase()})`;
 }
 
+function ordinaleRomano(n: number): string {
+  const valori: Array<[number, string]> = [
+    [10, "X"],
+    [9, "IX"],
+    [5, "V"],
+    [4, "IV"],
+    [1, "I"],
+  ];
+  let rest = Math.max(1, Math.min(24, Math.floor(n)));
+  let out = "";
+  for (const [valore, segno] of valori) {
+    while (rest >= valore) {
+      out += segno;
+      rest -= valore;
+    }
+  }
+  return out;
+}
+
+/** Causale di una rata. L'ultima è il saldo, le precedenti la dilazione. */
+export function testoCausaleRataDilazione(input: {
+  indice: number;
+  totaleRate: number;
+  numeroFattura: string;
+  dataDocumento: string;
+}): string {
+  const numero = input.numeroFattura.trim() || "—";
+  const data = input.dataDocumento.trim() || "—";
+  if (input.indice >= input.totaleRate - 1) {
+    return `Saldo fattura n ${numero} del ${data}`;
+  }
+  return `Pagamento ${ordinaleRomano(input.indice + 1)}° Dilazione fattura n ${numero} del ${data}`;
+}
+
 export function tipoPagamentoFromPiano(
   piano: OrdinePagamentoPiano
 ): OrdineTipoPagamento {
