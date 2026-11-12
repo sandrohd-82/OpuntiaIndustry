@@ -166,6 +166,79 @@ export function ensureRateCount(
   return { ...piano, modalita: "dilazione", rate };
 }
 
+function conImporti(
+  rate: OrdinePagamentoRata[],
+  importi: number[]
+): OrdinePagamentoRata[] {
+  return rate.map((rata, i) => ({
+    ...rata,
+    sortOrder: i,
+    importo: roundMoney(importi[i] ?? 0),
+  }));
+}
+
+/** Le rate già impostate restano. L'ultima prende il resto, senza andare sotto zero. */
+function importiConRestoSullUltima(importi: number[], totale: number): number[] {
+  const n = importi.length;
+  const tot = roundMoney(Math.max(0, totale));
+  if (n <= 1) return [tot];
+  const pref = importi
+    .slice(0, n - 1)
+    .map((v) => roundMoney(Math.max(0, v)));
+  let extra = roundMoney(pref.reduce((s, v) => s + v, 0) - tot);
+  for (let i = pref.length - 1; i >= 0 && extra > 0; i--) {
+    const taglio = Math.min(pref[i], extra);
+    pref[i] = roundMoney(pref[i] - taglio);
+    extra = roundMoney(extra - taglio);
+  }
+  const somma = roundMoney(pref.reduce((s, v) => s + v, 0));
+  return [...pref, roundMoney(tot - somma)];
+}
+
+/**
+ * Imposta l'importo della rata indicata.
+ * Le rate precedenti restano. Il resto si divide solo sulle successive.
+ * L'ultima rata è sempre la differenza.
+ */
+export function applicaImportoRata(
+  piano: OrdinePagamentoPiano,
+  indice: number,
+  nuovoImporto: number,
+  totale: number
+): OrdinePagamentoPiano {
+  const tot = roundMoney(Math.max(0, totale));
+  const rate = piano.rate;
+  const n = rate.length;
+  if (n < 2) return applyTotaleToPiano({ ...piano, modalita: "dilazione" }, tot);
+  const i = Math.max(0, Math.min(n - 1, Math.floor(indice)));
+  if (i >= n - 1) {
+    return {
+      ...piano,
+      rate: conImporti(
+        rate,
+        importiConRestoSullUltima(
+          rate.map((r) => r.importo),
+          tot
+        )
+      ),
+    };
+  }
+  const precedenti = roundMoney(
+    rate.slice(0, i).reduce((s, r) => s + r.importo, 0)
+  );
+  const disponibile = roundMoney(Math.max(0, tot - precedenti));
+  const valore = roundMoney(
+    Math.min(disponibile, Math.max(0, nuovoImporto))
+  );
+  const parti = splitImportiEqui(roundMoney(disponibile - valore), n - i - 1);
+  const importi = [
+    ...rate.slice(0, i).map((r) => roundMoney(r.importo)),
+    valore,
+    ...parti,
+  ];
+  return { ...piano, rate: conImporti(rate, importi) };
+}
+
 export function applyTotaleToPiano(
   piano: OrdinePagamentoPiano,
   totale: number
@@ -184,7 +257,17 @@ export function applyTotaleToPiano(
       ],
     };
   }
-  return ensureRateCount(piano, piano.rate.length, totale);
+  if (piano.rate.length < 2) return ensureRateCount(piano, 2, totale);
+  return {
+    ...piano,
+    rate: conImporti(
+      piano.rate,
+      importiConRestoSullUltima(
+        piano.rate.map((r) => r.importo),
+        totale
+      )
+    ),
+  };
 }
 
 export function noteRateizzazioneFromPiano(

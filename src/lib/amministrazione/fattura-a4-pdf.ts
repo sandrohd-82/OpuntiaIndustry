@@ -372,19 +372,20 @@ export function buildFatturaA4PdfBlob(input: FatturaA4PdfInput): {
           ];
         })
       : [];
-  const payLines = [
-    pagamento,
-    ...rate,
+  const coordinate = [
     `Banca: ${AGRINSICILIA_COORDINATE.banca}`,
     `IBAN: ${formatIbanDisplay(AGRINSICILIA_COORDINATE.iban)}`,
     `BIC: ${AGRINSICILIA_COORDINATE.bic}`,
-    `Importo: ${euro(totals.totale)} €`,
-    ...(piano?.modalita === "dilazione"
-      ? []
-      : [
-          `Causale: Pagamento Fattura n. ${input.numeroFattura || "—"} del ${dataDocLabel}.`,
-        ]),
   ];
+  const payLines =
+    piano?.modalita === "dilazione"
+      ? [pagamento, ...rate, ...coordinate]
+      : [
+          pagamento,
+          `Importo Totale: ${euro(totals.totale)} €`,
+          `Causale: Pagamento Fattura n. ${input.numeroFattura || "—"} del ${dataDocLabel}.`,
+          ...coordinate,
+        ];
   doc.setFont("helvetica", "normal");
   doc.setFontSize(8);
   const altezzaTesto = payLines.reduce((sum, line) => {

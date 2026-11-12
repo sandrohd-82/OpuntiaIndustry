@@ -88,7 +88,15 @@ export function FatturaA4PiePagina({
                   </li>
                 ))}
               </ul>
-            ) : null}
+            ) : (
+              <>
+                <p className="mt-1">Importo Totale: {euro(totale)} €</p>
+                <p>
+                  Causale: Pagamento Fattura n. {numero} del{" "}
+                  {formatPreventivoDataIt(dataDocumento)}.
+                </p>
+              </>
+            )}
             <div className="mt-2 space-y-0.5">
               <PreventivoDocQa
                 domanda="Banca"
@@ -102,16 +110,6 @@ export function FatturaA4PiePagina({
                 domanda="BIC"
                 risposta={AGRINSICILIA_COORDINATE.bic}
               />
-              <PreventivoDocQa
-                domanda="Importo"
-                risposta={`${euro(totale)} €`}
-              />
-              {piano.modalita === "dilazione" ? null : (
-                <PreventivoDocQa
-                  domanda="Causale"
-                  risposta={`Pagamento Fattura n. ${numero} del ${formatPreventivoDataIt(dataDocumento)}.`}
-                />
-              )}
             </div>
           </PreventivoDocField>
         </div>
