@@ -649,21 +649,10 @@ export function PossibiliClientiBoard() {
               tipologia: scelte.tipologia,
             });
             if (!res.success) return res.error;
-            const madreScheda = items.find((row) => row.id === res.madreId);
-            const figliaScheda = items.find((row) => row.id === res.figliaId);
-            const madreCliente = madreScheda
-              ? clienteSchedaFromPossibile(madreScheda)
-              : collegaMadre.id === res.madreId
-                ? collegaMadre
-                : null;
             setCollegaMadre(null);
             setCollegaScelte(null);
             setSchedaFor(null);
             setError(null);
-            if (figliaScheda && madreCliente) {
-              setCopiaDa(madreCliente);
-              setEditingLead(figliaScheda);
-            }
             reload();
             return null;
           }}

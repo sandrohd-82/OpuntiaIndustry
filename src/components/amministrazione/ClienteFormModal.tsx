@@ -46,7 +46,6 @@ import {
   isSedeAddressFilled,
   primarySedeAddress,
   sediFromLegacy,
-  type AnagraficaBrand,
   type AnagraficaSede,
 } from "@/lib/amministrazione/anagrafica-extra";
 import { ApriFatturaFicActions } from "@/components/amministrazione/ApriFatturaFicButton";
@@ -126,31 +125,13 @@ type Props = {
   onConfirmCancellazione?: () => void;
   /** Super Admin: rifiuta la prenotazione. */
   onRifiutaCancellazione?: () => void;
-  /** Nuova scheda collegata: dati e sedi della madre sono già copiati. */
+  /** Nuova scheda collegata. I dati restano vuoti: non si copiano dalla madre. */
   collega?: { madre: Cliente; scelte: CollegamentoScelte } | null;
-  /** Scheda già esistente appena collegata: copia dati e sedi dalla madre. */
+  /** Non usato per copiare l'anagrafica. Resta solo per i pulsanti di copia espliciti. */
   copiaDa?: Cliente | null;
   /** Apre il collegamento di un'altra azienda sotto questa scheda. */
   onCollega?: (madre: Cliente) => void;
 };
-
-function clonaSedi(sedi: AnagraficaSede[]): AnagraficaSedeDraft[] {
-  const piene = sedi.filter((s) => !isSedeAddressEmpty(s));
-  return draftsFromSedi(
-    (piene.length ? piene : sedi).map((s) => ({
-      ...s,
-      id: crypto.randomUUID(),
-    }))
-  );
-}
-
-function clonaBrand(brand: AnagraficaBrand[]): AnagraficaBrandDraft[] {
-  return brand.map((b) => ({
-    ...b,
-    id: crypto.randomUUID(),
-    logoFile: null,
-  }));
-}
 
 function isSedeFilled(sede: SedeCliente): boolean {
   return isSedeAddressFilled(sede);
@@ -208,50 +189,42 @@ export function ClienteFormModal({
   const showAttesaCliente =
     isEdit && !isPossibile && prenotata && !bypassPrivileges;
   const titleId = useId();
-  const seme = collega?.madre ?? null;
   const [codiceTarga, setCodiceTarga] = useState(initial?.codiceTarga ?? "");
   const [codiceError, setCodiceError] = useState<string | null>(null);
   const [codiceLoading, setCodiceLoading] = useState(!isEdit && !isPossibile);
   const [ragioneSociale, setRagioneSociale] = useState(
-    initial?.ragioneSociale ?? seme?.ragioneSociale ?? ""
+    initial?.ragioneSociale ?? ""
   );
   const [isPrivato, setIsPrivato] = useState(
-    initial?.isPrivato ?? seme?.isPrivato ?? false
+    initial?.isPrivato ?? false
   );
   const [partitaIva, setPartitaIva] = useState(
-    initial?.partitaIva ?? seme?.partitaIva ?? ""
+    initial?.partitaIva ?? ""
   );
   const [codiceFiscale, setCodiceFiscale] = useState(
-    initial?.codiceFiscale ?? seme?.codiceFiscale ?? ""
+    initial?.codiceFiscale ?? ""
   );
   const [archivioId, setArchivioId] = useState<string | null>(null);
   const [archivioHint, setArchivioHint] = useState<string | null>(null);
-  const [email, setEmail] = useState(initial?.email ?? seme?.email ?? "");
+  const [email, setEmail] = useState(initial?.email ?? "");
   const [lingua, setLingua] = useState(
-    initial?.linguaIntercomunicazione ?? seme?.linguaIntercomunicazione ?? "it"
+    initial?.linguaIntercomunicazione ?? "it"
   );
-  const [pec, setPec] = useState(initial?.pec ?? seme?.pec ?? "");
-  const [sdiCode, setSdiCode] = useState(initial?.sdiCode ?? seme?.sdiCode ?? "");
-  const [telefono, setTelefono] = useState(
-    initial?.telefono ?? seme?.telefono ?? ""
-  );
-  const [sitoWeb, setSitoWeb] = useState(initial?.sitoWeb ?? seme?.sitoWeb ?? "");
-  const [emailExtra, setEmailExtra] = useState(
-    initial?.emailGeneriche ?? seme?.emailGeneriche ?? []
-  );
+  const [pec, setPec] = useState(initial?.pec ?? "");
+  const [sdiCode, setSdiCode] = useState(initial?.sdiCode ?? "");
+  const [telefono, setTelefono] = useState(initial?.telefono ?? "");
+  const [sitoWeb, setSitoWeb] = useState(initial?.sitoWeb ?? "");
+  const [emailExtra, setEmailExtra] = useState(initial?.emailGeneriche ?? []);
   const [telefonoExtra, setTelefonoExtra] = useState(
-    initial?.telefoniGenerici ?? seme?.telefoniGenerici ?? []
+    initial?.telefoniGenerici ?? []
   );
-  const [sitoExtra, setSitoExtra] = useState(
-    initial?.sitiWebGenerici ?? seme?.sitiWebGenerici ?? []
-  );
+  const [sitoExtra, setSitoExtra] = useState(initial?.sitiWebGenerici ?? []);
   const [reminderTick, setReminderTick] = useState(0);
   const [sedi, setSedi] = useState<AnagraficaSedeDraft[]>(() =>
     draftsFromLegacy(
       {
-        sedeAmministrativa:
-          initial?.sedeAmministrativa ?? seme?.sedeAmministrativa,
-        sedeMagazzino: initial?.sedeMagazzino ?? seme?.sedeMagazzino,
+        sedeAmministrativa: initial?.sedeAmministrativa,
+        sedeMagazzino: initial?.sedeMagazzino,
       },
       { openPrimary: true }
     )
@@ -261,22 +234,20 @@ export function ClienteFormModal({
   const [extraReady, setExtraReady] = useState(!initial?.id);
   const [consegneEnabled, setConsegneEnabled] = useState(
     Boolean(
-      (initial?.consegneAltraAzienda ?? seme?.consegneAltraAzienda)?.length
+      initial?.consegneAltraAzienda?.length
     )
   );
   const [consegne, setConsegne] = useState<ConsegnaAltraAzienda[]>(
-    (initial?.consegneAltraAzienda ?? seme?.consegneAltraAzienda)?.length
-      ? (initial?.consegneAltraAzienda ?? seme?.consegneAltraAzienda ?? [])
-      : []
+    initial?.consegneAltraAzienda?.length ? initial.consegneAltraAzienda : []
   );
   const [prodotti, setProdotti] = useState<string[]>(
-    initial?.prodottiAcquistati ?? seme?.prodottiAcquistati ?? []
+    initial?.prodottiAcquistati ?? []
   );
   const [accordi, setAccordi] = useState<AccordoPrezzoVoceForm[]>([]);
   const [referenti, setReferenti] = useState<RubricaContatto[]>([]);
   const [fonteReferenti, setFonteReferenti] = useState<RubricaContatto[]>([]);
   const [commercialeId, setCommercialeId] = useState<string | null>(
-    initial?.commercialeId ?? seme?.commercialeId ?? null
+    initial?.commercialeId ?? null
   );
   const [intermediarioId, setIntermediarioId] = useState<string | null>(
     initial?.intermediarioId ?? null
@@ -297,9 +268,9 @@ export function ClienteFormModal({
   );
   const [canAssignCommerciale, setCanAssignCommerciale] = useState(false);
   const [trattativa, setTrattativa] = useState(() =>
-    parseTrattativa(initial?.trattativa ?? seme?.trattativa)
+    parseTrattativa(initial?.trattativa)
   );
-  const [fontePronta, setFontePronta] = useState(!seme && !copiaDa);
+  const [fontePronta, setFontePronta] = useState(true);
   const [collegando, setCollegando] = useState(false);
 
   useEffect(() => {
@@ -378,33 +349,6 @@ export function ClienteFormModal({
       const persone = refs.success ? refs.items : [];
       setFonteSedi(sediFonte);
       setFonteReferenti(persone);
-      if (collega || copiaDa) setReferenti(persone);
-      if (collega) {
-        setSedi(clonaSedi(sediFonte));
-        if (res.success && res.brand.length) setBrand(clonaBrand(res.brand));
-      }
-      if (copiaDa) {
-        setRagioneSociale(fonte.ragioneSociale);
-        setIsPrivato(fonte.isPrivato);
-        setPartitaIva(fonte.partitaIva);
-        setCodiceFiscale(fonte.codiceFiscale);
-        setEmail(fonte.email);
-        setLingua(fonte.linguaIntercomunicazione ?? "it");
-        setPec(fonte.pec);
-        setSdiCode(fonte.sdiCode);
-        setTelefono(fonte.telefono);
-        setSitoWeb(fonte.sitoWeb);
-        setEmailExtra(fonte.emailGeneriche ?? []);
-        setTelefonoExtra(fonte.telefoniGenerici ?? []);
-        setSitoExtra(fonte.sitiWebGenerici ?? []);
-        setProdotti(fonte.prodottiAcquistati ?? []);
-        setConsegne(fonte.consegneAltraAzienda ?? []);
-        setConsegneEnabled(Boolean(fonte.consegneAltraAzienda?.length));
-        setCommercialeId(fonte.commercialeId);
-        setTrattativa(parseTrattativa(fonte.trattativa));
-        setSedi(clonaSedi(sediFonte));
-        if (res.success && res.brand.length) setBrand(clonaBrand(res.brand));
-      }
       setFontePronta(true);
     });
     return () => {
@@ -878,7 +822,7 @@ export function ClienteFormModal({
             <p className="text-sm font-medium text-slate-800">
               {collegando
                 ? "Collegamento in corso…"
-                : "Copia di dati, sedi e referenti in corso…"}
+                : "Preparazione della scheda…"}
             </p>
           </div>
         ) : null}
@@ -906,20 +850,19 @@ export function ClienteFormModal({
               . Non è un obbligo di invio.
             </p>
             <p className="mt-2 text-xs">
-              Dati, sedi e referenti sono già copiati da {collega.madre.ragioneSociale}.
-              Modificali se le due aziende sono diverse, poi salva. I pulsanti
-              «Copia sede…» e «Copia …» sui referenti ricompilano quel blocco.
+              Intestazione, partita IVA e sedi restano di questa azienda. I
+              pulsanti «Copia sede…» e «Copia …» compilano un blocco solo se
+              li premi.
             </p>
           </div>
         ) : copiaDa ? (
           <div className="mt-3 rounded-lg border border-sky-200 bg-sky-50 px-3 py-2 text-sm text-sky-950">
             <p className="font-medium">
-              Dati, sedi e referenti copiati da {copiaDa.ragioneSociale}
+              Collegata a {copiaDa.ragioneSociale}
             </p>
             <p className="mt-1 text-xs">
-              I campi sono già compilati. I pulsanti «Copia sede…» e «Copia …»
-              sui referenti ricompilano quel blocco. Salva per tenerli su
-              questa scheda.
+              I dati di questa scheda non sono stati sostituiti. I pulsanti
+              «Copia sede…» e «Copia …» compilano un blocco solo se li premi.
             </p>
           </div>
         ) : null}

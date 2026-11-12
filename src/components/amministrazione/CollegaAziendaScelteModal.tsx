@@ -131,8 +131,8 @@ export function CollegaAziendaScelteModal({
             >
               <span className="block text-sm font-semibold">Nuova azienda</span>
               <span className="mt-0.5 block text-xs text-[var(--muted)]">
-                Apre una scheda nuova con dati e sedi già copiati. Si possono
-                modificare prima di salvare.
+                Apre una scheda vuota, collegata a questa. Intestazione e
+                partita IVA si compilano da zero.
               </span>
             </button>
             <button
@@ -144,8 +144,8 @@ export function CollegaAziendaScelteModal({
                 Azienda già esistente
               </span>
               <span className="mt-0.5 block text-xs text-[var(--muted)]">
-                Unisce due schede già presenti e apre la figlia con dati e sedi
-                copiati dalla madre. Il salvataggio li conferma.
+                Collega due schede già presenti. Ognuna tiene intestazione,
+                partita IVA e sedi proprie.
               </span>
             </button>
           </div>

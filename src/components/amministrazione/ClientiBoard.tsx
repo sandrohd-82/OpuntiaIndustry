@@ -1030,20 +1030,10 @@ export function ClientiBoard() {
               tipologia: scelte.tipologia,
             });
             if (!res.success) return res.error;
-            const madreScheda =
-              clienti.find((row) => row.id === res.madreId) ??
-              (collegaMadre.id === res.madreId ? collegaMadre : null);
-            const figliaScheda =
-              clienti.find((row) => row.id === res.figliaId) ??
-              (collegaMadre.id === res.figliaId ? collegaMadre : null);
             setCollegaMadre(null);
             setCollegaScelte(null);
             setSchedaCompleta(null);
             setSaveError(null);
-            if (figliaScheda && madreScheda) {
-              setCopiaDa(madreScheda);
-              setEditing(figliaScheda);
-            }
             void refresh();
             return null;
           }}
