@@ -33,6 +33,7 @@ export type EmissioneRigaInput = {
   /** Note prodotto (meno evidenziate in UI; andranno a capo sotto la descrizione). */
   note: string;
   quantita: number;
+  unitaMisura: string;
   prezzoUnitario: number;
   scontoPercentuale: number;
   /** Sconto di listino per quantità, applicato per primo. */
@@ -66,6 +67,7 @@ const rigaSchema = z.object({
   descrizione: z.string().trim().min(1, "Descrizione obbligatoria"),
   note: z.string().optional().default(""),
   quantita: z.number().positive("Quantità deve essere > 0"),
+  unitaMisura: z.string().trim().optional().default("kg"),
   prezzoUnitario: z.number().min(0),
   scontoPercentuale: z.number().min(0).max(100).optional().default(0),
   scontoListinoPct: z.number().min(0).max(100).optional().default(0),
@@ -117,6 +119,7 @@ export const emissioneInputSchema = z
         descrizione: r.descrizione.trim(),
         note: notaConMarcaSconti((r.note ?? "").trim(), listino, extra),
         quantita: r.quantita,
+        unitaMisura: (r.unitaMisura ?? "kg").trim() || "kg",
         prezzoUnitario: r.prezzoUnitario,
         scontoPercentuale: sconto,
         scontoListinoPct: listino,
@@ -260,6 +263,7 @@ export function emptyEmissioneRiga(
     descrizione: "",
     note: "",
     quantita: 1,
+    unitaMisura: "kg",
     prezzoUnitario: 0,
     scontoPercentuale: 0,
     scontoListinoPct: 0,
@@ -281,6 +285,7 @@ export function emptySpedizioneRiga(
     descrizione: "Spedizione",
     note: "",
     quantita: 1,
+    unitaMisura: "nr",
     prezzoUnitario: importo,
     scontoPercentuale: 0,
     scontoListinoPct: 0,

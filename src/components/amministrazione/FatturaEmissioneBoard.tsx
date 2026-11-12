@@ -2,9 +2,12 @@
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
+import { anteprimaNumeroFatturaBozzaAction } from "@/app/actions/fattura-da-ordine";
 import { getAliquoteEmissioneAction } from "@/app/actions/fattura-emissione";
+import { listPreventivoCommercialiRiferimentoAction } from "@/app/actions/preventivi";
 import { listProdottiPropriAction } from "@/app/actions/prodotti-propri";
 import { ClienteSelectField } from "@/components/amministrazione/ClienteSelectField";
+import { FatturaEmissioneDocumento } from "@/components/amministrazione/FatturaEmissioneDocumento";
 import { FatturaEmissioneScontiProdotto } from "@/components/amministrazione/FatturaEmissioneScontiProdotto";
 import { OrdinePagamentoPianoFields } from "@/components/amministrazione/OrdinePagamentoPianoFields";
 import { usePrenotazioneNumero } from "@/components/amministrazione/FatturaNumeroPrenotato";
@@ -25,6 +28,7 @@ import {
   type OrdinePagamentoPiano,
 } from "@/lib/amministrazione/ordine-pagamento-piano";
 import { AGRINSICILIA_COORDINATE } from "@/lib/amministrazione/preventivo-letterhead";
+import type { PreventivoCommercialeRiferimento } from "@/lib/amministrazione/preventivo-commerciale-riferimento";
 import type { ProdottoProprio } from "@/lib/amministrazione/prodotti-propri";
 
 export function FatturaEmissioneBoard() {
@@ -38,6 +42,11 @@ export function FatturaEmissioneBoard() {
   const [sendCourtesyEmail, setSendCourtesyEmail] = useState(true);
   const [dryRunSdi, setDryRunSdi] = useState(false);
   const [noteDocumento, setNoteDocumento] = useState("");
+  const [numeroBozza, setNumeroBozza] = useState("");
+  const [commerciale, setCommerciale] =
+    useState<PreventivoCommercialeRiferimento | null>(null);
+  const [sezione, setSezione] = useState<string | null>(null);
+  const [rigaBozza, setRigaBozza] = useState<number | null>(null);
   const [righe, setRighe] = useState<EmissioneRigaInput[]>([
     emptyEmissioneRiga({ ivaPercentuale: 22 }),
   ]);
@@ -70,7 +79,36 @@ export function FatturaEmissioneBoard() {
     void getAliquoteEmissioneAction().then((r) => {
       if (r.success) setAliquote(r.aliquote);
     });
+    void listPreventivoCommercialiRiferimentoAction({
+      includiSenzaAccount: true,
+    }).then((res) => {
+      if (res.success) setCommerciale(res.defaultItem ?? null);
+    });
   }, []);
+
+  useEffect(() => {
+    let cancel = false;
+    void anteprimaNumeroFatturaBozzaAction(dataDocumento).then((res) => {
+      if (cancel || !res.success) return;
+      setNumeroBozza(res.numero);
+    });
+    return () => {
+      cancel = true;
+    };
+  }, [dataDocumento]);
+
+  function vaiA(id: string, rigaIndex?: number) {
+    setSezione(id);
+    if (rigaIndex != null) setRigaBozza(rigaIndex);
+    const nodo = document.getElementById(
+      rigaIndex != null && id === "fattura-righe"
+        ? (rigaIndex < righe.length
+          ? `fattura-riga-${rigaIndex}`
+          : "fattura-spedizione")
+        : id
+    );
+    nodo?.scrollIntoView({ behavior: "smooth", block: "center" });
+  }
 
   const righeCalcolo = useMemo(() => {
     const list = righe.map((r) => ({
@@ -89,6 +127,13 @@ export function FatturaEmissioneBoard() {
   const totals = useMemo(
     () => calcolaTotaliEmissione(righeCalcolo),
     [righeCalcolo]
+  );
+  const righeBozza = useMemo(
+    () =>
+      includeSpedizione && spedizione.prezzoUnitario > 0
+        ? [...righe, spedizione]
+        : righe,
+    [includeSpedizione, righe, spedizione]
   );
 
   useEffect(() => {
@@ -202,7 +247,21 @@ export function FatturaEmissioneBoard() {
 
   return (
     <>
-    <form onSubmit={onSubmit} className="space-y-6">
+    <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+      <button
+        type="button"
+        onClick={() => vaiA("bozza-fattura")}
+        className="rounded-lg border border-[var(--border)] bg-white px-3 py-1.5 text-sm font-medium hover:bg-slate-50"
+      >
+        Visualizza bozza
+      </button>
+      <p className="text-sm text-[var(--muted)]">
+        Il foglio è la fattura. Ogni modifica del form lo aggiorna, e ogni
+        matita del foglio riapre il campo nel form.
+      </p>
+    </div>
+    <div className="grid items-start gap-6 xl:grid-cols-[minmax(0,1fr)_210mm]">
+    <form onSubmit={onSubmit} className="order-2 space-y-6 xl:order-1">
       <p className="text-sm text-[var(--muted)]">
         Compila e invia la fattura elettronica a Fatture in Cloud / SDI. Il
         numero fattura, fino al 31/12/2026, è{" "}
@@ -213,7 +272,14 @@ export function FatturaEmissioneBoard() {
         targa prodotto interna (es. NCL1).
       </p>
 
-      <section className="space-y-3 rounded-xl border border-[var(--border)] bg-[var(--card)] p-4">
+      <section
+        id="fattura-cliente"
+        className={`space-y-3 rounded-xl border bg-[var(--card)] p-4 ${
+          sezione === "fattura-cliente"
+            ? "border-[var(--primary)] ring-2 ring-[var(--primary)]"
+            : "border-[var(--border)]"
+        }`}
+      >
         <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-700">
           Cliente
         </h2>
@@ -266,7 +332,14 @@ export function FatturaEmissioneBoard() {
         )}
       </section>
 
-      <section className="space-y-3 rounded-xl border border-[var(--border)] bg-[var(--card)] p-4">
+      <section
+        id="fattura-righe"
+        className={`space-y-3 rounded-xl border bg-[var(--card)] p-4 ${
+          sezione === "fattura-righe"
+            ? "border-[var(--primary)] ring-2 ring-[var(--primary)]"
+            : "border-[var(--border)]"
+        }`}
+      >
         <div className="flex flex-wrap items-center justify-between gap-2">
           <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-700">
             Righe documento
@@ -289,7 +362,12 @@ export function FatturaEmissioneBoard() {
           {righe.map((r, index) => (
             <div
               key={index}
-              className="grid gap-2 rounded-lg border border-[var(--border)] p-3 sm:grid-cols-6"
+              id={`fattura-riga-${index}`}
+              className={`grid gap-2 rounded-lg border p-3 sm:grid-cols-6 ${
+                rigaBozza === index
+                  ? "border-[var(--primary)] ring-2 ring-[var(--primary)]"
+                  : "border-[var(--border)]"
+              }`}
             >
               <label className="block text-sm sm:col-span-2">
                 <span className="mb-1 block text-xs font-medium">Prodotto</span>
@@ -313,6 +391,16 @@ export function FatturaEmissioneBoard() {
                   onChange={(e) => updateRiga(index, { codice: e.target.value })}
                   required
                   className="w-full rounded-lg border border-[var(--border)] px-2 py-1.5 font-mono text-sm"
+                />
+              </label>
+              <label className="block text-sm">
+                <span className="mb-1 block text-xs font-medium">Unità</span>
+                <input
+                  value={r.unitaMisura}
+                  onChange={(e) =>
+                    updateRiga(index, { unitaMisura: e.target.value })
+                  }
+                  className="w-full rounded-lg border border-[var(--border)] px-2 py-1.5 text-sm"
                 />
               </label>
               <label className="block text-sm">
@@ -349,9 +437,10 @@ export function FatturaEmissioneBoard() {
                 prezzoUnitario={r.prezzoUnitario}
                 scontoListinoPct={r.scontoListinoPct}
                 scontoExtraPct={r.scontoExtraPct}
-                onPrezzo={(prezzo, iva) =>
+                onPrezzo={(prezzo, iva, unita) =>
                   updateRiga(index, {
                     prezzoUnitario: prezzo,
+                    ...(unita ? { unitaMisura: unita } : {}),
                     ...(iva != null && aliquote.includes(iva)
                       ? { ivaPercentuale: iva }
                       : {}),
@@ -433,7 +522,10 @@ export function FatturaEmissioneBoard() {
           ))}
         </div>
 
-        <div className="rounded-lg border border-dashed border-[var(--border)] p-3">
+        <div
+          id="fattura-spedizione"
+          className="rounded-lg border border-dashed border-[var(--border)] p-3"
+        >
           <label className="flex items-center gap-2 text-sm font-medium">
             <input
               type="checkbox"
@@ -507,7 +599,14 @@ export function FatturaEmissioneBoard() {
         </div>
       </section>
 
-      <section className="space-y-3 rounded-xl border border-[var(--border)] bg-[var(--card)] p-4">
+      <section
+        id="fattura-pagamento"
+        className={`space-y-3 rounded-xl border bg-[var(--card)] p-4 ${
+          sezione === "fattura-pagamento"
+            ? "border-[var(--primary)] ring-2 ring-[var(--primary)]"
+            : "border-[var(--border)]"
+        }`}
+      >
         <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-700">
           Condizioni di pagamento
         </h2>
@@ -537,7 +636,7 @@ export function FatturaEmissioneBoard() {
               con queste coordinate. La scadenza segue la condizione scelta.
             </p>
           </dl>
-          <div className="space-y-3">
+          <div id="fattura-data" className="space-y-3">
             <label className="block text-sm">
               <span className="mb-1 block font-medium">Data documento</span>
               <input
@@ -560,7 +659,7 @@ export function FatturaEmissioneBoard() {
             </label>
           </div>
         </div>
-        <label className="block text-sm">
+        <label id="fattura-note" className="block text-sm">
           <span className="mb-1 block font-medium">Note documento</span>
           <textarea
             value={noteDocumento}
@@ -657,6 +756,26 @@ export function FatturaEmissioneBoard() {
         </div>
       ) : null}
     </form>
+    <div className="order-1 xl:sticky xl:top-4 xl:order-2">
+      <FatturaEmissioneDocumento
+        numero={numeroBozza}
+        dataDocumento={dataDocumento}
+        dataConsegna={dataConsegna}
+        commerciale={commerciale}
+        cliente={cliente}
+        noteDocumento={noteDocumento}
+        piano={applyTotaleToPiano(piano, totals.totale)}
+        righe={righeBozza}
+        imponibile={totals.imponibile}
+        imposta={totals.imposta}
+        totale={totals.totale}
+        onDataDocumento={setDataDocumento}
+        onDataConsegna={setDataConsegna}
+        onNoteDocumento={setNoteDocumento}
+        onVaiA={vaiA}
+      />
+    </div>
+    </div>
     </>
   );
 }

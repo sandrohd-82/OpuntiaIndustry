@@ -442,6 +442,7 @@ export async function createAndSendInvoiceAction(
       codice: r.codice,
       descrizione: r.descrizione,
       quantita: r.quantita,
+      unita_misura: r.unitaMisura,
       prezzo_unitario: r.prezzoUnitario,
       sconto_percentuale: r.scontoPercentuale,
       importo: r.importo,

@@ -25,7 +25,7 @@ type Props = {
   prezzoUnitario: number;
   scontoListinoPct: number;
   scontoExtraPct: number;
-  onPrezzo: (prezzo: number, iva: number | null) => void;
+  onPrezzo: (prezzo: number, iva: number | null, unita: string | null) => void;
   onScontoListino: (pct: number) => void;
   onScontoExtra: (pct: number) => void;
 };
@@ -92,9 +92,9 @@ export function FatturaEmissioneScontiProdotto({
       setAccordo(nextAccordo);
       const voce = listino.voce;
       if (nextAccordo?.modalita === "prezzo_fisso" && nextAccordo.prezzoKg != null) {
-        onPrezzoRef.current(nextAccordo.prezzoKg, voce?.iva ?? null);
+        onPrezzoRef.current(nextAccordo.prezzoKg, voce?.iva ?? null, voce?.unitaMisura ?? null);
       } else if (voce && voce.prezzo > 0) {
-        onPrezzoRef.current(voce.prezzo, voce.iva);
+        onPrezzoRef.current(voce.prezzo, voce.iva, voce.unitaMisura);
       }
       if (nextAccordo?.modalita === "sconto_percentuale") {
         onListinoRef.current(nextAccordo.scontoPct ?? 0);
