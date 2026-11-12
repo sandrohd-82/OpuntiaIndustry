@@ -9,22 +9,21 @@ import {
   notaConMarcaSconti,
   prezzoNettoDueSconti,
 } from "@/lib/amministrazione/sconto-fuori-listino";
+import { AGRINSICILIA_COORDINATE } from "@/lib/amministrazione/preventivo-letterhead";
+import {
+  applyTotaleToPiano,
+  ordinePagamentoPianoSchema,
+  pianoToFicPayments,
+  type OrdinePagamentoPiano,
+} from "@/lib/amministrazione/ordine-pagamento-piano";
 
 /** Prefisso interno Opuntia (non inviato a FiC come numero fattura). */
 export const NUMERO_INTERNO_PREFIX = "Ft-";
 
 export const CODICE_RIGA_SPEDIZIONE = "SPED";
 
-export const PAYMENT_METHODS = [
-  { code: "MP05", label: "Bonifico" },
-  { code: "MP01", label: "Contanti" },
-  { code: "MP08", label: "Carta di pagamento" },
-  { code: "MP02", label: "Assegno" },
-  { code: "MP12", label: "RIBA" },
-  { code: "MP19", label: "SEPA Direct Debit" },
-] as const;
-
-export type PaymentMethodCode = (typeof PAYMENT_METHODS)[number]["code"];
+/** Come la fattura da ordine: sempre bonifico, IBAN già in anagrafica. */
+export const PAGAMENTO_FATTURA_METODO = "MP05" as const;
 
 export type EmissioneRigaInput = {
   prodottoId: string | null;
@@ -47,9 +46,9 @@ export type EmissioneRigaInput = {
 export type EmissioneInput = {
   clienteId: string;
   dataDocumento: string;
-  dataScadenza: string;
-  paymentMethod: PaymentMethodCode;
-  iban: string;
+  /** Per calcolare la scadenza, come la data consegna dell’ordine. */
+  dataConsegna: string | null;
+  piano: OrdinePagamentoPiano;
   /** Invia fattura elettronica allo SDI. */
   sendToSdi: boolean;
   /** Mail di cortesia al cliente. */
@@ -81,18 +80,13 @@ export const emissioneInputSchema = z
     dataDocumento: z
       .string()
       .regex(/^\d{4}-\d{2}-\d{2}$/, "Data documento non valida"),
-    dataScadenza: z
+    dataConsegna: z
       .string()
-      .regex(/^\d{4}-\d{2}-\d{2}$/, "Data scadenza non valida"),
-    paymentMethod: z.enum([
-      "MP05",
-      "MP01",
-      "MP08",
-      "MP02",
-      "MP12",
-      "MP19",
-    ]),
-    iban: z.string().optional().default(""),
+      .regex(/^\d{4}-\d{2}-\d{2}$/, "Data consegna non valida")
+      .nullable()
+      .optional()
+      .default(null),
+    piano: ordinePagamentoPianoSchema,
     sendToSdi: z.boolean().optional().default(true),
     sendCourtesyEmail: z.boolean().optional().default(true),
     dryRunSdi: z.boolean().optional().default(false),
@@ -102,13 +96,6 @@ export const emissioneInputSchema = z
     righe: z.array(rigaSchema).min(1, "Aggiungi almeno una riga"),
   })
   .superRefine((v, ctx) => {
-    if (v.paymentMethod === "MP05" && !v.iban.trim()) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        message: "IBAN obbligatorio per il bonifico.",
-        path: ["iban"],
-      });
-    }
     const hasProduct = v.righe.some((r) => !r.isSpedizione);
     if (!hasProduct) {
       ctx.addIssue({
@@ -118,12 +105,8 @@ export const emissioneInputSchema = z
       });
     }
   })
-  .transform((v) => ({
-    ...v,
-    iban: v.iban.trim().toUpperCase().replace(/\s+/g, ""),
-    noteDocumento: v.noteDocumento.trim(),
-    ordineId: v.ordineId ?? null,
-    righe: v.righe.map((r) => {
+  .transform((v) => {
+    const righe = v.righe.map((r) => {
       const listino = clampSconto(r.scontoListinoPct ?? 0);
       const extra = clampSconto(r.scontoExtraPct ?? 0);
       const dueSconti = listino > 0 || extra > 0;
@@ -148,8 +131,26 @@ export const emissioneInputSchema = z
           scontoExtraPct: extra,
         }),
       };
-    }),
-  }));
+    });
+    const totals = calcolaTotaliEmissione(righe);
+    const piano = applyTotaleToPiano(v.piano, totals.totale);
+    const payments = pianoToFicPayments({
+      piano,
+      oggi: v.dataDocumento,
+      dataConsegna: v.dataConsegna,
+    });
+    return {
+      ...v,
+      noteDocumento: v.noteDocumento.trim(),
+      ordineId: v.ordineId ?? null,
+      paymentMethod: PAGAMENTO_FATTURA_METODO,
+      iban: AGRINSICILIA_COORDINATE.iban,
+      dataScadenza: payments[0]?.due_date ?? v.dataDocumento,
+      piano,
+      payments,
+      righe,
+    };
+  });
 
 export type EmissioneParsed = z.infer<typeof emissioneInputSchema>;
 

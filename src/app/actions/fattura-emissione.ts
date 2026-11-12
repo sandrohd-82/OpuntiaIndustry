@@ -113,7 +113,6 @@ function buildFicPayload(input: {
 }): Record<string, unknown> {
   const { parsed, cliente, numeroFattura, vatTypes } = input;
   const split = splitNumeroForFic(numeroFattura);
-  const totals = calcolaTotaliEmissione(parsed.righe);
 
   const items_list = parsed.righe.map((r) => {
     const marca = leggiMarcaSconti(r.note);
@@ -155,17 +154,6 @@ function buildFicPayload(input: {
   if (cliente.pec?.trim()) entity.certified_email = cliente.pec.trim();
   if (cliente.email?.trim()) entity.email = cliente.email.trim();
 
-  const payment: Record<string, unknown> = {
-    amount: totals.totale,
-    due_date: parsed.dataScadenza,
-    status: "not_paid",
-  };
-
-  const notesParts = [
-    parsed.noteDocumento,
-    parsed.iban ? `IBAN: ${parsed.iban}` : "",
-  ].filter(Boolean);
-
   return {
     type: "invoice",
     entity,
@@ -182,9 +170,13 @@ function buildFicPayload(input: {
       ...(parsed.iban ? { bank_iban: parsed.iban } : {}),
     },
     items_list,
-    payments_list: [payment],
-    ...(notesParts.length
-      ? { notes: notesParts.join("\n"), show_payments: true }
+    payments_list: parsed.payments.map((p) => ({
+      amount: p.amount,
+      due_date: p.due_date,
+      status: p.status,
+    })),
+    ...(parsed.noteDocumento
+      ? { notes: parsed.noteDocumento, show_payments: true }
       : { show_payments: true }),
   };
 }
@@ -298,6 +290,30 @@ export async function createAndSendInvoiceAction(
     };
   }
 
+  const voceStorta = parsed.righe.find(
+    (r) =>
+      !voceScontoFattureInCloud({
+        prezzoUnitario: r.prezzoUnitario,
+        quantita: r.quantita,
+        scontoPercentuale: r.scontoPercentuale,
+        scontoListinoPct: r.scontoListinoPct,
+        scontoExtraPct: r.scontoExtraPct,
+      }).coerente
+  );
+  if (voceStorta) {
+    return {
+      success: false,
+      error: `Invio bloccato: lo sconto della riga ${voceStorta.codice} non chiude al centesimo. Nessuna chiamata è partita.`,
+    };
+  }
+  const sommaRate = parsed.payments.reduce((s, p) => s + p.amount, 0);
+  if (Math.abs(sommaRate - totals.totale) > 0.009) {
+    return {
+      success: false,
+      error: `Invio bloccato: le scadenze (${sommaRate.toFixed(2)} €) non coincidono con il totale (${totals.totale.toFixed(2)} €). Nessuna chiamata è partita.`,
+    };
+  }
+
   const ficPayload = buildFicPayload({
     parsed,
     cliente,
@@ -391,6 +407,9 @@ export async function createAndSendInvoiceAction(
     payment_method: parsed.paymentMethod,
     iban: parsed.iban,
     data_scadenza: parsed.dataScadenza,
+    pagamento_modalita: parsed.piano.modalita,
+    tipo_scadenza_unica:
+      parsed.piano.modalita === "unica" ? parsed.piano.tipoUnica : null,
     ordine_id: parsed.ordineId,
     courtesy_email_sent: courtesyEmailSent,
     origine: "emissione_gestionale",
@@ -441,6 +460,31 @@ export async function createAndSendInvoiceAction(
     return {
       success: false,
       error: `Fattura salvata ma righe: ${righeErr.message}`,
+    };
+  }
+
+  const { error: dilErr } = await supabase.from("fatture_emesse_dilazioni").insert(
+    parsed.payments.map((p, i) => ({
+      fattura_id: row.id,
+      data_scadenza: p.due_date,
+      importo: p.amount,
+      stato_pagamento: "da_pagare" as const,
+      sort_order: i,
+      tipo_scadenza:
+        i === 0
+          ? (parsed.piano.modalita === "unica"
+            ? parsed.piano.tipoUnica
+            : (parsed.piano.rate[0]?.tipoScadenza ?? null))
+          : null,
+      note: parsed.piano.rate[i]?.note ?? "",
+      created_by: auth.userId,
+      updated_by: auth.userId,
+    }))
+  );
+  if (dilErr) {
+    return {
+      success: false,
+      error: `Fattura salvata ma scadenze: ${dilErr.message}`,
     };
   }
 

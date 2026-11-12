@@ -6,6 +6,7 @@ import { getAliquoteEmissioneAction } from "@/app/actions/fattura-emissione";
 import { listProdottiPropriAction } from "@/app/actions/prodotti-propri";
 import { ClienteSelectField } from "@/components/amministrazione/ClienteSelectField";
 import { FatturaEmissioneScontiProdotto } from "@/components/amministrazione/FatturaEmissioneScontiProdotto";
+import { OrdinePagamentoPianoFields } from "@/components/amministrazione/OrdinePagamentoPianoFields";
 import { usePrenotazioneNumero } from "@/components/amministrazione/FatturaNumeroPrenotato";
 import { ClearableNumberInput } from "@/components/ui/ClearableNumberInput";
 import type { Cliente } from "@/lib/amministrazione/clienti";
@@ -14,33 +15,25 @@ import {
   emptyEmissioneRiga,
   emptySpedizioneRiga,
   importoEmissioneRiga,
-  PAYMENT_METHODS,
   type EmissioneRigaInput,
-  type PaymentMethodCode,
 } from "@/lib/amministrazione/fattura-emissione";
 import { formatEuro, todayIsoDate } from "@/lib/amministrazione/fatture";
+import { formatIbanDisplay } from "@/lib/iban";
+import {
+  applyTotaleToPiano,
+  emptyPagamentoPiano,
+  type OrdinePagamentoPiano,
+} from "@/lib/amministrazione/ordine-pagamento-piano";
+import { AGRINSICILIA_COORDINATE } from "@/lib/amministrazione/preventivo-letterhead";
 import type { ProdottoProprio } from "@/lib/amministrazione/prodotti-propri";
-
-function addDaysIso(iso: string, days: number): string {
-  const d = new Date(`${iso}T12:00:00`);
-  d.setDate(d.getDate() + days);
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, "0");
-  const day = String(d.getDate()).padStart(2, "0");
-  return `${y}-${m}-${day}`;
-}
 
 export function FatturaEmissioneBoard() {
   const [cliente, setCliente] = useState<Cliente | null>(null);
   const [prodotti, setProdotti] = useState<ProdottoProprio[]>([]);
   const [aliquote, setAliquote] = useState<number[]>([0, 4, 10, 22]);
   const [dataDocumento, setDataDocumento] = useState(todayIsoDate);
-  const [dataScadenza, setDataScadenza] = useState(() =>
-    addDaysIso(todayIsoDate(), 30)
-  );
-  const [paymentMethod, setPaymentMethod] =
-    useState<PaymentMethodCode>("MP05");
-  const [iban, setIban] = useState("");
+  const [dataConsegna, setDataConsegna] = useState(todayIsoDate);
+  const [piano, setPiano] = useState<OrdinePagamentoPiano>(emptyPagamentoPiano());
   const [sendToSdi, setSendToSdi] = useState(true);
   const [sendCourtesyEmail, setSendCourtesyEmail] = useState(true);
   const [dryRunSdi, setDryRunSdi] = useState(false);
@@ -98,6 +91,10 @@ export function FatturaEmissioneBoard() {
     [righeCalcolo]
   );
 
+  useEffect(() => {
+    setPiano((prev) => applyTotaleToPiano(prev, totals.totale));
+  }, [totals.totale]);
+
   function updateRiga(index: number, patch: Partial<EmissioneRigaInput>) {
     setRighe((prev) =>
       prev.map((r, i) => (i === index ? { ...r, ...patch } : r))
@@ -138,9 +135,8 @@ export function FatturaEmissioneBoard() {
     const payload = {
       clienteId: cliente.id,
       dataDocumento,
-      dataScadenza,
-      paymentMethod,
-      iban,
+      dataConsegna,
+      piano: applyTotaleToPiano(piano, totals.totale),
       sendToSdi,
       sendCourtesyEmail,
       dryRunSdi,
@@ -515,56 +511,54 @@ export function FatturaEmissioneBoard() {
         <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-700">
           Condizioni di pagamento
         </h2>
-        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-          <label className="block text-sm">
-            <span className="mb-1 block font-medium">Metodo</span>
-            <select
-              value={paymentMethod}
-              onChange={(e) =>
-                setPaymentMethod(e.target.value as PaymentMethodCode)
-              }
-              className="w-full rounded-lg border border-[var(--border)] bg-white px-3 py-2 text-sm"
-            >
-              {PAYMENT_METHODS.map((m) => (
-                <option key={m.code} value={m.code}>
-                  {m.label}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label className="block text-sm sm:col-span-2">
-            <span className="mb-1 block font-medium">IBAN</span>
-            <input
-              value={iban}
-              onChange={(e) => setIban(e.target.value)}
-              required={paymentMethod === "MP05"}
-              className="w-full rounded-lg border border-[var(--border)] px-3 py-2 font-mono text-sm uppercase"
-              placeholder="IT60X0542811101000000123456"
-            />
-          </label>
-          <label className="block text-sm">
-            <span className="mb-1 block font-medium">Data documento</span>
-            <input
-              type="date"
-              value={dataDocumento}
-              onChange={(e) => {
-                setDataDocumento(e.target.value);
-                setDataScadenza(addDaysIso(e.target.value, 30));
-              }}
-              required
-              className="w-full rounded-lg border border-[var(--border)] px-3 py-2 text-sm"
-            />
-          </label>
-          <label className="block text-sm">
-            <span className="mb-1 block font-medium">Data scadenza</span>
-            <input
-              type="date"
-              value={dataScadenza}
-              onChange={(e) => setDataScadenza(e.target.value)}
-              required
-              className="w-full rounded-lg border border-[var(--border)] px-3 py-2 text-sm"
-            />
-          </label>
+        <OrdinePagamentoPianoFields
+          piano={piano}
+          onChange={setPiano}
+          totale={totals.totale}
+        />
+        <div className="grid gap-3 sm:grid-cols-[1fr_16rem]">
+          <dl className="space-y-1 rounded-lg border border-[var(--border)] bg-slate-50 px-3 py-2 text-sm">
+            <div className="flex justify-between gap-3">
+              <dt className="text-[var(--muted)]">Banca</dt>
+              <dd>{AGRINSICILIA_COORDINATE.banca}</dd>
+            </div>
+            <div className="flex justify-between gap-3">
+              <dt className="text-[var(--muted)]">IBAN</dt>
+              <dd className="font-mono">
+                {formatIbanDisplay(AGRINSICILIA_COORDINATE.iban)}
+              </dd>
+            </div>
+            <div className="flex justify-between gap-3">
+              <dt className="text-[var(--muted)]">BIC</dt>
+              <dd className="font-mono">{AGRINSICILIA_COORDINATE.bic}</dd>
+            </div>
+            <p className="pt-1 text-xs text-[var(--muted)]">
+              Coordinate già salvate: in fattura il pagamento è il bonifico,
+              con queste coordinate. La scadenza segue la condizione scelta.
+            </p>
+          </dl>
+          <div className="space-y-3">
+            <label className="block text-sm">
+              <span className="mb-1 block font-medium">Data documento</span>
+              <input
+                type="date"
+                value={dataDocumento}
+                onChange={(e) => setDataDocumento(e.target.value)}
+                required
+                className="w-full rounded-lg border border-[var(--border)] px-3 py-2 text-sm"
+              />
+            </label>
+            <label className="block text-sm">
+              <span className="mb-1 block font-medium">Data consegna</span>
+              <input
+                type="date"
+                value={dataConsegna}
+                onChange={(e) => setDataConsegna(e.target.value)}
+                required
+                className="w-full rounded-lg border border-[var(--border)] px-3 py-2 text-sm"
+              />
+            </label>
+          </div>
         </div>
         <label className="block text-sm">
           <span className="mb-1 block font-medium">Note documento</span>
