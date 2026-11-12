@@ -5,6 +5,10 @@ import {
   roundMoney,
   year2FromDate,
 } from "@/lib/amministrazione/fatture";
+import {
+  notaConMarcaSconti,
+  prezzoNettoDueSconti,
+} from "@/lib/amministrazione/sconto-fuori-listino";
 
 /** Prefisso interno Opuntia (non inviato a FiC come numero fattura). */
 export const NUMERO_INTERNO_PREFIX = "Ft-";
@@ -32,6 +36,10 @@ export type EmissioneRigaInput = {
   quantita: number;
   prezzoUnitario: number;
   scontoPercentuale: number;
+  /** Sconto di listino per quantità, applicato per primo. */
+  scontoListinoPct: number;
+  /** Sconto extra, applicato sul prezzo già scontato di listino. */
+  scontoExtraPct: number;
   ivaPercentuale: number;
   isSpedizione: boolean;
 };
@@ -61,6 +69,8 @@ const rigaSchema = z.object({
   quantita: z.number().positive("Quantità deve essere > 0"),
   prezzoUnitario: z.number().min(0),
   scontoPercentuale: z.number().min(0).max(100).optional().default(0),
+  scontoListinoPct: z.number().min(0).max(100).optional().default(0),
+  scontoExtraPct: z.number().min(0).max(100).optional().default(0),
   ivaPercentuale: z.number().min(0).max(100),
   isSpedizione: z.boolean().optional().default(false),
 });
@@ -114,18 +124,29 @@ export const emissioneInputSchema = z
     noteDocumento: v.noteDocumento.trim(),
     ordineId: v.ordineId ?? null,
     righe: v.righe.map((r) => {
-      const sconto = clampSconto(r.scontoPercentuale ?? 0);
+      const listino = clampSconto(r.scontoListinoPct ?? 0);
+      const extra = clampSconto(r.scontoExtraPct ?? 0);
+      const dueSconti = listino > 0 || extra > 0;
+      const sconto = dueSconti ? 0 : clampSconto(r.scontoPercentuale ?? 0);
       return {
         prodottoId: r.prodottoId,
         codice: r.codice.trim(),
         descrizione: r.descrizione.trim(),
-        note: (r.note ?? "").trim(),
+        note: notaConMarcaSconti((r.note ?? "").trim(), listino, extra),
         quantita: r.quantita,
         prezzoUnitario: r.prezzoUnitario,
         scontoPercentuale: sconto,
+        scontoListinoPct: listino,
+        scontoExtraPct: extra,
         ivaPercentuale: r.isSpedizione && r.ivaPercentuale < 0 ? 0 : r.ivaPercentuale,
         isSpedizione: Boolean(r.isSpedizione),
-        importo: importoRiga(r.quantita, r.prezzoUnitario, sconto),
+        importo: importoEmissioneRiga({
+          quantita: r.quantita,
+          prezzoUnitario: r.prezzoUnitario,
+          scontoPercentuale: sconto,
+          scontoListinoPct: listino,
+          scontoExtraPct: extra,
+        }),
       };
     }),
   }));
@@ -148,6 +169,24 @@ export function buildDescrizioneDocumento(
   const n = note.trim();
   if (!n) return d;
   return `${d}\n${n}`;
+}
+
+/** Listino e extra restano due percentuali. L'importo è il netto unico inviato allo SDI. */
+export function importoEmissioneRiga(r: {
+  quantita: number;
+  prezzoUnitario: number;
+  scontoPercentuale?: number;
+  scontoListinoPct?: number;
+  scontoExtraPct?: number;
+}): number {
+  const listino = r.scontoListinoPct ?? 0;
+  const extra = r.scontoExtraPct ?? 0;
+  if (listino > 0 || extra > 0) {
+    return roundMoney(
+      r.quantita * prezzoNettoDueSconti(r.prezzoUnitario, listino, extra)
+    );
+  }
+  return importoRiga(r.quantita, r.prezzoUnitario, r.scontoPercentuale ?? 0);
 }
 
 export function calcolaTotaliEmissione(
@@ -222,6 +261,8 @@ export function emptyEmissioneRiga(
     quantita: 1,
     prezzoUnitario: 0,
     scontoPercentuale: 0,
+    scontoListinoPct: 0,
+    scontoExtraPct: 0,
     ivaPercentuale: 22,
     isSpedizione: false,
     ...defaults,
@@ -241,6 +282,8 @@ export function emptySpedizioneRiga(
     quantita: 1,
     prezzoUnitario: importo,
     scontoPercentuale: 0,
+    scontoListinoPct: 0,
+    scontoExtraPct: 0,
     ivaPercentuale: ivaApplicata ? ivaPercentuale : 0,
     isSpedizione: true,
   };

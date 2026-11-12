@@ -15,6 +15,8 @@ import { mapCompanyFiscalProfileRow } from "@/lib/amministrazione/fiscal-profile
 import {
   anteprimaNumeroFattura,
 } from "@/lib/amministrazione/numero-fattura";
+import { voceScontoFattureInCloud } from "@/lib/amministrazione/fattura-a4-documento";
+import { leggiMarcaSconti } from "@/lib/amministrazione/sconto-fuori-listino";
 import { provinciaCessionarioSdi } from "@/lib/address/province-regioni";
 import {
   aggiornaProvinciaDocumentoEmesso,
@@ -113,14 +115,25 @@ function buildFicPayload(input: {
   const split = splitNumeroForFic(numeroFattura);
   const totals = calcolaTotaliEmissione(parsed.righe);
 
-  const items_list = parsed.righe.map((r) => ({
-    code: r.codice,
-    name: buildDescrizioneDocumento(r.descrizione, r.note),
-    net_price: r.prezzoUnitario,
-    discount: r.scontoPercentuale,
-    qty: r.quantita,
-    vat: { id: resolveFicVatId(vatTypes, r.ivaPercentuale) },
-  }));
+  const items_list = parsed.righe.map((r) => {
+    const marca = leggiMarcaSconti(r.note);
+    const voce = voceScontoFattureInCloud({
+      prezzoUnitario: r.prezzoUnitario,
+      quantita: r.quantita,
+      scontoPercentuale: r.scontoPercentuale,
+      scontoListinoPct: r.scontoListinoPct,
+      scontoExtraPct: r.scontoExtraPct,
+    });
+    const nome = buildDescrizioneDocumento(r.descrizione, marca.note);
+    return {
+      code: r.codice,
+      name: voce.dettaglio ? `${nome}\n${voce.dettaglio}` : nome,
+      net_price: voce.netPrice,
+      discount: voce.discount,
+      qty: r.quantita,
+      vat: { id: resolveFicVatId(vatTypes, r.ivaPercentuale) },
+    };
+  });
 
   const provinciaSdi = provinciaCessionarioSdi(
     cliente.sede_amm_provincia ?? "",

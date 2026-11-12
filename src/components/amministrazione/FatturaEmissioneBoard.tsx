@@ -5,6 +5,7 @@ import Link from "next/link";
 import { getAliquoteEmissioneAction } from "@/app/actions/fattura-emissione";
 import { listProdottiPropriAction } from "@/app/actions/prodotti-propri";
 import { ClienteSelectField } from "@/components/amministrazione/ClienteSelectField";
+import { FatturaEmissioneScontiProdotto } from "@/components/amministrazione/FatturaEmissioneScontiProdotto";
 import { usePrenotazioneNumero } from "@/components/amministrazione/FatturaNumeroPrenotato";
 import { ClearableNumberInput } from "@/components/ui/ClearableNumberInput";
 import type { Cliente } from "@/lib/amministrazione/clienti";
@@ -12,15 +13,12 @@ import {
   calcolaTotaliEmissione,
   emptyEmissioneRiga,
   emptySpedizioneRiga,
+  importoEmissioneRiga,
   PAYMENT_METHODS,
   type EmissioneRigaInput,
   type PaymentMethodCode,
 } from "@/lib/amministrazione/fattura-emissione";
-import {
-  formatEuro,
-  importoRiga,
-  todayIsoDate,
-} from "@/lib/amministrazione/fatture";
+import { formatEuro, todayIsoDate } from "@/lib/amministrazione/fatture";
 import type { ProdottoProprio } from "@/lib/amministrazione/prodotti-propri";
 
 function addDaysIso(iso: string, days: number): string {
@@ -84,16 +82,12 @@ export function FatturaEmissioneBoard() {
   const righeCalcolo = useMemo(() => {
     const list = righe.map((r) => ({
       ...r,
-      importo: importoRiga(r.quantita, r.prezzoUnitario, r.scontoPercentuale),
+      importo: importoEmissioneRiga(r),
     }));
     if (includeSpedizione && spedizione.prezzoUnitario > 0) {
       list.push({
         ...spedizione,
-        importo: importoRiga(
-          spedizione.quantita,
-          spedizione.prezzoUnitario,
-          0
-        ),
+        importo: importoEmissioneRiga(spedizione),
       });
     }
     return list;
@@ -113,7 +107,12 @@ export function FatturaEmissioneBoard() {
   function applyProdotto(index: number, prodottoId: string) {
     const p = prodotti.find((x) => x.id === prodottoId);
     if (!p) {
-      updateRiga(index, { prodottoId: null });
+      updateRiga(index, {
+        prodottoId: null,
+        scontoListinoPct: 0,
+        scontoExtraPct: 0,
+        scontoPercentuale: 0,
+      });
       return;
     }
     updateRiga(index, {
@@ -121,6 +120,9 @@ export function FatturaEmissioneBoard() {
       codice: p.codice,
       descrizione: p.nome,
       note: p.note ?? "",
+      scontoListinoPct: 0,
+      scontoExtraPct: 0,
+      scontoPercentuale: 0,
     });
   }
 
@@ -343,20 +345,35 @@ export function FatturaEmissioneBoard() {
                   className="w-full rounded-lg border border-[var(--border)] px-2 py-1.5 text-sm"
                 />
               </label>
-              <label className="block text-sm">
-                <span className="mb-1 block text-xs font-medium">Sconto %</span>
-                <ClearableNumberInput
-                  value={r.scontoPercentuale}
-                  onValueChange={(v) =>
-                    updateRiga(index, { scontoPercentuale: v === "" ? 0 : v })
-                  }
-                  min={0}
-                  max={100}
-                  step={0.1}
-                  emptyAsZeroOnBlur
-                  className="w-full rounded-lg border border-[var(--border)] px-2 py-1.5 text-sm"
-                />
-              </label>
+              <FatturaEmissioneScontiProdotto
+                prodottoId={r.prodottoId}
+                prodottoCodice={r.codice}
+                clienteId={cliente?.id ?? null}
+                quantita={r.quantita}
+                prezzoUnitario={r.prezzoUnitario}
+                scontoListinoPct={r.scontoListinoPct}
+                scontoExtraPct={r.scontoExtraPct}
+                onPrezzo={(prezzo, iva) =>
+                  updateRiga(index, {
+                    prezzoUnitario: prezzo,
+                    ...(iva != null && aliquote.includes(iva)
+                      ? { ivaPercentuale: iva }
+                      : {}),
+                  })
+                }
+                onScontoListino={(pct) =>
+                  updateRiga(index, {
+                    scontoListinoPct: pct,
+                    scontoPercentuale: 0,
+                  })
+                }
+                onScontoExtra={(pct) =>
+                  updateRiga(index, {
+                    scontoExtraPct: pct,
+                    scontoPercentuale: 0,
+                  })
+                }
+              />
               <label className="block text-sm sm:col-span-3">
                 <span className="mb-1 block text-xs font-medium">
                   Descrizione
@@ -402,9 +419,7 @@ export function FatturaEmissioneBoard() {
               <div className="flex items-end justify-between gap-2 sm:col-span-6">
                 <p className="text-sm tabular-nums text-slate-700">
                   Importo:{" "}
-                  {formatEuro(
-                    importoRiga(r.quantita, r.prezzoUnitario, r.scontoPercentuale)
-                  )}
+                  {formatEuro(importoEmissioneRiga(r))}
                 </p>
                 {righe.length > 1 ? (
                   <button
