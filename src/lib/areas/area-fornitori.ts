@@ -18,6 +18,13 @@ export const AREA_FORNITORI_SECTIONS: readonly NavItem[] = [
     description: "Calendario raccolto fornitori",
     path: "/app/area-fornitori/calendario-raccolto",
   },
+  {
+    slug: "materiale-in-ingresso",
+    label: "Materiale in ingresso",
+    description:
+      "Parte del fornitore sul foglio di controllo, fino alla partenza verso Agrinsicilia",
+    path: "/app/area-fornitori/materiale-in-ingresso",
+  },
 ] as const;
 
 export function getFirstAreaFornitoriPath(): string {

@@ -1,6 +1,8 @@
 import { notFound, redirect } from "next/navigation";
 import { AreaPlaceholder } from "@/components/areas/AreaPlaceholder";
 import { AppHeader } from "@/components/layout/AppHeader";
+import { ControlloProcessoDettaglio } from "@/components/produzione/ControlloProcessiVista";
+import { processoControlloBySlug } from "@/lib/produzione/controllo-processi";
 import {
   AREA_FORNITORI_SECTIONS,
   resolveAreaFornitoriPage,
@@ -26,6 +28,19 @@ export default async function AreaFornitoriSectionPage({ params }: Props) {
 
   const page = resolveAreaFornitoriPage([section]);
   if (!page) notFound();
+
+  if (section === "materiale-in-ingresso") {
+    const processo = processoControlloBySlug("materiale-in-ingresso");
+    if (!processo) notFound();
+    return (
+      <>
+        <AppHeader title={page.label} subtitle={page.description} />
+        <div className="p-6">
+          <ControlloProcessoDettaglio processo={processo} soloFornitore />
+        </div>
+      </>
+    );
+  }
 
   return (
     <>

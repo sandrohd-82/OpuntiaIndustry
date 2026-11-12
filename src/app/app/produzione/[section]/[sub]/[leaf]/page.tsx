@@ -1,5 +1,7 @@
 import { notFound, redirect } from "next/navigation";
 import { AppHeader } from "@/components/layout/AppHeader";
+import { ControlloProcessoDettaglio } from "@/components/produzione/ControlloProcessiVista";
+import { processoControlloBySlug } from "@/lib/produzione/controllo-processi";
 import { MacchinariBoard } from "@/components/produzione/MacchinariBoard";
 import { PostazioniBoard } from "@/components/produzione/PostazioniBoard";
 import { PostoLavoroBoard } from "@/components/produzione/PostoLavoroBoard";
@@ -14,6 +16,21 @@ export default async function ProduzioneLeafPage({ params }: Props) {
   await requireAreaAccess("produzione");
 
   const { section, sub, leaf } = await params;
+  if (
+    section === "controlli-haccp" &&
+    sub === "controllo-processi"
+  ) {
+    const processo = processoControlloBySlug(leaf);
+    if (!processo) notFound();
+    return (
+      <>
+        <AppHeader title={processo.titolo} subtitle={processo.sintesi} />
+        <div className="p-6">
+          <ControlloProcessoDettaglio processo={processo} />
+        </div>
+      </>
+    );
+  }
   if (section === "gestione-aree" && leaf === "panoramica") {
     redirect(`/app/produzione/gestione-aree/${sub}`);
   }

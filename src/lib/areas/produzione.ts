@@ -178,6 +178,22 @@ export const PRODUZIONE_SECTIONS: readonly NavItem[] = [
         description: "Tutti i processi che devono essere fatti periodicamente",
         path: "/app/produzione/controlli-haccp/routine",
       },
+      {
+        slug: "controllo-processi",
+        label: "Controllo Processi",
+        description:
+          "Processi e controlli dell'esecuzione. Ogni processo apre un foglio salvato fino al completamento",
+        path: "/app/produzione/controlli-haccp/controllo-processi",
+        children: [
+          {
+            slug: "materiale-in-ingresso",
+            label: "Materiale in ingresso",
+            description:
+              "Dal controllo del fornitore fino all'arrivo in sede Agrinsicilia",
+            path: "/app/produzione/controlli-haccp/controllo-processi/materiale-in-ingresso",
+          },
+        ],
+      },
     ],
   },
   {
