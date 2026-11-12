@@ -1,7 +1,9 @@
 "use client";
 
+import { useState } from "react";
 import { FatturaA4PiePagina } from "@/components/amministrazione/FatturaA4PiePagina";
 import { PreventivoA4Letterhead } from "@/components/amministrazione/PreventivoA4Letterhead";
+import { PreventivoEditModal } from "@/components/amministrazione/PreventivoEditModal";
 import { PreventivoDocField } from "@/components/amministrazione/PreventivoDocPencil";
 import type { Cliente } from "@/lib/amministrazione/clienti";
 import {
@@ -16,7 +18,6 @@ import type { PreventivoCommercialeRiferimento } from "@/lib/amministrazione/pre
 
 export type BozzaSezione =
   | "fattura-cliente"
-  | "fattura-data"
   | "fattura-righe"
   | "fattura-note"
   | "fattura-pagamento";
@@ -27,10 +28,7 @@ type Props = {
   commerciale: PreventivoCommercialeRiferimento | null;
   cliente: Cliente | null;
   noteDocumento: string;
-  dataConsegna: string;
   onDataDocumento: (value: string) => void;
-  onDataConsegna: (value: string) => void;
-  onNoteDocumento: (value: string) => void;
   piano: OrdinePagamentoPiano;
   righe: EmissioneRigaInput[];
   imponibile: number;
@@ -62,10 +60,7 @@ export function FatturaEmissioneDocumento({
   commerciale,
   cliente,
   noteDocumento,
-  dataConsegna,
   onDataDocumento,
-  onDataConsegna,
-  onNoteDocumento,
   piano,
   righe,
   imponibile,
@@ -78,6 +73,8 @@ export function FatturaEmissioneDocumento({
     docRighe.find((r) => !r.isSpedizione && r.ivaPercentuale > 0)
       ?.ivaPercentuale ?? 22;
   const sede = cliente?.sedeAmministrativa;
+  const [dataAperta, setDataAperta] = useState(false);
+  const [dataBozza, setDataBozza] = useState(dataDocumento);
 
   return (
     <article
@@ -90,34 +87,12 @@ export function FatturaEmissioneDocumento({
           dataPreventivo={dataDocumento}
           commerciale={commerciale}
           documentoLabel="FATTURA"
-          onEditData={() => onVaiA("fattura-data")}
+          onEditData={() => {
+            setDataBozza(dataDocumento);
+            setDataAperta(true);
+          }}
           onEditCommerciale={() => onVaiA("fattura-cliente")}
         />
-        <div className="mt-3 grid gap-2 print:hidden sm:grid-cols-2">
-          <label className="block text-sm">
-            <span className="mb-1 block font-medium">Data documento</span>
-            <input
-              type="date"
-              value={dataDocumento}
-              onChange={(e) => onDataDocumento(e.target.value)}
-              className="w-full rounded border border-slate-300 px-2 py-1.5"
-            />
-          </label>
-          <label className="block text-sm">
-            <span className="mb-1 block font-medium">Data consegna</span>
-            <input
-              type="date"
-              value={dataConsegna}
-              onChange={(e) => onDataConsegna(e.target.value)}
-              className="w-full rounded border border-slate-300 px-2 py-1.5"
-            />
-          </label>
-        </div>
-        <p className="mt-3 rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-950 print:hidden">
-          {numero
-            ? `Numero fattura ${numero}. Il numero è provvisorio: se una fattura verrà emessa prima, il numero slitterà di uno.`
-            : "Il numero compare all'invio."}
-        </p>
 
         <button
           type="button"
@@ -229,13 +204,6 @@ export function FatturaEmissioneDocumento({
             <p className="whitespace-pre-line text-[11px] leading-[1.45] text-slate-800">
               {noteDocumento || "Nessuna nota documento."}
             </p>
-            <textarea
-              value={noteDocumento}
-              onChange={(e) => onNoteDocumento(e.target.value)}
-              rows={3}
-              placeholder="Note in fattura"
-              className="mt-2 w-full rounded border border-slate-300 px-2 py-1.5 text-sm print:hidden"
-            />
           </PreventivoDocField>
           <div className="mt-3 h-px w-full bg-slate-900" />
         </div>
@@ -252,6 +220,26 @@ export function FatturaEmissioneDocumento({
           totale={totale}
         />
       </div>
+      {dataAperta ? (
+        <PreventivoEditModal
+          title="Data fattura"
+          onClose={() => setDataAperta(false)}
+          onConfirm={() => {
+            onDataDocumento(dataBozza);
+            setDataAperta(false);
+          }}
+        >
+          <label className="block text-sm">
+            <span className="mb-1 block font-medium">Data documento</span>
+            <input
+              type="date"
+              value={dataBozza}
+              onChange={(e) => setDataBozza(e.target.value)}
+              className="w-full rounded border border-slate-300 px-3 py-2 text-sm"
+            />
+          </label>
+        </PreventivoEditModal>
+      ) : null}
     </article>
   );
 }

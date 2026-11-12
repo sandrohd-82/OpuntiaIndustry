@@ -36,7 +36,6 @@ export function FatturaEmissioneBoard() {
   const [prodotti, setProdotti] = useState<ProdottoProprio[]>([]);
   const [aliquote, setAliquote] = useState<number[]>([0, 4, 10, 22]);
   const [dataDocumento, setDataDocumento] = useState(todayIsoDate);
-  const [dataConsegna, setDataConsegna] = useState(todayIsoDate);
   const [piano, setPiano] = useState<OrdinePagamentoPiano>(emptyPagamentoPiano());
   const [sendToSdi, setSendToSdi] = useState(true);
   const [sendCourtesyEmail, setSendCourtesyEmail] = useState(true);
@@ -180,7 +179,6 @@ export function FatturaEmissioneBoard() {
     const payload = {
       clienteId: cliente.id,
       dataDocumento,
-      dataConsegna,
       piano: applyTotaleToPiano(piano, totals.totale),
       sendToSdi,
       sendCourtesyEmail,
@@ -615,7 +613,7 @@ export function FatturaEmissioneBoard() {
           onChange={setPiano}
           totale={totals.totale}
         />
-        <div className="grid gap-3 sm:grid-cols-[1fr_16rem]">
+        <div className="grid gap-3">
           <dl className="space-y-1 rounded-lg border border-[var(--border)] bg-slate-50 px-3 py-2 text-sm">
             <div className="flex justify-between gap-3">
               <dt className="text-[var(--muted)]">Banca</dt>
@@ -636,28 +634,6 @@ export function FatturaEmissioneBoard() {
               con queste coordinate. La scadenza segue la condizione scelta.
             </p>
           </dl>
-          <div id="fattura-data" className="space-y-3">
-            <label className="block text-sm">
-              <span className="mb-1 block font-medium">Data documento</span>
-              <input
-                type="date"
-                value={dataDocumento}
-                onChange={(e) => setDataDocumento(e.target.value)}
-                required
-                className="w-full rounded-lg border border-[var(--border)] px-3 py-2 text-sm"
-              />
-            </label>
-            <label className="block text-sm">
-              <span className="mb-1 block font-medium">Data consegna</span>
-              <input
-                type="date"
-                value={dataConsegna}
-                onChange={(e) => setDataConsegna(e.target.value)}
-                required
-                className="w-full rounded-lg border border-[var(--border)] px-3 py-2 text-sm"
-              />
-            </label>
-          </div>
         </div>
         <label id="fattura-note" className="block text-sm">
           <span className="mb-1 block font-medium">Note documento</span>
@@ -760,7 +736,6 @@ export function FatturaEmissioneBoard() {
       <FatturaEmissioneDocumento
         numero={numeroBozza}
         dataDocumento={dataDocumento}
-        dataConsegna={dataConsegna}
         commerciale={commerciale}
         cliente={cliente}
         noteDocumento={noteDocumento}
@@ -770,8 +745,6 @@ export function FatturaEmissioneBoard() {
         imposta={totals.imposta}
         totale={totals.totale}
         onDataDocumento={setDataDocumento}
-        onDataConsegna={setDataConsegna}
-        onNoteDocumento={setNoteDocumento}
         onVaiA={vaiA}
       />
     </div>
