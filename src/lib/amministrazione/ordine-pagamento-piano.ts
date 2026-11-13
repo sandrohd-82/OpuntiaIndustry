@@ -114,6 +114,7 @@ export function percentualiSuTotale(importi: number[], totale: number): number[]
 
 export type RigaTestoPagamento = {
   voce: string;
+  causaleTitolo: string;
   causale: string;
 };
 
@@ -135,8 +136,9 @@ export function righeTestoPagamento(input: {
       titolo: null,
       righe: [
         {
-          voce: `Pagamento ${tipo} = € ${importo}`,
-          causale: `Causale: Pagamento Fattura n. ${numero} del ${dataDoc}.`,
+          voce: `${tipo} = € ${importo}`,
+          causaleTitolo: "Causale:",
+          causale: `Pagamento Fattura n. ${numero} del ${dataDoc}.`,
         },
       ],
     };
@@ -147,7 +149,7 @@ export function righeTestoPagamento(input: {
     input.totale
   );
   return {
-    titolo: "Pagamento:",
+    titolo: null,
     righe: rate.map((rata, i) => {
       const ultima = i >= rate.length - 1;
       const quando = rata.dataPagamento
@@ -155,20 +157,21 @@ export function righeTestoPagamento(input: {
         : "data da definire";
       const quota = `${quote[i] ?? 0}%`;
       const cifra = `€ ${euroDocumento(rata.importo)}`;
-      let voce = `- ${quota} ${ordinaleRomano(i + 1)} Rata (${quando}) = ${cifra}`;
+      let voce = `${quota} ${ordinaleRomano(i + 1)} Rata (${quando}) = ${cifra}`;
       if (i === 0) {
-        voce = `- ${quota} ${labelTipoScadenza(rata.tipoScadenza ?? input.piano.tipoUnica)} = ${cifra}`;
+        voce = `${quota} ${labelTipoScadenza(rata.tipoScadenza ?? input.piano.tipoUnica)} = ${cifra}`;
       } else if (ultima) {
-        voce = `- ${quota} Saldo (${quando}) = ${cifra}`;
+        voce = `${quota} Saldo (${quando}) = ${cifra}`;
       }
       return {
         voce,
-        causale: `Causale ${i + 1}: ${testoCausaleRataDilazione({
+        causaleTitolo: `Causale ${i + 1}:`,
+        causale: testoCausaleRataDilazione({
           indice: i,
           totaleRate: rate.length,
           numeroFattura: numero,
           dataDocumento: dataDoc,
-        })}`,
+        }),
       };
     }),
   };

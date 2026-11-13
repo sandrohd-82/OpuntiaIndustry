@@ -355,24 +355,34 @@ export function buildFatturaA4PdfBlob(input: FatturaA4PdfInput): {
         dataDocumento: dataDocLabel,
         dataRata: formatPreventivoDataIt,
       })
-    : {
-        titolo: "Pagamento",
-        righe: [] as Array<{ voce: string; causale: string }>,
-      };
+    : { titolo: null, righe: [] };
   const coordinate = [
     `Banca: ${AGRINSICILIA_COORDINATE.banca}`,
     `IBAN: ${formatIbanDisplay(AGRINSICILIA_COORDINATE.iban)}`,
     `BIC: ${AGRINSICILIA_COORDINATE.bic}`,
   ];
-  const payLines = [
-    ...(testoPagamento.titolo ? [testoPagamento.titolo] : []),
-    ...testoPagamento.righe.flatMap((riga) => [riga.voce, riga.causale]),
-    ...coordinate,
+  type RigaPdf =
+    | { tipo: "testo"; testo: string; grassetto: boolean }
+    | { tipo: "linea" };
+  const payBlocks: RigaPdf[] = [
+    ...testoPagamento.righe.flatMap((riga, i) => {
+      const blocco: RigaPdf[] = [
+        { tipo: "testo", testo: "Pagamento:", grassetto: true },
+        { tipo: "testo", testo: riga.voce, grassetto: false },
+        { tipo: "testo", testo: riga.causaleTitolo, grassetto: true },
+        { tipo: "testo", testo: riga.causale, grassetto: false },
+      ];
+      return i > 0 ? [{ tipo: "linea" } as RigaPdf, ...blocco] : blocco;
+    }),
+    ...coordinate.map(
+      (testo): RigaPdf => ({ tipo: "testo", testo, grassetto: false })
+    ),
   ];
   doc.setFont("helvetica", "normal");
   doc.setFontSize(8);
-  const altezzaTesto = payLines.reduce((sum, line) => {
-    const wrapped = doc.splitTextToSize(line, 84) as string[];
+  const altezzaTesto = payBlocks.reduce((sum, block) => {
+    if (block.tipo === "linea") return sum + 2.4;
+    const wrapped = doc.splitTextToSize(block.testo, 84) as string[];
     return sum + Math.max(wrapped.length, 1) * 3.5;
   }, 0);
   const boxH = Math.max(42, 12 + altezzaTesto);
@@ -399,8 +409,16 @@ export function buildFatturaA4PdfBlob(input: FatturaA4PdfInput): {
   doc.setFont("helvetica", "normal");
   doc.setFontSize(8);
   let py = y + 11;
-  for (const line of payLines) {
-    const wrapped = doc.splitTextToSize(line, 84) as string[];
+  for (const block of payBlocks) {
+    if (block.tipo === "linea") {
+      doc.setDrawColor(148, 163, 184);
+      doc.setLineWidth(0.2);
+      doc.line(left + 3, py - 0.6, left + 84, py - 0.6);
+      py += 2.4;
+      continue;
+    }
+    doc.setFont("helvetica", block.grassetto ? "bold" : "normal");
+    const wrapped = doc.splitTextToSize(block.testo, 84) as string[];
     doc.text(wrapped, left + 3, py);
     py += wrapped.length * 3.5;
   }

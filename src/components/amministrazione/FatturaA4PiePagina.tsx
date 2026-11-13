@@ -67,13 +67,17 @@ export function FatturaA4PiePagina({
             stampa={nascondiLoghi}
           >
             <p className="text-[12px] font-bold">Pagamento e dilazione</p>
-            {testoPagamento.titolo ? (
-              <p className="mt-0.5">{testoPagamento.titolo}</p>
-            ) : null}
-            <ul className="mt-1 space-y-1">
+            <ul className="mt-1">
               {testoPagamento.righe.map((riga, i) => (
-                <li key={`${riga.voce}-${i}`}>
+                <li
+                  key={`${riga.voce}-${i}`}
+                  className={
+                    i > 0 ? "mt-2 border-t border-slate-400 pt-2" : undefined
+                  }
+                >
+                  <p className="font-semibold">Pagamento:</p>
                   <p>{riga.voce}</p>
+                  <p className="mt-1 font-semibold">{riga.causaleTitolo}</p>
                   <p>{riga.causale}</p>
                 </li>
               ))}
