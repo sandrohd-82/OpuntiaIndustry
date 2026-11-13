@@ -365,9 +365,11 @@ export function buildFatturaA4PdfBlob(input: FatturaA4PdfInput): {
     | { tipo: "testo"; testo: string; grassetto: boolean }
     | { tipo: "linea" };
   const payBlocks: RigaPdf[] = [
+    ...(testoPagamento.righe.length > 0
+      ? [{ tipo: "testo" as const, testo: "Pagamento:", grassetto: true }]
+      : []),
     ...testoPagamento.righe.flatMap((riga, i) => {
       const blocco: RigaPdf[] = [
-        { tipo: "testo", testo: "Pagamento:", grassetto: true },
         { tipo: "testo", testo: riga.voce, grassetto: false },
         { tipo: "testo", testo: riga.causaleTitolo, grassetto: true },
         { tipo: "testo", testo: riga.causale, grassetto: false },
