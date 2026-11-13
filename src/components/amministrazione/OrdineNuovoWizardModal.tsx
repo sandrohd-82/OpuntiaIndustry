@@ -113,6 +113,7 @@ import { todayIsoDate } from "@/lib/amministrazione/fatture";
 import {
   applyTotaleToPiano,
   dataCadeNelFineSettimana,
+  annoDataPagamentoIncompleto,
   emptyPagamentoPiano,
   tipoPagamentoFromPiano,
   type OrdinePagamentoPiano,
@@ -1477,7 +1478,9 @@ export function OrdineNuovoWizardModal({
         pagamentoPiano.rate.some(
           (r, i) =>
             i > 0 &&
-            (!r.dataPagamento || dataCadeNelFineSettimana(r.dataPagamento))
+            (!r.dataPagamento ||
+              annoDataPagamentoIncompleto(r.dataPagamento) ||
+              dataCadeNelFineSettimana(r.dataPagamento))
         )
       ) {
         return false;

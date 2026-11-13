@@ -1,11 +1,11 @@
 "use client";
 
-import { useState } from "react";
 import { ClearableNumberInput } from "@/components/ui/ClearableNumberInput";
 import {
   applicaImportoRata,
   applyTotaleToPiano,
   dataCadeNelFineSettimana,
+  annoDataPagamentoIncompleto,
   ensureRateCount,
   MESSAGGIO_DATA_PAGAMENTO_FESTIVA,
   PAGAMENTO_TIPI_SCADENZA,
@@ -27,15 +27,28 @@ function euro(n: number) {
   });
 }
 
+function avvisoDataPagamento(iso: string): { testo: string; errore: boolean } {
+  if (dataCadeNelFineSettimana(iso)) {
+    return { testo: MESSAGGIO_DATA_PAGAMENTO_FESTIVA, errore: true };
+  }
+  if (annoDataPagamentoIncompleto(iso)) {
+    return {
+      testo: "Continua a digitare l'anno, ad esempio 2026.",
+      errore: false,
+    };
+  }
+  return {
+    testo: "Solo giorni feriali, dal lunedì al venerdì.",
+    errore: false,
+  };
+}
+
 export function OrdinePagamentoPianoFields({
   piano,
   onChange,
   totale,
   compact = false,
 }: Props) {
-  const [dataRifiutata, setDataRifiutata] = useState<Record<number, boolean>>(
-    {}
-  );
   return (
     <div className={compact ? "space-y-2" : "space-y-3"}>
       <div className="grid gap-2 sm:grid-cols-2">
@@ -145,18 +158,12 @@ export function OrdinePagamentoPianoFields({
                     required
                     value={r.dataPagamento ?? ""}
                     aria-invalid={
-                      dataRifiutata[i] ||
                       dataCadeNelFineSettimana(r.dataPagamento ?? "")
                         ? true
                         : undefined
                     }
                     onChange={(e) => {
                       const value = e.target.value;
-                      if (value && dataCadeNelFineSettimana(value)) {
-                        setDataRifiutata((prev) => ({ ...prev, [i]: true }));
-                        return;
-                      }
-                      setDataRifiutata((prev) => ({ ...prev, [i]: false }));
                       const rate = piano.rate.map((x, idx) =>
                         idx === i
                           ? { ...x, dataPagamento: value || null }
@@ -165,22 +172,20 @@ export function OrdinePagamentoPianoFields({
                       onChange({ ...piano, rate });
                     }}
                     className={`w-full rounded-lg border px-3 py-2 ${
-                      dataRifiutata[i] ||
                       dataCadeNelFineSettimana(r.dataPagamento ?? "")
                         ? "border-red-500"
                         : "border-[var(--border)]"
                     }`}
                   />
-                  {dataRifiutata[i] ||
-                  dataCadeNelFineSettimana(r.dataPagamento ?? "") ? (
-                    <span className="mt-1 block text-xs text-red-700">
-                      {MESSAGGIO_DATA_PAGAMENTO_FESTIVA}
-                    </span>
-                  ) : (
-                    <span className="mt-1 block text-xs text-[var(--muted)]">
-                      Solo giorni feriali, dal lunedì al venerdì.
-                    </span>
-                  )}
+                  <span
+                    className={`mt-1 block text-xs ${
+                      avvisoDataPagamento(r.dataPagamento ?? "").errore
+                        ? "text-red-700"
+                        : "text-[var(--muted)]"
+                    }`}
+                  >
+                    {avvisoDataPagamento(r.dataPagamento ?? "").testo}
+                  </span>
                 </label>
               )}
               <label className="block text-sm">

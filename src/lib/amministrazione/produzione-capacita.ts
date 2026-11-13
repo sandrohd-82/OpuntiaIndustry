@@ -3,7 +3,7 @@ import {
   confezionamentoDraftSchema,
   totaleKgConfezionati,
 } from "@/lib/amministrazione/imballaggi-spedizioni";
-import { dataCadeNelFineSettimana } from "@/lib/amministrazione/ordine-pagamento-piano";
+import { dataCadeNelFineSettimana, annoDataPagamentoIncompleto } from "@/lib/amministrazione/ordine-pagamento-piano";
 import {
   ORDINE_UNITA_MISURA,
   quantitaInUnitaBase,
@@ -310,11 +310,14 @@ export const ordineWizardInputSchema = z
         if (
           i > 0 &&
           rata.dataPagamento &&
-          dataCadeNelFineSettimana(rata.dataPagamento)
+          (annoDataPagamentoIncompleto(rata.dataPagamento) ||
+            dataCadeNelFineSettimana(rata.dataPagamento))
         ) {
           ctx.addIssue({
             code: z.ZodIssueCode.custom,
-            message: `La data della rata ${i + 1} non può cadere di sabato o di domenica.`,
+            message: annoDataPagamentoIncompleto(rata.dataPagamento)
+              ? `Completa l'anno della rata ${i + 1}.`
+              : `La data della rata ${i + 1} non può cadere di sabato o di domenica.`,
             path: ["pagamentoPiano", "rate", i, "dataPagamento"],
           });
         }

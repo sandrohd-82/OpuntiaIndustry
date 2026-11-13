@@ -17,16 +17,26 @@ export type PagamentoModalita = "unica" | "dilazione";
 export const MESSAGGIO_DATA_PAGAMENTO_FESTIVA =
   "La data non può cadere di sabato o di domenica.";
 
-/** True se la data ISO (anno-mese-giorno) è sabato o domenica. */
+/**
+ * True se la data ISO (anno-mese-giorno) è sabato o domenica.
+ * Gli anni sotto 1000 sono le cifre intermedie dell'input data
+ * (0002, 0020, 0202 mentre si digita 2026) e non vanno bloccati.
+ */
 export function dataCadeNelFineSettimana(iso: string): boolean {
   const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso);
   if (!match) return false;
-  const giorno = new Date(
-    Number(match[1]),
-    Number(match[2]) - 1,
-    Number(match[3])
-  ).getDay();
-  return giorno === 0 || giorno === 6;
+  const anno = Number(match[1]);
+  if (anno < 1000) return false;
+  const giorno = new Date(0);
+  giorno.setFullYear(anno, Number(match[2]) - 1, Number(match[3]));
+  return giorno.getDay() === 0 || giorno.getDay() === 6;
+}
+
+/** True se l'anno è ancora a metà digitazione, per esempio 0002 o 0202. */
+export function annoDataPagamentoIncompleto(iso: string): boolean {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso);
+  if (!match) return false;
+  return Number(match[1]) < 1000;
 }
 
 export type OrdinePagamentoRata = {
@@ -474,6 +484,17 @@ export const ordinePagamentoPianoSchema = z
         ctx.addIssue({
           code: z.ZodIssueCode.custom,
           message: `Indica la data di pagamento della rata ${i + 1}.`,
+          path: ["rate", i, "dataPagamento"],
+        });
+      }
+      if (
+        i > 0 &&
+        r.dataPagamento &&
+        annoDataPagamentoIncompleto(r.dataPagamento)
+      ) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: `Completa l'anno della rata ${i + 1}.`,
           path: ["rate", i, "dataPagamento"],
         });
       }
