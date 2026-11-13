@@ -24,6 +24,7 @@ import { AnagraficaReferentiSection } from "@/components/amministrazione/Anagraf
 import { AziendaTimelineModal } from "@/components/amministrazione/AziendaTimelineModal";
 import { CodiceTargaBadge } from "@/components/amministrazione/CodiceTargaBadge";
 import { FatturaSyncQueueModal } from "@/components/amministrazione/FatturaSyncQueueModal";
+import { FornitoreAccessoUtenti } from "@/components/amministrazione/FornitoreAccessoUtenti";
 import { FornitoreFormModal } from "@/components/amministrazione/FornitoreFormModal";
 import { FornitoriFiltersPanel } from "@/components/amministrazione/FornitoriFiltersPanel";
 import { MateriaPrimaTagList } from "@/components/amministrazione/MateriaPrimaTagList";
@@ -207,6 +208,9 @@ function FornitoreRow({
                   canEdit={canEdit}
                 />
               </div>
+              {canEdit ? (
+                <FornitoreAccessoUtenti fornitoreId={fornitore.id} />
+              ) : null}
               <div className="sm:col-span-2">
                 <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-[var(--muted)]">
                   Fornitore di

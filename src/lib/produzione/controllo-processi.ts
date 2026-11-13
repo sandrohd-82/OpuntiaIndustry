@@ -239,12 +239,12 @@ const materialeInIngresso: ProcessoControllo = {
           codice: "2h",
           titolo: "Controllo fissaggio",
           testo:
-            "Controllo del fissaggio dei contenitori. Nella bozza il rinvio è scritto «punto 1.b»: la messa in sicurezza è l'obbligo 1e, mentre 1b è il salvataggio delle foto.",
+            "Controllo del fissaggio dei contenitori. L'obbligo di riferimento è il punto 1e, messa in sicurezza del mezzo. Il punto 1b resta il salvataggio delle foto.",
           soggetti: ["fornitore"],
           funzione: "controllo",
           latoFornitore: true,
           riferimento: "1e",
-          nota: "Da confermare se il rinvio deve restare 1b oppure 1e.",
+          nota: "Riferimento confermato: obbligo 1e.",
         },
         {
           codice: "2i",
