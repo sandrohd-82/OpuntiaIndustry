@@ -1,12 +1,17 @@
 import { notFound, redirect } from "next/navigation";
 import { AreaPlaceholder } from "@/components/areas/AreaPlaceholder";
 import { AppHeader } from "@/components/layout/AppHeader";
+import { FogliIngressoElenco } from "@/components/produzione/FogliIngressoElenco";
+import { FoglioIngressoScheda } from "@/components/produzione/FoglioIngressoScheda";
+import {
+  leggiFoglioIngressoAction,
+  listFogliIngressoAction,
+} from "@/app/actions/foglio-ingresso";
 import { ControlloProcessoDettaglio } from "@/components/produzione/ControlloProcessiVista";
 import { LineeGuidaFornitore } from "@/components/produzione/LineeGuidaFornitore";
 import { listLineeGuidaRicevuteAction } from "@/app/actions/haccp-linee-guida";
 import { processoControlloBySlug } from "@/lib/produzione/controllo-processi";
 import { contestoMaterialeIngresso } from "@/lib/produzione/fornitore-accesso-server";
-import { createClient } from "@/lib/supabase/server";
 import {
   AREA_FORNITORI_SECTIONS,
   resolveAreaFornitoriPage,
@@ -16,9 +21,10 @@ import { requireAreaAccess } from "@/lib/areas/guard";
 
 type Props = {
   params: Promise<{ section: string }>;
+  searchParams: Promise<{ foglio?: string }>;
 };
 
-export default async function AreaFornitoriSectionPage({ params }: Props) {
+export default async function AreaFornitoriSectionPage({ params, searchParams }: Props) {
   await requireAreaAccess("area-fornitori");
   const { section } = await params;
   const item = AREA_FORNITORI_SECTIONS.find((s) => s.slug === section);
@@ -69,27 +75,34 @@ export default async function AreaFornitoriSectionPage({ params }: Props) {
         </>
       );
     }
-    let ragioneSociale: string | null = null;
-    if (accesso.esito === "fornitore") {
-      const supabase = await createClient();
-      const { data } = await supabase
-        .from("fornitori")
-        .select("ragione_sociale")
-        .eq("id", accesso.fornitoreId)
-        .is("deleted_at", null)
-        .maybeSingle();
-      ragioneSociale = (data?.ragione_sociale as string | undefined) ?? null;
+    const query = await searchParams;
+    if (query.foglio) {
+      const dettaglio = await leggiFoglioIngressoAction("fornitore", query.foglio);
+      return (
+        <>
+          <AppHeader title={page.label} subtitle={page.description} />
+          <div className="p-6">
+            {dettaglio.success ? (
+              <FoglioIngressoScheda vista="fornitore" foglio={dettaglio.foglio} />
+            ) : (
+              <p className="text-sm text-red-700">{dettaglio.error}</p>
+            )}
+          </div>
+        </>
+      );
     }
+    const elenco = await listFogliIngressoAction("fornitore");
     return (
       <>
         <AppHeader title={page.label} subtitle={page.description} />
-        <div className="p-6">
-          {accesso.esito === "fornitore" ? (
-            <p className="mb-4 text-sm text-slate-700">
-              Anagrafica collegata
-              {ragioneSociale ? `: ${ragioneSociale}` : ""}.
+        <div className="space-y-8 p-6">
+          {elenco.success ? (
+            <FogliIngressoElenco vista="fornitore" fogli={elenco.fogli} fornitori={[]} />
+          ) : (
+            <p className="max-w-xl rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-950">
+              {elenco.error}
             </p>
-          ) : null}
+          )}
           <ControlloProcessoDettaglio processo={processo} soloFornitore />
         </div>
       </>

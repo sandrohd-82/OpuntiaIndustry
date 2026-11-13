@@ -61,8 +61,8 @@ export function ControlloProcessoDettaglio({
   return (
     <div className="mx-auto max-w-3xl space-y-6">
       <section className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-950">
-        Logica salvata. Compilazione, foto, firme e SMS non sono ancora attivi:
-        si aggiungono voce per voce.
+        Logica salvata. Sul foglio si registrano i controlli e i dati già eseguibili.
+        Foto, DDT, firme OTP, partenza, arrivo e chiusura non sono ancora attivi.
       </section>
       {soloFornitore ? (
         <p className="text-sm text-[var(--muted)]">

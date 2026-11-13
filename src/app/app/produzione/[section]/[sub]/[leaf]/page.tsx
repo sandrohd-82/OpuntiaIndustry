@@ -1,6 +1,12 @@
 import { notFound, redirect } from "next/navigation";
 import { AppHeader } from "@/components/layout/AppHeader";
 import { ControlloProcessoDettaglio } from "@/components/produzione/ControlloProcessiVista";
+import { FogliIngressoElenco } from "@/components/produzione/FogliIngressoElenco";
+import { FoglioIngressoScheda } from "@/components/produzione/FoglioIngressoScheda";
+import {
+  leggiFoglioIngressoAction,
+  listFogliIngressoAction,
+} from "@/app/actions/foglio-ingresso";
 import { processoControlloBySlug } from "@/lib/produzione/controllo-processi";
 import { MacchinariBoard } from "@/components/produzione/MacchinariBoard";
 import { PostazioniBoard } from "@/components/produzione/PostazioniBoard";
@@ -10,9 +16,10 @@ import { resolveProduzioneDynamic } from "../../../_resolve";
 
 type Props = {
   params: Promise<{ section: string; sub: string; leaf: string }>;
+  searchParams: Promise<{ foglio?: string }>;
 };
 
-export default async function ProduzioneLeafPage({ params }: Props) {
+export default async function ProduzioneLeafPage({ params, searchParams }: Props) {
   await requireAreaAccess("produzione");
 
   const { section, sub, leaf } = await params;
@@ -22,6 +29,42 @@ export default async function ProduzioneLeafPage({ params }: Props) {
   ) {
     const processo = processoControlloBySlug(leaf);
     if (!processo) notFound();
+    if (leaf === "materiale-in-ingresso") {
+      const query = await searchParams;
+      if (query.foglio) {
+        const dettaglio = await leggiFoglioIngressoAction("produzione", query.foglio);
+        return (
+          <>
+            <AppHeader title={processo.titolo} subtitle={processo.sintesi} />
+            <div className="p-6">
+              {dettaglio.success ? (
+                <FoglioIngressoScheda vista="produzione" foglio={dettaglio.foglio} />
+              ) : (
+                <p className="text-sm text-red-700">{dettaglio.error}</p>
+              )}
+            </div>
+          </>
+        );
+      }
+      const elenco = await listFogliIngressoAction("produzione");
+      return (
+        <>
+          <AppHeader title={processo.titolo} subtitle={processo.sintesi} />
+          <div className="space-y-8 p-6">
+            {elenco.success ? (
+              <FogliIngressoElenco
+                vista="produzione"
+                fogli={elenco.fogli}
+                fornitori={elenco.fornitori}
+              />
+            ) : (
+              <p className="text-sm text-red-700">{elenco.error}</p>
+            )}
+            <ControlloProcessoDettaglio processo={processo} />
+          </div>
+        </>
+      );
+    }
     return (
       <>
         <AppHeader title={processo.titolo} subtitle={processo.sintesi} />
