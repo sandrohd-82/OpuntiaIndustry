@@ -9,9 +9,7 @@ import {
 } from "@/lib/amministrazione/fattura-a4-documento";
 import { formatIbanDisplay } from "@/lib/iban";
 import {
-  labelModalitaPagamentoFattura,
-  labelTipoScadenza,
-  testoCausaleRataDilazione,
+  righeTestoPagamento,
   type OrdinePagamentoPiano,
 } from "@/lib/amministrazione/ordine-pagamento-piano";
 import {
@@ -348,44 +346,29 @@ export function buildFatturaA4PdfBlob(input: FatturaA4PdfInput): {
   y += 4;
 
   const piano = input.piano;
-  const pagamento = piano
-    ? labelModalitaPagamentoFattura(piano)
-    : "Pagamento";
   const dataDocLabel = formatPreventivoDataIt(input.dataDocumento);
-  const rate =
-    piano?.modalita === "dilazione"
-      ? piano.rate.flatMap((rata, i) => {
-          const quando =
-            i === 0
-              ? labelTipoScadenza(rata.tipoScadenza ?? piano.tipoUnica)
-              : rata.dataPagamento
-                ? formatPreventivoDataIt(rata.dataPagamento)
-                : "data da definire";
-          return [
-            `Rata ${i + 1}: ${quando} · ${euro(rata.importo)} €`,
-            `Causale ${i + 1}: ${testoCausaleRataDilazione({
-              indice: i,
-              totaleRate: piano.rate.length,
-              numeroFattura: input.numeroFattura || "—",
-              dataDocumento: dataDocLabel,
-            })}`,
-          ];
-        })
-      : [];
+  const testoPagamento = piano
+    ? righeTestoPagamento({
+        piano,
+        totale: totals.totale,
+        numeroFattura: input.numeroFattura || "—",
+        dataDocumento: dataDocLabel,
+        dataRata: formatPreventivoDataIt,
+      })
+    : {
+        titolo: "Pagamento",
+        righe: [] as Array<{ voce: string; causale: string }>,
+      };
   const coordinate = [
     `Banca: ${AGRINSICILIA_COORDINATE.banca}`,
     `IBAN: ${formatIbanDisplay(AGRINSICILIA_COORDINATE.iban)}`,
     `BIC: ${AGRINSICILIA_COORDINATE.bic}`,
   ];
-  const payLines =
-    piano?.modalita === "dilazione"
-      ? [pagamento, ...rate, ...coordinate]
-      : [
-          pagamento,
-          `Importo Totale: ${euro(totals.totale)} €`,
-          `Causale: Pagamento Fattura n. ${input.numeroFattura || "—"} del ${dataDocLabel}.`,
-          ...coordinate,
-        ];
+  const payLines = [
+    ...(testoPagamento.titolo ? [testoPagamento.titolo] : []),
+    ...testoPagamento.righe.flatMap((riga) => [riga.voce, riga.causale]),
+    ...coordinate,
+  ];
   doc.setFont("helvetica", "normal");
   doc.setFontSize(8);
   const altezzaTesto = payLines.reduce((sum, line) => {

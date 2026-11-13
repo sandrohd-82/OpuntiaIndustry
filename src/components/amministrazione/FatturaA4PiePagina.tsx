@@ -8,9 +8,7 @@ import {
 } from "@/lib/amministrazione/preventivo-letterhead";
 import { formatIbanDisplay } from "@/lib/iban";
 import {
-  labelModalitaPagamentoFattura,
-  labelTipoScadenza,
-  testoCausaleRataDilazione,
+  righeTestoPagamento,
   type OrdinePagamentoPiano,
 } from "@/lib/amministrazione/ordine-pagamento-piano";
 import {
@@ -51,6 +49,13 @@ export function FatturaA4PiePagina({
   totale,
   nascondiLoghi = false,
 }: Props) {
+  const testoPagamento = righeTestoPagamento({
+    piano,
+    totale,
+    numeroFattura: numero,
+    dataDocumento: formatPreventivoDataIt(dataDocumento),
+    dataRata: formatPreventivoDataIt,
+  });
   return (
     <div className="flex flex-1 flex-col pt-3">
       <div className="flex-1" aria-hidden />
@@ -62,41 +67,17 @@ export function FatturaA4PiePagina({
             stampa={nascondiLoghi}
           >
             <p className="text-[12px] font-bold">Pagamento e dilazione</p>
-            <p className="mt-0.5">{labelModalitaPagamentoFattura(piano)}</p>
-            {piano.modalita === "dilazione" ? (
-              <ul className="mt-1 space-y-1">
-                {piano.rate.map((r, i) => (
-                  <li key={i}>
-                    <p>
-                      Rata {i + 1}:{" "}
-                      {i === 0
-                        ? labelTipoScadenza(r.tipoScadenza ?? piano.tipoUnica)
-                        : r.dataPagamento
-                          ? formatPreventivoDataIt(r.dataPagamento)
-                          : "data da definire"}{" "}
-                      · {euro(r.importo)} €
-                    </p>
-                    <p>
-                      Causale {i + 1}:{" "}
-                      {testoCausaleRataDilazione({
-                        indice: i,
-                        totaleRate: piano.rate.length,
-                        numeroFattura: numero,
-                        dataDocumento: formatPreventivoDataIt(dataDocumento),
-                      })}
-                    </p>
-                  </li>
-                ))}
-              </ul>
-            ) : (
-              <>
-                <p className="mt-1">Importo Totale: {euro(totale)} €</p>
-                <p>
-                  Causale: Pagamento Fattura n. {numero} del{" "}
-                  {formatPreventivoDataIt(dataDocumento)}.
-                </p>
-              </>
-            )}
+            {testoPagamento.titolo ? (
+              <p className="mt-0.5">{testoPagamento.titolo}</p>
+            ) : null}
+            <ul className="mt-1 space-y-1">
+              {testoPagamento.righe.map((riga, i) => (
+                <li key={`${riga.voce}-${i}`}>
+                  <p>{riga.voce}</p>
+                  <p>{riga.causale}</p>
+                </li>
+              ))}
+            </ul>
             <div className="mt-2 space-y-0.5">
               <PreventivoDocQa
                 domanda="Banca"

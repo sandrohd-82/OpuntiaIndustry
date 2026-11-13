@@ -82,6 +82,98 @@ function ordinaleRomano(n: number): string {
   return out;
 }
 
+function euroDocumento(n: number): string {
+  return n.toLocaleString("it-IT", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  });
+}
+
+/** Percentuali intere che sommano 100. Il resto va alle quote con la parte decimale più alta. */
+export function percentualiSuTotale(importi: number[], totale: number): number[] {
+  const n = importi.length;
+  if (n === 0) return [];
+  const tot = roundMoney(Math.max(0, totale));
+  if (tot <= 0) return importi.map(() => 0);
+  const basi = importi.map((v) => Math.floor((Math.max(0, v) / tot) * 100));
+  let resto = 100 - basi.reduce((s, v) => s + v, 0);
+  const ordine = importi
+    .map((v, i) => ({
+      i,
+      frac: (Math.max(0, v) / tot) * 100 - basi[i],
+    }))
+    .sort((a, b) => b.frac - a.frac || a.i - b.i);
+  const out = [...basi];
+  for (const voce of ordine) {
+    if (resto <= 0) break;
+    out[voce.i] += 1;
+    resto -= 1;
+  }
+  return out;
+}
+
+export type RigaTestoPagamento = {
+  voce: string;
+  causale: string;
+};
+
+/** Testo del riquadro pagamento. In dilazione ogni riga ha sotto la propria causale. */
+export function righeTestoPagamento(input: {
+  piano: OrdinePagamentoPiano;
+  totale: number;
+  numeroFattura: string;
+  dataDocumento: string;
+  dataRata?: (iso: string) => string;
+}): { titolo: string | null; righe: RigaTestoPagamento[] } {
+  const numero = input.numeroFattura.trim() || "—";
+  const dataDoc = input.dataDocumento.trim() || "—";
+  const dataRata = input.dataRata ?? ((iso: string) => iso);
+  if (input.piano.modalita !== "dilazione") {
+    const tipo = labelTipoScadenza(input.piano.tipoUnica);
+    const importo = euroDocumento(roundMoney(input.totale));
+    return {
+      titolo: null,
+      righe: [
+        {
+          voce: `Pagamento ${tipo} = € ${importo}`,
+          causale: `Causale: Pagamento Fattura n. ${numero} del ${dataDoc}.`,
+        },
+      ],
+    };
+  }
+  const rate = input.piano.rate;
+  const quote = percentualiSuTotale(
+    rate.map((r) => r.importo),
+    input.totale
+  );
+  return {
+    titolo: "Pagamento:",
+    righe: rate.map((rata, i) => {
+      const ultima = i >= rate.length - 1;
+      const quando = rata.dataPagamento
+        ? dataRata(rata.dataPagamento)
+        : "data da definire";
+      const quota = `${quote[i] ?? 0}%`;
+      const cifra = `€ ${euroDocumento(rata.importo)}`;
+      let voce = `- ${quota} ${ordinaleRomano(i + 1)} Rata (${quando}) = ${cifra}`;
+      if (i === 0) {
+        voce = `- ${quota} ${labelTipoScadenza(rata.tipoScadenza ?? input.piano.tipoUnica)} = ${cifra}`;
+      } else if (ultima) {
+        voce = `- ${quota} Saldo (${quando}) = ${cifra}`;
+      }
+      return {
+        voce,
+        causale: `Causale ${i + 1}: ${testoCausaleRataDilazione({
+          indice: i,
+          totaleRate: rate.length,
+          numeroFattura: numero,
+          dataDocumento: dataDoc,
+        })}`,
+      };
+    }),
+  };
+}
+
 /** Causale di una rata. L'ultima è il saldo, le precedenti la dilazione. */
 export function testoCausaleRataDilazione(input: {
   indice: number;
