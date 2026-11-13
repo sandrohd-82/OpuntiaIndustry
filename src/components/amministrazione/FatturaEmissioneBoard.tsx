@@ -47,7 +47,6 @@ export function FatturaEmissioneBoard() {
   const [piano, setPiano] = useState<OrdinePagamentoPiano>(emptyPagamentoPiano());
   const [sendToSdi, setSendToSdi] = useState(true);
   const [sendCourtesyEmail, setSendCourtesyEmail] = useState(true);
-  const [dryRunSdi, setDryRunSdi] = useState(false);
   const [noteDocumento, setNoteDocumento] = useState("");
   const [numeroBozza, setNumeroBozza] = useState("");
   const [commerciale, setCommerciale] =
@@ -429,7 +428,7 @@ export function FatturaEmissioneBoard() {
       piano: applyTotaleToPiano(piano, totals.totale),
       sendToSdi,
       sendCourtesyEmail,
-      dryRunSdi,
+      dryRunSdi: false,
       ordineId: null,
       noteDocumento,
       righe: [
@@ -932,17 +931,6 @@ export function FatturaEmissioneBoard() {
               ? "Mail di cortesia"
               : "Mail di cortesia al cliente, solo se lo SDI parte"}
           </label>
-          {prova ? null : (
-            <label className="inline-flex items-center gap-2 text-[var(--muted)]">
-              <input
-                type="checkbox"
-                checked={dryRunSdi}
-                onChange={(e) => setDryRunSdi(e.target.checked)}
-                disabled={!sendToSdi}
-              />
-              Dry-run SDI (test)
-            </label>
-          )}
         </div>
         {prova ? (
           <p className="text-sm text-amber-800">

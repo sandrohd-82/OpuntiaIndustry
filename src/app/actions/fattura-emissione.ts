@@ -205,7 +205,11 @@ export type CreateAndSendResult =
 export async function createAndSendInvoiceAction(
   raw: unknown
 ): Promise<CreateAndSendResult> {
-  const { auth } = await requireAreaAccess("amministrazione");
+  const { auth } = await requireAnyAreaAccess([
+    "commerciale",
+    "area-fiscale",
+    "amministrazione",
+  ]);
   const parsedZod = emissioneInputSchema.safeParse(raw);
   if (!parsedZod.success) {
     return {
@@ -214,7 +218,8 @@ export async function createAndSendInvoiceAction(
     };
   }
   const parsed = parsedZod.data;
-  const supabase = await createClient();
+  const vistoDa = await createClient();
+  const supabase = createServiceClient();
 
   const { data: clienteData, error: clienteErr } = await supabase
     .from("clienti")
@@ -249,7 +254,7 @@ export async function createAndSendInvoiceAction(
   let numeroInterno: string;
   let numeroFattura: string;
   try {
-    const { data, error } = await supabase.rpc("assegna_numero_fattura_sdi", {
+    const { data, error } = await vistoDa.rpc("assegna_numero_fattura_sdi", {
       p_fattura_id: null,
       p_data: parsed.dataDocumento,
     });
@@ -327,7 +332,7 @@ export async function createAndSendInvoiceAction(
 
   let created: Awaited<ReturnType<typeof createIssuedDocument>>;
   try {
-    created = await createIssuedDocument(ficPayload);
+    created = await createIssuedDocument(ficPayload, { includiPdf: false });
   } catch (e) {
     await writeAuditLog({
       entity_type: "fatture_emesse",
@@ -359,10 +364,10 @@ export async function createAndSendInvoiceAction(
       );
       await sendIssuedDocumentToSdi({
         ficId: created.ficId,
-        dryRun: parsed.dryRunSdi,
+        dryRun: false,
       });
       sdiSent = true;
-      eiStatus = parsed.dryRunSdi ? "dry_run" : "sent";
+      eiStatus = "sent";
     } catch (e) {
       eiStatus = "send_error";
       await writeAuditLog({
@@ -531,7 +536,7 @@ export async function createAndSendInvoiceAction(
       eiStatus,
       sdiSent,
       courtesyEmailSent,
-      dryRunSdi: parsed.dryRunSdi,
+      dryRunSdi: false,
     },
   });
 
@@ -592,9 +597,8 @@ export async function listCaselleNuovaFatturaAction(): Promise<
 }
 
 /**
- * Invia la bozza mail della nuova fattura.
- * Con la fase di prova di questa pagina il destinatario è solo l'indirizzo
- * di controllo e non esiste alcun invio SDI in questa funzione.
+ * Invia la bozza mail della nuova fattura al destinatario indicato.
+ * Parte solo dopo che la fattura è stata inviata allo SDI.
  */
 export async function inviaMailBozzaNuovaFatturaAction(raw: unknown): Promise<
   | { success: true; prova: boolean }
@@ -624,10 +628,10 @@ export async function inviaMailBozzaNuovaFatturaAction(raw: unknown): Promise<
         error: "La mail parte dopo la fattura inviata allo SDI.",
       };
     }
-    const supabase = await createClient();
-    const { data: fattura, error: fatturaErr } = await supabase
+    const lettura = createServiceClient();
+    const { data: fattura, error: fatturaErr } = await lettura
       .from("fatture_emesse")
-      .select("id, created_by, deleted_at")
+      .select("id, created_by, deleted_at, ei_status")
       .eq("id", fatturaId)
       .maybeSingle();
     if (fatturaErr) return { success: false, error: fatturaErr.message };
@@ -636,6 +640,12 @@ export async function inviaMailBozzaNuovaFatturaAction(raw: unknown): Promise<
     }
     if (fattura.created_by && fattura.created_by !== auth.userId) {
       return { success: false, error: "Fattura di un altro operatore." };
+    }
+    if (fattura.ei_status !== "sent") {
+      return {
+        success: false,
+        error: "La mail parte solo dopo l'invio della fattura allo SDI.",
+      };
     }
   }
 

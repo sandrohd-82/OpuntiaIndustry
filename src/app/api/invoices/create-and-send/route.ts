@@ -21,9 +21,13 @@ export async function POST(request: Request) {
       { status: 403 }
     );
   }
-  if (!userCanAccessArea(auth.areas, "amministrazione")) {
+  if (
+    !userCanAccessArea(auth.areas, "amministrazione") &&
+    !userCanAccessArea(auth.areas, "commerciale") &&
+    !userCanAccessArea(auth.areas, "area-fiscale")
+  ) {
     return NextResponse.json(
-      { success: false, error: "Non hai permesso per Amministrazione." },
+      { success: false, error: "Non hai permesso per emettere la fattura." },
       { status: 403 }
     );
   }
