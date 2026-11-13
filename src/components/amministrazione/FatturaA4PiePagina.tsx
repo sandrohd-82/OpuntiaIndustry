@@ -13,7 +13,6 @@ import {
 } from "@/lib/amministrazione/ordine-pagamento-piano";
 import {
   PreventivoDocField,
-  PreventivoDocQa,
 } from "@/components/amministrazione/PreventivoDocPencil";
 
 type Props = {
@@ -67,36 +66,37 @@ export function FatturaA4PiePagina({
             stampa={nascondiLoghi}
           >
             <p className="text-[12px] font-bold">Pagamento e dilazione</p>
-            {testoPagamento.righe.length > 0 ? (
-              <p className="mt-1 font-semibold">Pagamento:</p>
-            ) : null}
-            <ul>
+            <ul className="mt-1">
               {testoPagamento.righe.map((riga, i) => (
                 <li
                   key={`${riga.voce}-${i}`}
-                  className={
-                    i > 0 ? "mt-2 border-t border-slate-400 pt-2" : undefined
-                  }
+                  className={i > 0 ? "mt-2" : undefined}
                 >
+                  <p className="font-bold">Pagamento {i + 1}</p>
                   <p>{riga.voce}</p>
-                  <p className="mt-1 font-semibold">{riga.causaleTitolo}</p>
+                  <p className="mt-1 font-bold">{riga.causaleTitolo}</p>
                   <p>{riga.causale}</p>
                 </li>
               ))}
             </ul>
-            <div className="mt-2 space-y-0.5">
-              <PreventivoDocQa
-                domanda="Banca"
-                risposta={AGRINSICILIA_COORDINATE.banca}
-              />
-              <PreventivoDocQa
-                domanda="IBAN"
-                risposta={formatIbanDisplay(AGRINSICILIA_COORDINATE.iban)}
-              />
-              <PreventivoDocQa
-                domanda="BIC"
-                risposta={AGRINSICILIA_COORDINATE.bic}
-              />
+            {testoPagamento.righe.length > 0 ? (
+              <div className="my-2 flex justify-center" aria-hidden>
+                <div className="h-px w-[60%] bg-slate-400" />
+              </div>
+            ) : null}
+            <div className="space-y-0.5">
+              <p>
+                <span className="font-bold">Banca:</span>{" "}
+                {AGRINSICILIA_COORDINATE.banca}
+              </p>
+              <p>
+                <span className="font-bold">IBAN:</span>{" "}
+                {formatIbanDisplay(AGRINSICILIA_COORDINATE.iban)}
+              </p>
+              <p>
+                <span className="font-bold">BIC:</span>{" "}
+                {AGRINSICILIA_COORDINATE.bic}
+              </p>
             </div>
           </PreventivoDocField>
         </div>

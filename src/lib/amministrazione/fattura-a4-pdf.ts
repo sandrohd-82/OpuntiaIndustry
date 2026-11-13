@@ -357,33 +357,50 @@ export function buildFatturaA4PdfBlob(input: FatturaA4PdfInput): {
       })
     : { titolo: null, righe: [] };
   const coordinate = [
-    `Banca: ${AGRINSICILIA_COORDINATE.banca}`,
-    `IBAN: ${formatIbanDisplay(AGRINSICILIA_COORDINATE.iban)}`,
-    `BIC: ${AGRINSICILIA_COORDINATE.bic}`,
+    { etichetta: "Banca:", valore: AGRINSICILIA_COORDINATE.banca },
+    {
+      etichetta: "IBAN:",
+      valore: formatIbanDisplay(AGRINSICILIA_COORDINATE.iban),
+    },
+    { etichetta: "BIC:", valore: AGRINSICILIA_COORDINATE.bic },
   ];
   type RigaPdf =
     | { tipo: "testo"; testo: string; grassetto: boolean }
+    | { tipo: "coppia"; etichetta: string; valore: string }
     | { tipo: "linea" };
   const payBlocks: RigaPdf[] = [
+    ...testoPagamento.righe.flatMap((riga, i): RigaPdf[] => [
+      { tipo: "testo", testo: `Pagamento ${i + 1}`, grassetto: true },
+      { tipo: "testo", testo: riga.voce, grassetto: false },
+      { tipo: "testo", testo: riga.causaleTitolo, grassetto: true },
+      { tipo: "testo", testo: riga.causale, grassetto: false },
+    ]),
     ...(testoPagamento.righe.length > 0
-      ? [{ tipo: "testo" as const, testo: "Pagamento:", grassetto: true }]
+      ? [{ tipo: "linea" as const }]
       : []),
-    ...testoPagamento.righe.flatMap((riga, i) => {
-      const blocco: RigaPdf[] = [
-        { tipo: "testo", testo: riga.voce, grassetto: false },
-        { tipo: "testo", testo: riga.causaleTitolo, grassetto: true },
-        { tipo: "testo", testo: riga.causale, grassetto: false },
-      ];
-      return i > 0 ? [{ tipo: "linea" } as RigaPdf, ...blocco] : blocco;
-    }),
     ...coordinate.map(
-      (testo): RigaPdf => ({ tipo: "testo", testo, grassetto: false })
+      (riga): RigaPdf => ({
+        tipo: "coppia",
+        etichetta: riga.etichetta,
+        valore: riga.valore,
+      })
     ),
   ];
   doc.setFont("helvetica", "normal");
   doc.setFontSize(8);
   const altezzaTesto = payBlocks.reduce((sum, block) => {
-    if (block.tipo === "linea") return sum + 2.4;
+    if (block.tipo === "linea") return sum + 3.2;
+    if (block.tipo === "coppia") {
+      doc.setFont("helvetica", "bold");
+      const etichetta = `${block.etichetta} `;
+      const larghezzaEtichetta = doc.getTextWidth(etichetta);
+      doc.setFont("helvetica", "normal");
+      const wrapped = doc.splitTextToSize(
+        block.valore,
+        Math.max(84 - larghezzaEtichetta, 20)
+      ) as string[];
+      return sum + Math.max(wrapped.length, 1) * 3.5;
+    }
     const wrapped = doc.splitTextToSize(block.testo, 84) as string[];
     return sum + Math.max(wrapped.length, 1) * 3.5;
   }, 0);
@@ -411,12 +428,30 @@ export function buildFatturaA4PdfBlob(input: FatturaA4PdfInput): {
   doc.setFont("helvetica", "normal");
   doc.setFontSize(8);
   let py = y + 11;
+  const colLeft = left;
+  const colRight = 105;
+  const lineW = (colRight - colLeft) * 0.6;
+  const lineX = colLeft + (colRight - colLeft - lineW) / 2;
   for (const block of payBlocks) {
     if (block.tipo === "linea") {
       doc.setDrawColor(148, 163, 184);
       doc.setLineWidth(0.2);
-      doc.line(left + 3, py - 0.6, left + 84, py - 0.6);
-      py += 2.4;
+      doc.line(lineX, py - 0.4, lineX + lineW, py - 0.4);
+      py += 3.2;
+      continue;
+    }
+    if (block.tipo === "coppia") {
+      doc.setFont("helvetica", "bold");
+      const etichetta = `${block.etichetta} `;
+      const larghezzaEtichetta = doc.getTextWidth(etichetta);
+      doc.text(etichetta, left + 3, py);
+      doc.setFont("helvetica", "normal");
+      const wrapped = doc.splitTextToSize(
+        block.valore,
+        Math.max(84 - larghezzaEtichetta, 20)
+      ) as string[];
+      doc.text(wrapped, left + 3 + larghezzaEtichetta, py);
+      py += wrapped.length * 3.5;
       continue;
     }
     doc.setFont("helvetica", block.grassetto ? "bold" : "normal");
