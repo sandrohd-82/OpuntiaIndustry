@@ -562,7 +562,7 @@ const mailBozzaSchema = z.object({
   pdfBase64: z.string().min(32).max(8_000_000),
   pdfName: z.string().trim().min(5).max(120),
   clienteId: z.string().uuid(),
-  to: z.string().trim().max(200).optional(),
+  to: z.string().trim().max(2000).optional(),
   fatturaId: z.string().uuid().nullable().optional(),
 });
 
@@ -616,9 +616,18 @@ export async function inviaMailBozzaNuovaFatturaAction(raw: unknown): Promise<
   const destinatario = FASE_TEST_NUOVA_FATTURA
     ? EMAIL_CONTROLLO_DEFAULT
     : String(parsed.data.to ?? "").trim();
-  if (!destinatario.includes("@")) {
-    return { success: false, error: "Manca la mail di destinazione." };
+  const indirizzi = destinatario
+    .split(/[,;]/)
+    .map((voce) => voce.trim().toLowerCase())
+    .filter(Boolean);
+  const indirizziUnici = [...new Set(indirizzi)];
+  if (
+    indirizziUnici.length === 0 ||
+    indirizziUnici.some((voce) => !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(voce))
+  ) {
+    return { success: false, error: "Manca una mail di destinazione valida." };
   }
+  const destinatarioMail = indirizziUnici.join(", ");
 
   if (!FASE_TEST_NUOVA_FATTURA) {
     const fatturaId = parsed.data.fatturaId ?? "";
@@ -673,7 +682,7 @@ export async function inviaMailBozzaNuovaFatturaAction(raw: unknown): Promise<
   try {
     await sendMailViaAccount({
       account: account as AccountRow,
-      to: destinatario,
+      to: destinatarioMail,
       subject: parsed.data.subject,
       text: parsed.data.body,
       attachments: [

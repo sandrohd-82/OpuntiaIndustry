@@ -14,6 +14,7 @@ import { ClienteSelectField } from "@/components/amministrazione/ClienteSelectFi
 import { FatturaEmissioneDocumento } from "@/components/amministrazione/FatturaEmissioneDocumento";
 import { FatturaEmissioneScontiProdotto } from "@/components/amministrazione/FatturaEmissioneScontiProdotto";
 import { OrdinePagamentoPianoFields } from "@/components/amministrazione/OrdinePagamentoPianoFields";
+import { SpedizioneDestinatariMailField } from "@/components/amministrazione/SpedizioneDestinatarioMailField";
 import { usePrenotazioneNumero } from "@/components/amministrazione/FatturaNumeroPrenotato";
 import { ClearableNumberInput } from "@/components/ui/ClearableNumberInput";
 import type { Cliente } from "@/lib/amministrazione/clienti";
@@ -233,6 +234,32 @@ export function FatturaEmissioneBoard() {
     });
   }, [sendCourtesyEmail, numeroBozza]);
 
+  const chiaveMailCliente = cliente
+    ? [
+        cliente.id,
+        cliente.email,
+        cliente.pec,
+        ...(cliente.emailGeneriche ?? []),
+      ].join("\n")
+    : "";
+
+  useEffect(() => {
+    if (prova) {
+      setMailTo(EMAIL_CONTROLLO_DEFAULT);
+      return;
+    }
+    if (!chiaveMailCliente) {
+      setMailTo("");
+      return;
+    }
+    const prima = chiaveMailCliente
+      .split("\n")
+      .slice(1)
+      .map((voce) => voce.trim().toLowerCase())
+      .find((voce) => voce.includes("@"));
+    setMailTo(prima ?? "");
+  }, [chiaveMailCliente, prova]);
+
   useEffect(() => {
     if (!sendCourtesyEmail || !cliente) return;
     let cancel = false;
@@ -318,8 +345,15 @@ export function FatturaEmissioneBoard() {
       return;
     }
     const destinazione = prova ? EMAIL_CONTROLLO_DEFAULT : mailTo.trim();
-    if (!destinazione.includes("@")) {
-      setError("Manca la mail di destinazione.");
+    const indirizzi = destinazione
+      .split(/[,;]/)
+      .map((voce) => voce.trim())
+      .filter(Boolean);
+    if (
+      indirizzi.length === 0 ||
+      indirizzi.some((voce) => !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(voce))
+    ) {
+      setError("Indica almeno una mail di destinazione valida.");
       return;
     }
     if (!allegato) {
@@ -971,17 +1005,27 @@ export function FatturaEmissioneBoard() {
               className="w-full rounded-lg border border-[var(--border)] px-3 py-2 text-sm"
             />
           </label>
-          <label className="block text-sm">
-            <span className="mb-1 block font-medium">Mail di destinazione</span>
-            <input
-              value={prova ? EMAIL_CONTROLLO_DEFAULT : mailTo}
-              readOnly={prova}
-              onChange={(e) => {
-                if (!prova) setMailTo(e.target.value);
-              }}
-              className="w-full rounded-lg border border-[var(--border)] px-3 py-2 text-sm read-only:bg-slate-50"
+          {prova ? (
+            <label className="block text-sm">
+              <span className="mb-1 block font-medium">Mail di destinazione</span>
+              <input
+                value={EMAIL_CONTROLLO_DEFAULT}
+                readOnly
+                className="w-full rounded-lg border border-[var(--border)] px-3 py-2 text-sm read-only:bg-slate-50"
+              />
+            </label>
+          ) : (
+            <SpedizioneDestinatariMailField
+              value={mailTo}
+              onChange={setMailTo}
+              anagrafica={
+                cliente ? { tipo: "cliente", id: cliente.id } : null
+              }
+              emailAzienda={cliente?.email ?? ""}
+              emailPec={cliente?.pec ?? ""}
+              emailGeneriche={cliente?.emailGeneriche ?? []}
             />
-          </label>
+          )}
           <label className="block text-sm">
             <span className="mb-1 block font-medium">Corpo mail</span>
             <textarea
