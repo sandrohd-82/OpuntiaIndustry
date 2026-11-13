@@ -3,6 +3,7 @@ import {
   confezionamentoDraftSchema,
   totaleKgConfezionati,
 } from "@/lib/amministrazione/imballaggi-spedizioni";
+import { dataCadeNelFineSettimana } from "@/lib/amministrazione/ordine-pagamento-piano";
 import {
   ORDINE_UNITA_MISURA,
   quantitaInUnitaBase,
@@ -304,6 +305,21 @@ export const ordineWizardInputSchema = z
     accordoGiustificazione: z.string().trim().max(500).optional().default(""),
   })
   .superRefine((val, ctx) => {
+    if (val.pagamentoPiano?.modalita === "dilazione") {
+      val.pagamentoPiano.rate.forEach((rata, i) => {
+        if (
+          i > 0 &&
+          rata.dataPagamento &&
+          dataCadeNelFineSettimana(rata.dataPagamento)
+        ) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            message: `La data della rata ${i + 1} non può cadere di sabato o di domenica.`,
+            path: ["pagamentoPiano", "rate", i, "dataPagamento"],
+          });
+        }
+      });
+    }
     if (val.ritiroInSede) {
       if (!val.sedeRitiroId) {
         ctx.addIssue({

@@ -1,10 +1,13 @@
 "use client";
 
+import { useState } from "react";
 import { ClearableNumberInput } from "@/components/ui/ClearableNumberInput";
 import {
   applicaImportoRata,
   applyTotaleToPiano,
+  dataCadeNelFineSettimana,
   ensureRateCount,
+  MESSAGGIO_DATA_PAGAMENTO_FESTIVA,
   PAGAMENTO_TIPI_SCADENZA,
   type OrdinePagamentoPiano,
   type PagamentoTipoScadenza,
@@ -30,6 +33,9 @@ export function OrdinePagamentoPianoFields({
   totale,
   compact = false,
 }: Props) {
+  const [dataRifiutata, setDataRifiutata] = useState<Record<number, boolean>>(
+    {}
+  );
   return (
     <div className={compact ? "space-y-2" : "space-y-3"}>
       <div className="grid gap-2 sm:grid-cols-2">
@@ -138,16 +144,43 @@ export function OrdinePagamentoPianoFields({
                     type="date"
                     required
                     value={r.dataPagamento ?? ""}
+                    aria-invalid={
+                      dataRifiutata[i] ||
+                      dataCadeNelFineSettimana(r.dataPagamento ?? "")
+                        ? true
+                        : undefined
+                    }
                     onChange={(e) => {
+                      const value = e.target.value;
+                      if (value && dataCadeNelFineSettimana(value)) {
+                        setDataRifiutata((prev) => ({ ...prev, [i]: true }));
+                        return;
+                      }
+                      setDataRifiutata((prev) => ({ ...prev, [i]: false }));
                       const rate = piano.rate.map((x, idx) =>
                         idx === i
-                          ? { ...x, dataPagamento: e.target.value || null }
+                          ? { ...x, dataPagamento: value || null }
                           : x
                       );
                       onChange({ ...piano, rate });
                     }}
-                    className="w-full rounded-lg border border-[var(--border)] px-3 py-2"
+                    className={`w-full rounded-lg border px-3 py-2 ${
+                      dataRifiutata[i] ||
+                      dataCadeNelFineSettimana(r.dataPagamento ?? "")
+                        ? "border-red-500"
+                        : "border-[var(--border)]"
+                    }`}
                   />
+                  {dataRifiutata[i] ||
+                  dataCadeNelFineSettimana(r.dataPagamento ?? "") ? (
+                    <span className="mt-1 block text-xs text-red-700">
+                      {MESSAGGIO_DATA_PAGAMENTO_FESTIVA}
+                    </span>
+                  ) : (
+                    <span className="mt-1 block text-xs text-[var(--muted)]">
+                      Solo giorni feriali, dal lunedì al venerdì.
+                    </span>
+                  )}
                 </label>
               )}
               <label className="block text-sm">

@@ -14,6 +14,21 @@ export type PagamentoTipoScadenza =
 
 export type PagamentoModalita = "unica" | "dilazione";
 
+export const MESSAGGIO_DATA_PAGAMENTO_FESTIVA =
+  "La data non può cadere di sabato o di domenica.";
+
+/** True se la data ISO (anno-mese-giorno) è sabato o domenica. */
+export function dataCadeNelFineSettimana(iso: string): boolean {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso);
+  if (!match) return false;
+  const giorno = new Date(
+    Number(match[1]),
+    Number(match[2]) - 1,
+    Number(match[3])
+  ).getDay();
+  return giorno === 0 || giorno === 6;
+}
+
 export type OrdinePagamentoRata = {
   sortOrder: number;
   importo: number;
@@ -459,6 +474,17 @@ export const ordinePagamentoPianoSchema = z
         ctx.addIssue({
           code: z.ZodIssueCode.custom,
           message: `Indica la data di pagamento della rata ${i + 1}.`,
+          path: ["rate", i, "dataPagamento"],
+        });
+      }
+      if (
+        i > 0 &&
+        r.dataPagamento &&
+        dataCadeNelFineSettimana(r.dataPagamento)
+      ) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: `La data della rata ${i + 1} non può cadere di sabato o di domenica.`,
           path: ["rate", i, "dataPagamento"],
         });
       }
