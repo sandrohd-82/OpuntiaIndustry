@@ -2,6 +2,8 @@ import { notFound, redirect } from "next/navigation";
 import { AreaPlaceholder } from "@/components/areas/AreaPlaceholder";
 import { AppHeader } from "@/components/layout/AppHeader";
 import { ControlloProcessoDettaglio } from "@/components/produzione/ControlloProcessiVista";
+import { LineeGuidaFornitore } from "@/components/produzione/LineeGuidaFornitore";
+import { listLineeGuidaRicevuteAction } from "@/app/actions/haccp-linee-guida";
 import { processoControlloBySlug } from "@/lib/produzione/controllo-processi";
 import { contestoMaterialeIngresso } from "@/lib/produzione/fornitore-accesso-server";
 import { createClient } from "@/lib/supabase/server";
@@ -30,6 +32,24 @@ export default async function AreaFornitoriSectionPage({ params }: Props) {
 
   const page = resolveAreaFornitoriPage([section]);
   if (!page) notFound();
+
+  if (section === "linee-guida") {
+    const ricevute = await listLineeGuidaRicevuteAction();
+    return (
+      <>
+        <AppHeader title={page.label} subtitle={page.description} />
+        <div className="p-6">
+          {ricevute.success ? (
+            <LineeGuidaFornitore guide={ricevute.guide} />
+          ) : (
+            <p className="max-w-xl rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-950">
+              {ricevute.error}
+            </p>
+          )}
+        </div>
+      </>
+    );
+  }
 
   if (section === "materiale-in-ingresso") {
     const processo = processoControlloBySlug("materiale-in-ingresso");

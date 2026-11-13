@@ -19,6 +19,13 @@ export const AREA_FORNITORI_SECTIONS: readonly NavItem[] = [
     path: "/app/area-fornitori/calendario-raccolto",
   },
   {
+    slug: "linee-guida",
+    label: "Linee guida",
+    description:
+      "Documenti HACCP destinati alla tua azienda e presa visione della versione ricevuta",
+    path: "/app/area-fornitori/linee-guida",
+  },
+  {
     slug: "materiale-in-ingresso",
     label: "Materiale in ingresso",
     description:

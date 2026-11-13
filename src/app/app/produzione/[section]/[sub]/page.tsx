@@ -16,10 +16,8 @@ import { InAttesaRitiroBoard } from "@/components/produzione/InAttesaRitiroBoard
 import { HaccpLineeGuida } from "@/components/produzione/HaccpLineeGuida";
 import { HaccpRoutineBoard } from "@/components/produzione/HaccpRoutineBoard";
 import { ControlloProcessiElenco } from "@/components/produzione/ControlloProcessiVista";
-import {
-  listHaccpLineeGuidaAction,
-  listHaccpRoutineAction,
-} from "@/app/actions/haccp";
+import { listHaccpRoutineAction } from "@/app/actions/haccp";
+import { listHaccpLineeGuidaAction } from "@/app/actions/haccp-linee-guida";
 import { Suspense } from "react";
 import { requireAreaAccess } from "@/lib/areas/guard";
 import { requireOrdiniDaProcessarePageAccess } from "@/lib/auth/ordini-access";
@@ -213,7 +211,7 @@ export default async function ProduzioneSubPage({ params, searchParams }: Props)
         <AppHeader title={page.label} subtitle={page.description} />
         <div className="p-6">
           {guida.success ? (
-            <HaccpLineeGuida sezioni={guida.sezioni} />
+            <HaccpLineeGuida sezioni={guida.sezioni} fornitori={guida.fornitori} />
           ) : (
             <p className="text-sm text-red-700">{guida.error}</p>
           )}
