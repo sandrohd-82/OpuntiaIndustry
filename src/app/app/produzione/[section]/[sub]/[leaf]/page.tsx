@@ -52,11 +52,7 @@ export default async function ProduzioneLeafPage({ params, searchParams }: Props
           <AppHeader title={processo.titolo} subtitle={processo.sintesi} />
           <div className="space-y-8 p-6">
             {elenco.success ? (
-              <FogliIngressoElenco
-                vista="produzione"
-                fogli={elenco.fogli}
-                fornitori={elenco.fornitori}
-              />
+              <FogliIngressoElenco vista="produzione" fogli={elenco.fogli} />
             ) : (
               <p className="text-sm text-red-700">{elenco.error}</p>
             )}

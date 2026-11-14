@@ -7,7 +7,6 @@ import { eUtenteInternoHaccp } from "@/lib/produzione/fornitore-accesso";
 import { soggettoAccessoFornitore } from "@/lib/produzione/fornitore-accesso-server";
 import {
   MOTIVO_TRANSIZIONE_NON_DISPONIBILE,
-  fornitoreAperturaFoglio,
   normalizzaValoreRisposta,
   puoLeggereFoglio,
   puoRegistrareRisposta,
@@ -125,7 +124,7 @@ function comeStato(valore: string): StatoFoglioIngresso {
 export async function listFogliIngressoAction(
   vista: VistaFoglio
 ): Promise<
-  | { success: true; fogli: FoglioIngressoRiga[]; fornitori: { id: string; ragioneSociale: string }[] }
+  | { success: true; fogli: FoglioIngressoRiga[] }
   | Errore
 > {
   const gate = await contesto(vista);
@@ -143,7 +142,7 @@ export async function listFogliIngressoAction(
   if (error) return { success: false, error: "Fogli non disponibili." };
   const ids = (data ?? []).map((row) => String(row.id));
   const fornitoreIds = [...new Set((data ?? []).map((row) => String(row.fornitore_id)))];
-  const [risposteRes, fornitoriRes, anagraficheRes] = await Promise.all([
+  const [risposteRes, fornitoriRes] = await Promise.all([
     ids.length
       ? supabase
           .from("haccp_fogli_ingresso_risposte")
@@ -153,15 +152,8 @@ export async function listFogliIngressoAction(
     fornitoreIds.length
       ? supabase.from("fornitori").select("id, ragione_sociale").in("id", fornitoreIds)
       : Promise.resolve({ data: [], error: null }),
-    vista === "produzione"
-      ? supabase
-          .from("fornitori")
-          .select("id, ragione_sociale")
-          .is("deleted_at", null)
-          .order("ragione_sociale", { ascending: true })
-      : Promise.resolve({ data: [], error: null }),
   ]);
-  if (risposteRes.error || fornitoriRes.error || anagraficheRes.error) {
+  if (risposteRes.error || fornitoriRes.error) {
     return { success: false, error: "Fogli non disponibili." };
   }
   const nomi = new Map(
@@ -188,62 +180,15 @@ export async function listFogliIngressoAction(
         openedAt: String(row.opened_at),
         incomplete: vociIncomplete(codici.get(String(row.id)) ?? []).length,
       })),
-    fornitori:
-      vista === "produzione"
-        ? (anagraficheRes.data ?? []).map((row) => ({
-            id: String(row.id),
-            ragioneSociale: String(row.ragione_sociale),
-          }))
-        : [],
   };
 }
 
-export async function apriFoglioIngressoAction(raw: unknown): Promise<
-  { success: true; id: string; codice: string } | Errore
-> {
-  const parsed = z
-    .object({
-      vista: z.enum(["produzione", "fornitore"]),
-      fornitoreId: uuidSchema.nullable().optional(),
-    })
-    .safeParse(raw);
-  if (!parsed.success) return { success: false, error: "Dati non validi." };
-  const gate = await contesto(parsed.data.vista);
-  if (!gate.ok) return { success: false, error: gate.error };
-  const scelto = fornitoreAperturaFoglio(
-    gate.soggetto,
-    parsed.data.vista === "fornitore" ? null : (parsed.data.fornitoreId ?? null)
-  );
-  if (!scelto.ok) return { success: false, error: scelto.motivo };
-  const supabase = await createClient();
-  const { data: fornitore, error: fornitoreError } = await supabase
-    .from("fornitori")
-    .select("id")
-    .eq("id", scelto.fornitoreId)
-    .is("deleted_at", null)
-    .maybeSingle();
-  if (fornitoreError || !fornitore) return { success: false, error: "Fornitore non trovato." };
-  const { data, error } = await supabase
-    .from("haccp_fogli_ingresso")
-    .insert({
-      fornitore_id: scelto.fornitoreId,
-      stato: "aperto",
-      opened_by: gate.auth.userId,
-      created_by: gate.auth.userId,
-      updated_by: gate.auth.userId,
-    })
-    .select("id, codice")
-    .single();
-  if (error || !data) return { success: false, error: messaggioDb(error, "Foglio non aperto.") };
-  await writeAuditLog({
-    entity_type: "haccp_fogli_ingresso",
-    entity_id: String(data.id),
-    action: "apertura",
-    actor_id: gate.auth.userId,
-    summary: `Aperto il foglio ${data.codice}.`,
-    payload: { fornitoreId: scelto.fornitoreId, codice: data.codice },
-  });
-  return { success: true, id: String(data.id), codice: String(data.codice) };
+export async function apriFoglioIngressoAction(): Promise<Errore> {
+  return {
+    success: false,
+    error:
+      "Il foglio si crea dalla scheda fornitore in Amministrazione, con l'invio al portale.",
+  };
 }
 
 export async function leggiFoglioIngressoAction(

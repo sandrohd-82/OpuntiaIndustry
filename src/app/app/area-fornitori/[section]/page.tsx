@@ -97,7 +97,7 @@ export default async function AreaFornitoriSectionPage({ params, searchParams }:
         <AppHeader title={page.label} subtitle={page.description} />
         <div className="space-y-8 p-6">
           {elenco.success ? (
-            <FogliIngressoElenco vista="fornitore" fogli={elenco.fogli} fornitori={[]} />
+            <FogliIngressoElenco vista="fornitore" fogli={elenco.fogli} />
           ) : (
             <p className="max-w-xl rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-950">
               {elenco.error}

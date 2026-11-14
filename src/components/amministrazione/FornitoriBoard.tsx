@@ -25,6 +25,7 @@ import { AziendaTimelineModal } from "@/components/amministrazione/AziendaTimeli
 import { CodiceTargaBadge } from "@/components/amministrazione/CodiceTargaBadge";
 import { FatturaSyncQueueModal } from "@/components/amministrazione/FatturaSyncQueueModal";
 import { FornitoreAccessoUtenti } from "@/components/amministrazione/FornitoreAccessoUtenti";
+import { FornitoreDocumentiProcedure } from "@/components/amministrazione/FornitoreDocumentiProcedure";
 import { FornitoreFormModal } from "@/components/amministrazione/FornitoreFormModal";
 import { FornitoriFiltersPanel } from "@/components/amministrazione/FornitoriFiltersPanel";
 import { MateriaPrimaTagList } from "@/components/amministrazione/MateriaPrimaTagList";
@@ -211,6 +212,10 @@ function FornitoreRow({
               {canEdit ? (
                 <FornitoreAccessoUtenti fornitoreId={fornitore.id} />
               ) : null}
+              <FornitoreDocumentiProcedure
+                fornitoreId={fornitore.id}
+                puoInviare={canEdit}
+              />
               <div className="sm:col-span-2">
                 <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-[var(--muted)]">
                   Fornitore di
