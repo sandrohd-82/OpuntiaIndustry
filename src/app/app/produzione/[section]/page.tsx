@@ -1,6 +1,7 @@
 import { notFound, redirect } from "next/navigation";
 import { AreaPlaceholder } from "@/components/areas/AreaPlaceholder";
 import { AppHeader } from "@/components/layout/AppHeader";
+import { CalendarioApprovvigionamento } from "@/components/produzione/CalendarioApprovvigionamento";
 import { RepartiBoard } from "@/components/produzione/RepartiBoard";
 import { requireAreaAccess } from "@/lib/areas/guard";
 import { isNavBranch } from "@/lib/areas/nav-tree";
@@ -53,6 +54,20 @@ export default async function ProduzioneSectionPage({
   }
   if (section === "strumenti") {
     redirect("/app/strumenti/generatore-lotti");
+  }
+
+  if (section === "calendario-ordini-materie-prime") {
+    return (
+      <>
+        <AppHeader
+          title="Calendario ordini materie prime"
+          subtitle="Bozze di approvvigionamento. Non sono ordini dei clienti e non vengono inviate."
+        />
+        <div className="p-4 md:p-6">
+          <CalendarioApprovvigionamento />
+        </div>
+      </>
+    );
   }
 
   if (section === "reparti") {

@@ -4,6 +4,7 @@ import { createClient } from "@/lib/supabase/server";
 import {
   isValidCodiceMateriaPrima,
   mapMateriaPrimaRow,
+  unitaMateriaPrimaValida,
   normalizeMateriaPrimaInput,
   normalizeNomeMateriaPrima,
   type MateriaPrima,
@@ -78,7 +79,7 @@ export async function listMateriePrimeAction(): Promise<
     const { data, error } = await supabase
       .from("materie_prime")
       .select(
-        "id, codice, nome, note, is_bio, created_at, pending_delete_at, deleted_at, created_by, updated_at, updated_by"
+        "id, codice, nome, note, is_bio, unita_misura, created_at, pending_delete_at, deleted_at, created_by, updated_at, updated_by"
       )
       .is("deleted_at", null)
       .order("codice", { ascending: true })
@@ -109,6 +110,9 @@ export async function createMateriaPrimaAction(
         "Il codice deve iniziare con Mp, seguito da lettere, cifre o - _ /.",
     };
   }
+  if (input.unitaMisura && !unitaMateriaPrimaValida(input.unitaMisura)) {
+    return { success: false, error: "Unità di misura non prevista dal catalogo." };
+  }
 
   const uniquenessError = await assertCodiceAndNomeUnici(
     supabase,
@@ -122,6 +126,7 @@ export async function createMateriaPrimaAction(
     nome: normalized.nome,
     note: normalized.note ?? "",
     is_bio: Boolean(normalized.isBio),
+    unita_misura: normalized.unitaMisura,
     fornitore_bio_id: null,
     bio_certificato: "",
     bio_codice: "",
@@ -177,6 +182,9 @@ export async function updateMateriaPrimaAction(
         "Il codice deve iniziare con Mp, seguito da lettere, cifre o - _ /.",
     };
   }
+  if (input.unitaMisura && !unitaMateriaPrimaValida(input.unitaMisura)) {
+    return { success: false, error: "Unità di misura non prevista dal catalogo." };
+  }
 
   const uniquenessError = await assertCodiceAndNomeUnici(
     supabase,
@@ -206,6 +214,7 @@ export async function updateMateriaPrimaAction(
       nome: normalized.nome,
       note: normalized.note ?? "",
       is_bio: Boolean(normalized.isBio),
+      unita_misura: normalized.unitaMisura,
       fornitore_bio_id: null,
       bio_certificato: "",
       bio_codice: "",

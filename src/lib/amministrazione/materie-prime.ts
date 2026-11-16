@@ -8,12 +8,23 @@ export const CODICE_MATERIA_PRIMA_RE = /^Mp[A-Za-z0-9\-_\/]+$/;
 
 const BODY_RE = /[^A-Za-z0-9\-_\/]/g;
 
+/** Unità ammesse sul catalogo materie prime. Nessun valore è assegnato da solo. */
+export const UNITA_MATERIA_PRIMA = ["kg", "g", "lt", "ml", "pz"] as const;
+export type UnitaMateriaPrima = (typeof UNITA_MATERIA_PRIMA)[number];
+
+export function unitaMateriaPrimaValida(
+  valore: string | null | undefined
+): valore is UnitaMateriaPrima {
+  return (UNITA_MATERIA_PRIMA as readonly string[]).includes(String(valore ?? ""));
+}
+
 export type MateriaPrima = {
   id: string;
   codice: string;
   nome: string;
   note: string;
   isBio: boolean;
+  unitaMisura: UnitaMateriaPrima | null;
   createdAt: string;
   pendingDeleteAt: string | null;
 };
@@ -23,6 +34,7 @@ export type MateriaPrimaInput = {
   nome: string;
   note?: string;
   isBio?: boolean;
+  unitaMisura?: string | null;
 };
 
 export function sanitizeCodiceMateriaPrimaBody(value: string): string {
@@ -66,6 +78,7 @@ export function normalizeMateriaPrimaInput(
     nome: input.nome.trim(),
     note: input.note?.trim() ?? "",
     isBio: Boolean(input.isBio),
+    unitaMisura: unitaMateriaPrimaValida(input.unitaMisura) ? input.unitaMisura : null,
   };
 }
 
@@ -76,6 +89,7 @@ export function mapMateriaPrimaRow(row: MateriaPrimaRow): MateriaPrima {
     nome: row.nome,
     note: row.note ?? "",
     isBio: Boolean(row.is_bio),
+    unitaMisura: unitaMateriaPrimaValida(row.unita_misura) ? row.unita_misura : null,
     createdAt: row.created_at,
     pendingDeleteAt: row.pending_delete_at ?? null,
   };

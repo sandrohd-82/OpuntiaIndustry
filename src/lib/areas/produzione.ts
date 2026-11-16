@@ -234,6 +234,13 @@ export const PRODUZIONE_SECTIONS: readonly NavItem[] = [
       },
     ],
   },
+  {
+    slug: "calendario-ordini-materie-prime",
+    label: "Calendario ordini materie prime",
+    description:
+      "Bozze di approvvigionamento, distinte dagli ordini commerciali",
+    path: "/app/produzione/calendario-ordini-materie-prime",
+  },
 ] as const;
 
 function areaNavBranch(

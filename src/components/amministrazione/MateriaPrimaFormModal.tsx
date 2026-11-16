@@ -4,6 +4,7 @@ import { useEffect, useId, useMemo, useState, type FormEvent } from "react";
 import { FaChevronDown, FaCopy } from "react-icons/fa6";
 import {
   CODICE_MATERIA_PRIMA_PREFIX,
+  UNITA_MATERIA_PRIMA,
   composeCodiceMateriaPrima,
   findMateriaPrimaByCodice,
   findMateriaPrimaByNomeExact,
@@ -53,6 +54,7 @@ export function MateriaPrimaFormModal({
   );
   const [nome, setNome] = useState(initial?.nome ?? "");
   const [note, setNote] = useState(initial?.note ?? "");
+  const [unitaMisura, setUnitaMisura] = useState(initial?.unitaMisura ?? "");
   const [tipologia, setTipologia] = useState<Tipologia | null>(
     initial ? (initial.isBio ? "bio" : "convenzionale") : null
   );
@@ -124,6 +126,7 @@ export function MateriaPrimaFormModal({
   function applyModello(m: MateriaPrima) {
     setNome(m.nome);
     setNote(m.note);
+    setUnitaMisura(m.unitaMisura ?? "");
     setTipologia(m.isBio ? "bio" : "convenzionale");
     setCodiceBody("");
     setModelloUsato(`${m.codice} — ${m.nome}`);
@@ -166,6 +169,7 @@ export function MateriaPrimaFormModal({
         nome: nome.trim(),
         note: note.trim(),
         isBio: tipologia === "bio",
+        unitaMisura: unitaMisura || null,
       });
     } finally {
       setSaving(false);
@@ -384,6 +388,22 @@ export function MateriaPrimaFormModal({
               </div>
             )}
           </div>
+
+          <label className="block text-sm">
+            <span className="mb-1 block font-medium">Unità di misura</span>
+            <select
+              value={unitaMisura}
+              onChange={(e) => setUnitaMisura(e.target.value)}
+              className="w-full rounded-lg border border-[var(--border)] px-3 py-2 outline-none focus:border-[var(--primary)]"
+            >
+              <option value="">Non impostata</option>
+              {UNITA_MATERIA_PRIMA.map((unita) => (
+                <option key={unita} value={unita}>
+                  {unita}
+                </option>
+              ))}
+            </select>
+          </label>
 
           <label className="block text-sm">
             <span className="mb-1 block font-medium">Note</span>

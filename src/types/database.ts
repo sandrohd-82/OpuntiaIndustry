@@ -462,6 +462,7 @@ export interface MateriaPrimaRow {
   fornitore_bio_id: string | null;
   bio_certificato: string;
   bio_codice: string;
+  unita_misura?: string | null;
   created_by: string | null;
   updated_by: string | null;
   created_at: string;
@@ -481,6 +482,7 @@ export interface MateriaPrimaInsert {
   fornitore_bio_id?: string | null;
   bio_certificato?: string;
   bio_codice?: string;
+  unita_misura?: string | null;
   created_by?: string | null;
   updated_by?: string | null;
   created_at?: string;
@@ -498,6 +500,7 @@ export interface MateriaPrimaUpdate {
   fornitore_bio_id?: string | null;
   bio_certificato?: string;
   bio_codice?: string;
+  unita_misura?: string | null;
   created_by?: string | null;
   updated_by?: string | null;
   created_at?: string;
