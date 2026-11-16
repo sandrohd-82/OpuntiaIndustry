@@ -4,6 +4,7 @@ import { useMemo, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import {
   creaCaricoApprovvigionamentoAction,
+  creaCaricoVersioneStoricaAction,
   registraArrivoCaricoAction,
   type CaricoRiga,
   type VersionePerCarico,
@@ -12,12 +13,27 @@ import {
 const FOGLIO =
   "/app/produzione/controlli-haccp/controllo-processi/materiale-in-ingresso?foglio=";
 
+function etichettaStato(stato: CaricoRiga["stato"]): string {
+  if (stato === "arrivato") return "Arrivo registrato";
+  if (stato === "parziale") return "Registrazione parziale";
+  return "Aperto";
+}
+
+function valoreArrivo(testo: string | undefined, arrivata: number | null): string {
+  if (testo != null) return testo;
+  if (arrivata == null) return "";
+  return String(arrivata);
+}
+
 export function CarichiApprovvigionamento(props: {
   versioni: VersionePerCarico[];
   carichi: CaricoRiga[];
 }) {
-  const [versioneId, setVersioneId] = useState(props.versioni[0]?.versioneId ?? "");
-  const [dataPrevista, setDataPrevista] = useState(props.versioni[0]?.dataConsegna ?? "");
+  const correnteIniziale = props.versioni.find((voce) => voce.corrente);
+  const [eccezione, setEccezione] = useState(false);
+  const [motivazione, setMotivazione] = useState("");
+  const [versioneId, setVersioneId] = useState(correnteIniziale?.versioneId ?? "");
+  const [dataPrevista, setDataPrevista] = useState(correnteIniziale?.dataConsegna ?? "");
   const [quantita, setQuantita] = useState<Record<string, string>>({});
   const [arrivi, setArrivi] = useState<Record<string, string>>({});
   const [dateArrivo, setDateArrivo] = useState<Record<string, string>>({});
@@ -26,29 +42,62 @@ export function CarichiApprovvigionamento(props: {
   const [pending, startTransition] = useTransition();
   const router = useRouter();
   const chiave = useRef<string | null>(null);
+  const scelte = useMemo(
+    () => props.versioni.filter((voce) => (eccezione ? !voce.corrente : voce.corrente)),
+    [props.versioni, eccezione]
+  );
+  const storiche = useMemo(
+    () => props.versioni.filter((voce) => !voce.corrente),
+    [props.versioni]
+  );
   const versione = useMemo(
-    () => props.versioni.find((voce) => voce.versioneId === versioneId) ?? null,
-    [props.versioni, versioneId]
+    () => scelte.find((voce) => voce.versioneId === versioneId) ?? null,
+    [scelte, versioneId]
   );
 
   function crea() {
     if (!versione || pending) return;
+    if (eccezione && !versione.corrente && motivazione.trim().length < 10) {
+      setErrore("La versione superata richiede una motivazione.");
+      return;
+    }
     if (!chiave.current) chiave.current = crypto.randomUUID();
-    const righe = versione.righe
-      .map((riga) => ({
-        materiaPrimaId: riga.materiaPrimaId,
-        quantita: Number(quantita[riga.materiaPrimaId] || riga.quantita),
-        unitaMisura: riga.unitaMisura,
-      }))
-      .filter((riga) => riga.quantita > 0);
+    if (eccezione && versione.corrente) {
+      setErrore("La versione corrente non usa la procedura eccezionale.");
+      return;
+    }
+    if (!eccezione && !versione.corrente) {
+      setErrore("Si può aprire un carico solo sulla versione pubblicata corrente.");
+      return;
+    }
+    const righe = versione.righe.flatMap((riga) => {
+      const testo = quantita[riga.materiaPrimaId];
+      const mostrato = testo == null ? String(riga.quantita) : testo;
+      const valore = Number(mostrato);
+      if (mostrato.trim() === "" || !Number.isFinite(valore) || valore <= 0) return [];
+      return [
+        {
+          materiaPrimaId: riga.materiaPrimaId,
+          quantita: valore,
+          unitaMisura: riga.unitaMisura,
+        },
+      ];
+    });
+    if (righe.length === 0) {
+      setErrore("Nessuna quantità compilata.");
+      return;
+    }
     setErrore(null);
     startTransition(async () => {
-      const res = await creaCaricoApprovvigionamentoAction({
+      const richiesta = {
         chiave: chiave.current,
         versioneId: versione.versioneId,
         dataPrevista,
         righe,
-      });
+      };
+      const res = eccezione
+        ? await creaCaricoVersioneStoricaAction({ ...richiesta, motivazione: motivazione.trim() })
+        : await creaCaricoApprovvigionamentoAction(richiesta);
       if (!res.success) {
         setErrore(res.error);
         return;
@@ -65,17 +114,27 @@ export function CarichiApprovvigionamento(props: {
 
   function arrivo(carico: CaricoRiga) {
     if (pending) return;
+    const righe = carico.righe.flatMap((riga) => {
+      const testo = arrivi[riga.id];
+      if (testo == null || testo.trim() === "") return [];
+      const valore = Number(testo);
+      if (!Number.isFinite(valore)) return [];
+      return [{ rigaId: riga.id, quantita: valore }];
+    });
+    if (righe.length === 0) {
+      setErrore("Nessuna quantità compilata.");
+      return;
+    }
     const chiaveArrivo = crypto.randomUUID();
+    const dataEffettiva =
+      dateArrivo[carico.id] ?? carico.dataEffettiva ?? carico.dataPrevista;
     setErrore(null);
     startTransition(async () => {
       const res = await registraArrivoCaricoAction({
         chiave: chiaveArrivo,
         caricoId: carico.id,
-        dataEffettiva: dateArrivo[carico.id] || carico.dataPrevista,
-        righe: carico.righe.map((riga) => ({
-          rigaId: riga.id,
-          quantita: Number(arrivi[riga.id] ?? riga.arrivata ?? riga.prevista),
-        })),
+        dataEffettiva,
+        righe,
       });
       if (!res.success) {
         setErrore(res.error);
@@ -93,11 +152,42 @@ export function CarichiApprovvigionamento(props: {
           Nuovo carico da ordine pubblicato
         </h2>
         <p className="mt-2 text-sm text-slate-600">
-          Ogni carico apre un solo foglio HACCP. Un ordine può avere più consegne. La presa visione
-          non segna la merce come arrivata.
+          Ogni carico apre un solo foglio HACCP. Di norma si usa la versione pubblicata corrente.
+          Una versione superata resta consultabile e, per un carico nuovo, richiede una motivazione
+          tracciata. La presa visione non segna la merce come arrivata.
         </p>
-        {props.versioni.length === 0 ? (
-          <p className="mt-3 text-sm text-slate-500">Nessuna versione pubblicata.</p>
+        {storiche.length > 0 ? (
+          <div className="mt-3 text-sm text-slate-600">
+            <p>Versioni precedenti, solo consultazione</p>
+            <ul className="mt-1 space-y-1">
+              {storiche.map((voce) => (
+                <li key={voce.versioneId}>
+                  {voce.codice} v{voce.numero} · {voce.fornitore} · {voce.dataConsegna}
+                </li>
+              ))}
+            </ul>
+          </div>
+        ) : null}
+        <label className="mt-3 flex items-center gap-2 text-sm">
+          <input
+            type="checkbox"
+            checked={eccezione}
+            onChange={(evento) => {
+              const attivo = evento.target.checked;
+              setEccezione(attivo);
+              const lista = props.versioni.filter((voce) => (attivo ? !voce.corrente : voce.corrente));
+              const prima = lista[0];
+              setVersioneId(prima?.versioneId ?? "");
+              setDataPrevista(prima?.dataConsegna ?? "");
+              chiave.current = null;
+            }}
+          />
+          Apri un carico sulla versione superata
+        </label>
+        {scelte.length === 0 ? (
+          <p className="mt-3 text-sm text-slate-500">
+            {eccezione ? "Nessuna versione superata." : "Nessuna versione pubblicata corrente."}
+          </p>
         ) : (
           <div className="mt-3 space-y-3">
             <label className="block text-sm">
@@ -107,12 +197,12 @@ export function CarichiApprovvigionamento(props: {
                 onChange={(evento) => {
                   const id = evento.target.value;
                   setVersioneId(id);
-                  const scelta = props.versioni.find((voce) => voce.versioneId === id);
+                  const scelta = scelte.find((voce) => voce.versioneId === id);
                   if (scelta) setDataPrevista(scelta.dataConsegna);
                 }}
                 className="mt-1 w-full rounded border border-slate-300 px-2 py-1"
               >
-                {props.versioni.map((voce) => (
+                {scelte.map((voce) => (
                   <option key={voce.versioneId} value={voce.versioneId}>
                     {voce.codice} v{voce.numero} · {voce.fornitore} · {voce.dataConsegna}
                   </option>
@@ -150,13 +240,24 @@ export function CarichiApprovvigionamento(props: {
                 </li>
               ))}
             </ul>
+            {eccezione ? (
+              <label className="block text-sm">
+                Motivazione
+                <textarea
+                  value={motivazione}
+                  onChange={(evento) => setMotivazione(evento.target.value)}
+                  className="mt-1 w-full rounded border border-slate-300 px-2 py-1"
+                  rows={2}
+                />
+              </label>
+            ) : null}
             <button
               type="button"
               disabled={pending}
               onClick={crea}
               className="rounded-lg bg-slate-900 px-3 py-2 text-sm font-medium text-white disabled:opacity-60"
             >
-              Apri carico e foglio
+              {eccezione ? "Apri carico sulla versione superata" : "Apri carico e foglio"}
             </button>
           </div>
         )}
@@ -172,8 +273,7 @@ export function CarichiApprovvigionamento(props: {
             props.carichi.map((carico) => (
               <li key={carico.id} className="rounded border border-slate-200 p-3 text-sm">
                 <p className="font-medium text-slate-900">
-                  {carico.codice} · {carico.ordineCodice} v{carico.versioneNumero} ·{" "}
-                  {carico.stato === "arrivato" ? "Arrivato" : "Aperto"}
+                  {carico.codice} · {carico.ordineCodice} v{carico.versioneNumero} · {etichettaStato(carico.stato)}
                 </p>
                 <p className="text-slate-600">
                   Previsto {carico.dataPrevista}
@@ -195,7 +295,8 @@ export function CarichiApprovvigionamento(props: {
                         type="number"
                         min="0"
                         step="0.001"
-                        value={arrivi[riga.id] ?? String(riga.arrivata ?? riga.prevista)}
+                        value={valoreArrivo(arrivi[riga.id], riga.arrivata)}
+                        placeholder="Quantità arrivata"
                         onChange={(evento) =>
                           setArrivi((corrente) => ({ ...corrente, [riga.id]: evento.target.value }))
                         }

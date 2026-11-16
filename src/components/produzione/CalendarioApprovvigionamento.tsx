@@ -721,6 +721,12 @@ export function CalendarioApprovvigionamento() {
   );
 }
 
+function etichettaCarico(stato: "aperto" | "parziale" | "arrivato"): string {
+  if (stato === "arrivato") return "Arrivo registrato";
+  if (stato === "parziale") return "Registrazione parziale";
+  return "Aperto";
+}
+
 function BilancioOrdine(props: { ordine: OrdineCalendario }) {
   if (props.ordine.bilancio.length === 0 && props.ordine.carichi.length === 0) return null;
   return (
@@ -734,7 +740,9 @@ function BilancioOrdine(props: { ordine: OrdineCalendario }) {
       ))}
       {props.ordine.carichi.map((carico) => (
         <p key={carico.id}>
-          {carico.codice} · {carico.stato === "arrivato" ? "Arrivato" : "Aperto"}
+          {carico.codice}
+          {carico.versioneNumero ? ` · versione ${carico.versioneNumero}` : ""} · {etichettaCarico(carico.stato)}
+          {carico.conteggiato ? "" : " · non conteggiato sulla versione corrente"}
           {carico.foglioId ? (
             <>
               {" "}

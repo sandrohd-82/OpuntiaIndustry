@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { bilancioCarichi, presaVisioneConsegna, puoGestireCarico } from "./carichi";
+import { bilancioCarichi, bilancioVersione, presaVisioneConsegna, puoGestireCarico } from "./carichi";
 
 const MP = "cccccccc-cccc-4ccc-8ccc-cccccccccccc";
 const R1 = "dddddddd-dddd-4ddd-8ddd-dddddddddddd";
@@ -34,6 +34,30 @@ const oltre = bilancioCarichi({
 assert.equal(oltre[0]?.oltre, true);
 assert.equal(oltre[0]?.residua, -6);
 
+const V1 = "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee";
+const V2 = "ffffffff-ffff-4fff-8fff-ffffffffffff";
+const perVersione = bilancioVersione({
+  versioneId: V2,
+  ordinate: [{ materiaPrimaId: MP, codice: "Mp1", unitaMisura: "kg", quantita: 9 }],
+  carichi: [
+    {
+      versioneId: V1,
+      righe: [{ rigaId: R1, materiaPrimaId: MP, quantita: 5 }],
+    },
+    {
+      versioneId: V2,
+      righe: [
+        { rigaId: "99999999-9999-4999-8999-999999999999", materiaPrimaId: MP, quantita: null },
+        { rigaId: R1, materiaPrimaId: MP, quantita: 1 },
+      ],
+    },
+  ],
+});
+assert.equal(perVersione[0]?.ordinata, 9);
+assert.equal(perVersione[0]?.ricevuta, 1);
+assert.equal(perVersione[0]?.residua, 8);
+assert.equal(perVersione[0]?.oltre, false);
+
 const sql = readFileSync(
   new URL("../../../supabase/migrations/20261116160000_approvvigionamenti_carichi.sql", import.meta.url),
   "utf8"
@@ -42,5 +66,16 @@ assert.match(sql, /haccp_fogli_ingresso/);
 assert.equal(sql.includes("insert into public.ordini"), false);
 assert.equal(/drop table/i.test(sql), false);
 assert.equal(sql.includes("update public.approvvigionamenti_versioni"), false);
+const arrivo = readFileSync(
+  new URL(
+    "../../../supabase/migrations/20261116170000_approvvigionamenti_carichi_arrivo.sql",
+    import.meta.url
+  ),
+  "utf8"
+);
+assert.match(arrivo, /versione pubblicata corrente/);
+assert.match(arrivo, /Quantità non compilata/);
+assert.match(arrivo, /parziale/);
+assert.equal(arrivo.includes("update public.approvvigionamenti_versioni"), false);
 
 console.log("carichi: ok");

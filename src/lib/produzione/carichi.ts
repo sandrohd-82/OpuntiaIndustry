@@ -55,3 +55,35 @@ export function bilancioCarichi(input: {
     };
   });
 }
+
+/**
+ * Il ricevuto di una versione è solo quello dei carichi collegati a quella versione.
+ * Una quantità non ancora registrata non vale zero. Una consegna vecchia non passa alla versione nuova.
+ */
+export function bilancioVersione(input: {
+  versioneId: string;
+  ordinate: readonly {
+    materiaPrimaId: string;
+    codice: string;
+    unitaMisura: string;
+    quantita: number;
+  }[];
+  carichi: readonly {
+    versioneId: string;
+    righe: readonly { rigaId: string; materiaPrimaId: string; quantita: number | null }[];
+  }[];
+}): RigaBilancioCarico[] {
+  const arrivi: { rigaId: string; materiaPrimaId: string; quantita: number }[] = [];
+  for (const carico of input.carichi) {
+    if (carico.versioneId !== input.versioneId) continue;
+    for (const riga of carico.righe) {
+      if (riga.quantita == null) continue;
+      arrivi.push({
+        rigaId: riga.rigaId,
+        materiaPrimaId: riga.materiaPrimaId,
+        quantita: riga.quantita,
+      });
+    }
+  }
+  return bilancioCarichi({ ordinate: input.ordinate, arrivi });
+}

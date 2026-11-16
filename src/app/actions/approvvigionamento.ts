@@ -5,7 +5,7 @@ import { writeAuditLog } from "@/lib/audit";
 import { requireAreaAccess } from "@/lib/areas/guard";
 import { unitaMateriaPrimaValida } from "@/lib/amministrazione/materie-prime";
 import { presaCheCopreVersione } from "@/lib/produzione/approvvigionamento";
-import { bilancioCarichi } from "@/lib/produzione/carichi";
+import { bilancioVersione } from "@/lib/produzione/carichi";
 import { primoIndirizzoEmail } from "@/lib/produzione/haccp-versioni";
 import { eseguiNotificaDistribuzione } from "@/lib/produzione/notifica-distribuzione-invio";
 import { createClient } from "@/lib/supabase/server";
@@ -61,7 +61,9 @@ export type OrdineCalendario = {
   carichi: {
     id: string;
     codice: string;
-    stato: "aperto" | "arrivato";
+    stato: "aperto" | "parziale" | "arrivato";
+    versioneNumero: number | null;
+    conteggiato: boolean;
     foglioId: string | null;
     foglioCodice: string | null;
   }[];
@@ -109,22 +111,27 @@ function messaggioDb(errore: { message?: string } | null, fallback: string): str
 }
 
 function bilancioDi(
+  versioneId: string,
   snapshot: {
     materiaPrimaId: string;
     codice: string;
     unitaMisura: string;
     ordinata: number;
   }[],
-  arrivi: { rigaId: string; materiaPrimaId: string; quantita: number }[]
+  carichi: {
+    versioneId: string;
+    righe: { rigaId: string; materiaPrimaId: string; quantita: number | null }[];
+  }[]
 ): OrdineCalendario["bilancio"] {
-  return bilancioCarichi({
+  return bilancioVersione({
+    versioneId,
     ordinate: snapshot.map((riga) => ({
       materiaPrimaId: riga.materiaPrimaId,
       codice: riga.codice,
       unitaMisura: riga.unitaMisura,
       quantita: riga.ordinata,
     })),
-    arrivi,
+    carichi,
   }).map(({ codice, unitaMisura, ordinata, ricevuta, residua, oltre }) => ({
     codice,
     unitaMisura,
@@ -133,6 +140,11 @@ function bilancioDi(
     residua,
     oltre,
   }));
+}
+
+function statoCarico(valore: unknown): "aperto" | "parziale" | "arrivato" {
+  if (valore === "arrivato" || valore === "parziale") return valore;
+  return "aperto";
 }
 
 function statoOrdine(valore: unknown): "bozza" | "pubblicato" | "da_ripubblicare" {
@@ -381,7 +393,7 @@ export async function listaOrdiniApprovvigionamentoAction(input: {
   const { data: carichiRows } = ids.length
     ? await supabase
         .from("approvvigionamenti_carichi")
-        .select("id, codice, ordine_id, stato, foglio_id")
+        .select("id, codice, ordine_id, versione_id, stato, foglio_id")
         .in("ordine_id", ids)
         .is("deleted_at", null)
     : { data: [] };
@@ -397,39 +409,55 @@ export async function listaOrdiniApprovvigionamentoAction(input: {
     foglioIds.length
       ? supabase.from("haccp_fogli_ingresso").select("id, codice").in("id", foglioIds)
       : Promise.resolve({ data: [] }),
-    versioneIds.length
-      ? supabase.from("approvvigionamenti_versioni").select("id, righe").in("id", versioneIds)
+    versioneIds.length || caricoIds.length
+      ? supabase
+          .from("approvvigionamenti_versioni")
+          .select("id, numero, righe")
+          .in("id", [
+            ...new Set([
+              ...versioneIds,
+              ...(carichiRows ?? []).map((row) => String(row.versione_id)),
+            ]),
+          ])
       : Promise.resolve({ data: [] }),
   ]);
   const codiceFoglio = new Map(
     (fogliCarico ?? []).map((row) => [String(row.id), String(row.codice)])
   );
+  const numeroVersione = new Map(
+    (snapshot ?? []).map((row) => [String(row.id), Number(row.numero)])
+  );
   const carichiPerOrdine = new Map<string, OrdineCalendario["carichi"]>();
+  const carichiBilancio = new Map<
+    string,
+    { versioneId: string; righe: { rigaId: string; materiaPrimaId: string; quantita: number | null }[] }[]
+  >();
   for (const row of carichiRows ?? []) {
     const ordineId = String(row.ordine_id);
+    const versioneId = String(row.versione_id);
     const lista = carichiPerOrdine.get(ordineId) ?? [];
     lista.push({
       id: String(row.id),
       codice: String(row.codice),
-      stato: row.stato === "arrivato" ? "arrivato" : "aperto",
+      stato: statoCarico(row.stato),
+      versioneNumero: numeroVersione.get(versioneId) ?? null,
+      conteggiato: versioneId === (versioneCorrente.get(ordineId) ?? ""),
       foglioId: row.foglio_id ? String(row.foglio_id) : null,
       foglioCodice: row.foglio_id ? codiceFoglio.get(String(row.foglio_id)) ?? null : null,
     });
     carichiPerOrdine.set(ordineId, lista);
-  }
-  const arriviPerOrdine = new Map<string, { rigaId: string; materiaPrimaId: string; quantita: number }[]>();
-  for (const row of righeCarico ?? []) {
-    if (row.quantita_arrivata == null) continue;
-    const carico = (carichiRows ?? []).find((voce) => String(voce.id) === String(row.carico_id));
-    if (!carico) continue;
-    const ordineId = String(carico.ordine_id);
-    const lista = arriviPerOrdine.get(ordineId) ?? [];
-    lista.push({
-      rigaId: String(row.id),
-      materiaPrimaId: String(row.materia_prima_id),
-      quantita: Number(row.quantita_arrivata),
+    const bilancio = carichiBilancio.get(ordineId) ?? [];
+    bilancio.push({
+      versioneId,
+      righe: (righeCarico ?? [])
+        .filter((riga) => String(riga.carico_id) === String(row.id))
+        .map((riga) => ({
+          rigaId: String(riga.id),
+          materiaPrimaId: String(riga.materia_prima_id),
+          quantita: riga.quantita_arrivata == null ? null : Number(riga.quantita_arrivata),
+        })),
     });
-    arriviPerOrdine.set(ordineId, lista);
+    carichiBilancio.set(ordineId, bilancio);
   }
   const snapshotPerVersione = new Map<
     string,
@@ -474,8 +502,9 @@ export async function listaOrdiniApprovvigionamentoAction(input: {
       pianoCodice: codicePiano.get(pianoPerOrdine.get(String(row.id)) ?? "") ?? null,
       origineOrdineId: row.origine_ordine_id ? String(row.origine_ordine_id) : null,
       bilancio: bilancioDi(
+        versioneCorrente.get(String(row.id)) ?? "",
         snapshotPerVersione.get(versioneCorrente.get(String(row.id)) ?? "") ?? [],
-        arriviPerOrdine.get(String(row.id)) ?? []
+        carichiBilancio.get(String(row.id)) ?? []
       ),
       carichi: carichiPerOrdine.get(String(row.id)) ?? [],
       righe: righePerOrdine.get(String(row.id)) ?? [],
