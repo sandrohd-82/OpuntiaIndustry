@@ -144,6 +144,22 @@ assert.doesNotMatch(identifica, /update public.magazzino_giacenze/);
 assert.doesNotMatch(identifica, /update public.haccp_fogli_ingresso/);
 assert.doesNotMatch(identifica, /update public.approvvigionamenti_carichi/);
 
+const decisioni = readFileSync(
+  "supabase/migrations/20261116240000_magazzino_mp_decisioni.sql",
+  "utf8"
+);
+assert.match(decisioni, /uscita_respinta/);
+assert.match(decisioni, /mp-lotto-chiave:[\s\S]*mp-lotto-origine:[\s\S]*mp-lotto:/);
+assert.match(decisioni, /da_stato is distinct from 'disponibile'/);
+assert.match(decisioni, /Non autorizzato: serve Produzione o superadmin/);
+assert.match(decisioni, /La quantità supera il conto di origine/);
+assert.match(decisioni, /La chiave idempotente è già usata con dati diversi/);
+assert.match(decisioni, /revoke create on schema public from magazzino_mp_decisione/);
+assert.doesNotMatch(decisioni, /magazzino_mp_registra_movimento/);
+assert.doesNotMatch(decisioni, /update public.magazzino_giacenze/);
+assert.doesNotMatch(decisioni, /update public.haccp_fogli_ingresso/);
+assert.doesNotMatch(decisioni, /insert into public.magazzino_movimenti/);
+
 const schema = readFileSync("src/lib/magazzino/barcode.ts", "utf8");
 assert.match(schema, /z\.enum\(\["kg", "g", "lt", "ml", "pz"\]\)/);
 
