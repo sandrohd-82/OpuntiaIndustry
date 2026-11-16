@@ -477,9 +477,23 @@ export function MagazzinoProdottiBoard({
                     min={0}
                     step="any"
                     value={quantita}
-                    onChange={(e) => setQuantita(Number(e.target.value) || 0)}
-                    className="w-full rounded-lg border border-[var(--border)] px-3 py-2 text-sm"
+                    readOnly={catalogKind === "materia_prima"}
+                    onChange={(e) => {
+                      if (catalogKind === "materia_prima") return;
+                      setQuantita(Number(e.target.value) || 0);
+                    }}
+                    className={`w-full rounded-lg border border-[var(--border)] px-3 py-2 text-sm ${
+                      catalogKind === "materia_prima"
+                        ? "bg-slate-50 text-slate-700"
+                        : ""
+                    }`}
                   />
+                  {catalogKind === "materia_prima" ? (
+                    <span className="mt-1 block text-xs text-slate-600">
+                      La quantità si aggiorna solo con un movimento di
+                      magazzino.
+                    </span>
+                  ) : null}
                 </label>
                 <label className="text-sm">
                   <span className="mb-1 flex items-center gap-1.5 font-medium">
@@ -500,17 +514,31 @@ export function MagazzinoProdottiBoard({
                     className="w-full rounded-lg border border-[var(--border)] px-3 py-2 text-sm"
                   />
                 </label>
-                <label className="text-sm">
-                  <span className="mb-1 block font-medium">Unità</span>
-                  <select
-                    value={unita}
-                    onChange={(e) => setUnita(e.target.value as MagazzinoUnita)}
-                    className="w-full rounded-lg border border-[var(--border)] px-3 py-2 text-sm"
-                  >
-                    <option value="kg">kg</option>
-                    <option value="pz">pz</option>
-                  </select>
-                </label>
+                {catalogKind === "materia_prima" ? (
+                  <div className="text-sm">
+                    <span className="mb-1 block font-medium">Unità</span>
+                    <p className="rounded-lg border border-[var(--border)] bg-slate-50 px-3 py-2 text-sm text-slate-700">
+                      {unita}
+                    </p>
+                    <span className="mt-1 block text-xs text-slate-600">
+                      Unità presa dall&apos;anagrafica. Non viene convertita.
+                    </span>
+                  </div>
+                ) : (
+                  <label className="text-sm">
+                    <span className="mb-1 block font-medium">Unità</span>
+                    <select
+                      value={unita}
+                      onChange={(e) =>
+                        setUnita(e.target.value as MagazzinoUnita)
+                      }
+                      className="w-full rounded-lg border border-[var(--border)] px-3 py-2 text-sm"
+                    >
+                      <option value="kg">kg</option>
+                      <option value="pz">pz</option>
+                    </select>
+                  </label>
+                )}
               </>
             ) : categoria === "acquisti_occasionali" ? (
               <p className="text-sm text-[var(--muted)] sm:col-span-2">

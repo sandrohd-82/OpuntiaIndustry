@@ -30,6 +30,7 @@ export const movimentoScanSchema = z.object({
   quantita: z.number().positive().max(1_000_000),
   unita: z.enum(["kg", "pz"]).default("pz"),
   note: z.string().trim().max(500).optional(),
+  chiave: z.string().trim().min(8).max(200).optional(),
 });
 
 export const setArticoloBarcodeSchema = z.object({

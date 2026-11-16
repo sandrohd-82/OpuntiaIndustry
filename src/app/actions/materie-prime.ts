@@ -12,7 +12,7 @@ import {
 } from "@/lib/amministrazione/materie-prime";
 import { writeAuditLog } from "@/lib/audit";
 import { fraseConfermaSoftDelete } from "@/lib/soft-delete";
-import { requireAreaAccess } from "@/lib/areas/guard";
+import { requireAnyAreaAccess, requireAreaAccess } from "@/lib/areas/guard";
 import type { MateriaPrimaInsert, MateriaPrimaRow } from "@/types/database";
 
 export type MateriePrimeActionResult =
@@ -70,7 +70,11 @@ export async function listMateriePrimeAction(): Promise<
   | { success: true; materie: MateriaPrima[] }
   | { success: false; error: string }
 > {
-  await requireAreaAccess("amministrazione");
+  await requireAnyAreaAccess([
+    "magazzino",
+    "produzione",
+    "amministrazione",
+  ]);
   const supabase = await createClient();
   const PAGE = 1000;
   const materie: MateriaPrima[] = [];

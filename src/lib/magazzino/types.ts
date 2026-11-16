@@ -65,7 +65,7 @@ export type Reparto = {
   createdAt: string;
 };
 
-export type MagazzinoUnita = "kg" | "pz";
+export type MagazzinoUnita = "kg" | "g" | "lt" | "ml" | "pz";
 
 export type MagazzinoPanoramicaSezione = {
   articoli: number;
@@ -153,7 +153,7 @@ export const updateMagazzinoProdottoSchema = z.object({
   confermaTitoloAttuale: z.string().trim().max(200).optional(),
   quantita: z.number().min(0),
   quantitaRiserva: z.number().min(0).nullable(),
-  unita: z.enum(["kg", "pz"]),
+  unita: z.enum(["kg", "g", "lt", "ml", "pz"]),
   repartoId: z.string().uuid().nullable(),
 });
 

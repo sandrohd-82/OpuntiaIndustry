@@ -654,6 +654,47 @@ export async function movimentoScanAction(raw: unknown): Promise<
     };
   }
 
+  if (hit.kind === "materia_prima") {
+    const chiave = input.chiave?.trim() || `scan-${crypto.randomUUID()}`;
+    const { data, error } = await supabase.rpc("magazzino_mp_registra_movimento", {
+      p_prodotto_id: hit.row.id,
+      p_tipo: input.mode,
+      p_quantita: Math.abs(input.quantita),
+      p_unita: input.unita,
+      p_chiave: chiave,
+      p_note: input.note ?? "",
+      p_barcode: input.barcode.trim(),
+    });
+    if (error) return { success: false, error: error.message };
+    const esito = (typeof data === "string" ? JSON.parse(data) : data) as {
+      movimento_id: string;
+      saldo: number;
+      unita: MagazzinoUnita;
+      ripetuta: boolean;
+    };
+    const delta = esito.ripetuta
+      ? 0
+      : (input.mode === "carico"
+          ? Math.abs(input.quantita)
+          : -Math.abs(input.quantita));
+    return {
+      success: true,
+      movimentoId: esito.movimento_id,
+      delta,
+      item: {
+        catalogKind: hit.kind,
+        prodottoId: hit.row.id,
+        codice: hit.row.codice,
+        nome: hit.row.nome,
+        barcode: hit.row.barcode ?? input.barcode,
+        schedaProvvisoria: Boolean(hit.row.scheda_provvisoria),
+        categoriaUtilizzo: hit.row.categoria_utilizzo,
+        giacenza: Number(esito.saldo) || 0,
+        unita: esito.unita,
+      },
+    };
+  }
+
   const g = await loadGiacenza(supabase, hit.kind, hit.row.id);
   const delta =
     input.mode === "carico" ? Math.abs(input.quantita) : -Math.abs(input.quantita);

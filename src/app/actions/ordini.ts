@@ -2992,8 +2992,31 @@ export async function purgeOrdiniTestAction(): Promise<
 
   const ordini = await softPurge("ordini");
   if (ordini.error) return { success: false, error: ordini.error };
-  const movimenti = await softPurge("magazzino_movimenti");
-  if (movimenti.error) return { success: false, error: movimenti.error };
+  const { data: mpPulizia, error: mpPuliziaErr } = await supabase.rpc(
+    "magazzino_mp_pulisci_test",
+    { p_chiave: `purge-mp-${auth.userId}-${Date.now()}` }
+  );
+  if (mpPuliziaErr) return { success: false, error: mpPuliziaErr.message };
+  const mpChiusi = (mpPulizia ?? {}) as {
+    movimenti?: number;
+    giacenze?: number;
+  };
+  const { data: movimentiData, error: movimentiErr } = await supabase
+    .from("magazzino_movimenti")
+    .update({
+      deleted_at: now,
+      deleted_by: auth.userId,
+      updated_by: auth.userId,
+    })
+    .eq("is_test", true)
+    .or("catalog_kind.is.null,catalog_kind.neq.materia_prima")
+    .is("deleted_at", null)
+    .select("id");
+  if (movimentiErr) return { success: false, error: movimentiErr.message };
+  const movimenti = {
+    count:
+      (movimentiData ?? []).length + Number(mpChiusi.movimenti ?? 0),
+  };
   const osservazioni = await softPurge("produzione_resa_osservazioni");
   if (osservazioni.error) return { success: false, error: osservazioni.error };
 
@@ -3007,6 +3030,7 @@ export async function purgeOrdiniTestAction(): Promise<
       updated_by: auth.userId,
     })
     .eq("is_test", true)
+    .or("catalog_kind.is.null,catalog_kind.neq.materia_prima")
     .is("deleted_at", null)
     .select("id");
   if (giacenzeErr) return { success: false, error: giacenzeErr.message };
@@ -3021,7 +3045,8 @@ export async function purgeOrdiniTestAction(): Promise<
       ordini: ordini.count,
       movimenti: movimenti.count,
       osservazioni: osservazioni.count,
-      giacenze: (giacenzeData ?? []).length,
+      giacenze:
+        (giacenzeData ?? []).length + Number(mpChiusi.giacenze ?? 0),
     },
   });
 
@@ -3031,7 +3056,8 @@ export async function purgeOrdiniTestAction(): Promise<
       ordini: ordini.count,
       movimenti: movimenti.count,
       osservazioni: osservazioni.count,
-      giacenze: (giacenzeData ?? []).length,
+      giacenze:
+        (giacenzeData ?? []).length + Number(mpChiusi.giacenze ?? 0),
     },
   };
 }

@@ -45,6 +45,7 @@ import {
   isValidLottoIngressoMp,
   prefixLottoDaData,
 } from "@/lib/produzione/fogli-ingresso-mp";
+import { unitaMateriaPrimaValida } from "@/lib/amministrazione/materie-prime";
 import { createClient, createServiceClient } from "@/lib/supabase/server";
 import { ensureFoglioMpInventarioDaCarico } from "@/app/actions/produzione-ingresso-mp";
 import { occupaPostoAction } from "@/app/actions/magazzino-posto-occupazione";
@@ -73,6 +74,7 @@ type ArticoloRow = {
   foto_path: string | null;
   scheda_provvisoria: boolean | null;
   fattura_ricevuta_id?: string | null;
+  unita_misura?: string | null;
 };
 
 function parseCategoriaUtilizzo(
@@ -89,6 +91,19 @@ function parseCategoriaUtilizzo(
 }
 
 type RepartoMini = { id: string; nome: string; codice: string };
+
+function unitaMostrata(
+  kind: MagazzinoCatalogKind,
+  raw: string | null | undefined
+): MagazzinoUnita {
+  if (
+    kind === "materia_prima" &&
+    (raw === "kg" || raw === "g" || raw === "lt" || raw === "ml" || raw === "pz")
+  ) {
+    return raw;
+  }
+  return raw === "pz" ? "pz" : "kg";
+}
 
 function catalogTable(
   kind: MagazzinoCatalogKind
@@ -307,6 +322,21 @@ export async function listMagazzinoProdottiAction(
   if (pErr) return { success: false, error: pErr.message };
   if (gErr) return { success: false, error: gErr.message };
 
+  const unitaAnagrafica = new Map<string, string | null>();
+  if (catalogKind === "materia_prima") {
+    const { data: unitaRows, error: uErr } = await supabase
+      .from("materie_prime")
+      .select("id, unita_misura")
+      .is("deleted_at", null);
+    if (uErr) return { success: false, error: uErr.message };
+    for (const row of (unitaRows ?? []) as Array<{
+      id: string;
+      unita_misura: string | null;
+    }>) {
+      unitaAnagrafica.set(row.id, row.unita_misura);
+    }
+  }
+
   const giacByProd = new Map(
     ((giacenze ?? []) as GiacenzaRow[]).map((g) => [g.prodotto_id, g])
   );
@@ -344,7 +374,9 @@ export async function listMagazzinoProdottiAction(
       g?.quantita_riserva != null && g.quantita_riserva !== ""
         ? Number(g.quantita_riserva)
         : null;
-    const unita = (g?.unita === "pz" ? "pz" : "kg") as MagazzinoUnita;
+    const unita = g
+      ? unitaMostrata(catalogKind, g.unita)
+      : unitaMostrata(catalogKind, unitaAnagrafica.get(p.id));
     items.push({
       catalogKind,
       prodottoId: p.id,
@@ -438,6 +470,16 @@ export async function updateMagazzinoProdottoAction(
     };
   }
   const input = parsed.data;
+  if (
+    input.catalogKind === "prodotto_fornitore" &&
+    input.unita !== "kg" &&
+    input.unita !== "pz"
+  ) {
+    return {
+      success: false,
+      error: "Unità non prevista per i prodotti di consumo.",
+    };
+  }
   const supabase = await createClient();
   const table = catalogTable(input.catalogKind);
 
@@ -463,6 +505,17 @@ export async function updateMagazzinoProdottoAction(
   if (pErr) return { success: false, error: pErr.message };
   if (!articolo) return { success: false, error: "Articolo non trovato." };
   const p = articolo as ArticoloRow;
+  if (input.catalogKind === "materia_prima") {
+    const { data: unitaRow, error: uErr } = await supabase
+      .from("materie_prime")
+      .select("unita_misura")
+      .eq("id", p.id)
+      .maybeSingle();
+    if (uErr) return { success: false, error: uErr.message };
+    p.unita_misura =
+      (unitaRow as { unita_misura: string | null } | null)?.unita_misura ??
+      null;
+  }
 
   const titoloNuovo = input.titoloMagazzino.trim();
   const titoloAttuale = (p.titolo_magazzino ?? "").trim();
@@ -474,6 +527,82 @@ export async function updateMagazzinoProdottoAction(
         error:
           "Per modificare il titolo ricopia esattamente il titolo attuale nella conferma.",
       };
+    }
+  }
+
+  let saldoMateria = 0;
+  let unitaMateria: MagazzinoUnita | null = null;
+  let giacenzaMateriaId: string | null = null;
+  if (input.catalogKind === "materia_prima") {
+    const { data: giacMp, error: giacMpErr } = await supabase
+      .from("magazzino_giacenze")
+      .select("id, quantita_kg, unita")
+      .eq("catalog_kind", "materia_prima")
+      .eq("prodotto_id", input.prodottoId)
+      .is("deleted_at", null)
+      .maybeSingle();
+    if (giacMpErr) return { success: false, error: giacMpErr.message };
+    const riga = giacMp as {
+      id: string;
+      quantita_kg: number;
+      unita: string;
+    } | null;
+    saldoMateria = riga ? Number(riga.quantita_kg) || 0 : 0;
+    unitaMateria = riga ? unitaMostrata("materia_prima", riga.unita) : null;
+    giacenzaMateriaId = riga?.id ?? null;
+    if (!categoriaRequiresMagazzino(input.categoriaUtilizzo)) {
+      if (saldoMateria !== 0) {
+        return {
+          success: false,
+          error:
+            "Giacenza diversa da zero: non si passa ad acquisti occasionali e il saldo resta invariato.",
+        };
+      }
+      if (giacenzaMateriaId) {
+        const { data: chiusa, error: delErr } = await supabase
+          .from("magazzino_giacenze")
+          .update({
+            deleted_at: new Date().toISOString(),
+            deleted_by: auth.userId,
+            updated_by: auth.userId,
+          })
+          .eq("id", giacenzaMateriaId)
+          .eq("quantita_kg", 0)
+          .select("id");
+        if (delErr) return { success: false, error: delErr.message };
+        if (!chiusa?.length) {
+          return {
+            success: false,
+            error:
+              "Giacenza diversa da zero: non si passa ad acquisti occasionali e il saldo resta invariato.",
+          };
+        }
+      }
+    }
+    if (categoriaRequiresMagazzino(input.categoriaUtilizzo)) {
+      const quantitaDiversa = riga
+        ? Math.abs(input.quantita - saldoMateria) > 0.0005
+        : input.quantita !== 0;
+      if (quantitaDiversa) {
+        return {
+          success: false,
+          error:
+            "La quantità delle materie prime non si modifica da questa scheda. Il saldo registrato resta invariato.",
+        };
+      }
+      if (riga && input.unita !== unitaMateria) {
+        return {
+          success: false,
+          error: "L'unità della giacenza non si modifica da questa scheda.",
+        };
+      }
+      if (!riga && !unitaMateriaPrimaValida(p.unita_misura)) {
+        return {
+          success: false,
+          error:
+            "Imposta l'unità di misura in anagrafica prima di salvare la riserva. La quantità non viene creata da questa scheda.",
+        };
+      }
     }
   }
 
@@ -566,32 +695,54 @@ export async function updateMagazzinoProdottoAction(
     };
   }
 
-  const { data: existing } = await supabase
-    .from("magazzino_giacenze")
-    .select("id")
-    .eq("catalog_kind", input.catalogKind)
-    .eq("prodotto_id", input.prodottoId)
-    .is("deleted_at", null)
-    .maybeSingle();
+  const materiaPrima = input.catalogKind === "materia_prima";
+  const quantitaSalvata = materiaPrima ? saldoMateria : input.quantita;
+  let unitaSalvata: MagazzinoUnita = input.unita;
+  if (materiaPrima && unitaMateria) {
+    unitaSalvata = unitaMateria;
+  } else if (materiaPrima && unitaMateriaPrimaValida(p.unita_misura)) {
+    unitaSalvata = p.unita_misura;
+  }
 
-  const payload = {
-    catalog_kind: input.catalogKind,
-    prodotto_id: input.prodottoId,
-    prodotto_codice: p.codice,
-    quantita_kg: input.quantita,
-    quantita_riserva: input.quantitaRiserva,
-    unita: input.unita,
-    reparto_id: input.repartoId,
-    updated_by: auth.userId,
-    is_test: false,
-  };
+  let existingId: string | null = giacenzaMateriaId;
+  if (!materiaPrima) {
+    const { data: existing } = await supabase
+      .from("magazzino_giacenze")
+      .select("id")
+      .eq("catalog_kind", input.catalogKind)
+      .eq("prodotto_id", input.prodottoId)
+      .is("deleted_at", null)
+      .maybeSingle();
+    existingId = existing ? (existing as { id: string }).id : null;
+  }
+
+  const payload = materiaPrima
+    ? {
+        catalog_kind: input.catalogKind,
+        prodotto_id: input.prodottoId,
+        prodotto_codice: p.codice,
+        quantita_riserva: input.quantitaRiserva,
+        reparto_id: input.repartoId,
+        updated_by: auth.userId,
+      }
+    : {
+        catalog_kind: input.catalogKind,
+        prodotto_id: input.prodottoId,
+        prodotto_codice: p.codice,
+        quantita_kg: input.quantita,
+        quantita_riserva: input.quantitaRiserva,
+        unita: input.unita,
+        reparto_id: input.repartoId,
+        updated_by: auth.userId,
+        is_test: false,
+      };
 
   let giacenzaId: string;
-  if (existing) {
+  if (existingId) {
     const { data, error } = await supabase
       .from("magazzino_giacenze")
       .update(payload)
-      .eq("id", (existing as { id: string }).id)
+      .eq("id", existingId)
       .select("id")
       .single();
     if (error) return { success: false, error: error.message };
@@ -601,6 +752,9 @@ export async function updateMagazzinoProdottoAction(
       .from("magazzino_giacenze")
       .insert({
         ...payload,
+        quantita_kg: materiaPrima ? 0 : input.quantita,
+        unita: unitaSalvata,
+        is_test: false,
         created_by: auth.userId,
       })
       .select("id")
@@ -609,33 +763,35 @@ export async function updateMagazzinoProdottoAction(
     giacenzaId = data.id;
   }
 
-  await syncNotaForProdotto({
-    supabase,
-    userId: auth.userId,
-    catalogKind: input.catalogKind,
-    prodottoId: p.id,
-    prodottoCodice: p.codice,
-    prodottoNome: titoloNuovo || p.nome,
-    quantita: input.quantita,
-    quantitaRiserva: input.quantitaRiserva,
-    unita: input.unita,
-  });
+  if (!materiaPrima || unitaSalvata === "kg" || unitaSalvata === "pz") {
+    await syncNotaForProdotto({
+      supabase,
+      userId: auth.userId,
+      catalogKind: input.catalogKind,
+      prodottoId: p.id,
+      prodottoCodice: p.codice,
+      prodottoNome: titoloNuovo || p.nome,
+      quantita: quantitaSalvata,
+      quantitaRiserva: input.quantitaRiserva,
+      unita: unitaSalvata === "pz" ? "pz" : "kg",
+    });
+  }
 
   void writeAuditLog({
     entity_type: "magazzino_giacenze",
     entity_id: giacenzaId,
-    action: existing ? "update" : "create",
+    action: existingId ? "update" : "create",
     actor_id: auth.userId,
     summary: `Parametri magazzino ${input.catalogKind} ${p.codice}`,
     payload: {
       catalogKind: input.catalogKind,
       categoriaUtilizzo: input.categoriaUtilizzo,
       titoloMagazzino: titoloNuovo,
-      quantita: input.quantita,
+      quantita: quantitaSalvata,
       quantitaRiserva: input.quantitaRiserva,
-      unita: input.unita,
+      unita: unitaSalvata,
       repartoId: input.repartoId,
-      semaforo: computeSemaforo(input.quantita, input.quantitaRiserva),
+      semaforo: computeSemaforo(quantitaSalvata, input.quantitaRiserva),
     },
   });
 
@@ -665,12 +821,12 @@ export async function updateMagazzinoProdottoAction(
       fotoPath: p.foto_path ? String(p.foto_path).trim() || null : null,
       schedaProvvisoria: Boolean(p.scheda_provvisoria),
       giacenzaId,
-      quantita: input.quantita,
+      quantita: quantitaSalvata,
       quantitaRiserva: input.quantitaRiserva,
-      unita: input.unita,
+      unita: unitaSalvata,
       repartoId: input.repartoId,
       repartoNome,
-      semaforo: computeSemaforo(input.quantita, input.quantitaRiserva),
+      semaforo: computeSemaforo(quantitaSalvata, input.quantitaRiserva),
     },
   };
 }
