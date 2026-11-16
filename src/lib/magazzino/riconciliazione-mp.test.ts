@@ -90,6 +90,14 @@ assert.doesNotMatch(ruoli, /set_config\('magazzino/);
 assert.match(ruoli, /set local role magazzino_mp_movimento/);
 assert.match(ruoli, /unita in \('kg', 'g', 'lt', 'ml', 'pz'\)/);
 
+const revoca = readFileSync(
+  "supabase/migrations/20261116200000_magazzino_mp_revoca_create.sql",
+  "utf8"
+);
+assert.match(revoca, /revoke create on schema public from magazzino_mp_movimento/);
+assert.match(revoca, /revoke create on schema public from magazzino_mp_pulizia/);
+assert.doesNotMatch(revoca, /grant create on schema public to magazzino_mp_/);
+
 const schema = readFileSync("src/lib/magazzino/barcode.ts", "utf8");
 assert.match(schema, /z\.enum\(\["kg", "g", "lt", "ml", "pz"\]\)/);
 
