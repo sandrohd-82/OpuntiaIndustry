@@ -37,7 +37,7 @@ export async function inviaDaCasellaAnagrafica(input: {
   to: string;
   subject: string;
   text: string;
-}): Promise<void> {
+}): Promise<{ messageId: string | null }> {
   const account = await casellaInvioAnagrafica();
   if (!account) throw new Error(ERRORE_CASELLA_ANAGRAFICA);
   const html = input.text
@@ -45,7 +45,7 @@ export async function inviaDaCasellaAnagrafica(input: {
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;")
     .replace(/\n/g, "<br/>");
-  await sendMailViaAccount({
+  const inviata = await sendMailViaAccount({
     account,
     to: input.to,
     subject: input.subject,
@@ -53,4 +53,5 @@ export async function inviaDaCasellaAnagrafica(input: {
     html,
     fromName: "Agrinsicilia",
   });
+  return { messageId: inviata.messageId };
 }
