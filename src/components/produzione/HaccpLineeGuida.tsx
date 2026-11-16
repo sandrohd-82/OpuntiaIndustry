@@ -10,6 +10,7 @@ import {
   salvaDestinatariHaccpLineaGuidaAction,
 } from "@/app/actions/haccp-linee-guida";
 import { paragrafiGuida } from "@/lib/produzione/haccp";
+import { notificaRichiedeConfermaRecupero } from "@/lib/produzione/richiesta-ingresso";
 import type {
   AmbitoLineaGuida,
   FornitoreDestinatario,
@@ -26,8 +27,10 @@ function dataIt(iso: string | null): string {
 }
 
 function etichettaNotifica(stato: NotificaStatoGuida): string {
-  if (stato === "inviata") return "Notifica consegnata";
+  if (stato === "inviata") return "Notifica inviata";
   if (stato === "fallita") return "Notifica non consegnata";
+  if (stato === "incerta") return "Esito incerto";
+  if (stato === "in_invio") return "Invio in corso";
   return "Notifica non inviata";
 }
 
@@ -141,6 +144,8 @@ function SezioneEditor({
   const [scelti, setScelti] = useState<string[]>(sezione.destinatariIds);
   const [cerca, setCerca] = useState("");
   const [storico, setStorico] = useState<string | null>(null);
+  const [confermaId, setConfermaId] = useState<string | null>(null);
+  const oraMs = Date.now();
 
   const filtrati = useMemo(() => {
     const testo = cerca.trim().toLowerCase();
@@ -357,20 +362,31 @@ function SezioneEditor({
         <div className="mt-6">
           <h3 className="text-sm font-semibold text-slate-700">Distribuzioni</h3>
           <ul className="mt-2 space-y-2">
-            {sezione.distribuzioni.map((voce) => (
+            {sezione.distribuzioni.map((voce) => {
+              const recupero = notificaRichiedeConfermaRecupero({
+                stato: voce.notificaStato,
+                lockAt: voce.notificaLockAt,
+                oraMs,
+              });
+              const riprovaCerta =
+                voce.notificaStato === "fallita" || voce.notificaStato === "non_inviata";
+              return (
               <li key={voce.id} className="text-sm text-slate-700">
                 Versione {voce.versioneNumero} · {voce.ragioneSociale} · registrata{" "}
                 {dataIt(voce.registrataAt)} · {etichettaNotifica(voce.notificaStato)} · prese
                 visione {voce.prese}
-                {voce.notificaStato !== "inviata" ? (
+                {riprovaCerta ? (
                   <button
                     type="button"
                     disabled={occupato}
                     onClick={() =>
                       void onEsegui(async () => {
-                        const res = await riprovaNotificaHaccpLineaGuidaAction(voce.id);
+                        const res = await riprovaNotificaHaccpLineaGuidaAction({
+                          distribuzioneId: voce.id,
+                          confermaIncerta: false,
+                        });
                         if (!res.success) return res;
-                        return { success: true, messaggio: "Notifica aggiornata." };
+                        return { success: true, messaggio: res.messaggio };
                       })
                     }
                     className="ml-2 text-sky-800 hover:underline disabled:opacity-60"
@@ -378,11 +394,44 @@ function SezioneEditor({
                     Riprova notifica
                   </button>
                 ) : null}
+                {recupero && confermaId !== voce.id ? (
+                  <button
+                    type="button"
+                    disabled={occupato}
+                    onClick={() => setConfermaId(voce.id)}
+                    className="ml-2 text-amber-800 hover:underline disabled:opacity-60"
+                  >
+                    Recupera esito incerto
+                  </button>
+                ) : null}
+                {recupero && confermaId === voce.id ? (
+                  <span className="mt-1 block rounded-md border border-amber-200 bg-amber-50 p-2 text-amber-950">
+                    Il reinvio potrebbe produrre una seconda email. La conferma non garantisce un invio singolo.
+                    <button
+                      type="button"
+                      disabled={occupato}
+                      onClick={() =>
+                        void onEsegui(async () => {
+                          const res = await riprovaNotificaHaccpLineaGuidaAction({
+                            distribuzioneId: voce.id,
+                            confermaIncerta: true,
+                          });
+                          if (!res.success) return res;
+                          return { success: true, messaggio: res.messaggio };
+                        })
+                      }
+                      className="ml-2 font-medium text-amber-900 hover:underline disabled:opacity-60"
+                    >
+                      Confermo il reinvio
+                    </button>
+                  </span>
+                ) : null}
                 {voce.notificaErrore ? (
                   <span className="mt-1 block text-xs text-slate-500">{voce.notificaErrore}</span>
                 ) : null}
               </li>
-            ))}
+              );
+            })}
           </ul>
         </div>
       ) : null}

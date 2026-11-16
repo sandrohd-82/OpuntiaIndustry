@@ -2,7 +2,16 @@
 
 import { z } from "zod";
 import { writeAuditLog } from "@/lib/audit";
-import { inviaDaCasellaAnagrafica } from "@/lib/anagrafica/casella-invio";
+import {
+  comeStatoNotificaDistribuzione,
+  MESSAGGIO_CONFERMA_INCERTA,
+} from "@/lib/produzione/notifica-distribuzione";
+import {
+  eseguiNotificaDistribuzione,
+  messaggioDistribuzioneHaccp,
+  messaggioDistribuzioneTesto,
+} from "@/lib/produzione/notifica-distribuzione-invio";
+import type { NotificaRichiestaStato } from "@/lib/produzione/richiesta-ingresso";
 import { requireAreaAccess } from "@/lib/areas/guard";
 import {
   attoCopreNatura,
@@ -19,10 +28,7 @@ import {
   type StatoAbilitazioneFornitore,
   type VoceAbilitazione,
 } from "@/lib/amministrazione/requisiti-fornitore";
-import {
-  consultaLineeGuidaFornitore,
-  primoIndirizzoEmail,
-} from "@/lib/produzione/haccp-versioni";
+import { consultaLineeGuidaFornitore } from "@/lib/produzione/haccp-versioni";
 import { soggettoAccessoFornitore } from "@/lib/produzione/fornitore-accesso-server";
 import { createClient } from "@/lib/supabase/server";
 
@@ -51,7 +57,8 @@ export type RequisitoSchedaRiga = {
   bozzaTitolo: string | null;
   bozzaCorpo: string | null;
   versionePubblicataId: string | null;
-  notificaStato: "non_inviata" | "inviata" | "fallita" | null;
+  notificaStato: NotificaRichiestaStato | null;
+  notificaLockAt: string | null;
   notificaErrore: string | null;
   distribuzioneId: string | null;
 };
@@ -65,11 +72,9 @@ export type SchedaAbilitazione = {
   eventi: { tipo: "sospensione" | "riabilitazione"; motivo: string; at: string }[];
 };
 
-function comeNotifica(
-  valore: string | undefined
-): "non_inviata" | "inviata" | "fallita" | null {
-  if (valore === "inviata" || valore === "fallita" || valore === "non_inviata") return valore;
-  return null;
+function comeNotifica(valore: string | undefined): NotificaRichiestaStato | null {
+  if (!valore) return null;
+  return comeStatoNotificaDistribuzione(valore);
 }
 
 function comeNatura(valore: string): NaturaRequisito {
@@ -82,12 +87,6 @@ function comeNatura(valore: string): NaturaRequisito {
     return valore;
   }
   return "presa_visione";
-}
-
-function testoErroreInvio(errore: unknown): string {
-  const testo = errore instanceof Error ? errore.message : "Invio non riuscito.";
-  if (testo.includes("@")) return "Invio non riuscito.";
-  return testo.slice(0, 400);
 }
 
 async function richiediAmministrazione() {
@@ -196,7 +195,7 @@ export async function listaAbilitazioneFornitoreAction(
       lineaIds.length
         ? supabase
             .from("haccp_linee_guida_distribuzioni")
-            .select("id, documento_id, versione_id, notifica_stato, notifica_errore")
+            .select("id, documento_id, versione_id, notifica_stato, notifica_lock_at, notifica_errore")
             .eq("fornitore_id", parsed.data)
             .in("documento_id", lineaIds)
             .eq("stato", "registrata")
@@ -248,7 +247,7 @@ export async function listaAbilitazioneFornitoreAction(
     testoIds.length
       ? supabase
           .from("fornitori_testi_distribuzioni")
-          .select("id, testo_id, versione_id, notifica_stato, notifica_errore")
+          .select("id, testo_id, versione_id, notifica_stato, notifica_lock_at, notifica_errore")
           .eq("fornitore_id", parsed.data)
           .in("testo_id", testoIds)
           .is("deleted_at", null)
@@ -272,7 +271,10 @@ export async function listaAbilitazioneFornitoreAction(
       ultimaGuida.set(documentoId, { id: String(row.id), numero: Number(row.numero) });
     }
   }
-  const distribuzioneGuida = new Map<string, { id: string; versioneId: string; notifica: string; errore: string | null }>();
+  const distribuzioneGuida = new Map<
+    string,
+    { id: string; versioneId: string; notifica: string; lockAt: string | null; errore: string | null }
+  >();
   for (const row of distribuzioniGuidaRes.data ?? []) {
     const documentoId = String(row.documento_id);
     const corrente = ultimaGuida.get(documentoId);
@@ -282,6 +284,7 @@ export async function listaAbilitazioneFornitoreAction(
         id: String(row.id),
         versioneId: String(row.versione_id),
         notifica: String(row.notifica_stato),
+        lockAt: row.notifica_lock_at ? String(row.notifica_lock_at) : null,
         errore: row.notifica_errore ? String(row.notifica_errore) : null,
       });
     }
@@ -314,7 +317,10 @@ export async function listaAbilitazioneFornitoreAction(
       ultimaTesto.set(testoId, { id: String(row.id), numero: Number(row.numero) });
     }
   }
-  const distribuzioneTesto = new Map<string, { id: string; versioneId: string; notifica: string; errore: string | null }>();
+  const distribuzioneTesto = new Map<
+    string,
+    { id: string; versioneId: string; notifica: string; lockAt: string | null; errore: string | null }
+  >();
   for (const row of distribuzioniTestoRes.data ?? []) {
     const testoId = String(row.testo_id);
     const corrente = ultimaTesto.get(testoId);
@@ -323,6 +329,7 @@ export async function listaAbilitazioneFornitoreAction(
       id: String(row.id),
       versioneId: String(row.versione_id),
       notifica: String(row.notifica_stato),
+      lockAt: row.notifica_lock_at ? String(row.notifica_lock_at) : null,
       errore: row.notifica_errore ? String(row.notifica_errore) : null,
     });
   }
@@ -371,6 +378,7 @@ export async function listaAbilitazioneFornitoreAction(
     let versioneSoddisfattaId: string | null = null;
     let soddisfattoAt: string | null = null;
     let notificaStato: RequisitoSchedaRiga["notificaStato"] = null;
+    let notificaLockAt: string | null = null;
     let notificaErrore: string | null = null;
     let distribuzioneId: string | null = null;
     if (natura === "presa_visione" && lineaGuidaId) {
@@ -380,6 +388,7 @@ export async function listaAbilitazioneFornitoreAction(
       distribuita = Boolean(distribuzione && distribuzione.versioneId === versioneRichiestaId);
       distribuzioneId = distribuzione?.id ?? null;
       notificaStato = comeNotifica(distribuzione?.notifica);
+      notificaLockAt = distribuzione?.lockAt ?? null;
       notificaErrore = distribuzione?.errore ?? null;
       if (versioneRichiestaId && presaPerVersione.has(versioneRichiestaId)) {
         versioneSoddisfattaId = versioneRichiestaId;
@@ -393,6 +402,7 @@ export async function listaAbilitazioneFornitoreAction(
       distribuita = Boolean(distribuzione && distribuzione.versioneId === versioneRichiestaId);
       distribuzioneId = distribuzione?.id ?? null;
       notificaStato = comeNotifica(distribuzione?.notifica);
+      notificaLockAt = distribuzione?.lockAt ?? null;
       notificaErrore = distribuzione?.errore ?? null;
       const atto = versioneRichiestaId ? attoPerVersione.get(versioneRichiestaId) : undefined;
       if (atto && attoCopreNatura(comeNatura(atto.atto), natura)) {
@@ -430,6 +440,7 @@ export async function listaAbilitazioneFornitoreAction(
       bozzaCorpo: testoId ? (bozzaPerTesto.get(testoId)?.corpo ?? null) : null,
       versionePubblicataId: versioneRichiestaId,
       notificaStato,
+      notificaLockAt,
       notificaErrore,
       distribuzioneId,
     });
@@ -704,69 +715,25 @@ export async function salvaBozzaTestoAbilitazioneAction(
   return { success: true };
 }
 
-async function avvisaDistribuzioneTesto(
-  distribuzioneId: string,
-  actorId: string
-): Promise<"inviata" | "fallita"> {
-  const supabase = await createClient();
-  const { data: riga } = await supabase
-    .from("fornitori_testi_distribuzioni")
-    .select("id, fornitore_id, versione_id, notifica_stato")
-    .eq("id", distribuzioneId)
-    .is("deleted_at", null)
-    .maybeSingle();
-  if (!riga || riga.notifica_stato === "inviata") return "inviata";
-  const [{ data: versione }, { data: fornitore }] = await Promise.all([
-    supabase
-      .from("fornitori_testi_versioni")
-      .select("numero, titolo")
-      .eq("id", riga.versione_id)
-      .maybeSingle(),
-    supabase.from("fornitori").select("email").eq("id", riga.fornitore_id).maybeSingle(),
-  ]);
-  const indirizzo = primoIndirizzoEmail(String(fornitore?.email ?? ""));
-  const ora = new Date().toISOString();
-  async function chiudi(stato: "inviata" | "fallita", errore: string | null) {
-    await supabase
-      .from("fornitori_testi_distribuzioni")
-      .update({
-        notifica_stato: stato,
-        notifica_at: stato === "inviata" ? ora : null,
-        notifica_errore: errore,
-        updated_by: actorId,
-      })
-      .eq("id", distribuzioneId)
-      .neq("notifica_stato", "inviata");
+function esitoAvviso(
+  esito: Awaited<ReturnType<typeof eseguiNotificaDistribuzione>>
+): { success: true; notifica: NotificaRichiestaStato | "gia_registrata" } | Errore {
+  if (esito.tipo === "conferma_richiesta") {
+    return { success: false, error: MESSAGGIO_CONFERMA_INCERTA };
   }
-  if (!indirizzo) {
-    await chiudi("fallita", "Anagrafica senza un indirizzo email utilizzabile.");
-    return "fallita";
-  }
-  try {
-    await inviaDaCasellaAnagrafica({
-      to: indirizzo,
-      subject: `Documento ${String(versione?.titolo ?? "abilitazione")}, versione ${Number(versione?.numero) || 0}`,
-      text: [
-        "Agrinsicilia ha reso disponibile un documento di abilitazione.",
-        "Si legge in Gestionale fornitori, sezione Documenti, dopo l'accesso.",
-        "Questa mail è solo l'avviso. Non conferma la lettura né una firma.",
-        "",
-        "https://www.opuntiaindustry.com/app/area-fornitori/documenti",
-      ].join("\n"),
-    });
-  } catch (errore) {
-    await chiudi("fallita", testoErroreInvio(errore));
-    return "fallita";
-  }
-  await chiudi("inviata", null);
-  return "inviata";
+  if (esito.tipo === "in_corso") return { success: true, notifica: "in_invio" };
+  return { success: true, notifica: esito.stato };
 }
 
 export async function distribuisciTestoAbilitazioneAction(raw: unknown): Promise<
-  { success: true; notifica: "inviata" | "fallita" | "gia_registrata" } | Errore
+  { success: true; notifica: NotificaRichiestaStato | "gia_registrata" } | Errore
 > {
   const parsed = z
-    .object({ fornitoreId: uuidSchema, requisitoId: uuidSchema })
+    .object({
+      fornitoreId: uuidSchema,
+      requisitoId: uuidSchema,
+      confermaIncerta: z.boolean().optional(),
+    })
     .safeParse(raw);
   if (!parsed.success) return { success: false, error: "Distribuzione non valida." };
   const auth = await richiediAmministrazione();
@@ -799,8 +766,14 @@ export async function distribuisciTestoAbilitazioneAction(raw: unknown): Promise
     if (gia.notifica_stato === "inviata") {
       return { success: true, notifica: "gia_registrata" };
     }
-    const notifica = await avvisaDistribuzioneTesto(String(gia.id), auth.userId);
-    return { success: true, notifica };
+    return esitoAvviso(
+      await eseguiNotificaDistribuzione({
+        canale: "testo",
+        distribuzioneId: String(gia.id),
+        confermaIncerta: parsed.data.confermaIncerta === true,
+        messaggio: () => messaggioDistribuzioneTesto(String(gia.id)),
+      })
+    );
   }
   const { data, error } = await supabase
     .from("fornitori_testi_distribuzioni")
@@ -815,52 +788,29 @@ export async function distribuisciTestoAbilitazioneAction(raw: unknown): Promise
     .select("id")
     .single();
   if (error || !data) return { success: false, error: "Distribuzione non registrata." };
-  const notifica = await avvisaDistribuzioneTesto(String(data.id), auth.userId);
-  return { success: true, notifica };
+  return esitoAvviso(
+    await eseguiNotificaDistribuzione({
+      canale: "testo",
+      distribuzioneId: String(data.id),
+      confermaIncerta: false,
+      messaggio: () => messaggioDistribuzioneTesto(String(data.id)),
+    })
+  );
 }
 
 export async function distribuisciLineaGuidaRequisitoAction(raw: unknown): Promise<
-  { success: true; notifica: "inviata" | "fallita" | "gia_registrata" } | Errore
+  { success: true; notifica: NotificaRichiestaStato | "gia_registrata" } | Errore
 > {
   const parsed = z
-    .object({ fornitoreId: uuidSchema, lineaGuidaId: uuidSchema })
+    .object({
+      fornitoreId: uuidSchema,
+      lineaGuidaId: uuidSchema,
+      confermaIncerta: z.boolean().optional(),
+    })
     .safeParse(raw);
   if (!parsed.success) return { success: false, error: "Distribuzione non valida." };
   const auth = await richiediAmministrazione();
   const supabase = await createClient();
-  const { data: pubblicataPrima } = await supabase
-    .from("haccp_linee_guida_versioni")
-    .select("id")
-    .eq("documento_id", parsed.data.lineaGuidaId)
-    .eq("stato", "pubblicata")
-    .is("deleted_at", null)
-    .limit(1)
-    .maybeSingle();
-  if (!pubblicataPrima) {
-    return { success: false, error: "La linea guida non ha una versione pubblicata." };
-  }
-  const { error: ambitoError } = await supabase
-    .from("haccp_linee_guida")
-    .update({ ambito: "fornitori", updated_by: auth.userId })
-    .eq("id", parsed.data.lineaGuidaId)
-    .is("deleted_at", null);
-  if (ambitoError) return { success: false, error: "Ambito della linea guida non aggiornato." };
-  const { data: destinatario } = await supabase
-    .from("haccp_linee_guida_destinatari")
-    .select("id")
-    .eq("documento_id", parsed.data.lineaGuidaId)
-    .eq("fornitore_id", parsed.data.fornitoreId)
-    .is("deleted_at", null)
-    .maybeSingle();
-  if (!destinatario) {
-    const { error } = await supabase.from("haccp_linee_guida_destinatari").insert({
-      documento_id: parsed.data.lineaGuidaId,
-      fornitore_id: parsed.data.fornitoreId,
-      created_by: auth.userId,
-      updated_by: auth.userId,
-    });
-    if (error) return { success: false, error: "Destinatario non aggiunto." };
-  }
   const { data: pubblicata } = await supabase
     .from("haccp_linee_guida_versioni")
     .select("id, numero, titolo")
@@ -900,47 +850,14 @@ export async function distribuisciLineaGuidaRequisitoAction(raw: unknown): Promi
   } else if (gia.notifica_stato === "inviata") {
     return { success: true, notifica: "gia_registrata" };
   }
-  const { data: fornitore } = await supabase
-    .from("fornitori")
-    .select("email")
-    .eq("id", parsed.data.fornitoreId)
-    .maybeSingle();
-  const indirizzo = primoIndirizzoEmail(String(fornitore?.email ?? ""));
-  const ora = new Date().toISOString();
-  async function chiudi(stato: "inviata" | "fallita", errore: string | null) {
-    await supabase
-      .from("haccp_linee_guida_distribuzioni")
-      .update({
-        notifica_stato: stato,
-        notifica_at: stato === "inviata" ? ora : null,
-        notifica_errore: errore,
-        updated_by: auth.userId,
-      })
-      .eq("id", distribuzioneId)
-      .neq("notifica_stato", "inviata");
-  }
-  if (!indirizzo) {
-    await chiudi("fallita", "Anagrafica senza un indirizzo email utilizzabile.");
-    return { success: true, notifica: "fallita" };
-  }
-  try {
-    await inviaDaCasellaAnagrafica({
-      to: indirizzo,
-      subject: `Linee guida ${String(pubblicata.titolo)}, versione ${Number(pubblicata.numero) || 0}`,
-      text: [
-        `Agrinsicilia ha reso disponibile la versione ${Number(pubblicata.numero) || 0} del documento «${String(pubblicata.titolo)}».`,
-        "Il testo si legge in Gestionale fornitori, sezione Linee guida.",
-        "Questa mail è solo l'avviso. La presa visione si registra lì e vale solo per la versione ricevuta.",
-        "",
-        "https://www.opuntiaindustry.com/app/area-fornitori/linee-guida",
-      ].join("\n"),
-    });
-  } catch (errore) {
-    await chiudi("fallita", testoErroreInvio(errore));
-    return { success: true, notifica: "fallita" };
-  }
-  await chiudi("inviata", null);
-  return { success: true, notifica: "inviata" };
+  return esitoAvviso(
+    await eseguiNotificaDistribuzione({
+      canale: "haccp",
+      distribuzioneId,
+      confermaIncerta: parsed.data.confermaIncerta === true,
+      messaggio: () => messaggioDistribuzioneHaccp(distribuzioneId),
+    })
+  );
 }
 
 export async function registraControlloInternoAction(

@@ -14,8 +14,10 @@ function dataIt(iso: string | null): string {
 }
 
 function etichettaNotifica(stato: NotificaStatoGuida): string {
-  if (stato === "inviata") return "Avviso email consegnato";
+  if (stato === "inviata") return "Avviso email inviato. Non è una lettura.";
   if (stato === "fallita") return "Avviso email non consegnato: il testo è comunque qui";
+  if (stato === "incerta") return "Esito dell'avviso incerto: il testo è comunque qui";
+  if (stato === "in_invio") return "Avviso email in corso: il testo è comunque qui";
   return "Avviso email non ancora inviato: il testo è comunque qui";
 }
 

@@ -3,7 +3,12 @@ import { eUtenteInternoHaccp } from "@/lib/produzione/fornitore-accesso";
 
 export type AmbitoLineaGuida = "interno" | "fornitori";
 export type StatoVersioneGuida = "bozza" | "pubblicata";
-export type NotificaStatoGuida = "non_inviata" | "inviata" | "fallita";
+export type NotificaStatoGuida =
+  | "non_inviata"
+  | "in_invio"
+  | "inviata"
+  | "fallita"
+  | "incerta";
 
 export type VersioneGuida = {
   id: string;
@@ -23,6 +28,7 @@ export type DistribuzioneGuida = {
   ragioneSociale: string;
   registrataAt: string;
   notificaStato: NotificaStatoGuida;
+  notificaLockAt: string | null;
   notificaErrore: string | null;
   prese: number;
 };

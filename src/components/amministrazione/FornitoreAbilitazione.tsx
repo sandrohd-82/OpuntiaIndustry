@@ -15,12 +15,10 @@ import {
   type SchedaAbilitazione,
 } from "@/app/actions/requisiti-fornitore";
 import { etichettaNaturaRequisito } from "@/lib/amministrazione/requisiti-fornitore";
-
-function etichettaAvviso(stato: "non_inviata" | "inviata" | "fallita" | null): string {
-  if (stato === "inviata") return "inviato";
-  if (stato === "fallita") return "non consegnato";
-  return "in attesa";
-}
+import {
+  etichettaNotificaRichiesta,
+  notificaRichiedeConfermaRecupero,
+} from "@/lib/produzione/richiesta-ingresso";
 
 export function FornitoreAbilitazione({
   fornitoreId,
@@ -41,6 +39,8 @@ export function FornitoreAbilitazione({
   const [corpo, setCorpo] = useState("");
   const [motivo, setMotivo] = useState("");
   const [nota, setNota] = useState("");
+  const [confermaId, setConfermaId] = useState<string | null>(null);
+  const oraMs = Date.now();
 
   function ricarica() {
     startTransition(async () => {
@@ -158,29 +158,37 @@ export function FornitoreAbilitazione({
             <p className="text-slate-500">{riga.dettaglio}</p>
             {riga.notificaStato ? (
               <p className="text-slate-500">
-                Avviso email: {etichettaAvviso(riga.notificaStato)}. Non risulta una lettura.
+                Avviso email: {etichettaNotificaRichiesta(riga.notificaStato, { lockAt: riga.notificaLockAt, oraMs })}. Non risulta una lettura.
               </p>
             ) : null}
             {puoGestire ? (
               <div className="mt-2 flex flex-wrap gap-2">
                 {riga.natura === "presa_visione" && riga.lineaGuidaId ? (
-                  <button
-                    type="button"
-                    disabled={pending}
-                    onClick={() =>
+                  <PulsanteDistribuzione
+                    pending={pending}
+                    recupero={
+                      riga.notificaStato != null &&
+                      notificaRichiedeConfermaRecupero({
+                        stato: riga.notificaStato,
+                        lockAt: riga.notificaLockAt,
+                        oraMs,
+                      })
+                    }
+                    aperto={confermaId === riga.id}
+                    onApri={() => setConfermaId(riga.id)}
+                    onInvia={(confermaIncerta) =>
                       esegui(
                         () =>
                           distribuisciLineaGuidaRequisitoAction({
                             fornitoreId,
                             lineaGuidaId: riga.lineaGuidaId ?? "",
+                            confermaIncerta,
                           }),
-                        "Linea guida distribuita, senza una seconda copia del testo."
+                        "Linea guida distribuita solo a questo fornitore, su questa versione."
                       )
                     }
-                    className="text-sky-800 hover:underline disabled:opacity-60"
-                  >
-                    Distribuisci versione pubblicata
-                  </button>
+                    etichetta="Distribuisci versione pubblicata"
+                  />
                 ) : null}
                 {riga.testoId ? (
                   <>
@@ -197,23 +205,31 @@ export function FornitoreAbilitazione({
                     >
                       Pubblica bozza
                     </button>
-                    <button
-                      type="button"
-                      disabled={pending}
-                      onClick={() =>
+                    <PulsanteDistribuzione
+                      pending={pending}
+                      recupero={
+                        riga.notificaStato != null &&
+                        notificaRichiedeConfermaRecupero({
+                          stato: riga.notificaStato,
+                          lockAt: riga.notificaLockAt,
+                          oraMs,
+                        })
+                      }
+                      aperto={confermaId === `${riga.id}-testo`}
+                      onApri={() => setConfermaId(`${riga.id}-testo`)}
+                      onInvia={(confermaIncerta) =>
                         esegui(
                           () =>
                             distribuisciTestoAbilitazioneAction({
                               fornitoreId,
                               requisitoId: riga.id,
+                              confermaIncerta,
                             }),
                           "Documento distribuito a questo fornitore."
                         )
                       }
-                      className="text-sky-800 hover:underline disabled:opacity-60"
-                    >
-                      Distribuisci
-                    </button>
+                      etichetta="Distribuisci"
+                    />
                   </>
                 ) : null}
                 {riga.natura === "controllo_interno" ? (
@@ -368,6 +384,60 @@ export function FornitoreAbilitazione({
         <BozzaEditor righe={scheda.righe} pending={pending} esegui={esegui} />
       ) : null}
     </div>
+  );
+}
+
+function PulsanteDistribuzione({
+  pending,
+  recupero,
+  aperto,
+  onApri,
+  onInvia,
+  etichetta,
+}: {
+  pending: boolean;
+  recupero: boolean;
+  aperto: boolean;
+  onApri: () => void;
+  onInvia: (confermaIncerta: boolean) => void;
+  etichetta: string;
+}) {
+  if (recupero && !aperto) {
+    return (
+      <button
+        type="button"
+        disabled={pending}
+        onClick={onApri}
+        className="text-amber-800 hover:underline disabled:opacity-60"
+      >
+        Recupera esito incerto
+      </button>
+    );
+  }
+  if (recupero && aperto) {
+    return (
+      <span className="text-amber-950">
+        Il reinvio potrebbe produrre una seconda email.
+        <button
+          type="button"
+          disabled={pending}
+          onClick={() => onInvia(true)}
+          className="ml-2 font-medium hover:underline disabled:opacity-60"
+        >
+          Confermo il reinvio
+        </button>
+      </span>
+    );
+  }
+  return (
+    <button
+      type="button"
+      disabled={pending}
+      onClick={() => onInvia(false)}
+      className="text-sky-800 hover:underline disabled:opacity-60"
+    >
+      {etichetta}
+    </button>
   );
 }
 

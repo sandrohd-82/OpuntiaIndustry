@@ -3,12 +3,18 @@
 import { z } from "zod";
 import { writeAuditLog } from "@/lib/audit";
 import { requireAreaAccess } from "@/lib/areas/guard";
-import { inviaDaCasellaAnagrafica } from "@/lib/anagrafica/casella-invio";
+import {
+  comeStatoNotificaDistribuzione,
+  MESSAGGIO_CONFERMA_INCERTA,
+} from "@/lib/produzione/notifica-distribuzione";
+import {
+  eseguiNotificaDistribuzione,
+  messaggioDistribuzioneHaccp,
+} from "@/lib/produzione/notifica-distribuzione-invio";
 import { soggettoAccessoFornitore } from "@/lib/produzione/fornitore-accesso-server";
 import {
   consultaLineeGuidaFornitore,
   destinatariDaRegistrare,
-  primoIndirizzoEmail,
   puoModificareDocumentoLineaGuida,
   puoRegistrarePresaVisione,
   type AmbitoLineaGuida,
@@ -98,7 +104,7 @@ export async function listHaccpLineeGuidaAction(): Promise<
       supabase
         .from("haccp_linee_guida_distribuzioni")
         .select(
-          "id, documento_id, versione_id, fornitore_id, registrata_at, notifica_stato, notifica_errore, stato"
+          "id, documento_id, versione_id, fornitore_id, registrata_at, notifica_stato, notifica_lock_at, notifica_errore, stato"
         )
         .is("deleted_at", null)
         .eq("stato", "registrata"),
@@ -186,7 +192,10 @@ export async function listHaccpLineeGuidaAction(): Promise<
           fornitoreId: String(row.fornitore_id),
           ragioneSociale: fornitori.get(String(row.fornitore_id)) ?? "Fornitore",
           registrataAt: String(row.registrata_at),
-          notificaStato: String(row.notifica_stato) as NotificaStatoGuida,
+          notificaStato: comeStatoNotificaDistribuzione(
+            String(row.notifica_stato)
+          ) as NotificaStatoGuida,
+          notificaLockAt: row.notifica_lock_at ? String(row.notifica_lock_at) : null,
           notificaErrore: row.notifica_errore ? String(row.notifica_errore) : null,
           prese: prese.get(`${row.versione_id}:${row.fornitore_id}`) ?? 0,
         })),
@@ -363,89 +372,22 @@ export async function creaHaccpLineaGuidaAction(raw: unknown): Promise<
   return { success: true };
 }
 
-async function consegnaNotifica(
-  distribuzioneId: string,
-  actorId: string
-): Promise<"inviata" | "fallita" | "gia_consegnata"> {
-  const supabase = await createClient();
-  const { data: riga, error } = await supabase
-    .from("haccp_linee_guida_distribuzioni")
-    .select("id, fornitore_id, versione_id, notifica_stato")
-    .eq("id", distribuzioneId)
-    .is("deleted_at", null)
-    .maybeSingle();
-  if (error || !riga) return "fallita";
-  if (riga.notifica_stato === "inviata") return "gia_consegnata";
-
-  const [{ data: versione }, { data: fornitore }] = await Promise.all([
-    supabase
-      .from("haccp_linee_guida_versioni")
-      .select("numero, titolo")
-      .eq("id", riga.versione_id)
-      .maybeSingle(),
-    supabase
-      .from("fornitori")
-      .select("email, ragione_sociale")
-      .eq("id", riga.fornitore_id)
-      .maybeSingle(),
-  ]);
-  const indirizzo = primoIndirizzoEmail(String(fornitore?.email ?? ""));
-  const titolo = String(versione?.titolo ?? "Linea guida");
-  const numero = Number(versione?.numero) || 0;
-  const ora = new Date().toISOString();
-
-  async function chiudi(stato: "inviata" | "fallita", erroreTesto: string | null) {
-    await supabase
-      .from("haccp_linee_guida_distribuzioni")
-      .update({
-        notifica_stato: stato,
-        notifica_at: stato === "inviata" ? ora : null,
-        notifica_errore: erroreTesto,
-        updated_by: actorId,
-      })
-      .eq("id", distribuzioneId)
-      .neq("notifica_stato", "inviata");
-  }
-
-  if (!indirizzo) {
-    await chiudi("fallita", "Anagrafica senza un indirizzo email utilizzabile.");
-    return "fallita";
-  }
-
-  try {
-    await inviaDaCasellaAnagrafica({
-      to: indirizzo,
-      subject: `Linee guida ${titolo}, versione ${numero}`,
-      text: [
-        `Agrinsicilia ha reso disponibile la versione ${numero} del documento «${titolo}».`,
-        "",
-        "Il testo si legge in Gestionale fornitori, sezione Linee guida.",
-        "Questa mail è solo l'avviso. Se non arriva, il documento resta nel gestionale.",
-        "La presa visione si registra lì e vale solo per la versione ricevuta.",
-        "",
-        "https://www.opuntiaindustry.com/app/area-fornitori/linee-guida",
-      ].join("\n"),
-    });
-  } catch (e) {
-    const dettaglio = e instanceof Error ? e.message : "Invio non riuscito.";
-    await chiudi("fallita", dettaglio.slice(0, 400));
-    return "fallita";
-  }
-
-  await chiudi("inviata", null);
-  return "inviata";
-}
-
 async function avvisaDistribuzioni(
-  ids: string[],
-  actorId: string
+  ids: string[]
 ): Promise<{ inviate: number; nonConsegnate: number }> {
   let inviate = 0;
   let nonConsegnate = 0;
   for (const id of ids) {
-    const esito = await consegnaNotifica(id, actorId);
-    if (esito === "inviata") inviate += 1;
-    if (esito === "fallita") nonConsegnate += 1;
+    const esito = await eseguiNotificaDistribuzione({
+      canale: "haccp",
+      distribuzioneId: id,
+      confermaIncerta: false,
+      messaggio: () => messaggioDistribuzioneHaccp(id),
+    });
+    if (esito.tipo === "stato" && esito.stato === "inviata") inviate += 1;
+    if (esito.tipo === "stato" && (esito.stato === "fallita" || esito.stato === "incerta")) {
+      nonConsegnate += 1;
+    }
   }
   return { inviate, nonConsegnate };
 }
@@ -480,7 +422,7 @@ export async function pubblicaHaccpLineaGuidaAction(
     .eq("notifica_stato", "non_inviata")
     .is("deleted_at", null);
   const ids = (distribuzioni ?? []).map((row) => String(row.id));
-  const avviso = await avvisaDistribuzioni(ids, gate.userId);
+  const avviso = await avvisaDistribuzioni(ids);
   await writeAuditLog({
     entity_type: "haccp_linee_guida_versioni",
     entity_id: String(versioneId),
@@ -610,7 +552,7 @@ export async function salvaDestinatariHaccpLineaGuidaAction(
       }
       creati.push(String(data.id));
     }
-    const avviso = await avvisaDistribuzioni(creati, gate.userId);
+    const avviso = await avvisaDistribuzioni(creati);
     registrate = creati.length;
     inviate = avviso.inviate;
     nonConsegnate = avviso.nonConsegnate;
@@ -634,17 +576,34 @@ export async function salvaDestinatariHaccpLineaGuidaAction(
 }
 
 export async function riprovaNotificaHaccpLineaGuidaAction(
-  distribuzioneId: string
-): Promise<{ success: true; consegnata: boolean } | Errore> {
+  raw: unknown
+): Promise<{ success: true; messaggio: string } | Errore> {
   const gate = await richiediRedazione();
   if (!gate.ok) return { success: false, error: gate.error };
-  const parsed = uuidSchema.safeParse(distribuzioneId);
+  const parsed = z
+    .object({
+      distribuzioneId: uuidSchema,
+      confermaIncerta: z.boolean().optional(),
+    })
+    .safeParse(raw);
   if (!parsed.success) return { success: false, error: "Distribuzione non valida." };
-  const esito = await consegnaNotifica(parsed.data, gate.userId);
-  if (esito === "fallita") {
-    return { success: false, error: "La notifica non è stata consegnata. La distribuzione resta registrata." };
+  const esito = await eseguiNotificaDistribuzione({
+    canale: "haccp",
+    distribuzioneId: parsed.data.distribuzioneId,
+    confermaIncerta: parsed.data.confermaIncerta === true,
+    messaggio: () => messaggioDistribuzioneHaccp(parsed.data.distribuzioneId),
+  });
+  if (esito.tipo === "conferma_richiesta") {
+    return { success: false, error: MESSAGGIO_CONFERMA_INCERTA };
   }
-  return { success: true, consegnata: esito === "inviata" || esito === "gia_consegnata" };
+  if (esito.tipo === "in_corso") return { success: true, messaggio: "Invio in corso." };
+  if (esito.stato === "fallita" || esito.stato === "incerta") {
+    return {
+      success: false,
+      error: "La notifica non è stata consegnata. La distribuzione resta registrata.",
+    };
+  }
+  return { success: true, messaggio: "Notifica aggiornata." };
 }
 
 export async function listLineeGuidaRicevuteAction(): Promise<
