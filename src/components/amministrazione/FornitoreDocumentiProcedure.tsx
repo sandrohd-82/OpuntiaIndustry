@@ -114,7 +114,7 @@ export function FornitoreDocumentiProcedure({
   return (
     <div className="sm:col-span-2 rounded-lg border border-[var(--border)] bg-white p-3">
       <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-[var(--muted)]">
-        Documenti e procedure
+        Richieste operative
       </p>
       <p className="mb-3 text-sm text-slate-600">
         Da qui si assegna Materiale in ingresso. Il fornitore vede il foglio nel

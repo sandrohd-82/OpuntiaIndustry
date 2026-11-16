@@ -8,7 +8,9 @@ import {
   listFogliIngressoAction,
 } from "@/app/actions/foglio-ingresso";
 import { ControlloProcessoDettaglio } from "@/components/produzione/ControlloProcessiVista";
+import { DocumentiAbilitazioneFornitore } from "@/components/produzione/DocumentiAbilitazioneFornitore";
 import { LineeGuidaFornitore } from "@/components/produzione/LineeGuidaFornitore";
+import { listaDocumentiAbilitazionePortaleAction } from "@/app/actions/requisiti-fornitore";
 import { listLineeGuidaRicevuteAction } from "@/app/actions/haccp-linee-guida";
 import { processoControlloBySlug } from "@/lib/produzione/controllo-processi";
 import { contestoMaterialeIngresso } from "@/lib/produzione/fornitore-accesso-server";
@@ -50,6 +52,24 @@ export default async function AreaFornitoriSectionPage({ params, searchParams }:
           ) : (
             <p className="max-w-xl rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-950">
               {ricevute.error}
+            </p>
+          )}
+        </div>
+      </>
+    );
+  }
+
+  if (section === "documenti") {
+    const documenti = await listaDocumentiAbilitazionePortaleAction();
+    return (
+      <>
+        <AppHeader title={page.label} subtitle={page.description} />
+        <div className="p-6">
+          {documenti.success ? (
+            <DocumentiAbilitazioneFornitore documenti={documenti.documenti} />
+          ) : (
+            <p className="max-w-xl rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-950">
+              {documenti.error}
             </p>
           )}
         </div>

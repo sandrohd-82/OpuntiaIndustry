@@ -26,6 +26,13 @@ export const AREA_FORNITORI_SECTIONS: readonly NavItem[] = [
     path: "/app/area-fornitori/linee-guida",
   },
   {
+    slug: "documenti",
+    label: "Documenti",
+    description:
+      "Consenso privacy e accettazione contrattuale distribuiti alla tua azienda",
+    path: "/app/area-fornitori/documenti",
+  },
+  {
     slug: "materiale-in-ingresso",
     label: "Materiale in ingresso",
     description:
