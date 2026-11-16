@@ -160,6 +160,34 @@ assert.doesNotMatch(decisioni, /update public.magazzino_giacenze/);
 assert.doesNotMatch(decisioni, /update public.haccp_fogli_ingresso/);
 assert.doesNotMatch(decisioni, /insert into public.magazzino_movimenti/);
 
+const collegamento = readFileSync(
+  "supabase/migrations/20261116250000_magazzino_mp_collegamento_struttura.sql",
+  "utf8"
+);
+assert.match(collegamento, /lotto_evento_id uuid/);
+assert.match(collegamento, /unique \(lotto_evento_id\)/);
+assert.match(collegamento, /registro_classe is null/);
+assert.match(collegamento, /registro_classe = 'senza_lotto'/);
+assert.match(collegamento, /registro_classe = 'lotto'/);
+assert.match(collegamento, /Evento inesistente/);
+assert.match(collegamento, /L''evento appartiene a un''altra materia/);
+assert.match(collegamento, /Evento non pertinente al movimento/);
+assert.match(collegamento, /L''evento è già collegato a un movimento/);
+assert.match(collegamento, /Un movimento collegato a un lotto non si chiude/);
+assert.match(collegamento, /movimenti_storici_senza_lotto/);
+assert.match(collegamento, /movimenti_nuovi_senza_lotto/);
+assert.match(collegamento, /movimenti_collegati_lotto/);
+assert.match(collegamento, /scostamento_non_verificato/);
+assert.match(collegamento, /revoke create on schema public from magazzino_mp_pulizia/);
+assert.match(collegamento, /txid_current\(\)/);
+assert.doesNotMatch(
+  collegamento,
+  /create or replace function public\.magazzino_mp_registra_movimento/
+);
+assert.doesNotMatch(collegamento, /ingresso_senza_ordine/);
+assert.doesNotMatch(collegamento, /update public.haccp_fogli_ingresso/);
+assert.doesNotMatch(collegamento, /grant create on schema public to authenticated/);
+
 const schema = readFileSync("src/lib/magazzino/barcode.ts", "utf8");
 assert.match(schema, /z\.enum\(\["kg", "g", "lt", "ml", "pz"\]\)/);
 
