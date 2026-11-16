@@ -138,6 +138,34 @@ export function puoGestireApprovvigionamento(soggetto: {
   );
 }
 
+/** Settimana intera se i giorni stanno in un lunedì-domenica, altrimenti il mese. */
+export function classificaProgrammazione(date: readonly string[]):
+  | { tipo: "settimana" | "piano"; inizio: string; fine: string }
+  | { tipo: "errore"; motivo: string } {
+  const uniche = dateUniche(date);
+  if (!uniche.length) {
+    return { tipo: "errore", motivo: "Il piano deve contenere almeno un giorno." };
+  }
+  const inizioSettimana = lunediSettimana(uniche[0]);
+  const fineSettimana = aggiungiGiorni(inizioSettimana, 6);
+  if (uniche.every((giorno) => giorno >= inizioSettimana && giorno <= fineSettimana)) {
+    return { tipo: "settimana", inizio: inizioSettimana, fine: fineSettimana };
+  }
+  const mese = uniche[0].slice(0, 7);
+  if (!uniche.every((giorno) => giorno.slice(0, 7) === mese)) {
+    return {
+      tipo: "errore",
+      motivo: "Un piano resta nella stessa settimana o nello stesso mese.",
+    };
+  }
+  const giorni = giorniMese(mese);
+  return {
+    tipo: "piano",
+    inizio: giorni[0] ?? uniche[0],
+    fine: giorni[giorni.length - 1] ?? uniche[0],
+  };
+}
+
 export function dateUniche(date: readonly string[]): string[] {
   return [...new Set(date.filter(giornoValido))].sort();
 }

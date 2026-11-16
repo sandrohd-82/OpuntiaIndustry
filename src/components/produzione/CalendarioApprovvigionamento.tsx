@@ -3,15 +3,19 @@
 import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import {
   aggiornaApprovvigionamentoAction,
+  aggiornaComposizionePianoAction,
   fornitoriCompatibiliApprovvigionamentoAction,
   listaMaterieApprovvigionamentoAction,
   listaOrdiniApprovvigionamentoAction,
+  listaPianiApprovvigionamentoAction,
   salvaApprovvigionamentiAction,
   type MateriaCalendario,
   type OrdineCalendario,
+  type PianoCalendario,
 } from "@/app/actions/approvvigionamento";
 import {
   aggiungiGiorni,
+  classificaProgrammazione,
   giorniMese,
   giorniSettimana,
   lunediSettimana,
@@ -68,12 +72,22 @@ function vuotaRiga(): RigaForm {
   return { materiaPrimaId: "", quantita: "", note: "" };
 }
 
+function testoPiani(piani: { codice: string }[]) {
+  if (!piani.length) return "Nessun piano creato.";
+  return `Piani: ${piani.map((piano) => piano.codice).join(", ")}.`;
+}
+
 export function CalendarioApprovvigionamento() {
   const oggi = oggiLocale();
   const [vista, setVista] = useState<Vista>("mese");
   const [ancora, setAncora] = useState(oggi);
   const [giorno, setGiorno] = useState(oggi);
   const [ordini, setOrdini] = useState<OrdineCalendario[]>([]);
+  const [piani, setPiani] = useState<PianoCalendario[]>([]);
+  const [pianoAperto, setPianoAperto] = useState<string | null>(null);
+  const [ordiniPiano, setOrdiniPiano] = useState<OrdineCalendario[]>([]);
+  const [composizione, setComposizione] = useState<string[]>([]);
+  const [revisione, setRevisione] = useState(1);
   const [materie, setMaterie] = useState<MateriaCalendario[]>([]);
   const [fornitori, setFornitori] = useState<{ id: string; nome: string; targa: string }[]>([]);
   const [ordineId, setOrdineId] = useState<string | null>(null);
@@ -100,12 +114,20 @@ export function CalendarioApprovvigionamento() {
 
   function ricarica() {
     startTransition(async () => {
-      const res = await listaOrdiniApprovvigionamentoAction(periodo);
+      const [res, pianiRes] = await Promise.all([
+        listaOrdiniApprovvigionamentoAction(periodo),
+        listaPianiApprovvigionamentoAction(periodo),
+      ]);
       if (!res.success) {
         setErrore(res.error);
         return;
       }
+      if (!pianiRes.success) {
+        setErrore(pianiRes.error);
+        return;
+      }
       setOrdini(res.ordini);
+      setPiani(pianiRes.piani);
     });
   }
 
@@ -160,6 +182,7 @@ export function CalendarioApprovvigionamento() {
     setAncora(iso);
     setVista("giorno");
     setOrdineId(null);
+    setRevisione(1);
     setNote("");
     setRighe([vuotaRiga()]);
     setFornitoreId("");
@@ -168,6 +191,7 @@ export function CalendarioApprovvigionamento() {
 
   function compila(ordine: OrdineCalendario) {
     setOrdineId(ordine.id);
+    setRevisione(ordine.revisione);
     setGiorno(ordine.dataConsegna);
     setFornitoreId(ordine.fornitoreId);
     setNote(ordine.note);
@@ -213,6 +237,7 @@ export function CalendarioApprovvigionamento() {
         ? await aggiornaApprovvigionamentoAction({
             chiave: chiaveStabile(),
             ordineId,
+            revisione,
             ordine: corpo,
           })
         : await salvaApprovvigionamentiAction({
@@ -227,6 +252,7 @@ export function CalendarioApprovvigionamento() {
       chiudiOperazione();
       setMessaggio(res.riusata ? "Operazione già registrata." : "Bozza registrata.");
       setOrdineId(null);
+      setRevisione(1);
       ricarica();
     });
   }
@@ -257,7 +283,9 @@ export function CalendarioApprovvigionamento() {
         return;
       }
       chiudiOperazione();
-      setMessaggio(res.riusata ? "Copia già registrata." : "Nuova bozza copiata.");
+      setMessaggio(
+        res.riusata ? "Copia già registrata." : "Nuova bozza copiata. La copia non entra in un piano."
+      );
       ricarica();
     });
   }
@@ -303,15 +331,24 @@ export function CalendarioApprovvigionamento() {
         return;
       }
       chiudiOperazione();
-      setMessaggio(res.riusata ? "Settimana già copiata." : "Settimana copiata in nuove bozze.");
+      setMessaggio(
+        res.riusata
+          ? "Settimana già copiata."
+          : `Settimana copiata. ${testoPiani(res.piani)}`
+      );
       ricarica();
     });
   }
 
   function programmaMese() {
     const date = [...new Set(piano)].sort();
+    const classe = classificaProgrammazione(date);
     const righePayload = payloadRighe();
-    if (!date.length || date.length > 31) {
+    if (classe.tipo === "errore") {
+      setErrore(classe.motivo);
+      return;
+    }
+    if (date.length > 31) {
       setErrore("Il piano deve contenere da 1 a 31 giorni.");
       return;
     }
@@ -319,7 +356,7 @@ export function CalendarioApprovvigionamento() {
     startTransition(async () => {
       const res = await salvaApprovvigionamentiAction({
         chiave: chiaveStabile(),
-        tipo: "piano",
+        tipo: classe.tipo,
         ordini: date.map((dataConsegna) => ({
           fornitoreId,
           dataConsegna,
@@ -333,8 +370,51 @@ export function CalendarioApprovvigionamento() {
       }
       chiudiOperazione();
       setMessaggio(
-        res.riusata ? "Piano già registrato." : `Create ${res.ordini.length} bozze del mese.`
+        res.riusata
+          ? "Piano già registrato."
+          : `Create ${res.ordini.length} bozze. ${testoPiani(res.piani)}`
       );
+      ricarica();
+    });
+  }
+
+  function apriPiano(scelto: PianoCalendario) {
+    setPianoAperto(scelto.id);
+    setComposizione(scelto.ordini);
+    chiudiOperazione();
+    startTransition(async () => {
+      const res = await listaOrdiniApprovvigionamentoAction({
+        da: scelto.periodoInizio,
+        a: scelto.periodoFine,
+      });
+      if (!res.success) {
+        setErrore(res.error);
+        return;
+      }
+      setOrdiniPiano(res.ordini);
+    });
+  }
+
+  function salvaComposizione() {
+    const scelto = piani.find((voce) => voce.id === pianoAperto);
+    if (!scelto || composizione.length === 0) {
+      setErrore("Il piano deve contenere almeno un ordine.");
+      return;
+    }
+    setErrore(null);
+    startTransition(async () => {
+      const res = await aggiornaComposizionePianoAction({
+        chiave: chiaveStabile(),
+        pianoId: scelto.id,
+        revisione: scelto.revisione,
+        ordineIds: composizione,
+      });
+      if (!res.success) {
+        setErrore(res.error);
+        return;
+      }
+      chiudiOperazione();
+      setMessaggio(res.riusata ? "Composizione già registrata." : "Composizione aggiornata.");
       ricarica();
     });
   }
@@ -438,7 +518,12 @@ export function CalendarioApprovvigionamento() {
                   <button type="button" onClick={() => compila(ordine)} className="font-medium text-slate-900">
                     {ordine.codice} · {ordine.fornitore}
                   </button>
-                  <p className="text-slate-600">Bozza · {ordine.righe.map((riga) => `${riga.nome} ${riga.quantita} ${riga.unitaMisura}`).join(", ")}</p>
+                  <p className="text-slate-600">
+                    Bozza {ordine.revisione}
+                    {ordine.pianoCodice ? ` · ${ordine.pianoCodice}` : ""}
+                    {" · "}
+                    {ordine.righe.map((riga) => `${riga.nome} ${riga.quantita} ${riga.unitaMisura}`).join(", ")}
+                  </p>
                 </li>
               ))
             )}
@@ -475,11 +560,75 @@ export function CalendarioApprovvigionamento() {
         onCompila={compila}
         onNuova={() => {
           setOrdineId(null);
+          setRevisione(1);
           setNote("");
           setRighe([vuotaRiga()]);
           chiudiOperazione();
         }}
       />
+      <section className="rounded-xl border border-[var(--border)] bg-white p-3 xl:col-span-2">
+        <h2 className="text-sm font-semibold text-slate-800">Piani del periodo</h2>
+        {piani.length === 0 ? (
+          <p className="mt-2 text-sm text-slate-500">
+            Un piano nasce dalla copia di una settimana o da una programmazione, ed è di un solo fornitore.
+          </p>
+        ) : (
+          <ul className="mt-2 space-y-2">
+            {piani.map((voce) => (
+              <li key={voce.id} className="rounded-lg border border-slate-200 p-2 text-sm">
+                <button type="button" onClick={() => apriPiano(voce)} className="font-medium text-slate-900">
+                  {voce.codice} · {voce.fornitore}
+                </button>
+                <p className="text-slate-600">
+                  {voce.tipologia === "mensile" ? "Mensile" : "Settimanale"} · Bozza {voce.revisione} ·{" "}
+                  {voce.periodoInizio} – {voce.periodoFine} · {voce.ordini.length} ordini
+                </p>
+              </li>
+            ))}
+          </ul>
+        )}
+        {pianoAperto ? (
+          <div className="mt-3 border-t border-slate-200 pt-3">
+            <p className="mb-2 text-sm text-slate-700">Composizione prima della pubblicazione</p>
+            <ul className="space-y-1">
+              {ordiniPiano
+                .filter((ordine) => {
+                  const scelto = piani.find((voce) => voce.id === pianoAperto);
+                  if (!scelto || ordine.fornitoreId !== scelto.fornitoreId) return false;
+                  return !ordine.pianoId || ordine.pianoId === pianoAperto;
+                })
+                .map((ordine) => (
+                  <li key={ordine.id}>
+                    <label className="flex items-center gap-2 text-sm">
+                      <input
+                        type="checkbox"
+                        checked={composizione.includes(ordine.id)}
+                        onChange={(event) =>
+                          setComposizione((corrente) =>
+                            event.target.checked
+                              ? [...corrente, ordine.id]
+                              : corrente.filter((id) => id !== ordine.id)
+                          )
+                        }
+                      />
+                      <span>
+                        {ordine.codice} · {ordine.dataConsegna}
+                      </span>
+                    </label>
+                  </li>
+                ))}
+            </ul>
+            <button
+              type="button"
+              disabled={pending || composizione.length === 0}
+              onClick={salvaComposizione}
+              className="mt-3 rounded-lg bg-slate-900 px-3 py-2 text-sm font-medium text-white disabled:opacity-60"
+            >
+              Salva composizione
+            </button>
+          </div>
+        ) : null}
+      </section>
     </div>
   );
 }

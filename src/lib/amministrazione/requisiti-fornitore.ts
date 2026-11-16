@@ -59,6 +59,10 @@ export function requisitiApplicabili(input: {
   });
 }
 
+/**
+ * Stessa regola di approvvigionamento_entro_validita:
+ * un giorno dura 24 ore UTC e, senza scadenza, basta l'istante di conferma.
+ */
 export function dentroValidita(
   iso: string | null,
   giorni: number | null,
@@ -68,8 +72,9 @@ export function dentroValidita(
   const inizio = Date.parse(iso);
   const ora = Date.parse(oraIso);
   if (Number.isNaN(inizio) || Number.isNaN(ora)) return false;
-  if (giorni == null) return ora >= inizio;
-  return ora <= inizio + giorni * 24 * 60 * 60 * 1000;
+  if (giorni == null) return true;
+  if (!Number.isInteger(giorni) || giorni <= 0) return false;
+  return inizio + giorni * 86_400_000 >= ora;
 }
 
 export function requisitoSoddisfatto(voce: VoceAbilitazione, oraIso: string): boolean {

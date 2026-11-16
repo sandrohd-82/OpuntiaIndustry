@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import {
+  classificaProgrammazione,
   copiaOrdineSuData,
   copiaSettimana,
   dateUniche,
@@ -187,5 +188,33 @@ assert.match(sql, /on conflict \(chiave\) do nothing/);
 assert.equal(sql.includes("insert into public.ordini"), false);
 assert.equal(/drop table/i.test(sql), false);
 assert.equal(sql.includes("haccp_fogli_ingresso"), false);
+
+assert.deepEqual(classificaProgrammazione(["2026-11-16", "2026-11-18"]), {
+  tipo: "settimana",
+  inizio: "2026-11-16",
+  fine: "2026-11-22",
+});
+assert.deepEqual(classificaProgrammazione(["2026-11-16", "2026-11-23"]), {
+  tipo: "piano",
+  inizio: "2026-11-01",
+  fine: "2026-11-30",
+});
+assert.equal(classificaProgrammazione(["2026-11-30", "2026-12-07"]).tipo, "errore");
+
+const piani = readFileSync(
+  new URL(
+    "../../../supabase/migrations/20261116133000_approvvigionamenti_piani.sql",
+    import.meta.url
+  ),
+  "utf8"
+);
+assert.match(piani, /approvvigionamenti_piani/);
+assert.match(piani, /revisione = p_revisione/);
+assert.match(piani, /stato = 'bozza'/);
+assert.match(piani, /La chiave è già stata usata per un''altra operazione/);
+assert.match(piani, /at time zone 'UTC'/);
+assert.equal(piani.includes("insert into public.ordini"), false);
+assert.equal(piani.includes("haccp_fogli_ingresso"), false);
+assert.equal(/drop table/i.test(piani), false);
 
 console.log("approvvigionamento: ok");

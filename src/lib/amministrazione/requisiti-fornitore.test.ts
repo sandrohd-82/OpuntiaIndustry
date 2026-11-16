@@ -4,6 +4,7 @@ import {
   attoCopreNatura,
   attoEFirma,
   avvisoEmailELettura,
+  dentroValidita,
   requisitiApplicabili,
   sospesoDaEventi,
   valutaAbilitazione,
@@ -134,6 +135,17 @@ assert.equal(
     { tipo: "sospensione", at: "2026-03-01T00:00:00.000Z" },
   ]),
   true
+);
+
+assert.equal(dentroValidita("2026-11-20T00:00:00.000Z", null, ORA), true);
+assert.equal(dentroValidita(null, null, ORA), false);
+assert.equal(
+  dentroValidita("2026-11-16T08:00:00.000Z", 1, "2026-11-17T08:00:00.000Z"),
+  true
+);
+assert.equal(
+  dentroValidita("2026-11-16T08:00:00.000Z", 1, "2026-11-17T08:00:00.001Z"),
+  false
 );
 
 const vuoto = valutaAbilitazione({ oraIso: ORA, sospeso: false, voci: [] });

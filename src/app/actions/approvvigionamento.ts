@@ -35,6 +35,9 @@ export type OrdineCalendario = {
   dataConsegna: string;
   note: string;
   stato: "bozza";
+  revisione: number;
+  pianoId: string | null;
+  pianoCodice: string | null;
   origineOrdineId: string | null;
   righe: {
     id: string;
@@ -45,6 +48,18 @@ export type OrdineCalendario = {
     unitaMisura: string;
     note: string;
   }[];
+};
+
+export type PianoCalendario = {
+  id: string;
+  codice: string;
+  fornitoreId: string;
+  fornitore: string;
+  periodoInizio: string;
+  periodoFine: string;
+  tipologia: "settimanale" | "mensile";
+  revisione: number;
+  ordini: string[];
 };
 
 export type MateriaCalendario = {
@@ -126,7 +141,7 @@ export async function listaOrdiniApprovvigionamentoAction(input: {
   const supabase = await createClient();
   const { data: ordini, error } = await supabase
     .from("approvvigionamenti_ordini")
-    .select("id, codice, fornitore_id, data_consegna, note, stato, origine_ordine_id")
+    .select("id, codice, fornitore_id, data_consegna, note, stato, origine_ordine_id, revisione")
     .is("deleted_at", null)
     .gte("data_consegna", da.data)
     .lte("data_consegna", a.data)
@@ -134,6 +149,20 @@ export async function listaOrdiniApprovvigionamentoAction(input: {
   if (error) return { success: false, error: "Ordini non disponibili." };
   const ids = (ordini ?? []).map((row) => String(row.id));
   const fornitoreIds = [...new Set((ordini ?? []).map((row) => String(row.fornitore_id)))];
+  const { data: collegamenti } = ids.length
+    ? await supabase
+        .from("approvvigionamenti_piani_ordini")
+        .select("piano_id, ordine_id")
+        .in("ordine_id", ids)
+    : { data: [] };
+  const pianoIds = [...new Set((collegamenti ?? []).map((row) => String(row.piano_id)))];
+  const { data: piani } = pianoIds.length
+    ? await supabase.from("approvvigionamenti_piani").select("id, codice").in("id", pianoIds)
+    : { data: [] };
+  const codicePiano = new Map((piani ?? []).map((row) => [String(row.id), String(row.codice)]));
+  const pianoPerOrdine = new Map(
+    (collegamenti ?? []).map((row) => [String(row.ordine_id), String(row.piano_id)])
+  );
   const [righeRes, fornitoriRes] = await Promise.all([
     ids.length
       ? supabase
@@ -189,14 +218,81 @@ export async function listaOrdiniApprovvigionamentoAction(input: {
       dataConsegna: String(row.data_consegna),
       note: String(row.note ?? ""),
       stato: "bozza",
+      revisione: Number(row.revisione ?? 1),
+      pianoId: pianoPerOrdine.get(String(row.id)) ?? null,
+      pianoCodice: codicePiano.get(pianoPerOrdine.get(String(row.id)) ?? "") ?? null,
       origineOrdineId: row.origine_ordine_id ? String(row.origine_ordine_id) : null,
       righe: righePerOrdine.get(String(row.id)) ?? [],
     })),
   };
 }
 
+export async function listaPianiApprovvigionamentoAction(input: {
+  da: string;
+  a: string;
+}): Promise<{ success: true; piani: PianoCalendario[] } | Errore> {
+  await richiedi();
+  const da = giornoSchema.safeParse(input.da);
+  const a = giornoSchema.safeParse(input.a);
+  if (!da.success || !a.success) return { success: false, error: "Periodo non valido." };
+  const supabase = await createClient();
+  const { data: piani, error } = await supabase
+    .from("approvvigionamenti_piani")
+    .select("id, codice, fornitore_id, periodo_inizio, periodo_fine, tipologia, revisione")
+    .is("deleted_at", null)
+    .lte("periodo_inizio", a.data)
+    .gte("periodo_fine", da.data)
+    .order("periodo_inizio", { ascending: true });
+  if (error) return { success: false, error: "Piani non disponibili." };
+  const ids = (piani ?? []).map((row) => String(row.id));
+  const fornitoreIds = [...new Set((piani ?? []).map((row) => String(row.fornitore_id)))];
+  const [linkRes, fornitoriRes] = await Promise.all([
+    ids.length
+      ? supabase
+          .from("approvvigionamenti_piani_ordini")
+          .select("piano_id, ordine_id")
+          .in("piano_id", ids)
+      : Promise.resolve({ data: [], error: null }),
+    fornitoreIds.length
+      ? supabase.from("fornitori").select("id, ragione_sociale").in("id", fornitoreIds)
+      : Promise.resolve({ data: [], error: null }),
+  ]);
+  if (linkRes.error || fornitoriRes.error) {
+    return { success: false, error: "Composizione dei piani non disponibile." };
+  }
+  const nomi = new Map(
+    (fornitoriRes.data ?? []).map((row) => [String(row.id), String(row.ragione_sociale)])
+  );
+  const ordiniPerPiano = new Map<string, string[]>();
+  for (const row of linkRes.data ?? []) {
+    const pianoId = String(row.piano_id);
+    const lista = ordiniPerPiano.get(pianoId) ?? [];
+    lista.push(String(row.ordine_id));
+    ordiniPerPiano.set(pianoId, lista);
+  }
+  return {
+    success: true,
+    piani: (piani ?? []).map((row) => ({
+      id: String(row.id),
+      codice: String(row.codice),
+      fornitoreId: String(row.fornitore_id),
+      fornitore: nomi.get(String(row.fornitore_id)) ?? "Fornitore",
+      periodoInizio: String(row.periodo_inizio),
+      periodoFine: String(row.periodo_fine),
+      tipologia: row.tipologia === "mensile" ? "mensile" : "settimanale",
+      revisione: Number(row.revisione ?? 1),
+      ordini: ordiniPerPiano.get(String(row.id)) ?? [],
+    })),
+  };
+}
+
 export async function salvaApprovvigionamentiAction(raw: unknown): Promise<
-  { success: true; riusata: boolean; ordini: { id: string; codice: string; dataConsegna: string }[] } | Errore
+  {
+    success: true;
+    riusata: boolean;
+    ordini: { id: string; codice: string; dataConsegna: string }[];
+    piani: { id: string; codice: string; tipologia: string }[];
+  } | Errore
 > {
   const parsed = z
     .object({
@@ -227,6 +323,16 @@ export async function salvaApprovvigionamentiAction(raw: unknown): Promise<
         };
       })
     : [];
+  const piani = Array.isArray(corpo.piani)
+    ? corpo.piani.map((voce) => {
+        const riga = voce as { id?: string; codice?: string; tipologia?: string };
+        return {
+          id: String(riga.id),
+          codice: String(riga.codice),
+          tipologia: String(riga.tipologia ?? ""),
+        };
+      })
+    : [];
   await writeAuditLog({
     entity_type: "approvvigionamenti_ordini",
     entity_id: ordini[0]?.id ?? parsed.data.chiave,
@@ -235,18 +341,19 @@ export async function salvaApprovvigionamentiAction(raw: unknown): Promise<
     summary: corpo.riusata
       ? "Operazione già registrata: nessun nuovo ordine."
       : `Registrate ${ordini.length} bozze di approvvigionamento.`,
-    payload: { riusata: Boolean(corpo.riusata), ordini: ordini.length },
+    payload: { riusata: Boolean(corpo.riusata), ordini: ordini.length, piani: piani.length },
   });
-  return { success: true, riusata: Boolean(corpo.riusata), ordini };
+  return { success: true, riusata: Boolean(corpo.riusata), ordini, piani };
 }
 
 export async function aggiornaApprovvigionamentoAction(raw: unknown): Promise<
-  { success: true; riusata: boolean } | Errore
+  { success: true; riusata: boolean; revisione: number } | Errore
 > {
   const parsed = z
     .object({
       chiave: chiaveSchema,
       ordineId: uuidSchema,
+      revisione: z.number().int().positive(),
       ordine: ordineSchema,
     })
     .safeParse(raw);
@@ -259,6 +366,7 @@ export async function aggiornaApprovvigionamentoAction(raw: unknown): Promise<
     p_chiave: parsed.data.chiave,
     p_ordine_id: parsed.data.ordineId,
     p_ordine: parsed.data.ordine,
+    p_revisione: parsed.data.revisione,
   });
   if (error) return { success: false, error: messaggioDb(error, "Modifica non riuscita.") };
   const corpo = comeOggetto(data);
@@ -272,5 +380,50 @@ export async function aggiornaApprovvigionamentoAction(raw: unknown): Promise<
       : "Bozza di approvvigionamento aggiornata.",
     payload: { riusata: Boolean(corpo.riusata) },
   });
-  return { success: true, riusata: Boolean(corpo.riusata) };
+  return {
+    success: true,
+    riusata: Boolean(corpo.riusata),
+    revisione: Number(corpo.revisione ?? parsed.data.revisione),
+  };
+}
+
+export async function aggiornaComposizionePianoAction(raw: unknown): Promise<
+  { success: true; riusata: boolean; revisione: number } | Errore
+> {
+  const parsed = z
+    .object({
+      chiave: chiaveSchema,
+      pianoId: uuidSchema,
+      revisione: z.number().int().positive(),
+      ordineIds: z.array(uuidSchema).min(1).max(200),
+    })
+    .safeParse(raw);
+  if (!parsed.success) {
+    return { success: false, error: parsed.error.issues[0]?.message ?? "Composizione non valida." };
+  }
+  const auth = await richiedi();
+  const supabase = await createClient();
+  const { data, error } = await supabase.rpc("aggiorna_composizione_piano", {
+    p_chiave: parsed.data.chiave,
+    p_piano_id: parsed.data.pianoId,
+    p_revisione: parsed.data.revisione,
+    p_ordini: [...new Set(parsed.data.ordineIds)],
+  });
+  if (error) return { success: false, error: messaggioDb(error, "Composizione non salvata.") };
+  const corpo = comeOggetto(data);
+  await writeAuditLog({
+    entity_type: "approvvigionamenti_piani",
+    entity_id: parsed.data.pianoId,
+    action: "composizione",
+    actor_id: auth.userId,
+    summary: corpo.riusata
+      ? "Composizione già registrata."
+      : "Composizione del piano aggiornata.",
+    payload: { riusata: Boolean(corpo.riusata), ordini: parsed.data.ordineIds.length },
+  });
+  return {
+    success: true,
+    riusata: Boolean(corpo.riusata),
+    revisione: Number(corpo.revisione ?? parsed.data.revisione),
+  };
 }
