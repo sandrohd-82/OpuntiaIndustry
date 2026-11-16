@@ -111,6 +111,17 @@ assert.match(lotti, /security_invoker = true/);
 assert.match(lotti, /movimento_id is null/);
 assert.doesNotMatch(lotti, /magazzino_mp_registra_movimento/);
 
+const vincoli = readFileSync(
+  "supabase/migrations/20261116220000_magazzino_mp_lotti_vincoli.sql",
+  "utf8"
+);
+assert.match(vincoli, /revoke truncate, trigger, references on table public.magazzino_mp_lotto_eventi/);
+assert.match(vincoli, /service_role/);
+assert.match(vincoli, /magazzino_mp_lotto_eventi_una_compensazione_uidx/);
+assert.match(vincoli, /magazzino_mp_lotto_eventi_riferimento_stesso_lotto/);
+assert.doesNotMatch(vincoli, /magazzino_mp_registra_movimento/);
+assert.doesNotMatch(vincoli, /grant insert/);
+
 const schema = readFileSync("src/lib/magazzino/barcode.ts", "utf8");
 assert.match(schema, /z\.enum\(\["kg", "g", "lt", "ml", "pz"\]\)/);
 
