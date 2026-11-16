@@ -122,6 +122,28 @@ assert.match(vincoli, /magazzino_mp_lotto_eventi_riferimento_stesso_lotto/);
 assert.doesNotMatch(vincoli, /magazzino_mp_registra_movimento/);
 assert.doesNotMatch(vincoli, /grant insert/);
 
+const identifica = readFileSync(
+  "supabase/migrations/20261116230000_magazzino_mp_identifica_lotto.sql",
+  "utf8"
+);
+assert.match(identifica, /magazzino_mp_identificazione/);
+assert.match(identifica, /security definer/);
+assert.match(identifica, /has_area_access\('magazzino'\)/);
+assert.match(identifica, /has_area_access\('produzione'\)/);
+assert.match(identifica, /is_superadmin\(\)/);
+assert.match(identifica, /mp-lotto-chiave:/);
+assert.match(identifica, /mp-lotto-origine:/);
+assert.match(identifica, /Il carico non ha un arrivo fisico/);
+assert.match(identifica, /tipo = 'identificazione'/);
+assert.match(identifica, /a_stato = 'in_controllo'/);
+assert.match(identifica, /revoke create on schema public from magazzino_mp_identificazione/);
+assert.match(identifica, /grant select, insert on public.magazzino_mp_lotti to magazzino_mp_identificazione/);
+assert.doesNotMatch(identifica, /to authenticated;\s*\ngrant insert/);
+assert.doesNotMatch(identifica, /magazzino_mp_registra_movimento/);
+assert.doesNotMatch(identifica, /update public.magazzino_giacenze/);
+assert.doesNotMatch(identifica, /update public.haccp_fogli_ingresso/);
+assert.doesNotMatch(identifica, /update public.approvvigionamenti_carichi/);
+
 const schema = readFileSync("src/lib/magazzino/barcode.ts", "utf8");
 assert.match(schema, /z\.enum\(\["kg", "g", "lt", "ml", "pz"\]\)/);
 
