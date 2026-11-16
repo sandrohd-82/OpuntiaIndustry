@@ -4,6 +4,7 @@ import { z } from "zod";
 import { writeAuditLog } from "@/lib/audit";
 import { requireAreaAccess } from "@/lib/areas/guard";
 import { unitaMateriaPrimaValida } from "@/lib/amministrazione/materie-prime";
+import { presaCheCopreVersione } from "@/lib/produzione/approvvigionamento";
 import { primoIndirizzoEmail } from "@/lib/produzione/haccp-versioni";
 import { eseguiNotificaDistribuzione } from "@/lib/produzione/notifica-distribuzione-invio";
 import { createClient } from "@/lib/supabase/server";
@@ -43,6 +44,7 @@ export type OrdineCalendario = {
   notificaId: string | null;
   visionatoDa: string | null;
   visionatoAt: string | null;
+  visioneOrigine: "ordine" | "piano" | null;
   revisione: number;
   pianoId: string | null;
   pianoCodice: string | null;
@@ -259,7 +261,7 @@ export async function listaOrdiniApprovvigionamentoAction(input: {
     }
   }
   const versioneIds = [...versioneCorrente.values()];
-  const [{ data: notifiche }, { data: prese }] = await Promise.all([
+  const [{ data: notifiche }, { data: prese }, { data: presePiano }] = await Promise.all([
     versioneIds.length
       ? supabase
           .from("approvvigionamenti_notifiche")
@@ -272,6 +274,13 @@ export async function listaOrdiniApprovvigionamentoAction(input: {
           .select("versione_ordine_id, profile_id, confermata_at")
           .in("versione_ordine_id", versioneIds)
       : Promise.resolve({ data: [] }),
+    fornitoreIds.length
+      ? supabase
+          .from("approvvigionamenti_prese_visione")
+          .select("profile_id, confermata_at, copertura")
+          .not("versione_piano_id", "is", null)
+          .in("fornitore_id", fornitoreIds)
+      : Promise.resolve({ data: [] }),
   ]);
   const notificaPerVersione = new Map(
     (notifiche ?? []).map((row) => [
@@ -279,16 +288,36 @@ export async function listaOrdiniApprovvigionamentoAction(input: {
       { id: String(row.id), stato: String(row.notifica_stato) },
     ])
   );
-  const presaPerVersione = new Map<string, { profileId: string; at: string }>();
-  for (const row of prese ?? []) {
-    const id = String(row.versione_ordine_id);
-    const at = String(row.confermata_at);
-    const gia = presaPerVersione.get(id);
-    if (!gia || at > gia.at) presaPerVersione.set(id, { profileId: String(row.profile_id), at });
+  const dirette = (prese ?? []).map((row) => ({
+    versioneId: String(row.versione_ordine_id),
+    profileId: String(row.profile_id),
+    at: String(row.confermata_at),
+  }));
+  const pianiCopertura = (presePiano ?? []).map((row) => ({
+    profileId: String(row.profile_id),
+    at: String(row.confermata_at),
+    copertura: Array.isArray(row.copertura)
+      ? row.copertura.map((voce) => {
+          const riga = voce as { versioneId?: string };
+          return { versioneId: riga.versioneId };
+        })
+      : [],
+  }));
+  const coperturaPerVersione = new Map<
+    string,
+    { profileId: string; at: string; origine: "ordine" | "piano" }
+  >();
+  for (const versioneId of versioneIds) {
+    const trovata = presaCheCopreVersione({
+      versioneId,
+      dirette,
+      piani: pianiCopertura,
+    });
+    if (trovata) coperturaPerVersione.set(versioneId, trovata);
   }
   const nomiProfili = await nomiDiProfili(
     supabase,
-    [...presaPerVersione.values()].map((voce) => voce.profileId)
+    [...coperturaPerVersione.values()].map((voce) => voce.profileId)
   );
   const righePerOrdine = new Map<string, OrdineCalendario["righe"]>();
   for (const row of righeRes.data ?? []) {
@@ -320,8 +349,11 @@ export async function listaOrdiniApprovvigionamentoAction(input: {
       versioneId: versioneCorrente.get(String(row.id)) ?? null,
       notificaStato: notificaDi(notificaPerVersione.get(versioneCorrente.get(String(row.id)) ?? "")?.stato),
       notificaId: notificaPerVersione.get(versioneCorrente.get(String(row.id)) ?? "")?.id ?? null,
-      visionatoDa: nomiProfili.get(presaPerVersione.get(versioneCorrente.get(String(row.id)) ?? "")?.profileId ?? "") ?? null,
-      visionatoAt: presaPerVersione.get(versioneCorrente.get(String(row.id)) ?? "")?.at ?? null,
+      visionatoDa:
+        nomiProfili.get(coperturaPerVersione.get(versioneCorrente.get(String(row.id)) ?? "")?.profileId ?? "") ??
+        null,
+      visionatoAt: coperturaPerVersione.get(versioneCorrente.get(String(row.id)) ?? "")?.at ?? null,
+      visioneOrigine: coperturaPerVersione.get(versioneCorrente.get(String(row.id)) ?? "")?.origine ?? null,
       revisione: Number(row.revisione ?? 1),
       pianoId: pianoPerOrdine.get(String(row.id)) ?? null,
       pianoCodice: codicePiano.get(pianoPerOrdine.get(String(row.id)) ?? "") ?? null,

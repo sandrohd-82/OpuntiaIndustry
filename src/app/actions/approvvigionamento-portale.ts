@@ -5,6 +5,11 @@ import { writeAuditLog } from "@/lib/audit";
 import { requireAreaAccess } from "@/lib/areas/guard";
 import { soggettoAccessoFornitore } from "@/lib/produzione/fornitore-accesso-server";
 import { risolviAccessoMaterialeIngresso } from "@/lib/produzione/fornitore-accesso";
+import {
+  etichettaVersionePortale,
+  ruoloVersionePortale,
+  type RuoloVersionePortale,
+} from "@/lib/produzione/approvvigionamento";
 import { createClient } from "@/lib/supabase/server";
 
 const uuidSchema = z.string().uuid();
@@ -27,6 +32,10 @@ export type VersioneRicevuta = {
   }[];
   confermataAt: string | null;
   confermataDa: string | null;
+  ruolo: RuoloVersionePortale;
+  etichetta: string;
+  bozzaNonPubblicata: boolean;
+  copertaDalPiano: boolean;
 };
 
 export type PianoRicevuto = {
@@ -44,6 +53,9 @@ export type PianoRicevuto = {
     dataConsegna: string;
   }[];
   confermataAt: string | null;
+  ruolo: RuoloVersionePortale;
+  etichetta: string;
+  bozzaNonPubblicata: boolean;
 };
 
 async function fornitorePortale(): Promise<{ userId: string; fornitoreId: string } | Errore> {
@@ -71,21 +83,41 @@ export async function listaOrdiniRicevutiAction(): Promise<
       .order("data_consegna", { ascending: true }),
     supabase
       .from("approvvigionamenti_piani_versioni")
-      .select("id, numero, codice, tipologia, periodo_inizio, periodo_fine, ordini")
+      .select("id, piano_id, numero, codice, tipologia, periodo_inizio, periodo_fine, ordini")
       .eq("fornitore_id", accesso.fornitoreId)
       .order("periodo_inizio", { ascending: true }),
   ]);
   if (error || errorePiani) return { success: false, error: "Ordini ricevuti non disponibili." };
+  const { data: segnali, error: erroreSegnali } = await supabase.rpc(
+    "approvvigionamenti_segnali_portale"
+  );
+  if (erroreSegnali) return { success: false, error: "Ordini ricevuti non disponibili." };
+  const segnaleOrdine = new Map<string, { numero: number; bozza: boolean }>();
+  const segnalePiano = new Map<string, { numero: number; bozza: boolean }>();
+  for (const row of segnali ?? []) {
+    const voce = row as {
+      ambito?: string;
+      riferimento_id?: string;
+      versione_pubblicata?: number;
+      bozza_non_pubblicata?: boolean;
+    };
+    const destinazione = voce.ambito === "piano" ? segnalePiano : segnaleOrdine;
+    destinazione.set(String(voce.riferimento_id), {
+      numero: Number(voce.versione_pubblicata),
+      bozza: Boolean(voce.bozza_non_pubblicata),
+    });
+  }
   const versioneIds = (versioni ?? []).map((row) => String(row.id));
   const pianoIds = (piani ?? []).map((row) => String(row.id));
   const { data: prese } = versioneIds.length || pianoIds.length
     ? await supabase
         .from("approvvigionamenti_prese_visione")
-        .select("versione_ordine_id, versione_piano_id, profile_id, confermata_at")
+        .select("versione_ordine_id, versione_piano_id, profile_id, confermata_at, copertura")
         .eq("fornitore_id", accesso.fornitoreId)
     : { data: [] };
   const presaOrdine = new Map<string, { at: string; profileId: string }>();
   const presaPiano = new Map<string, string>();
+  const coperteDalPiano = new Set<string>();
   for (const row of prese ?? []) {
     if (row.versione_ordine_id) {
       presaOrdine.set(String(row.versione_ordine_id), {
@@ -94,6 +126,12 @@ export async function listaOrdiniRicevutiAction(): Promise<
       });
     }
     if (row.versione_piano_id) presaPiano.set(String(row.versione_piano_id), String(row.confermata_at));
+    if (Array.isArray(row.copertura)) {
+      for (const voce of row.copertura) {
+        const riga = voce as { versioneId?: string };
+        if (riga.versioneId) coperteDalPiano.add(String(riga.versioneId));
+      }
+    }
   }
   const profileIds = [...new Set([...presaOrdine.values()].map((voce) => voce.profileId))];
   const { data: profili } = profileIds.length
@@ -130,6 +168,14 @@ export async function listaOrdiniRicevutiAction(): Promise<
         }),
         confermataAt: presa?.at ?? null,
         confermataDa: presa ? nomi.get(presa.profileId) ?? "Utente collegato" : null,
+        ruolo: ruoloVersionePortale(Number(row.numero), segnaleOrdine.get(String(row.ordine_id))?.numero ?? null),
+        etichetta: etichettaVersionePortale(
+          ruoloVersionePortale(Number(row.numero), segnaleOrdine.get(String(row.ordine_id))?.numero ?? null)
+        ),
+        bozzaNonPubblicata:
+          ruoloVersionePortale(Number(row.numero), segnaleOrdine.get(String(row.ordine_id))?.numero ?? null) ===
+            "corrente" && Boolean(segnaleOrdine.get(String(row.ordine_id))?.bozza),
+        copertaDalPiano: coperteDalPiano.has(String(row.id)),
       };
     }),
     piani: (piani ?? []).map((row) => {
@@ -158,6 +204,13 @@ export async function listaOrdiniRicevutiAction(): Promise<
           };
         }),
         confermataAt: presaPiano.get(String(row.id)) ?? null,
+        ruolo: ruoloVersionePortale(Number(row.numero), segnalePiano.get(String(row.piano_id))?.numero ?? null),
+        etichetta: etichettaVersionePortale(
+          ruoloVersionePortale(Number(row.numero), segnalePiano.get(String(row.piano_id))?.numero ?? null)
+        ),
+        bozzaNonPubblicata:
+          ruoloVersionePortale(Number(row.numero), segnalePiano.get(String(row.piano_id))?.numero ?? null) ===
+            "corrente" && Boolean(segnalePiano.get(String(row.piano_id))?.bozza),
       };
     }),
   };

@@ -84,6 +84,44 @@ export function presaVisioneCopre(confermataVersioneId: string, versioneRichiest
   return confermataVersioneId === versioneRichiestaId;
 }
 
+export type RuoloVersionePortale = "corrente" | "storica";
+
+/** La versione corrente è solo l'ultima pubblicata. Le altre restano storiche. */
+export function ruoloVersionePortale(
+  numero: number,
+  versionePubblicata: number | null
+): RuoloVersionePortale {
+  return versionePubblicata != null && numero === versionePubblicata ? "corrente" : "storica";
+}
+
+export function etichettaVersionePortale(ruolo: RuoloVersionePortale): string {
+  return ruolo === "corrente" ? "Versione pubblicata corrente" : "Versione storica superata";
+}
+
+export const AVVISO_BOZZA_NON_PUBBLICATA =
+  "In Produzione ci sono modifiche non ancora pubblicate.";
+
+type CoperturaVersione = { versioneId?: string };
+
+/** Una presa del piano copre solo le versioni presenti nel suo snapshot. */
+export function presaCheCopreVersione(input: {
+  versioneId: string;
+  dirette: readonly { versioneId: string; profileId: string; at: string }[];
+  piani: readonly {
+    profileId: string;
+    at: string;
+    copertura: readonly CoperturaVersione[] | null;
+  }[];
+}): { profileId: string; at: string; origine: "ordine" | "piano" } | null {
+  const diretta = input.dirette.find((voce) => voce.versioneId === input.versioneId);
+  if (diretta) return { profileId: diretta.profileId, at: diretta.at, origine: "ordine" };
+  const piano = input.piani.find((voce) =>
+    (voce.copertura ?? []).some((riga) => riga.versioneId === input.versioneId)
+  );
+  if (!piano) return null;
+  return { profileId: piano.profileId, at: piano.at, origine: "piano" };
+}
+
 export type RigaApprovvigionamento = {
   materiaPrimaId: string;
   codice: string;

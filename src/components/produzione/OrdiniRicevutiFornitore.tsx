@@ -7,6 +7,16 @@ import {
   type VersioneRicevuta,
 } from "@/app/actions/approvvigionamento-portale";
 
+function statoPresaOrdine(ordine: VersioneRicevuta): string {
+  if (ordine.confermataAt) {
+    return `Presa visione di questa versione, da ${ordine.confermataDa ?? "utente collegato"}`;
+  }
+  if (ordine.copertaDalPiano) {
+    return "Coperta dalla presa visione del piano. Non serve una seconda conferma.";
+  }
+  return "In attesa di presa visione di questa versione";
+}
+
 export function OrdiniRicevutiFornitore(props: {
   ordini: VersioneRicevuta[];
   piani: PianoRicevuto[];
@@ -72,7 +82,7 @@ export function OrdiniRicevutiFornitore(props: {
                     }}
                     className="mt-1 block w-full truncate rounded bg-sky-50 px-2 py-1 text-left text-sm"
                   >
-                    {voce.codice} v{voce.numero}
+                    {voce.codice} v{voce.numero} · {voce.etichetta}
                   </button>
                 ))}
               </li>
@@ -88,7 +98,7 @@ export function OrdiniRicevutiFornitore(props: {
                 onClick={() => setPiano(voce.id)}
                 className="text-sm text-sky-800"
               >
-                {voce.codice} v{voce.numero}
+                {voce.codice} v{voce.numero} · {voce.etichetta}
               </button>
             </li>
           ))}
@@ -106,10 +116,16 @@ export function OrdiniRicevutiFornitore(props: {
               {pianoAperto.tipologia === "mensile" ? "Piano mensile" : "Piano settimanale"} ·{" "}
               {pianoAperto.periodoInizio} – {pianoAperto.periodoFine}
             </p>
+            <p className="mt-1 text-sm font-medium text-slate-800">{pianoAperto.etichetta}</p>
+            {pianoAperto.ruolo === "corrente" && pianoAperto.bozzaNonPubblicata ? (
+              <p className="mt-1 text-sm text-amber-900">
+                In Produzione ci sono modifiche non ancora pubblicate.
+              </p>
+            ) : null}
             <p className="mt-1 text-sm text-slate-600">
               {pianoAperto.confermataAt
-                ? `Visionato il ${pianoAperto.confermataAt.slice(0, 16).replace("T", " ")}`
-                : "In attesa di presa visione"}
+                ? `Presa visione di questa versione, il ${pianoAperto.confermataAt.slice(0, 16).replace("T", " ")}`
+                : "In attesa di presa visione di questa versione"}
             </p>
             <ul className="mt-3 space-y-1 text-sm">
               {pianoAperto.ordini.map((voce) => (
@@ -136,12 +152,14 @@ export function OrdiniRicevutiFornitore(props: {
             <h2 className="text-lg font-semibold text-slate-900">
               {ordine.codice} · versione {ordine.numero}
             </h2>
+            <p className="text-sm font-medium text-slate-800">{ordine.etichetta}</p>
             <p className="text-sm text-slate-600">Consegna {ordine.dataConsegna}</p>
-            <p className="mt-1 text-sm text-slate-600">
-              {ordine.confermataAt
-                ? `Visionato da ${ordine.confermataDa ?? "utente collegato"}`
-                : "In attesa di presa visione"}
-            </p>
+            {ordine.ruolo === "corrente" && ordine.bozzaNonPubblicata ? (
+              <p className="mt-1 text-sm text-amber-900">
+                In Produzione ci sono modifiche non ancora pubblicate.
+              </p>
+            ) : null}
+            <p className="mt-1 text-sm text-slate-600">{statoPresaOrdine(ordine)}</p>
             <ul className="mt-3 space-y-1 text-sm">
               {ordine.righe.map((riga) => (
                 <li key={`${riga.codice}-${riga.quantita}`}>

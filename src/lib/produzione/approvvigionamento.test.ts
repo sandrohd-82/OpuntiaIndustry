@@ -4,8 +4,11 @@ import { risolviAccessoMaterialeIngresso } from "./fornitore-accesso";
 import {
   classificaProgrammazione,
   differenzeApprovvigionamento,
+  etichettaVersionePortale,
+  presaCheCopreVersione,
   presaVisioneCopre,
   quadriApprovvigionamento,
+  ruoloVersionePortale,
   copiaOrdineSuData,
   copiaSettimana,
   dateUniche,
@@ -248,6 +251,23 @@ assert.equal(quadri.notifica, "Notifica fallita/incerta");
 assert.equal(quadri.presaVisione, "In attesa di presa visione");
 assert.equal(presaVisioneCopre(A, A), true);
 assert.equal(presaVisioneCopre(A, B), false);
+assert.equal(ruoloVersionePortale(2, 2), "corrente");
+assert.equal(ruoloVersionePortale(1, 2), "storica");
+assert.equal(etichettaVersionePortale("storica"), "Versione storica superata");
+const copertura = presaCheCopreVersione({
+  versioneId: A,
+  dirette: [],
+  piani: [{ profileId: B, at: "2026-11-16T10:00:00Z", copertura: [{ versioneId: A }] }],
+});
+assert.equal(copertura?.origine, "piano");
+assert.equal(
+  presaCheCopreVersione({
+    versioneId: B,
+    dirette: [{ versioneId: A, profileId: B, at: "2026-11-16T10:00:00Z" }],
+    piani: [{ profileId: B, at: "2026-11-16T10:00:00Z", copertura: [{ versioneId: A }] }],
+  }),
+  null
+);
 assert.equal(
   risolviAccessoMaterialeIngresso(
     { superadmin: false, aree: ["area-fornitori"], fornitoreCollegatoId: A },
@@ -268,5 +288,18 @@ assert.match(pubblicazione, /Una versione pubblicata non si modifica/);
 assert.match(pubblicazione, /approvvigionamento/);
 assert.equal(pubblicazione.includes("insert into public.ordini"), false);
 assert.equal(pubblicazione.includes("haccp_fogli_ingresso"), false);
+
+const coerenza = readFileSync(
+  new URL(
+    "../../../supabase/migrations/20261116150000_approvvigionamenti_coerenza.sql",
+    import.meta.url
+  ),
+  "utf8"
+);
+assert.match(coerenza, /approvvigionamento_blocca_ordine/);
+assert.match(coerenza, /approvvigionamenti_segnali_portale/);
+assert.equal(coerenza.includes("haccp_fogli_ingresso"), false);
+assert.equal(/drop table/i.test(coerenza), false);
+assert.equal(coerenza.includes("o.note"), false);
 
 console.log("approvvigionamento: ok");

@@ -726,11 +726,15 @@ function StatoOrdine(props: { ordine: OrdineCalendario }) {
     notifica: props.ordine.notificaStato,
     visionato: Boolean(props.ordine.visionatoAt),
   });
+  const presa =
+    props.ordine.visioneOrigine === "piano" && quadri.presaVisione
+      ? `${quadri.presaVisione} con il piano`
+      : quadri.presaVisione;
   return (
     <p className="text-xs text-slate-700">
       {quadri.documento}
       {quadri.notifica ? ` · ${quadri.notifica}` : ""}
-      {quadri.presaVisione ? ` · ${quadri.presaVisione}` : ""}
+      {presa ? ` · ${presa}` : ""}
       {props.ordine.visionatoDa ? ` · ${props.ordine.visionatoDa}` : ""}
       {props.ordine.versionePubblicata ? ` · v${props.ordine.versionePubblicata}` : ""}
     </p>
