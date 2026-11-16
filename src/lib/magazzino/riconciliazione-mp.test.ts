@@ -188,6 +188,27 @@ assert.doesNotMatch(collegamento, /ingresso_senza_ordine/);
 assert.doesNotMatch(collegamento, /update public.haccp_fogli_ingresso/);
 assert.doesNotMatch(collegamento, /grant create on schema public to authenticated/);
 
+const accettazione = readFileSync(
+  "supabase/migrations/20261116270000_magazzino_mp_accettazione_prelievo.sql",
+  "utf8"
+);
+assert.match(accettazione, /magazzino_mp_accetta_lotto/);
+assert.match(accettazione, /magazzino_mp_preleva_lotto/);
+assert.match(accettazione, /da_stato = 'in_controllo'/);
+assert.match(accettazione, /a_stato = 'disponibile'/);
+assert.match(accettazione, /sottotipo = 'prelievo'/);
+assert.match(accettazione, /Il foglio HACCP non è chiuso/);
+assert.match(accettazione, /non conforme/);
+assert.match(accettazione, /Non vengono considerati conformi/);
+assert.match(accettazione, /carico_riga_id/);
+assert.match(accettazione, /revoke create on schema public from magazzino_mp_collegamento/);
+assert.doesNotMatch(
+  accettazione,
+  /create or replace function public\.magazzino_mp_registra_movimento/
+);
+assert.doesNotMatch(accettazione, /magazzino_mp_haccp_deroghe/);
+assert.doesNotMatch(accettazione, /lotti_esterni/);
+
 const schema = readFileSync("src/lib/magazzino/barcode.ts", "utf8");
 assert.match(schema, /z\.enum\(\["kg", "g", "lt", "ml", "pz"\]\)/);
 

@@ -10,6 +10,8 @@ import { MagazzinoScanBoard } from "@/components/magazzino/MagazzinoScanBoard";
 import { NoteAcquistoBoard } from "@/components/magazzino/NoteAcquistoBoard";
 import { BarcodeGeneratoreBoard } from "@/components/magazzino/BarcodeGeneratoreBoard";
 import { BarcodeRegistratiBoard } from "@/components/magazzino/BarcodeRegistratiBoard";
+import { ArriviMpBoard } from "@/components/magazzino/ArriviMpBoard";
+import { DecisioniMpBoard } from "@/components/magazzino/DecisioniMpBoard";
 import { AreaPlaceholder } from "@/components/areas/AreaPlaceholder";
 import { AppHeader } from "@/components/layout/AppHeader";
 import { getPiantaLuogoBySlugAction } from "@/app/actions/magazzino-mappa";
@@ -86,6 +88,34 @@ export default async function MagazzinoSubPage({ params }: Props) {
 
   const page = resolveMagazzinoPage([section, sub]);
   if (!page) notFound();
+
+  if (section === "materia-prima" && sub === "nuovo-ingresso") {
+    return (
+      <>
+        <AppHeader
+          title={page.label}
+          subtitle="Identificazione LM- degli arrivi e accettazione della sola quantità con controlli HACCP conformi"
+        />
+        <div className="p-6">
+          <ArriviMpBoard />
+        </div>
+      </>
+    );
+  }
+
+  if (section === "materia-prima" && sub === "scartati-non-conformi") {
+    return (
+      <>
+        <AppHeader
+          title={page.label}
+          subtitle="Blocco, sblocco, respingimento e uscita del materiale respinto"
+        />
+        <div className="p-6">
+          <DecisioniMpBoard />
+        </div>
+      </>
+    );
+  }
 
   if (section === "materia-prima" && sub === "elenco") {
     return (
