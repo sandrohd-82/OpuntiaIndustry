@@ -284,11 +284,15 @@ export function CarichiApprovvigionamento(props: {
                     Foglio {carico.foglioCodice ?? carico.foglioId}
                   </a>
                 ) : null}
+                <p className="text-slate-600">
+                  DDT {carico.ddtNumero ?? "non registrato"}
+                  {carico.lottoDichiarato ? ` · lotto dichiarato ${carico.lottoDichiarato}` : ""}
+                </p>
                 <ul className="mt-2 space-y-1">
                   {carico.righe.map((riga) => (
                     <li key={riga.id} className="flex items-center gap-2">
                       <span className="w-56 truncate">
-                        {riga.codice} previsto {riga.prevista} {riga.unitaMisura}
+                        {riga.codice} ordinato {riga.prevista} {riga.unitaMisura}
                         {riga.arrivata != null ? ` · arrivato ${riga.arrivata}` : ""}
                       </span>
                       <input

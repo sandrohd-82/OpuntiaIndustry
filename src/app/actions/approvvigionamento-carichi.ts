@@ -45,6 +45,8 @@ export type CaricoRiga = {
     prevista: number;
     arrivata: number | null;
   }[];
+  ddtNumero: string | null;
+  lottoDichiarato: string | null;
 };
 
 function messaggioDb(error: { message?: string }, fallback: string): string {
@@ -113,6 +115,31 @@ export async function listaCarichiProduzioneAction(): Promise<
       ? supabase.from("haccp_fogli_ingresso").select("id, codice").in("id", foglioIds)
       : Promise.resolve({ data: [] }),
   ]);
+  const [{ data: ddt }, { data: lotti }] = await Promise.all([
+    caricoIds.length
+      ? supabase
+          .from("approvvigionamenti_ddt")
+          .select("carico_id, numero")
+          .in("carico_id", caricoIds)
+          .is("deleted_at", null)
+      : Promise.resolve({ data: [] }),
+    foglioIds.length
+      ? supabase
+          .from("haccp_fogli_ingresso_risposte")
+          .select("foglio_id, valore, confermata_at")
+          .in("foglio_id", foglioIds)
+          .eq("voce_codice", "2e")
+          .order("confermata_at", { ascending: false })
+      : Promise.resolve({ data: [] }),
+  ]);
+  const numeroDdt = new Map((ddt ?? []).map((row) => [String(row.carico_id), String(row.numero)]));
+  const lottoDichiarato = new Map<string, string>();
+  for (const row of lotti ?? []) {
+    const foglioId = String(row.foglio_id);
+    if (lottoDichiarato.has(foglioId)) continue;
+    const valore = row.valore as { codice?: string };
+    if (valore?.codice) lottoDichiarato.set(foglioId, String(valore.codice));
+  }
   const codiceFoglio = new Map((fogli ?? []).map((row) => [String(row.id), String(row.codice)]));
   const versioneNumero = new Map((versioni ?? []).map((row) => [String(row.id), Number(row.numero)]));
   const codiceOrdine = new Map((versioni ?? []).map((row) => [String(row.ordine_id), String(row.codice)]));
@@ -166,6 +193,8 @@ export async function listaCarichiProduzioneAction(): Promise<
           prevista: Number(riga.quantita_prevista),
           arrivata: riga.quantita_arrivata == null ? null : Number(riga.quantita_arrivata),
         })),
+      ddtNumero: numeroDdt.get(String(row.id)) ?? null,
+      lottoDichiarato: lottoDichiarato.get(String(row.foglio_id ?? "")) ?? null,
     })),
   };
 }

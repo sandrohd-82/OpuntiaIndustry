@@ -6,7 +6,10 @@ import { confermaPresaVisioneHaccpAction } from "@/app/actions/haccp-linee-guida
 import {
   chiudiFoglioIngressoAction,
   registraArrivoFoglioAction,
+  registraPartenzaFoglioAction,
   riprendiFoglioIngressoAction,
+  salvaDdtFoglioAction,
+  salvaFotoFoglioAction,
   salvaRispostaFoglioAction,
   sospendiFoglioIngressoAction,
   type FoglioIngressoDettaglio,
@@ -20,6 +23,7 @@ import {
 import {
   motivoVoceNonAttiva,
   voceCompilabile,
+  type StatoFoglioIngresso,
   type ValoreRispostaFoglio,
   type VistaFoglio,
 } from "@/lib/produzione/foglio-ingresso";
@@ -44,7 +48,18 @@ function testoValore(valore: ValoreRispostaFoglio): string {
   if (valore.tipo === "contatto") {
     return `${valore.esito === "in_attesa" ? "In attesa del responsabile" : "Carico possibile"} — ${valore.nota}`;
   }
-  return valore.codice;
+  if (valore.tipo === "lotto") return valore.codice;
+  if (valore.tipo === "foto") return `Fotografia ${valore.nome}`;
+  if (valore.tipo === "archivio") return "Foto già archiviata";
+  if (valore.tipo === "ddt") {
+    return `DDT ${valore.numero} del ${valore.data}, quantità dichiarata ${valore.quantita}`;
+  }
+  if (valore.tipo === "firma") {
+    return `Firma di ${valore.nome}${valore.telefono ? `, tel. ${valore.telefono}` : ""}. Sessione autenticata, senza SMS.`;
+  }
+  if (valore.tipo === "orario") return `Partenza ${valore.iso.replace("T", " ")}`;
+  if (valore.tipo === "arrivo") return valore.nota;
+  return "";
 }
 
 export function FoglioIngressoScheda({
@@ -73,6 +88,8 @@ export function FoglioIngressoScheda({
     lista.push(risposta);
     perVoce.set(risposta.voceCodice, lista);
   }
+  const fotoIngresso = perVoce.get("1a")?.[0]?.valore;
+  const pathFoto = fotoIngresso && fotoIngresso.tipo === "foto" ? fotoIngresso.path : "";
 
   async function esegui(lavoro: () => Promise<{ success: boolean; error?: string }>) {
     setOccupato(true);
@@ -158,6 +175,16 @@ export function FoglioIngressoScheda({
           </button>
         </div>
       ) : null}
+      {foglio.attore === "fornitore" && foglio.stato === "in_compilazione" ? (
+        <button
+          type="button"
+          disabled={occupato}
+          onClick={() => void esegui(() => registraPartenzaFoglioAction(foglio.id))}
+          className="rounded-lg bg-slate-900 px-3 py-1.5 text-sm font-medium text-white disabled:opacity-60"
+        >
+          Registra partenza
+        </button>
+      ) : null}
       {foglio.stato === "in_attesa" ? (
         <button
           type="button"
@@ -187,11 +214,12 @@ export function FoglioIngressoScheda({
                 riferimento={voce.riferimento}
                 foglioId={foglio.id}
                 attore={foglio.attore}
+                stato={foglio.stato}
                 compilabile={compilabile}
                 storia={perVoce.get(voce.codice) ?? []}
+                pathFoto={pathFoto}
                 occupato={occupato}
                 onEsegui={esegui}
-                mostraArrivo={vista === "produzione" && voce.codice === "q"}
               />
             ))}
           </section>
@@ -215,11 +243,12 @@ function VoceScheda({
   riferimento,
   foglioId,
   attore,
+  stato,
   compilabile,
   storia,
+  pathFoto,
   occupato,
   onEsegui,
-  mostraArrivo,
 }: {
   codice: string;
   titolo: string;
@@ -228,16 +257,20 @@ function VoceScheda({
   riferimento?: string;
   foglioId: string;
   attore: "interno" | "fornitore";
+  stato: StatoFoglioIngresso;
   compilabile: boolean;
   storia: RispostaFoglioRiga[];
+  pathFoto: string;
   occupato: boolean;
   onEsegui: (lavoro: () => Promise<{ success: boolean; error?: string }>) => Promise<void>;
-  mostraArrivo: boolean;
 }) {
   const attuale = storia[0] ?? null;
   const attiva = voceCompilabile(codice);
+  const scritturaArrivo = codice === "q" && attore === "interno" && stato === "partito";
   const puoScrivere =
-    compilabile && attiva && (attore === "fornitore" || attuale != null);
+    attiva &&
+    (scritturaArrivo ||
+      (compilabile && codice !== "q" && (attore === "fornitore" || attuale != null)));
 
   return (
     <article className="rounded-xl border border-[var(--border)] bg-[var(--card)] p-4">
@@ -276,31 +309,51 @@ function VoceScheda({
           codice={codice}
           foglioId={foglioId}
           correzione={attuale != null}
+          pathFoto={pathFoto}
           occupato={occupato}
           onEsegui={onEsegui}
         />
       ) : null}
-      {mostraArrivo ? (
-        <div className="mt-3 flex flex-wrap gap-2">
-          <button
-            type="button"
-            disabled={occupato}
-            onClick={() => void onEsegui(() => registraArrivoFoglioAction())}
-            className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm disabled:opacity-60"
-          >
-            Registra arrivo
-          </button>
-          <button
-            type="button"
-            disabled={occupato}
-            onClick={() => void onEsegui(() => chiudiFoglioIngressoAction())}
-            className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm disabled:opacity-60"
-          >
-            Chiudi foglio
-          </button>
-        </div>
+      {codice === "q" && attore === "interno" && stato === "partito" && attuale ? (
+        <button
+          type="button"
+          disabled={occupato}
+          onClick={() => void onEsegui(() => registraArrivoFoglioAction(foglioId))}
+          className="mt-3 rounded-lg bg-slate-900 px-3 py-1.5 text-sm font-medium text-white disabled:opacity-60"
+        >
+          Registra arrivo del foglio
+        </button>
+      ) : null}
+      {codice === "q" && attore === "interno" && stato === "arrivato" ? (
+        <button
+          type="button"
+          disabled={occupato}
+          onClick={() => void onEsegui(() => chiudiFoglioIngressoAction(foglioId))}
+          className="mt-3 rounded-lg border border-slate-300 px-3 py-1.5 text-sm disabled:opacity-60"
+        >
+          Chiudi foglio
+        </button>
       ) : null}
     </article>
+  );
+}
+
+function campoMotivazione(
+  correzione: boolean,
+  motivazione: string,
+  setMotivazione: (valore: string) => void
+) {
+  if (!correzione) return null;
+  return (
+    <input
+      value={motivazione}
+      onChange={(event) => setMotivazione(event.target.value)}
+      required
+      minLength={3}
+      maxLength={500}
+      placeholder="Motivazione della correzione"
+      className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+    />
   );
 }
 
@@ -308,12 +361,14 @@ function ModuloVoce({
   codice,
   foglioId,
   correzione,
+  pathFoto,
   occupato,
   onEsegui,
 }: {
   codice: string;
   foglioId: string;
   correzione: boolean;
+  pathFoto: string;
   occupato: boolean;
   onEsegui: (lavoro: () => Promise<{ success: boolean; error?: string }>) => Promise<void>;
 }) {
@@ -323,7 +378,11 @@ function ModuloVoce({
   const [presente, setPresente] = useState(false);
   const [contatto, setContatto] = useState("carico_possibile");
   const [numero, setNumero] = useState("");
+  const [dataDdt, setDataDdt] = useState("");
+  const [telefono, setTelefono] = useState("");
+  const [file, setFile] = useState<File | null>(null);
   const [motivazione, setMotivazione] = useState("");
+  const [chiaveDdt] = useState(() => crypto.randomUUID());
 
   function valore(): unknown {
     if (["mezzo", "1e", "2b", "2g", "2h"].includes(codice)) {
@@ -333,7 +392,107 @@ function ModuloVoce({
     if (codice === "2d" || codice === "2i" || codice === "2l") return { valore: Number(numero) };
     if (codice === "2e") return { codice: testo };
     if (codice === "1c") return { presente, nota };
+    if (codice === "1b") return { path: pathFoto };
+    if (codice === "n1" || codice === "n2") return { nome: testo, telefono };
+    if (codice === "p") return { iso: testo };
+    if (codice === "q") return { nota };
     return { esito: contatto, nota };
+  }
+
+  if (codice === "1a" || codice === "2f") {
+    return (
+      <form
+        className="mt-3 space-y-2"
+        onSubmit={(event) => {
+          event.preventDefault();
+          const corpo = new FormData();
+          corpo.set("foglioId", foglioId);
+          corpo.set("voceCodice", codice);
+          corpo.set("motivazione", correzione ? motivazione : "");
+          if (file) corpo.set("file", file);
+          void onEsegui(() => salvaFotoFoglioAction(corpo));
+        }}
+      >
+        <input
+          type="file"
+          accept="image/jpeg,image/png,image/webp"
+          required
+          onChange={(event) => setFile(event.target.files?.[0] ?? null)}
+          className="w-full text-sm"
+        />
+        {campoMotivazione(correzione, motivazione, setMotivazione)}
+        <button
+          type="submit"
+          disabled={occupato}
+          className="rounded-lg bg-slate-900 px-3 py-1.5 text-sm font-medium text-white disabled:opacity-60"
+        >
+          Archivia fotografia
+        </button>
+      </form>
+    );
+  }
+
+  if (codice === "2m") {
+    return (
+      <form
+        className="mt-3 space-y-2"
+        onSubmit={(event) => {
+          event.preventDefault();
+          const corpo = new FormData();
+          corpo.set("foglioId", foglioId);
+          corpo.set("numero", testo);
+          corpo.set("data", dataDdt);
+          corpo.set("quantita", numero);
+          corpo.set("chiave", chiaveDdt);
+          corpo.set("motivazione", correzione ? motivazione : "");
+          if (file) corpo.set("file", file);
+          void onEsegui(() => salvaDdtFoglioAction(corpo));
+        }}
+      >
+        <input
+          value={testo}
+          onChange={(event) => setTesto(event.target.value)}
+          required
+          maxLength={40}
+          placeholder="Numero DDT"
+          className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+        />
+        <input
+          type="date"
+          value={dataDdt}
+          onChange={(event) => setDataDdt(event.target.value)}
+          required
+          className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+        />
+        <input
+          value={numero}
+          onChange={(event) => setNumero(event.target.value)}
+          required
+          type="number"
+          min="0"
+          step="0.01"
+          placeholder="Quantità dichiarata"
+          className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+        />
+        <input
+          type="file"
+          accept="application/pdf"
+          onChange={(event) => setFile(event.target.files?.[0] ?? null)}
+          className="w-full text-sm"
+        />
+        <p className="text-xs text-slate-500">
+          La quantità dichiarata non sostituisce la quantità ordinata né quella arrivata.
+        </p>
+        {campoMotivazione(correzione, motivazione, setMotivazione)}
+        <button
+          type="submit"
+          disabled={occupato}
+          className="rounded-lg bg-slate-900 px-3 py-1.5 text-sm font-medium text-white disabled:opacity-60"
+        >
+          Registra DDT
+        </button>
+      </form>
+    );
   }
 
   return (
@@ -403,6 +562,61 @@ function ModuloVoce({
           <option value="in_attesa">In attesa del responsabile</option>
         </select>
       ) : null}
+      {codice === "1b" ? (
+        <p className="text-sm text-slate-600">
+          {pathFoto
+            ? "Conferma che la fotografia del punto 1a resta archiviata."
+            : "Prima archivia la fotografia del punto 1a."}
+        </p>
+      ) : null}
+      {codice === "n1" || codice === "n2" ? (
+        <>
+          <input
+            value={testo}
+            onChange={(event) => setTesto(event.target.value)}
+            required
+            minLength={3}
+            maxLength={120}
+            placeholder={codice === "n1" ? "Nome e cognome del fornitore" : "Nome del trasportatore"}
+            className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+          />
+          {codice === "n2" ? (
+            <input
+              value={telefono}
+              onChange={(event) => setTelefono(event.target.value)}
+              required
+              minLength={6}
+              maxLength={30}
+              placeholder="Telefono del trasportatore"
+              className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+            />
+          ) : null}
+          <p className="text-xs text-slate-500">
+            La firma usa la sessione già autenticata. Non viene inviato alcun SMS.
+          </p>
+        </>
+      ) : null}
+      {codice === "p" ? (
+        <input
+          type="datetime-local"
+          value={testo}
+          onChange={(event) => setTesto(event.target.value)}
+          required
+          className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+        />
+      ) : null}
+      {codice === "q" ? (
+        <textarea
+          value={nota}
+          onChange={(event) => setNota(event.target.value)}
+          required
+          minLength={3}
+          rows={2}
+          maxLength={500}
+          placeholder="Annotazione di arrivo"
+          className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+        />
+      ) : null}
       {codice === "1c" || codice === "1d" || ["mezzo", "1e", "2b", "2g", "2h"].includes(codice) ? (
         <textarea
           value={nota}
@@ -426,7 +640,7 @@ function ModuloVoce({
       ) : null}
       <button
         type="submit"
-        disabled={occupato}
+        disabled={occupato || (codice === "1b" && pathFoto.length < 8)}
         className="rounded-lg bg-slate-900 px-3 py-1.5 text-sm font-medium text-white disabled:opacity-60"
       >
         {correzione ? "Registra correzione" : "Salva"}

@@ -22,13 +22,21 @@ export type ValoreRispostaFoglio =
   | { tipo: "dato_numero"; valore: number; unita: "n" | "kg" }
   | { tipo: "segnalazione"; presente: boolean; nota: string }
   | { tipo: "contatto"; esito: "carico_possibile" | "in_attesa"; nota: string }
-  | { tipo: "lotto"; codice: string };
+  | { tipo: "lotto"; codice: string }
+  | { tipo: "foto"; nome: string; path: string }
+  | { tipo: "archivio"; path: string }
+  | { tipo: "ddt"; numero: string; data: string; quantita: number }
+  | { tipo: "firma"; nome: string; telefono: string; evidenza: "sessione_autenticata" }
+  | { tipo: "orario"; iso: string }
+  | { tipo: "arrivo"; nota: string };
 
-export const MOTIVO_TRANSIZIONE_NON_DISPONIBILE =
-  "Transizione non disponibile: foto, DDT e firme OTP non sono attive.";
+export const MOTIVO_OTP_SMS =
+  "La firma è registrata dall'utente autenticato. L'invio reale dell'SMS OTP non è attivo.";
 
 const CODICI_COMPILABILI = [
   "mezzo",
+  "1a",
+  "1b",
   "1c",
   "1d",
   "1e",
@@ -37,10 +45,39 @@ const CODICI_COMPILABILI = [
   "2c",
   "2d",
   "2e",
+  "2f",
   "2g",
   "2h",
   "2i",
   "2l",
+  "2m",
+  "n1",
+  "n2",
+  "p",
+  "q",
+] as const;
+
+export const VOCI_PARTENZA = [
+  "mezzo",
+  "1a",
+  "1b",
+  "1c",
+  "1d",
+  "1e",
+  "2a",
+  "2b",
+  "2c",
+  "2d",
+  "2e",
+  "2f",
+  "2g",
+  "2h",
+  "2i",
+  "2l",
+  "2m",
+  "n1",
+  "n2",
+  "p",
 ] as const;
 
 const TRANSIZIONI_SOSPESE: ReadonlyArray<
@@ -66,18 +103,6 @@ export function motivoVoceNonAttiva(codice: string): string | null {
   if (voceCompilabile(codice)) return null;
   if (codice === "doc") {
     return "La presa visione è quella delle linee guida distribuite, non una firma duplicata sul carico.";
-  }
-  if (codice === "1a" || codice === "2f") {
-    return "Il caricamento delle fotografie non è attivo.";
-  }
-  if (codice === "1b") return "L'archivio fotografico non è attivo.";
-  if (codice === "2m") return "Il DDT non è attivo.";
-  if (codice === "n1" || codice === "n2") return "La firma con OTP via SMS non è attiva.";
-  if (codice === "p") {
-    return "L'ora di partenza non si registra finché foto, DDT e OTP non sono attivi.";
-  }
-  if (codice === "q") {
-    return "Arrivo e chiusura non sono disponibili finché foto, DDT e OTP non sono attivi.";
   }
   return "Voce non presente nel catalogo.";
 }
@@ -118,21 +143,37 @@ export function puoLeggereFoglio(
 export function transizioneFoglio(
   da: StatoFoglioIngresso,
   a: StatoFoglioIngresso,
-  _attore: "interno" | "fornitore"
+  attore: "interno" | "fornitore"
 ): { ok: true } | { ok: false; motivo: string } {
-  if (
-    a === "partito" ||
-    a === "arrivato" ||
-    a === "chiuso" ||
-    da === "partito" ||
-    da === "arrivato" ||
-    da === "chiuso"
-  ) {
-    return { ok: false, motivo: MOTIVO_TRANSIZIONE_NON_DISPONIBILE };
+  if (da === "in_compilazione" && a === "partito") {
+    if (attore !== "fornitore") {
+      return { ok: false, motivo: "La partenza la registra il fornitore." };
+    }
+    return { ok: true };
+  }
+  if (da === "partito" && a === "arrivato") {
+    if (attore !== "interno") {
+      return { ok: false, motivo: "L'arrivo lo registra il personale interno." };
+    }
+    return { ok: true };
+  }
+  if (da === "arrivato" && a === "chiuso") {
+    if (attore !== "interno") {
+      return { ok: false, motivo: "La chiusura spetta al personale interno." };
+    }
+    return { ok: true };
+  }
+  if (da === "partito" || da === "arrivato" || da === "chiuso" || a === "partito" || a === "arrivato" || a === "chiuso") {
+    return { ok: false, motivo: "Transizione di stato non consentita." };
   }
   const ammessa = TRANSIZIONI_SOSPESE.some(([origine, destinazione]) => origine === da && destinazione === a);
   if (!ammessa) return { ok: false, motivo: "Transizione di stato non consentita." };
   return { ok: true };
+}
+
+export function vociMancantiPartenza(risposteCodici: readonly string[]): string[] {
+  const presenti = new Set(risposteCodici);
+  return VOCI_PARTENZA.filter((codice) => !presenti.has(codice));
 }
 
 export function statoDopoRipresa(haRisposte: boolean): "aperto" | "in_compilazione" {
@@ -155,6 +196,12 @@ export function puoRegistrareRisposta(input: {
   motivazione: string;
   presaVisioneCompleta: boolean;
 }): { ok: true } | { ok: false; motivo: string } {
+  if (input.codice === "q" && input.attore === "interno" && input.stato === "partito") {
+    if (input.esisteRisposta && input.motivazione.trim().length < 3) {
+      return { ok: false, motivo: "La correzione richiede una motivazione." };
+    }
+    return { ok: true };
+  }
   if (input.stato !== "aperto" && input.stato !== "in_compilazione") {
     return { ok: false, motivo: "Il foglio non è in compilazione." };
   }
@@ -169,11 +216,14 @@ export function puoRegistrareRisposta(input: {
   if (input.attore === "fornitore" && input.codice === "q") {
     return { ok: false, motivo: "La voce q non è del fornitore." };
   }
-  if (input.attore === "interno" && !input.esisteRisposta) {
+  if (input.attore === "interno" && input.codice !== "q" && !input.esisteRisposta) {
     return {
       ok: false,
       motivo: "Il personale interno corregge una risposta già registrata dal fornitore.",
     };
+  }
+  if (input.attore === "interno" && input.codice === "q") {
+    return { ok: false, motivo: "L'arrivo si registra quando il carico è partito." };
   }
   if (input.esisteRisposta && input.motivazione.trim().length < 3) {
     return { ok: false, motivo: "La correzione richiede una motivazione." };
@@ -183,7 +233,7 @@ export function puoRegistrareRisposta(input: {
 
 export function vociIncomplete(risposteCodici: readonly string[]): string[] {
   const presenti = new Set(risposteCodici);
-  return CODICI_COMPILABILI.filter((codice) => !presenti.has(codice));
+  return CODICI_COMPILABILI.filter((codice) => codice !== "q" && !presenti.has(codice));
 }
 
 export function normalizzaValoreRisposta(
@@ -246,6 +296,58 @@ export function normalizzaValoreRisposta(
     }
     if (nota.length < 3) return { ok: false, motivo: "Annota l'esito del contatto." };
     return { ok: true, valore: { tipo: "contatto", esito: record.esito, nota } };
+  }
+  if (codice === "1a" || codice === "2f") {
+    const nome = typeof record.nome === "string" ? record.nome.trim() : "";
+    const path = typeof record.path === "string" ? record.path.trim() : "";
+    if (nome.length < 1 || path.length < 8) {
+      return { ok: false, motivo: "Carica una fotografia." };
+    }
+    return { ok: true, valore: { tipo: "foto", nome, path } };
+  }
+  if (codice === "1b") {
+    const path = typeof record.path === "string" ? record.path.trim() : "";
+    if (path.length < 8) return { ok: false, motivo: "Conferma la foto già archiviata." };
+    return { ok: true, valore: { tipo: "archivio", path } };
+  }
+  if (codice === "2m") {
+    const numero = typeof record.numero === "string" ? record.numero.trim() : "";
+    const data = typeof record.data === "string" ? record.data.trim() : "";
+    const quantita = typeof record.quantita === "number" ? record.quantita : Number(record.quantita);
+    if (numero.length < 1 || numero.length > 40) {
+      return { ok: false, motivo: "Inserisci il numero del DDT." };
+    }
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(data)) {
+      return { ok: false, motivo: "Inserisci la data del DDT." };
+    }
+    if (!Number.isFinite(quantita) || quantita <= 0) {
+      return { ok: false, motivo: "Inserisci la quantità dichiarata sul DDT." };
+    }
+    return { ok: true, valore: { tipo: "ddt", numero, data, quantita } };
+  }
+  if (codice === "n1" || codice === "n2") {
+    const nome = typeof record.nome === "string" ? record.nome.trim() : "";
+    const telefono = typeof record.telefono === "string" ? record.telefono.trim() : "";
+    if (nome.length < 3) return { ok: false, motivo: "Inserisci nome e cognome." };
+    if (codice === "n2" && telefono.length < 6) {
+      return { ok: false, motivo: "Inserisci il telefono del trasportatore." };
+    }
+    return {
+      ok: true,
+      valore: { tipo: "firma", nome, telefono, evidenza: "sessione_autenticata" },
+    };
+  }
+  if (codice === "p") {
+    const iso = typeof record.iso === "string" ? record.iso.trim() : "";
+    if (Number.isNaN(new Date(iso).getTime())) {
+      return { ok: false, motivo: "Inserisci l'ora di partenza." };
+    }
+    return { ok: true, valore: { tipo: "orario", iso } };
+  }
+  if (codice === "q") {
+    const nota = typeof record.nota === "string" ? record.nota.trim() : "";
+    if (nota.length < 3) return { ok: false, motivo: "Annota l'arrivo." };
+    return { ok: true, valore: { tipo: "arrivo", nota } };
   }
   return { ok: false, motivo: motivoVoceNonAttiva(codice) ?? "Questa voce non è compilabile." };
 }

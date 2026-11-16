@@ -6,7 +6,6 @@ import { requireAreaAccess } from "@/lib/areas/guard";
 import { eUtenteInternoHaccp } from "@/lib/produzione/fornitore-accesso";
 import { soggettoAccessoFornitore } from "@/lib/produzione/fornitore-accesso-server";
 import {
-  MOTIVO_TRANSIZIONE_NON_DISPONIBILE,
   normalizzaValoreRisposta,
   puoLeggereFoglio,
   puoRegistrareRisposta,
@@ -15,11 +14,12 @@ import {
   versioniCheBloccanoCompilazione,
   voceCompilabile,
   vociIncomplete,
+  vociMancantiPartenza,
   type StatoFoglioIngresso,
   type ValoreRispostaFoglio,
   type VistaFoglio,
 } from "@/lib/produzione/foglio-ingresso";
-import { createClient } from "@/lib/supabase/server";
+import { createClient, createServiceClient } from "@/lib/supabase/server";
 
 const uuidSchema = z.string().uuid();
 
@@ -77,7 +77,7 @@ function messaggioDb(error: { message?: string } | null, fallback: string): stri
     return "Questa voce non accetta il valore inviato.";
   }
   if (testo.includes("altro fornitore")) return "Non puoi accedere a un altro fornitore.";
-  if (testo.includes("Transizione non disponibile")) return MOTIVO_TRANSIZIONE_NON_DISPONIBILE;
+  if (testo.includes("Mancano voci")) return "Mancano voci obbligatorie per la partenza.";
   if (testo.includes("non consentita")) return "Transizione di stato non consentita.";
   if (testo.includes("non è in compilazione")) return "Il foglio non è in compilazione.";
   if (testo.includes("già registrata")) {
@@ -504,12 +504,252 @@ export async function riprendiFoglioIngressoAction(foglioId: string) {
   return cambiaStato(foglioId, "ripresa");
 }
 
-export async function registraArrivoFoglioAction(): Promise<Errore> {
-  await requireAreaAccess("produzione");
-  return { success: false, error: MOTIVO_TRANSIZIONE_NON_DISPONIBILE };
+async function codiciRisposta(foglioId: string): Promise<string[] | Errore> {
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from("haccp_fogli_ingresso_risposte")
+    .select("voce_codice")
+    .eq("foglio_id", foglioId);
+  if (error) return { success: false, error: "Risposte del foglio non disponibili." };
+  return [...new Set((data ?? []).map((row) => String(row.voce_codice)))];
 }
 
-export async function chiudiFoglioIngressoAction(): Promise<Errore> {
-  await requireAreaAccess("produzione");
-  return { success: false, error: MOTIVO_TRANSIZIONE_NON_DISPONIBILE };
+export async function registraPartenzaFoglioAction(
+  foglioId: string
+): Promise<{ success: true } | Errore> {
+  const parsed = uuidSchema.safeParse(foglioId);
+  if (!parsed.success) return { success: false, error: "Foglio non valido." };
+  const { auth } = await requireAreaAccess("area-fornitori");
+  const soggetto = await soggettoAccessoFornitore();
+  if (!soggetto?.fornitoreCollegatoId) {
+    return { success: false, error: "Accesso fornitore richiesto." };
+  }
+  const supabase = await createClient();
+  const { data: foglio } = await supabase
+    .from("haccp_fogli_ingresso")
+    .select("id, fornitore_id, stato")
+    .eq("id", parsed.data)
+    .is("deleted_at", null)
+    .maybeSingle();
+  if (!foglio || soggetto.fornitoreCollegatoId !== String(foglio.fornitore_id)) {
+    return { success: false, error: "Foglio non disponibile." };
+  }
+  const attuale = comeStato(String(foglio.stato));
+  const passaggio = transizioneFoglio(attuale, "partito", "fornitore");
+  if (!passaggio.ok) return { success: false, error: passaggio.motivo };
+  const codici = await codiciRisposta(String(foglio.id));
+  if ("success" in codici) return codici;
+  const mancanti = vociMancantiPartenza(codici);
+  if (mancanti.length > 0) {
+    return { success: false, error: `Mancano le voci ${mancanti.join(", ")}.` };
+  }
+  const { error } = await supabase
+    .from("haccp_fogli_ingresso")
+    .update({
+      stato: "partito",
+      departed_at: new Date().toISOString(),
+      departed_by: auth.userId,
+      updated_by: auth.userId,
+    })
+    .eq("id", foglio.id);
+  if (error) return { success: false, error: messaggioDb(error, "Partenza non registrata.") };
+  await writeAuditLog({
+    entity_type: "haccp_fogli_ingresso",
+    entity_id: String(foglio.id),
+    action: "partenza",
+    actor_id: auth.userId,
+    summary: "Partenza registrata dal fornitore.",
+    payload: { da: attuale, a: "partito" },
+  });
+  return { success: true };
+}
+
+export async function registraArrivoFoglioAction(
+  foglioId: string
+): Promise<{ success: true } | Errore> {
+  const parsed = uuidSchema.safeParse(foglioId);
+  if (!parsed.success) return { success: false, error: "Foglio non valido." };
+  const { auth } = await requireAreaAccess("produzione");
+  const soggetto = await soggettoAccessoFornitore();
+  if (!soggetto || !eUtenteInternoHaccp(soggetto)) {
+    return { success: false, error: "Accesso non consentito." };
+  }
+  const supabase = await createClient();
+  const { data: foglio } = await supabase
+    .from("haccp_fogli_ingresso")
+    .select("id, fornitore_id, stato")
+    .eq("id", parsed.data)
+    .is("deleted_at", null)
+    .maybeSingle();
+  if (!foglio || !puoLeggereFoglio(soggetto, String(foglio.fornitore_id))) {
+    return { success: false, error: "Foglio non disponibile." };
+  }
+  const attuale = comeStato(String(foglio.stato));
+  const passaggio = transizioneFoglio(attuale, "arrivato", "interno");
+  if (!passaggio.ok) return { success: false, error: passaggio.motivo };
+  const codici = await codiciRisposta(String(foglio.id));
+  if ("success" in codici) return codici;
+  if (!codici.includes("q")) {
+    return { success: false, error: "Prima annota l'arrivo nella voce q." };
+  }
+  const { error } = await supabase
+    .from("haccp_fogli_ingresso")
+    .update({
+      stato: "arrivato",
+      arrived_at: new Date().toISOString(),
+      arrived_by: auth.userId,
+      updated_by: auth.userId,
+    })
+    .eq("id", foglio.id);
+  if (error) return { success: false, error: messaggioDb(error, "Arrivo non registrato.") };
+  await writeAuditLog({
+    entity_type: "haccp_fogli_ingresso",
+    entity_id: String(foglio.id),
+    action: "arrivo",
+    actor_id: auth.userId,
+    summary: "Arrivo del foglio registrato. La quantità del carico resta distinta.",
+    payload: { da: attuale, a: "arrivato" },
+  });
+  return { success: true };
+}
+
+export async function chiudiFoglioIngressoAction(
+  foglioId: string
+): Promise<{ success: true } | Errore> {
+  const parsed = uuidSchema.safeParse(foglioId);
+  if (!parsed.success) return { success: false, error: "Foglio non valido." };
+  const { auth } = await requireAreaAccess("produzione");
+  const soggetto = await soggettoAccessoFornitore();
+  if (!soggetto || !eUtenteInternoHaccp(soggetto)) {
+    return { success: false, error: "Accesso non consentito." };
+  }
+  const supabase = await createClient();
+  const { data: foglio } = await supabase
+    .from("haccp_fogli_ingresso")
+    .select("id, fornitore_id, stato")
+    .eq("id", parsed.data)
+    .is("deleted_at", null)
+    .maybeSingle();
+  if (!foglio || !puoLeggereFoglio(soggetto, String(foglio.fornitore_id))) {
+    return { success: false, error: "Foglio non disponibile." };
+  }
+  const attuale = comeStato(String(foglio.stato));
+  const passaggio = transizioneFoglio(attuale, "chiuso", "interno");
+  if (!passaggio.ok) return { success: false, error: passaggio.motivo };
+  const { error } = await supabase
+    .from("haccp_fogli_ingresso")
+    .update({
+      stato: "chiuso",
+      closed_at: new Date().toISOString(),
+      closed_by: auth.userId,
+      updated_by: auth.userId,
+    })
+    .eq("id", foglio.id);
+  if (error) return { success: false, error: messaggioDb(error, "Foglio non chiuso.") };
+  await writeAuditLog({
+    entity_type: "haccp_fogli_ingresso",
+    entity_id: String(foglio.id),
+    action: "chiusura",
+    actor_id: auth.userId,
+    summary: "Foglio materiale in ingresso chiuso.",
+    payload: { da: attuale, a: "chiuso" },
+  });
+  return { success: true };
+}
+
+const BUCKET_CONSEGNA = "approvvigionamento-consegna";
+
+function nomeFileSicuro(nome: string): string {
+  const pulito = nome.toLowerCase().replace(/[^a-z0-9.]+/g, "-").replace(/^-+|-+$/g, "");
+  return pulito.slice(0, 80) || "allegato";
+}
+
+export async function salvaFotoFoglioAction(
+  formData: FormData
+): Promise<{ success: true } | Errore> {
+  const foglioId = String(formData.get("foglioId") ?? "");
+  const voceCodice = String(formData.get("voceCodice") ?? "");
+  const motivazione = String(formData.get("motivazione") ?? "");
+  const file = formData.get("file");
+  if (!(file instanceof File) || file.size < 1 || file.size > 8_000_000) {
+    return { success: false, error: "Fotografia non valida." };
+  }
+  if (!["image/jpeg", "image/png", "image/webp"].includes(file.type)) {
+    return { success: false, error: "Usa una fotografia JPEG, PNG o WebP." };
+  }
+  const path = `${foglioId}/${voceCodice}/${crypto.randomUUID()}-${nomeFileSicuro(file.name)}`;
+  const bytes = new Uint8Array(await file.arrayBuffer());
+  const service = createServiceClient();
+  const upload = await service.storage.from(BUCKET_CONSEGNA).upload(path, bytes, {
+    contentType: file.type,
+    upsert: false,
+  });
+  if (upload.error) return { success: false, error: "Fotografia non archiviata." };
+  return salvaRispostaFoglioAction({
+    foglioId,
+    voceCodice,
+    valore: { nome: file.name, path },
+    motivazione: motivazione.trim() || undefined,
+  });
+}
+
+export async function salvaDdtFoglioAction(
+  formData: FormData
+): Promise<{ success: true } | Errore> {
+  const foglioId = String(formData.get("foglioId") ?? "");
+  const numero = String(formData.get("numero") ?? "").trim();
+  const data = String(formData.get("data") ?? "").trim();
+  const quantita = Number(formData.get("quantita"));
+  const motivazione = String(formData.get("motivazione") ?? "");
+  const chiave = String(formData.get("chiave") ?? "");
+  const file = formData.get("file");
+  if (!z.string().uuid().safeParse(foglioId).success || chiave.trim().length < 8) {
+    return { success: false, error: "DDT non valido." };
+  }
+  const supabase = await createClient();
+  const { data: carico } = await supabase
+    .from("approvvigionamenti_carichi")
+    .select("id")
+    .eq("foglio_id", foglioId)
+    .is("deleted_at", null)
+    .maybeSingle();
+  if (!carico) return { success: false, error: "Il DDT si collega a un carico." };
+
+  let allegatoPath: string | null = null;
+  let allegatoNome: string | null = null;
+  if (file instanceof File && file.size > 0) {
+    if (file.size > 8_000_000 || file.type !== "application/pdf") {
+      return { success: false, error: "Allega il DDT in PDF." };
+    }
+    allegatoNome = file.name;
+    allegatoPath = `${foglioId}/2m/${crypto.randomUUID()}-${nomeFileSicuro(file.name)}`;
+    const upload = await createServiceClient()
+      .storage.from(BUCKET_CONSEGNA)
+      .upload(allegatoPath, new Uint8Array(await file.arrayBuffer()), {
+        contentType: "application/pdf",
+        upsert: false,
+      });
+    if (upload.error) return { success: false, error: "Documento DDT non archiviato." };
+  }
+
+  const risposta = await salvaRispostaFoglioAction({
+    foglioId,
+    voceCodice: "2m",
+    valore: { numero, data, quantita },
+    motivazione: motivazione.trim() || undefined,
+  });
+  if (!risposta.success) return risposta;
+
+  const { error } = await supabase.rpc("registra_ddt_approvvigionamento", {
+    p_chiave: chiave.trim(),
+    p_carico_id: carico.id,
+    p_numero: numero,
+    p_data: data,
+    p_allegato_path: allegatoPath,
+    p_allegato_nome: allegatoNome,
+    p_righe: [{ codice: "dichiarata", nome: "Quantità dichiarata sul DDT", quantita, unitaMisura: "kg" }],
+    p_motivazione: motivazione.trim() || null,
+  });
+  if (error) return { success: false, error: messaggioDb(error, "DDT non registrato sul carico.") };
+  return { success: true };
 }

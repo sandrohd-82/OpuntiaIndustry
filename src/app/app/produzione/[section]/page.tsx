@@ -2,6 +2,7 @@ import { notFound, redirect } from "next/navigation";
 import { AreaPlaceholder } from "@/components/areas/AreaPlaceholder";
 import { AppHeader } from "@/components/layout/AppHeader";
 import { CalendarioApprovvigionamento } from "@/components/produzione/CalendarioApprovvigionamento";
+import { RisposteFornitoreProduzione } from "@/components/produzione/RisposteFornitoreProduzione";
 import { RepartiBoard } from "@/components/produzione/RepartiBoard";
 import { requireAreaAccess } from "@/lib/areas/guard";
 import { isNavBranch } from "@/lib/areas/nav-tree";
@@ -61,10 +62,11 @@ export default async function ProduzioneSectionPage({
       <>
         <AppHeader
           title="Calendario ordini materie prime"
-          subtitle="Bozze di approvvigionamento. Non sono ordini dei clienti e non vengono inviate."
+          subtitle="Bozze e versioni pubblicate. La pubblicazione avvisa il fornitore. Una proposta accettata non pubblica da sola la versione successiva."
         />
         <div className="p-4 md:p-6">
           <CalendarioApprovvigionamento />
+          <RisposteFornitoreProduzione />
         </div>
       </>
     );

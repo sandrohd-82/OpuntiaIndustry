@@ -3,6 +3,7 @@
 import { useMemo, useRef, useState, useTransition } from "react";
 import {
   confermaPresaVisioneApprovvigionamentoAction,
+  registraRispostaFornitoreAction,
   type PianoRicevuto,
   type VersioneRicevuta,
 } from "@/app/actions/approvvigionamento-portale";
@@ -180,11 +181,140 @@ export function OrdiniRicevutiFornitore(props: {
               La conferma riguarda solo la versione visualizzata. Una versione successiva va confermata
               di nuovo.
             </p>
+            {ordine.ruolo === "corrente" ? <RispostaOrdine ordine={ordine} /> : null}
           </div>
         ) : (
           <p className="text-sm text-slate-500">Seleziona un ordine pubblicato.</p>
         )}
       </section>
     </div>
+  );
+}
+
+function RispostaOrdine({ ordine }: { ordine: VersioneRicevuta }) {
+  const [tipo, setTipo] = useState("conferma");
+  const [motivazione, setMotivazione] = useState("");
+  const [dataConsegna, setDataConsegna] = useState(ordine.dataConsegna);
+  const [quantita, setQuantita] = useState<Record<string, string>>({});
+  const [esito, setEsito] = useState<string | null>(null);
+  const [erroreLocale, setErroreLocale] = useState<string | null>(null);
+  const [pending, startTransition] = useTransition();
+  const chiave = useRef<string | null>(null);
+
+  if (ordine.risposta) {
+    return (
+      <div className="mt-4 rounded-lg border border-slate-200 p-3 text-sm text-slate-700">
+        <p className="font-medium">Risposta registrata: {ordine.risposta.tipo}</p>
+        <p>{ordine.risposta.motivazione}</p>
+        <p className="text-xs text-slate-500">
+          Stato {ordine.risposta.stato.replaceAll("_", " ")}. La versione pubblicata non cambia da sola.
+        </p>
+      </div>
+    );
+  }
+
+  function invia() {
+    if (!chiave.current) chiave.current = crypto.randomUUID();
+    const righe = ordine.righe.flatMap((riga) => {
+      const testo = quantita[riga.codice];
+      if (!testo) return [];
+      const valore = Number(testo);
+      if (!(valore > 0)) return [];
+      return [{ codice: riga.codice, quantita: valore, unitaMisura: riga.unitaMisura }];
+    });
+    setErroreLocale(null);
+    startTransition(async () => {
+      const res = await registraRispostaFornitoreAction({
+        chiave: chiave.current,
+        versioneId: ordine.id,
+        tipo: tipo as "conferma" | "proposta" | "indisponibilita" | "rifiuto",
+        motivazione,
+        dataConsegna: tipo === "proposta" ? dataConsegna : null,
+        righe: tipo === "conferma" || tipo === "rifiuto" ? [] : righe,
+      });
+      if (!res.success) {
+        setErroreLocale(res.error);
+        return;
+      }
+      chiave.current = null;
+      setEsito(
+        res.stato === "accettata"
+          ? "Conferma registrata. Non modifica la versione pubblicata."
+          : "Proposta inviata a Produzione. Resta in esame finché non viene accettata o respinta."
+      );
+    });
+  }
+
+  return (
+    <form
+      className="mt-4 space-y-2 border-t border-slate-200 pt-4"
+      onSubmit={(event) => {
+        event.preventDefault();
+        invia();
+      }}
+    >
+      <h3 className="text-sm font-semibold text-slate-800">Risposta all&apos;ordine</h3>
+      <select
+        value={tipo}
+        onChange={(event) => setTipo(event.target.value)}
+        className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+      >
+        <option value="conferma">Confermo l&apos;ordine</option>
+        <option value="proposta">Propongo quantità o data diverse</option>
+        <option value="indisponibilita">Segnalo un&apos;indisponibilità parziale</option>
+        <option value="rifiuto">Rifiuto l&apos;ordine</option>
+      </select>
+      {tipo === "proposta" ? (
+        <input
+          type="date"
+          value={dataConsegna}
+          onChange={(event) => setDataConsegna(event.target.value)}
+          className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+        />
+      ) : null}
+      {tipo === "proposta" || tipo === "indisponibilita"
+        ? ordine.righe.map((riga) => (
+            <label key={riga.codice} className="block text-sm text-slate-700">
+              {riga.codice} · ordinato {riga.quantita} {riga.unitaMisura}
+              <input
+                value={quantita[riga.codice] ?? ""}
+                onChange={(event) =>
+                  setQuantita((corrente) => ({ ...corrente, [riga.codice]: event.target.value }))
+                }
+                type="number"
+                min="0"
+                step="0.01"
+                placeholder={tipo === "proposta" ? "Quantità proposta" : "Quantità non disponibile"}
+                className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+              />
+            </label>
+          ))
+        : null}
+      {tipo !== "conferma" ? (
+        <textarea
+          value={motivazione}
+          onChange={(event) => setMotivazione(event.target.value)}
+          required
+          minLength={3}
+          maxLength={500}
+          rows={3}
+          placeholder="Motivazione"
+          className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+        />
+      ) : null}
+      {erroreLocale ? <p className="text-sm text-red-700">{erroreLocale}</p> : null}
+      {esito ? <p className="text-sm text-emerald-800">{esito}</p> : null}
+      <button
+        type="submit"
+        disabled={pending}
+        className="rounded-lg border border-slate-300 px-3 py-2 text-sm font-medium disabled:opacity-60"
+      >
+        Invia risposta
+      </button>
+      <p className="text-xs text-slate-500">
+        La risposta non riscrive la versione pubblicata. Se Produzione accetta una proposta, pubblica
+        una nuova versione dal calendario.
+      </p>
+    </form>
   );
 }

@@ -11,6 +11,7 @@ import {
   versioniCheBloccanoCompilazione,
   voceCompilabile,
   vociIncomplete,
+  vociMancantiPartenza,
   normalizzaValoreRisposta,
 } from "./foglio-ingresso";
 
@@ -70,15 +71,17 @@ assert.equal(statoDopoRipresa(true), "in_compilazione");
 assert.equal(statoDopoRipresa(false), "aperto");
 assert.equal(transizioneFoglio("in_attesa", "aperto", "fornitore").ok, true);
 assert.equal(transizioneFoglio("aperto", "chiuso", "interno").ok, false);
-assert.equal(transizioneFoglio("in_compilazione", "partito", "fornitore").ok, false);
-assert.equal(transizioneFoglio("partito", "arrivato", "interno").ok, false);
-assert.equal(transizioneFoglio("arrivato", "chiuso", "interno").ok, false);
+assert.equal(transizioneFoglio("in_compilazione", "partito", "fornitore").ok, true);
+assert.equal(transizioneFoglio("in_compilazione", "partito", "interno").ok, false);
+assert.equal(transizioneFoglio("partito", "arrivato", "interno").ok, true);
+assert.equal(transizioneFoglio("partito", "arrivato", "fornitore").ok, false);
+assert.equal(transizioneFoglio("arrivato", "chiuso", "interno").ok, true);
 
-assert.equal(voceCompilabile("q"), false);
-assert.equal(voceCompilabile("1a"), false);
-assert.equal(voceCompilabile("2m"), false);
-assert.equal(voceCompilabile("p"), false);
-assert.match(motivoVoceNonAttiva("q") ?? "", /Arrivo/);
+assert.equal(voceCompilabile("q"), true);
+assert.equal(voceCompilabile("1a"), true);
+assert.equal(voceCompilabile("2m"), true);
+assert.equal(voceCompilabile("p"), true);
+assert.match(motivoVoceNonAttiva("doc") ?? "", /presa visione/);
 assert.equal(
   puoRegistrareRisposta({
     codice: "q",
@@ -134,5 +137,10 @@ const ripresa = vociIncomplete(["2a"]);
 assert.equal(ripresa.includes("2a"), false);
 assert.equal(ripresa.includes("2c"), true);
 assert.equal(ripresa.includes("q"), false);
+assert.equal(vociMancantiPartenza(["2e"]).includes("2m"), true);
+assert.equal(vociMancantiPartenza(["2e"]).includes("q"), false);
+const lotto = normalizzaValoreRisposta("2e", { codice: "FORN-LOTTO-1" });
+assert.equal(lotto.ok, true);
+if (lotto.ok) assert.equal(lotto.valore.tipo, "lotto");
 
 console.log("foglio-ingresso: ok");
