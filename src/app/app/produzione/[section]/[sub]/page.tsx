@@ -6,6 +6,7 @@ import { FoglioIngressoMpForm } from "@/components/produzione/FoglioIngressoMpFo
 import { FogliIngressoMpBoard } from "@/components/produzione/FogliIngressoMpBoard";
 import { FogliLavorazioneBoard } from "@/components/produzione/FogliLavorazioneBoard";
 import { PrelievoMpBoard } from "@/components/produzione/PrelievoMpBoard";
+import { CicloProduzioneBoard } from "@/components/produzione/CicloProduzioneBoard";
 import { AreeElencoBoard } from "@/components/produzione/AreeElencoBoard";
 import { GestioneAreaBoard } from "@/components/produzione/GestioneAreaBoard";
 import { ProcessiAttivitaBoard } from "@/components/produzione/ProcessiAttivitaBoard";
@@ -154,6 +155,7 @@ export default async function ProduzioneSubPage({ params, searchParams }: Props)
         <div className="p-6">
           <FogliInEsecuzioneBoard />
           <PrelievoMpBoard />
+          <CicloProduzioneBoard />
         </div>
       </>
     );
