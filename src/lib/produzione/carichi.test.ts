@@ -77,5 +77,19 @@ assert.match(arrivo, /versione pubblicata corrente/);
 assert.match(arrivo, /Quantità non compilata/);
 assert.match(arrivo, /parziale/);
 assert.equal(arrivo.includes("update public.approvvigionamenti_versioni"), false);
+const lock = readFileSync(
+  new URL(
+    "../../../supabase/migrations/20261116180000_approvvigionamenti_lock_ordini.sql",
+    import.meta.url
+  ),
+  "utf8"
+);
+const bloccoOrdine = lock.indexOf("approvvigionamento_blocca_ordine");
+const letturaSnapshot = lock.indexOf("fornitore_id, numero, righe");
+assert.ok(bloccoOrdine > 0 && letturaSnapshot > bloccoOrdine);
+assert.equal(/approvvigionamenti_versioni[\s\S]{0,160}for update/i.test(lock), false);
+assert.match(lock, /order by 1/);
+assert.equal(lock.includes("update public.approvvigionamenti_versioni"), false);
+assert.equal(lock.includes("insert into public.ordini"), false);
 
 console.log("carichi: ok");
