@@ -2,7 +2,6 @@
 
 import { useEffect, useRef, useState, useTransition } from "react";
 import {
-  creaEInviaRichiestaIngressoAction,
   listaRichiesteIngressoFornitoreAction,
   riprovaNotificaRichiestaIngressoAction,
   type RichiestaIngressoRiga,
@@ -44,7 +43,6 @@ export function FornitoreDocumentiProcedure({
   const [errore, setErrore] = useState<string | null>(null);
   const [confermaId, setConfermaId] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
-  const chiaveRef = useRef<string | null>(null);
   const bloccoRef = useRef(false);
   const oraMs = Date.now();
 
@@ -64,31 +62,6 @@ export function FornitoreDocumentiProcedure({
     // Il pannello si monta sul dettaglio di questo fornitore.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [fornitoreId]);
-
-  function invia() {
-    if (bloccoRef.current) return;
-    bloccoRef.current = true;
-    if (!chiaveRef.current) chiaveRef.current = crypto.randomUUID();
-    const chiave = chiaveRef.current;
-    setErrore(null);
-    setMessaggio(null);
-    setConfermaId(null);
-    startTransition(async () => {
-      const res = await creaEInviaRichiestaIngressoAction({ fornitoreId, chiave });
-      bloccoRef.current = false;
-      if (!res.success) {
-        setErrore(res.error);
-        return;
-      }
-      chiaveRef.current = null;
-      setMessaggio(
-        res.creata
-          ? `Richiesta creata. Foglio ${res.codice} disponibile nel portale. ${res.notificaEtichetta}.`
-          : `Richiesta già registrata sul foglio ${res.codice}. ${res.notificaEtichetta}.`
-      );
-      ricarica();
-    });
-  }
 
   function riprova(richiestaId: string, confermaIncerta: boolean) {
     if (bloccoRef.current) return;
@@ -117,21 +90,11 @@ export function FornitoreDocumentiProcedure({
         Richieste operative
       </p>
       <p className="mb-3 text-sm text-slate-600">
-        Da qui si assegna Materiale in ingresso. Il fornitore vede il foglio nel
-        portale e compila le voci già operative. La mail avvisa soltanto: non
-        risulta letta solo perché è partita. Un esito incerto non parte di nuovo
-        da solo.
+        Anagrafica, documenti e abilitazione restano qui. I carichi e i fogli nuovi si
+        aprono in Produzione, Materiale in ingresso, da un ordine pubblicato.
+        {puoInviare ? " Da questa scheda non si crea una nuova richiesta." : ""} I fogli
+        già aperti restano consultabili. Un esito incerto non parte di nuovo da solo.
       </p>
-      {puoInviare ? (
-        <button
-          type="button"
-          disabled={pending}
-          onClick={invia}
-          className="mb-3 rounded-lg bg-slate-900 px-4 py-2 text-sm font-medium text-white disabled:opacity-60"
-        >
-          Crea e invia Materiale in ingresso
-        </button>
-      ) : null}
       {messaggio ? <p className="mb-3 text-sm text-emerald-800">{messaggio}</p> : null}
       {errore ? <p className="mb-3 text-sm text-red-700">{errore}</p> : null}
       {righe.length === 0 ? (

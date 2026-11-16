@@ -41,8 +41,8 @@ export function FogliIngressoElenco({
         </h2>
         <p className="mt-2 text-sm text-slate-600">
           {vista === "produzione"
-            ? "I fogli si inviano dalla scheda fornitore in Amministrazione. Qui restano visibili tutti i carichi, compresi quelli già aperti."
-            : "Qui ci sono i carichi della tua anagrafica. Un nuovo carico arriva da Agrinsicilia: da qui non si crea una richiesta."}
+            ? "I fogli nuovi si aprono da un ordine pubblicato, un foglio per carico. I fogli già esistenti restano leggibili anche senza ordine."
+            : "Qui ci sono i fogli della tua anagrafica. Puoi riprendere la compilazione. Da qui non si crea un carico."}
         </p>
       </section>
 

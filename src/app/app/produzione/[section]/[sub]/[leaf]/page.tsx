@@ -1,8 +1,10 @@
 import { notFound, redirect } from "next/navigation";
 import { AppHeader } from "@/components/layout/AppHeader";
 import { ControlloProcessoDettaglio } from "@/components/produzione/ControlloProcessiVista";
+import { CarichiApprovvigionamento } from "@/components/produzione/CarichiApprovvigionamento";
 import { FogliIngressoElenco } from "@/components/produzione/FogliIngressoElenco";
 import { FoglioIngressoScheda } from "@/components/produzione/FoglioIngressoScheda";
+import { listaCarichiProduzioneAction } from "@/app/actions/approvvigionamento-carichi";
 import {
   leggiFoglioIngressoAction,
   listFogliIngressoAction,
@@ -46,11 +48,19 @@ export default async function ProduzioneLeafPage({ params, searchParams }: Props
           </>
         );
       }
-      const elenco = await listFogliIngressoAction("produzione");
+      const [elenco, carichi] = await Promise.all([
+        listFogliIngressoAction("produzione"),
+        listaCarichiProduzioneAction(),
+      ]);
       return (
         <>
           <AppHeader title={processo.titolo} subtitle={processo.sintesi} />
           <div className="space-y-8 p-6">
+            {carichi.success ? (
+              <CarichiApprovvigionamento versioni={carichi.versioni} carichi={carichi.carichi} />
+            ) : (
+              <p className="text-sm text-red-700">{carichi.error}</p>
+            )}
             {elenco.success ? (
               <FogliIngressoElenco vista="produzione" fogli={elenco.fogli} />
             ) : (

@@ -572,6 +572,7 @@ export function CalendarioApprovvigionamento() {
                     {ordine.codice} · {ordine.fornitore}
                   </button>
                   <StatoOrdine ordine={ordine} />
+                  <BilancioOrdine ordine={ordine} />
                   <p className="text-slate-600">
                     Revisione {ordine.revisione}
                     {ordine.pianoCodice ? ` · ${ordine.pianoCodice}` : ""}
@@ -716,6 +717,38 @@ export function CalendarioApprovvigionamento() {
           </div>
         ) : null}
       </section>
+    </div>
+  );
+}
+
+function BilancioOrdine(props: { ordine: OrdineCalendario }) {
+  if (props.ordine.bilancio.length === 0 && props.ordine.carichi.length === 0) return null;
+  return (
+    <div className="mt-1 text-xs text-slate-600">
+      {props.ordine.bilancio.map((riga) => (
+        <p key={riga.codice}>
+          {riga.codice}: ordinato {riga.ordinata} {riga.unitaMisura}, ricevuto {riga.ricevuta}, da
+          ricevere {riga.residua}
+          {riga.oltre ? " · oltre il previsto" : ""}
+        </p>
+      ))}
+      {props.ordine.carichi.map((carico) => (
+        <p key={carico.id}>
+          {carico.codice} · {carico.stato === "arrivato" ? "Arrivato" : "Aperto"}
+          {carico.foglioId ? (
+            <>
+              {" "}
+              ·{" "}
+              <a
+                href={`/app/produzione/controlli-haccp/controllo-processi/materiale-in-ingresso?foglio=${carico.foglioId}`}
+                className="text-sky-800"
+              >
+                {carico.foglioCodice ?? "Foglio"}
+              </a>
+            </>
+          ) : null}
+        </p>
+      ))}
     </div>
   );
 }
