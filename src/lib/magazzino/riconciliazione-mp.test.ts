@@ -74,5 +74,23 @@ assert.match(stato, /non si passa ad acquisti occasionali/);
 
 const barcode = readFileSync("src/app/actions/magazzino-barcode.ts", "utf8");
 assert.match(barcode, /magazzino_mp_registra_movimento/);
+assert.match(barcode, /Nessuna conversione è stata applicata/);
+assert.match(barcode, /Unità non prevista per i prodotti di consumo/);
+
+const ruoli = readFileSync(
+  "supabase/migrations/20261116193000_magazzino_mp_ruoli.sql",
+  "utf8"
+);
+assert.match(ruoli, /owner to magazzino_mp_movimento/);
+assert.match(ruoli, /owner to magazzino_mp_pulizia/);
+assert.match(ruoli, /magazzino_mp_movimento/);
+assert.match(ruoli, /magazzino_mp_pulizia/);
+assert.match(ruoli, /select false/);
+assert.doesNotMatch(ruoli, /set_config\('magazzino/);
+assert.match(ruoli, /set local role magazzino_mp_movimento/);
+assert.match(ruoli, /unita in \('kg', 'g', 'lt', 'ml', 'pz'\)/);
+
+const schema = readFileSync("src/lib/magazzino/barcode.ts", "utf8");
+assert.match(schema, /z\.enum\(\["kg", "g", "lt", "ml", "pz"\]\)/);
 
 console.log("riconciliazione-mp: ok");

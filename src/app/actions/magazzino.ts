@@ -763,19 +763,17 @@ export async function updateMagazzinoProdottoAction(
     giacenzaId = data.id;
   }
 
-  if (!materiaPrima || unitaSalvata === "kg" || unitaSalvata === "pz") {
-    await syncNotaForProdotto({
-      supabase,
-      userId: auth.userId,
-      catalogKind: input.catalogKind,
-      prodottoId: p.id,
-      prodottoCodice: p.codice,
-      prodottoNome: titoloNuovo || p.nome,
-      quantita: quantitaSalvata,
-      quantitaRiserva: input.quantitaRiserva,
-      unita: unitaSalvata === "pz" ? "pz" : "kg",
-    });
-  }
+  await syncNotaForProdotto({
+    supabase,
+    userId: auth.userId,
+    catalogKind: input.catalogKind,
+    prodottoId: p.id,
+    prodottoCodice: p.codice,
+    prodottoNome: titoloNuovo || p.nome,
+    quantita: quantitaSalvata,
+    quantitaRiserva: input.quantitaRiserva,
+    unita: unitaSalvata,
+  });
 
   void writeAuditLog({
     entity_type: "magazzino_giacenze",
@@ -852,7 +850,14 @@ function mapNotaRiga(row: {
     prodottoCodice: row.prodotto_codice,
     prodottoNome: row.prodotto_nome,
     quantitaRichiesta: Number(row.quantita_richiesta) || 0,
-    unita: row.unita === "pz" ? "pz" : "kg",
+    unita:
+      row.unita === "g" ||
+      row.unita === "lt" ||
+      row.unita === "ml" ||
+      row.unita === "pz" ||
+      row.unita === "kg"
+        ? row.unita
+        : "kg",
     motivo: row.motivo,
   };
 }

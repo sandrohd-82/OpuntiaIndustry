@@ -21,14 +21,14 @@ export const createFromBarcodeSchema = z.object({
   categoriaUtilizzo: z
     .enum(["mat_consumo", "mat_poco_consumo", "acquisti_occasionali"])
     .default("mat_consumo"),
-  unita: z.enum(["kg", "pz"]).default("pz"),
+  unita: z.enum(["kg", "g", "lt", "ml", "pz"]),
 });
 
 export const movimentoScanSchema = z.object({
   barcode: barcodeStringSchema,
   mode: z.enum(["carico", "scarico"]),
   quantita: z.number().positive().max(1_000_000),
-  unita: z.enum(["kg", "pz"]).default("pz"),
+  unita: z.enum(["kg", "g", "lt", "ml", "pz"]),
   note: z.string().trim().max(500).optional(),
   chiave: z.string().trim().min(8).max(200).optional(),
 });

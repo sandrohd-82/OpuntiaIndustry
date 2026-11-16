@@ -14,6 +14,7 @@ import type { BarcodeLookupHit } from "@/lib/magazzino/barcode";
 import {
   CATEGORIA_UTILIZZO_OPTIONS,
   type MagazzinoCatalogKind,
+  type MagazzinoUnita,
 } from "@/lib/magazzino/types";
 
 type Mode = "carico" | "scarico";
@@ -61,6 +62,7 @@ export function MagazzinoScanBoard({ mode }: { mode: Mode }) {
   const [categoria, setCategoria] = useState<"mat_consumo" | "mat_poco_consumo">(
     "mat_consumo"
   );
+  const [unitaCrea, setUnitaCrea] = useState<MagazzinoUnita>("pz");
   const [camOn, setCamOn] = useState(false);
   const [pending, startTransition] = useTransition();
   const scanningLock = useRef(false);
@@ -184,6 +186,9 @@ export function MagazzinoScanBoard({ mode }: { mode: Mode }) {
 
   function doCrea() {
     if (!unknownBarcode || !newNome.trim()) return;
+    let unitaCreazione: MagazzinoUnita = "pz";
+    if (kind === "materia_prima") unitaCreazione = unitaCrea;
+    else if (unitaCrea === "kg") unitaCreazione = "kg";
     startTransition(async () => {
       const res = await createArticoloFromBarcodeAction({
         barcode: unknownBarcode,
@@ -191,7 +196,7 @@ export function MagazzinoScanBoard({ mode }: { mode: Mode }) {
         nome: newNome.trim(),
         schedaProvvisoria: provvisoria,
         categoriaUtilizzo: categoria,
-        unita: "pz",
+        unita: unitaCreazione,
       });
       if (!res.success) {
         setError(res.error);
@@ -410,6 +415,32 @@ export function MagazzinoScanBoard({ mode }: { mode: Mode }) {
                     </option>
                   ))}
                 </select>
+                <label className="text-sm">
+                  <span className="mb-1 block font-medium">Unità</span>
+                  <select
+                    value={
+                      kind === "prodotto_fornitore" &&
+                      unitaCrea !== "kg" &&
+                      unitaCrea !== "pz"
+                        ? "pz"
+                        : unitaCrea
+                    }
+                    onChange={(e) =>
+                      setUnitaCrea(e.target.value as MagazzinoUnita)
+                    }
+                    className="w-full rounded-lg border border-[var(--border)] px-3 py-2 text-sm"
+                  >
+                    <option value="kg">kg</option>
+                    <option value="pz">pz</option>
+                    {kind === "materia_prima" ? (
+                      <>
+                        <option value="g">g</option>
+                        <option value="lt">lt</option>
+                        <option value="ml">ml</option>
+                      </>
+                    ) : null}
+                  </select>
+                </label>
                 <label className="flex items-center gap-2 text-sm">
                   <input
                     type="checkbox"

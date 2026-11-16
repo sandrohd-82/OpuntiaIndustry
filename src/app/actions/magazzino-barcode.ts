@@ -22,6 +22,40 @@ import {
 } from "@/app/actions/produzione-ingresso-mp";
 import { isUnitaScanInput } from "@/lib/produzione/ingresso-mp-unita";
 
+function unitaAnagraficaValida(
+  raw: string | null | undefined
+): MagazzinoUnita | null {
+  const value = String(raw ?? "").trim().toLowerCase();
+  if (
+    value === "kg" ||
+    value === "g" ||
+    value === "lt" ||
+    value === "ml" ||
+    value === "pz"
+  ) {
+    return value;
+  }
+  return null;
+}
+
+async function leggiUnitaMateria(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  prodottoId: string
+): Promise<{ unita: MagazzinoUnita | null } | { error: string }> {
+  const { data, error } = await supabase
+    .from("materie_prime")
+    .select("unita_misura")
+    .eq("id", prodottoId)
+    .is("deleted_at", null)
+    .maybeSingle();
+  if (error) return { error: error.message };
+  return {
+    unita: unitaAnagraficaValida(
+      (data as { unita_misura?: string | null } | null)?.unita_misura
+    ),
+  };
+}
+
 function catalogTable(
   kind: MagazzinoCatalogKind
 ): "materie_prime" | "catalogo_prodotti_fornitore" {
@@ -133,6 +167,12 @@ export async function lookupBarcodeAction(barcodeRaw: string): Promise<
     return { success: true, found: false, barcode };
   }
   const g = await loadGiacenza(supabase, hit.kind, hit.row.id);
+  let unita = g.unita;
+  if (hit.kind === "materia_prima") {
+    const letta = await leggiUnitaMateria(supabase, hit.row.id);
+    if ("error" in letta) return { success: false, error: letta.error };
+    if (letta.unita) unita = letta.unita;
+  }
   return {
     success: true,
     found: true,
@@ -145,7 +185,7 @@ export async function lookupBarcodeAction(barcodeRaw: string): Promise<
       schedaProvvisoria: Boolean(hit.row.scheda_provvisoria),
       categoriaUtilizzo: hit.row.categoria_utilizzo,
       giacenza: g.quantita,
-      unita: g.unita,
+      unita,
     },
   };
 }
@@ -314,6 +354,12 @@ export async function associateBarcodeAction(raw: unknown): Promise<
     categoria_utilizzo: string | null;
   };
   const g = await loadGiacenza(supabase, input.catalogKind, row.id);
+  let unitaAssociata = g.unita;
+  if (input.catalogKind === "materia_prima") {
+    const letta = await leggiUnitaMateria(supabase, row.id);
+    if ("error" in letta) return { success: false, error: letta.error };
+    if (letta.unita) unitaAssociata = letta.unita;
+  }
 
   void writeAuditLog({
     entity_type: table,
@@ -335,7 +381,7 @@ export async function associateBarcodeAction(raw: unknown): Promise<
       schedaProvvisoria: Boolean(row.scheda_provvisoria),
       categoriaUtilizzo: row.categoria_utilizzo,
       giacenza: g.quantita,
-      unita: g.unita,
+      unita: unitaAssociata,
     },
   };
 }
@@ -353,6 +399,16 @@ export async function createArticoloFromBarcodeAction(raw: unknown): Promise<
     };
   }
   const input = parsed.data;
+  if (
+    input.catalogKind === "prodotto_fornitore" &&
+    input.unita !== "kg" &&
+    input.unita !== "pz"
+  ) {
+    return {
+      success: false,
+      error: "Unità non prevista per i prodotti di consumo.",
+    };
+  }
   const supabase = await createClient();
 
   const dup = await findByBarcode(supabase, input.barcode);
@@ -384,23 +440,32 @@ export async function createArticoloFromBarcodeAction(raw: unknown): Promise<
     codice = suggestProvisionalCode(input.catalogKind, input.nome + i);
   }
 
-  const { data, error } = await supabase
-    .from(table)
-    .insert({
-      codice,
-      nome: input.nome.trim(),
-      note: "Creato da scansione barcode",
-      is_bio: false,
-      barcode: input.barcode.trim(),
-      scheda_provvisoria: input.schedaProvvisoria,
-      categoria_utilizzo: input.categoriaUtilizzo,
-      created_by: auth.userId,
-      updated_by: auth.userId,
-    })
-    .select(
-      "id, codice, nome, barcode, scheda_provvisoria, categoria_utilizzo"
-    )
-    .single();
+  const nuovo = {
+    codice,
+    nome: input.nome.trim(),
+    note: "Creato da scansione barcode",
+    is_bio: false,
+    barcode: input.barcode.trim(),
+    scheda_provvisoria: input.schedaProvvisoria,
+    categoria_utilizzo: input.categoriaUtilizzo,
+    created_by: auth.userId,
+    updated_by: auth.userId,
+  };
+  const colonne =
+    "id, codice, nome, barcode, scheda_provvisoria, categoria_utilizzo";
+  const inserted =
+    input.catalogKind === "materia_prima"
+      ? await supabase
+          .from("materie_prime")
+          .insert({ ...nuovo, unita_misura: input.unita })
+          .select(colonne)
+          .single()
+      : await supabase
+          .from("catalogo_prodotti_fornitore")
+          .insert(nuovo)
+          .select(colonne)
+          .single();
+  const { data, error } = inserted;
   if (error || !data) {
     return {
       success: false,
@@ -655,12 +720,27 @@ export async function movimentoScanAction(raw: unknown): Promise<
   }
 
   if (hit.kind === "materia_prima") {
+    const letta = await leggiUnitaMateria(supabase, hit.row.id);
+    if ("error" in letta) return { success: false, error: letta.error };
+    if (!letta.unita) {
+      return {
+        success: false,
+        error:
+          "Unità di misura assente in anagrafica. Impostala prima di registrare il movimento.",
+      };
+    }
+    if (input.unita !== letta.unita) {
+      return {
+        success: false,
+        error: `Unità ${input.unita} diversa da quella di anagrafica (${letta.unita}). Nessuna conversione è stata applicata.`,
+      };
+    }
     const chiave = input.chiave?.trim() || `scan-${crypto.randomUUID()}`;
     const { data, error } = await supabase.rpc("magazzino_mp_registra_movimento", {
       p_prodotto_id: hit.row.id,
       p_tipo: input.mode,
       p_quantita: Math.abs(input.quantita),
-      p_unita: input.unita,
+      p_unita: letta.unita,
       p_chiave: chiave,
       p_note: input.note ?? "",
       p_barcode: input.barcode.trim(),
@@ -692,6 +772,13 @@ export async function movimentoScanAction(raw: unknown): Promise<
         giacenza: Number(esito.saldo) || 0,
         unita: esito.unita,
       },
+    };
+  }
+
+  if (input.unita !== "kg" && input.unita !== "pz") {
+    return {
+      success: false,
+      error: "Unità non prevista per i prodotti di consumo.",
     };
   }
 
