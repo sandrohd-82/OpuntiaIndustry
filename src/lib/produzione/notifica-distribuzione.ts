@@ -1,7 +1,7 @@
 import type { AmbitoLineaGuida } from "@/lib/produzione/haccp-versioni";
 import type { NotificaRichiestaStato } from "@/lib/produzione/richiesta-ingresso";
 
-export type CanaleNotificaDistribuzione = "haccp" | "testo";
+export type CanaleNotificaDistribuzione = "haccp" | "testo" | "approvvigionamento";
 
 export const MESSAGGIO_CONFERMA_INCERTA =
   "Esito incerto: serve una conferma esplicita. Il reinvio potrebbe produrre una seconda email.";

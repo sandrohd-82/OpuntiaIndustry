@@ -35,7 +35,11 @@ async function leggiStato(
 ): Promise<NotificaRichiestaStato> {
   const supabase = await createClient();
   const tabella =
-    canale === "haccp" ? "haccp_linee_guida_distribuzioni" : "fornitori_testi_distribuzioni";
+    canale === "haccp"
+      ? "haccp_linee_guida_distribuzioni"
+      : canale === "approvvigionamento"
+        ? "approvvigionamenti_notifiche"
+        : "fornitori_testi_distribuzioni";
   const { data } = await supabase
     .from(tabella)
     .select("notifica_stato")
@@ -144,7 +148,9 @@ export async function eseguiNotificaDistribuzione(input: {
   const tabella =
     input.canale === "haccp"
       ? "haccp_linee_guida_distribuzioni"
-      : "fornitori_testi_distribuzioni";
+      : input.canale === "approvvigionamento"
+        ? "approvvigionamenti_notifiche"
+        : "fornitori_testi_distribuzioni";
   const { data: prima } = await supabase
     .from(tabella)
     .select("notifica_stato, notifica_lock_at")

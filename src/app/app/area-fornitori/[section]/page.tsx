@@ -10,6 +10,8 @@ import {
 import { ControlloProcessoDettaglio } from "@/components/produzione/ControlloProcessiVista";
 import { DocumentiAbilitazioneFornitore } from "@/components/produzione/DocumentiAbilitazioneFornitore";
 import { LineeGuidaFornitore } from "@/components/produzione/LineeGuidaFornitore";
+import { listaOrdiniRicevutiAction } from "@/app/actions/approvvigionamento-portale";
+import { OrdiniRicevutiFornitore } from "@/components/produzione/OrdiniRicevutiFornitore";
 import { listaDocumentiAbilitazionePortaleAction } from "@/app/actions/requisiti-fornitore";
 import { listLineeGuidaRicevuteAction } from "@/app/actions/haccp-linee-guida";
 import { processoControlloBySlug } from "@/lib/produzione/controllo-processi";
@@ -70,6 +72,24 @@ export default async function AreaFornitoriSectionPage({ params, searchParams }:
           ) : (
             <p className="max-w-xl rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-950">
               {documenti.error}
+            </p>
+          )}
+        </div>
+      </>
+    );
+  }
+
+  if (section === "ordini-ricevuti") {
+    const ricevuti = await listaOrdiniRicevutiAction();
+    return (
+      <>
+        <AppHeader title={page.label} subtitle={page.description} />
+        <div className="p-4 md:p-6">
+          {ricevuti.success ? (
+            <OrdiniRicevutiFornitore ordini={ricevuti.ordini} piani={ricevuti.piani} />
+          ) : (
+            <p className="max-w-xl rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-950">
+              {ricevuti.error}
             </p>
           )}
         </div>

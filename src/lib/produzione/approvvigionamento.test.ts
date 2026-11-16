@@ -1,7 +1,11 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
+import { risolviAccessoMaterialeIngresso } from "./fornitore-accesso";
 import {
   classificaProgrammazione,
+  differenzeApprovvigionamento,
+  presaVisioneCopre,
+  quadriApprovvigionamento,
   copiaOrdineSuData,
   copiaSettimana,
   dateUniche,
@@ -216,5 +220,53 @@ assert.match(piani, /at time zone 'UTC'/);
 assert.equal(piani.includes("insert into public.ordini"), false);
 assert.equal(piani.includes("haccp_fogli_ingresso"), false);
 assert.equal(/drop table/i.test(piani), false);
+
+const riga = {
+  materiaPrimaId: MP,
+  codice: "Mp1",
+  nome: "Cladodio",
+  quantita: 2,
+  unitaMisura: "kg",
+  note: "",
+};
+assert.deepEqual(
+  differenzeApprovvigionamento({
+    dataPrima: "2026-11-16",
+    dataDopo: "2026-11-18",
+    righePrima: [riga],
+    righeDopo: [{ ...riga, quantita: 4 }],
+  }),
+  ["Consegna 2026-11-16 diventa 2026-11-18", "Mp1: 2 kg diventa 4 kg"]
+);
+const quadri = quadriApprovvigionamento({
+  stato: "pubblicato",
+  notifica: "fallita",
+  visionato: false,
+});
+assert.equal(quadri.documento, "Pubblicato");
+assert.equal(quadri.notifica, "Notifica fallita/incerta");
+assert.equal(quadri.presaVisione, "In attesa di presa visione");
+assert.equal(presaVisioneCopre(A, A), true);
+assert.equal(presaVisioneCopre(A, B), false);
+assert.equal(
+  risolviAccessoMaterialeIngresso(
+    { superadmin: false, aree: ["area-fornitori"], fornitoreCollegatoId: A },
+    B
+  ).esito,
+  "negato"
+);
+
+const pubblicazione = readFileSync(
+  new URL(
+    "../../../supabase/migrations/20261116140000_approvvigionamenti_pubblicazione.sql",
+    import.meta.url
+  ),
+  "utf8"
+);
+assert.match(pubblicazione, /approvvigionamenti_versioni/);
+assert.match(pubblicazione, /Una versione pubblicata non si modifica/);
+assert.match(pubblicazione, /approvvigionamento/);
+assert.equal(pubblicazione.includes("insert into public.ordini"), false);
+assert.equal(pubblicazione.includes("haccp_fogli_ingresso"), false);
 
 console.log("approvvigionamento: ok");

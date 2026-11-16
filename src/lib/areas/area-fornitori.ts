@@ -33,6 +33,13 @@ export const AREA_FORNITORI_SECTIONS: readonly NavItem[] = [
     path: "/app/area-fornitori/documenti",
   },
   {
+    slug: "ordini-ricevuti",
+    label: "Ordini ricevuti",
+    description:
+      "Ordini e piani di approvvigionamento pubblicati per la tua azienda, con presa visione della versione",
+    path: "/app/area-fornitori/ordini-ricevuti",
+  },
+  {
     slug: "materiale-in-ingresso",
     label: "Materiale in ingresso",
     description:

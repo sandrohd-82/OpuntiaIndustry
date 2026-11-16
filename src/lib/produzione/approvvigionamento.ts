@@ -4,7 +4,85 @@ import {
   type UnitaMateriaPrima,
 } from "@/lib/amministrazione/materie-prime";
 
-export type StatoOrdineApprovvigionamento = "bozza";
+export type StatoOrdineApprovvigionamento = "bozza" | "pubblicato" | "da_ripubblicare";
+
+export type RigaPubblicata = {
+  materiaPrimaId: string;
+  codice: string;
+  nome: string;
+  quantita: number;
+  unitaMisura: string;
+  note: string;
+};
+
+export type QuadriApprovvigionamento = {
+  documento: "Bozza" | "Pubblicato" | "Revisione da pubblicare";
+  notifica:
+    | "Notifica da inviare"
+    | "Notifica in corso"
+    | "Notifica inviata"
+    | "Notifica fallita/incerta"
+    | null;
+  presaVisione: "In attesa di presa visione" | "Visionato" | null;
+};
+
+/** Documento, notifica e presa visione restano tre informazioni distinte. */
+export function quadriApprovvigionamento(input: {
+  stato: StatoOrdineApprovvigionamento;
+  notifica: "assente" | "non_inviata" | "in_invio" | "inviata" | "fallita" | "incerta";
+  visionato: boolean;
+}): QuadriApprovvigionamento {
+  let documento: QuadriApprovvigionamento["documento"] = "Bozza";
+  if (input.stato === "pubblicato") documento = "Pubblicato";
+  if (input.stato === "da_ripubblicare") documento = "Revisione da pubblicare";
+  let notifica: QuadriApprovvigionamento["notifica"] = null;
+  if (input.notifica === "non_inviata") notifica = "Notifica da inviare";
+  if (input.notifica === "in_invio") notifica = "Notifica in corso";
+  if (input.notifica === "inviata") notifica = "Notifica inviata";
+  if (input.notifica === "fallita" || input.notifica === "incerta") {
+    notifica = "Notifica fallita/incerta";
+  }
+  let presaVisione: QuadriApprovvigionamento["presaVisione"] = null;
+  if (input.stato !== "bozza") {
+    presaVisione = input.visionato ? "Visionato" : "In attesa di presa visione";
+  }
+  return { documento, notifica, presaVisione };
+}
+
+export function differenzeApprovvigionamento(input: {
+  dataPrima: string;
+  dataDopo: string;
+  righePrima: readonly RigaPubblicata[];
+  righeDopo: readonly RigaPubblicata[];
+}): string[] {
+  const voci: string[] = [];
+  if (input.dataPrima !== input.dataDopo) {
+    voci.push(`Consegna ${input.dataPrima} diventa ${input.dataDopo}`);
+  }
+  const prima = new Map(input.righePrima.map((riga) => [riga.materiaPrimaId, riga]));
+  const dopo = new Map(input.righeDopo.map((riga) => [riga.materiaPrimaId, riga]));
+  for (const [id, riga] of dopo) {
+    const vecchia = prima.get(id);
+    if (!vecchia) {
+      voci.push(`Aggiunta ${riga.codice}`);
+      continue;
+    }
+    if (vecchia.quantita !== riga.quantita || vecchia.unitaMisura !== riga.unitaMisura) {
+      voci.push(
+        `${riga.codice}: ${vecchia.quantita} ${vecchia.unitaMisura} diventa ${riga.quantita} ${riga.unitaMisura}`
+      );
+    }
+  }
+  for (const [id, riga] of prima) {
+    if (!dopo.has(id)) voci.push(`Tolta ${riga.codice}`);
+  }
+  return voci;
+}
+
+/** La conferma di una versione non copre la successiva. */
+export function presaVisioneCopre(confermataVersioneId: string, versioneRichiestaId: string): boolean {
+  return confermataVersioneId === versioneRichiestaId;
+}
 
 export type RigaApprovvigionamento = {
   materiaPrimaId: string;
@@ -224,5 +302,5 @@ export function registraConChiave<T>(
 }
 
 export function etichettaStatoOrdine(stato: StatoOrdineApprovvigionamento): string {
-  return stato === "bozza" ? "Bozza" : "Bozza";
+  return quadriApprovvigionamento({ stato, notifica: "assente", visionato: false }).documento;
 }

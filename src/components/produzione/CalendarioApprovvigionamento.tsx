@@ -8,6 +8,9 @@ import {
   listaMaterieApprovvigionamentoAction,
   listaOrdiniApprovvigionamentoAction,
   listaPianiApprovvigionamentoAction,
+  pubblicaOrdineApprovvigionamentoAction,
+  pubblicaPianoApprovvigionamentoAction,
+  recuperaNotificaApprovvigionamentoAction,
   salvaApprovvigionamentiAction,
   type MateriaCalendario,
   type OrdineCalendario,
@@ -16,6 +19,7 @@ import {
 import {
   aggiungiGiorni,
   classificaProgrammazione,
+  quadriApprovvigionamento,
   giorniMese,
   giorniSettimana,
   lunediSettimana,
@@ -395,6 +399,55 @@ export function CalendarioApprovvigionamento() {
     });
   }
 
+  function pubblicaOrdine(ordine: OrdineCalendario) {
+    setErrore(null);
+    startTransition(async () => {
+      const res = await pubblicaOrdineApprovvigionamentoAction({
+        chiave: chiaveStabile(),
+        ordineId: ordine.id,
+        revisione: ordine.revisione,
+      });
+      if (!res.success) {
+        setErrore(res.error);
+        return;
+      }
+      chiudiOperazione();
+      setMessaggio(`Versione ${res.numero} pubblicata. Notifica: ${res.notifica}.`);
+      ricarica();
+    });
+  }
+
+  function pubblicaPiano(scelto: PianoCalendario) {
+    setErrore(null);
+    startTransition(async () => {
+      const res = await pubblicaPianoApprovvigionamentoAction({
+        chiave: chiaveStabile(),
+        pianoId: scelto.id,
+        revisione: scelto.revisione,
+      });
+      if (!res.success) {
+        setErrore(res.error);
+        return;
+      }
+      chiudiOperazione();
+      setMessaggio(`Piano versione ${res.numero} pubblicato. Notifica: ${res.notifica}.`);
+      ricarica();
+    });
+  }
+
+  function recupera(notificaId: string, confermaIncerta = false) {
+    setErrore(null);
+    startTransition(async () => {
+      const res = await recuperaNotificaApprovvigionamentoAction({ notificaId, confermaIncerta });
+      if (!res.success) {
+        setErrore(res.error);
+        return;
+      }
+      setMessaggio(`Notifica: ${res.notifica}.`);
+      ricarica();
+    });
+  }
+
   function salvaComposizione() {
     const scelto = piani.find((voce) => voce.id === pianoAperto);
     if (!scelto || composizione.length === 0) {
@@ -518,12 +571,33 @@ export function CalendarioApprovvigionamento() {
                   <button type="button" onClick={() => compila(ordine)} className="font-medium text-slate-900">
                     {ordine.codice} · {ordine.fornitore}
                   </button>
+                  <StatoOrdine ordine={ordine} />
                   <p className="text-slate-600">
-                    Bozza {ordine.revisione}
+                    Revisione {ordine.revisione}
                     {ordine.pianoCodice ? ` · ${ordine.pianoCodice}` : ""}
                     {" · "}
                     {ordine.righe.map((riga) => `${riga.nome} ${riga.quantita} ${riga.unitaMisura}`).join(", ")}
                   </p>
+                  <div className="mt-2 flex flex-wrap gap-2">
+                    <button
+                      type="button"
+                      disabled={pending}
+                      onClick={() => pubblicaOrdine(ordine)}
+                      className="rounded-lg bg-slate-900 px-2 py-1 text-xs font-medium text-white disabled:opacity-60"
+                    >
+                      Pubblica e invia
+                    </button>
+                    {ordine.notificaStato === "incerta" || ordine.notificaStato === "fallita" ? (
+                      <button
+                        type="button"
+                        disabled={pending || !ordine.notificaId}
+                        onClick={() => ordine.notificaId && recupera(ordine.notificaId, ordine.notificaStato === "incerta")}
+                        className="rounded-lg border border-slate-300 px-2 py-1 text-xs disabled:opacity-60"
+                      >
+                        Recupera esito incerto
+                      </button>
+                    ) : null}
+                  </div>
                 </li>
               ))
             )}
@@ -580,9 +654,22 @@ export function CalendarioApprovvigionamento() {
                   {voce.codice} · {voce.fornitore}
                 </button>
                 <p className="text-slate-600">
-                  {voce.tipologia === "mensile" ? "Mensile" : "Settimanale"} · Bozza {voce.revisione} ·{" "}
-                  {voce.periodoInizio} – {voce.periodoFine} · {voce.ordini.length} ordini
+                  {voce.tipologia === "mensile" ? "Mensile" : "Settimanale"} ·{" "}
+                  {quadriApprovvigionamento({
+                    stato: voce.stato,
+                    notifica: voce.notificaStato,
+                    visionato: Boolean(voce.visionatoAt),
+                  }).documento}{" "}
+                  {voce.revisione} · {voce.periodoInizio} – {voce.periodoFine} · {voce.ordini.length} ordini
                 </p>
+                <button
+                  type="button"
+                  disabled={pending}
+                  onClick={() => pubblicaPiano(voce)}
+                  className="mt-1 rounded-lg bg-slate-900 px-2 py-1 text-xs font-medium text-white disabled:opacity-60"
+                >
+                  Pubblica e invia
+                </button>
               </li>
             ))}
           </ul>
@@ -630,6 +717,23 @@ export function CalendarioApprovvigionamento() {
         ) : null}
       </section>
     </div>
+  );
+}
+
+function StatoOrdine(props: { ordine: OrdineCalendario }) {
+  const quadri = quadriApprovvigionamento({
+    stato: props.ordine.stato,
+    notifica: props.ordine.notificaStato,
+    visionato: Boolean(props.ordine.visionatoAt),
+  });
+  return (
+    <p className="text-xs text-slate-700">
+      {quadri.documento}
+      {quadri.notifica ? ` · ${quadri.notifica}` : ""}
+      {quadri.presaVisione ? ` · ${quadri.presaVisione}` : ""}
+      {props.ordine.visionatoDa ? ` · ${props.ordine.visionatoDa}` : ""}
+      {props.ordine.versionePubblicata ? ` · v${props.ordine.versionePubblicata}` : ""}
+    </p>
   );
 }
 

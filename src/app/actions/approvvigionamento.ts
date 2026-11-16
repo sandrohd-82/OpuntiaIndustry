@@ -4,6 +4,8 @@ import { z } from "zod";
 import { writeAuditLog } from "@/lib/audit";
 import { requireAreaAccess } from "@/lib/areas/guard";
 import { unitaMateriaPrimaValida } from "@/lib/amministrazione/materie-prime";
+import { primoIndirizzoEmail } from "@/lib/produzione/haccp-versioni";
+import { eseguiNotificaDistribuzione } from "@/lib/produzione/notifica-distribuzione-invio";
 import { createClient } from "@/lib/supabase/server";
 
 const uuidSchema = z.string().uuid();
@@ -34,7 +36,13 @@ export type OrdineCalendario = {
   fornitore: string;
   dataConsegna: string;
   note: string;
-  stato: "bozza";
+  stato: "bozza" | "pubblicato" | "da_ripubblicare";
+  versionePubblicata: number | null;
+  versioneId: string | null;
+  notificaStato: "assente" | "non_inviata" | "in_invio" | "inviata" | "fallita" | "incerta";
+  notificaId: string | null;
+  visionatoDa: string | null;
+  visionatoAt: string | null;
   revisione: number;
   pianoId: string | null;
   pianoCodice: string | null;
@@ -58,6 +66,13 @@ export type PianoCalendario = {
   periodoInizio: string;
   periodoFine: string;
   tipologia: "settimanale" | "mensile";
+  stato: "bozza" | "pubblicato" | "da_ripubblicare";
+  versionePubblicata: number | null;
+  versioneId: string | null;
+  notificaStato: "assente" | "non_inviata" | "in_invio" | "inviata" | "fallita" | "incerta";
+  notificaId: string | null;
+  visionatoDa: string | null;
+  visionatoAt: string | null;
   revisione: number;
   ordini: string[];
 };
@@ -73,6 +88,38 @@ function messaggioDb(errore: { message?: string } | null, fallback: string): str
   const testo = errore?.message ?? fallback;
   if (testo.includes("@")) return fallback;
   return testo.replace(/^Errore:\s*/i, "").slice(0, 300);
+}
+
+function statoOrdine(valore: unknown): "bozza" | "pubblicato" | "da_ripubblicare" {
+  if (valore === "pubblicato" || valore === "da_ripubblicare") return valore;
+  return "bozza";
+}
+
+function notificaDi(
+  valore: string | undefined
+): "assente" | "non_inviata" | "in_invio" | "inviata" | "fallita" | "incerta" {
+  if (
+    valore === "non_inviata" ||
+    valore === "in_invio" ||
+    valore === "inviata" ||
+    valore === "fallita" ||
+    valore === "incerta"
+  ) {
+    return valore;
+  }
+  return "assente";
+}
+
+async function nomiDiProfili(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  ids: string[]
+): Promise<Map<string, string>> {
+  const unici = [...new Set(ids.filter(Boolean))];
+  if (!unici.length) return new Map();
+  const { data } = await supabase.from("profiles").select("id, full_name").in("id", unici);
+  return new Map(
+    (data ?? []).map((row) => [String(row.id), String(row.full_name || "Utente collegato")])
+  );
 }
 
 function comeOggetto(data: unknown): Record<string, unknown> {
@@ -141,7 +188,9 @@ export async function listaOrdiniApprovvigionamentoAction(input: {
   const supabase = await createClient();
   const { data: ordini, error } = await supabase
     .from("approvvigionamenti_ordini")
-    .select("id, codice, fornitore_id, data_consegna, note, stato, origine_ordine_id, revisione")
+    .select(
+      "id, codice, fornitore_id, data_consegna, note, stato, origine_ordine_id, revisione, versione_pubblicata"
+    )
     .is("deleted_at", null)
     .gte("data_consegna", da.data)
     .lte("data_consegna", a.data)
@@ -192,6 +241,55 @@ export async function listaOrdiniApprovvigionamentoAction(input: {
   const nomiFornitori = new Map(
     (fornitoriRes.data ?? []).map((row) => [String(row.id), String(row.ragione_sociale)])
   );
+  const pubblicati = (ordini ?? []).filter((row) => row.versione_pubblicata != null);
+  const { data: versioni } = pubblicati.length
+    ? await supabase
+        .from("approvvigionamenti_versioni")
+        .select("id, ordine_id, numero")
+        .in(
+          "ordine_id",
+          pubblicati.map((row) => String(row.id))
+        )
+    : { data: [] };
+  const versioneCorrente = new Map<string, string>();
+  for (const versione of versioni ?? []) {
+    const ordine = pubblicati.find((row) => String(row.id) === String(versione.ordine_id));
+    if (ordine && Number(versione.numero) === Number(ordine.versione_pubblicata)) {
+      versioneCorrente.set(String(versione.ordine_id), String(versione.id));
+    }
+  }
+  const versioneIds = [...versioneCorrente.values()];
+  const [{ data: notifiche }, { data: prese }] = await Promise.all([
+    versioneIds.length
+      ? supabase
+          .from("approvvigionamenti_notifiche")
+          .select("id, versione_ordine_id, notifica_stato")
+          .in("versione_ordine_id", versioneIds)
+      : Promise.resolve({ data: [] }),
+    versioneIds.length
+      ? supabase
+          .from("approvvigionamenti_prese_visione")
+          .select("versione_ordine_id, profile_id, confermata_at")
+          .in("versione_ordine_id", versioneIds)
+      : Promise.resolve({ data: [] }),
+  ]);
+  const notificaPerVersione = new Map(
+    (notifiche ?? []).map((row) => [
+      String(row.versione_ordine_id),
+      { id: String(row.id), stato: String(row.notifica_stato) },
+    ])
+  );
+  const presaPerVersione = new Map<string, { profileId: string; at: string }>();
+  for (const row of prese ?? []) {
+    const id = String(row.versione_ordine_id);
+    const at = String(row.confermata_at);
+    const gia = presaPerVersione.get(id);
+    if (!gia || at > gia.at) presaPerVersione.set(id, { profileId: String(row.profile_id), at });
+  }
+  const nomiProfili = await nomiDiProfili(
+    supabase,
+    [...presaPerVersione.values()].map((voce) => voce.profileId)
+  );
   const righePerOrdine = new Map<string, OrdineCalendario["righe"]>();
   for (const row of righeRes.data ?? []) {
     const ordineId = String(row.ordine_id);
@@ -217,7 +315,13 @@ export async function listaOrdiniApprovvigionamentoAction(input: {
       fornitore: nomiFornitori.get(String(row.fornitore_id)) ?? "Fornitore",
       dataConsegna: String(row.data_consegna),
       note: String(row.note ?? ""),
-      stato: "bozza",
+      stato: statoOrdine(row.stato),
+      versionePubblicata: row.versione_pubblicata == null ? null : Number(row.versione_pubblicata),
+      versioneId: versioneCorrente.get(String(row.id)) ?? null,
+      notificaStato: notificaDi(notificaPerVersione.get(versioneCorrente.get(String(row.id)) ?? "")?.stato),
+      notificaId: notificaPerVersione.get(versioneCorrente.get(String(row.id)) ?? "")?.id ?? null,
+      visionatoDa: nomiProfili.get(presaPerVersione.get(versioneCorrente.get(String(row.id)) ?? "")?.profileId ?? "") ?? null,
+      visionatoAt: presaPerVersione.get(versioneCorrente.get(String(row.id)) ?? "")?.at ?? null,
       revisione: Number(row.revisione ?? 1),
       pianoId: pianoPerOrdine.get(String(row.id)) ?? null,
       pianoCodice: codicePiano.get(pianoPerOrdine.get(String(row.id)) ?? "") ?? null,
@@ -238,7 +342,9 @@ export async function listaPianiApprovvigionamentoAction(input: {
   const supabase = await createClient();
   const { data: piani, error } = await supabase
     .from("approvvigionamenti_piani")
-    .select("id, codice, fornitore_id, periodo_inizio, periodo_fine, tipologia, revisione")
+    .select(
+      "id, codice, fornitore_id, periodo_inizio, periodo_fine, tipologia, revisione, stato, versione_pubblicata"
+    )
     .is("deleted_at", null)
     .lte("periodo_inizio", a.data)
     .gte("periodo_fine", da.data)
@@ -270,19 +376,79 @@ export async function listaPianiApprovvigionamentoAction(input: {
     lista.push(String(row.ordine_id));
     ordiniPerPiano.set(pianoId, lista);
   }
+  const pubblicati = (piani ?? []).filter((row) => row.versione_pubblicata != null);
+  const { data: versioniPiano } = pubblicati.length
+    ? await supabase
+        .from("approvvigionamenti_piani_versioni")
+        .select("id, piano_id, numero")
+        .in(
+          "piano_id",
+          pubblicati.map((row) => String(row.id))
+        )
+    : { data: [] };
+  const versionePiano = new Map<string, string>();
+  for (const versione of versioniPiano ?? []) {
+    const piano = pubblicati.find((row) => String(row.id) === String(versione.piano_id));
+    if (piano && Number(versione.numero) === Number(piano.versione_pubblicata)) {
+      versionePiano.set(String(versione.piano_id), String(versione.id));
+    }
+  }
+  const versioneIds = [...versionePiano.values()];
+  const [{ data: notifichePiano }, { data: presePiano }] = await Promise.all([
+    versioneIds.length
+      ? supabase
+          .from("approvvigionamenti_notifiche")
+          .select("id, versione_piano_id, notifica_stato")
+          .in("versione_piano_id", versioneIds)
+      : Promise.resolve({ data: [] }),
+    versioneIds.length
+      ? supabase
+          .from("approvvigionamenti_prese_visione")
+          .select("versione_piano_id, profile_id, confermata_at")
+          .in("versione_piano_id", versioneIds)
+      : Promise.resolve({ data: [] }),
+  ]);
+  const notificaPiano = new Map(
+    (notifichePiano ?? []).map((row) => [
+      String(row.versione_piano_id),
+      { id: String(row.id), stato: String(row.notifica_stato) },
+    ])
+  );
+  const presaPiano = new Map<string, { profileId: string; at: string }>();
+  for (const row of presePiano ?? []) {
+    presaPiano.set(String(row.versione_piano_id), {
+      profileId: String(row.profile_id),
+      at: String(row.confermata_at),
+    });
+  }
+  const nomiProfiliPiano = await nomiDiProfili(
+    supabase,
+    [...presaPiano.values()].map((voce) => voce.profileId)
+  );
   return {
     success: true,
-    piani: (piani ?? []).map((row) => ({
-      id: String(row.id),
-      codice: String(row.codice),
-      fornitoreId: String(row.fornitore_id),
-      fornitore: nomi.get(String(row.fornitore_id)) ?? "Fornitore",
-      periodoInizio: String(row.periodo_inizio),
-      periodoFine: String(row.periodo_fine),
-      tipologia: row.tipologia === "mensile" ? "mensile" : "settimanale",
-      revisione: Number(row.revisione ?? 1),
-      ordini: ordiniPerPiano.get(String(row.id)) ?? [],
-    })),
+    piani: (piani ?? []).map((row) => {
+      const versioneId = versionePiano.get(String(row.id)) ?? null;
+      const presa = presaPiano.get(versioneId ?? "");
+      return {
+        id: String(row.id),
+        codice: String(row.codice),
+        fornitoreId: String(row.fornitore_id),
+        fornitore: nomi.get(String(row.fornitore_id)) ?? "Fornitore",
+        periodoInizio: String(row.periodo_inizio),
+        periodoFine: String(row.periodo_fine),
+        tipologia: row.tipologia === "mensile" ? "mensile" : "settimanale",
+        stato: statoOrdine(row.stato),
+        versionePubblicata: row.versione_pubblicata == null ? null : Number(row.versione_pubblicata),
+        versioneId,
+        notificaStato: notificaDi(notificaPiano.get(versioneId ?? "")?.stato),
+        notificaId: notificaPiano.get(versioneId ?? "")?.id ?? null,
+        visionatoDa: nomiProfiliPiano.get(presa?.profileId ?? "") ?? null,
+        visionatoAt: presa?.at ?? null,
+        revisione: Number(row.revisione ?? 1),
+        ordini: ordiniPerPiano.get(String(row.id)) ?? [],
+      };
+    }),
   };
 }
 
@@ -425,5 +591,208 @@ export async function aggiornaComposizionePianoAction(raw: unknown): Promise<
     success: true,
     riusata: Boolean(corpo.riusata),
     revisione: Number(corpo.revisione ?? parsed.data.revisione),
+  };
+}
+
+async function messaggioPortale(notificaId: string): Promise<{
+  to: string | null;
+  subject: string;
+  text: string;
+}> {
+  const supabase = await createClient();
+  const { data: notifica } = await supabase
+    .from("approvvigionamenti_notifiche")
+    .select("fornitore_id")
+    .eq("id", notificaId)
+    .maybeSingle();
+  const { data: fornitore } = await supabase
+    .from("fornitori")
+    .select("email")
+    .eq("id", notifica?.fornitore_id ?? "")
+    .maybeSingle();
+  return {
+    to: primoIndirizzoEmail(String(fornitore?.email ?? "")),
+    subject: "Ordine di approvvigionamento disponibile",
+    text: [
+      "Agrinsicilia ha pubblicato un ordine di approvvigionamento.",
+      "Si legge dopo l'accesso, in Gestionale fornitori, sezione Ordini ricevuti.",
+      "Questa mail e solo l'avviso. Non conferma la lettura, non e un'accettazione e non garantisce la consegna.",
+      "",
+      "https://www.opuntiaindustry.com/app/area-fornitori/ordini-ricevuti",
+    ].join("\n"),
+  };
+}
+
+async function avvisaPubblicazione(notificaId: string | null, confermaIncerta: boolean) {
+  if (!notificaId) return { tipo: "stato" as const, stato: "non_inviata" as const };
+  return eseguiNotificaDistribuzione({
+    canale: "approvvigionamento",
+    distribuzioneId: notificaId,
+    confermaIncerta,
+    messaggio: () => messaggioPortale(notificaId),
+  });
+}
+
+export async function pubblicaOrdineApprovvigionamentoAction(raw: unknown): Promise<
+  { success: true; numero: number; notifica: string } | Errore
+> {
+  const parsed = z
+    .object({
+      chiave: chiaveSchema,
+      ordineId: uuidSchema,
+      revisione: z.number().int().positive(),
+    })
+    .safeParse(raw);
+  if (!parsed.success) return { success: false, error: "Pubblicazione non valida." };
+  const auth = await richiedi();
+  const supabase = await createClient();
+  const { data, error } = await supabase.rpc("pubblica_approvvigionamento_ordine", {
+    p_chiave: parsed.data.chiave,
+    p_ordine_id: parsed.data.ordineId,
+    p_revisione: parsed.data.revisione,
+  });
+  if (error) return { success: false, error: messaggioDb(error, "Pubblicazione non riuscita.") };
+  const corpo = comeOggetto(data);
+  const notificaId = corpo.notificaId ? String(corpo.notificaId) : null;
+  const invio = await avvisaPubblicazione(notificaId, false);
+  await writeAuditLog({
+    entity_type: "approvvigionamenti_versioni",
+    entity_id: String(corpo.id ?? parsed.data.ordineId),
+    action: "pubblica",
+    actor_id: auth.userId,
+    summary: "Pubblicata una versione di ordine di approvvigionamento.",
+    payload: { numero: Number(corpo.numero ?? 0), notifica: "stato" in invio ? invio.stato : invio.tipo },
+  });
+  return {
+    success: true,
+    numero: Number(corpo.numero ?? 0),
+    notifica: "stato" in invio ? invio.stato : invio.tipo,
+  };
+}
+
+export async function pubblicaPianoApprovvigionamentoAction(raw: unknown): Promise<
+  { success: true; numero: number; notifica: string } | Errore
+> {
+  const parsed = z
+    .object({
+      chiave: chiaveSchema,
+      pianoId: uuidSchema,
+      revisione: z.number().int().positive(),
+    })
+    .safeParse(raw);
+  if (!parsed.success) return { success: false, error: "Pubblicazione non valida." };
+  const auth = await richiedi();
+  const supabase = await createClient();
+  const { data, error } = await supabase.rpc("pubblica_approvvigionamento_piano", {
+    p_chiave: parsed.data.chiave,
+    p_piano_id: parsed.data.pianoId,
+    p_revisione: parsed.data.revisione,
+  });
+  if (error) return { success: false, error: messaggioDb(error, "Pubblicazione non riuscita.") };
+  const corpo = comeOggetto(data);
+  const notificaId = corpo.notificaId ? String(corpo.notificaId) : null;
+  const invio = await avvisaPubblicazione(notificaId, false);
+  await writeAuditLog({
+    entity_type: "approvvigionamenti_piani_versioni",
+    entity_id: String(corpo.id ?? parsed.data.pianoId),
+    action: "pubblica",
+    actor_id: auth.userId,
+    summary: "Pubblicata una versione di piano di approvvigionamento.",
+    payload: { numero: Number(corpo.numero ?? 0), notifica: "stato" in invio ? invio.stato : invio.tipo },
+  });
+  return {
+    success: true,
+    numero: Number(corpo.numero ?? 0),
+    notifica: "stato" in invio ? invio.stato : invio.tipo,
+  };
+}
+
+export async function recuperaNotificaApprovvigionamentoAction(raw: unknown): Promise<
+  { success: true; notifica: string } | Errore
+> {
+  const parsed = z
+    .object({ notificaId: uuidSchema, confermaIncerta: z.boolean().optional() })
+    .safeParse(raw);
+  if (!parsed.success) return { success: false, error: "Notifica non valida." };
+  await richiedi();
+  const invio = await avvisaPubblicazione(parsed.data.notificaId, Boolean(parsed.data.confermaIncerta));
+  if (invio.tipo === "conferma_richiesta") {
+    return {
+      success: false,
+      error: "Esito incerto: serve una conferma esplicita. Il reinvio potrebbe produrre una seconda email.",
+    };
+  }
+  if (invio.tipo === "in_corso") return { success: true, notifica: "in_invio" };
+  return { success: true, notifica: invio.stato };
+}
+
+export async function differenzeOrdineApprovvigionamentoAction(
+  ordineId: string
+): Promise<{ success: true; differenze: string[] } | Errore> {
+  await richiedi();
+  if (!uuidSchema.safeParse(ordineId).success) return { success: false, error: "Ordine non valido." };
+  const supabase = await createClient();
+  const { data: ordine } = await supabase
+    .from("approvvigionamenti_ordini")
+    .select("id, data_consegna, versione_pubblicata")
+    .eq("id", ordineId)
+    .is("deleted_at", null)
+    .maybeSingle();
+  if (!ordine?.versione_pubblicata) return { success: true, differenze: [] };
+  const [{ data: versione }, { data: righe }] = await Promise.all([
+    supabase
+      .from("approvvigionamenti_versioni")
+      .select("data_consegna, righe")
+      .eq("ordine_id", ordineId)
+      .eq("numero", ordine.versione_pubblicata)
+      .maybeSingle(),
+    supabase
+      .from("approvvigionamenti_righe")
+      .select("materia_prima_id, quantita, unita_misura, note")
+      .eq("ordine_id", ordineId)
+      .is("deleted_at", null),
+  ]);
+  const materiaIds = [...new Set((righe ?? []).map((riga) => String(riga.materia_prima_id)))];
+  const { data: materie } = materiaIds.length
+    ? await supabase.from("materie_prime").select("id, codice, nome").in("id", materiaIds)
+    : { data: [] };
+  const nomi = new Map((materie ?? []).map((materia) => [String(materia.id), materia]));
+  const { differenzeApprovvigionamento } = await import("@/lib/produzione/approvvigionamento");
+  const pubblicate = Array.isArray(versione?.righe) ? versione.righe : [];
+  return {
+    success: true,
+    differenze: differenzeApprovvigionamento({
+      dataPrima: String(versione?.data_consegna ?? ""),
+      dataDopo: String(ordine.data_consegna),
+      righePrima: pubblicate.map((riga) => {
+        const voce = riga as {
+          materiaPrimaId?: string;
+          codice?: string;
+          nome?: string;
+          quantita?: number;
+          unitaMisura?: string;
+          note?: string;
+        };
+        return {
+          materiaPrimaId: String(voce.materiaPrimaId ?? ""),
+          codice: String(voce.codice ?? ""),
+          nome: String(voce.nome ?? ""),
+          quantita: Number(voce.quantita ?? 0),
+          unitaMisura: String(voce.unitaMisura ?? ""),
+          note: String(voce.note ?? ""),
+        };
+      }),
+      righeDopo: (righe ?? []).map((riga) => {
+        const materia = nomi.get(String(riga.materia_prima_id));
+        return {
+          materiaPrimaId: String(riga.materia_prima_id),
+          codice: String(materia?.codice ?? ""),
+          nome: String(materia?.nome ?? ""),
+          quantita: Number(riga.quantita),
+          unitaMisura: String(riga.unita_misura),
+          note: String(riga.note ?? ""),
+        };
+      }),
+    }),
   };
 }
