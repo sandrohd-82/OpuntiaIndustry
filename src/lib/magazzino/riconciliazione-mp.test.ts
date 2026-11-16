@@ -98,6 +98,19 @@ assert.match(revoca, /revoke create on schema public from magazzino_mp_movimento
 assert.match(revoca, /revoke create on schema public from magazzino_mp_pulizia/);
 assert.doesNotMatch(revoca, /grant create on schema public to magazzino_mp_/);
 
+const lotti = readFileSync(
+  "supabase/migrations/20261116210000_magazzino_mp_lotti_struttura.sql",
+  "utf8"
+);
+assert.match(lotti, /magazzino_mp_lotti_origine_check/);
+assert.match(lotti, /quantita_respinta_presente/);
+assert.match(lotti, /quantita_consumata_uscita/);
+assert.match(lotti, /storico_non_attribuito/);
+assert.match(lotti, /storico_verificato/);
+assert.match(lotti, /security_invoker = true/);
+assert.match(lotti, /movimento_id is null/);
+assert.doesNotMatch(lotti, /magazzino_mp_registra_movimento/);
+
 const schema = readFileSync("src/lib/magazzino/barcode.ts", "utf8");
 assert.match(schema, /z\.enum\(\["kg", "g", "lt", "ml", "pz"\]\)/);
 
