@@ -29,10 +29,12 @@ import {
 import { todayIsoDate } from "@/lib/amministrazione/fatture";
 import {
   conflittoDataDaErroreFic,
-  dataEmissioneAccettabile,
+  dataDelGiornoDiEmissione,
   fatturaCheBloccaData,
+  giornoOperazione,
   messaggioDataFatturaBloccata,
   progressivoVersoFic,
+  spostaScadenza,
 } from "@/lib/amministrazione/fattura-data-numero";
 import {
   leggiMarcaSconti,
@@ -2098,12 +2100,13 @@ async function allineaDataEmissioneFattura(
   userId: string,
   bloccoEsterno?: { numero: number; data: string } | null
 ): Promise<string | null> {
+  if (fattura.fic_id) return null;
   const richiesta = String(fattura.data_emissione ?? "").slice(0, 10);
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(richiesta)) return null;
+  const oggi = giornoOperazione();
   const numeroGia = progressivoVersoFic(String(fattura.numero_fattura ?? ""));
   let blocco = bloccoEsterno ?? null;
   if (!blocco) {
-    const anno = richiesta.slice(0, 4);
+    const anno = oggi.slice(0, 4);
     const { data, error } = await supabase
       .from("fatture_emesse")
       .select("numero_fattura, data_emissione")
@@ -2112,9 +2115,9 @@ async function allineaDataEmissioneFattura(
       .gte("data_emissione", `${anno}-01-01`)
       .lte("data_emissione", `${anno}-12-31`)
       .neq("id", fattura.id);
-    if (error || !data) return null;
+    if (error) return null;
     const esistenti: { numero: number; data: string }[] = [];
-    for (const row of data) {
+    for (const row of data ?? []) {
       const voce = row as { numero_fattura?: string | null; data_emissione?: string | null };
       const numero = progressivoVersoFic(String(voce.numero_fattura ?? ""));
       const giorno = String(voce.data_emissione ?? "").slice(0, 10);
@@ -2122,25 +2125,28 @@ async function allineaDataEmissioneFattura(
       esistenti.push({ numero, data: giorno });
     }
     blocco = fatturaCheBloccaData({
-      data: richiesta,
+      data: oggi,
       numeroPrevisto: numeroGia,
       esistenti,
     });
   }
-  if (!blocco) return null;
-  const nuova = dataEmissioneAccettabile({
-    richiesta,
-    oggi: todayIsoDate(),
-    blocco: blocco.data,
+  const nuova = dataDelGiornoDiEmissione({
+    oggi,
+    blocco: blocco?.data ?? null,
   });
   if (nuova === richiesta) return null;
-  if (nuova.slice(0, 4) !== richiesta.slice(0, 4)) {
+  if (
+    numeroGia != null &&
+    /^\d{4}-\d{2}-\d{2}$/.test(richiesta) &&
+    nuova.slice(0, 4) !== richiesta.slice(0, 4)
+  ) {
     throw new Error(
-      `${messaggioDataFatturaBloccata(blocco)} Il numero non è stato assegnato e Fatture in Cloud non è stato chiamato.`
+      `La data di emissione ${giornoIt(nuova)} è in un altro anno rispetto al numero già assegnato. Fatture in Cloud non è stato chiamato e non è stato preso un altro numero.`
     );
   }
+  const origine = /^\d{4}-\d{2}-\d{2}$/.test(richiesta) ? richiesta : nuova;
   const scadenza = String(fattura.data_scadenza ?? "").slice(0, 10);
-  const scadenzaNuova = /^\d{4}-\d{2}-\d{2}$/.test(scadenza) && scadenza < nuova ? nuova : scadenza;
+  const scadenzaNuova = spostaScadenza({ origine, scadenza, nuova });
   const { error: upErr } = await supabase
     .from("fatture_emesse")
     .update({
@@ -2154,23 +2160,28 @@ async function allineaDataEmissioneFattura(
   if (scadenzaNuova && scadenzaNuova !== scadenza) fattura.data_scadenza = scadenzaNuova;
   for (const rata of dilazioni ?? []) {
     const giorno = String(rata.data_scadenza ?? "").slice(0, 10);
-    if (!rata.id || !/^\d{4}-\d{2}-\d{2}$/.test(giorno) || giorno >= nuova) continue;
+    const spostata = spostaScadenza({ origine, scadenza: giorno, nuova });
+    if (!rata.id || spostata === giorno) continue;
     const { error: rataErr } = await supabase
       .from("fatture_emesse_dilazioni")
-      .update({ data_scadenza: nuova })
+      .update({ data_scadenza: spostata })
       .eq("id", rata.id);
     if (rataErr) throw new Error(rataErr.message);
-    rata.data_scadenza = nuova;
+    rata.data_scadenza = spostata;
   }
+  const oltreOggi = Boolean(blocco && nuova > oggi);
+  const avviso = oltreOggi
+    ? `La data fattura è il ${giornoIt(nuova)}: la fattura n° ${blocco?.numero} del ${giornoIt(blocco?.data ?? nuova)} ha un numero più basso e una data successiva.`
+    : `La data fattura è il giorno di emissione, ${giornoIt(nuova)}.`;
   await writeAuditLog({
     entity_type: "fatture_emesse",
     entity_id: fattura.id,
     action: "update",
     actor_id: userId,
-    summary: `Data documento portata al ${giornoIt(nuova)}: la fattura n° ${blocco.numero} del ${giornoIt(blocco.data)} ha un numero più basso.`,
-    payload: { da: richiesta, a: nuova, fatturaBlocco: blocco.numero },
+    summary: avviso,
+    payload: { da: richiesta, a: nuova, fatturaBlocco: blocco?.numero ?? null },
   });
-  return `La data documento è stata portata al ${giornoIt(nuova)} perché la fattura n° ${blocco.numero} del ${giornoIt(blocco.data)} ha un numero più basso e una data successiva.`;
+  return avviso;
 }
 
 export async function inviaFatturaSalvataAction(input: {
@@ -2617,7 +2628,7 @@ export async function inviaFatturaSalvataAction(input: {
         return {
           success: false,
           error: letto
-            ? `${messaggioDataFatturaBloccata(letto)} Il numero ${numeroFattura} resta assegnato a questa fattura: aggiorna la data e ripeti lo stacco, senza chiederne un altro.`
+            ? `${messaggioDataFatturaBloccata(letto)} Il numero ${numeroFattura} resta assegnato a questa fattura. Fatture in Cloud non ha ricevuto un nuovo documento e non è stato preso un altro numero.`
             : testo || "Creazione documento su Fatture in Cloud non riuscita.",
         };
       }
@@ -3352,6 +3363,13 @@ export async function convertProformaInFatturaAction(input: {
   }
 
   const numeroPrenotato = `Pren-${proforma.numero_interno || proforma.id}`.slice(0, 80);
+  const giornoStacco = giornoOperazione();
+  const origineProforma = String(proforma.data_emissione ?? "").slice(0, 10);
+  const scadenzaStacco = spostaScadenza({
+    origine: origineProforma,
+    scadenza: String(proforma.data_scadenza ?? "").slice(0, 10),
+    nuova: giornoStacco,
+  });
   const { data: inserted, error: insErr } = await supabase
     .from("fatture_emesse")
     .insert({
@@ -3365,8 +3383,8 @@ export async function convertProformaInFatturaAction(input: {
       cliente_ragione_sociale: proforma.cliente_ragione_sociale,
       cliente_codice_targa: proforma.cliente_codice_targa,
       destinatario_snapshot: proforma.destinatario_snapshot,
-      data_emissione: proforma.data_emissione,
-      data_scadenza: proforma.data_scadenza,
+      data_emissione: giornoStacco,
+      data_scadenza: scadenzaStacco,
       imponibile: proforma.imponibile,
       iva_percentuale: proforma.iva_percentuale,
       imposta: proforma.imposta,
@@ -3444,6 +3462,7 @@ export async function convertProformaInFatturaAction(input: {
       proformaId: proforma.id,
       numeroProforma: proforma.numero_fattura,
       numeroFattura: "",
+      dataEmissione: giornoStacco,
     },
   });
 

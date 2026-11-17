@@ -37,6 +37,7 @@ import {
   type FatturaDestinatarioSnapshot,
 } from "@/lib/amministrazione/fattura-a4-documento";
 import { buildFatturaA4PdfPronto } from "@/lib/amministrazione/fattura-a4-pdf";
+import { giornoOperazione } from "@/lib/amministrazione/fattura-data-numero";
 import type { FatturaInvioMailDraft } from "@/lib/amministrazione/fattura-invio-mail";
 import { isNumeroFatturaEmessa } from "@/lib/amministrazione/numero-fattura";
 import {
@@ -396,7 +397,11 @@ export function FatturaA4Modal({
         }
         return base;
       });
-      setDataDocumento(usaMemorizzata?.dataDocumento || ctx.dataDocumento);
+      setDataDocumento(
+        etichettaDocumentoRef.current === "fattura"
+          ? giornoOperazione()
+          : usaMemorizzata?.dataDocumento || ctx.dataDocumento
+      );
       setRighe(usaMemorizzata?.righe ?? ctx.righe);
       setNoteDocumento(usaMemorizzata?.noteDocumento ?? ctx.noteDocumento);
       setFatturaId(ctx.fatturaEsistenteId);
@@ -1054,7 +1059,11 @@ export function FatturaA4Modal({
               dataPreventivo={dataDocumento}
               commerciale={commerciale}
               documentoLabel={vista === "proforma" ? "FATTURA PROFORMA" : "FATTURA"}
-              onEditData={() => openEdit("data")}
+              onEditData={
+                etichettaDocumento === "fattura"
+                  ? undefined
+                  : () => openEdit("data")
+              }
               onEditCommerciale={() => openEdit("commerciale")}
             />
             {vista === "fattura" &&

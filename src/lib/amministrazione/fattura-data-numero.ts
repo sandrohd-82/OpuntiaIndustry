@@ -37,14 +37,47 @@ export function fatturaCheBloccaData(input: {
   return blocco;
 }
 
-/** La data resta quella chiesta, oppure il giorno dello stacco se non è anteriore al blocco. */
-export function dataEmissioneAccettabile(input: {
-  richiesta: string;
+/** Giorno civile in Italia, quello in cui si stacca o si emette la fattura. */
+export function giornoOperazione(now = new Date()): string {
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Europe/Rome",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(now);
+}
+
+/**
+ * La data fattura è il giorno dell'operazione.
+ * Se una fattura già emessa ha una data successiva, non si torna indietro.
+ */
+export function dataDelGiornoDiEmissione(input: {
   oggi: string;
   blocco: string | null;
 }): string {
-  if (!input.blocco || input.richiesta >= input.blocco) return input.richiesta;
-  return input.oggi >= input.blocco ? input.oggi : input.blocco;
+  if (!input.blocco || input.oggi >= input.blocco) return input.oggi;
+  return input.blocco;
+}
+
+/** Conserva i giorni tra data documento e scadenza quando la data fattura si sposta. */
+export function spostaScadenza(input: {
+  origine: string;
+  scadenza: string;
+  nuova: string;
+}): string {
+  const iso = /^\d{4}-\d{2}-\d{2}$/;
+  if (!iso.test(input.nuova)) return input.scadenza;
+  if (!iso.test(input.scadenza)) return input.nuova;
+  if (!iso.test(input.origine) || input.origine === input.nuova) {
+    return input.scadenza < input.nuova ? input.nuova : input.scadenza;
+  }
+  const origine = Date.parse(`${input.origine}T00:00:00Z`);
+  const scadenza = Date.parse(`${input.scadenza}T00:00:00Z`);
+  const giorni = Math.max(0, Math.round((scadenza - origine) / 86_400_000));
+  const spostata = new Date(Date.parse(`${input.nuova}T00:00:00Z`) + giorni * 86_400_000)
+    .toISOString()
+    .slice(0, 10);
+  return spostata < input.nuova ? input.nuova : spostata;
 }
 
 export function messaggioDataFatturaBloccata(blocco: FatturaNumerata): string {

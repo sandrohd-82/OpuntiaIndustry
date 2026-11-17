@@ -67,9 +67,9 @@ export function PreventivoA4Letterhead({
           <PreventivoDocField
             label="Modifica data preventivo"
             onEdit={onEditData ?? (() => {})}
+            stampa={stampa || !onEditData}
             className="mt-1.5"
             pencilRight
-            stampa={stampa}
           >
             <p className="text-[12px] font-bold tracking-wide">
               <span

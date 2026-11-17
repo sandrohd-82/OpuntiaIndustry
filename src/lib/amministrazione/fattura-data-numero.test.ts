@@ -1,9 +1,10 @@
 import assert from "node:assert/strict";
 import {
   conflittoDataDaErroreFic,
-  dataEmissioneAccettabile,
+  dataDelGiornoDiEmissione,
   fatturaCheBloccaData,
   messaggioDataFatturaBloccata,
+  spostaScadenza,
 } from "./fattura-data-numero";
 
 const blocco = fatturaCheBloccaData({
@@ -24,18 +25,26 @@ assert.equal(
   null
 );
 assert.equal(
-  dataEmissioneAccettabile({
-    richiesta: "2026-10-20",
-    oggi: "2026-11-17",
-    blocco: "2026-11-06",
-  }),
+  dataDelGiornoDiEmissione({ oggi: "2026-11-17", blocco: "2026-11-06" }),
   "2026-11-17"
 );
 assert.equal(
-  dataEmissioneAccettabile({
-    richiesta: "2026-11-17",
-    oggi: "2026-11-17",
-    blocco: "2026-11-06",
+  dataDelGiornoDiEmissione({ oggi: "2026-11-01", blocco: "2026-11-06" }),
+  "2026-11-06"
+);
+assert.equal(
+  spostaScadenza({
+    origine: "2026-10-06",
+    scadenza: "2026-11-06",
+    nuova: "2026-11-17",
+  }),
+  "2026-12-18"
+);
+assert.equal(
+  spostaScadenza({
+    origine: "2026-10-20",
+    scadenza: "2026-10-20",
+    nuova: "2026-11-17",
   }),
   "2026-11-17"
 );
