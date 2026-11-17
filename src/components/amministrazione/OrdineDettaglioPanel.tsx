@@ -419,6 +419,9 @@ export function OrdineDettaglioPanel({
             {ordine.dataPagamento
               ? ` · ${formatDate(ordine.dataPagamento)}`
               : null}
+            {ordine.fatturaElenco
+              ? ` · importo fattura ${formatEuro(ordine.fatturaElenco.totale)}`
+              : null}
           </dd>
         </div>
         <div className="sm:col-span-2 lg:col-span-3">

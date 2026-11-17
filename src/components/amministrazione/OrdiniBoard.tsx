@@ -21,6 +21,7 @@ import { OrdineFormModal } from "@/components/amministrazione/OrdineFormModal";
 import { FatturaA4Modal } from "@/components/amministrazione/FatturaA4Modal";
 import { ProformaElencoAzioni } from "@/components/amministrazione/ProformaElencoAzioni";
 import { StaccaFatturaModal } from "@/components/amministrazione/StaccaFatturaModal";
+import { OrdineDichiaraPagatoModal } from "@/components/amministrazione/OrdineDichiaraPagatoModal";
 import { OrdineNuovoWizardModal } from "@/components/amministrazione/OrdineNuovoWizardModal";
 import { SortableTh } from "@/components/ui/SortableTh";
 import { useOrdini } from "@/hooks/useOrdini";
@@ -141,6 +142,7 @@ function OrdineTableRow({
   onChanged,
   onVisualizzaFattura,
   onStaccaFattura,
+  onDichiaraPagato,
 }: {
   ordine: Ordine;
   open: boolean;
@@ -155,6 +157,7 @@ function OrdineTableRow({
   onChanged: () => void;
   onVisualizzaFattura: () => void;
   onStaccaFattura: () => void;
+  onDichiaraPagato: () => void;
 }) {
   return (
     <>
@@ -222,9 +225,20 @@ function OrdineTableRow({
         </td>
         <td className="px-4 py-3">
           {ordine.pagato ? (
-            <span className="font-medium text-emerald-700">Sì</span>
+            <span className="font-medium text-emerald-700">
+              Sì
+              {ordine.dataPagamento
+                ? ` · ${formatDate(ordine.dataPagamento)}`
+                : ""}
+            </span>
           ) : (
-            <span className="text-amber-700">No</span>
+            <button
+              type="button"
+              onClick={onDichiaraPagato}
+              className="rounded-lg border border-emerald-700 px-2 py-1 text-xs font-medium text-emerald-800 hover:bg-emerald-50"
+            >
+              Dichiara pagato
+            </button>
           )}
         </td>
         <td className="px-4 py-3">
@@ -417,6 +431,7 @@ export function OrdiniBoard({
   const [approvingId, setApprovingId] = useState<string | null>(null);
   const [fatturaVistaId, setFatturaVistaId] = useState<string | null>(null);
   const [staccaOrdine, setStaccaOrdine] = useState<Ordine | null>(null);
+  const [pagatoOrdine, setPagatoOrdine] = useState<Ordine | null>(null);
   const [campionaturaTick, setCampionaturaTick] = useState(0);
   const [sort, setSort] = useState<SortState<OrdineSortKey> | null>({
     key: "dataOrdine",
@@ -696,6 +711,10 @@ export function OrdiniBoard({
                     setActionError(null);
                     setStaccaOrdine(ordine);
                   }}
+                  onDichiaraPagato={() => {
+                    setActionError(null);
+                    setPagatoOrdine(ordine);
+                  }}
                   onApproveSuddivisione={() => {
                     setActionError(null);
                     setApprovingId(ordine.id);
@@ -815,6 +834,18 @@ export function OrdiniBoard({
           ordineId={fatturaVistaId}
           onClose={() => {
             setFatturaVistaId(null);
+            void refresh();
+          }}
+        />
+      ) : null}
+
+      {pagatoOrdine ? (
+        <OrdineDichiaraPagatoModal
+          ordine={pagatoOrdine}
+          onClose={() => setPagatoOrdine(null)}
+          onFatto={(messaggio) => {
+            setEsitoOrdine(messaggio);
+            setPagatoOrdine(null);
             void refresh();
           }}
         />
