@@ -5,6 +5,7 @@ import { notificaOrdineInCoda } from "@/lib/amministrazione/ordine-notifica-coda
 import { scanPromozioniDaFattureAction } from "@/app/actions/lead-promozione";
 import { convertClientePossibileAdClienteAction } from "@/app/actions/clienti";
 import { PROMOZIONE_DA_SDI } from "@/lib/amministrazione/promozione-sdi";
+import { decisioneConversioneProforma } from "@/lib/amministrazione/proforma-in-fattura";
 import { requireAnyAreaAccess, requireAreaAccess } from "@/lib/areas/guard";
 import { requireOrdineCreateAccess, requireOrdineProcessAccess } from "@/lib/auth/ordini-access";
 import {
@@ -3118,6 +3119,95 @@ export async function convertProformaInFatturaAction(input: {
     };
   }
 
+  let fatturaGiaPresente: {
+    id: string;
+    numero_fattura?: string | null;
+    cliente_id?: string | null;
+    cliente_possibile_id?: string | null;
+    proforma_origine_id?: string | null;
+  } | null = null;
+  let ordineIntestatario: {
+    cliente_id?: string | null;
+    cliente_possibile_id?: string | null;
+  } | null = null;
+  if (proforma.ordine_id) {
+    const [{ data: gia, error: giaErr }, { data: ordine, error: ordErr }] =
+      await Promise.all([
+        supabase
+          .from("fatture_emesse")
+          .select(
+            "id, numero_fattura, cliente_id, cliente_possibile_id, proforma_origine_id"
+          )
+          .eq("ordine_id", proforma.ordine_id)
+          .eq("tipo_documento", "fattura")
+          .is("deleted_at", null)
+          .order("created_at", { ascending: false })
+          .limit(1)
+          .maybeSingle(),
+        supabase
+          .from("ordini")
+          .select("cliente_id, cliente_possibile_id")
+          .eq("id", proforma.ordine_id)
+          .is("deleted_at", null)
+          .maybeSingle(),
+      ]);
+    if (giaErr) return { success: false, error: giaErr.message };
+    if (ordErr) return { success: false, error: ordErr.message };
+    fatturaGiaPresente = gia;
+    ordineIntestatario = ordine;
+  }
+  const decisione = decisioneConversioneProforma({
+    proforma,
+    ordine: ordineIntestatario,
+    fatturaEsistente: fatturaGiaPresente,
+  });
+  if (decisione.azione === "rifiuta") {
+    return { success: false, error: decisione.motivo };
+  }
+  if (decisione.azione === "riusa") {
+    const patch: Record<string, unknown> = { updated_by: auth.userId };
+    if (decisione.completaIntestatario) {
+      patch.cliente_id = decisione.completaIntestatario.clienteId;
+      patch.cliente_possibile_id =
+        decisione.completaIntestatario.possibileClienteId;
+    }
+    if (!fatturaGiaPresente?.proforma_origine_id) {
+      patch.proforma_origine_id = proforma.id;
+    }
+    const { error: patchErr } = await supabase
+      .from("fatture_emesse")
+      .update(patch)
+      .eq("id", decisione.fatturaId);
+    if (patchErr) return { success: false, error: patchErr.message };
+    const { error: linkErr } = await supabase
+      .from("fatture_emesse")
+      .update({
+        fattura_definitiva_id: decisione.fatturaId,
+        documento_stato: "chiusa",
+        updated_by: auth.userId,
+      })
+      .eq("id", proforma.id);
+    if (linkErr) return { success: false, error: linkErr.message };
+    await writeAuditLog({
+      entity_type: "fatture_emesse",
+      entity_id: decisione.fatturaId,
+      action: "update",
+      actor_id: auth.userId,
+      summary: `Proforma ${proforma.numero_fattura || "prenotata"} collegata alla fattura già presente, senza un secondo documento`,
+      payload: {
+        proformaId: proforma.id,
+        numeroProforma: proforma.numero_fattura,
+        riusata: true,
+      },
+    });
+    const numeroGia = String(fatturaGiaPresente?.numero_fattura ?? "").trim();
+    return {
+      success: true,
+      fatturaId: decisione.fatturaId,
+      numeroFattura: numeroGia || "Prenotata",
+    };
+  }
+
   const numeroPrenotato = `Pren-${proforma.numero_interno || proforma.id}`.slice(0, 80);
   const { data: inserted, error: insErr } = await supabase
     .from("fatture_emesse")
@@ -3127,7 +3217,8 @@ export async function convertProformaInFatturaAction(input: {
       numero_documento_esterno: "",
       tipo_documento: "fattura",
       proforma_origine_id: proforma.id,
-      cliente_id: proforma.cliente_id,
+      cliente_id: decisione.intestatario.clienteId,
+      cliente_possibile_id: decisione.intestatario.possibileClienteId,
       cliente_ragione_sociale: proforma.cliente_ragione_sociale,
       cliente_codice_targa: proforma.cliente_codice_targa,
       destinatario_snapshot: proforma.destinatario_snapshot,
