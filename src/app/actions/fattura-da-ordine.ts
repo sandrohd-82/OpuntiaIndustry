@@ -28,6 +28,13 @@ import {
 } from "@/lib/amministrazione/fattura-a4-documento";
 import { todayIsoDate } from "@/lib/amministrazione/fatture";
 import {
+  conflittoDataDaErroreFic,
+  dataEmissioneAccettabile,
+  fatturaCheBloccaData,
+  messaggioDataFatturaBloccata,
+  progressivoVersoFic,
+} from "@/lib/amministrazione/fattura-data-numero";
+import {
   leggiMarcaSconti,
   notaConMarcaSconti,
 } from "@/lib/amministrazione/sconto-fuori-listino";
@@ -2079,6 +2086,93 @@ async function motivoScontiOrdineAssenti(
   return null;
 }
 
+function giornoIt(iso: string): string {
+  const [anno, mese, giorno] = iso.split("-");
+  return `${giorno}/${mese}/${anno}`;
+}
+
+async function allineaDataEmissioneFattura(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  fattura: FatturaEmessaRow,
+  dilazioni: { id?: string; data_scadenza?: string | null }[] | null,
+  userId: string,
+  bloccoEsterno?: { numero: number; data: string } | null
+): Promise<string | null> {
+  const richiesta = String(fattura.data_emissione ?? "").slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(richiesta)) return null;
+  const numeroGia = progressivoVersoFic(String(fattura.numero_fattura ?? ""));
+  let blocco = bloccoEsterno ?? null;
+  if (!blocco) {
+    const anno = richiesta.slice(0, 4);
+    const { data, error } = await supabase
+      .from("fatture_emesse")
+      .select("numero_fattura, data_emissione")
+      .eq("tipo_documento", "fattura")
+      .is("deleted_at", null)
+      .gte("data_emissione", `${anno}-01-01`)
+      .lte("data_emissione", `${anno}-12-31`)
+      .neq("id", fattura.id);
+    if (error || !data) return null;
+    const esistenti: { numero: number; data: string }[] = [];
+    for (const row of data) {
+      const voce = row as { numero_fattura?: string | null; data_emissione?: string | null };
+      const numero = progressivoVersoFic(String(voce.numero_fattura ?? ""));
+      const giorno = String(voce.data_emissione ?? "").slice(0, 10);
+      if (numero == null || !/^\d{4}-\d{2}-\d{2}$/.test(giorno)) continue;
+      esistenti.push({ numero, data: giorno });
+    }
+    blocco = fatturaCheBloccaData({
+      data: richiesta,
+      numeroPrevisto: numeroGia,
+      esistenti,
+    });
+  }
+  if (!blocco) return null;
+  const nuova = dataEmissioneAccettabile({
+    richiesta,
+    oggi: todayIsoDate(),
+    blocco: blocco.data,
+  });
+  if (nuova === richiesta) return null;
+  if (nuova.slice(0, 4) !== richiesta.slice(0, 4)) {
+    throw new Error(
+      `${messaggioDataFatturaBloccata(blocco)} Il numero non è stato assegnato e Fatture in Cloud non è stato chiamato.`
+    );
+  }
+  const scadenza = String(fattura.data_scadenza ?? "").slice(0, 10);
+  const scadenzaNuova = /^\d{4}-\d{2}-\d{2}$/.test(scadenza) && scadenza < nuova ? nuova : scadenza;
+  const { error: upErr } = await supabase
+    .from("fatture_emesse")
+    .update({
+      data_emissione: nuova,
+      ...(scadenzaNuova && scadenzaNuova !== scadenza ? { data_scadenza: scadenzaNuova } : {}),
+      updated_by: userId,
+    })
+    .eq("id", fattura.id);
+  if (upErr) throw new Error(upErr.message);
+  fattura.data_emissione = nuova;
+  if (scadenzaNuova && scadenzaNuova !== scadenza) fattura.data_scadenza = scadenzaNuova;
+  for (const rata of dilazioni ?? []) {
+    const giorno = String(rata.data_scadenza ?? "").slice(0, 10);
+    if (!rata.id || !/^\d{4}-\d{2}-\d{2}$/.test(giorno) || giorno >= nuova) continue;
+    const { error: rataErr } = await supabase
+      .from("fatture_emesse_dilazioni")
+      .update({ data_scadenza: nuova })
+      .eq("id", rata.id);
+    if (rataErr) throw new Error(rataErr.message);
+    rata.data_scadenza = nuova;
+  }
+  await writeAuditLog({
+    entity_type: "fatture_emesse",
+    entity_id: fattura.id,
+    action: "update",
+    actor_id: userId,
+    summary: `Data documento portata al ${giornoIt(nuova)}: la fattura n° ${blocco.numero} del ${giornoIt(blocco.data)} ha un numero più basso.`,
+    payload: { da: richiesta, a: nuova, fatturaBlocco: blocco.numero },
+  });
+  return `La data documento è stata portata al ${giornoIt(nuova)} perché la fattura n° ${blocco.numero} del ${giornoIt(blocco.data)} ha un numero più basso e una data successiva.`;
+}
+
 export async function inviaFatturaSalvataAction(input: {
   fatturaId: string;
   invioEmail?: string;
@@ -2372,6 +2466,22 @@ export async function inviaFatturaSalvataAction(input: {
   );
   if (!provinciaSdi.ok) return { success: false, error: provinciaSdi.error };
 
+  let avvisoData = "";
+  try {
+    avvisoData =
+      (await allineaDataEmissioneFattura(
+        supabase,
+        fattura,
+        dilazioni ?? [],
+        auth.userId
+      )) ?? "";
+  } catch (e) {
+    return {
+      success: false,
+      error: e instanceof Error ? e.message : "Data documento non accettabile.",
+    };
+  }
+
   const numeri = await assegnaNumeroAllInvioSdi(
     vistoDa,
     fattura.id,
@@ -2455,29 +2565,62 @@ export async function inviaFatturaSalvataAction(input: {
   let pdfUrl = fattura.pdf_url || "";
   let eiStatus = fattura.ei_status || "created";
   if (!ficId) {
-    try {
-      const created = await createIssuedDocument(ficPayload, {
+    const creaSuFic = () =>
+      createIssuedDocument(ficPayload, {
         includiPdf: false,
       });
+    try {
+      const created = await creaSuFic();
       ficId = created.ficId;
       pdfUrl = created.pdfUrl;
       eiStatus = created.eiStatus || "created";
     } catch (e) {
-      await writeAuditLog({
-        entity_type: "fatture_emesse",
-        entity_id: fattura.id,
-        action: "emissione_fic_error",
-        actor_id: auth.userId,
-        summary: `Errore creazione FiC ${numeroFattura}`,
-        payload: { error: e instanceof Error ? e.message : String(e) },
-      });
-      return {
-        success: false,
-        error:
-          e instanceof Error
-            ? e.message
-            : "Creazione documento su Fatture in Cloud non riuscita.",
-      };
+      const testo = e instanceof Error ? e.message : String(e);
+      const letto = conflittoDataDaErroreFic(testo);
+      let ripresa = false;
+      if (letto) {
+        try {
+          const avvisoRipresa = await allineaDataEmissioneFattura(
+            supabase,
+            fattura,
+            dilazioni ?? [],
+            auth.userId,
+            letto
+          );
+          if (avvisoRipresa) {
+            avvisoData = avvisoRipresa;
+            ficPayload.date = fattura.data_emissione;
+            for (const pagamento of payments_list) {
+              if (String(pagamento.due_date).slice(0, 10) < String(fattura.data_emissione).slice(0, 10)) {
+                pagamento.due_date = fattura.data_emissione;
+              }
+            }
+            const created = await creaSuFic();
+            ficId = created.ficId;
+            pdfUrl = created.pdfUrl;
+            eiStatus = created.eiStatus || "created";
+            ripresa = true;
+          }
+        } catch {
+          ripresa = false;
+        }
+      }
+      if (!ripresa) {
+        await writeAuditLog({
+          entity_type: "fatture_emesse",
+          entity_id: fattura.id,
+          action: "emissione_fic_error",
+          actor_id: auth.userId,
+          summary: `Errore creazione FiC ${numeroFattura}`,
+          payload: { error: testo },
+        });
+        return {
+          success: false,
+          error: letto
+            ? `${messaggioDataFatturaBloccata(letto)} Il numero ${numeroFattura} resta assegnato a questa fattura: aggiorna la data e ripeti lo stacco, senza chiederne un altro.`
+            : testo || "Creazione documento su Fatture in Cloud non riuscita.",
+        };
+      }
     }
   }
 
@@ -2719,7 +2862,7 @@ export async function inviaFatturaSalvataAction(input: {
       : sendToSdi && fattura.ei_status === "sent"
         ? "La fattura risulta già inviata allo SDI."
         : "";
-  const warning = [warningSdi, avvisoPromozione].filter(Boolean).join(" ") || undefined;
+  const warning = [avvisoData, warningSdi, avvisoPromozione].filter(Boolean).join(" ") || undefined;
 
   return {
     success: true,
