@@ -2,7 +2,10 @@
 
 import { writeAuditLog } from "@/lib/audit";
 import { requireAreaAccess } from "@/lib/areas/guard";
-import { puoMovimentareEffettoMagazzino } from "@/lib/produzione/effetto-magazzino";
+import {
+  codiceProdottoArchiviato,
+  puoMovimentareEffettoMagazzino,
+} from "@/lib/produzione/effetto-magazzino";
 import {
   getFoglioConteggioAction,
   upsertFoglioConteggioAction,
@@ -405,7 +408,7 @@ async function clonaEffettiSuEsecuzione(
       if (!isProcessoEffettoTipo(d.tipo)) return null;
       const parsed = parseEffettoParametri(d.tipo, d.parametri);
       const r = rispostaByDef.get(d.id);
-      const codiceMp = (r?.codiceMp || parsed.codiceMp).trim().toUpperCase();
+      const codiceMp = (r?.codiceMp || parsed.codiceMp).trim();
       const essiccatoreId = (r?.essiccatoreId || parsed.essiccatoreId).trim();
       return {
         definizione_id: d.id,
@@ -946,13 +949,11 @@ export async function registraEffettoEsecuzioneAction(
   if (!foglioOk.success) return foglioOk;
 
   const fromDef = parseEffettoParametri(effetto.tipo, effetto.parametri);
-  const codiceMp = (
+  const codiceDigitato = (
     parsed.data.codiceMp ||
     effetto.codice_mp ||
     fromDef.codiceMp
-  )
-    .trim()
-    .toUpperCase();
+  ).trim();
   const essiccatoreId = (
     parsed.data.essiccatoreId ||
     effetto.essiccatore_id ||
@@ -962,7 +963,7 @@ export async function registraEffettoEsecuzioneAction(
   if (
     (effetto.tipo === "magazzino.consuma" ||
       effetto.tipo === "magazzino.produce") &&
-    !codiceMp
+    !codiceDigitato
   ) {
     return {
       success: false,
@@ -977,16 +978,27 @@ export async function registraEffettoEsecuzioneAction(
   }
 
   let lottoSalvato = parsed.data.lottoCodice.trim();
+  let codiceMp = codiceDigitato;
   if (effetto.tipo === "magazzino.produce" || effetto.tipo === "magazzino.consuma") {
-    const { data: prodotto } = await supabase
+    const { data: candidati, error: prodErr } = await supabase
       .from("prodotti_propri")
-      .select("unita_misura")
-      .eq("codice", codiceMp)
-      .maybeSingle();
+      .select("codice, unita_misura")
+      .ilike("codice", codiceDigitato.replace(/[%_\\]/g, (ch) => `\\${ch}`));
+    if (prodErr) return { success: false, error: prodErr.message };
+    const identita = codiceProdottoArchiviato(
+      codiceDigitato,
+      ((candidati ?? []) as Array<{ codice: string }>).map((r) => r.codice)
+    );
+    if (!identita.ok) return { success: false, error: identita.motivo };
+    codiceMp = identita.codice;
+    const prodotto = ((candidati ?? []) as Array<{
+      codice: string;
+      unita_misura?: string | null;
+    }>).find((r) => r.codice === codiceMp);
     const decisione = puoMovimentareEffettoMagazzino({
       tipo: effetto.tipo,
       unita: effetto.unita,
-      unitaProdotto: (prodotto as { unita_misura?: string | null } | null)?.unita_misura ?? null,
+      unitaProdotto: prodotto?.unita_misura ?? null,
       codice: codiceMp,
       lotto: parsed.data.lottoCodice,
       quantita: parsed.data.qty,
@@ -1008,7 +1020,9 @@ export async function registraEffettoEsecuzioneAction(
         testo.includes("Quantità") ||
         testo.includes("autorizzato") ||
         testo.includes("aperto") ||
-        testo.includes("già")
+        testo.includes("già") ||
+        testo.includes("univoco") ||
+        testo.includes("Prodotto")
       ) {
         return { success: false, error: testo.replace(/^ERROR:\s*/, "") };
       }

@@ -420,8 +420,7 @@ export function FoglioProcessiPanel({ foglio, filtraAreaId }: Props) {
                                                 ...prev,
                                                 [e.id]: {
                                                   ...draft,
-                                                  codiceMp:
-                                                    ev.target.value.toUpperCase(),
+                                                  codiceMp: ev.target.value,
                                                 },
                                               }))
                                             }
@@ -698,7 +697,7 @@ function AvvioEffettoDomande({
             <input
               value={draft.codiceMp}
               onChange={(e) =>
-                onChange({ ...draft, codiceMp: e.target.value.toUpperCase() })
+                onChange({ ...draft, codiceMp: e.target.value })
               }
               placeholder="es. NDRi"
               className="mt-1 w-full rounded-md border border-[var(--border)] px-2 py-1.5 font-mono text-sm"

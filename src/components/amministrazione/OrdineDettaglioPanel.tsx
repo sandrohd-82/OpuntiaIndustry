@@ -30,6 +30,7 @@ import { labelSede } from "@/lib/impostazioni/sedi";
 import type { SpedizioneMailPrenotazione } from "@/lib/amministrazione/spedizione-mail";
 import { StaccaFatturaModal } from "@/components/amministrazione/StaccaFatturaModal";
 import { FatturaA4Modal } from "@/components/amministrazione/FatturaA4Modal";
+import { OrdineCicloCommerciale } from "@/components/amministrazione/OrdineCicloCommerciale";
 import { OrdineAuditLogModal } from "@/components/amministrazione/OrdineAuditLogModal";
 import { OrdineSchedaAziendaModal } from "@/components/amministrazione/OrdineSchedaAziendaModal";
 import {
@@ -543,6 +544,7 @@ export function OrdineDettaglioPanel({
           </div>
         ) : null}
       </dl>
+      <OrdineCicloCommerciale ordineId={ordine.id} />
       <NoteSezioniElenco
         note={{
           quantita_confezione: testoNota(noteSezioni, "quantita_confezione"),

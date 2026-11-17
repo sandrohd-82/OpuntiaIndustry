@@ -33,10 +33,10 @@ export function puoMovimentareEffettoMagazzino(input: {
       motivo: "Manca il lotto Agrinsicilia. Nessun carico è stato creato.",
     };
   }
-  if (parti.targaProdotto !== codice) {
+  if (parti.targaProdotto.toLowerCase() !== codice.toLowerCase()) {
     return { ok: false, motivo: "La targa del lotto non coincide con il prodotto." };
   }
-  const lotto = composeLottoAgrinsicilia(parti);
+  const lotto = composeLottoAgrinsicilia({ ...parti, targaProdotto: codice });
   if (!lotto) {
     return {
       ok: false,
@@ -44,6 +44,25 @@ export function puoMovimentareEffettoMagazzino(input: {
     };
   }
   return { ok: true, lotto, unita };
+}
+
+/** Il codice usato è quello archiviato. Maiuscole diverse non creano un altro prodotto. */
+export function codiceProdottoArchiviato(
+  digitato: string,
+  archiviati: readonly string[]
+): { ok: true; codice: string } | { ok: false; motivo: string } {
+  const testo = digitato.trim();
+  if (!testo) return { ok: false, motivo: "Prodotto non trovato." };
+  const esatto = archiviati.find((codice) => codice === testo);
+  if (esatto) return { ok: true, codice: esatto };
+  const simili = archiviati.filter(
+    (codice) => codice.toLowerCase() === testo.toLowerCase()
+  );
+  if (simili.length === 1) return { ok: true, codice: simili[0] };
+  if (simili.length > 1) {
+    return { ok: false, motivo: "Il codice prodotto non è univoco." };
+  }
+  return { ok: false, motivo: "Prodotto non trovato." };
 }
 
 export function meseNelCoefficiente(mese: number, da: number, a: number): boolean {
