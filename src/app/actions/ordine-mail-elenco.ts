@@ -8,6 +8,7 @@ import {
 import { inviaMailSpedizioneAction } from "@/app/actions/spedizione-mail";
 import { requireAnyAreaAccess } from "@/lib/areas/guard";
 import { fatturaA4PdfFileName } from "@/lib/amministrazione/fattura-a4-pdf";
+import { fatturaOrdineGiaInviata } from "@/lib/amministrazione/ordine-mail-bozza";
 import { createServiceClient } from "@/lib/supabase/server";
 import { WEBMAIL_SENT_FOLDER } from "@/lib/webmail/types";
 import { z } from "zod";
@@ -52,6 +53,7 @@ type FatturaMail = {
   interno: string;
   courtesy: boolean;
   ei: string;
+  ficId: number | null;
   sentAt: string | null;
   email: string;
 };
@@ -133,7 +135,14 @@ async function gate() {
 export async function elencoMailOrdineAction(
   ordineId: string
 ): Promise<
-  { success: true; voci: VoceMailOrdine[] } | { success: false; error: string }
+  | {
+      success: true;
+      voci: VoceMailOrdine[];
+      fatturaInviata: boolean;
+      fatturaId: string | null;
+      proformaId: string | null;
+    }
+  | { success: false; error: string }
 > {
   await gate();
   const id = uuid(ordineId);
@@ -152,7 +161,7 @@ export async function elencoMailOrdineAction(
     service
       .from("fatture_emesse")
       .select(
-        "id, tipo_documento, numero_fattura, numero_interno, courtesy_email_sent, ei_status, sent_at, invio_email"
+        "id, tipo_documento, numero_fattura, numero_interno, courtesy_email_sent, ei_status, fic_id, sent_at, invio_email"
       )
       .eq("ordine_id", id)
       .is("deleted_at", null),
@@ -189,6 +198,7 @@ export async function elencoMailOrdineAction(
       interno: testo(r.numero_interno),
       courtesy: Boolean(r.courtesy_email_sent),
       ei: testo(r.ei_status),
+      ficId: typeof r.fic_id === "number" ? r.fic_id : null,
       sentAt: (r.sent_at as string | null) ?? null,
       email: testo(r.invio_email),
     };
@@ -258,6 +268,15 @@ export async function elencoMailOrdineAction(
     aggiungi((bySub.data ?? []) as Array<Record<string, unknown>>);
   }
 
+  const fatturaInviata = fatturaOrdineGiaInviata(
+    fatture.map((fat) => ({
+      tipo: fat.tipo,
+      eiStatus: fat.ei,
+      ficId: fat.ficId,
+    }))
+  );
+  const fatturaId = fatture.find((fat) => fat.tipo === "fattura")?.id ?? null;
+  const proformaId = fatture.find((fat) => fat.tipo === "proforma")?.id ?? null;
   const voci: VoceMailOrdine[] = [];
   const oggettiInviati = new Set(
     messaggi.map((m) => m.subject.trim().toLowerCase()).filter(Boolean)
@@ -388,7 +407,9 @@ export async function elencoMailOrdineAction(
     };
     if (sembraProforma) {
       tipologia = "Proforma";
-      if (!doc) motivo = "La proforma non è ancora registrata.";
+      if (fatturaInviata) {
+        motivo = "La fattura è già stata inviata. La proforma non si rimanda.";
+      } else if (!doc) motivo = "La proforma non è ancora registrata.";
       else if (!accountId || !to || !corpo) motivo = "Manca casella, destinatario o testo.";
       else {
         invio = { ...baseInvio, tipo: "proforma", fatturaId: doc.id };
@@ -510,7 +531,7 @@ export async function elencoMailOrdineAction(
     if (diff !== 0) return diff;
     return (b.quando ?? "").localeCompare(a.quando ?? "");
   });
-  return { success: true, voci };
+  return { success: true, voci, fatturaInviata, fatturaId, proformaId };
 }
 
 async function scaricaAllegatiBozzaOrdine(
@@ -706,6 +727,34 @@ export async function inviaBozzaMailOrdineAction(
   const ei = testo((fat as { ei_status?: string }).ei_status);
   if (d.tipo === "proforma" && tipoDoc !== "proforma") {
     return { success: false, error: "Il documento non è una proforma." };
+  }
+  if (d.tipo === "proforma") {
+    const { data: sorelle, error: sorelleErr } = await service
+      .from("fatture_emesse")
+      .select("tipo_documento, ei_status, fic_id")
+      .eq("ordine_id", d.ordineId)
+      .is("deleted_at", null);
+    if (sorelleErr) return { success: false, error: sorelleErr.message };
+    const gia = fatturaOrdineGiaInviata(
+      (sorelle ?? []).map((row) => {
+        const voce = row as {
+          tipo_documento?: string | null;
+          ei_status?: string | null;
+          fic_id?: number | null;
+        };
+        return {
+          tipo: testo(voce.tipo_documento),
+          eiStatus: voce.ei_status,
+          ficId: voce.fic_id,
+        };
+      })
+    );
+    if (gia) {
+      return {
+        success: false,
+        error: "La fattura è già stata inviata. La proforma non si rimanda.",
+      };
+    }
   }
   if (d.tipo === "cortesia" && ei !== "sent") {
     return {

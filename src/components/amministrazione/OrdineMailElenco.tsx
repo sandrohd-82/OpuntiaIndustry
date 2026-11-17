@@ -9,6 +9,7 @@ import {
   type AllegatoVoceMail,
   type VoceMailOrdine,
 } from "@/app/actions/ordine-mail-elenco";
+import { FatturaA4Modal } from "@/components/amministrazione/FatturaA4Modal";
 
 function quando(iso: string | null): string {
   if (!iso) return "";
@@ -28,6 +29,10 @@ function etichetta(situazione: VoceMailOrdine["situazione"]): string {
 
 export function OrdineMailElenco({ ordineId }: { ordineId: string }) {
   const [voci, setVoci] = useState<VoceMailOrdine[] | null>(null);
+  const [fatturaInviata, setFatturaInviata] = useState(false);
+  const [haFattura, setHaFattura] = useState(false);
+  const [haProforma, setHaProforma] = useState(false);
+  const [vista, setVista] = useState<"fattura" | "proforma" | null>(null);
   const [errore, setErrore] = useState("");
   const [esito, setEsito] = useState("");
   const [aperta, setAperta] = useState<string | null>(null);
@@ -39,10 +44,16 @@ export function OrdineMailElenco({ ordineId }: { ordineId: string }) {
     if (!res.success) {
       setErrore(res.error);
       setVoci([]);
+      setFatturaInviata(false);
+      setHaFattura(false);
+      setHaProforma(false);
       return;
     }
     setErrore("");
     setVoci(res.voci);
+    setFatturaInviata(res.fatturaInviata);
+    setHaFattura(Boolean(res.fatturaId));
+    setHaProforma(Boolean(res.proformaId));
   }, [ordineId]);
 
   useEffect(() => {
@@ -110,6 +121,28 @@ export function OrdineMailElenco({ ordineId }: { ordineId: string }) {
         <p className="text-xs text-[var(--muted)]">
           Inviate, bozze non inviate e mail prenotate.
         </p>
+        {fatturaInviata ? (
+          <div className="mt-2 flex flex-wrap gap-2">
+            {haFattura ? (
+              <button
+                type="button"
+                onClick={() => setVista("fattura")}
+                className="rounded-lg border border-slate-200 px-2.5 py-1 text-xs font-medium text-slate-800 hover:bg-slate-50"
+              >
+                Visualizza fattura
+              </button>
+            ) : null}
+            {haProforma ? (
+              <button
+                type="button"
+                onClick={() => setVista("proforma")}
+                className="rounded-lg border border-slate-200 px-2.5 py-1 text-xs font-medium text-slate-800 hover:bg-slate-50"
+              >
+                Visualizza proforma
+              </button>
+            ) : null}
+          </div>
+        ) : null}
       </div>
       {errore ? (
         <p className="mx-3 mt-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">
@@ -132,6 +165,7 @@ export function OrdineMailElenco({ ordineId }: { ordineId: string }) {
           {voci.map((voce) => {
             const apertaOra = aperta === voce.id;
             const confermaOra = conferma === voce.id;
+            const proformaChiusa = fatturaInviata && voce.tipologia === "Proforma";
             const tono =
               voce.situazione === "inviata"
                 ? "bg-emerald-50 text-emerald-800"
@@ -157,7 +191,7 @@ export function OrdineMailElenco({ ordineId }: { ordineId: string }) {
                     {voce.motivo ? (
                       <p className="mt-1 text-xs text-[var(--muted)]">{voce.motivo}</p>
                     ) : null}
-                    {voce.allegati.length > 0 ? (
+                    {!proformaChiusa && voce.allegati.length > 0 ? (
                       <ul className="mt-2 space-y-1">
                         {voce.allegati.map((allegato) => (
                           <li key={`${allegato.kind}-${allegato.nome}-${allegato.path ?? allegato.fatturaId}`}>
@@ -175,7 +209,7 @@ export function OrdineMailElenco({ ordineId }: { ordineId: string }) {
                     ) : null}
                   </div>
                   <div className="flex flex-wrap gap-2">
-                    {voce.situazione === "inviata" && voce.messaggioId && voce.accountId ? (
+                    {!proformaChiusa && voce.situazione === "inviata" && voce.messaggioId && voce.accountId ? (
                       <Link
                         href={`/app/webmail/caselle/${voce.accountId}/inviati?m=${voce.messaggioId}`}
                         className="rounded-lg border border-slate-200 px-2.5 py-1 text-xs font-medium text-[var(--primary)] hover:bg-slate-50"
@@ -183,7 +217,7 @@ export function OrdineMailElenco({ ordineId }: { ordineId: string }) {
                         Apri in Inviati
                       </Link>
                     ) : null}
-                    {voce.corpo ? (
+                    {!proformaChiusa && voce.corpo ? (
                       <button
                         type="button"
                         onClick={() => setAperta(apertaOra ? null : voce.id)}
@@ -192,7 +226,7 @@ export function OrdineMailElenco({ ordineId }: { ordineId: string }) {
                         {apertaOra ? "Chiudi bozza" : "Vedi bozza"}
                       </button>
                     ) : null}
-                    {voce.invio ? (
+                    {!proformaChiusa && voce.invio ? (
                       <button
                         type="button"
                         disabled={busy}
@@ -245,6 +279,13 @@ export function OrdineMailElenco({ ordineId }: { ordineId: string }) {
           })}
         </ul>
       )}
+      {vista ? (
+        <FatturaA4Modal
+          ordineId={ordineId}
+          mostraProforma={vista === "proforma"}
+          onClose={() => setVista(null)}
+        />
+      ) : null}
     </section>
   );
 }

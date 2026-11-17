@@ -27,6 +27,7 @@ import {
   type FatturaDestinatarioSnapshot,
 } from "@/lib/amministrazione/fattura-a4-documento";
 import { todayIsoDate } from "@/lib/amministrazione/fatture";
+import { fatturaOrdineGiaInviata } from "@/lib/amministrazione/ordine-mail-bozza";
 import {
   conflittoDataDaErroreFic,
   dataDelGiornoDiEmissione,
@@ -448,6 +449,7 @@ export async function getFatturaA4ContextAction(input: {
       proformaConvertitaNumero: string | null;
       noteDocumento: string;
       possibileClienteId: string | null;
+      fatturaInviata: boolean;
     }
   | { success: false; error: string }
 > {
@@ -723,6 +725,17 @@ export async function getFatturaA4ContextAction(input: {
       proformaConvertitaNumero,
       noteDocumento,
       possibileClienteId,
+      fatturaInviata: fatturaOrdineGiaInviata(
+        existingRow
+          ? [
+              {
+                tipo: "fattura",
+                eiStatus: existingRow.ei_status,
+                ficId: existingRow.fic_id,
+              },
+            ]
+          : []
+      ),
     };
   } catch (e) {
     return {
@@ -3179,6 +3192,34 @@ export async function inviaProformaOrdineAction(input: {
 > {
   const caricata = await caricaProformaOrdine(input.ordineId);
   if ("error" in caricata) return { success: false, error: caricata.error };
+  const service = createServiceClient();
+  const { data: sorelle, error: sorelleErr } = await service
+    .from("fatture_emesse")
+    .select("tipo_documento, ei_status, fic_id")
+    .eq("ordine_id", input.ordineId)
+    .is("deleted_at", null);
+  if (sorelleErr) return { success: false, error: sorelleErr.message };
+  if (
+    fatturaOrdineGiaInviata(
+      (sorelle ?? []).map((row) => {
+        const voce = row as {
+          tipo_documento?: string | null;
+          ei_status?: string | null;
+          fic_id?: number | null;
+        };
+        return {
+          tipo: String(voce.tipo_documento ?? ""),
+          eiStatus: voce.ei_status,
+          ficId: voce.fic_id,
+        };
+      })
+    )
+  ) {
+    return {
+      success: false,
+      error: "La fattura è già stata inviata. La proforma non si rimanda.",
+    };
+  }
   const accountId = String(input.accountId ?? "").trim();
   if (!accountId) {
     return { success: false, error: "Seleziona la casella mittente." };

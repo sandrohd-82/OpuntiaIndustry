@@ -1,4 +1,24 @@
+import { fatturaElencoInviata } from "@/lib/amministrazione/ordini";
+
 export type DocumentoMailOrdine = "informativa" | "proforma" | "fattura";
+
+/** Dopo l'invio della fattura la proforma non si rimanda. */
+export function fatturaOrdineGiaInviata(
+  fatture: ReadonlyArray<{
+    tipo: string;
+    eiStatus?: string | null;
+    ficId?: number | null;
+  }>
+): boolean {
+  return fatture.some(
+    (fat) =>
+      fat.tipo === "fattura" &&
+      fatturaElencoInviata({
+        eiStatus: fat.eiStatus,
+        ficId: fat.ficId,
+      })
+  );
+}
 
 export function bozzaMailOrdine(input: {
   documento: DocumentoMailOrdine;

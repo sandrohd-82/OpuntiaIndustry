@@ -141,6 +141,7 @@ function OrdineTableRow({
   onApproveSuddivisione,
   onChanged,
   onVisualizzaFattura,
+  onVisualizzaProforma,
   onStaccaFattura,
   onDichiaraPagato,
 }: {
@@ -156,6 +157,7 @@ function OrdineTableRow({
   onApproveSuddivisione: () => void;
   onChanged: () => void;
   onVisualizzaFattura: () => void;
+  onVisualizzaProforma: () => void;
   onStaccaFattura: () => void;
   onDichiaraPagato: () => void;
 }) {
@@ -324,7 +326,17 @@ function OrdineTableRow({
                 Stacca fattura
               </button>
             ) : null}
-            {ordine.proformaElenco ? (
+            {ordine.proformaElenco && ordine.fatturaElenco?.inviata ? (
+              <button
+                type="button"
+                title="Apri la proforma"
+                onClick={onVisualizzaProforma}
+                className="rounded-lg bg-slate-800 px-2.5 py-1.5 text-xs font-medium text-white hover:bg-slate-700"
+              >
+                Visualizza proforma
+              </button>
+            ) : null}
+            {ordine.proformaElenco && !ordine.fatturaElenco?.inviata ? (
               <ProformaElencoAzioni
                 ordineId={ordine.id}
                 numero={ordine.proformaElenco.numero}
@@ -430,6 +442,7 @@ export function OrdiniBoard({
   const [esitoOrdine, setEsitoOrdine] = useState<string | null>(null);
   const [approvingId, setApprovingId] = useState<string | null>(null);
   const [fatturaVistaId, setFatturaVistaId] = useState<string | null>(null);
+  const [proformaVistaId, setProformaVistaId] = useState<string | null>(null);
   const [staccaOrdine, setStaccaOrdine] = useState<Ordine | null>(null);
   const [pagatoOrdine, setPagatoOrdine] = useState<Ordine | null>(null);
   const [campionaturaTick, setCampionaturaTick] = useState(0);
@@ -707,6 +720,10 @@ export function OrdiniBoard({
                     setActionError(null);
                     setFatturaVistaId(ordine.id);
                   }}
+                  onVisualizzaProforma={() => {
+                    setActionError(null);
+                    setProformaVistaId(ordine.id);
+                  }}
                   onStaccaFattura={() => {
                     setActionError(null);
                     setStaccaOrdine(ordine);
@@ -836,6 +853,14 @@ export function OrdiniBoard({
             setFatturaVistaId(null);
             void refresh();
           }}
+        />
+      ) : null}
+
+      {proformaVistaId ? (
+        <FatturaA4Modal
+          ordineId={proformaVistaId}
+          mostraProforma
+          onClose={() => setProformaVistaId(null)}
         />
       ) : null}
 

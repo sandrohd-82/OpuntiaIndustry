@@ -197,6 +197,7 @@ export function FatturaA4Modal({
   const [noteDocumento, setNoteDocumento] = useState("");
   const [piano, setPiano] = useState<OrdinePagamentoPiano>(emptyPagamentoPiano());
   const [fatturaId, setFatturaId] = useState<string | null>(null);
+  const [fatturaGiaInviata, setFatturaGiaInviata] = useState(false);
   const [vista, setVista] = useState<"fattura" | "proforma">(
     etichettaDocumento ?? (mostraProforma ? "proforma" : "fattura")
   );
@@ -405,6 +406,7 @@ export function FatturaA4Modal({
       setRighe(usaMemorizzata?.righe ?? ctx.righe);
       setNoteDocumento(usaMemorizzata?.noteDocumento ?? ctx.noteDocumento);
       setFatturaId(ctx.fatturaEsistenteId);
+      setFatturaGiaInviata(ctx.fatturaInviata);
       setProformaId(ctx.proformaId);
       setProformaNumero(ctx.proformaNumero);
       setProformaConvertitaNumero(ctx.proformaConvertitaNumero);
@@ -937,7 +939,7 @@ export function FatturaA4Modal({
                   Scarica
                 </button>
               ) : null}
-              {bloccaInvio ? null : (
+              {bloccaInvio || fatturaGiaInviata ? null : (
               <button
                 type="button"
                 onClick={() => void salvaProforma("mail")}
