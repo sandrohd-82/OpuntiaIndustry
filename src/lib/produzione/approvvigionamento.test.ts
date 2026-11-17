@@ -12,9 +12,12 @@ import {
   copiaOrdineSuData,
   copiaSettimana,
   anteprimaConsegne,
+  dateGiorniFissi,
+  dateOgniNGiorni,
   dateRegolari,
   dateUniche,
   fornitoreAssegnabile,
+  resocontoConAnteprima,
   riepilogoApprovvigionamento,
   giorniMese,
   giorniSettimana,
@@ -575,5 +578,130 @@ assert.match(consegnePiano, /approvvigionamento_collega_consegna/);
 assert.match(consegnePiano, /approvvigionamento_estendi_periodo_piano/);
 assert.equal(consegnePiano.includes("delete from public.approvvigionamenti_versioni"), false);
 assert.equal(consegnePiano.includes("approvvigionamenti_notifiche"), false);
+
+const primaPrima = dateOgniNGiorni({
+  inizio: "2026-01-12",
+  fine: "2026-01-31",
+  primaConsegna: "2026-01-10",
+  ogniGiorni: 3,
+  giorniConsentiti: [1, 2, 3, 4, 5],
+});
+assert.equal(primaPrima.ok, false);
+
+const ogniTre = dateOgniNGiorni({
+  inizio: "2026-01-10",
+  fine: "2026-01-31",
+  primaConsegna: "2026-01-12",
+  ogniGiorni: 3,
+  giorniConsentiti: [1, 2, 3, 4, 5],
+});
+assert.equal(ogniTre.ok, true);
+if (ogniTre.ok) {
+  assert.deepEqual(ogniTre.date, [
+    "2026-01-12",
+    "2026-01-15",
+    "2026-01-21",
+    "2026-01-27",
+    "2026-01-30",
+  ]);
+  assert.deepEqual(ogniTre.escluse, ["2026-01-18", "2026-01-24"]);
+  assert.equal(ogniTre.date.includes("2026-01-19"), false);
+}
+
+const oltreAnno = dateOgniNGiorni({
+  inizio: "2026-12-20",
+  fine: "2027-01-10",
+  primaConsegna: "2026-12-30",
+  ogniGiorni: 4,
+  giorniConsentiti: [0, 1, 2, 3, 4, 5, 6],
+});
+assert.equal(oltreAnno.ok, true);
+if (oltreAnno.ok) {
+  assert.deepEqual(oltreAnno.date, ["2026-12-30", "2027-01-03", "2027-01-07"]);
+}
+
+const fissi = dateGiorniFissi({
+  inizio: "2026-01-10",
+  fine: "2026-01-31",
+  giorni: [1, 3, 5],
+});
+assert.equal(fissi.ok, true);
+if (fissi.ok) {
+  assert.deepEqual(fissi.date, [
+    "2026-01-12",
+    "2026-01-14",
+    "2026-01-16",
+    "2026-01-19",
+    "2026-01-21",
+    "2026-01-23",
+    "2026-01-26",
+    "2026-01-28",
+    "2026-01-30",
+  ]);
+}
+
+const manualeNuovo = anteprimaConsegne({
+  operazione: "pianificazione",
+  inizio: "2026-01-10",
+  fine: "2026-01-20",
+  frequenza: "manuale",
+  dateScelte: ["2026-01-11", "2026-01-15"],
+  quantita: 2,
+  copiaQuantita: true,
+  tipoQuantita: "precisa",
+  unitaMisura: "kg",
+});
+assert.equal(manualeNuovo.ok, true);
+if (manualeNuovo.ok) assert.equal(manualeNuovo.consegne.length, 2);
+
+const soloAnteprima = resocontoConAnteprima({
+  salvate: [],
+  anteprima: [
+    {
+      data: "2026-01-12",
+      materiaId: MP,
+      materia: "MP",
+      unita: "kg",
+      tipoQuantita: "precisa",
+      quantita: 4,
+    },
+  ],
+});
+assert.equal(soloAnteprima.gruppi[0]?.ordinata, 0);
+assert.equal(soloAnteprima.gruppi[0]?.precisaAnteprima, 4);
+const dopoSalvataggio = resocontoConAnteprima({
+  salvate: [
+    {
+      ordineId: A,
+      data: "2026-01-12",
+      materiaId: MP,
+      materia: "MP",
+      unita: "kg",
+      tipoQuantita: "precisa",
+      pianificata: 4,
+      ordinata: 4,
+      confermata: 0,
+      arrivata: null,
+      arrivataMancante: true,
+      accettata: null,
+      respinta: null,
+      scaricata: null,
+      lottiCollegati: false,
+      unitaLottoDiversa: false,
+    },
+  ],
+  anteprima: [
+    {
+      data: "2026-01-12",
+      materiaId: MP,
+      materia: "MP",
+      unita: "kg",
+      tipoQuantita: "precisa",
+      quantita: 4,
+    },
+  ],
+});
+assert.equal(dopoSalvataggio.gruppi[0]?.precisaAnteprima, 0);
+assert.equal(dopoSalvataggio.gruppi[0]?.precisaSalvata, 4);
 
 console.log("approvvigionamento: ok");

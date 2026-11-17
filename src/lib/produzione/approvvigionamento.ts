@@ -416,6 +416,118 @@ export function dateRegolari(inizio: string, fine: string, ogniGiorni: number): 
   return date;
 }
 
+/** 0 domenica … 6 sabato, in UTC, come il resto delle date del calendario. */
+export function indiceGiornoSettimana(iso: string): number {
+  const [anno, mese, giorno] = iso.split("-").map(Number);
+  return new Date(Date.UTC(anno, mese - 1, giorno)).getUTCDay();
+}
+
+export const NOMI_GIORNO_SETTIMANA = [
+  "domenica",
+  "lunedì",
+  "martedì",
+  "mercoledì",
+  "giovedì",
+  "venerdì",
+  "sabato",
+] as const;
+
+export type FrequenzaProcedura = "ogni_n" | "giorni_fissi" | "manuale";
+
+function periodoConsegne(
+  inizio: string,
+  fine: string
+): { ok: true } | { ok: false; motivo: string } {
+  if (!giornoValido(inizio) || !giornoValido(fine)) {
+    return { ok: false, motivo: "Indica data inizio e data fine." };
+  }
+  if (fine < inizio) return { ok: false, motivo: "La data fine precede la data inizio." };
+  return { ok: true };
+}
+
+function giorniConsentitiValidi(
+  giorni: readonly number[]
+): { ok: true; valori: Set<number> } | { ok: false; motivo: string } {
+  const valori = new Set(giorni.filter((giorno) => Number.isInteger(giorno) && giorno >= 0 && giorno <= 6));
+  if (valori.size === 0) {
+    return { ok: false, motivo: "Seleziona almeno un giorno della settimana." };
+  }
+  return { ok: true, valori };
+}
+
+/**
+ * Ogni N giorni di calendario, ancorati alla prima consegna.
+ * Un giorno non consentito si salta e non si sposta: la ricorrenza successiva resta sulla sequenza originale.
+ */
+export function dateOgniNGiorni(input: {
+  inizio: string;
+  fine: string;
+  primaConsegna: string;
+  ogniGiorni: number;
+  giorniConsentiti: readonly number[];
+}): { ok: true; date: string[]; escluse: string[] } | { ok: false; motivo: string } {
+  const periodo = periodoConsegne(input.inizio, input.fine);
+  if (!periodo.ok) return periodo;
+  if (!giornoValido(input.primaConsegna)) {
+    return { ok: false, motivo: "Indica la data della prima consegna." };
+  }
+  if (input.primaConsegna < input.inizio) {
+    return { ok: false, motivo: "La prima consegna non può precedere la data iniziale." };
+  }
+  if (input.primaConsegna > input.fine) {
+    return { ok: false, motivo: "La prima consegna è fuori dal periodo." };
+  }
+  if (!Number.isInteger(input.ogniGiorni) || input.ogniGiorni < 1) {
+    return { ok: false, motivo: "Indica ogni quanti giorni ripetere la consegna." };
+  }
+  const consentiti = giorniConsentitiValidi(input.giorniConsentiti);
+  if (!consentiti.ok) return consentiti;
+  const date: string[] = [];
+  const escluse: string[] = [];
+  let cursore = input.primaConsegna;
+  let passi = 0;
+  while (cursore <= input.fine && passi <= MASSIMO_CONSEGNE_PIANO) {
+    if (consentiti.valori.has(indiceGiornoSettimana(cursore))) date.push(cursore);
+    else escluse.push(cursore);
+    cursore = aggiungiGiorni(cursore, input.ogniGiorni);
+    passi += 1;
+  }
+  if (cursore <= input.fine) {
+    return { ok: false, motivo: "La pianificazione supera 200 consegne." };
+  }
+  if (date.length === 0) {
+    return { ok: false, motivo: "Nessuna consegna cade in un giorno consentito." };
+  }
+  return { ok: true, date, escluse };
+}
+
+/** Tutte le occorrenze dei giorni scelti, dentro il periodo, senza date prima o dopo. */
+export function dateGiorniFissi(input: {
+  inizio: string;
+  fine: string;
+  giorni: readonly number[];
+}): { ok: true; date: string[] } | { ok: false; motivo: string } {
+  const periodo = periodoConsegne(input.inizio, input.fine);
+  if (!periodo.ok) return periodo;
+  const consentiti = giorniConsentitiValidi(input.giorni);
+  if (!consentiti.ok) return consentiti;
+  const date: string[] = [];
+  let cursore = input.inizio;
+  while (cursore <= input.fine) {
+    if (consentiti.valori.has(indiceGiornoSettimana(cursore))) {
+      date.push(cursore);
+      if (date.length > MASSIMO_CONSEGNE_PIANO) {
+        return { ok: false, motivo: "La pianificazione supera 200 consegne." };
+      }
+    }
+    cursore = aggiungiGiorni(cursore, 1);
+  }
+  if (date.length === 0) {
+    return { ok: false, motivo: "Nessun giorno selezionato cade nel periodo." };
+  }
+  return { ok: true, date };
+}
+
 export type ConsegnaAnteprima = {
   data: string;
   quantita: number;
@@ -432,23 +544,46 @@ export function anteprimaConsegne(input: {
   cadenza?: CadenzaApprovvigionamento;
   ogniGiorni?: number;
   dateScelte?: readonly string[];
+  frequenza?: FrequenzaProcedura;
+  primaConsegna?: string;
+  giorniConsentiti?: readonly number[];
   quantita: number;
   copiaQuantita: boolean;
   quantitaPerData?: Readonly<Record<string, number>>;
   tipoQuantita: TipoQuantitaApprovvigionamento;
   unitaMisura: string;
-}): { ok: true; consegne: ConsegnaAnteprima[] } | { ok: false; motivo: string } {
+}): { ok: true; consegne: ConsegnaAnteprima[]; escluse: string[] } | { ok: false; motivo: string } {
   if (input.tipoQuantita !== "precisa" && input.tipoQuantita !== "stimata") {
     return { ok: false, motivo: "Indica se la quantità è precisa o stimata." };
   }
   const unita = normalizzaUnitaApprovvigionamento(input.unitaMisura);
   if (!unita.ok) return { ok: false, motivo: "Indica l'unità di misura." };
   let date: string[] = [];
+  let escluse: string[] = [];
   if (input.operazione === "singolo") {
     if (!input.data || !giornoValido(input.data)) {
       return { ok: false, motivo: "Indica la data di consegna." };
     }
     date = [input.data];
+  } else if (input.frequenza === "ogni_n") {
+    const generate = dateOgniNGiorni({
+      inizio: input.inizio ?? "",
+      fine: input.fine ?? "",
+      primaConsegna: input.primaConsegna ?? "",
+      ogniGiorni: input.ogniGiorni ?? 0,
+      giorniConsentiti: input.giorniConsentiti ?? [],
+    });
+    if (!generate.ok) return generate;
+    date = generate.date;
+    escluse = generate.escluse;
+  } else if (input.frequenza === "giorni_fissi") {
+    const generate = dateGiorniFissi({
+      inizio: input.inizio ?? "",
+      fine: input.fine ?? "",
+      giorni: input.giorniConsentiti ?? [],
+    });
+    if (!generate.ok) return generate;
+    date = generate.date;
   } else {
     if (!input.inizio || !input.fine || !giornoValido(input.inizio) || !giornoValido(input.fine)) {
       return { ok: false, motivo: "Indica data inizio e data fine." };
@@ -456,7 +591,7 @@ export function anteprimaConsegne(input: {
     if (input.fine < input.inizio) {
       return { ok: false, motivo: "La data fine precede la data inizio." };
     }
-    if (input.cadenza === "personalizzata") {
+    if (input.frequenza === "manuale" || input.cadenza === "personalizzata") {
       date = dateUniche(input.dateScelte ?? []).filter(
         (giorno) => giorno >= input.inizio! && giorno <= input.fine!
       );
@@ -489,7 +624,7 @@ export function anteprimaConsegne(input: {
       unitaMisura: unita.sigla,
     });
   }
-  return { ok: true, consegne };
+  return { ok: true, consegne, escluse };
 }
 
 export type VoceRiepilogo = {

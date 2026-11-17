@@ -41,7 +41,7 @@ const ordineSchema = z.object({
   righe: z.array(rigaSchema).min(1).max(40),
   pianificazione: z
     .object({
-      tipologia: z.enum(["regolare", "personalizzata"]),
+      tipologia: z.enum(["regolare", "personalizzata", "giorni_fissi"]),
       cadenzaGiorni: z.number().int().positive().nullable(),
       tipoQuantita: z.enum(["precisa", "stimata"]),
       periodoInizio: giornoSchema,
@@ -109,7 +109,7 @@ export type PianoCalendario = {
   fornitore: string;
   periodoInizio: string;
   periodoFine: string;
-  tipologia: "settimanale" | "mensile" | "regolare" | "personalizzata";
+  tipologia: "settimanale" | "mensile" | "regolare" | "personalizzata" | "giorni_fissi";
   stato: "bozza" | "pubblicato" | "da_ripubblicare";
   versionePubblicata: number | null;
   versioneId: string | null;
@@ -192,7 +192,14 @@ function statoCarico(valore: unknown): "aperto" | "parziale" | "arrivato" {
 }
 
 function tipologiaPiano(valore: unknown): PianoCalendario["tipologia"] {
-  if (valore === "mensile" || valore === "regolare" || valore === "personalizzata") return valore;
+  if (
+    valore === "mensile" ||
+    valore === "regolare" ||
+    valore === "personalizzata" ||
+    valore === "giorni_fissi"
+  ) {
+    return valore;
+  }
   return "settimanale";
 }
 

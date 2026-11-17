@@ -86,8 +86,14 @@ export function pianificaInProva(
     note: string;
     inizio: string;
     fine: string;
-    cadenza: "regolare" | "personalizzata";
+    cadenza: "regolare" | "personalizzata" | "giorni_fissi";
     ogniGiorni: number;
+    consegne?: readonly {
+      data: string;
+      quantita: number;
+      tipoQuantita: TipoQuantitaApprovvigionamento;
+      unitaMisura: string;
+    }[];
     dateScelte: readonly string[];
     quantita: number;
     copiaQuantita: boolean;
@@ -105,19 +111,21 @@ export function pianificaInProva(
     data: input.inizio,
   });
   if (!scelta.ok && input.copiaQuantita) return { ok: false, sessione, motivo: scelta.motivo };
-  const anteprima = anteprimaConsegne({
-    operazione: "pianificazione",
-    inizio: input.inizio,
-    fine: input.fine,
-    cadenza: input.cadenza,
-    ogniGiorni: input.ogniGiorni,
-    dateScelte: input.dateScelte,
-    quantita: input.quantita,
-    copiaQuantita: input.copiaQuantita,
-    quantitaPerData: input.quantitaPerData,
-    tipoQuantita: input.tipoQuantita,
-    unitaMisura: input.materia.unitaMisura,
-  });
+  const anteprima = input.consegne && input.consegne.length > 0
+    ? { ok: true as const, consegne: input.consegne }
+    : anteprimaConsegne({
+        operazione: "pianificazione",
+        inizio: input.inizio,
+        fine: input.fine,
+        cadenza: input.cadenza === "giorni_fissi" ? "personalizzata" : input.cadenza,
+        ogniGiorni: input.ogniGiorni,
+        dateScelte: input.dateScelte,
+        quantita: input.quantita,
+        copiaQuantita: input.copiaQuantita,
+        quantitaPerData: input.quantitaPerData,
+        tipoQuantita: input.tipoQuantita,
+        unitaMisura: input.materia.unitaMisura,
+      });
   if (!anteprima.ok) return { ok: false, sessione, motivo: anteprima.motivo };
   const pianoId = idNuovo();
   const numeroPiano = sessione.sequenzaPiano + 1;

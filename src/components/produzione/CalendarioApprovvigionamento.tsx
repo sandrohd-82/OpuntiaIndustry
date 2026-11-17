@@ -21,7 +21,10 @@ import {
   type OrdineCalendario,
   type PianoCalendario,
 } from "@/app/actions/approvvigionamento";
-import { PianificazioneApprovvigionamento } from "@/components/produzione/PianificazioneApprovvigionamento";
+import {
+  CreaOrdineMateriaPrimaModal,
+  type BozzaOrdineMateria,
+} from "@/components/produzione/CreaOrdineMateriaPrimaModal";
 import { SelettoreUnita } from "@/components/produzione/SelettoreUnita";
 import {
   RevisionePianoPannello,
@@ -37,7 +40,6 @@ import {
   anteprimaEsclusaDalFiltro,
   consegnaSelezionataValida,
   giorniMese,
-  meseDaData,
   quadriApprovvigionamento,
   giorniSettimana,
   lunediSettimana,
@@ -371,6 +373,7 @@ export function CalendarioApprovvigionamento() {
   testRef.current = test;
   const [vociRiepilogo, setVociRiepilogo] = useState<VoceRiepilogo[]>([]);
   const [righeUfficiali, setRigheUfficiali] = useState<ConsegnaSalvataResoconto[]>([]);
+  const [creaAperta, setCreaAperta] = useState(false);
   const [errore, setErrore] = useState<string | null>(null);
   const [messaggio, setMessaggio] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
@@ -842,6 +845,113 @@ export function CalendarioApprovvigionamento() {
           : "Bozza salvata. Non è stata pubblicata e non è stata inviata al fornitore."
       );
       setQuantitaPerData({});
+      ricarica();
+    });
+  }
+
+  function salvaProcedura(bozza: BozzaOrdineMateria) {
+    if (bozza.consegne.length === 0) {
+      setErrore("Nessuna consegna da registrare.");
+      return;
+    }
+    const materia = materie.find((voce) => voce.id === bozza.materiaId);
+    const unitaScelta = normalizzaUnitaApprovvigionamento(bozza.unitaSigla);
+    if (!materia || !unitaScelta.ok) {
+      setErrore("Indica l'unità di misura.");
+      return;
+    }
+    setErrore(null);
+    setMessaggio(null);
+    const fornitoreNome = fornitori.find((voce) => voce.id === bozza.fornitoreId)?.nome ?? "Fornitore";
+    if (test) {
+      const materiaScelta = {
+        materiaPrimaId: bozza.materiaId,
+        codice: materia.codice,
+        nome: materia.nome,
+        quantita: bozza.consegne[0]?.quantita ?? 0,
+        unitaMisura: unitaScelta.sigla,
+        unitaCatalogo: materia.unitaMisura,
+        tipoQuantita: bozza.tipoQuantita,
+      };
+      const esito =
+        bozza.operazione === "singolo"
+          ? ordineSingoloInProva(sessione, {
+              fornitoreId: bozza.fornitoreId,
+              fornitore: fornitoreNome,
+              note: bozza.note,
+              data: bozza.consegne[0]?.data ?? bozza.inizio,
+              quantita: bozza.consegne[0]?.quantita ?? 0,
+              tipoQuantita: bozza.tipoQuantita,
+              materia: materiaScelta,
+            })
+          : pianificaInProva(sessione, {
+              fornitoreId: bozza.fornitoreId,
+              fornitore: fornitoreNome,
+              note: bozza.note,
+              inizio: bozza.inizio,
+              fine: bozza.fine,
+              cadenza: bozza.tipologia,
+              ogniGiorni: bozza.ogniGiorni ?? 1,
+              dateScelte: bozza.consegne.map((consegna) => consegna.data),
+              quantita: bozza.consegne[0]?.quantita ?? 0,
+              copiaQuantita: true,
+              quantitaPerData: {},
+              tipoQuantita: bozza.tipoQuantita,
+              consegne: bozza.consegne,
+              materia: materiaScelta,
+            });
+      if (!esito.ok) {
+        setErrore(esito.motivo);
+        return;
+      }
+      setSessione(esito.sessione);
+      setMessaggio(esito.messaggio);
+      setCreaAperta(false);
+      return;
+    }
+    const meta =
+      bozza.operazione === "pianificazione"
+        ? {
+            tipologia: bozza.tipologia,
+            cadenzaGiorni: bozza.tipologia === "regolare" ? bozza.ogniGiorni : null,
+            tipoQuantita: bozza.tipoQuantita,
+            periodoInizio: bozza.inizio,
+            periodoFine: bozza.fine,
+          }
+        : undefined;
+    startTransition(async () => {
+      if (vietatoInProva()) return;
+      const res = await salvaApprovvigionamentiAction({
+        chiave: chiaveStabile(),
+        tipo: bozza.operazione === "pianificazione" ? "pianificazione" : "crea",
+        ordini: bozza.consegne.map((consegna) => ({
+          fornitoreId: bozza.fornitoreId,
+          dataConsegna: consegna.data,
+          note: bozza.note,
+          pianificazione: meta,
+          righe: [
+            {
+              materiaPrimaId: bozza.materiaId,
+              quantita: consegna.quantita,
+              unitaMisura: unitaScelta.sigla,
+              unitaNome: bozza.personalizzata ? bozza.unitaNome.trim() : "",
+              tipoQuantita: consegna.tipoQuantita,
+              note: "",
+            },
+          ],
+        })),
+      });
+      if (!res.success) {
+        setErrore(res.error);
+        return;
+      }
+      chiudiOperazione();
+      setCreaAperta(false);
+      setMessaggio(
+        res.riusata
+          ? "Operazione già registrata. Nessun secondo ordine."
+          : "Bozza salvata. Non è stata pubblicata e non è stata inviata al fornitore."
+      );
       ricarica();
     });
   }
@@ -1364,6 +1474,16 @@ export function CalendarioApprovvigionamento() {
           </select>
           <button
             type="button"
+            onClick={() => {
+              setErrore(null);
+              setCreaAperta(true);
+            }}
+            className="rounded-lg bg-emerald-700 px-4 py-2 text-sm font-semibold tracking-wide text-white"
+          >
+            CREA ORDINE MATERIA PRIMA
+          </button>
+          <button
+            type="button"
             onClick={() => setTest((corrente) => !corrente)}
             className={`rounded-lg border px-3 py-1.5 text-sm ${test ? "border-amber-700 bg-amber-100" : "border-slate-300"}`}
           >
@@ -1669,78 +1789,6 @@ export function CalendarioApprovvigionamento() {
         )}
       </section>
       <div className="space-y-3">
-        <PianificazioneApprovvigionamento
-          operazione={operazione}
-          giorno={giorno}
-          inizio={inizio}
-          fine={fine}
-          cadenza={cadenza}
-          ogniGiorni={ogniGiorni}
-          copiaQuantita={copiaQuantita}
-          tipoQuantita={tipoQuantita}
-          quantita={quantitaBase}
-          unitaSigla={unitaSigla}
-          unitaNome={unitaNome}
-          unitaPersonalizzata={unitaPersonalizzata}
-          materiaId={materiaId}
-          fornitoreId={fornitoreId}
-          note={note}
-          valoriQuantita={quantitaPerData}
-          dateScelte={dateScelte}
-          materie={materie}
-          fornitori={fornitori}
-          anteprima={anteprima}
-          pending={pending}
-          onOperazione={(valore) => {
-            setOperazione(valore);
-            setOrdineId(null);
-            chiudiOperazione();
-          }}
-          onGiorno={setGiorno}
-          onInizio={(valore) => {
-            setInizio(valore);
-            const mese = meseDaData(valore);
-            if (mese) setAncora(mese);
-          }}
-          onFine={setFine}
-          onCadenza={setCadenza}
-          onOgni={setOgniGiorni}
-          onCopia={setCopiaQuantita}
-          onTipo={setTipoQuantita}
-          onQuantita={setQuantitaBase}
-          onUnita={(valore) => {
-            setUnitaSigla(valore.sigla);
-            setUnitaNome(valore.nome);
-            setUnitaPersonalizzata(valore.personalizzata);
-          }}
-          onMateria={(valore) => {
-            setMateriaId(valore);
-            const catalogo = materie.find((voce) => voce.id === valore)?.unitaMisura ?? "";
-            const iniziale = unitaStandard(catalogo) ? catalogo : "";
-            setUnitaSigla(iniziale);
-            setUnitaNome("");
-            setUnitaPersonalizzata(false);
-            setRighe([
-              {
-                materiaPrimaId: valore,
-                quantita: quantitaBase,
-                unitaMisura: iniziale,
-                unitaNome: "",
-                personalizzata: false,
-                tipoQuantita,
-                note: "",
-              },
-            ]);
-            setFornitoreId("");
-          }}
-          onFornitore={setFornitoreId}
-          onNote={setNote}
-          onTogliData={(data) => setDateScelte((correnti) => correnti.filter((voce) => voce !== data))}
-          onQuantitaData={(data, valore) =>
-            setQuantitaPerData((correnti) => ({ ...correnti, [data]: valore }))
-          }
-          onSalva={salvaPianificazione}
-        />
         <Scheda
           giorno={giorno}
           ordini={delGiorno}
@@ -2108,6 +2156,17 @@ export function CalendarioApprovvigionamento() {
           </div>
         ) : null}
       </section>
+      {creaAperta ? (
+        <CreaOrdineMateriaPrimaModal
+          materie={materie}
+          fornitori={fornitori}
+          pending={pending}
+          prova={test}
+          errore={errore}
+          onClose={() => setCreaAperta(false)}
+          onSalva={salvaProcedura}
+        />
+      ) : null}
     </div>
   );
 }
@@ -2116,6 +2175,7 @@ function etichettaTipologia(tipologia: PianoCalendario["tipologia"]): string {
   if (tipologia === "mensile") return "Mensile";
   if (tipologia === "regolare") return "Ogni N giorni";
   if (tipologia === "personalizzata") return "Date scelte";
+  if (tipologia === "giorni_fissi") return "Giorni fissi della settimana";
   return "Settimanale";
 }
 

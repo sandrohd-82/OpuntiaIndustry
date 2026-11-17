@@ -62,7 +62,7 @@ export type PianoRicevuto = {
   pianoId: string;
   numero: number;
   codice: string;
-  tipologia: "settimanale" | "mensile" | "regolare" | "personalizzata";
+  tipologia: "settimanale" | "mensile" | "regolare" | "personalizzata" | "giorni_fissi";
   periodoInizio: string;
   periodoFine: string;
   ordini: {
@@ -78,6 +78,20 @@ export type PianoRicevuto = {
   etichetta: string;
   bozzaNonPubblicata: boolean;
 };
+
+function tipologiaVersionePortale(
+  valore: unknown
+): PianoRicevuto["tipologia"] {
+  if (
+    valore === "mensile" ||
+    valore === "regolare" ||
+    valore === "personalizzata" ||
+    valore === "giorni_fissi"
+  ) {
+    return valore;
+  }
+  return "settimanale";
+}
 
 async function fornitorePortale(): Promise<{ userId: string; fornitoreId: string } | Errore> {
   const { auth } = await requireAreaAccess("area-fornitori");
@@ -243,10 +257,7 @@ export async function listaOrdiniRicevutiAction(): Promise<
         pianoId: String(row.piano_id),
         numero: Number(row.numero),
         codice: String(row.codice),
-        tipologia:
-          row.tipologia === "mensile" || row.tipologia === "regolare" || row.tipologia === "personalizzata"
-            ? row.tipologia
-            : "settimanale",
+        tipologia: tipologiaVersionePortale(row.tipologia),
         periodoInizio: String(row.periodo_inizio),
         periodoFine: String(row.periodo_fine),
         ordini: ordini.map((voce) => {

@@ -1,0 +1,900 @@
+"use client";
+
+import { useEffect, useId, useRef, useState } from "react";
+import type { MateriaCalendario } from "@/app/actions/approvvigionamento";
+import { SelettoreUnita } from "@/components/produzione/SelettoreUnita";
+import {
+  aggiungiGiorni,
+  anteprimaConsegne,
+  giorniMese,
+  indiceGiornoSettimana,
+  lunediSettimana,
+  NOMI_GIORNO_SETTIMANA,
+  resocontoConAnteprima,
+  type ConsegnaAnteprima,
+  type FrequenzaProcedura,
+  type TipoQuantitaApprovvigionamento,
+} from "@/lib/produzione/approvvigionamento";
+import {
+  pdfPianificazione,
+  xlsxPianificazione,
+} from "@/lib/produzione/documento-pianificazione";
+import { etichettaMeseAnno, etichettaUnita } from "@/lib/produzione/unita-approvvigionamento";
+
+export type BozzaOrdineMateria = {
+  operazione: "singolo" | "pianificazione";
+  fornitoreId: string;
+  note: string;
+  materiaId: string;
+  unitaSigla: string;
+  unitaNome: string;
+  personalizzata: boolean;
+  tipoQuantita: TipoQuantitaApprovvigionamento;
+  inizio: string;
+  fine: string;
+  tipologia: "regolare" | "personalizzata" | "giorni_fissi";
+  ogniGiorni: number | null;
+  consegne: ConsegnaAnteprima[];
+};
+
+const PASSI = [
+  "Tipo",
+  "Dati",
+  "Frequenza",
+  "Anteprima",
+  "Riepilogo",
+] as const;
+
+const GIORNI_UI = [
+  { indice: 1, nome: "Lunedì" },
+  { indice: 2, nome: "Martedì" },
+  { indice: 3, nome: "Mercoledì" },
+  { indice: 4, nome: "Giovedì" },
+  { indice: 5, nome: "Venerdì" },
+  { indice: 6, nome: "Sabato" },
+  { indice: 0, nome: "Domenica" },
+];
+
+function oggiIso() {
+  const adesso = new Date();
+  const mese = String(adesso.getMonth() + 1).padStart(2, "0");
+  const giorno = String(adesso.getDate()).padStart(2, "0");
+  return `${adesso.getFullYear()}-${mese}-${giorno}`;
+}
+
+function numeroTesto(testo: string) {
+  const valore = Number(testo.replace(",", "."));
+  return Number.isFinite(valore) ? valore : Number.NaN;
+}
+
+function celleMese(ancora: string): string[] {
+  const primo = `${ancora.slice(0, 7)}-01`;
+  const inizio = lunediSettimana(primo);
+  const giorni = giorniMese(ancora.slice(0, 7));
+  const fine = giorni[giorni.length - 1] ?? primo;
+  const ultimo = aggiungiGiorni(lunediSettimana(fine), 6);
+  const celle: string[] = [];
+  for (let giorno = inizio; giorno <= ultimo; giorno = aggiungiGiorni(giorno, 1)) {
+    celle.push(giorno);
+    if (celle.length > 42) break;
+  }
+  return celle;
+}
+
+function nomeGiorno(iso: string) {
+  const nome = NOMI_GIORNO_SETTIMANA[indiceGiornoSettimana(iso)] ?? "";
+  return nome.charAt(0).toUpperCase() + nome.slice(1);
+}
+
+export function CreaOrdineMateriaPrimaModal(props: {
+  materie: MateriaCalendario[];
+  fornitori: { id: string; nome: string; targa: string }[];
+  pending: boolean;
+  prova: boolean;
+  errore: string | null;
+  onClose: () => void;
+  onSalva: (bozza: BozzaOrdineMateria) => void;
+}) {
+  const titoloId = useId();
+  const dialogo = useRef<HTMLDivElement>(null);
+  const oggi = oggiIso();
+  const [passo, setPasso] = useState(1);
+  const [toccata, setToccata] = useState(false);
+  const [chiediChiusura, setChiediChiusura] = useState(false);
+  const [erroreLocale, setErroreLocale] = useState<string | null>(null);
+  const [operazione, setOperazione] = useState<"" | "singolo" | "pianificazione">("");
+  const [fornitoreId, setFornitoreId] = useState("");
+  const [materiaId, setMateriaId] = useState("");
+  const [unitaSigla, setUnitaSigla] = useState("");
+  const [unitaNome, setUnitaNome] = useState("");
+  const [personalizzata, setPersonalizzata] = useState(false);
+  const [tipoQuantita, setTipoQuantita] = useState<TipoQuantitaApprovvigionamento>("precisa");
+  const [quantita, setQuantita] = useState("");
+  const [inizio, setInizio] = useState(oggi);
+  const [fine, setFine] = useState(aggiungiGiorni(oggi, 14));
+  const [note, setNote] = useState("");
+  const [frequenza, setFrequenza] = useState<FrequenzaProcedura>("ogni_n");
+  const [ogniGiorni, setOgniGiorni] = useState("3");
+  const [primaConsegna, setPrimaConsegna] = useState(oggi);
+  const [giorniConsentiti, setGiorniConsentiti] = useState<number[]>([0, 1, 2, 3, 4, 5, 6]);
+  const [dateScelte, setDateScelte] = useState<string[]>([]);
+  const [mese, setMese] = useState(oggi);
+  const [consegne, setConsegne] = useState<ConsegnaAnteprima[]>([]);
+  const [escluse, setEscluse] = useState<string[]>([]);
+  const [nuovaData, setNuovaData] = useState(oggi);
+
+  useEffect(() => {
+    dialogo.current?.focus();
+  }, []);
+
+  function tocca<T>(aggiorna: (valore: T) => void) {
+    return (valore: T) => {
+      setToccata(true);
+      setErroreLocale(null);
+      aggiorna(valore);
+    };
+  }
+
+  function calcola() {
+    return anteprimaConsegne({
+      operazione: operazione === "singolo" ? "singolo" : "pianificazione",
+      data: inizio,
+      inizio,
+      fine,
+      frequenza: operazione === "singolo" ? undefined : frequenza,
+      primaConsegna,
+      giorniConsentiti,
+      ogniGiorni: Number(ogniGiorni),
+      dateScelte,
+      quantita: numeroTesto(quantita),
+      copiaQuantita: true,
+      tipoQuantita,
+      unitaMisura: unitaSigla,
+    });
+  }
+
+  function valida(corrente: number): string | null {
+    if (corrente === 1 && operazione === "") return "Scegli ordine singolo o pianificazione.";
+    if (corrente === 2) {
+      if (!fornitoreId) return "Seleziona il fornitore.";
+      if (!materiaId) return "Seleziona la materia prima.";
+      if (!unitaSigla.trim()) return "Indica l'unità di misura.";
+      if (!(numeroTesto(quantita) > 0)) return "Indica una quantità maggiore di zero.";
+      if (!inizio) return "Indica la data iniziale.";
+      if (operazione === "pianificazione" && fine < inizio) {
+        return "La data fine precede la data inizio.";
+      }
+    }
+    if (corrente === 3 && operazione === "pianificazione") {
+      const gen = calcola();
+      if (!gen.ok) return gen.motivo;
+    }
+    if (corrente === 4) {
+      if (consegne.length === 0) return "Non ci sono consegne da registrare.";
+      const viste = new Set<string>();
+      for (const consegna of consegne) {
+        if (viste.has(consegna.data)) return `La data ${consegna.data} è ripetuta.`;
+        viste.add(consegna.data);
+        if (!(consegna.quantita > 0)) return `Indica la quantità del ${consegna.data}.`;
+        if (operazione === "pianificazione" && (consegna.data < inizio || consegna.data > fine)) {
+          return `La consegna del ${consegna.data} è fuori dal periodo.`;
+        }
+      }
+    }
+    return null;
+  }
+
+  function avanti() {
+    const motivo = valida(passo);
+    if (motivo) {
+      setErroreLocale(motivo);
+      return;
+    }
+    if (passo === 3) {
+      const gen = calcola();
+      if (!gen.ok) {
+        setErroreLocale(gen.motivo);
+        return;
+      }
+      setConsegne(gen.consegne);
+      setEscluse(gen.escluse);
+    }
+    setErroreLocale(null);
+    setPasso((corrente) => Math.min(5, corrente + 1));
+  }
+
+  function bozza(): BozzaOrdineMateria {
+    let tipologia: BozzaOrdineMateria["tipologia"] = "regolare";
+    if (frequenza === "giorni_fissi") tipologia = "giorni_fissi";
+    else if (frequenza === "manuale") tipologia = "personalizzata";
+    return {
+      operazione: operazione === "singolo" ? "singolo" : "pianificazione",
+      fornitoreId,
+      note,
+      materiaId,
+      unitaSigla,
+      unitaNome,
+      personalizzata,
+      tipoQuantita,
+      inizio,
+      fine: operazione === "singolo" ? inizio : fine,
+      tipologia,
+      ogniGiorni: tipologia === "regolare" ? Number(ogniGiorni) : null,
+      consegne,
+    };
+  }
+
+  function salva() {
+    const motivo = valida(4);
+    if (motivo) {
+      setErroreLocale(motivo);
+      return;
+    }
+    props.onSalva(bozza());
+  }
+
+  function chiudi() {
+    if (toccata) {
+      setChiediChiusura(true);
+      return;
+    }
+    props.onClose();
+  }
+
+  const materia = props.materie.find((voce) => voce.id === materiaId);
+  const fornitore = props.fornitori.find((voce) => voce.id === fornitoreId);
+  const unita = etichettaUnita(unitaSigla, personalizzata ? unitaNome : "");
+  const generazione = passo === 3 ? calcola() : null;
+  const escluseVisibili = generazione && generazione.ok ? generazione.escluse : escluse;
+  const resoconto = resocontoConAnteprima({
+    salvate: [],
+    anteprima: consegne.map((consegna) => ({
+      data: consegna.data,
+      materiaId: materiaId || "anteprima",
+      materia: materia ? `${materia.codice} ${materia.nome}` : "Materia",
+      unita: consegna.unitaMisura,
+      tipoQuantita: consegna.tipoQuantita,
+      quantita: consegna.quantita,
+    })),
+  });
+  const giorniConsentitiTesto = GIORNI_UI.filter((giorno) =>
+    giorniConsentiti.includes(giorno.indice)
+  )
+    .map((giorno) => giorno.nome)
+    .join(", ");
+  let regola = "Ordine singolo, una sola consegna.";
+  if (operazione === "pianificazione" && frequenza === "ogni_n") {
+    regola = `Ogni ${ogniGiorni} giorni di calendario, prima consegna ${primaConsegna}. Giorni consentiti: ${giorniConsentitiTesto}. Un giorno non consentito si salta e non si sposta.`;
+  } else if (operazione === "pianificazione" && frequenza === "giorni_fissi") {
+    regola = `Giorni fissi della settimana: ${giorniConsentitiTesto}.`;
+  } else if (operazione === "pianificazione") {
+    regola = "Date scelte direttamente sul calendario.";
+  }
+  const precise = consegne
+    .filter((consegna) => consegna.tipoQuantita === "precisa")
+    .reduce((totale, consegna) => totale + consegna.quantita, 0);
+  const stimate = consegne
+    .filter((consegna) => consegna.tipoQuantita === "stimata")
+    .reduce((totale, consegna) => totale + consegna.quantita, 0);
+
+  function alternaGiorno(indice: number) {
+    setToccata(true);
+    setGiorniConsentiti((correnti) =>
+      correnti.includes(indice)
+        ? correnti.filter((giorno) => giorno !== indice)
+        : [...correnti, indice]
+    );
+  }
+
+  function alternaData(iso: string) {
+    if (operazione !== "pianificazione" || frequenza !== "manuale") return;
+    if (iso < inizio || iso > fine) return;
+    setToccata(true);
+    setDateScelte((correnti) =>
+      correnti.includes(iso) ? correnti.filter((data) => data !== iso) : [...correnti, iso].sort()
+    );
+  }
+
+  function aggiornaConsegna(indice: number, patch: Partial<ConsegnaAnteprima>) {
+    setToccata(true);
+    setConsegne((correnti) =>
+      correnti.map((consegna, posizione) =>
+        posizione === indice ? { ...consegna, ...patch } : consegna
+      )
+    );
+  }
+
+  function copiaQuantita() {
+    const base = numeroTesto(quantita);
+    if (!(base > 0)) {
+      setErroreLocale("Indica prima la quantità da copiare.");
+      return;
+    }
+    setToccata(true);
+    setConsegne((correnti) => correnti.map((consegna) => ({ ...consegna, quantita: base })));
+  }
+
+  function aggiungiConsegna() {
+    if (!nuovaData) return;
+    if (operazione === "pianificazione" && (nuovaData < inizio || nuovaData > fine)) {
+      setErroreLocale("La nuova consegna è fuori dal periodo.");
+      return;
+    }
+    if (consegne.some((consegna) => consegna.data === nuovaData)) {
+      setErroreLocale("Questa data è già presente.");
+      return;
+    }
+    const base = numeroTesto(quantita);
+    setToccata(true);
+    setErroreLocale(null);
+    setConsegne((correnti) =>
+      [
+        ...correnti,
+        {
+          data: nuovaData,
+          quantita: base > 0 ? base : 0,
+          tipoQuantita,
+          unitaMisura: unitaSigla,
+        },
+      ].sort((a, b) => a.data.localeCompare(b.data))
+    );
+  }
+
+  function esporta(tipo: "pdf" | "xlsx") {
+    const documento = {
+      codice: props.prova ? "Anteprima di prova" : "Anteprima",
+      fornitore: fornitore?.nome ?? "Fornitore",
+      materia: materia ? `${materia.codice} ${materia.nome}` : "Materia",
+      unita,
+      periodoInizio: inizio,
+      periodoFine: operazione === "singolo" ? inizio : fine,
+      note: note || "Anteprima non salvata. Nessuna mail al fornitore.",
+      consegne: consegne.map((consegna) => ({
+        data: consegna.data,
+        quantita: consegna.quantita,
+        tipoQuantita: consegna.tipoQuantita,
+        stato: "prevista",
+        unita: consegna.unitaMisura,
+      })),
+    };
+    if (tipo === "pdf") {
+      scarica("anteprima-pianificazione.pdf", pdfPianificazione(documento), "application/pdf");
+      return;
+    }
+    void xlsxPianificazione(documento).then((bytes) =>
+      scarica(
+        "anteprima-pianificazione.xlsx",
+        bytes,
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+      )
+    );
+  }
+
+  const celle = celleMese(mese);
+  const errore = erroreLocale || props.errore;
+
+  return (
+    <div
+      className="fixed inset-0 z-[80] flex items-end justify-center bg-black/40 p-2 sm:items-center sm:p-4"
+      onMouseDown={(evento) => {
+        if (evento.target === evento.currentTarget) chiudi();
+      }}
+    >
+      <div
+        ref={dialogo}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={titoloId}
+        tabIndex={-1}
+        onKeyDown={(evento) => {
+          if (evento.key === "Escape") {
+            evento.preventDefault();
+            chiudi();
+          }
+        }}
+        className="flex max-h-[94vh] w-full max-w-6xl flex-col overflow-hidden rounded-2xl bg-white shadow-xl outline-none"
+      >
+        <div className="flex items-start justify-between gap-3 border-b border-slate-200 px-4 py-3">
+          <div>
+            <h2 id={titoloId} className="text-lg font-semibold text-slate-900">
+              Crea ordine materia prima
+            </h2>
+            <p className="text-sm text-slate-600">
+              Passaggio {passo} di 5 · {PASSI[passo - 1]}. Il salvataggio non invia email.
+            </p>
+          </div>
+          <button type="button" onClick={chiudi} className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm">
+            Chiudi
+          </button>
+        </div>
+        <ol className="flex gap-1 overflow-x-auto border-b border-slate-100 px-4 py-2 text-xs">
+          {PASSI.map((nome, indice) => (
+            <li
+              key={nome}
+              aria-current={passo === indice + 1 ? "step" : undefined}
+              className={`rounded-full px-3 py-1 ${passo === indice + 1 ? "bg-slate-900 text-white" : "bg-slate-100 text-slate-700"}`}
+            >
+              {indice + 1}. {nome}
+            </li>
+          ))}
+        </ol>
+        <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4">
+          {props.prova ? (
+            <p className="mb-3 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-950">
+              Modalità test: nessuna scrittura aziendale, nessun numero AP- o PP- e nessuna mail.
+            </p>
+          ) : null}
+          {passo === 1 ? (
+            <div className="grid gap-3 sm:grid-cols-2">
+              <button
+                type="button"
+                onClick={() => tocca(setOperazione)("singolo")}
+                className={`rounded-xl border px-4 py-6 text-left ${operazione === "singolo" ? "border-slate-900 bg-slate-900 text-white" : "border-slate-300"}`}
+              >
+                <span className="block text-base font-semibold">Ordine singolo</span>
+                <span className="mt-1 block text-sm opacity-80">Una sola consegna.</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => tocca(setOperazione)("pianificazione")}
+                className={`rounded-xl border px-4 py-6 text-left ${operazione === "pianificazione" ? "border-slate-900 bg-slate-900 text-white" : "border-slate-300"}`}
+              >
+                <span className="block text-base font-semibold">Pianificazione di consegne multiple</span>
+                <span className="mt-1 block text-sm opacity-80">Più date nello stesso periodo.</span>
+              </button>
+            </div>
+          ) : null}
+          {passo === 2 ? (
+            <div className="grid gap-3 md:grid-cols-2">
+              <label className="block text-sm">
+                Fornitore
+                <select
+                  value={fornitoreId}
+                  onChange={(evento) => tocca(setFornitoreId)(evento.target.value)}
+                  className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2"
+                >
+                  <option value="">Seleziona</option>
+                  {props.fornitori.map((voce) => (
+                    <option key={voce.id} value={voce.id}>
+                      {voce.nome}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="block text-sm">
+                Materia prima
+                <select
+                  value={materiaId}
+                  onChange={(evento) => {
+                    const id = evento.target.value;
+                    tocca(setMateriaId)(id);
+                    const catalogo = props.materie.find((voce) => voce.id === id)?.unitaMisura ?? "";
+                    setUnitaSigla(catalogo);
+                    setUnitaNome("");
+                    setPersonalizzata(false);
+                  }}
+                  className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2"
+                >
+                  <option value="">Seleziona</option>
+                  {props.materie.map((voce) => (
+                    <option key={voce.id} value={voce.id}>
+                      {voce.codice} · {voce.nome}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <SelettoreUnita
+                sigla={unitaSigla}
+                nome={unitaNome}
+                personalizzata={personalizzata}
+                onChange={(valore) => {
+                  setToccata(true);
+                  setUnitaSigla(valore.sigla);
+                  setUnitaNome(valore.nome);
+                  setPersonalizzata(valore.personalizzata);
+                }}
+              />
+              <label className="block text-sm">
+                Quantità
+                <input
+                  value={quantita}
+                  inputMode="decimal"
+                  onChange={(evento) => tocca(setQuantita)(evento.target.value)}
+                  className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2"
+                />
+              </label>
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  onClick={() => tocca(setTipoQuantita)("precisa")}
+                  className={`rounded-lg border px-3 py-2 text-sm ${tipoQuantita === "precisa" ? "border-slate-900 bg-slate-900 text-white" : "border-slate-300"}`}
+                >
+                  Precisa
+                </button>
+                <button
+                  type="button"
+                  onClick={() => tocca(setTipoQuantita)("stimata")}
+                  className={`rounded-lg border px-3 py-2 text-sm ${tipoQuantita === "stimata" ? "border-slate-900 bg-slate-900 text-white" : "border-slate-300"}`}
+                >
+                  Stimata
+                </button>
+              </div>
+              <label className="block text-sm">
+                Data iniziale
+                <input
+                  type="date"
+                  value={inizio}
+                  onChange={(evento) => tocca(setInizio)(evento.target.value)}
+                  className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2"
+                />
+              </label>
+              {operazione === "pianificazione" ? (
+                <label className="block text-sm">
+                  Data finale
+                  <input
+                    type="date"
+                    value={fine}
+                    onChange={(evento) => tocca(setFine)(evento.target.value)}
+                    className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2"
+                  />
+                </label>
+              ) : null}
+              <label className="block text-sm md:col-span-2">
+                Note
+                <textarea
+                  value={note}
+                  onChange={(evento) => tocca(setNote)(evento.target.value)}
+                  rows={3}
+                  className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2"
+                />
+              </label>
+            </div>
+          ) : null}
+          {passo === 3 ? (
+            <div className="space-y-3">
+              {operazione === "singolo" ? (
+                <p className="text-sm text-slate-700">
+                  L&apos;ordine singolo ha una sola consegna, il {inizio}. Non serve una frequenza.
+                </p>
+              ) : (
+                <>
+                  <div className="grid gap-2 sm:grid-cols-3">
+                    {(
+                      [
+                        ["ogni_n", "Ogni N giorni"],
+                        ["giorni_fissi", "Giorni fissi della settimana"],
+                        ["manuale", "Date manuali"],
+                      ] as const
+                    ).map(([valore, etichetta]) => (
+                      <button
+                        key={valore}
+                        type="button"
+                        onClick={() => tocca(setFrequenza)(valore)}
+                        className={`rounded-lg border px-3 py-2 text-sm ${frequenza === valore ? "border-slate-900 bg-slate-900 text-white" : "border-slate-300"}`}
+                      >
+                        {etichetta}
+                      </button>
+                    ))}
+                  </div>
+                  {frequenza === "ogni_n" ? (
+                    <div className="grid gap-3 md:grid-cols-2">
+                      <label className="block text-sm">
+                        Intervallo N
+                        <input
+                          value={ogniGiorni}
+                          inputMode="numeric"
+                          onChange={(evento) => tocca(setOgniGiorni)(evento.target.value)}
+                          className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2"
+                        />
+                      </label>
+                      <label className="block text-sm">
+                        Prima consegna
+                        <input
+                          type="date"
+                          value={primaConsegna}
+                          onChange={(evento) => tocca(setPrimaConsegna)(evento.target.value)}
+                          className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2"
+                        />
+                      </label>
+                      <p className="text-sm text-slate-600 md:col-span-2">
+                        N sono giorni di calendario. Se una ricorrenza cade in un giorno non
+                        consentito, viene saltata e la successiva resta sulla sequenza originale.
+                      </p>
+                    </div>
+                  ) : null}
+                  {frequenza !== "manuale" ? (
+                    <fieldset className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+                      <legend className="mb-1 text-sm font-medium">
+                        {frequenza === "ogni_n" ? "Giorni consentiti" : "Giorni della settimana"}
+                      </legend>
+                      {GIORNI_UI.map((giorno) => (
+                        <label key={giorno.indice} className="flex items-center gap-2 text-sm">
+                          <input
+                            type="checkbox"
+                            checked={giorniConsentiti.includes(giorno.indice)}
+                            onChange={() => alternaGiorno(giorno.indice)}
+                          />
+                          {giorno.nome}
+                        </label>
+                      ))}
+                    </fieldset>
+                  ) : (
+                    <p className="text-sm text-slate-600">
+                      Seleziona le date nel calendario. Restano modificabili nel passaggio successivo.
+                    </p>
+                  )}
+                  <CalendarioScelta
+                    mese={mese}
+                    celle={celle}
+                    inizio={inizio}
+                    fine={fine}
+                    scelte={dateScelte}
+                    previste={generazione && generazione.ok ? generazione.consegne.map((voce) => voce.data) : []}
+                    escluse={escluseVisibili}
+                    manuale={frequenza === "manuale"}
+                    onMese={setMese}
+                    onGiorno={alternaData}
+                  />
+                  {escluseVisibili.length > 0 ? (
+                    <p className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-950">
+                      Date escluse, non spostate: {escluseVisibili.join(", ")}.
+                    </p>
+                  ) : null}
+                </>
+              )}
+            </div>
+          ) : null}
+          {passo === 4 ? (
+            <div className="space-y-3">
+              <div className="flex flex-wrap gap-2">
+                <button type="button" onClick={copiaQuantita} className="rounded-lg border border-slate-300 px-3 py-2 text-sm">
+                  Copia quantità su tutte le date
+                </button>
+                <label className="flex items-center gap-2 text-sm">
+                  Aggiungi consegna
+                  <input
+                    type="date"
+                    value={nuovaData}
+                    onChange={(evento) => setNuovaData(evento.target.value)}
+                    className="rounded-lg border border-slate-300 px-2 py-1"
+                  />
+                </label>
+                <button type="button" onClick={aggiungiConsegna} className="rounded-lg border border-slate-300 px-3 py-2 text-sm">
+                  Aggiungi
+                </button>
+              </div>
+              <CalendarioScelta
+                mese={mese}
+                celle={celle}
+                inizio={operazione === "singolo" ? inizio : inizio}
+                fine={operazione === "singolo" ? inizio : fine}
+                scelte={[]}
+                previste={consegne.map((voce) => voce.data)}
+                escluse={escluse}
+                manuale={false}
+                onMese={setMese}
+                onGiorno={() => undefined}
+              />
+              <ul className="space-y-2">
+                {consegne.map((consegna, indice) => (
+                  <li key={`${consegna.data}-${indice}`} className="grid items-end gap-2 rounded-lg border border-slate-200 p-2 sm:grid-cols-[9rem_8rem_1fr_7rem_7rem_auto]">
+                    <label className="text-xs">
+                      Data
+                      <input
+                        type="date"
+                        value={consegna.data}
+                        onChange={(evento) => aggiornaConsegna(indice, { data: evento.target.value })}
+                        className="mt-1 w-full rounded border border-slate-300 px-2 py-1 text-sm"
+                      />
+                    </label>
+                    <span className="text-sm">{nomeGiorno(consegna.data)}</span>
+                    <span className="text-sm">{materia ? materia.nome : "Materia"}</span>
+                    <label className="text-xs">
+                      Quantità
+                      <input
+                        value={String(consegna.quantita)}
+                        inputMode="decimal"
+                        onChange={(evento) =>
+                          aggiornaConsegna(indice, { quantita: numeroTesto(evento.target.value) })
+                        }
+                        className="mt-1 w-full rounded border border-slate-300 px-2 py-1 text-sm"
+                      />
+                    </label>
+                    <span className="text-sm">
+                      {unita} · {consegna.tipoQuantita}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setToccata(true);
+                        setConsegne((correnti) => correnti.filter((_, posizione) => posizione !== indice));
+                      }}
+                      className="rounded border border-slate-300 px-2 py-1 text-xs"
+                    >
+                      Rimuovi
+                    </button>
+                  </li>
+                ))}
+              </ul>
+              <div className="rounded-lg border border-slate-200 p-3 text-sm">
+                <p className="font-medium">Resoconto non salvato</p>
+                {resoconto.gruppi.length === 0 ? (
+                  <p className="mt-1 text-slate-600">Nessuna consegna in anteprima.</p>
+                ) : (
+                  resoconto.gruppi.map((gruppo) => (
+                    <p key={`${gruppo.materiaId}|${gruppo.unita}`} className="mt-1">
+                      {gruppo.materia} · {gruppo.consegneAnteprima} consegne · precisa {gruppo.precisaAnteprima} {gruppo.unita} · stimata {gruppo.stimataAnteprima} {gruppo.unita}. Non è un ordine ufficiale.
+                    </p>
+                  ))
+                )}
+              </div>
+            </div>
+          ) : null}
+          {passo === 5 ? (
+            <div className="space-y-3 text-sm">
+              <p><span className="font-medium">Fornitore.</span> {fornitore?.nome ?? "—"}</p>
+              <p><span className="font-medium">Materia prima.</span> {materia ? `${materia.codice} ${materia.nome}` : "—"}</p>
+              <p>
+                <span className="font-medium">Periodo.</span> {inizio}
+                {operazione === "pianificazione" ? ` → ${fine}` : ""}
+              </p>
+              <p><span className="font-medium">Frequenza.</span> {regola}</p>
+              <p><span className="font-medium">Giorni consentiti.</span> {operazione === "singolo" ? "Non applicabile" : giorniConsentitiTesto || "—"}</p>
+              <p><span className="font-medium">Consegne.</span> {consegne.length}</p>
+              <p>
+                <span className="font-medium">Quantità precise.</span> {precise} {unita}
+              </p>
+              <p>
+                <span className="font-medium">Quantità stimate.</span> {stimate} {unita}
+              </p>
+              <ul className="max-h-48 space-y-1 overflow-y-auto rounded-lg border border-slate-200 p-2">
+                {consegne.map((consegna) => (
+                  <li key={consegna.data}>
+                    {consegna.data} · {nomeGiorno(consegna.data)} · {consegna.quantita} {unita} · {consegna.tipoQuantita}
+                  </li>
+                ))}
+              </ul>
+              <div className="flex flex-wrap gap-2">
+                <button type="button" onClick={() => esporta("pdf")} className="rounded-lg border border-slate-300 px-3 py-2">
+                  Esporta PDF
+                </button>
+                <button type="button" onClick={() => esporta("xlsx")} className="rounded-lg border border-slate-300 px-3 py-2">
+                  Esporta Excel
+                </button>
+              </div>
+              <p className="text-slate-600">
+                Salva bozza e Conferma registrano la pianificazione senza pubblicarla e senza scrivere al fornitore.
+              </p>
+            </div>
+          ) : null}
+          {errore ? (
+            <p className="mt-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">{errore}</p>
+          ) : null}
+          {chiediChiusura ? (
+            <div className="mt-3 rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm">
+              <p>Ci sono modifiche non salvate. Chiudere la procedura?</p>
+              <div className="mt-2 flex gap-2">
+                <button type="button" onClick={() => setChiediChiusura(false)} className="rounded-lg border border-slate-300 px-3 py-1.5">
+                  Continua
+                </button>
+                <button type="button" onClick={props.onClose} className="rounded-lg bg-slate-900 px-3 py-1.5 text-white">
+                  Chiudi senza salvare
+                </button>
+              </div>
+            </div>
+          ) : null}
+        </div>
+        <div className="flex flex-wrap justify-between gap-2 border-t border-slate-200 px-4 py-3">
+          <button
+            type="button"
+            disabled={passo === 1 || props.pending}
+            onClick={() => setPasso((corrente) => Math.max(1, corrente - 1))}
+            className="rounded-lg border border-slate-300 px-4 py-2 text-sm disabled:opacity-50"
+          >
+            Indietro
+          </button>
+          <div className="flex flex-wrap gap-2">
+            <button type="button" onClick={chiudi} className="rounded-lg border border-slate-300 px-4 py-2 text-sm">
+              Annulla
+            </button>
+            {passo < 5 ? (
+              <button type="button" onClick={avanti} className="rounded-lg bg-slate-900 px-4 py-2 text-sm font-semibold text-white">
+                Avanti
+              </button>
+            ) : (
+              <>
+                <button
+                  type="button"
+                  disabled={props.pending}
+                  onClick={salva}
+                  className="rounded-lg border border-slate-900 px-4 py-2 text-sm font-medium disabled:opacity-60"
+                >
+                  Salva bozza
+                </button>
+                <button
+                  type="button"
+                  disabled={props.pending}
+                  onClick={salva}
+                  className="rounded-lg bg-emerald-700 px-4 py-2 text-sm font-semibold text-white disabled:opacity-60"
+                >
+                  {props.pending ? "Salvo…" : "Conferma pianificazione"}
+                </button>
+              </>
+            )}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function scarica(nome: string, bytes: Uint8Array, mime: string) {
+  const binary = bytes.reduce((testo, byte) => testo + String.fromCharCode(byte), "");
+  const href = `data:${mime};base64,${btoa(binary)}`;
+  const link = document.createElement("a");
+  link.href = href;
+  link.download = nome;
+  link.click();
+}
+
+function CalendarioScelta(props: {
+  mese: string;
+  celle: string[];
+  inizio: string;
+  fine: string;
+  scelte: string[];
+  previste: string[];
+  escluse: string[];
+  manuale: boolean;
+  onMese: (iso: string) => void;
+  onGiorno: (iso: string) => void;
+}) {
+  return (
+    <div>
+      <div className="mb-2 flex items-center justify-between">
+        <button
+          type="button"
+          onClick={() => props.onMese(aggiungiGiorni(`${props.mese.slice(0, 7)}-01`, -1))}
+          className="rounded border border-slate-300 px-2 py-1 text-xs"
+        >
+          Mese precedente
+        </button>
+        <p className="text-sm font-medium">{etichettaMeseAnno(props.mese)}</p>
+        <button
+          type="button"
+          onClick={() => props.onMese(aggiungiGiorni(`${props.mese.slice(0, 7)}-15`, 20))}
+          className="rounded border border-slate-300 px-2 py-1 text-xs"
+        >
+          Mese successivo
+        </button>
+      </div>
+      <div className="grid grid-cols-7 gap-1 text-center text-[11px] text-slate-500">
+        {["Lun", "Mar", "Mer", "Gio", "Ven", "Sab", "Dom"].map((nome) => (
+          <span key={nome}>{nome}</span>
+        ))}
+      </div>
+      <div className="mt-1 grid grid-cols-7 gap-1">
+        {props.celle.map((iso) => {
+          const nelPeriodo = iso >= props.inizio && iso <= props.fine;
+          const prevista = props.previste.includes(iso) || props.scelte.includes(iso);
+          const esclusa = props.escluse.includes(iso);
+          let classe = "border-slate-200 bg-white text-slate-700";
+          if (nelPeriodo) classe = "border-sky-200 bg-sky-50 text-slate-800";
+          if (esclusa) classe = "border-amber-300 bg-amber-100 text-amber-900 line-through";
+          if (prevista) classe = "border-emerald-800 bg-emerald-700 text-white";
+          return (
+            <button
+              key={iso}
+              type="button"
+              disabled={!props.manuale}
+              onClick={() => props.onGiorno(iso)}
+              className={`min-h-10 rounded border text-xs ${classe} ${iso.slice(0, 7) === props.mese.slice(0, 7) ? "" : "opacity-40"}`}
+            >
+              {Number(iso.slice(8))}
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
