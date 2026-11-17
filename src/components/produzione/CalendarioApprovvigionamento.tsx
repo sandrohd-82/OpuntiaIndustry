@@ -11,22 +11,32 @@ import {
   pubblicaOrdineApprovvigionamentoAction,
   pubblicaPianoApprovvigionamentoAction,
   recuperaNotificaApprovvigionamentoAction,
+  resocontoApprovvigionamentoAction,
   salvaApprovvigionamentiAction,
   type MateriaCalendario,
   type OrdineCalendario,
   type PianoCalendario,
 } from "@/app/actions/approvvigionamento";
+import { PianificazioneApprovvigionamento } from "@/components/produzione/PianificazioneApprovvigionamento";
 import {
   aggiungiGiorni,
-  classificaProgrammazione,
-  quadriApprovvigionamento,
+  anteprimaConsegne,
   giorniMese,
+  quadriApprovvigionamento,
   giorniSettimana,
   lunediSettimana,
+  type TipoQuantitaApprovvigionamento,
+  type VoceRiepilogo,
 } from "@/lib/produzione/approvvigionamento";
 
 type Vista = "mese" | "settimana" | "giorno";
-type RigaForm = { materiaPrimaId: string; quantita: string; note: string };
+type Operazione = "" | "singolo" | "pianificazione";
+type RigaForm = {
+  materiaPrimaId: string;
+  quantita: string;
+  tipoQuantita: TipoQuantitaApprovvigionamento;
+  note: string;
+};
 
 const FERIE = ["Lun", "Mar", "Mer", "Gio", "Ven", "Sab", "Dom"];
 
@@ -73,7 +83,12 @@ function celleMese(ancora: string): string[] {
 }
 
 function vuotaRiga(): RigaForm {
-  return { materiaPrimaId: "", quantita: "", note: "" };
+  return { materiaPrimaId: "", quantita: "", tipoQuantita: "precisa", note: "" };
+}
+
+function numeroTesto(testo: string): number {
+  const valore = Number(testo.replace(",", "."));
+  return Number.isFinite(valore) ? valore : Number.NaN;
 }
 
 function testoPiani(piani: { codice: string }[]) {
@@ -100,7 +115,23 @@ export function CalendarioApprovvigionamento() {
   const [righe, setRighe] = useState<RigaForm[]>([vuotaRiga()]);
   const [dataCopia, setDataCopia] = useState(oggi);
   const [settimanaDestinazione, setSettimanaDestinazione] = useState(oggi);
-  const [piano, setPiano] = useState<string[]>([oggi]);
+  const [operazione, setOperazione] = useState<Operazione>("");
+  const [inizio, setInizio] = useState(oggi);
+  const [fine, setFine] = useState(oggi);
+  const [cadenza, setCadenza] = useState<"regolare" | "personalizzata">("regolare");
+  const [ogniGiorni, setOgniGiorni] = useState("2");
+  const [copiaQuantita, setCopiaQuantita] = useState(true);
+  const [tipoQuantita, setTipoQuantita] = useState<TipoQuantitaApprovvigionamento>("precisa");
+  const [quantitaBase, setQuantitaBase] = useState("");
+  const [materiaId, setMateriaId] = useState("");
+  const [dateScelte, setDateScelte] = useState<string[]>([]);
+  const [quantitaPerData, setQuantitaPerData] = useState<Record<string, string>>({});
+  const [filtroFornitore, setFiltroFornitore] = useState("");
+  const [filtroMateria, setFiltroMateria] = useState("");
+  const [filtroStato, setFiltroStato] = useState("");
+  const [filtroPiano, setFiltroPiano] = useState("");
+  const [vociRiepilogo, setVociRiepilogo] = useState<VoceRiepilogo[]>([]);
+  const [consegneRiepilogo, setConsegneRiepilogo] = useState(0);
   const [errore, setErrore] = useState<string | null>(null);
   const [messaggio, setMessaggio] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
@@ -203,6 +234,7 @@ export function CalendarioApprovvigionamento() {
       ordine.righe.map((riga) => ({
         materiaPrimaId: riga.materiaPrimaId,
         quantita: String(riga.quantita),
+        tipoQuantita: riga.tipoQuantita,
         note: riga.note,
       }))
     );
@@ -218,6 +250,7 @@ export function CalendarioApprovvigionamento() {
           materiaPrimaId: riga.materiaPrimaId,
           quantita: Number(riga.quantita.replace(",", ".")),
           unitaMisura: materia?.unitaMisura ?? "",
+          tipoQuantita: riga.tipoQuantita,
           note: riga.note,
         };
       });
@@ -277,6 +310,7 @@ export function CalendarioApprovvigionamento() {
               materiaPrimaId: riga.materiaPrimaId,
               quantita: riga.quantita,
               unitaMisura: riga.unitaMisura,
+              tipoQuantita: riga.tipoQuantita,
               note: riga.note,
             })),
           },
@@ -326,6 +360,7 @@ export function CalendarioApprovvigionamento() {
             materiaPrimaId: riga.materiaPrimaId,
             quantita: riga.quantita,
             unitaMisura: riga.unitaMisura,
+            tipoQuantita: riga.tipoQuantita,
             note: riga.note,
           })),
         })),
@@ -344,28 +379,47 @@ export function CalendarioApprovvigionamento() {
     });
   }
 
-  function programmaMese() {
-    const date = [...new Set(piano)].sort();
-    const classe = classificaProgrammazione(date);
-    const righePayload = payloadRighe();
-    if (classe.tipo === "errore") {
-      setErrore(classe.motivo);
+  function salvaPianificazione() {
+    if (!anteprima || !anteprima.ok) {
+      setErrore(anteprima && !anteprima.ok ? anteprima.motivo : "Completa l'operazione.");
       return;
     }
-    if (date.length > 31) {
-      setErrore("Il piano deve contenere da 1 a 31 giorni.");
+    if (operazione === "") return;
+    const materia = materie.find((voce) => voce.id === materiaId);
+    if (!materia?.unitaMisura) {
+      setErrore("La materia prima non ha un'unità di misura in catalogo.");
       return;
     }
     setErrore(null);
+    setMessaggio(null);
+    const meta =
+      operazione === "pianificazione"
+        ? {
+            tipologia: cadenza,
+            cadenzaGiorni: cadenza === "regolare" ? Number(ogniGiorni) : null,
+            tipoQuantita,
+            periodoInizio: inizio,
+            periodoFine: fine,
+          }
+        : undefined;
     startTransition(async () => {
       const res = await salvaApprovvigionamentiAction({
         chiave: chiaveStabile(),
-        tipo: classe.tipo,
-        ordini: date.map((dataConsegna) => ({
+        tipo: operazione === "pianificazione" ? "pianificazione" : "crea",
+        ordini: anteprima.consegne.map((consegna) => ({
           fornitoreId,
-          dataConsegna,
+          dataConsegna: consegna.data,
           note,
-          righe: righePayload,
+          pianificazione: meta,
+          righe: [
+            {
+              materiaPrimaId: materiaId,
+              quantita: consegna.quantita,
+              unitaMisura: materia.unitaMisura ?? "",
+              tipoQuantita: consegna.tipoQuantita,
+              note: "",
+            },
+          ],
         })),
       });
       if (!res.success) {
@@ -375,9 +429,10 @@ export function CalendarioApprovvigionamento() {
       chiudiOperazione();
       setMessaggio(
         res.riusata
-          ? "Piano già registrato."
-          : `Create ${res.ordini.length} bozze. ${testoPiani(res.piani)}`
+          ? "Operazione già registrata. Nessun secondo ordine."
+          : "Bozza salvata. Non è stata pubblicata e non è stata inviata al fornitore."
       );
+      setQuantitaPerData({});
       ricarica();
     });
   }
@@ -472,8 +527,88 @@ export function CalendarioApprovvigionamento() {
     });
   }
 
+  const quantitaOverride = useMemo(() => {
+    const valori: Record<string, number> = {};
+    for (const [data, testo] of Object.entries(quantitaPerData)) {
+      const valore = numeroTesto(testo);
+      if (testo.trim() !== "" && Number.isFinite(valore)) valori[data] = valore;
+    }
+    return valori;
+  }, [quantitaPerData]);
+
+  const anteprima = useMemo(() => {
+    if (operazione === "") return null;
+    const materia = materie.find((voce) => voce.id === materiaId);
+    return anteprimaConsegne({
+      operazione,
+      data: giorno,
+      inizio,
+      fine,
+      cadenza,
+      ogniGiorni: Number(ogniGiorni),
+      dateScelte,
+      quantita: numeroTesto(quantitaBase),
+      copiaQuantita,
+      quantitaPerData: quantitaOverride,
+      tipoQuantita,
+      unitaMisura: materia?.unitaMisura ?? "",
+    });
+  }, [
+    operazione,
+    giorno,
+    inizio,
+    fine,
+    cadenza,
+    ogniGiorni,
+    dateScelte,
+    quantitaBase,
+    copiaQuantita,
+    quantitaOverride,
+    tipoQuantita,
+    materiaId,
+    materie,
+  ]);
+
+  const dateAnteprima = new Set(anteprima && anteprima.ok ? anteprima.consegne.map((voce) => voce.data) : []);
+  const ordiniFiltrati = ordini.filter((ordine) => {
+    if (filtroFornitore && ordine.fornitoreId !== filtroFornitore) return false;
+    if (filtroStato && ordine.stato !== filtroStato) return false;
+    if (filtroPiano && ordine.pianoId !== filtroPiano) return false;
+    if (filtroMateria && !ordine.righe.some((riga) => riga.materiaPrimaId === filtroMateria)) return false;
+    return true;
+  });
+  const chiaveResoconto = `${ordiniFiltrati.map((ordine) => ordine.id).join(",")}|${filtroMateria}`;
+
+  useEffect(() => {
+    let attivo = true;
+    void resocontoApprovvigionamentoAction({
+      ordineIds: ordiniFiltrati.map((ordine) => ordine.id),
+      materiaId: filtroMateria || undefined,
+    }).then((res) => {
+      if (!attivo || !res.success) return;
+      setConsegneRiepilogo(res.consegne);
+      setVociRiepilogo(res.voci);
+    });
+    return () => {
+      attivo = false;
+    };
+    // Il riepilogo segue gli ordini filtrati del periodo aperto.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [chiaveResoconto]);
+
+  function clicGiorno(iso: string) {
+    if (operazione === "pianificazione" && cadenza === "personalizzata" && iso >= inizio && iso <= fine) {
+      setDateScelte((correnti) =>
+        correnti.includes(iso) ? correnti.filter((data) => data !== iso) : [...correnti, iso].sort()
+      );
+      setGiorno(iso);
+      return;
+    }
+    apriGiorno(iso);
+  }
+
   const celle = vista === "mese" ? celleMese(ancora) : giorniSettimana(ancora);
-  const delGiorno = ordini.filter((ordine) => ordine.dataConsegna === giorno);
+  const delGiorno = ordiniFiltrati.filter((ordine) => ordine.dataConsegna === giorno);
 
   return (
     <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_22rem]">
@@ -526,6 +661,71 @@ export function CalendarioApprovvigionamento() {
           </button>
           <p className="text-sm text-slate-600">{etichettaGiorno(ancora)}</p>
         </div>
+        <div className="mb-3 grid gap-2 md:grid-cols-4">
+          <select
+            value={filtroFornitore}
+            onChange={(event) => setFiltroFornitore(event.target.value)}
+            className="rounded-lg border border-slate-300 px-2 py-2 text-sm"
+          >
+            <option value="">Tutti i fornitori</option>
+            {[...new Map(ordini.map((ordine) => [ordine.fornitoreId, ordine.fornitore])).entries()].map(
+              ([id, nome]) => (
+                <option key={id} value={id}>
+                  {nome}
+                </option>
+              )
+            )}
+          </select>
+          <select
+            value={filtroMateria}
+            onChange={(event) => setFiltroMateria(event.target.value)}
+            className="rounded-lg border border-slate-300 px-2 py-2 text-sm"
+          >
+            <option value="">Tutte le materie</option>
+            {materie.map((voce) => (
+              <option key={voce.id} value={voce.id}>
+                {voce.codice}
+              </option>
+            ))}
+          </select>
+          <select
+            value={filtroStato}
+            onChange={(event) => setFiltroStato(event.target.value)}
+            className="rounded-lg border border-slate-300 px-2 py-2 text-sm"
+          >
+            <option value="">Tutti gli stati</option>
+            <option value="bozza">Bozza</option>
+            <option value="pubblicato">Pubblicato</option>
+            <option value="da_ripubblicare">Revisione da pubblicare</option>
+          </select>
+          <select
+            value={filtroPiano}
+            onChange={(event) => setFiltroPiano(event.target.value)}
+            className="rounded-lg border border-slate-300 px-2 py-2 text-sm"
+          >
+            <option value="">Tutte le pianificazioni</option>
+            {piani.map((pianoVoce) => (
+              <option key={pianoVoce.id} value={pianoVoce.id}>
+                {pianoVoce.codice}
+              </option>
+            ))}
+          </select>
+        </div>
+        <div className="mb-3 rounded-lg border border-slate-200 p-2">
+          <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+            Resoconto · {consegneRiepilogo} consegne
+          </p>
+          <ul className="mt-2 grid gap-1 text-sm md:grid-cols-2">
+            {vociRiepilogo.map((voce) => (
+              <li key={voce.chiave}>
+                {voce.etichetta}:{" "}
+                {voce.disponibile
+                  ? `${voce.valore ?? 0}${voce.unita ? ` ${voce.unita}` : ""}`
+                  : `non disponibile. ${voce.motivo ?? ""}`}
+              </li>
+            ))}
+          </ul>
+        </div>
         {vista !== "giorno" ? (
           <div className="grid grid-cols-7 gap-1">
             {FERIE.map((nome) => (
@@ -534,13 +734,14 @@ export function CalendarioApprovvigionamento() {
               </div>
             ))}
             {(vista === "mese" ? celle : giorniSettimana(ancora)).map((iso) => {
-              const voci = ordini.filter((ordine) => ordine.dataConsegna === iso);
+              const voci = ordiniFiltrati.filter((ordine) => ordine.dataConsegna === iso);
               const fuoriMese = vista === "mese" && iso.slice(0, 7) !== ancora.slice(0, 7);
+              const prevista = dateAnteprima.has(iso);
               return (
                 <button
                   key={iso}
                   type="button"
-                  onClick={() => apriGiorno(iso)}
+                  onClick={() => clicGiorno(iso)}
                   className={`min-h-24 rounded-lg border p-1 text-left ${iso === giorno ? "border-slate-900" : "border-slate-200"} ${fuoriMese ? "bg-slate-50 text-slate-400" : "bg-white"}`}
                 >
                   <span className="text-xs font-medium">{Number(iso.slice(8))}</span>
@@ -555,6 +756,9 @@ export function CalendarioApprovvigionamento() {
                     ))}
                     {voci.length > 3 ? (
                       <li className="text-[11px] text-slate-500">+{voci.length - 3}</li>
+                    ) : null}
+                    {prevista ? (
+                      <li className="truncate rounded bg-sky-50 px-1 text-[11px] text-sky-950">Anteprima</li>
                     ) : null}
                   </ul>
                 </button>
@@ -577,7 +781,9 @@ export function CalendarioApprovvigionamento() {
                     Revisione {ordine.revisione}
                     {ordine.pianoCodice ? ` · ${ordine.pianoCodice}` : ""}
                     {" · "}
-                    {ordine.righe.map((riga) => `${riga.nome} ${riga.quantita} ${riga.unitaMisura}`).join(", ")}
+                    {ordine.righe
+                      .map((riga) => `${riga.nome} ${riga.quantita} ${riga.unitaMisura} ${riga.tipoQuantita}`)
+                      .join(", ")}
                   </p>
                   <div className="mt-2 flex flex-wrap gap-2">
                     <button
@@ -605,42 +811,86 @@ export function CalendarioApprovvigionamento() {
           </ul>
         )}
       </section>
-      <Scheda
-        giorno={giorno}
-        ordini={delGiorno}
-        materie={materie}
-        fornitori={fornitori}
-        ordineId={ordineId}
-        fornitoreId={fornitoreId}
-        note={note}
-        righe={righe}
-        dataCopia={dataCopia}
-        settimanaDestinazione={settimanaDestinazione}
-        piano={piano}
-        pending={pending}
-        errore={errore}
-        messaggio={messaggio}
-        mancaUnita={mancaUnita()}
-        onGiorno={setGiorno}
-        onFornitore={setFornitoreId}
-        onNote={setNote}
-        onRighe={setRighe}
-        onDataCopia={setDataCopia}
-        onSettimana={setSettimanaDestinazione}
-        onPiano={setPiano}
-        onSalva={salva}
-        onCopia={copiaOrdine}
-        onCopiaSettimana={copiaSettimanaCorrente}
-        onMese={programmaMese}
-        onCompila={compila}
-        onNuova={() => {
-          setOrdineId(null);
-          setRevisione(1);
-          setNote("");
-          setRighe([vuotaRiga()]);
-          chiudiOperazione();
-        }}
-      />
+      <div className="space-y-3">
+        <PianificazioneApprovvigionamento
+          operazione={operazione}
+          giorno={giorno}
+          inizio={inizio}
+          fine={fine}
+          cadenza={cadenza}
+          ogniGiorni={ogniGiorni}
+          copiaQuantita={copiaQuantita}
+          tipoQuantita={tipoQuantita}
+          quantita={quantitaBase}
+          materiaId={materiaId}
+          fornitoreId={fornitoreId}
+          note={note}
+          valoriQuantita={quantitaPerData}
+          dateScelte={dateScelte}
+          materie={materie}
+          fornitori={fornitori}
+          anteprima={anteprima}
+          pending={pending}
+          onOperazione={(valore) => {
+            setOperazione(valore);
+            setOrdineId(null);
+            chiudiOperazione();
+          }}
+          onGiorno={setGiorno}
+          onInizio={setInizio}
+          onFine={setFine}
+          onCadenza={setCadenza}
+          onOgni={setOgniGiorni}
+          onCopia={setCopiaQuantita}
+          onTipo={setTipoQuantita}
+          onQuantita={setQuantitaBase}
+          onMateria={(valore) => {
+            setMateriaId(valore);
+            setRighe([{ materiaPrimaId: valore, quantita: quantitaBase, tipoQuantita, note: "" }]);
+            setFornitoreId("");
+          }}
+          onFornitore={setFornitoreId}
+          onNote={setNote}
+          onTogliData={(data) => setDateScelte((correnti) => correnti.filter((voce) => voce !== data))}
+          onQuantitaData={(data, valore) =>
+            setQuantitaPerData((correnti) => ({ ...correnti, [data]: valore }))
+          }
+          onSalva={salvaPianificazione}
+        />
+        <Scheda
+          giorno={giorno}
+          ordini={delGiorno}
+          materie={materie}
+          fornitori={fornitori}
+          ordineId={ordineId}
+          fornitoreId={fornitoreId}
+          note={note}
+          righe={righe}
+          dataCopia={dataCopia}
+          settimanaDestinazione={settimanaDestinazione}
+          pending={pending}
+          errore={errore}
+          messaggio={messaggio}
+          mancaUnita={mancaUnita()}
+          onGiorno={setGiorno}
+          onFornitore={setFornitoreId}
+          onNote={setNote}
+          onRighe={setRighe}
+          onDataCopia={setDataCopia}
+          onSettimana={setSettimanaDestinazione}
+          onSalva={salva}
+          onCopia={copiaOrdine}
+          onCopiaSettimana={copiaSettimanaCorrente}
+          onCompila={compila}
+          onNuova={() => {
+            setOrdineId(null);
+            setRevisione(1);
+            setNote("");
+            setRighe([vuotaRiga()]);
+            chiudiOperazione();
+          }}
+        />
+      </div>
       <section className="rounded-xl border border-[var(--border)] bg-white p-3 xl:col-span-2">
         <h2 className="text-sm font-semibold text-slate-800">Piani del periodo</h2>
         {piani.length === 0 ? (
@@ -793,7 +1043,6 @@ function Scheda(props: {
   righe: RigaForm[];
   dataCopia: string;
   settimanaDestinazione: string;
-  piano: string[];
   pending: boolean;
   errore: string | null;
   messaggio: string | null;
@@ -804,11 +1053,9 @@ function Scheda(props: {
   onRighe: (valore: RigaForm[]) => void;
   onDataCopia: (valore: string) => void;
   onSettimana: (valore: string) => void;
-  onPiano: (valore: string[]) => void;
   onSalva: () => void;
   onCopia: (ordine: OrdineCalendario) => void;
   onCopiaSettimana: () => void;
-  onMese: () => void;
   onCompila: (ordine: OrdineCalendario) => void;
   onNuova: () => void;
 }) {
@@ -822,6 +1069,8 @@ function Scheda(props: {
       </div>
       {props.messaggio ? <p className="mb-2 text-sm text-emerald-800">{props.messaggio}</p> : null}
       {props.errore ? <p className="mb-2 text-sm text-red-700">{props.errore}</p> : null}
+      {props.ordineId ? (
+      <>
       <label className="mb-2 block text-sm">
         Data di consegna
         <input
@@ -868,6 +1117,19 @@ function Scheda(props: {
                 <span className="self-center text-sm text-slate-600">
                   {materia?.unitaMisura ?? "senza unità"}
                 </span>
+                <select
+                  value={riga.tipoQuantita}
+                  onChange={(event) => {
+                    const copia = [...props.righe];
+                    const tipo = event.target.value === "stimata" ? "stimata" : "precisa";
+                    copia[indice] = { ...riga, tipoQuantita: tipo };
+                    props.onRighe(copia);
+                  }}
+                  className="rounded-lg border border-slate-300 px-2 py-2 text-sm"
+                >
+                  <option value="precisa">Precisa</option>
+                  <option value="stimata">Stimata</option>
+                </select>
               </div>
             </div>
           );
@@ -915,55 +1177,18 @@ function Scheda(props: {
       </label>
       <button
         type="button"
-        disabled={props.pending || props.mancaUnita || !props.fornitoreId}
+        disabled={props.pending || props.mancaUnita || !props.fornitoreId || !props.ordineId}
         onClick={props.onSalva}
         className="mt-3 w-full rounded-lg bg-slate-900 px-3 py-2 text-sm font-medium text-white disabled:opacity-60"
       >
-        {props.ordineId ? "Salva modifica" : "Crea bozza"}
+        Salva modifica
       </button>
-      <div className="mt-3 rounded-lg border border-slate-200 p-2">
-        <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-          Piano su più giorni
+      </>
+      ) : (
+        <p className="text-sm text-slate-600">
+          Seleziona un ordine già salvato per modificarlo. Una bozza non viene pubblicata da sola.
         </p>
-        <div className="mt-2 flex flex-wrap gap-2">
-          <button
-            type="button"
-            onClick={() =>
-              props.onPiano(
-                props.piano.includes(props.giorno)
-                  ? props.piano
-                  : [...props.piano, props.giorno].sort()
-              )
-            }
-            className="rounded-lg border border-slate-300 px-2 py-1 text-sm"
-          >
-            Aggiungi questo giorno
-          </button>
-          <button
-            type="button"
-            onClick={() => props.onPiano(giorniMese(props.giorno.slice(0, 7)))}
-            className="rounded-lg border border-slate-300 px-2 py-1 text-sm"
-          >
-            Tutto il mese
-          </button>
-          <button
-            type="button"
-            onClick={() => props.onPiano([])}
-            className="rounded-lg border border-slate-300 px-2 py-1 text-sm"
-          >
-            Svuota
-          </button>
-        </div>
-        <p className="mt-2 text-sm text-slate-600">{props.piano.length} giorni selezionati</p>
-        <button
-          type="button"
-          disabled={props.pending || props.mancaUnita || !props.fornitoreId || props.piano.length === 0}
-          onClick={props.onMese}
-          className="mt-2 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm disabled:opacity-60"
-        >
-          Crea le bozze del piano
-        </button>
-      </div>
+      )}
       <div className="mt-4 border-t border-slate-200 pt-3">
         <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">Copie</p>
         <label className="block text-sm">

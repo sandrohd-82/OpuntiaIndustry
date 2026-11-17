@@ -11,8 +11,11 @@ import {
   ruoloVersionePortale,
   copiaOrdineSuData,
   copiaSettimana,
+  anteprimaConsegne,
+  dateRegolari,
   dateUniche,
   fornitoreAssegnabile,
+  riepilogoApprovvigionamento,
   giorniMese,
   giorniSettimana,
   puoGestireApprovvigionamento,
@@ -301,5 +304,162 @@ assert.match(coerenza, /approvvigionamenti_segnali_portale/);
 assert.equal(coerenza.includes("haccp_fogli_ingresso"), false);
 assert.equal(/drop table/i.test(coerenza), false);
 assert.equal(coerenza.includes("o.note"), false);
+
+assert.deepEqual(dateRegolari("2026-11-01", "2026-11-07", 2), [
+  "2026-11-01",
+  "2026-11-03",
+  "2026-11-05",
+  "2026-11-07",
+]);
+const singolo = anteprimaConsegne({
+  operazione: "singolo",
+  data: "2026-11-17",
+  quantita: 4,
+  copiaQuantita: true,
+  tipoQuantita: "precisa",
+  unitaMisura: "kg",
+});
+assert.equal(singolo.ok, true);
+if (singolo.ok) assert.equal(singolo.consegne.length, 1);
+
+const regolare = anteprimaConsegne({
+  operazione: "pianificazione",
+  inizio: "2026-11-01",
+  fine: "2026-11-07",
+  cadenza: "regolare",
+  ogniGiorni: 2,
+  quantita: 3,
+  copiaQuantita: true,
+  quantitaPerData: { "2026-11-05": 8 },
+  tipoQuantita: "stimata",
+  unitaMisura: "kg",
+});
+assert.equal(regolare.ok, true);
+if (regolare.ok) {
+  assert.deepEqual(
+    regolare.consegne.map((voce) => [voce.data, voce.quantita, voce.tipoQuantita]),
+    [
+      ["2026-11-01", 3, "stimata"],
+      ["2026-11-03", 3, "stimata"],
+      ["2026-11-05", 8, "stimata"],
+      ["2026-11-07", 3, "stimata"],
+    ]
+  );
+}
+
+const manuale = anteprimaConsegne({
+  operazione: "pianificazione",
+  inizio: "2026-11-01",
+  fine: "2026-11-10",
+  cadenza: "personalizzata",
+  dateScelte: ["2026-11-02", "2026-11-02", "2026-11-20", "2026-11-09"],
+  quantita: 1,
+  copiaQuantita: false,
+  quantitaPerData: { "2026-11-02": 2, "2026-11-09": 5 },
+  tipoQuantita: "precisa",
+  unitaMisura: "kg",
+});
+assert.equal(manuale.ok, true);
+if (manuale.ok) {
+  assert.deepEqual(
+    manuale.consegne.map((voce) => [voce.data, voce.quantita]),
+    [
+      ["2026-11-02", 2],
+      ["2026-11-09", 5],
+    ]
+  );
+}
+assert.equal(
+  anteprimaConsegne({
+    operazione: "pianificazione",
+    inizio: "2026-11-01",
+    fine: "2026-11-03",
+    cadenza: "personalizzata",
+    dateScelte: ["2026-11-02"],
+    quantita: 1,
+    copiaQuantita: false,
+    tipoQuantita: "precisa",
+    unitaMisura: "kg",
+  }).ok,
+  false
+);
+
+const misto = riepilogoApprovvigionamento({
+  righe: [
+    {
+      ordineId: A,
+      unita: "kg",
+      tipoQuantita: "precisa",
+      pianificata: 2,
+      ordinata: 2,
+      confermata: 2,
+      arrivata: 2,
+      arrivataMancante: false,
+      accettata: 1,
+      respinta: 0,
+      scaricata: 0,
+      lottiCollegati: true,
+      unitaLottoDiversa: false,
+    },
+    {
+      ordineId: B,
+      unita: "g",
+      tipoQuantita: "stimata",
+      pianificata: 100,
+      ordinata: null,
+      confermata: null,
+      arrivata: null,
+      arrivataMancante: false,
+      accettata: null,
+      respinta: null,
+      scaricata: null,
+      lottiCollegati: false,
+      unitaLottoDiversa: false,
+    },
+  ],
+  giacenza: null,
+  motivoGiacenza: "Seleziona una materia.",
+});
+assert.equal(misto.consegne, 2);
+assert.equal(misto.voci.every((voce) => voce.disponibile === false), true);
+
+const chiaro = riepilogoApprovvigionamento({
+  righe: [
+    {
+      ordineId: A,
+      unita: "kg",
+      tipoQuantita: "precisa",
+      pianificata: 4,
+      ordinata: 4,
+      confermata: 4,
+      arrivata: null,
+      arrivataMancante: true,
+      accettata: null,
+      respinta: null,
+      scaricata: null,
+      lottiCollegati: false,
+      unitaLottoDiversa: false,
+    },
+  ],
+  giacenza: { quantita: 9, unita: "kg" },
+  motivoGiacenza: null,
+});
+assert.equal(chiaro.voci.find((voce) => voce.chiave === "pianificata_precisa")?.valore, 4);
+assert.equal(chiaro.voci.find((voce) => voce.chiave === "pianificata_stimata")?.valore, 0);
+assert.equal(chiaro.voci.find((voce) => voce.chiave === "arrivata")?.disponibile, false);
+assert.equal(chiaro.voci.find((voce) => voce.chiave === "accettata")?.motivo, "Nessun lotto LM- collegato a queste consegne.");
+assert.equal(chiaro.voci.find((voce) => voce.chiave === "giacenza")?.valore, 9);
+
+const pianificazione = readFileSync(
+  new URL(
+    "../../../supabase/migrations/20261117120000_approvvigionamenti_pianificazione.sql",
+    import.meta.url
+  ),
+  "utf8"
+);
+assert.match(pianificazione, /pianificazione/);
+assert.match(pianificazione, /tipo_quantita/);
+assert.equal(pianificazione.includes("approvvigionamenti_notifiche"), false);
+assert.equal(/create table public\.approvvigionamenti_ordini/i.test(pianificazione), false);
 
 console.log("approvvigionamento: ok");

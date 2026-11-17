@@ -4,7 +4,12 @@ import { z } from "zod";
 import { writeAuditLog } from "@/lib/audit";
 import { requireAreaAccess } from "@/lib/areas/guard";
 import { unitaMateriaPrimaValida } from "@/lib/amministrazione/materie-prime";
-import { presaCheCopreVersione } from "@/lib/produzione/approvvigionamento";
+import {
+  presaCheCopreVersione,
+  riepilogoApprovvigionamento,
+  type RigaRiepilogoApprovvigionamento,
+  type VoceRiepilogo,
+} from "@/lib/produzione/approvvigionamento";
 import { bilancioVersione } from "@/lib/produzione/carichi";
 import { primoIndirizzoEmail } from "@/lib/produzione/haccp-versioni";
 import { eseguiNotificaDistribuzione } from "@/lib/produzione/notifica-distribuzione-invio";
@@ -18,6 +23,7 @@ const rigaSchema = z.object({
   materiaPrimaId: uuidSchema,
   quantita: z.number().positive().max(1_000_000),
   unitaMisura: z.string().trim().refine(unitaMateriaPrimaValida, "Unità non prevista."),
+  tipoQuantita: z.enum(["precisa", "stimata"]).optional().default("precisa"),
   note: z.string().trim().max(500).optional().default(""),
 });
 
@@ -27,6 +33,15 @@ const ordineSchema = z.object({
   note: z.string().trim().max(2000).optional().default(""),
   origineOrdineId: uuidSchema.nullable().optional(),
   righe: z.array(rigaSchema).min(1).max(40),
+  pianificazione: z
+    .object({
+      tipologia: z.enum(["regolare", "personalizzata"]),
+      cadenzaGiorni: z.number().int().positive().nullable(),
+      tipoQuantita: z.enum(["precisa", "stimata"]),
+      periodoInizio: giornoSchema,
+      periodoFine: giornoSchema,
+    })
+    .optional(),
 });
 
 type Errore = { success: false; error: string };
@@ -74,6 +89,7 @@ export type OrdineCalendario = {
     nome: string;
     quantita: number;
     unitaMisura: string;
+    tipoQuantita: "precisa" | "stimata";
     note: string;
   }[];
 };
@@ -85,7 +101,7 @@ export type PianoCalendario = {
   fornitore: string;
   periodoInizio: string;
   periodoFine: string;
-  tipologia: "settimanale" | "mensile";
+  tipologia: "settimanale" | "mensile" | "regolare" | "personalizzata";
   stato: "bozza" | "pubblicato" | "da_ripubblicare";
   versionePubblicata: number | null;
   versioneId: string | null;
@@ -145,6 +161,11 @@ function bilancioDi(
 function statoCarico(valore: unknown): "aperto" | "parziale" | "arrivato" {
   if (valore === "arrivato" || valore === "parziale") return valore;
   return "aperto";
+}
+
+function tipologiaPiano(valore: unknown): PianoCalendario["tipologia"] {
+  if (valore === "mensile" || valore === "regolare" || valore === "personalizzata") return valore;
+  return "settimanale";
 }
 
 function statoOrdine(valore: unknown): "bozza" | "pubblicato" | "da_ripubblicare" {
@@ -273,7 +294,7 @@ export async function listaOrdiniApprovvigionamentoAction(input: {
     ids.length
       ? supabase
           .from("approvvigionamenti_righe")
-          .select("id, ordine_id, materia_prima_id, quantita, unita_misura, note, sort_order")
+          .select("id, ordine_id, materia_prima_id, quantita, unita_misura, tipo_quantita, note, sort_order")
           .in("ordine_id", ids)
           .is("deleted_at", null)
           .order("sort_order", { ascending: true })
@@ -386,6 +407,7 @@ export async function listaOrdiniApprovvigionamentoAction(input: {
       nome: materia?.nome ?? "Materia prima",
       quantita: Number(row.quantita),
       unitaMisura: String(row.unita_misura),
+      tipoQuantita: row.tipo_quantita === "stimata" ? "stimata" : "precisa",
       note: String(row.note ?? ""),
     });
     righePerOrdine.set(ordineId, lista);
@@ -618,7 +640,7 @@ export async function listaPianiApprovvigionamentoAction(input: {
         fornitore: nomi.get(String(row.fornitore_id)) ?? "Fornitore",
         periodoInizio: String(row.periodo_inizio),
         periodoFine: String(row.periodo_fine),
-        tipologia: row.tipologia === "mensile" ? "mensile" : "settimanale",
+        tipologia: tipologiaPiano(row.tipologia),
         stato: statoOrdine(row.stato),
         versionePubblicata: row.versione_pubblicata == null ? null : Number(row.versione_pubblicata),
         versioneId,
@@ -644,7 +666,7 @@ export async function salvaApprovvigionamentiAction(raw: unknown): Promise<
   const parsed = z
     .object({
       chiave: chiaveSchema,
-      tipo: z.enum(["crea", "copia", "settimana", "piano"]),
+      tipo: z.enum(["crea", "copia", "settimana", "piano", "pianificazione"]),
       ordini: z.array(ordineSchema).min(1).max(200),
     })
     .safeParse(raw);
@@ -976,4 +998,201 @@ export async function differenzeOrdineApprovvigionamentoAction(
       }),
     }),
   };
+}
+
+export async function resocontoApprovvigionamentoAction(input: {
+  ordineIds: string[];
+  materiaId?: string;
+}): Promise<{ success: true; consegne: number; voci: VoceRiepilogo[] } | Errore> {
+  await richiedi();
+  const ids = [...new Set(input.ordineIds.filter((id) => uuidSchema.safeParse(id).success))].slice(0, 200);
+  const materiaFiltro = input.materiaId && uuidSchema.safeParse(input.materiaId).success ? input.materiaId : "";
+  if (!ids.length) {
+    return {
+      success: true,
+      ...riepilogoApprovvigionamento({
+        righe: [],
+        giacenza: null,
+        motivoGiacenza: "Nessuna consegna nel filtro.",
+      }),
+    };
+  }
+  const supabase = await createClient();
+  const { data: ordini, error } = await supabase
+    .from("approvvigionamenti_ordini")
+    .select("id, versione_pubblicata")
+    .in("id", ids)
+    .is("deleted_at", null);
+  if (error) return { success: false, error: "Resoconto non disponibile." };
+  const { data: righe } = await supabase
+    .from("approvvigionamenti_righe")
+    .select("ordine_id, materia_prima_id, quantita, unita_misura, tipo_quantita")
+    .in("ordine_id", ids)
+    .is("deleted_at", null);
+  const materieIds = [
+    ...new Set(
+      (righe ?? [])
+        .map((riga) => String(riga.materia_prima_id))
+        .filter((id) => !materiaFiltro || id === materiaFiltro)
+    ),
+  ];
+  const { data: materie } = materieIds.length
+    ? await supabase.from("materie_prime").select("id, codice").in("id", materieIds)
+    : { data: [] };
+  const codiceMateria = new Map((materie ?? []).map((row) => [String(row.id), String(row.codice)]));
+  const pubblicati = (ordini ?? []).filter((row) => row.versione_pubblicata != null);
+  const { data: versioni } = pubblicati.length
+    ? await supabase
+        .from("approvvigionamenti_versioni")
+        .select("id, ordine_id, numero, righe")
+        .in(
+          "ordine_id",
+          pubblicati.map((row) => String(row.id))
+        )
+    : { data: [] };
+  const versioneCorrente = new Map<string, { id: string; righe: unknown[] }>();
+  for (const versione of versioni ?? []) {
+    const ordine = pubblicati.find((row) => String(row.id) === String(versione.ordine_id));
+    if (ordine && Number(versione.numero) === Number(ordine.versione_pubblicata)) {
+      versioneCorrente.set(String(versione.ordine_id), {
+        id: String(versione.id),
+        righe: Array.isArray(versione.righe) ? versione.righe : [],
+      });
+    }
+  }
+  const versioneIds = [...versioneCorrente.values()].map((voce) => voce.id);
+  const { data: risposte } = versioneIds.length
+    ? await supabase
+        .from("approvvigionamenti_risposte_fornitore")
+        .select("versione_id, tipo, stato, righe")
+        .in("versione_id", versioneIds)
+        .eq("stato", "accettata")
+        .is("deleted_at", null)
+    : { data: [] };
+  const rispostaPerVersione = new Map(
+    (risposte ?? []).map((row) => [
+      String(row.versione_id),
+      {
+        tipo: String(row.tipo),
+        righe: Array.isArray(row.righe) ? row.righe : [],
+      },
+    ])
+  );
+  const { data: carichi } = await supabase
+    .from("approvvigionamenti_carichi")
+    .select("id, ordine_id")
+    .in("ordine_id", ids)
+    .is("deleted_at", null);
+  const caricoIds = (carichi ?? []).map((row) => String(row.id));
+  const ordineDelCarico = new Map((carichi ?? []).map((row) => [String(row.id), String(row.ordine_id)]));
+  const { data: righeCarico } = caricoIds.length
+    ? await supabase
+        .from("approvvigionamenti_carichi_righe")
+        .select("id, carico_id, materia_prima_id, quantita_arrivata, unita_misura")
+        .in("carico_id", caricoIds)
+    : { data: [] };
+  const { data: lotti } = (righeCarico ?? []).length
+    ? await supabase
+        .from("magazzino_mp_lotti")
+        .select("id, carico_riga_id, unita, materia_prima_id")
+        .in(
+          "carico_riga_id",
+          (righeCarico ?? []).map((row) => String(row.id))
+        )
+        .is("deleted_at", null)
+    : { data: [] };
+  const lottoIds = (lotti ?? []).map((row) => String(row.id));
+  const { data: conti } = lottoIds.length
+    ? await supabase
+        .from("magazzino_mp_lotto_quantita")
+        .select(
+          "lotto_id, quantita_disponibile, quantita_bloccata, quantita_respinta, quantita_consumata_uscita"
+        )
+        .in("lotto_id", lottoIds)
+    : { data: [] };
+  const contoPerLotto = new Map((conti ?? []).map((row) => [String(row.lotto_id), row]));
+  const lottiPerRiga = new Map<string, typeof lotti>();
+  for (const lotto of lotti ?? []) {
+    const chiave = String(lotto.carico_riga_id);
+    const lista = lottiPerRiga.get(chiave) ?? [];
+    lista.push(lotto);
+    lottiPerRiga.set(chiave, lista);
+  }
+  const fatti: RigaRiepilogoApprovvigionamento[] = [];
+  for (const riga of righe ?? []) {
+    const materiaId = String(riga.materia_prima_id);
+    if (materiaFiltro && materiaId !== materiaFiltro) continue;
+    const ordineId = String(riga.ordine_id);
+    const unita = String(riga.unita_misura);
+    const codice = codiceMateria.get(materiaId) ?? "";
+    const versione = versioneCorrente.get(ordineId);
+    const pubblicata = (versione?.righe ?? []).find((voce) => {
+      const rigaVersione = voce as { materiaPrimaId?: string; unitaMisura?: string };
+      return String(rigaVersione.materiaPrimaId ?? "") === materiaId && String(rigaVersione.unitaMisura ?? "") === unita;
+    }) as { quantita?: number } | undefined;
+    const ordinata = versione ? Number(pubblicata?.quantita ?? 0) : 0;
+    const risposta = versione ? rispostaPerVersione.get(versione.id) : undefined;
+    let confermata = 0;
+    if (risposta) {
+      const proposte = risposta.righe.filter((voce) => {
+        const proposta = voce as { codice?: string; unitaMisura?: string };
+        return String(proposta.codice ?? "") === codice && String(proposta.unitaMisura ?? "") === unita;
+      }) as { quantita?: number }[];
+      if (proposte.length) {
+        confermata = proposte.reduce((totale, proposta) => totale + Number(proposta.quantita ?? 0), 0);
+      } else if (risposta.tipo === "conferma" && risposta.righe.length === 0) {
+        confermata = ordinata;
+      }
+    }
+    const arrivi = (righeCarico ?? []).filter(
+      (carico) => ordineDelCarico.get(String(carico.carico_id)) === ordineId && String(carico.materia_prima_id) === materiaId
+    );
+    const arrivataMancante = arrivi.some((carico) => carico.quantita_arrivata == null);
+    const arrivata = arrivi.reduce((totale, carico) => totale + Number(carico.quantita_arrivata ?? 0), 0);
+    const lottiRiga = arrivi.flatMap((carico) => lottiPerRiga.get(String(carico.id)) ?? []);
+    const unitaLottoDiversa = lottiRiga.some((lotto) => String(lotto.unita) !== unita);
+    let accettata = 0;
+    let respinta = 0;
+    let scaricata = 0;
+    for (const lotto of lottiRiga) {
+      const conto = contoPerLotto.get(String(lotto.id));
+      accettata += Number(conto?.quantita_disponibile ?? 0) + Number(conto?.quantita_bloccata ?? 0) + Number(conto?.quantita_consumata_uscita ?? 0);
+      respinta += Number(conto?.quantita_respinta ?? 0);
+      scaricata += Number(conto?.quantita_consumata_uscita ?? 0);
+    }
+    fatti.push({
+      ordineId,
+      unita,
+      tipoQuantita: riga.tipo_quantita === "stimata" ? "stimata" : "precisa",
+      pianificata: Number(riga.quantita),
+      ordinata,
+      confermata,
+      arrivata,
+      arrivataMancante,
+      accettata,
+      respinta,
+      scaricata,
+      lottiCollegati: lottiRiga.length > 0,
+      unitaLottoDiversa,
+    });
+  }
+  let giacenza: { quantita: number; unita: string } | null = null;
+  let motivoGiacenza: string | null = null;
+  if (materieIds.length !== 1) {
+    motivoGiacenza = "Seleziona una materia: la giacenza è del catalogo e non si somma tra materie.";
+  } else {
+    const { data: saldo } = await supabase
+      .from("magazzino_giacenze")
+      .select("quantita_kg, unita")
+      .eq("catalog_kind", "materia_prima")
+      .eq("prodotto_id", materieIds[0])
+      .is("deleted_at", null)
+      .maybeSingle();
+    if (!saldo) {
+      motivoGiacenza = "Nessuna giacenza registrata per questa materia.";
+    } else {
+      giacenza = { quantita: Number(saldo.quantita_kg), unita: String(saldo.unita) };
+    }
+  }
+  return { success: true, ...riepilogoApprovvigionamento({ righe: fatti, giacenza, motivoGiacenza }) };
 }
