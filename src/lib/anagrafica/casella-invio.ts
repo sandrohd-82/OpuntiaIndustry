@@ -37,6 +37,7 @@ export async function inviaDaCasellaAnagrafica(input: {
   to: string;
   subject: string;
   text: string;
+  soloSmtp?: boolean;
 }): Promise<{ messageId: string | null }> {
   const account = await casellaInvioAnagrafica();
   if (!account) throw new Error(ERRORE_CASELLA_ANAGRAFICA);
@@ -52,6 +53,7 @@ export async function inviaDaCasellaAnagrafica(input: {
     text: input.text,
     html,
     fromName: "Agrinsicilia",
+    soloSmtp: input.soloSmtp,
   });
   return { messageId: inviata.messageId };
 }

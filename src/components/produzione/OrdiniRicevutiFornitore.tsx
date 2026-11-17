@@ -3,16 +3,44 @@
 import { useMemo, useRef, useState, useTransition } from "react";
 import {
   confermaPresaVisioneApprovvigionamentoAction,
+  registraPropostaPianoAction,
   registraRispostaFornitoreAction,
   type PianoRicevuto,
   type VersioneRicevuta,
 } from "@/app/actions/approvvigionamento-portale";
+import { RevisionePianoPannello } from "@/components/produzione/RevisionePianoPannello";
+import type { ConsegnaUfficiale } from "@/lib/produzione/revisione-piano";
 import { giorniMese, versioneAccettabile } from "@/lib/produzione/approvvigionamento";
 import {
   pdfPianificazione,
   xlsxPianificazione,
   type DocumentoPianificazione,
 } from "@/lib/produzione/documento-pianificazione";
+
+function consegneRicevute(
+  piano: PianoRicevuto,
+  ordini: readonly VersioneRicevuta[]
+): ConsegnaUfficiale[] {
+  return piano.ordini.flatMap((voce) => {
+    if (voce.annullata) return [];
+    const dettaglio = ordini.find((ordine) => ordine.id === voce.versioneId);
+    const riga = dettaglio?.righe[0];
+    if (!riga?.materiaPrimaId) return [];
+    return [
+      {
+        id: voce.ordineId,
+        codice: voce.codice,
+        materiaId: riga.materiaPrimaId,
+        materia: `${riga.codice} ${riga.nome}`,
+        unita: riga.unitaMisura,
+        unitaCatalogo: riga.unitaMisura,
+        tipoQuantita: riga.tipoQuantita,
+        data: voce.dataConsegna,
+        quantita: riga.quantita,
+      },
+    ];
+  });
+}
 
 function documentoPiano(
   fornitore: string,
@@ -288,6 +316,34 @@ export function OrdiniRicevutiFornitore(props: {
                 Esporta Excel
               </button>
             </div>
+            {pianoAperto.ruolo === "corrente" ? (
+              <RevisionePianoPannello
+                consegne={consegneRicevute(pianoAperto, props.ordini)}
+                pending={pending}
+                onProponi={(input) => {
+                  if (!chiave.current) chiave.current = crypto.randomUUID();
+                  startTransition(async () => {
+                    const res = await registraPropostaPianoAction({
+                      chiave: chiave.current,
+                      pianoId: pianoAperto.pianoId,
+                      versioneId: pianoAperto.id,
+                      codice: pianoAperto.codice,
+                      motivazione: input.motivazione,
+                      ufficiali: consegneRicevute(pianoAperto, props.ordini),
+                      bozza: input.bozza,
+                    });
+                    if (!res.success) {
+                      setErrore(res.error);
+                      return;
+                    }
+                    chiave.current = null;
+                    setMessaggio(
+                      "Revisione inviata. La versione pubblicata e gli ordini ufficiali restano invariati."
+                    );
+                  });
+                }}
+              />
+            ) : null}
             <button
               type="button"
               disabled={pending}

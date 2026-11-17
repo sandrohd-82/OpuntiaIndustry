@@ -6,6 +6,13 @@ import { requireAreaAccess } from "@/lib/areas/guard";
 import { eUtenteInternoHaccp } from "@/lib/produzione/fornitore-accesso";
 import { soggettoAccessoFornitore } from "@/lib/produzione/fornitore-accesso-server";
 import { validaRispostaFornitore } from "@/lib/produzione/risposta-fornitore";
+import {
+  costruisciRevisionePiano,
+  decidiVoceRevisione,
+  type BozzaConsegna,
+  type ConsegnaUfficiale,
+  type PropostaRevisione,
+} from "@/lib/produzione/revisione-piano";
 import { risolviAccessoMaterialeIngresso } from "@/lib/produzione/fornitore-accesso";
 import {
   etichettaVersionePortale,
@@ -26,6 +33,7 @@ export type VersioneRicevuta = {
   dataConsegna: string;
   note: string;
   righe: {
+    materiaPrimaId: string;
     codice: string;
     nome: string;
     quantita: number;
@@ -51,6 +59,7 @@ export type VersioneRicevuta = {
 
 export type PianoRicevuto = {
   id: string;
+  pianoId: string;
   numero: number;
   codice: string;
   tipologia: "settimanale" | "mensile" | "regolare" | "personalizzata";
@@ -183,6 +192,7 @@ export async function listaOrdiniRicevutiAction(): Promise<
         note: String(row.note ?? ""),
         righe: righe.map((riga) => {
           const voce = riga as {
+            materiaPrimaId?: string;
             codice?: string;
             nome?: string;
             quantita?: number;
@@ -191,6 +201,7 @@ export async function listaOrdiniRicevutiAction(): Promise<
             note?: string;
           };
           return {
+            materiaPrimaId: String(voce.materiaPrimaId ?? ""),
             codice: String(voce.codice ?? ""),
             nome: String(voce.nome ?? ""),
             quantita: Number(voce.quantita ?? 0),
@@ -229,6 +240,7 @@ export async function listaOrdiniRicevutiAction(): Promise<
       const ordini = Array.isArray(row.ordini) ? row.ordini : [];
       return {
         id: String(row.id),
+        pianoId: String(row.piano_id),
         numero: Number(row.numero),
         codice: String(row.codice),
         tipologia:
@@ -458,4 +470,154 @@ export async function decidiRispostaFornitoreAction(raw: unknown): Promise<
     payload: { nota: parsed.data.nota, riusata: Boolean(corpo.riusata) },
   });
   return { success: true, riusata: Boolean(corpo.riusata) };
+}
+
+const consegnaUfficialeSchema = z.object({
+  id: z.string().uuid(),
+  codice: z.string().trim().max(40),
+  materiaId: z.string().uuid(),
+  materia: z.string().trim().max(200),
+  unita: z.string().trim().max(16),
+  unitaCatalogo: z.string().trim().max(16).nullable(),
+  tipoQuantita: z.enum(["precisa", "stimata"]),
+  data: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  quantita: z.number().positive().max(1_000_000),
+});
+
+const bozzaConsegnaSchema = consegnaUfficialeSchema.omit({ id: true }).extend({
+  consegnaId: z.string().uuid().nullable(),
+  elimina: z.boolean(),
+});
+
+export async function registraPropostaPianoAction(raw: unknown): Promise<
+  { success: true; id: string; riusata: boolean; proposta: PropostaRevisione } | Errore
+> {
+  const parsed = z
+    .object({
+      chiave: z.string().trim().min(8).max(80),
+      pianoId: uuidSchema,
+      versioneId: uuidSchema.nullable(),
+      codice: z.string().trim().min(1).max(40),
+      motivazione: z.string().trim().max(500),
+      ufficiali: z.array(consegnaUfficialeSchema).max(200),
+      bozza: z.array(bozzaConsegnaSchema).max(200),
+    })
+    .safeParse(raw);
+  if (!parsed.success) return { success: false, error: "Revisione non valida." };
+  const costruita = costruisciRevisionePiano({
+    ufficiali: parsed.data.ufficiali as ConsegnaUfficiale[],
+    bozza: parsed.data.bozza as BozzaConsegna[],
+    motivazione: parsed.data.motivazione,
+  });
+  if (!costruita.ok) return { success: false, error: costruita.motivo };
+  const accesso = await fornitorePortale();
+  if ("success" in accesso) return accesso;
+  const supabase = await createClient();
+  const { data, error } = await supabase.rpc("registra_proposta_piano", {
+    p_chiave: parsed.data.chiave,
+    p_piano_id: parsed.data.pianoId,
+    p_versione_id: parsed.data.versioneId,
+    p_codice: parsed.data.codice,
+    p_motivazione: costruita.motivazione,
+    p_voci: costruita.voci,
+  });
+  if (error) return { success: false, error: "Revisione non registrata." };
+  const corpo = (data ?? {}) as { id?: string; riusata?: boolean };
+  const id = String(corpo.id ?? "");
+  if (!id) return { success: false, error: "Revisione non registrata." };
+  await writeAuditLog({
+    entity_type: "approvvigionamenti_proposte_piano",
+    entity_id: id,
+    action: "proposta",
+    actor_id: accesso.userId,
+    summary: "Revisione della pianificazione registrata. Gli ordini ufficiali non sono stati modificati.",
+    payload: { riusata: Boolean(corpo.riusata), voci: costruita.voci.length },
+  });
+  return {
+    success: true,
+    id,
+    riusata: Boolean(corpo.riusata),
+    proposta: {
+      id,
+      pianoId: parsed.data.pianoId,
+      codice: parsed.data.codice,
+      motivazione: costruita.motivazione,
+      voci: costruita.voci,
+    },
+  };
+}
+
+export async function listaPropostePianoAction(pianoId: string): Promise<
+  { success: true; proposte: PropostaRevisione[] } | Errore
+> {
+  if (!z.string().uuid().safeParse(pianoId).success) {
+    return { success: false, error: "Piano non valido." };
+  }
+  await requireAreaAccess("produzione");
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from("approvvigionamenti_proposte_piano")
+    .select("id, piano_id, codice, motivazione, voci")
+    .eq("piano_id", pianoId)
+    .is("deleted_at", null)
+    .order("created_at", { ascending: false });
+  if (error) return { success: false, error: "Revisioni non disponibili." };
+  return {
+    success: true,
+    proposte: (data ?? []).map((row) => ({
+      id: String(row.id),
+      pianoId: String(row.piano_id),
+      codice: String(row.codice),
+      motivazione: String(row.motivazione),
+      voci: Array.isArray(row.voci) ? (row.voci as PropostaRevisione["voci"]) : [],
+    })),
+  };
+}
+
+export async function decidiVocePropostaPianoAction(raw: unknown): Promise<
+  { success: true; riusata: boolean; proposta: PropostaRevisione } | Errore
+> {
+  const parsed = z
+    .object({
+      propostaId: uuidSchema,
+      voceId: uuidSchema,
+      esito: z.enum(["accettata", "respinta"]),
+      nota: z.string().trim().min(3).max(500),
+    })
+    .safeParse(raw);
+  if (!parsed.success) return { success: false, error: "Decisione non valida." };
+  const { auth } = await requireAreaAccess("produzione");
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from("approvvigionamenti_proposte_piano")
+    .select("id, piano_id, codice, motivazione, voci")
+    .eq("id", parsed.data.propostaId)
+    .is("deleted_at", null)
+    .maybeSingle();
+  if (error || !data) return { success: false, error: "Revisione non trovata." };
+  const attuale: PropostaRevisione = {
+    id: String(data.id),
+    pianoId: String(data.piano_id),
+    codice: String(data.codice),
+    motivazione: String(data.motivazione),
+    voci: Array.isArray(data.voci) ? (data.voci as PropostaRevisione["voci"]) : [],
+  };
+  const decisa = decidiVoceRevisione(attuale, parsed.data.voceId, parsed.data.esito, parsed.data.nota);
+  if (!decisa.ok) return { success: false, error: decisa.motivo };
+  if (!decisa.riusata) {
+    const salvata = await supabase.rpc("salva_voci_proposta_piano", {
+      p_proposta_id: parsed.data.propostaId,
+      p_voci: decisa.proposta.voci,
+    });
+    if (salvata.error) return { success: false, error: "Decisione non registrata." };
+    await writeAuditLog({
+      entity_type: "approvvigionamenti_proposte_piano",
+      entity_id: parsed.data.propostaId,
+      action: parsed.data.esito,
+      actor_id: auth.userId,
+      summary: "Esito su una modifica della pianificazione. Gli ordini ufficiali non sono stati modificati.",
+      payload: { voceId: parsed.data.voceId, nota: parsed.data.nota },
+    });
+  }
+  return { success: true, riusata: decisa.riusata, proposta: decisa.proposta };
 }

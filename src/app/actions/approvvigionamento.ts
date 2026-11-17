@@ -12,7 +12,9 @@ import {
 } from "@/lib/produzione/approvvigionamento";
 import { bilancioVersione } from "@/lib/produzione/carichi";
 import { primoIndirizzoEmail } from "@/lib/produzione/haccp-versioni";
+import { inviaDaCasellaAnagrafica } from "@/lib/anagrafica/casella-invio";
 import { eseguiNotificaDistribuzione } from "@/lib/produzione/notifica-distribuzione-invio";
+import { preparaEmailProva } from "@/lib/produzione/revisione-piano";
 import { createClient } from "@/lib/supabase/server";
 
 const uuidSchema = z.string().uuid();
@@ -1399,5 +1401,64 @@ export async function aggiungiConsegnaPianoAction(raw: unknown): Promise<
     revisione: Number(corpo.revisione ?? parsed.data.revisione),
     periodoInizio: String(corpo.periodoInizio ?? ""),
     periodoFine: String(corpo.periodoFine ?? ""),
+  };
+}
+
+export async function inviaEmailProvaApprovvigionamentoAction(raw: unknown): Promise<
+  | { success: true; inviata: boolean; to: string; subject: string; text: string }
+  | Errore
+> {
+  const parsed = z
+    .object({
+      destinatario: z.string().trim().max(200),
+      emailFornitore: z.string().trim().max(200).nullable().optional(),
+      codice: z.string().trim().max(40),
+      conferma: z.boolean(),
+    })
+    .safeParse(raw);
+  if (!parsed.success) return { success: false, error: "Email di prova non valida." };
+  await richiedi();
+  const preparata = preparaEmailProva({
+    destinatario: parsed.data.destinatario,
+    emailFornitore: parsed.data.emailFornitore ?? null,
+    codice: parsed.data.codice,
+    conferma: parsed.data.conferma,
+  });
+  if (!preparata.ok) return { success: false, error: preparata.motivo };
+  const supabase = await createClient();
+  const { data: anagrafiche } = await supabase
+    .from("fornitori")
+    .select("email")
+    .ilike("email", preparata.busta.to)
+    .limit(1);
+  if ((anagrafiche ?? []).length > 0) {
+    return { success: false, error: "Questo è l'indirizzo di un fornitore reale. La prova non parte." };
+  }
+  if (!preparata.busta.invio) {
+    return {
+      success: true,
+      inviata: false,
+      to: preparata.busta.to,
+      subject: preparata.busta.subject,
+      text: preparata.busta.text,
+    };
+  }
+  try {
+    await inviaDaCasellaAnagrafica({
+      to: preparata.busta.to,
+      subject: preparata.busta.subject,
+      text: preparata.busta.text,
+      soloSmtp: true,
+    });
+  } catch (errore) {
+    const testo = errore instanceof Error ? errore.message : "Email di prova non partita.";
+    return { success: false, error: testo.slice(0, 300) };
+  }
+  return {
+    success: true,
+    inviata: true,
+    to: preparata.busta.to,
+    subject: preparata.busta.subject,
+    text: preparata.busta.text,
   };
 }

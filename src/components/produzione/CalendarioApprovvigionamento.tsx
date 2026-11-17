@@ -15,12 +15,21 @@ import {
   pubblicaPianoApprovvigionamentoAction,
   recuperaNotificaApprovvigionamentoAction,
   resocontoApprovvigionamentoAction,
+  inviaEmailProvaApprovvigionamentoAction,
   salvaApprovvigionamentiAction,
   type MateriaCalendario,
   type OrdineCalendario,
   type PianoCalendario,
 } from "@/app/actions/approvvigionamento";
 import { PianificazioneApprovvigionamento } from "@/components/produzione/PianificazioneApprovvigionamento";
+import {
+  RevisionePianoPannello,
+  ValutazioneRevisione,
+} from "@/components/produzione/RevisionePianoPannello";
+import {
+  decidiVocePropostaPianoAction,
+  listaPropostePianoAction,
+} from "@/app/actions/approvvigionamento-portale";
 import {
   aggiungiGiorni,
   anteprimaConsegne,
@@ -40,6 +49,20 @@ import {
   xlsxPianificazione,
   type DocumentoPianificazione,
 } from "@/lib/produzione/documento-pianificazione";
+import {
+  annullaMemoriaTest,
+  CHIAVE_MEMORIA_TEST,
+  leggiMemoriaTest,
+  serializzaMemoriaTest,
+} from "@/lib/produzione/memoria-test-approvvigionamento";
+import {
+  costruisciRevisionePiano,
+  decidiVoceRevisione,
+  preparaEmailProva,
+  scritturaAziendaleConsentita,
+  type ConsegnaUfficiale,
+  type PropostaRevisione,
+} from "@/lib/produzione/revisione-piano";
 import {
   aggiungiConsegnaInProva,
   annullaConsegnaInProva,
@@ -69,6 +92,26 @@ function anniNavigazione(ancora: string, inizio: string, fine: string): number[]
   const anni: number[] = [];
   for (let anno = minimo; anno <= massimo; anno += 1) anni.push(anno);
   return anni;
+}
+
+function consegneUfficiali(ordini: readonly OrdineCalendario[]): ConsegnaUfficiale[] {
+  return ordini.flatMap((ordine) => {
+    const riga = ordine.righe[0];
+    if (!riga || ordine.stato === "annullato") return [];
+    return [
+      {
+        id: ordine.id,
+        codice: ordine.codice,
+        materiaId: riga.materiaPrimaId,
+        materia: `${riga.codice} ${riga.nome}`,
+        unita: riga.unitaMisura,
+        unitaCatalogo: riga.unitaMisura,
+        tipoQuantita: riga.tipoQuantita,
+        data: ordine.dataConsegna,
+        quantita: riga.quantita,
+      },
+    ];
+  });
 }
 
 function documentoPianoSalvato(
@@ -201,6 +244,15 @@ export function CalendarioApprovvigionamento() {
   const [tipoAggiunta, setTipoAggiunta] = useState<TipoQuantitaApprovvigionamento>("precisa");
   const [test, setTest] = useState(false);
   const [sessione, setSessione] = useState(sessioneTestVuota());
+  const [proposte, setProposte] = useState<PropostaRevisione[]>([]);
+  const [proposteAzienda, setProposteAzienda] = useState<PropostaRevisione[]>([]);
+  const [emailProva, setEmailProva] = useState("");
+  const [confermaEmail, setConfermaEmail] = useState(false);
+  const [anteprimaEmail, setAnteprimaEmail] = useState<string | null>(null);
+  const [memoriaPronta, setMemoriaPronta] = useState(false);
+  const testRef = useRef(false);
+  const saltaMemoria = useRef(false);
+  testRef.current = test;
   const [vociRiepilogo, setVociRiepilogo] = useState<VoceRiepilogo[]>([]);
   const [consegneRiepilogo, setConsegneRiepilogo] = useState(0);
   const [errore, setErrore] = useState<string | null>(null);
@@ -220,6 +272,7 @@ export function CalendarioApprovvigionamento() {
 
   function ricarica() {
     startTransition(async () => {
+      if (vietatoInProva()) return;
       const [res, pianiRes] = await Promise.all([
         listaOrdiniApprovvigionamentoAction(periodo),
         listaPianiApprovvigionamentoAction(periodo),
@@ -258,6 +311,30 @@ export function CalendarioApprovvigionamento() {
   }, [test, sessione, periodo]);
 
   useEffect(() => {
+    const letta = leggiMemoriaTest(window.sessionStorage.getItem(CHIAVE_MEMORIA_TEST));
+    if (letta) {
+      setSessione(letta.sessione);
+      setProposte(letta.proposte);
+      setEmailProva(letta.email);
+      setTest(letta.attiva);
+    }
+    setMemoriaPronta(true);
+  }, []);
+
+  useEffect(() => {
+    if (!memoriaPronta) return;
+    if (saltaMemoria.current) {
+      saltaMemoria.current = false;
+      return;
+    }
+    if (!test && sessione.ordini.length === 0 && proposte.length === 0) return;
+    window.sessionStorage.setItem(
+      CHIAVE_MEMORIA_TEST,
+      serializzaMemoriaTest({ attiva: test, email: emailProva, sessione, proposte })
+    );
+  }, [memoriaPronta, test, emailProva, sessione, proposte]);
+
+  useEffect(() => {
     let attivo = true;
     void listaMaterieApprovvigionamentoAction().then((res) => {
       if (attivo && res.success) setMaterie(res.materie);
@@ -292,6 +369,26 @@ export function CalendarioApprovvigionamento() {
   function chiaveStabile() {
     if (!chiaveRef.current) chiaveRef.current = crypto.randomUUID();
     return chiaveRef.current;
+  }
+
+  function vietatoInProva() {
+    if (scritturaAziendaleConsentita(testRef.current ? "test" : "reale")) return false;
+    setErrore("Modalità test: nessuna scrittura sul database aziendale.");
+    return true;
+  }
+
+  function annullaProva() {
+    if (!window.confirm("Annullare la prova e distruggere tutte le modifiche simulate?")) return;
+    annullaMemoriaTest();
+    window.sessionStorage.removeItem(CHIAVE_MEMORIA_TEST);
+    saltaMemoria.current = true;
+    setSessione(sessioneTestVuota());
+    setProposte([]);
+    setEmailProva("");
+    setConfermaEmail(false);
+    setAnteprimaEmail(null);
+    setTest(false);
+    setOrdineId(null);
   }
 
   function chiudiOperazione() {
@@ -378,6 +475,7 @@ export function CalendarioApprovvigionamento() {
     }
     const pianoCorrente = piani.find((piano) => piano.id === corrente?.pianoId);
     startTransition(async () => {
+      if (vietatoInProva()) return;
       if (
         pianoCorrente &&
         corrente &&
@@ -425,6 +523,7 @@ export function CalendarioApprovvigionamento() {
       return;
     }
     startTransition(async () => {
+      if (vietatoInProva()) return;
       const res = await salvaApprovvigionamentiAction({
         chiave: chiaveStabile(),
         tipo: "copia",
@@ -467,6 +566,7 @@ export function CalendarioApprovvigionamento() {
       (Date.parse(`${destinazione}T00:00:00Z`) - Date.parse(`${inizio}T00:00:00Z`)) / 86_400_000;
     setErrore(null);
     startTransition(async () => {
+      if (vietatoInProva()) return;
       const caricati = await listaOrdiniApprovvigionamentoAction({
         da: inizio,
         a: aggiungiGiorni(inizio, 6),
@@ -587,6 +687,7 @@ export function CalendarioApprovvigionamento() {
           }
         : undefined;
     startTransition(async () => {
+      if (vietatoInProva()) return;
       const res = await salvaApprovvigionamentiAction({
         chiave: chiaveStabile(),
         tipo: operazione === "pianificazione" ? "pianificazione" : "crea",
@@ -630,7 +731,11 @@ export function CalendarioApprovvigionamento() {
       setOrdiniPiano(sessione.ordini.filter((ordine) => ordine.pianoId === scelto.id));
       return;
     }
+    void listaPropostePianoAction(scelto.id).then((res) => {
+      if (res.success) setProposteAzienda(res.proposte);
+    });
     startTransition(async () => {
+      if (vietatoInProva()) return;
       const res = await listaOrdiniApprovvigionamentoAction({
         da: scelto.periodoInizio,
         a: scelto.periodoFine,
@@ -656,6 +761,7 @@ export function CalendarioApprovvigionamento() {
       return;
     }
     startTransition(async () => {
+      if (vietatoInProva()) return;
       const res = await pubblicaOrdineApprovvigionamentoAction({
         chiave: chiaveStabile(),
         ordineId: ordine.id,
@@ -684,6 +790,7 @@ export function CalendarioApprovvigionamento() {
       return;
     }
     startTransition(async () => {
+      if (vietatoInProva()) return;
       const res = await pubblicaPianoApprovvigionamentoAction({
         chiave: chiaveStabile(),
         pianoId: scelto.id,
@@ -702,6 +809,7 @@ export function CalendarioApprovvigionamento() {
   function recupera(notificaId: string, confermaIncerta = false) {
     setErrore(null);
     startTransition(async () => {
+      if (vietatoInProva()) return;
       const res = await recuperaNotificaApprovvigionamentoAction({ notificaId, confermaIncerta });
       if (!res.success) {
         setErrore(res.error);
@@ -724,6 +832,7 @@ export function CalendarioApprovvigionamento() {
     }
     setErrore(null);
     startTransition(async () => {
+      if (vietatoInProva()) return;
       const res = await aggiornaComposizionePianoAction({
         chiave: chiaveStabile(),
         pianoId: scelto.id,
@@ -753,6 +862,7 @@ export function CalendarioApprovvigionamento() {
       return;
     }
     startTransition(async () => {
+      if (vietatoInProva()) return;
       const res = await annullaConsegnaApprovvigionamentoAction({
         chiave: `${chiaveStabile()}-annulla`,
         ordineId: ordine.id,
@@ -814,6 +924,7 @@ export function CalendarioApprovvigionamento() {
       return;
     }
     startTransition(async () => {
+      if (vietatoInProva()) return;
       const creato = await aggiungiConsegnaPianoAction({
         chiave: `${chiaveStabile()}-aggiunta`,
         pianoId: piano.id,
@@ -1055,12 +1166,88 @@ export function CalendarioApprovvigionamento() {
           >
             {test ? "Modalità test attiva" : "Modalità test"}
           </button>
+          <button
+            type="button"
+            onClick={annullaProva}
+            className="rounded-lg border border-red-300 px-3 py-1.5 text-sm text-red-800"
+          >
+            Annulla test
+          </button>
           <p className="text-sm text-slate-600">{etichettaGiorno(ancora)}</p>
         </div>
         {test ? (
-          <p className="mb-3 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-950">
-            Modalità test: stesse regole della produzione, nessuna scrittura sul database e nessuna mail.
-          </p>
+          <div className="mb-3 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-950">
+            <p>Modalità test: stesse regole della produzione. Nessuna scrittura sul database aziendale.</p>
+            <label className="mt-2 block">
+              Email destinatario di prova
+              <input
+                value={emailProva}
+                onChange={(event) => {
+                  setEmailProva(event.target.value);
+                  setConfermaEmail(false);
+                  setAnteprimaEmail(null);
+                }}
+                className="mt-1 block w-full max-w-sm rounded border border-amber-300 bg-white px-2 py-1"
+              />
+            </label>
+            <div className="mt-2 flex flex-wrap gap-2">
+              <button
+                type="button"
+                onClick={() => {
+                  const preparata = preparaEmailProva({
+                    destinatario: emailProva,
+                    emailFornitore: null,
+                    codice: piani.find((piano) => piano.id === pianoAperto)?.codice ?? "prova",
+                    conferma: false,
+                  });
+                  if (!preparata.ok) {
+                    setErrore(preparata.motivo);
+                    setAnteprimaEmail(null);
+                    return;
+                  }
+                  setErrore(null);
+                  setAnteprimaEmail(`${preparata.busta.subject}\n\n${preparata.busta.text}`);
+                }}
+                className="rounded border border-amber-700 px-2 py-1"
+              >
+                Anteprima email
+              </button>
+              <label className="flex items-center gap-2">
+                <input
+                  type="checkbox"
+                  checked={confermaEmail}
+                  onChange={(event) => setConfermaEmail(event.target.checked)}
+                />
+                Confermo l&apos;invio solo a questo indirizzo
+              </label>
+              <button
+                type="button"
+                disabled={!confermaEmail || pending}
+                onClick={() => {
+                  const codice = piani.find((piano) => piano.id === pianoAperto)?.codice ?? "prova";
+                  startTransition(async () => {
+                    const res = await inviaEmailProvaApprovvigionamentoAction({
+                      destinatario: emailProva,
+                      emailFornitore: null,
+                      codice,
+                      conferma: true,
+                    });
+                    if (!res.success) {
+                      setErrore(res.error);
+                      return;
+                    }
+                    setMessaggio(`Email di prova inviata solo a ${res.to}. Nessun altro destinatario.`);
+                  });
+                }}
+                className="rounded bg-amber-900 px-2 py-1 text-white disabled:opacity-60"
+              >
+                Invia solo all&apos;indirizzo di prova
+              </button>
+            </div>
+            {anteprimaEmail ? (
+              <pre className="mt-2 whitespace-pre-wrap rounded bg-white p-2 text-xs text-slate-800">{anteprimaEmail}</pre>
+            ) : null}
+          </div>
         ) : null}
         <div className="mb-3 grid gap-2 md:grid-cols-4">
           <select
@@ -1561,6 +1748,114 @@ export function CalendarioApprovvigionamento() {
                   Aggiungi consegna
                 </button>
               </div>
+              {test && piani.find((voce) => voce.id === pianoAperto)?.versionePubblicata == null ? (
+                <p className="mt-3 text-sm text-amber-900">
+                  Pubblica la simulazione prima di proporre una revisione.
+                </p>
+              ) : null}
+              {test && piani.find((voce) => voce.id === pianoAperto)?.versionePubblicata != null ? (
+                <RevisionePianoPannello
+                  key={pianoAperto}
+                  consegne={consegneUfficiali(
+                    ordiniPiano.filter((ordine) => ordine.pianoId === pianoAperto)
+                  )}
+                  pending={pending}
+                  onProponi={(input) => {
+                    if (!testRef.current) return;
+                    const scelto = piani.find((voce) => voce.id === pianoAperto);
+                    if (!scelto) return;
+                    const ufficiali = consegneUfficiali(
+                      ordiniPiano.filter((ordine) => ordine.pianoId === pianoAperto)
+                    );
+                    const costruita = costruisciRevisionePiano({
+                      ufficiali,
+                      bozza: input.bozza,
+                      motivazione: input.motivazione,
+                    });
+                    if (!costruita.ok) {
+                      setErrore(costruita.motivo);
+                      return;
+                    }
+                    const prima = sessione.ordini.map((ordine) => ({
+                      id: ordine.id,
+                      data: ordine.dataConsegna,
+                      quantita: ordine.righe[0]?.quantita ?? 0,
+                      stato: ordine.stato,
+                    }));
+                    setProposte((correnti) => [
+                      {
+                        id: crypto.randomUUID(),
+                        pianoId: scelto.id,
+                        codice: scelto.codice,
+                        motivazione: costruita.motivazione,
+                        voci: costruita.voci,
+                      },
+                      ...correnti,
+                    ]);
+                    const dopo = sessione.ordini.map((ordine) => ({
+                      id: ordine.id,
+                      data: ordine.dataConsegna,
+                      quantita: ordine.righe[0]?.quantita ?? 0,
+                      stato: ordine.stato,
+                    }));
+                    if (JSON.stringify(prima) !== JSON.stringify(dopo)) {
+                      setErrore("La revisione di prova ha toccato gli ordini.");
+                      return;
+                    }
+                    setMessaggio(
+                      "Revisione di prova registrata. Gli ordini simulati non sono stati modificati."
+                    );
+                  }}
+                />
+              ) : null}
+              <ValutazioneRevisione
+                proposte={(test ? proposte : proposteAzienda).filter(
+                  (proposta) => proposta.pianoId === pianoAperto
+                )}
+                pending={pending}
+                onDecidi={(propostaId, voceId, esito, nota) => {
+                  const elenco = testRef.current ? proposte : proposteAzienda;
+                  const attuale = elenco.find((proposta) => proposta.id === propostaId);
+                  if (!attuale) return;
+                  const decisa = decidiVoceRevisione(attuale, voceId, esito, nota);
+                  if (!decisa.ok) {
+                    setErrore(decisa.motivo);
+                    return;
+                  }
+                  if (testRef.current) {
+                    setProposte((correnti) =>
+                      correnti.map((proposta) =>
+                        proposta.id === propostaId ? decisa.proposta : proposta
+                      )
+                    );
+                    setMessaggio(
+                      esito === "accettata"
+                        ? "Modifica accettata in prova. Gli ordini non sono stati aggiornati."
+                        : "Modifica respinta in prova. Gli ordini restano quelli della versione."
+                    );
+                    return;
+                  }
+                  startTransition(async () => {
+                    if (vietatoInProva()) return;
+                    const res = await decidiVocePropostaPianoAction({
+                      propostaId,
+                      voceId,
+                      esito,
+                      nota,
+                    });
+                    if (!res.success) {
+                      setErrore(res.error);
+                      return;
+                    }
+                    setProposteAzienda((correnti) =>
+                      correnti.map((proposta) =>
+                        proposta.id === propostaId ? res.proposta : proposta
+                      )
+                    );
+                    setMessaggio("Esito registrato. Gli ordini ufficiali non sono stati modificati.");
+                  });
+                }}
+              />
             </div>
           </div>
         ) : null}

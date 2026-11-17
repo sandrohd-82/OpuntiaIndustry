@@ -2868,6 +2868,7 @@ export async function sendMailViaAccount(input: {
     aziendaId?: string | null;
     aziendaLabel?: string | null;
   };
+  soloSmtp?: boolean;
 }): Promise<{ messageId: string | null; messaggioId: string | null }> {
   const password = decryptWebmailSecret(input.account.password_encrypted);
   const transporter = nodemailer.createTransport({
@@ -2905,6 +2906,7 @@ export async function sendMailViaAccount(input: {
     },
     raw,
   });
+  if (input.soloSmtp) return { messageId, messaggioId: null };
   await copiaNellaCartellaInviate(input.account, raw, messageId);
   let messaggioId: string | null = null;
   try {
