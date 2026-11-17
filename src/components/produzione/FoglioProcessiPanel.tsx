@@ -46,7 +46,7 @@ export function FoglioProcessiPanel({ foglio, filtraAreaId }: Props) {
   const [kgPesata, setKgPesata] = useState("");
   const [attivitaPesata, setAttivitaPesata] = useState("");
   const [effettoDraft, setEffettoDraft] = useState<
-    Record<string, { qty: string; codiceMp: string; essiccatoreId: string }>
+    Record<string, { qty: string; codiceMp: string; essiccatoreId: string; lottoCodice?: string }>
   >({});
   const [avvioDraft, setAvvioDraft] = useState<
     Record<string, { qty: string; codiceMp: string; essiccatoreId: string }>
@@ -231,6 +231,7 @@ export function FoglioProcessiPanel({ foglio, filtraAreaId }: Props) {
         qty,
         codiceMp: draft.codiceMp,
         essiccatoreId: draft.essiccatoreId,
+        lottoCodice: draft.lottoCodice ?? "",
       });
       if (!res.success) {
         setError(res.error);
@@ -252,8 +253,9 @@ export function FoglioProcessiPanel({ foglio, filtraAreaId }: Props) {
       <h3 className="text-sm font-semibold">Processi sul foglio</h3>
       <p className="mt-1 text-xs text-[var(--muted)]">
         Seleziona un processo. All’avvio il gestionale chiede quantità e
-        prodotti dagli obiettivi/effetti. Se c’è lo script Pesata, ogni peso
-        resta in registro immutabile.
+        prodotti dagli obiettivi/effetti. Produce e consuma scrivono il
+        magazzino solo con la quantità indicata, la stessa unità e un lotto
+        Agrinsicilia. Il cestone non crea un carico di prodotto finito.
       </p>
       {error ? (
         <p className="mt-2 rounded-md border border-red-200 bg-red-50 px-2 py-1 text-xs text-red-800">
@@ -452,6 +454,25 @@ export function FoglioProcessiPanel({ foglio, filtraAreaId }: Props) {
                                               </option>
                                             ))}
                                           </select>
+                                        </label>
+                                      )}
+                                      {(e.tipo === "magazzino.produce" ||
+                                        e.tipo === "magazzino.consuma") && (
+                                        <label className="min-w-64 text-xs text-[var(--muted)]">
+                                          Lotto Agrinsicilia
+                                          <input
+                                            value={draft.lottoCodice ?? ""}
+                                            onChange={(ev) =>
+                                              setEffettoDraft((prev) => ({
+                                                ...prev,
+                                                [e.id]: {
+                                                  ...draft,
+                                                  lottoCodice: ev.target.value.trim(),
+                                                },
+                                              }))
+                                            }
+                                            className="mt-1 w-full rounded-md border border-[var(--border)] px-2 py-1.5 font-mono text-sm"
+                                          />
                                         </label>
                                       )}
                                       <button

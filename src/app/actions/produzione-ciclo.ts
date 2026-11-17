@@ -63,6 +63,16 @@ export type ImpegnoCiclo = {
   foglioId: string | null;
 };
 
+export type CoefficienteResa = {
+  linea: string;
+  stagione: string;
+  meseDa: number;
+  meseA: number;
+  minimo: number;
+  massimo: number;
+  media: number;
+};
+
 export type OperatoreRegistrato = {
   nome: string;
   azione: string;
@@ -81,6 +91,8 @@ export async function listaCicloProduzioneAction(): Promise<
       associazioni: AssociazioneProva[];
       impegni: ImpegnoCiclo[];
       operatori: OperatoreRegistrato[];
+      coefficienti: CoefficienteResa[];
+      mese: number;
     }
   | Errore
 > {
@@ -124,7 +136,14 @@ export async function listaCicloProduzioneAction(): Promise<
   }
   const foglioIds = [...fogliMap.keys()];
 
-  const [{ data: conteggi }, { data: associazioni }, { data: macchine }, { data: impegni }, { data: attivita }] =
+  const [
+    { data: conteggi },
+    { data: associazioni },
+    { data: macchine },
+    { data: impegni },
+    { data: attivita },
+    { data: baseline },
+  ] =
     await Promise.all([
       foglioIds.length
         ? supabase
@@ -162,6 +181,12 @@ export async function listaCicloProduzioneAction(): Promise<
             .order("created_at", { ascending: false })
             .limit(20)
         : Promise.resolve({ data: [] }),
+      supabase
+        .from("produzione_resa_baseline")
+        .select(
+          "linea_codice, stagione, mese_da, mese_a, resa_percentuale_min, resa_percentuale_max, resa_percentuale_media"
+        )
+        .is("deleted_at", null),
     ]);
 
   for (const row of conteggi ?? []) {
@@ -257,6 +282,16 @@ export async function listaCicloProduzioneAction(): Promise<
         azione: String(row.azione),
         quando: String(row.created_at),
       })),
+    coefficienti: (baseline ?? []).map((row) => ({
+      linea: String(row.linea_codice),
+      stagione: String(row.stagione),
+      meseDa: Number(row.mese_da),
+      meseA: Number(row.mese_a),
+      minimo: Number(row.resa_percentuale_min),
+      massimo: Number(row.resa_percentuale_max),
+      media: Number(row.resa_percentuale_media),
+    })),
+    mese: new Date().getMonth() + 1,
   };
 }
 

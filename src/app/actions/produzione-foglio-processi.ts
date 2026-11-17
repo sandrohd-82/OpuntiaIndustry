@@ -2,6 +2,7 @@
 
 import { writeAuditLog } from "@/lib/audit";
 import { requireAreaAccess } from "@/lib/areas/guard";
+import { puoMovimentareEffettoMagazzino } from "@/lib/produzione/effetto-magazzino";
 import {
   getFoglioConteggioAction,
   upsertFoglioConteggioAction,
@@ -907,7 +908,7 @@ export async function registraEffettoEsecuzioneAction(
   const { data: row, error } = await supabase
     .from("produzione_foglio_processo_effetti")
     .select(
-      "id, esecuzione_id, foglio_id, processo_id, tipo, parametri, codice_mp, essiccatore_id, esito, deleted_at"
+      "id, esecuzione_id, foglio_id, processo_id, tipo, parametri, unita, codice_mp, essiccatore_id, esito, deleted_at"
     )
     .eq("id", parsed.data.effettoEsecuzioneId)
     .is("deleted_at", null)
@@ -921,6 +922,7 @@ export async function registraEffettoEsecuzioneAction(
     processo_id: string;
     tipo: string;
     parametri: unknown;
+    unita: string;
     codice_mp: string;
     essiccatore_id: string | null;
     esito: string;
@@ -974,13 +976,53 @@ export async function registraEffettoEsecuzioneAction(
     };
   }
 
+  let lottoSalvato = parsed.data.lottoCodice.trim();
+  if (effetto.tipo === "magazzino.produce" || effetto.tipo === "magazzino.consuma") {
+    const { data: prodotto } = await supabase
+      .from("prodotti_propri")
+      .select("unita_misura")
+      .eq("codice", codiceMp)
+      .maybeSingle();
+    const decisione = puoMovimentareEffettoMagazzino({
+      tipo: effetto.tipo,
+      unita: effetto.unita,
+      unitaProdotto: (prodotto as { unita_misura?: string | null } | null)?.unita_misura ?? null,
+      codice: codiceMp,
+      lotto: parsed.data.lottoCodice,
+      quantita: parsed.data.qty,
+    });
+    if (!decisione.ok) return { success: false, error: decisione.motivo };
+    lottoSalvato = decisione.lotto;
+    const { error: movErr } = await supabase.rpc("produzione_registra_effetto_magazzino", {
+      p_effetto_id: effetto.id,
+      p_quantita: parsed.data.qty,
+      p_codice: codiceMp,
+      p_lotto: decisione.lotto,
+    });
+    if (movErr) {
+      const testo = (movErr.message ?? "").split("\n")[0] ?? "";
+      if (
+        testo.includes("lotto") ||
+        testo.includes("Unità") ||
+        testo.includes("Giacenza") ||
+        testo.includes("Quantità") ||
+        testo.includes("autorizzato") ||
+        testo.includes("aperto") ||
+        testo.includes("già")
+      ) {
+        return { success: false, error: testo.replace(/^ERROR:\s*/, "") };
+      }
+      return { success: false, error: "Il risultato non è stato caricato in magazzino." };
+    }
+  }
+
   const now = new Date().toISOString();
   const { error: updErr } = await supabase
     .from("produzione_foglio_processo_effetti")
     .update({
       qty_effettiva: parsed.data.qty,
       codice_mp: codiceMp,
-      lotto_codice: parsed.data.lottoCodice.trim(),
+      lotto_codice: lottoSalvato,
       essiccatore_id: essiccatoreId || null,
       esito: "eseguito",
       documento_stato: "approvato",
@@ -1006,7 +1048,7 @@ export async function registraEffettoEsecuzioneAction(
       qty: parsed.data.qty,
       codice_mp: codiceMp,
       essiccatore_id: essiccatoreId,
-      lotto_codice: parsed.data.lottoCodice,
+      lotto_codice: lottoSalvato,
     },
   });
 

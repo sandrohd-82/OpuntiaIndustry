@@ -6,12 +6,14 @@ import {
   collegaImpegnoFoglioAction,
   listaCicloProduzioneAction,
   scollegaMacchinaProvaAction,
+  type CoefficienteResa,
   type FoglioCiclo,
   type ImpegnoCiclo,
   type MacchinaCiclo,
   type AssociazioneProva,
   type OperatoreRegistrato,
 } from "@/app/actions/produzione-ciclo";
+import { meseNelCoefficiente } from "@/lib/produzione/effetto-magazzino";
 
 function somma(foglio: FoglioCiclo) {
   return foglio.prelievi.reduce((totale, riga) => totale + riga.quantita, 0);
@@ -23,6 +25,8 @@ export function CicloProduzioneBoard() {
   const [associazioni, setAssociazioni] = useState<AssociazioneProva[]>([]);
   const [impegni, setImpegni] = useState<ImpegnoCiclo[]>([]);
   const [operatori, setOperatori] = useState<OperatoreRegistrato[]>([]);
+  const [coefficienti, setCoefficienti] = useState<CoefficienteResa[]>([]);
+  const [mese, setMese] = useState(1);
   const [scelto, setScelto] = useState<string>("");
   const [errore, setErrore] = useState<string | null>(null);
   const [messaggio, setMessaggio] = useState<string | null>(null);
@@ -39,6 +43,8 @@ export function CicloProduzioneBoard() {
       setAssociazioni(res.associazioni);
       setImpegni(res.impegni);
       setOperatori(res.operatori);
+      setCoefficienti(res.coefficienti);
+      setMese(res.mese);
       setScelto((attuale) => attuale || res.fogli[0]?.id || "");
     });
   }
@@ -85,7 +91,8 @@ export function CicloProduzioneBoard() {
       <h2 className="text-lg font-semibold text-slate-900">Ciclo della lavorazione</h2>
       <p className="text-sm text-slate-600">
         Dal lotto LM- prelevato al foglio, alla macchina in prova e al lotto di uscita già
-        esistente. La quantità ottenuta compare solo se il bilancio di massa è già stato registrato.
+        esistente. La quantità ottenuta del bilancio di massa resta quella già registrata.
+        Non esiste una sospensione: il processo è in corso, completato o annullato.
       </p>
       {messaggio ? <p className="text-sm text-emerald-800">{messaggio}</p> : null}
       {errore ? <p className="text-sm text-red-700">{errore}</p> : null}
@@ -147,8 +154,9 @@ export function CicloProduzioneBoard() {
               <div className="rounded-xl border border-slate-200 p-3">
                 <p className="font-medium text-slate-900">Impegni di scaletta</p>
                 <p className="text-slate-500">
-                  Le materie prime previste non sono distinte sull&apos;impegno. Il fabbisogno reale è
-                  l&apos;elenco dei prelievi.
+                  I processi descrivono le attività, non una distinta quantitativa. Il fabbisogno
+                  reale è l&apos;elenco dei prelievi. Il coefficiente di resa, se presente, non viene
+                  moltiplicato per una quantità.
                 </p>
                 <ul className="mt-2 space-y-2">
                   {impegni.map((impegno) => (
@@ -158,6 +166,18 @@ export function CicloProduzioneBoard() {
                         {impegno.linea ? ` · ${impegno.linea}` : ""}
                         {impegno.foglioId === foglio.id ? " · collegato" : ""}
                       </span>
+                      {coefficienti
+                        .filter(
+                          (voce) =>
+                            voce.linea === impegno.linea &&
+                            meseNelCoefficiente(mese, voce.meseDa, voce.meseA)
+                        )
+                        .map((voce) => (
+                          <span key={`${impegno.id}-${voce.stagione}`} className="text-slate-600">
+                            Coefficiente {voce.stagione}: media {voce.media}% (da {voce.minimo} a{" "}
+                            {voce.massimo}). Non applicato a una quantità.
+                          </span>
+                        ))}
                       {impegno.foglioId !== foglio.id ? (
                         <button
                           type="button"
@@ -176,7 +196,9 @@ export function CicloProduzioneBoard() {
                 <p className="font-medium text-slate-900">Macchine in prova</p>
                 <p className="text-slate-500">
                   Si legge lo stato, la telemetria e la conferma già registrata. I comandi POWER_ON e
-                  POWER_OFF restano solo indicati e non partono.
+                  POWER_OFF restano solo indicati. L&apos;invio reale resta spento finché non sono
+                  definiti autorizzazioni, condizioni di sicurezza, conferme e comportamento senza
+                  connessione.
                 </p>
                 <ul className="mt-2 space-y-2">
                   {macchineFoglio.map((voce) => {
