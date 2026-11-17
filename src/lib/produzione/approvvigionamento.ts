@@ -3,6 +3,10 @@ import {
   unitaMateriaPrimaValida,
   type UnitaMateriaPrima,
 } from "@/lib/amministrazione/materie-prime";
+import {
+  normalizzaUnitaApprovvigionamento,
+  unitaMagazzinoCompatibile,
+} from "@/lib/produzione/unita-approvvigionamento";
 
 export type StatoOrdineApprovvigionamento =
   | "bozza"
@@ -233,14 +237,13 @@ export function rigaOrdineValida(input: {
   if (!(input.quantita > 0) || !Number.isFinite(input.quantita)) {
     return { ok: false, motivo: "La quantità deve essere positiva." };
   }
-  if (!unitaMateriaPrimaValida(input.unitaCatalogo)) {
+  const unita = normalizzaUnitaApprovvigionamento(input.unitaRichiesta);
+  if (!unita.ok) return unita;
+  if (unitaMagazzinoCompatibile(unita.sigla) && !unitaMateriaPrimaValida(input.unitaCatalogo)) {
     return {
       ok: false,
       motivo: "La materia prima non ha un'unità di misura in catalogo.",
     };
-  }
-  if (!unitaCoerente(input.unitaCatalogo, input.unitaRichiesta)) {
-    return { ok: false, motivo: "L'unità non coincide con il catalogo." };
   }
   return { ok: true };
 }
@@ -438,9 +441,8 @@ export function anteprimaConsegne(input: {
   if (input.tipoQuantita !== "precisa" && input.tipoQuantita !== "stimata") {
     return { ok: false, motivo: "Indica se la quantità è precisa o stimata." };
   }
-  if (!input.unitaMisura) {
-    return { ok: false, motivo: "La materia prima non ha un'unità di misura in catalogo." };
-  }
+  const unita = normalizzaUnitaApprovvigionamento(input.unitaMisura);
+  if (!unita.ok) return { ok: false, motivo: "Indica l'unità di misura." };
   let date: string[] = [];
   if (input.operazione === "singolo") {
     if (!input.data || !giornoValido(input.data)) {
@@ -484,7 +486,7 @@ export function anteprimaConsegne(input: {
       data,
       quantita,
       tipoQuantita: input.tipoQuantita,
-      unitaMisura: input.unitaMisura,
+      unitaMisura: unita.sigla,
     });
   }
   return { ok: true, consegne };

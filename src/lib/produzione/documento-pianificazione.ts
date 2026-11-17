@@ -7,6 +7,7 @@ export type ConsegnaDocumento = {
   quantita: number;
   tipoQuantita: "precisa" | "stimata";
   stato: string;
+  unita?: string;
 };
 
 export type DocumentoPianificazione = {
@@ -22,9 +23,15 @@ export type DocumentoPianificazione = {
 
 export function totaliDocumento(documento: DocumentoPianificazione): {
   consegne: number;
-  precisa: number;
-  stimata: number;
+  precisa: number | null;
+  stimata: number | null;
 } {
+  const unita = new Set(
+    documento.consegne.map((consegna) => consegna.unita || documento.unita)
+  );
+  if (unita.size > 1) {
+    return { consegne: documento.consegne.length, precisa: null, stimata: null };
+  }
   let precisa = 0;
   let stimata = 0;
   for (const consegna of documento.consegne) {
@@ -34,11 +41,16 @@ export function totaliDocumento(documento: DocumentoPianificazione): {
   return { consegne: documento.consegne.length, precisa, stimata };
 }
 
+function testoTotale(valore: number | null, unita: string): string {
+  if (valore == null) return "non sommato: unità diverse";
+  return `${valore} ${unita}`;
+}
+
 function righeTesto(documento: DocumentoPianificazione): string[][] {
   return documento.consegne.map((consegna) => [
     consegna.data,
     String(consegna.quantita),
-    documento.unita,
+    consegna.unita || documento.unita,
     consegna.tipoQuantita,
     consegna.stato,
   ]);
@@ -57,8 +69,8 @@ export function pdfPianificazione(documento: DocumentoPianificazione): Uint8Arra
     `Unità: ${documento.unita}`,
     `Periodo: ${documento.periodoInizio} – ${documento.periodoFine}`,
     `Consegne: ${totali.consegne}`,
-    `Totale precisa: ${totali.precisa} ${documento.unita}`,
-    `Totale stimata: ${totali.stimata} ${documento.unita}`,
+    `Totale precisa: ${testoTotale(totali.precisa, documento.unita)}`,
+    `Totale stimata: ${testoTotale(totali.stimata, documento.unita)}`,
     `Note: ${documento.note || "—"}`,
   ];
   righe.forEach((riga, indice) => pdf.text(riga, 14, 26 + indice * 5));
@@ -94,8 +106,8 @@ export async function xlsxPianificazione(documento: DocumentoPianificazione): Pr
     ["Unità", documento.unita],
     ["Periodo", `${documento.periodoInizio} – ${documento.periodoFine}`],
     ["Consegne", String(totali.consegne)],
-    ["Totale precisa", `${totali.precisa} ${documento.unita}`],
-    ["Totale stimata", `${totali.stimata} ${documento.unita}`],
+    ["Totale precisa", testoTotale(totali.precisa, documento.unita)],
+    ["Totale stimata", testoTotale(totali.stimata, documento.unita)],
     ["Note", documento.note || "—"],
   ];
   for (const [etichetta, valore] of testata) {
@@ -109,7 +121,7 @@ export async function xlsxPianificazione(documento: DocumentoPianificazione): Pr
     foglio.addRow([
       consegna.data,
       consegna.quantita,
-      documento.unita,
+      consegna.unita || documento.unita,
       consegna.tipoQuantita,
       consegna.stato,
     ]);

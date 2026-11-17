@@ -2,6 +2,8 @@
 
 import type { ConsegnaAnteprima, TipoQuantitaApprovvigionamento } from "@/lib/produzione/approvvigionamento";
 import type { MateriaCalendario } from "@/app/actions/approvvigionamento";
+import { SelettoreUnita } from "@/components/produzione/SelettoreUnita";
+import { etichettaUnita, normalizzaUnitaApprovvigionamento } from "@/lib/produzione/unita-approvvigionamento";
 
 export function PianificazioneApprovvigionamento(props: {
   operazione: "" | "singolo" | "pianificazione";
@@ -13,6 +15,9 @@ export function PianificazioneApprovvigionamento(props: {
   copiaQuantita: boolean;
   tipoQuantita: TipoQuantitaApprovvigionamento;
   quantita: string;
+  unitaSigla: string;
+  unitaNome: string;
+  unitaPersonalizzata: boolean;
   materiaId: string;
   fornitoreId: string;
   note: string;
@@ -31,6 +36,7 @@ export function PianificazioneApprovvigionamento(props: {
   onCopia: (valore: boolean) => void;
   onTipo: (valore: TipoQuantitaApprovvigionamento) => void;
   onQuantita: (valore: string) => void;
+  onUnita: (valore: { sigla: string; nome: string; personalizzata: boolean }) => void;
   onMateria: (valore: string) => void;
   onFornitore: (valore: string) => void;
   onNote: (valore: string) => void;
@@ -38,8 +44,7 @@ export function PianificazioneApprovvigionamento(props: {
   onQuantitaData: (data: string, valore: string) => void;
   onSalva: () => void;
 }) {
-  const materia = props.materie.find((voce) => voce.id === props.materiaId);
-  const unita = materia?.unitaMisura ?? "senza unità";
+  const unitaValida = normalizzaUnitaApprovvigionamento(props.unitaSigla).ok;
   return (
     <div className="rounded-xl border border-[var(--border)] bg-white p-3">
       <h2 className="text-sm font-semibold text-slate-800">Nuova operazione</h2>
@@ -161,7 +166,7 @@ export function PianificazioneApprovvigionamento(props: {
               ))}
             </select>
           </label>
-          <div className="mt-2 flex items-end gap-2">
+          <div className="mt-2 flex flex-wrap items-end gap-2">
             <label className="text-sm">
               Quantità per ordine
               <input
@@ -171,7 +176,12 @@ export function PianificazioneApprovvigionamento(props: {
                 className="mt-1 w-28 rounded-lg border border-slate-300 px-2 py-2"
               />
             </label>
-            <span className="pb-2 text-sm text-slate-600">{unita}</span>
+            <SelettoreUnita
+              sigla={props.unitaSigla}
+              nome={props.unitaNome}
+              personalizzata={props.unitaPersonalizzata}
+              onChange={props.onUnita}
+            />
           </div>
           <div className="mt-2 grid grid-cols-2 gap-2">
             <button
@@ -232,15 +242,24 @@ export function PianificazioneApprovvigionamento(props: {
                       {consegna.data} · {consegna.tipoQuantita}
                     </span>
                     {props.operazione === "pianificazione" ? (
-                      <input
-                        value={props.valoriQuantita[consegna.data] ?? (props.copiaQuantita ? props.quantita : "")}
-                        onChange={(event) => props.onQuantitaData(consegna.data, event.target.value)}
-                        inputMode="decimal"
-                        className="w-20 rounded border border-slate-300 px-2 py-1"
-                      />
+                      <span className="flex items-center gap-2">
+                        <input
+                          value={props.valoriQuantita[consegna.data] ?? (props.copiaQuantita ? props.quantita : "")}
+                          onChange={(event) => props.onQuantitaData(consegna.data, event.target.value)}
+                          inputMode="decimal"
+                          aria-label={`Quantità ${consegna.data}`}
+                          className="w-20 rounded border border-slate-300 px-2 py-1"
+                        />
+                        <SelettoreUnita
+                          sigla={props.unitaSigla}
+                          nome={props.unitaNome}
+                          personalizzata={props.unitaPersonalizzata}
+                          onChange={props.onUnita}
+                        />
+                      </span>
                     ) : (
                       <span>
-                        {consegna.quantita} {consegna.unitaMisura}
+                        {consegna.quantita} {etichettaUnita(consegna.unitaMisura)}
                       </span>
                     )}
                   </li>
@@ -252,7 +271,7 @@ export function PianificazioneApprovvigionamento(props: {
           </div>
           <button
             type="button"
-            disabled={props.pending || !props.fornitoreId || !props.materiaId || !unita || unita === "senza unità"}
+            disabled={props.pending || !props.fornitoreId || !props.materiaId || !unitaValida}
             onClick={props.onSalva}
             className="mt-3 w-full rounded-lg bg-slate-900 px-3 py-2 text-sm font-medium text-white disabled:opacity-60"
           >

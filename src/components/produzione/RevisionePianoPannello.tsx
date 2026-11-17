@@ -3,13 +3,15 @@
 import { useState } from "react";
 import type { BozzaConsegna, ConsegnaUfficiale, PropostaRevisione } from "@/lib/produzione/revisione-piano";
 import { etichettaDifferenza } from "@/lib/produzione/revisione-piano";
+import { SelettoreUnita } from "@/components/produzione/SelettoreUnita";
+import { unitaStandard } from "@/lib/produzione/unita-approvvigionamento";
 
 export function RevisionePianoPannello(props: {
   consegne: ConsegnaUfficiale[];
   pending: boolean;
   onProponi: (input: { motivazione: string; bozza: BozzaConsegna[] }) => void;
 }) {
-  const [righe, setRighe] = useState<BozzaConsegna[]>(
+  const [righe, setRighe] = useState<(BozzaConsegna & { personalizzata: boolean; nomeUnita: string })[]>(
     props.consegne.map((consegna) => ({
       consegnaId: consegna.id,
       materiaId: consegna.materiaId,
@@ -21,11 +23,16 @@ export function RevisionePianoPannello(props: {
       data: consegna.data,
       quantita: consegna.quantita,
       elimina: false,
+      personalizzata: !unitaStandard(consegna.unita),
+      nomeUnita: "",
     }))
   );
   const [motivazione, setMotivazione] = useState("");
 
-  function aggiorna(indice: number, patch: Partial<BozzaConsegna>) {
+  function aggiorna(
+    indice: number,
+    patch: Partial<BozzaConsegna & { personalizzata: boolean; nomeUnita: string }>
+  ) {
     setRighe((correnti) => correnti.map((riga, i) => (i === indice ? { ...riga, ...patch } : riga)));
   }
 
@@ -34,7 +41,10 @@ export function RevisionePianoPannello(props: {
       className="mt-3 space-y-2 border-t border-slate-200 pt-3"
       onSubmit={(event) => {
         event.preventDefault();
-        props.onProponi({ motivazione, bozza: righe });
+        props.onProponi({
+          motivazione,
+          bozza: righe.map(({ personalizzata: _personalizzata, nomeUnita: _nome, ...riga }) => riga),
+        });
       }}
     >
       <h3 className="text-sm font-semibold text-slate-800">Proponi una revisione della pianificazione</h3>
@@ -54,10 +64,23 @@ export function RevisionePianoPannello(props: {
             value={String(riga.quantita)}
             disabled={riga.elimina}
             onChange={(event) => aggiorna(indice, { quantita: Number(event.target.value.replace(",", ".")) })}
+            aria-label="Quantità"
             className="rounded border border-slate-300 px-2 py-1 text-sm"
           />
+          <SelettoreUnita
+            sigla={riga.unita}
+            nome={riga.nomeUnita}
+            personalizzata={riga.personalizzata}
+            onChange={(valore) =>
+              aggiorna(indice, {
+                unita: valore.sigla,
+                nomeUnita: valore.nome,
+                personalizzata: valore.personalizzata,
+              })
+            }
+          />
           <span className="self-center text-sm text-slate-600">
-            {riga.codice} · {riga.unita} · {riga.tipoQuantita}
+            {riga.codice} · {riga.tipoQuantita}
           </span>
           {riga.consegnaId ? (
             <label className="flex items-center gap-2 text-sm">
@@ -113,6 +136,8 @@ export function RevisionePianoPannello(props: {
               data: base.data,
               quantita: base.quantita,
               elimina: false,
+              personalizzata: !unitaStandard(base.unita),
+              nomeUnita: "",
             },
           ]);
         }}

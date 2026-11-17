@@ -3,7 +3,7 @@
 import { z } from "zod";
 import { writeAuditLog } from "@/lib/audit";
 import { requireAreaAccess } from "@/lib/areas/guard";
-import { unitaMateriaPrimaValida } from "@/lib/amministrazione/materie-prime";
+import { normalizzaUnitaApprovvigionamento } from "@/lib/produzione/unita-approvvigionamento";
 import {
   presaCheCopreVersione,
   riepilogoApprovvigionamento,
@@ -24,7 +24,11 @@ const chiaveSchema = z.string().trim().min(8).max(80);
 const rigaSchema = z.object({
   materiaPrimaId: uuidSchema,
   quantita: z.number().positive().max(1_000_000),
-  unitaMisura: z.string().trim().refine(unitaMateriaPrimaValida, "Unità non prevista."),
+  unitaMisura: z.string().trim().refine(
+    (valore) => normalizzaUnitaApprovvigionamento(valore).ok,
+    "Unità non prevista."
+  ),
+  unitaNome: z.string().trim().max(40).optional().default(""),
   tipoQuantita: z.enum(["precisa", "stimata"]).optional().default("precisa"),
   note: z.string().trim().max(500).optional().default(""),
 });
@@ -92,6 +96,7 @@ export type OrdineCalendario = {
     nome: string;
     quantita: number;
     unitaMisura: string;
+    unitaNome?: string;
     tipoQuantita: "precisa" | "stimata";
     note: string;
   }[];
@@ -122,6 +127,26 @@ export type MateriaCalendario = {
   nome: string;
   unitaMisura: string | null;
 };
+
+function righeCanoniche<T extends { unitaMisura: string }>(righe: T[]): T[] {
+  return righe.map((riga) => {
+    const unita = normalizzaUnitaApprovvigionamento(riga.unitaMisura);
+    return { ...riga, unitaMisura: unita.ok ? unita.sigla : riga.unitaMisura };
+  });
+}
+
+async function memorizzaNomiUnita(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  ordineId: string,
+  righe: { unitaNome?: string }[]
+) {
+  if (!righe.some((riga) => (riga.unitaNome ?? "").trim())) return;
+  const { error } = await supabase.rpc("approvvigionamento_nomi_unita", {
+    p_ordine_id: ordineId,
+    p_righe: righe.map((riga) => ({ unitaNome: (riga.unitaNome ?? "").trim() })),
+  });
+  if (error) throw new Error("Nome dell'unità non memorizzato.");
+}
 
 function messaggioDb(errore: { message?: string } | null, fallback: string): string {
   const testo = errore?.message ?? fallback;
@@ -306,7 +331,7 @@ export async function listaOrdiniApprovvigionamentoAction(input: {
     ids.length
       ? supabase
           .from("approvvigionamenti_righe")
-          .select("id, ordine_id, materia_prima_id, quantita, unita_misura, tipo_quantita, note, sort_order")
+          .select("id, ordine_id, materia_prima_id, quantita, unita_misura, unita_nome, tipo_quantita, note, sort_order")
           .in("ordine_id", ids)
           .is("deleted_at", null)
           .order("sort_order", { ascending: true })
@@ -429,6 +454,7 @@ export async function listaOrdiniApprovvigionamentoAction(input: {
       nome: materia?.nome ?? "Materia prima",
       quantita: Number(row.quantita),
       unitaMisura: String(row.unita_misura),
+      unitaNome: row.unita_nome ? String(row.unita_nome) : "",
       tipoQuantita: row.tipo_quantita === "stimata" ? "stimata" : "precisa",
       note: String(row.note ?? ""),
     });
@@ -698,10 +724,14 @@ export async function salvaApprovvigionamentiAction(raw: unknown): Promise<
   }
   const auth = await richiedi();
   const supabase = await createClient();
+  const ordiniRichiesti = parsed.data.ordini.map((ordine) => ({
+    ...ordine,
+    righe: righeCanoniche(ordine.righe),
+  }));
   const { data, error } = await supabase.rpc("registra_approvvigionamenti", {
     p_chiave: parsed.data.chiave,
     p_tipo: parsed.data.tipo,
-    p_ordini: parsed.data.ordini,
+    p_ordini: ordiniRichiesti,
   });
   if (error) return { success: false, error: messaggioDb(error, "Registrazione non riuscita.") };
   const corpo = comeOggetto(data);
@@ -735,6 +765,17 @@ export async function salvaApprovvigionamentiAction(raw: unknown): Promise<
       : `Registrate ${ordini.length} bozze di approvvigionamento.`,
     payload: { riusata: Boolean(corpo.riusata), ordini: ordini.length, piani: piani.length },
   });
+  if (!corpo.riusata) {
+    for (const salvato of ordini) {
+      const richiesto = ordiniRichiesti.find((ordine) => ordine.dataConsegna === salvato.dataConsegna);
+      if (!richiesto) continue;
+      try {
+        await memorizzaNomiUnita(supabase, salvato.id, richiesto.righe);
+      } catch (errore) {
+        return { success: false, error: errore instanceof Error ? errore.message : "Nome dell'unità non memorizzato." };
+      }
+    }
+  }
   return { success: true, riusata: Boolean(corpo.riusata), ordini, piani };
 }
 
@@ -754,10 +795,14 @@ export async function aggiornaApprovvigionamentoAction(raw: unknown): Promise<
   }
   const auth = await richiedi();
   const supabase = await createClient();
+  const ordineRichiesto = {
+    ...parsed.data.ordine,
+    righe: righeCanoniche(parsed.data.ordine.righe),
+  };
   const { data, error } = await supabase.rpc("aggiorna_approvvigionamento", {
     p_chiave: parsed.data.chiave,
     p_ordine_id: parsed.data.ordineId,
-    p_ordine: parsed.data.ordine,
+    p_ordine: ordineRichiesto,
     p_revisione: parsed.data.revisione,
   });
   if (error) return { success: false, error: messaggioDb(error, "Modifica non riuscita.") };
@@ -772,6 +817,13 @@ export async function aggiornaApprovvigionamentoAction(raw: unknown): Promise<
       : "Bozza di approvvigionamento aggiornata.",
     payload: { riusata: Boolean(corpo.riusata) },
   });
+  if (!corpo.riusata) {
+    try {
+      await memorizzaNomiUnita(supabase, parsed.data.ordineId, ordineRichiesto.righe);
+    } catch (errore) {
+      return { success: false, error: errore instanceof Error ? errore.message : "Nome dell'unità non memorizzato." };
+    }
+  }
   return {
     success: true,
     riusata: Boolean(corpo.riusata),
@@ -1373,13 +1425,14 @@ export async function aggiungiConsegnaPianoAction(raw: unknown): Promise<
   }
   const auth = await richiedi();
   const supabase = await createClient();
+  const righeRichieste = righeCanoniche(parsed.data.righe);
   const { data, error } = await supabase.rpc("approvvigionamento_aggiungi_consegna_piano", {
     p_chiave: parsed.data.chiave,
     p_piano_id: parsed.data.pianoId,
     p_revisione: parsed.data.revisione,
     p_data: parsed.data.data,
     p_note: parsed.data.note,
-    p_righe: parsed.data.righe,
+    p_righe: righeRichieste,
   });
   if (error) return { success: false, error: messaggioDb(error, "Consegna non aggiunta.") };
   const corpo = comeOggetto(data);
@@ -1393,6 +1446,13 @@ export async function aggiungiConsegnaPianoAction(raw: unknown): Promise<
     summary: "Consegna creata e collegata alla stessa pianificazione.",
     payload: { riusata: Boolean(corpo.riusata), ordineId },
   });
+  if (!corpo.riusata) {
+    try {
+      await memorizzaNomiUnita(supabase, ordineId, righeRichieste);
+    } catch (errore) {
+      return { success: false, error: errore instanceof Error ? errore.message : "Nome dell'unità non memorizzato." };
+    }
+  }
   return {
     success: true,
     riusata: Boolean(corpo.riusata),

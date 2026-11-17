@@ -58,7 +58,7 @@ assert.equal(
     unitaCatalogo: "kg",
     unitaRichiesta: "g",
   }).ok,
-  false
+  true
 );
 assert.equal(
   rigaOrdineValida({

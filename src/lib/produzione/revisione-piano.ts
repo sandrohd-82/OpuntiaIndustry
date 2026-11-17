@@ -28,7 +28,7 @@ export type BozzaConsegna = {
 
 export type VoceRevisione = {
   id: string;
-  operazione: "data" | "quantita" | "data_quantita" | "aggiunta" | "eliminazione";
+  operazione: "data" | "quantita" | "data_quantita" | "unita" | "aggiunta" | "eliminazione";
   consegnaId: string | null;
   codice: string;
   materia: string;
@@ -122,16 +122,18 @@ export function costruisciRevisionePiano(input: {
     }
     const dataDiversa = riga.data !== ufficiale.data;
     const quantitaDiversa = riga.quantita !== ufficiale.quantita;
-    if (!dataDiversa && !quantitaDiversa) continue;
+    const unitaDiversa = riga.unita !== ufficiale.unita;
+    if (!dataDiversa && !quantitaDiversa && !unitaDiversa) continue;
     let operazione: VoceRevisione["operazione"] = "quantita";
     if (dataDiversa && quantitaDiversa) operazione = "data_quantita";
     else if (dataDiversa) operazione = "data";
+    else if (unitaDiversa && !quantitaDiversa) operazione = "unita";
     voci.push(
       voceBase(operazione, {
         consegnaId: ufficiale.id,
         codice: ufficiale.codice,
         materia: ufficiale.materia,
-        unita: ufficiale.unita,
+        unita: riga.unita,
         tipoQuantita: ufficiale.tipoQuantita,
         dataPrima: ufficiale.data,
         dataDopo: riga.data,
@@ -181,6 +183,9 @@ export function etichettaDifferenza(voce: VoceRevisione): string {
   }
   if (voce.operazione === "data") {
     return `${voce.codice}: data ${voce.dataPrima} diventa ${voce.dataDopo}`;
+  }
+  if (voce.operazione === "unita") {
+    return `${voce.codice}: unità diventa ${voce.unita}`;
   }
   if (voce.operazione === "quantita") {
     return `${voce.codice}: quantità ${voce.quantitaPrima} diventa ${voce.quantitaDopo} ${voce.unita}`;

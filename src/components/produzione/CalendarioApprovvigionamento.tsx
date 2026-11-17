@@ -22,6 +22,7 @@ import {
   type PianoCalendario,
 } from "@/app/actions/approvvigionamento";
 import { PianificazioneApprovvigionamento } from "@/components/produzione/PianificazioneApprovvigionamento";
+import { SelettoreUnita } from "@/components/produzione/SelettoreUnita";
 import {
   RevisionePianoPannello,
   ValutazioneRevisione,
@@ -56,6 +57,12 @@ import {
   serializzaMemoriaTest,
 } from "@/lib/produzione/memoria-test-approvvigionamento";
 import {
+  etichettaMeseAnno,
+  etichettaUnita,
+  normalizzaUnitaApprovvigionamento,
+  unitaStandard,
+} from "@/lib/produzione/unita-approvvigionamento";
+import {
   costruisciRevisionePiano,
   decidiVoceRevisione,
   preparaEmailProva,
@@ -78,6 +85,9 @@ type Operazione = "" | "singolo" | "pianificazione";
 type RigaForm = {
   materiaPrimaId: string;
   quantita: string;
+  unitaMisura: string;
+  unitaNome: string;
+  personalizzata: boolean;
   tipoQuantita: TipoQuantitaApprovvigionamento;
   note: string;
 };
@@ -124,16 +134,33 @@ function documentoPianoSalvato(
     codice: piano.codice,
     fornitore: piano.fornitore,
     materia: prima ? `${prima.codice} ${prima.nome}` : "Materie del piano",
-    unita: prima?.unitaMisura ?? "",
+    unita: etichettaUnita(prima?.unitaMisura ?? "", prima?.unitaNome),
     periodoInizio: piano.periodoInizio,
     periodoFine: piano.periodoFine,
     note: `${etichettaTipologia(piano.tipologia)} · revisione ${piano.revisione}`,
-    consegne: collegati.map((ordine) => ({
-      data: ordine.dataConsegna,
-      quantita: ordine.righe.reduce((totale, riga) => totale + riga.quantita, 0),
-      tipoQuantita: ordine.righe.some((riga) => riga.tipoQuantita === "stimata") ? "stimata" : "precisa",
-      stato: ordine.stato,
-    })),
+    consegne: collegati.flatMap((ordine) => {
+      const unita = [...new Set(ordine.righe.map((riga) => riga.unitaMisura))];
+      if (unita.length <= 1) {
+        return [
+          {
+            data: ordine.dataConsegna,
+            quantita: ordine.righe.reduce((totale, riga) => totale + riga.quantita, 0),
+            tipoQuantita: ordine.righe.some((riga) => riga.tipoQuantita === "stimata")
+              ? ("stimata" as const)
+              : ("precisa" as const),
+            stato: ordine.stato,
+            unita: etichettaUnita(unita[0] ?? "", ordine.righe[0]?.unitaNome),
+          },
+        ];
+      }
+      return ordine.righe.map((riga) => ({
+        data: ordine.dataConsegna,
+        quantita: riga.quantita,
+        tipoQuantita: riga.tipoQuantita,
+        stato: ordine.stato,
+        unita: etichettaUnita(riga.unitaMisura, riga.unitaNome),
+      }));
+    }),
   };
 }
 
@@ -191,7 +218,15 @@ function celleMese(ancora: string): string[] {
 }
 
 function vuotaRiga(): RigaForm {
-  return { materiaPrimaId: "", quantita: "", tipoQuantita: "precisa", note: "" };
+  return {
+    materiaPrimaId: "",
+    quantita: "",
+    unitaMisura: "",
+    unitaNome: "",
+    personalizzata: false,
+    tipoQuantita: "precisa",
+    note: "",
+  };
 }
 
 function numeroTesto(testo: string): number {
@@ -231,6 +266,9 @@ export function CalendarioApprovvigionamento() {
   const [copiaQuantita, setCopiaQuantita] = useState(true);
   const [tipoQuantita, setTipoQuantita] = useState<TipoQuantitaApprovvigionamento>("precisa");
   const [quantitaBase, setQuantitaBase] = useState("");
+  const [unitaSigla, setUnitaSigla] = useState("");
+  const [unitaNome, setUnitaNome] = useState("");
+  const [unitaPersonalizzata, setUnitaPersonalizzata] = useState(false);
   const [materiaId, setMateriaId] = useState("");
   const [dateScelte, setDateScelte] = useState<string[]>([]);
   const [quantitaPerData, setQuantitaPerData] = useState<Record<string, string>>({});
@@ -240,6 +278,9 @@ export function CalendarioApprovvigionamento() {
   const [filtroPiano, setFiltroPiano] = useState("");
   const [dataAggiunta, setDataAggiunta] = useState(oggi);
   const [qtyAggiunta, setQtyAggiunta] = useState("");
+  const [unitaAggiunta, setUnitaAggiunta] = useState("");
+  const [nomeAggiunta, setNomeAggiunta] = useState("");
+  const [personalizzataAggiunta, setPersonalizzataAggiunta] = useState(false);
   const [materiaAggiunta, setMateriaAggiunta] = useState("");
   const [tipoAggiunta, setTipoAggiunta] = useState<TipoQuantitaApprovvigionamento>("precisa");
   const [test, setTest] = useState(false);
@@ -417,6 +458,9 @@ export function CalendarioApprovvigionamento() {
       ordine.righe.map((riga) => ({
         materiaPrimaId: riga.materiaPrimaId,
         quantita: String(riga.quantita),
+        unitaMisura: riga.unitaMisura,
+        unitaNome: riga.unitaNome ?? "",
+        personalizzata: !unitaStandard(riga.unitaMisura),
         tipoQuantita: riga.tipoQuantita,
         note: riga.note,
       }))
@@ -428,11 +472,12 @@ export function CalendarioApprovvigionamento() {
     return righe
       .filter((riga) => riga.materiaPrimaId)
       .map((riga) => {
-        const materia = materie.find((voce) => voce.id === riga.materiaPrimaId);
+        const scelta = normalizzaUnitaApprovvigionamento(riga.unitaMisura);
         return {
           materiaPrimaId: riga.materiaPrimaId,
           quantita: Number(riga.quantita.replace(",", ".")),
-          unitaMisura: materia?.unitaMisura ?? "",
+          unitaMisura: scelta.ok ? scelta.sigla : riga.unitaMisura,
+          unitaNome: riga.personalizzata ? riga.unitaNome.trim() : "",
           tipoQuantita: riga.tipoQuantita,
           note: riga.note,
         };
@@ -537,6 +582,7 @@ export function CalendarioApprovvigionamento() {
               materiaPrimaId: riga.materiaPrimaId,
               quantita: riga.quantita,
               unitaMisura: riga.unitaMisura,
+              unitaNome: riga.unitaNome ?? "",
               tipoQuantita: riga.tipoQuantita,
               note: riga.note,
             })),
@@ -592,6 +638,7 @@ export function CalendarioApprovvigionamento() {
             materiaPrimaId: riga.materiaPrimaId,
             quantita: riga.quantita,
             unitaMisura: riga.unitaMisura,
+            unitaNome: riga.unitaNome ?? "",
             tipoQuantita: riga.tipoQuantita,
             note: riga.note,
           })),
@@ -618,8 +665,9 @@ export function CalendarioApprovvigionamento() {
     }
     if (operazione === "") return;
     const materia = materie.find((voce) => voce.id === materiaId);
-    if (!materia?.unitaMisura) {
-      setErrore("La materia prima non ha un'unità di misura in catalogo.");
+    const unitaScelta = normalizzaUnitaApprovvigionamento(unitaSigla);
+    if (!materia || !unitaScelta.ok) {
+      setErrore("Indica l'unità di misura.");
       return;
     }
     setErrore(null);
@@ -630,7 +678,7 @@ export function CalendarioApprovvigionamento() {
         codice: materia.codice,
         nome: materia.nome,
         quantita: numeroTesto(quantitaBase),
-        unitaMisura: materia.unitaMisura ?? "",
+        unitaMisura: unitaScelta.sigla,
         unitaCatalogo: materia.unitaMisura,
         tipoQuantita,
       };
@@ -663,8 +711,8 @@ export function CalendarioApprovvigionamento() {
           codice: materia?.codice ?? "",
           nome: materia?.nome ?? "",
           quantita: numeroTesto(quantitaBase),
-          unitaMisura: materia?.unitaMisura ?? "",
-          unitaCatalogo: materia?.unitaMisura ?? null,
+          unitaMisura: unitaScelta.sigla,
+          unitaCatalogo: materia.unitaMisura,
           tipoQuantita,
         },
       });
@@ -700,7 +748,8 @@ export function CalendarioApprovvigionamento() {
             {
               materiaPrimaId: materiaId,
               quantita: consegna.quantita,
-              unitaMisura: materia.unitaMisura ?? "",
+              unitaMisura: unitaScelta.sigla,
+              unitaNome: unitaPersonalizzata ? unitaNome.trim() : "",
               tipoQuantita: consegna.tipoQuantita,
               note: "",
             },
@@ -885,11 +934,16 @@ export function CalendarioApprovvigionamento() {
   function aggiungiConsegnaAlPiano(piano: PianoCalendario) {
     const materia = materie.find((voce) => voce.id === materiaAggiunta);
     const quantita = numeroTesto(qtyAggiunta);
+    const unitaScelta = normalizzaUnitaApprovvigionamento(unitaAggiunta);
+    if (!unitaScelta.ok) {
+      setErrore("Indica l'unità di misura.");
+      return;
+    }
     const controllo = consegnaSelezionataValida({
       materiaPrimaId: materiaAggiunta,
       quantita,
       unitaCatalogo: materia?.unitaMisura ?? null,
-      unitaRichiesta: materia?.unitaMisura ?? "",
+      unitaRichiesta: unitaScelta.sigla,
       tipoQuantita: tipoAggiunta,
       data: dataAggiunta,
     });
@@ -908,7 +962,7 @@ export function CalendarioApprovvigionamento() {
           codice: materia?.codice ?? "",
           nome: materia?.nome ?? "",
           quantita,
-          unitaMisura: materia?.unitaMisura ?? "",
+          unitaMisura: unitaScelta.sigla,
           unitaCatalogo: materia?.unitaMisura ?? null,
           tipoQuantita: controllo.tipoQuantita,
         },
@@ -935,7 +989,8 @@ export function CalendarioApprovvigionamento() {
           {
             materiaPrimaId: materiaAggiunta,
             quantita,
-            unitaMisura: materia?.unitaMisura ?? "",
+            unitaMisura: unitaScelta.sigla,
+            unitaNome: personalizzataAggiunta ? nomeAggiunta.trim() : "",
             tipoQuantita: controllo.tipoQuantita,
             note: "",
           },
@@ -973,7 +1028,6 @@ export function CalendarioApprovvigionamento() {
 
   const anteprima = useMemo(() => {
     if (operazione === "") return null;
-    const materia = materie.find((voce) => voce.id === materiaId);
     return anteprimaConsegne({
       operazione,
       data: giorno,
@@ -986,7 +1040,7 @@ export function CalendarioApprovvigionamento() {
       copiaQuantita,
       quantitaPerData: quantitaOverride,
       tipoQuantita,
-      unitaMisura: materia?.unitaMisura ?? "",
+      unitaMisura: unitaSigla,
     });
   }, [
     operazione,
@@ -1000,8 +1054,7 @@ export function CalendarioApprovvigionamento() {
     copiaQuantita,
     quantitaOverride,
     tipoQuantita,
-    materiaId,
-    materie,
+    unitaSigla,
   ]);
 
   const dateAnteprima = new Set(anteprima && anteprima.ok ? anteprima.consegne.map((voce) => voce.data) : []);
@@ -1085,7 +1138,7 @@ export function CalendarioApprovvigionamento() {
       codice: test ? "Anteprima di prova" : "Anteprima",
       fornitore: fornitoreDocumento,
       materia: materiaDocumento ? `${materiaDocumento.codice} ${materiaDocumento.nome}` : "Materia non scelta",
-      unita: materiaDocumento?.unitaMisura ?? "",
+      unita: etichettaUnita(unitaSigla, unitaPersonalizzata ? unitaNome : ""),
       periodoInizio: operazione === "singolo" ? giorno : inizio,
       periodoFine: operazione === "singolo" ? giorno : fine,
       note: note || "Anteprima non salvata.",
@@ -1121,6 +1174,9 @@ export function CalendarioApprovvigionamento() {
           >
             Mese precedente
           </button>
+          <p className="min-w-40 px-2 text-center text-lg font-semibold tracking-wide text-slate-900">
+            {etichettaMeseAnno(ancora)}
+          </p>
           <button
             type="button"
             onClick={() => setAncora(oggi)}
@@ -1422,7 +1478,7 @@ export function CalendarioApprovvigionamento() {
                     {ordine.pianoCodice ? ` · ${ordine.pianoCodice}` : ""}
                     {" · "}
                     {ordine.righe
-                      .map((riga) => `${riga.nome} ${riga.quantita} ${riga.unitaMisura} ${riga.tipoQuantita}`)
+                      .map((riga) => `${riga.nome} ${riga.quantita} ${etichettaUnita(riga.unitaMisura, riga.unitaNome)} ${riga.tipoQuantita}`)
                       .join(", ")}
                   </p>
                   <div className="mt-2 flex flex-wrap gap-2">
@@ -1470,6 +1526,9 @@ export function CalendarioApprovvigionamento() {
           copiaQuantita={copiaQuantita}
           tipoQuantita={tipoQuantita}
           quantita={quantitaBase}
+          unitaSigla={unitaSigla}
+          unitaNome={unitaNome}
+          unitaPersonalizzata={unitaPersonalizzata}
           materiaId={materiaId}
           fornitoreId={fornitoreId}
           note={note}
@@ -1496,9 +1555,29 @@ export function CalendarioApprovvigionamento() {
           onCopia={setCopiaQuantita}
           onTipo={setTipoQuantita}
           onQuantita={setQuantitaBase}
+          onUnita={(valore) => {
+            setUnitaSigla(valore.sigla);
+            setUnitaNome(valore.nome);
+            setUnitaPersonalizzata(valore.personalizzata);
+          }}
           onMateria={(valore) => {
             setMateriaId(valore);
-            setRighe([{ materiaPrimaId: valore, quantita: quantitaBase, tipoQuantita, note: "" }]);
+            const catalogo = materie.find((voce) => voce.id === valore)?.unitaMisura ?? "";
+            const iniziale = unitaStandard(catalogo) ? catalogo : "";
+            setUnitaSigla(iniziale);
+            setUnitaNome("");
+            setUnitaPersonalizzata(false);
+            setRighe([
+              {
+                materiaPrimaId: valore,
+                quantita: quantitaBase,
+                unitaMisura: iniziale,
+                unitaNome: "",
+                personalizzata: false,
+                tipoQuantita,
+                note: "",
+              },
+            ]);
             setFornitoreId("");
           }}
           onFornitore={setFornitoreId}
@@ -1632,7 +1711,7 @@ export function CalendarioApprovvigionamento() {
                       <span>
                         {ordine.dataConsegna} · {etichettaStatoBreve(ordine.stato)} ·{" "}
                         {ordine.righe
-                          .map((riga) => `${riga.quantita} ${riga.unitaMisura} ${riga.tipoQuantita}`)
+                          .map((riga) => `${riga.quantita} ${etichettaUnita(riga.unitaMisura, riga.unitaNome)} ${riga.tipoQuantita}`)
                           .join(", ")}
                       </span>
                       <button
@@ -1694,7 +1773,13 @@ export function CalendarioApprovvigionamento() {
                   Materia
                   <select
                     value={materiaAggiunta}
-                    onChange={(event) => setMateriaAggiunta(event.target.value)}
+                    onChange={(event) => {
+                      const valore = event.target.value;
+                      setMateriaAggiunta(valore);
+                      if (unitaAggiunta) return;
+                      const catalogo = materie.find((voce) => voce.id === valore)?.unitaMisura ?? "";
+                      if (unitaStandard(catalogo)) setUnitaAggiunta(catalogo);
+                    }}
                     className="mt-1 block rounded-lg border border-slate-300 px-2 py-2"
                   >
                     <option value="">Seleziona</option>
@@ -1736,6 +1821,16 @@ export function CalendarioApprovvigionamento() {
                     className="mt-1 block w-24 rounded-lg border border-slate-300 px-2 py-2"
                   />
                 </label>
+                <SelettoreUnita
+                  sigla={unitaAggiunta}
+                  nome={nomeAggiunta}
+                  personalizzata={personalizzataAggiunta}
+                  onChange={(valore) => {
+                    setUnitaAggiunta(valore.sigla);
+                    setNomeAggiunta(valore.nome);
+                    setPersonalizzataAggiunta(valore.personalizzata);
+                  }}
+                />
                 <button
                   type="button"
                   disabled={pending}
@@ -1897,7 +1992,7 @@ function BilancioOrdine(props: { ordine: OrdineCalendario }) {
     <div className="mt-1 text-xs text-slate-600">
       {props.ordine.bilancio.map((riga) => (
         <p key={riga.codice}>
-          {riga.codice}: ordinato {riga.ordinata} {riga.unitaMisura}, ricevuto {riga.ricevuta}, da
+          {riga.codice}: ordinato {riga.ordinata} {etichettaUnita(riga.unitaMisura)}, ricevuto {riga.ricevuta}, da
           ricevere {riga.residua}
           {riga.oltre ? " · oltre il previsto" : ""}
         </p>
@@ -1997,14 +2092,19 @@ function Scheda(props: {
       </label>
       <div className="space-y-2">
         {props.righe.map((riga, indice) => {
-          const materia = props.materie.find((voce) => voce.id === riga.materiaPrimaId);
           return (
             <div key={`${indice}-${riga.materiaPrimaId}`} className="rounded-lg border border-slate-200 p-2">
               <select
                 value={riga.materiaPrimaId}
                 onChange={(event) => {
                   const copia = [...props.righe];
-                  copia[indice] = { ...riga, materiaPrimaId: event.target.value };
+                  const materiaScelta = props.materie.find((voce) => voce.id === event.target.value);
+                  const catalogo = materiaScelta?.unitaMisura ?? "";
+                  copia[indice] = {
+                    ...riga,
+                    materiaPrimaId: event.target.value,
+                    unitaMisura: riga.unitaMisura || (unitaStandard(catalogo) ? catalogo : ""),
+                  };
                   props.onRighe(copia);
                 }}
                 className="w-full rounded-lg border border-slate-300 px-2 py-2 text-sm"
@@ -2017,7 +2117,7 @@ function Scheda(props: {
                   </option>
                 ))}
               </select>
-              <div className="mt-2 flex gap-2">
+              <div className="mt-2 flex flex-wrap items-end gap-2">
                 <input
                   value={riga.quantita}
                   onChange={(event) => {
@@ -2027,11 +2127,24 @@ function Scheda(props: {
                   }}
                   inputMode="decimal"
                   placeholder="Quantità"
+                  aria-label="Quantità"
                   className="w-28 rounded-lg border border-slate-300 px-2 py-2 text-sm"
                 />
-                <span className="self-center text-sm text-slate-600">
-                  {materia?.unitaMisura ?? "senza unità"}
-                </span>
+                <SelettoreUnita
+                  sigla={riga.unitaMisura}
+                  nome={riga.unitaNome}
+                  personalizzata={riga.personalizzata}
+                  onChange={(valore) => {
+                    const copia = [...props.righe];
+                    copia[indice] = {
+                      ...riga,
+                      unitaMisura: valore.sigla,
+                      unitaNome: valore.nome,
+                      personalizzata: valore.personalizzata,
+                    };
+                    props.onRighe(copia);
+                  }}
+                />
                 <select
                   value={riga.tipoQuantita}
                   onChange={(event) => {

@@ -10,6 +10,7 @@ import {
 } from "@/app/actions/approvvigionamento-portale";
 import { RevisionePianoPannello } from "@/components/produzione/RevisionePianoPannello";
 import type { ConsegnaUfficiale } from "@/lib/produzione/revisione-piano";
+import { etichettaUnita } from "@/lib/produzione/unita-approvvigionamento";
 import { giorniMese, versioneAccettabile } from "@/lib/produzione/approvvigionamento";
 import {
   pdfPianificazione,
@@ -32,7 +33,7 @@ function consegneRicevute(
         codice: voce.codice,
         materiaId: riga.materiaPrimaId,
         materia: `${riga.codice} ${riga.nome}`,
-        unita: riga.unitaMisura,
+        unita: etichettaUnita(riga.unitaMisura),
         unitaCatalogo: riga.unitaMisura,
         tipoQuantita: riga.tipoQuantita,
         data: voce.dataConsegna,
@@ -62,7 +63,7 @@ function documentoPiano(
     codice: `${piano.codice} v${piano.numero}`,
     fornitore,
     materia: prima ? `${prima.codice} ${prima.nome}` : "Materia della versione",
-    unita: prima?.unitaMisura ?? "",
+    unita: etichettaUnita(prima?.unitaMisura ?? ""),
     periodoInizio: piano.periodoInizio,
     periodoFine: piano.periodoFine,
     note: piano.etichetta,
@@ -274,7 +275,7 @@ export function OrdiniRicevutiFornitore(props: {
               {pianoAperto.ordini.map((voce) => {
                 const dettaglio = props.ordini.find((ordine) => ordine.id === voce.versioneId);
                 const quantita = dettaglio?.righe
-                  .map((riga) => `${riga.quantita} ${riga.unitaMisura} ${riga.tipoQuantita}`)
+                  .map((riga) => `${riga.quantita} ${etichettaUnita(riga.unitaMisura)} ${riga.tipoQuantita}`)
                   .join(", ");
                 return (
                   <li key={voce.versioneId} className={voce.annullata ? "text-slate-500 line-through" : ""}>
@@ -383,7 +384,7 @@ export function OrdiniRicevutiFornitore(props: {
             <ul className="mt-3 space-y-1 text-sm">
               {ordine.righe.map((riga) => (
                 <li key={`${riga.codice}-${riga.quantita}`}>
-                  {riga.codice} · {riga.nome} · {riga.quantita} {riga.unitaMisura}
+                  {riga.codice} · {riga.nome} · {riga.quantita} {etichettaUnita(riga.unitaMisura)}
                 </li>
               ))}
             </ul>
@@ -503,7 +504,7 @@ function RispostaOrdine({ ordine }: { ordine: VersioneRicevuta }) {
       {tipo === "proposta" || tipo === "indisponibilita"
         ? ordine.righe.map((riga) => (
             <label key={riga.codice} className="block text-sm text-slate-700">
-              {riga.codice} · ordinato {riga.quantita} {riga.unitaMisura}
+              {riga.codice} · ordinato {riga.quantita} {etichettaUnita(riga.unitaMisura)}
               <input
                 value={quantita[riga.codice] ?? ""}
                 onChange={(event) =>
