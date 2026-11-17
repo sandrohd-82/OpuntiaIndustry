@@ -93,6 +93,8 @@ type Props = {
   mostraProforma?: boolean;
   /** Salva la proforma e chiude la bozza, senza scaricare il PDF. */
   onProformaSalvata?: (numero: string) => void;
+  /** Dall'elenco: la fattura si guarda e si approva, senza salvarla da qui. */
+  onApprova?: () => void;
 };
 
 type EditKind =
@@ -148,6 +150,7 @@ export function FatturaA4Modal({
   etichettaDocumento,
   mostraProforma = false,
   onProformaSalvata,
+  onApprova,
 }: Props) {
   const soloSessione =
     !ORDINI_PERSISTENZA_DEFINITIVA || Boolean(sessioneDraft) || !ordineId;
@@ -959,7 +962,18 @@ export function FatturaA4Modal({
               )}
             </>
           ) : null}
+          {onApprova && vista === "fattura" ? (
+            <button
+              type="button"
+              onClick={onApprova}
+              disabled={saving || loading || !destinatario || modificaDaApplicare}
+              className="rounded-lg bg-[var(--primary)] px-3 py-1.5 text-sm font-medium text-white disabled:opacity-50"
+            >
+              Approva fattura
+            </button>
+          ) : null}
           {vista === "fattura" &&
+          !onApprova &&
           !(soloSessione && ORDINI_PERSISTENZA_DEFINITIVA) ? (
             <button
               type="button"
@@ -1043,7 +1057,20 @@ export function FatturaA4Modal({
               onEditData={() => openEdit("data")}
               onEditCommerciale={() => openEdit("commerciale")}
             />
-            {vista === "fattura" && !isNumeroFatturaEmessa(numero) && numeroProvvisorio ? (
+            {vista === "fattura" &&
+            !isNumeroFatturaEmessa(numero) &&
+            numeroProvvisorio &&
+            onApprova ? (
+              <p className="mt-3 rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-950 print:hidden">
+                Fattura senza la dicitura proforma. Numero {numeroProvvisorio}: è
+                il prossimo della serie e resta provvisorio finché la fattura non
+                parte allo SDI.
+              </p>
+            ) : null}
+            {vista === "fattura" &&
+            !isNumeroFatturaEmessa(numero) &&
+            numeroProvvisorio &&
+            !onApprova ? (
               <p className="mt-3 rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-950 print:hidden">
                 Numero fattura {numeroProvvisorio}. Il numero è provvisorio: se
                 una fattura verrà emessa prima, il numero slitterà di uno.

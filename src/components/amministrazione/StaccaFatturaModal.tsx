@@ -11,6 +11,7 @@ import {
   listCaselleSpedizioneMailAction,
 } from "@/app/actions/spedizione-mail";
 import { ConfermaPromozioneSdiModal } from "@/components/amministrazione/ConfermaPromozioneSdiModal";
+import { FatturaA4Modal } from "@/components/amministrazione/FatturaA4Modal";
 import { testoMailFatturaCortesia } from "@/lib/amministrazione/ordine-mail-bozza";
 import type { Ordine } from "@/lib/amministrazione/ordini";
 import {
@@ -32,6 +33,9 @@ export function StaccaFatturaModal({
     Boolean(ordine.possibileClienteId) &&
     ordine.tipo !== "campionatura";
   const [promozioneOk, setPromozioneOk] = useState(false);
+  const [fase, setFase] = useState<"fattura" | "mail">("fattura");
+  const [sceltaMail, setSceltaMail] = useState<boolean | null>(null);
+  const [chiediPromozione, setChiediPromozione] = useState(false);
   const [occupato, setOccupato] = useState(false);
   const [errore, setErrore] = useState<string | null>(null);
   const [proformaId, setProformaId] = useState<string | null>(null);
@@ -92,6 +96,10 @@ export function StaccaFatturaModal({
   }, [ordine.id, ordine.numeroInterno]);
 
   async function conferma(confermaPromozione: boolean) {
+    if (promozioneRichiesta && !confermaPromozione) {
+      setChiediPromozione(true);
+      return;
+    }
     setOccupato(true);
     setErrore(null);
     let fatturaId = ordine.fatturaElenco?.id ?? "";
@@ -141,7 +149,19 @@ export function StaccaFatturaModal({
     onFatto(testo);
   }
 
-  if (promozioneRichiesta && !promozioneOk) {
+  if (fase === "fattura") {
+    return (
+      <FatturaA4Modal
+        ordineId={ordine.id}
+        etichettaDocumento="fattura"
+        bloccaInvio
+        onApprova={() => setFase("mail")}
+        onClose={onClose}
+      />
+    );
+  }
+
+  if (chiediPromozione) {
     return (
       <ConfermaPromozioneSdiModal
         nome={ordine.cliente}
@@ -153,12 +173,20 @@ export function StaccaFatturaModal({
             : undefined
         }
         onAnnulla={() => {
-          if (!occupato) onClose();
+          if (!occupato) setChiediPromozione(false);
         }}
-        onConferma={() => setPromozioneOk(true)}
+        onConferma={() => {
+          setPromozioneOk(true);
+          setChiediPromozione(false);
+          void conferma(true);
+        }}
       />
     );
   }
+
+  let etichettaInvio = "Scegli se inviare la mail";
+  if (sceltaMail === true) etichettaInvio = "Invia mail e fattura allo SDI";
+  if (sceltaMail === false) etichettaInvio = "Invia fattura allo SDI";
 
   return (
     <div className="fixed inset-0 z-[90] flex items-center justify-center bg-black/40 p-4">
@@ -167,30 +195,51 @@ export function StaccaFatturaModal({
         aria-modal="true"
         className="max-h-[90vh] w-full max-w-xl overflow-y-auto rounded-2xl border border-slate-200 bg-white p-5 shadow-xl"
       >
-        <h2 className="text-base font-semibold text-slate-900">Stacca fattura</h2>
+        <h2 className="text-base font-semibold text-slate-900">Bozza mail</h2>
         <p className="mt-3 text-sm text-slate-800">
-          {proformaId
-            ? `La fattura di ${ordine.numeroInterno} nasce dalla fattura proforma già salvata.`
-            : `La fattura di ${ordine.numeroInterno} riceve il numero fiscale e parte allo SDI.`}
+          La fattura di {ordine.numeroInterno} è approvata. Se invii la mail, qui
+          sotto c&apos;è la bozza. Poi parte insieme alla fattura allo SDI.
         </p>
         {FASE_TEST_INVIO ? (
           <p className="mt-2 rounded-lg border border-sky-200 bg-sky-50 px-3 py-2 text-sm text-sky-950">
             Fase di prova: il clic su invia allo SDI non trasmette nulla e non
-            assegna il numero fiscale. Puoi continuare e, se spunti la copia, la
-            mail parte solo verso {EMAIL_CONTROLLO_DEFAULT}.
+            assegna il numero fiscale. La mail, se la prepari, parte solo verso{" "}
+            {EMAIL_CONTROLLO_DEFAULT}.
           </p>
         ) : null}
-        <label className="mt-4 flex items-start gap-2 text-sm text-slate-800">
-          <input
-            type="checkbox"
-            className="mt-1"
-            checked={inviaCopia}
+        <div className="mt-4 flex flex-wrap gap-2">
+          <button
+            type="button"
             disabled={occupato}
-            onChange={(e) => setInviaCopia(e.target.checked)}
-          />
-          <span>Invia copia al cliente</span>
-        </label>
-        {inviaCopia ? (
+            onClick={() => {
+              setSceltaMail(true);
+              setInviaCopia(true);
+            }}
+            className={`rounded-lg px-3 py-2 text-sm font-medium ${
+              sceltaMail === true
+                ? "bg-slate-900 text-white"
+                : "border border-slate-300 bg-white text-slate-800"
+            }`}
+          >
+            Invia la mail
+          </button>
+          <button
+            type="button"
+            disabled={occupato}
+            onClick={() => {
+              setSceltaMail(false);
+              setInviaCopia(false);
+            }}
+            className={`rounded-lg px-3 py-2 text-sm font-medium ${
+              sceltaMail === false
+                ? "bg-slate-900 text-white"
+                : "border border-slate-300 bg-white text-slate-800"
+            }`}
+          >
+            Senza mail
+          </button>
+        </div>
+        {sceltaMail ? (
           <div className="mt-3 space-y-3 rounded-lg border border-slate-200 bg-slate-50 px-3 py-3">
             {FASE_TEST_INVIO ? (
               <>
@@ -256,6 +305,14 @@ export function StaccaFatturaModal({
           <button
             type="button"
             disabled={occupato}
+            onClick={() => setFase("fattura")}
+            className="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium"
+          >
+            Torna alla fattura
+          </button>
+          <button
+            type="button"
+            disabled={occupato}
             onClick={onClose}
             className="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium"
           >
@@ -263,11 +320,11 @@ export function StaccaFatturaModal({
           </button>
           <button
             type="button"
-            disabled={occupato || !pronto}
+            disabled={occupato || !pronto || sceltaMail === null}
             onClick={() => void conferma(promozioneOk)}
             className="rounded-lg bg-red-700 px-4 py-2 text-sm font-semibold text-white disabled:opacity-60"
           >
-            {occupato ? "Invio…" : "Stacca e invia allo SDI"}
+            {occupato ? "Invio…" : etichettaInvio}
           </button>
         </div>
       </div>
