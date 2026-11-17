@@ -8,6 +8,7 @@ import { calcolaConsegnaOrdineAction } from "@/app/actions/produzione-capacita";
 import {
   buildNumeroInternoOrdine,
   emptyTrasporto,
+  fatturaElencoInviata,
   formatOperatoreShort,
   fraseConfermaEliminazione,
   isOrdineDaProcessare,
@@ -435,7 +436,7 @@ async function fattureElencoPerOrdini(ids: string[]) {
   const service = createServiceClient();
   const { data } = await service
     .from("fatture_emesse")
-    .select("id, ordine_id, numero_fattura, ei_status, totale, created_at")
+    .select("id, ordine_id, numero_fattura, ei_status, fic_id, totale, created_at")
     .in("ordine_id", ids)
     .eq("tipo_documento", "fattura")
     .is("deleted_at", null)
@@ -446,6 +447,7 @@ async function fattureElencoPerOrdini(ids: string[]) {
       ordine_id?: string | null;
       numero_fattura?: string | null;
       ei_status?: string | null;
+      fic_id?: number | null;
       totale?: number | null;
     };
     const ordineId = String(row.ordine_id ?? "");
@@ -454,7 +456,10 @@ async function fattureElencoPerOrdini(ids: string[]) {
     map.set(ordineId, {
       id: String(row.id),
       numero,
-      inviata: row.ei_status === "sent" || isNumeroFatturaEmessa(numero),
+      inviata: fatturaElencoInviata({
+        eiStatus: row.ei_status,
+        ficId: row.fic_id,
+      }),
       totale: Number(row.totale) || 0,
     });
   }

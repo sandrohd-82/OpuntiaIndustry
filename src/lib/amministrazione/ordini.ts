@@ -227,7 +227,7 @@ export type Ordine = {
   accettazioneSeniorNota: string;
   accettazioneSeniorPuoRispondere: boolean;
   prezzoListinoUnitario: number | null;
-  /** Fattura collegata, se è stata creata. `inviata` è vero solo dopo lo SDI. */
+  /** Fattura collegata, se è stata creata. `inviata` è vero dopo lo SDI o se il documento esiste già su Fatture in Cloud. Un numero solo prenotato non basta. */
   fatturaElenco?: {
     id: string;
     numero: string;
@@ -249,6 +249,18 @@ export type Ordine = {
   updatedByLabel: string | null;
   deletedAt: string | null;
 };
+
+const STATI_SDI_AVVIATO = new Set(["pending", "sent", "delivered"]);
+
+/** Il numero prenotato non conta come invio: lo stacco resta disponibile. */
+export function fatturaElencoInviata(input: {
+  eiStatus: string | null | undefined;
+  ficId?: number | null;
+}): boolean {
+  const stato = String(input.eiStatus ?? "").trim().toLowerCase();
+  if (STATI_SDI_AVVIATO.has(stato)) return true;
+  return typeof input.ficId === "number" && input.ficId > 0;
+}
 
 export const IVA_PERCENTUALI_COMUNI = [4, 5, 10, 22] as const;
 export const ORDINI_ALLEGATI_BUCKET = "ordini-allegati";
