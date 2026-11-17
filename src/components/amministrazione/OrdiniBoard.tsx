@@ -41,6 +41,7 @@ import {
   totaleVisibileOrdine,
   type Ordine,
 } from "@/lib/amministrazione/ordini";
+import { etichettaPagamentoRiga } from "@/lib/amministrazione/ordine-pagamento-dichiarato";
 import { labelScontoFascia } from "@/lib/amministrazione/sconto-fuori-listino";
 import { classeCicloStato } from "@/lib/amministrazione/ciclo-stato-ordine";
 import { notifyOrdiniDaProcessareNav } from "@/lib/amministrazione/ordini-nav";
@@ -83,19 +84,6 @@ function classeEsitoOrdine(testo: string) {
     return "rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-950";
   }
   return "rounded-xl border border-emerald-300 bg-emerald-50 px-4 py-3 text-sm text-emerald-950";
-}
-
-function avvisoRatePagate(ordine: Ordine): string | null {
-  const dilazioni = ordine.fatturaElenco?.dilazioni;
-  if (!dilazioni || dilazioni.pagate <= 0) return null;
-  const voce =
-    dilazioni.pagate === 1
-      ? "1 rata pagata"
-      : `${dilazioni.pagate} rate pagate`;
-  let resto = "";
-  if (dilazioni.aperte === 1) resto = " · ne resta 1";
-  else if (dilazioni.aperte > 1) resto = ` · ne restano ${dilazioni.aperte}`;
-  return `${voce} · ${formatEuro(dilazioni.importoPagato)}${resto}`;
 }
 
 function formatEuro(value: number) {
@@ -174,7 +162,22 @@ function OrdineTableRow({
   onStaccaFattura: () => void;
   onDichiaraPagato: () => void;
 }) {
-  const ratePagate = avvisoRatePagate(ordine);
+  const statoPagamento = etichettaPagamentoRiga({
+    pagato: ordine.pagato,
+    dilazioni: ordine.fatturaElenco?.dilazioni,
+  });
+  let ratePagate: string | null = null;
+  if (statoPagamento.tipo === "rata") {
+    const voce =
+      statoPagamento.pagate === 1
+        ? "1 rata pagata"
+        : `${statoPagamento.pagate} rate pagate`;
+    const resto =
+      statoPagamento.aperte === 1
+        ? " · ne resta 1"
+        : ` · ne restano ${statoPagamento.aperte}`;
+    ratePagate = `${voce} · ${formatEuro(statoPagamento.importoPagato)}${resto}`;
+  }
   return (
     <>
       <tr className="border-t border-[var(--border)]">
@@ -245,9 +248,9 @@ function OrdineTableRow({
               {ratePagate}
             </span>
           ) : null}
-          {ordine.pagato ? (
+          {statoPagamento.tipo === "saldata" ? (
             <span className="font-medium text-emerald-700">
-              Sì
+              Saldata
               {ordine.dataPagamento
                 ? ` · ${formatDate(ordine.dataPagamento)}`
                 : ""}

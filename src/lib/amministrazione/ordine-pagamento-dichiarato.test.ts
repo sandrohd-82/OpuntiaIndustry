@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import {
   decisionePagamentoDichiarato,
+  etichettaPagamentoRiga,
   importoPagamentoDaFattura,
   riepilogoDilazioniPagate,
 } from "./ordine-pagamento-dichiarato";
@@ -88,5 +89,28 @@ assert.equal(parziale.aperte, 1);
 assert.equal(parziale.importoPagato, 100);
 const nessuna = riepilogoDilazioniPagate([{ stato: "da_pagare", importo: 80 }]);
 assert.equal(nessuna.pagate, 0);
+
+assert.equal(
+  etichettaPagamentoRiga({ pagato: false, dilazioni: null }).tipo,
+  "aperto"
+);
+assert.equal(
+  etichettaPagamentoRiga({ pagato: true, dilazioni: null }).tipo,
+  "saldata"
+);
+assert.equal(
+  etichettaPagamentoRiga({
+    pagato: false,
+    dilazioni: { pagate: 1, aperte: 1, importoPagato: 100 },
+  }).tipo,
+  "rata"
+);
+assert.equal(
+  etichettaPagamentoRiga({
+    pagato: true,
+    dilazioni: { pagate: 2, aperte: 0, importoPagato: 150 },
+  }).tipo,
+  "saldata"
+);
 
 console.log("ordine-pagamento-dichiarato: ok");

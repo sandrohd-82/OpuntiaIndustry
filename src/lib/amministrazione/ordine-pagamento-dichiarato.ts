@@ -20,6 +20,36 @@ export function riepilogoDilazioniPagate(
   };
 }
 
+/**
+ * In elenco la rata si vede solo se esiste una dilazione ancora aperta.
+ * Fattura saldata, anche se nata a rate, mostra solo «Saldata».
+ */
+export function etichettaPagamentoRiga(input: {
+  pagato: boolean;
+  dilazioni: { pagate: number; aperte: number; importoPagato: number } | null | undefined;
+}):
+  | { tipo: "saldata" }
+  | { tipo: "rata"; pagate: number; aperte: number; importoPagato: number }
+  | { tipo: "aperto" } {
+  const dilazioni = input.dilazioni ?? null;
+  const haDilazione = Boolean(
+    dilazioni && dilazioni.pagate + dilazioni.aperte > 0
+  );
+  if (input.pagato) return { tipo: "saldata" };
+  if (haDilazione && dilazioni && dilazioni.aperte === 0 && dilazioni.pagate > 0) {
+    return { tipo: "saldata" };
+  }
+  if (haDilazione && dilazioni && dilazioni.pagate > 0 && dilazioni.aperte > 0) {
+    return {
+      tipo: "rata",
+      pagate: dilazioni.pagate,
+      aperte: dilazioni.aperte,
+      importoPagato: dilazioni.importoPagato,
+    };
+  }
+  return { tipo: "aperto" };
+}
+
 export type RataDichiarazione = {
   id: string;
   importo: number;
