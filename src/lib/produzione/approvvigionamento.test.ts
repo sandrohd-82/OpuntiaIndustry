@@ -388,6 +388,7 @@ const misto = riepilogoApprovvigionamento({
   righe: [
     {
       ordineId: A,
+      materiaId: MP,
       unita: "kg",
       tipoQuantita: "precisa",
       pianificata: 2,
@@ -403,6 +404,7 @@ const misto = riepilogoApprovvigionamento({
     },
     {
       ordineId: B,
+      materiaId: B,
       unita: "g",
       tipoQuantita: "stimata",
       pianificata: 100,
@@ -427,6 +429,7 @@ const chiaro = riepilogoApprovvigionamento({
   righe: [
     {
       ordineId: A,
+      materiaId: MP,
       unita: "kg",
       tipoQuantita: "precisa",
       pianificata: 4,
@@ -449,6 +452,104 @@ assert.equal(chiaro.voci.find((voce) => voce.chiave === "pianificata_stimata")?.
 assert.equal(chiaro.voci.find((voce) => voce.chiave === "arrivata")?.disponibile, false);
 assert.equal(chiaro.voci.find((voce) => voce.chiave === "accettata")?.motivo, "Nessun lotto LM- collegato a queste consegne.");
 assert.equal(chiaro.voci.find((voce) => voce.chiave === "giacenza")?.valore, 9);
+assert.equal(quadriApprovvigionamento({
+  stato: "annullato",
+  notifica: "inviata",
+  visionato: true,
+}).documento, "Annullato");
+
+const doppia = riepilogoApprovvigionamento({
+  righe: [
+    {
+      ordineId: A,
+      materiaId: MP,
+      unita: "kg",
+      tipoQuantita: "precisa",
+      pianificata: 1,
+      ordinata: 4,
+      confermata: 4,
+      arrivata: 3,
+      arrivataMancante: false,
+      accettata: 2,
+      respinta: 1,
+      scaricata: 1,
+      lottiCollegati: true,
+      unitaLottoDiversa: false,
+    },
+    {
+      ordineId: A,
+      materiaId: MP,
+      unita: "kg",
+      tipoQuantita: "precisa",
+      pianificata: 2,
+      ordinata: 4,
+      confermata: 4,
+      arrivata: 3,
+      arrivataMancante: false,
+      accettata: 2,
+      respinta: 1,
+      scaricata: 1,
+      lottiCollegati: true,
+      unitaLottoDiversa: false,
+    },
+  ],
+  giacenza: null,
+  motivoGiacenza: "Seleziona una materia.",
+});
+assert.equal(doppia.consegne, 1);
+assert.equal(doppia.voci.find((voce) => voce.chiave === "pianificata_precisa")?.valore, 3);
+assert.equal(doppia.voci.find((voce) => voce.chiave === "ordinata")?.valore, 4);
+assert.equal(doppia.voci.find((voce) => voce.chiave === "arrivata")?.valore, 3);
+assert.equal(doppia.voci.find((voce) => voce.chiave === "accettata")?.valore, 2);
+
+const doppiaSenzaLotti = riepilogoApprovvigionamento({
+  righe: [
+    {
+      ordineId: A,
+      materiaId: MP,
+      unita: "kg",
+      tipoQuantita: "precisa",
+      pianificata: 1,
+      ordinata: 4,
+      confermata: 0,
+      arrivata: null,
+      arrivataMancante: false,
+      accettata: null,
+      respinta: null,
+      scaricata: null,
+      lottiCollegati: false,
+      unitaLottoDiversa: false,
+    },
+    {
+      ordineId: A,
+      materiaId: MP,
+      unita: "kg",
+      tipoQuantita: "precisa",
+      pianificata: 2,
+      ordinata: 4,
+      confermata: 0,
+      arrivata: null,
+      arrivataMancante: false,
+      accettata: null,
+      respinta: null,
+      scaricata: null,
+      lottiCollegati: false,
+      unitaLottoDiversa: false,
+    },
+  ],
+  giacenza: null,
+  motivoGiacenza: null,
+});
+assert.equal(doppiaSenzaLotti.consegne, 1);
+assert.equal(doppiaSenzaLotti.voci.find((voce) => voce.chiave === "ordinata")?.valore, 4);
+assert.equal(doppiaSenzaLotti.voci.find((voce) => voce.chiave === "pianificata_precisa")?.valore, 3);
+assert.equal(
+  doppiaSenzaLotti.voci.find((voce) => voce.chiave === "accettata")?.motivo,
+  "Nessun lotto LM- collegato a queste consegne."
+);
+if (regolare.ok) {
+  assert.equal(new Set(regolare.consegne.map((voce) => voce.data)).size, regolare.consegne.length);
+}
 
 const pianificazione = readFileSync(
   new URL(
@@ -461,5 +562,18 @@ assert.match(pianificazione, /pianificazione/);
 assert.match(pianificazione, /tipo_quantita/);
 assert.equal(pianificazione.includes("approvvigionamenti_notifiche"), false);
 assert.equal(/create table public\.approvvigionamenti_ordini/i.test(pianificazione), false);
+
+const consegnePiano = readFileSync(
+  new URL(
+    "../../../supabase/migrations/20261117123000_approvvigionamenti_consegne_piano.sql",
+    import.meta.url
+  ),
+  "utf8"
+);
+assert.match(consegnePiano, /approvvigionamento_annulla_consegna/);
+assert.match(consegnePiano, /approvvigionamento_collega_consegna/);
+assert.match(consegnePiano, /approvvigionamento_estendi_periodo_piano/);
+assert.equal(consegnePiano.includes("delete from public.approvvigionamenti_versioni"), false);
+assert.equal(consegnePiano.includes("approvvigionamenti_notifiche"), false);
 
 console.log("approvvigionamento: ok");

@@ -53,7 +53,7 @@ export type OrdineCalendario = {
   fornitore: string;
   dataConsegna: string;
   note: string;
-  stato: "bozza" | "pubblicato" | "da_ripubblicare";
+  stato: "bozza" | "pubblicato" | "da_ripubblicare" | "annullato";
   versionePubblicata: number | null;
   versioneId: string | null;
   notificaStato: "assente" | "non_inviata" | "in_invio" | "inviata" | "fallita" | "incerta";
@@ -168,7 +168,16 @@ function tipologiaPiano(valore: unknown): PianoCalendario["tipologia"] {
   return "settimanale";
 }
 
-function statoOrdine(valore: unknown): "bozza" | "pubblicato" | "da_ripubblicare" {
+function statoOrdine(
+  valore: unknown
+): "bozza" | "pubblicato" | "da_ripubblicare" | "annullato" {
+  if (valore === "pubblicato" || valore === "da_ripubblicare" || valore === "annullato") {
+    return valore;
+  }
+  return "bozza";
+}
+
+function statoPiano(valore: unknown): PianoCalendario["stato"] {
   if (valore === "pubblicato" || valore === "da_ripubblicare") return valore;
   return "bozza";
 }
@@ -641,7 +650,7 @@ export async function listaPianiApprovvigionamentoAction(input: {
         periodoInizio: String(row.periodo_inizio),
         periodoFine: String(row.periodo_fine),
         tipologia: tipologiaPiano(row.tipologia),
-        stato: statoOrdine(row.stato),
+        stato: statoPiano(row.stato),
         versionePubblicata: row.versione_pubblicata == null ? null : Number(row.versione_pubblicata),
         versioneId,
         notificaStato: notificaDi(notificaPiano.get(versioneId ?? "")?.stato),
@@ -1020,7 +1029,7 @@ export async function resocontoApprovvigionamentoAction(input: {
   const supabase = await createClient();
   const { data: ordini, error } = await supabase
     .from("approvvigionamenti_ordini")
-    .select("id, versione_pubblicata")
+    .select("id, versione_pubblicata, stato")
     .in("id", ids)
     .is("deleted_at", null);
   if (error) return { success: false, error: "Resoconto non disponibile." };
@@ -1119,18 +1128,26 @@ export async function resocontoApprovvigionamentoAction(input: {
     lottiPerRiga.set(chiave, lista);
   }
   const fatti: RigaRiepilogoApprovvigionamento[] = [];
+  const attivi = new Set(
+    (ordini ?? [])
+      .filter((ordine) => ordine.stato !== "annullato")
+      .map((ordine) => String(ordine.id))
+  );
   for (const riga of righe ?? []) {
+    if (!attivi.has(String(riga.ordine_id))) continue;
     const materiaId = String(riga.materia_prima_id);
     if (materiaFiltro && materiaId !== materiaFiltro) continue;
     const ordineId = String(riga.ordine_id);
     const unita = String(riga.unita_misura);
     const codice = codiceMateria.get(materiaId) ?? "";
     const versione = versioneCorrente.get(ordineId);
-    const pubblicata = (versione?.righe ?? []).find((voce) => {
+    const pubblicate = (versione?.righe ?? []).filter((voce) => {
       const rigaVersione = voce as { materiaPrimaId?: string; unitaMisura?: string };
       return String(rigaVersione.materiaPrimaId ?? "") === materiaId && String(rigaVersione.unitaMisura ?? "") === unita;
-    }) as { quantita?: number } | undefined;
-    const ordinata = versione ? Number(pubblicata?.quantita ?? 0) : 0;
+    }) as { quantita?: number }[];
+    const ordinata = versione
+      ? pubblicate.reduce((totale, voce) => totale + Number(voce.quantita ?? 0), 0)
+      : 0;
     const risposta = versione ? rispostaPerVersione.get(versione.id) : undefined;
     let confermata = 0;
     if (risposta) {
@@ -1162,6 +1179,7 @@ export async function resocontoApprovvigionamentoAction(input: {
     }
     fatti.push({
       ordineId,
+      materiaId,
       unita,
       tipoQuantita: riga.tipo_quantita === "stimata" ? "stimata" : "precisa",
       pianificata: Number(riga.quantita),
@@ -1195,4 +1213,122 @@ export async function resocontoApprovvigionamentoAction(input: {
     }
   }
   return { success: true, ...riepilogoApprovvigionamento({ righe: fatti, giacenza, motivoGiacenza }) };
+}
+
+export async function annullaConsegnaApprovvigionamentoAction(raw: unknown): Promise<
+  { success: true; riusata: boolean; stato: string } | Errore
+> {
+  const parsed = z
+    .object({
+      chiave: chiaveSchema,
+      ordineId: uuidSchema,
+      revisione: z.number().int().positive(),
+    })
+    .safeParse(raw);
+  if (!parsed.success) return { success: false, error: "Annullamento non valido." };
+  const auth = await richiedi();
+  const supabase = await createClient();
+  const { data, error } = await supabase.rpc("approvvigionamento_annulla_consegna", {
+    p_chiave: parsed.data.chiave,
+    p_ordine_id: parsed.data.ordineId,
+    p_revisione: parsed.data.revisione,
+  });
+  if (error) return { success: false, error: messaggioDb(error, "Consegna non annullata.") };
+  const corpo = comeOggetto(data);
+  await writeAuditLog({
+    entity_type: "approvvigionamenti_ordini",
+    entity_id: parsed.data.ordineId,
+    action: "annulla",
+    actor_id: auth.userId,
+    summary: "Consegna annullata. Le versioni pubblicate restano.",
+    payload: { riusata: Boolean(corpo.riusata), stato: String(corpo.stato ?? "") },
+  });
+  return {
+    success: true,
+    riusata: Boolean(corpo.riusata),
+    stato: String(corpo.stato ?? ""),
+  };
+}
+
+export async function collegaConsegnaPianoAction(raw: unknown): Promise<
+  {
+    success: true;
+    riusata: boolean;
+    revisione: number;
+    periodoInizio: string;
+    periodoFine: string;
+  } | Errore
+> {
+  const parsed = z
+    .object({
+      chiave: chiaveSchema,
+      pianoId: uuidSchema,
+      ordineId: uuidSchema,
+      revisione: z.number().int().positive(),
+    })
+    .safeParse(raw);
+  if (!parsed.success) return { success: false, error: "Collegamento non valido." };
+  const auth = await richiedi();
+  const supabase = await createClient();
+  const { data, error } = await supabase.rpc("approvvigionamento_collega_consegna", {
+    p_chiave: parsed.data.chiave,
+    p_piano_id: parsed.data.pianoId,
+    p_ordine_id: parsed.data.ordineId,
+    p_revisione: parsed.data.revisione,
+  });
+  if (error) return { success: false, error: messaggioDb(error, "Consegna non collegata al piano.") };
+  const corpo = comeOggetto(data);
+  await writeAuditLog({
+    entity_type: "approvvigionamenti_piani",
+    entity_id: parsed.data.pianoId,
+    action: "collega",
+    actor_id: auth.userId,
+    summary: "Consegna collegata alla pianificazione esistente.",
+    payload: { riusata: Boolean(corpo.riusata), ordineId: parsed.data.ordineId },
+  });
+  return {
+    success: true,
+    riusata: Boolean(corpo.riusata),
+    revisione: Number(corpo.revisione ?? parsed.data.revisione),
+    periodoInizio: String(corpo.periodoInizio ?? ""),
+    periodoFine: String(corpo.periodoFine ?? ""),
+  };
+}
+
+export async function estendiPeriodoPianoAction(raw: unknown): Promise<
+  { success: true; riusata: boolean; esteso: boolean; revisione: number } | Errore
+> {
+  const parsed = z
+    .object({
+      chiave: chiaveSchema,
+      pianoId: uuidSchema,
+      revisione: z.number().int().positive(),
+      data: giornoSchema,
+    })
+    .safeParse(raw);
+  if (!parsed.success) return { success: false, error: "Periodo non valido." };
+  const auth = await richiedi();
+  const supabase = await createClient();
+  const { data, error } = await supabase.rpc("approvvigionamento_estendi_periodo_piano", {
+    p_chiave: parsed.data.chiave,
+    p_piano_id: parsed.data.pianoId,
+    p_revisione: parsed.data.revisione,
+    p_data: parsed.data.data,
+  });
+  if (error) return { success: false, error: messaggioDb(error, "Periodo non aggiornato.") };
+  const corpo = comeOggetto(data);
+  await writeAuditLog({
+    entity_type: "approvvigionamenti_piani",
+    entity_id: parsed.data.pianoId,
+    action: "estendi",
+    actor_id: auth.userId,
+    summary: "Periodo della pianificazione esistente allargato.",
+    payload: { riusata: Boolean(corpo.riusata), esteso: Boolean(corpo.esteso) },
+  });
+  return {
+    success: true,
+    riusata: Boolean(corpo.riusata),
+    esteso: Boolean(corpo.esteso),
+    revisione: Number(corpo.revisione ?? parsed.data.revisione),
+  };
 }

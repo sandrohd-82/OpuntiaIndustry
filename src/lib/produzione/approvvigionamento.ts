@@ -4,7 +4,11 @@ import {
   type UnitaMateriaPrima,
 } from "@/lib/amministrazione/materie-prime";
 
-export type StatoOrdineApprovvigionamento = "bozza" | "pubblicato" | "da_ripubblicare";
+export type StatoOrdineApprovvigionamento =
+  | "bozza"
+  | "pubblicato"
+  | "da_ripubblicare"
+  | "annullato";
 
 export type RigaPubblicata = {
   materiaPrimaId: string;
@@ -16,7 +20,7 @@ export type RigaPubblicata = {
 };
 
 export type QuadriApprovvigionamento = {
-  documento: "Bozza" | "Pubblicato" | "Revisione da pubblicare";
+  documento: "Bozza" | "Pubblicato" | "Revisione da pubblicare" | "Annullato";
   notifica:
     | "Notifica da inviare"
     | "Notifica in corso"
@@ -35,6 +39,7 @@ export function quadriApprovvigionamento(input: {
   let documento: QuadriApprovvigionamento["documento"] = "Bozza";
   if (input.stato === "pubblicato") documento = "Pubblicato";
   if (input.stato === "da_ripubblicare") documento = "Revisione da pubblicare";
+  if (input.stato === "annullato") documento = "Annullato";
   let notifica: QuadriApprovvigionamento["notifica"] = null;
   if (input.notifica === "non_inviata") notifica = "Notifica da inviare";
   if (input.notifica === "in_invio") notifica = "Notifica in corso";
@@ -43,7 +48,7 @@ export function quadriApprovvigionamento(input: {
     notifica = "Notifica fallita/incerta";
   }
   let presaVisione: QuadriApprovvigionamento["presaVisione"] = null;
-  if (input.stato !== "bozza") {
+  if (input.stato !== "bozza" && input.stato !== "annullato") {
     presaVisione = input.visionato ? "Visionato" : "In attesa di presa visione";
   }
   return { documento, notifica, presaVisione };
@@ -448,6 +453,7 @@ export type VoceRiepilogo = {
 
 export type RigaRiepilogoApprovvigionamento = {
   ordineId: string;
+  materiaId: string;
   unita: string;
   tipoQuantita: TipoQuantitaApprovvigionamento;
   pianificata: number;
@@ -483,15 +489,46 @@ function somma(valori: readonly (number | null)[]): number {
   return valori.reduce<number>((totale, valore) => totale + (valore ?? 0), 0);
 }
 
+/**
+ * Ordinato, confermato, arrivato e lotti sono della consegna, non della riga ripetuta.
+ * La quantità pianificata resta la somma delle righe. Una versione storica non entra.
+ */
+export function righeSenzaDuplicati(
+  righe: readonly RigaRiepilogoApprovvigionamento[]
+): RigaRiepilogoApprovvigionamento[] {
+  const gia = new Map<string, RigaRiepilogoApprovvigionamento>();
+  return righe.map((riga) => {
+    const chiave = `${riga.ordineId}|${riga.materiaId}|${riga.unita}`;
+    const prima = gia.get(chiave);
+    if (prima) {
+      return {
+        ...riga,
+        ordinata: 0,
+        confermata: 0,
+        arrivata: 0,
+        arrivataMancante: prima.arrivataMancante || riga.arrivataMancante,
+        accettata: 0,
+        respinta: 0,
+        scaricata: 0,
+        lottiCollegati: prima.lottiCollegati,
+        unitaLottoDiversa: prima.unitaLottoDiversa || riga.unitaLottoDiversa,
+      };
+    }
+    gia.set(chiave, riga);
+    return riga;
+  });
+}
+
 /** Non somma unità diverse e non sostituisce un collegamento mancante con zero. */
 export function riepilogoApprovvigionamento(input: {
   righe: readonly RigaRiepilogoApprovvigionamento[];
   giacenza: { quantita: number; unita: string } | null;
   motivoGiacenza: string | null;
 }): { consegne: number; voci: VoceRiepilogo[] } {
-  const consegne = new Set(input.righe.map((riga) => riga.ordineId)).size;
-  const unita = [...new Set(input.righe.map((riga) => riga.unita).filter(Boolean))];
-  if (input.righe.length > 0 && unita.length !== 1) {
+  const righe = righeSenzaDuplicati(input.righe);
+  const consegne = new Set(righe.map((riga) => riga.ordineId)).size;
+  const unita = [...new Set(righe.map((riga) => riga.unita).filter(Boolean))];
+  if (righe.length > 0 && unita.length !== 1) {
     const motivo = "Unità diverse: non si sommano.";
     return {
       consegne,
@@ -509,11 +546,11 @@ export function riepilogoApprovvigionamento(input: {
     };
   }
   const unitaUnica = unita[0] ?? null;
-  const precise = input.righe.filter((riga) => riga.tipoQuantita === "precisa");
-  const stimate = input.righe.filter((riga) => riga.tipoQuantita === "stimata");
-  const arrivoMancante = input.righe.some((riga) => riga.arrivataMancante);
-  const senzaLotti = input.righe.length > 0 && input.righe.every((riga) => !riga.lottiCollegati);
-  const unitaLottoDiversa = input.righe.some((riga) => riga.unitaLottoDiversa);
+  const precise = righe.filter((riga) => riga.tipoQuantita === "precisa");
+  const stimate = righe.filter((riga) => riga.tipoQuantita === "stimata");
+  const arrivoMancante = righe.some((riga) => riga.arrivataMancante);
+  const senzaLotti = righe.length > 0 && righe.every((riga) => !riga.lottiCollegati);
+  const unitaLottoDiversa = righe.some((riga) => riga.unitaLottoDiversa);
   let motivoLotti: string | null = null;
   if (unitaLottoDiversa) motivoLotti = "Unità del lotto diversa. Nessuna conversione.";
   else if (senzaLotti) motivoLotti = "Nessun lotto LM- collegato a queste consegne.";
@@ -539,42 +576,42 @@ export function riepilogoApprovvigionamento(input: {
       voce(
         "ordinata",
         "Quantità ordinata",
-        somma(input.righe.map((riga) => riga.ordinata)),
+        somma(righe.map((riga) => riga.ordinata)),
         unitaUnica,
         null
       ),
       voce(
         "confermata",
         "Quantità confermata",
-        somma(input.righe.map((riga) => riga.confermata)),
+        somma(righe.map((riga) => riga.confermata)),
         unitaUnica,
         null
       ),
       voce(
         "arrivata",
         "Quantità arrivata",
-        arrivoMancante ? null : somma(input.righe.map((riga) => riga.arrivata)),
+        arrivoMancante ? null : somma(righe.map((riga) => riga.arrivata)),
         unitaUnica,
         arrivoMancante ? "Una consegna non ha ancora la quantità arrivata." : null
       ),
       voce(
         "accettata",
         "Quantità accettata",
-        motivoLotti ? null : somma(input.righe.map((riga) => riga.accettata)),
+        motivoLotti ? null : somma(righe.map((riga) => riga.accettata)),
         unitaUnica,
         motivoLotti
       ),
       voce(
         "respinta",
         "Quantità respinta",
-        motivoLotti ? null : somma(input.righe.map((riga) => riga.respinta)),
+        motivoLotti ? null : somma(righe.map((riga) => riga.respinta)),
         unitaUnica,
         motivoLotti
       ),
       voce(
         "scaricata",
         "Quantità scaricata per produzione",
-        motivoLotti ? null : somma(input.righe.map((riga) => riga.scaricata)),
+        motivoLotti ? null : somma(righe.map((riga) => riga.scaricata)),
         unitaUnica,
         motivoLotti
       ),
