@@ -14,6 +14,7 @@ import {
   anteprimaConsegne,
   dateGiorniFissi,
   dateOgniNGiorni,
+  primoGiornoUtile,
   dateRegolari,
   dateUniche,
   fornitoreAssegnabile,
@@ -578,6 +579,9 @@ assert.match(consegnePiano, /approvvigionamento_collega_consegna/);
 assert.match(consegnePiano, /approvvigionamento_estendi_periodo_piano/);
 assert.equal(consegnePiano.includes("delete from public.approvvigionamenti_versioni"), false);
 assert.equal(consegnePiano.includes("approvvigionamenti_notifiche"), false);
+
+assert.equal(primoGiornoUtile("2026-01-10", "2026-01-31", [1, 2, 3, 4, 5]), "2026-01-12");
+assert.equal(primoGiornoUtile("2026-01-12", "2026-01-31", [1, 2, 3, 4, 5]), "2026-01-12");
 
 const primaPrima = dateOgniNGiorni({
   inizio: "2026-01-12",

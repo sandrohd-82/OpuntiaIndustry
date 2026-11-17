@@ -1409,7 +1409,7 @@ export function CalendarioApprovvigionamento() {
   }
 
   return (
-    <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_22rem]">
+    <div className="grid gap-4">
       <section className="min-w-0 rounded-xl border border-[var(--border)] bg-white p-3">
         <div className="mb-3 flex flex-wrap items-center gap-2">
           <div className="inline-flex rounded-lg border border-slate-200 p-0.5">
@@ -1788,45 +1788,7 @@ export function CalendarioApprovvigionamento() {
           </ul>
         )}
       </section>
-      <div className="space-y-3">
-        <Scheda
-          giorno={giorno}
-          ordini={delGiorno}
-          materie={materie}
-          fornitori={fornitori}
-          ordineId={ordineId}
-          modificaBloccata={ordini.some(
-            (ordine) => ordine.id === ordineId && ordine.stato === "annullato"
-          )}
-          fornitoreId={fornitoreId}
-          note={note}
-          righe={righe}
-          dataCopia={dataCopia}
-          settimanaDestinazione={settimanaDestinazione}
-          pending={pending}
-          errore={errore}
-          messaggio={messaggio}
-          mancaUnita={mancaUnita()}
-          onGiorno={setGiorno}
-          onFornitore={setFornitoreId}
-          onNote={setNote}
-          onRighe={setRighe}
-          onDataCopia={setDataCopia}
-          onSettimana={setSettimanaDestinazione}
-          onSalva={salva}
-          onCopia={copiaOrdine}
-          onCopiaSettimana={copiaSettimanaCorrente}
-          onCompila={compila}
-          onNuova={() => {
-            setOrdineId(null);
-            setRevisione(1);
-            setNote("");
-            setRighe([vuotaRiga()]);
-            chiudiOperazione();
-          }}
-        />
-      </div>
-      <section className="rounded-xl border border-[var(--border)] bg-white p-3 xl:col-span-2">
+      <section className="rounded-xl border border-[var(--border)] bg-white p-3">
         <h2 className="text-sm font-semibold text-slate-800">Piani del periodo</h2>
         {piani.length === 0 ? (
           <p className="mt-2 text-sm text-slate-500">

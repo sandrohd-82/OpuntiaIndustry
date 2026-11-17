@@ -455,6 +455,24 @@ function giorniConsentitiValidi(
   return { ok: true, valori };
 }
 
+/** Primo giorno del periodo che cade in un giorno consentito. */
+export function primoGiornoUtile(
+  inizio: string,
+  fine: string,
+  giorniConsentiti: readonly number[]
+): string | null {
+  const periodo = periodoConsegne(inizio, fine);
+  if (!periodo.ok) return null;
+  const consentiti = giorniConsentitiValidi(giorniConsentiti);
+  if (!consentiti.ok) return null;
+  let cursore = inizio;
+  while (cursore <= fine) {
+    if (consentiti.valori.has(indiceGiornoSettimana(cursore))) return cursore;
+    cursore = aggiungiGiorni(cursore, 1);
+  }
+  return null;
+}
+
 /**
  * Ogni N giorni di calendario, ancorati alla prima consegna.
  * Un giorno non consentito si salta e non si sposta: la ricorrenza successiva resta sulla sequenza originale.
@@ -566,10 +584,13 @@ export function anteprimaConsegne(input: {
     }
     date = [input.data];
   } else if (input.frequenza === "ogni_n") {
+    let prima = "";
+    if (input.primaConsegna && giornoValido(input.primaConsegna)) prima = input.primaConsegna;
+    else prima = primoGiornoUtile(input.inizio ?? "", input.fine ?? "", input.giorniConsentiti ?? []) ?? "";
     const generate = dateOgniNGiorni({
       inizio: input.inizio ?? "",
       fine: input.fine ?? "",
-      primaConsegna: input.primaConsegna ?? "",
+      primaConsegna: prima,
       ogniGiorni: input.ogniGiorni ?? 0,
       giorniConsentiti: input.giorniConsentiti ?? [],
     });

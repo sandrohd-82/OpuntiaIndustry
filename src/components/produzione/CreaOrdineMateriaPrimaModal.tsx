@@ -13,6 +13,7 @@ import {
   indiceGiornoSettimana,
   lunediSettimana,
   NOMI_GIORNO_SETTIMANA,
+  primoGiornoUtile,
   resocontoConAnteprima,
   type ConsegnaAnteprima,
   type FrequenzaProcedura,
@@ -102,8 +103,6 @@ export function CreaOrdineMateriaPrimaModal(props: {
   const dialogo = useRef<HTMLDivElement>(null);
   const oggi = oggiIso();
   const [passo, setPasso] = useState(1);
-  const [toccata, setToccata] = useState(false);
-  const [chiediChiusura, setChiediChiusura] = useState(false);
   const [erroreLocale, setErroreLocale] = useState<string | null>(null);
   const [operazione, setOperazione] = useState<"" | "singolo" | "pianificazione">("");
   const [fornitoreId, setFornitoreId] = useState("");
@@ -118,7 +117,6 @@ export function CreaOrdineMateriaPrimaModal(props: {
   const [note, setNote] = useState("");
   const [frequenza, setFrequenza] = useState<FrequenzaProcedura>("ogni_n");
   const [ogniGiorni, setOgniGiorni] = useState("3");
-  const [primaConsegna, setPrimaConsegna] = useState(oggi);
   const [giorniConsentiti, setGiorniConsentiti] = useState<number[]>([0, 1, 2, 3, 4, 5, 6]);
   const [dateScelte, setDateScelte] = useState<string[]>([]);
   const [mese, setMese] = useState(oggi);
@@ -169,7 +167,6 @@ export function CreaOrdineMateriaPrimaModal(props: {
 
   function tocca<T>(aggiorna: (valore: T) => void) {
     return (valore: T) => {
-      setToccata(true);
       setErroreLocale(null);
       aggiorna(valore);
     };
@@ -182,7 +179,6 @@ export function CreaOrdineMateriaPrimaModal(props: {
       inizio,
       fine,
       frequenza: operazione === "singolo" ? undefined : frequenza,
-      primaConsegna,
       giorniConsentiti,
       ogniGiorni: Number(ogniGiorni),
       dateScelte,
@@ -274,10 +270,6 @@ export function CreaOrdineMateriaPrimaModal(props: {
   }
 
   function chiudi() {
-    if (toccata) {
-      setChiediChiusura(true);
-      return;
-    }
     props.onClose();
   }
 
@@ -303,8 +295,9 @@ export function CreaOrdineMateriaPrimaModal(props: {
     .map((giorno) => giorno.nome)
     .join(", ");
   let regola = "Ordine singolo, una sola consegna.";
+  const primaUtile = primoGiornoUtile(inizio, fine, giorniConsentiti);
   if (operazione === "pianificazione" && frequenza === "ogni_n") {
-    regola = `Ogni ${ogniGiorni} giorni di calendario, prima consegna ${primaConsegna}. Giorni consentiti: ${giorniConsentitiTesto}. Un giorno non consentito si salta e non si sposta.`;
+    regola = `Ogni ${ogniGiorni} giorni di calendario, prima consegna ${primaUtile ?? "assente"}. Giorni consentiti: ${giorniConsentitiTesto}. Un giorno non consentito si salta e non si sposta.`;
   } else if (operazione === "pianificazione" && frequenza === "giorni_fissi") {
     regola = `Giorni fissi della settimana: ${giorniConsentitiTesto}.`;
   } else if (operazione === "pianificazione") {
@@ -318,7 +311,6 @@ export function CreaOrdineMateriaPrimaModal(props: {
     .reduce((totale, consegna) => totale + consegna.quantita, 0);
 
   function alternaGiorno(indice: number) {
-    setToccata(true);
     setGiorniConsentiti((correnti) =>
       correnti.includes(indice)
         ? correnti.filter((giorno) => giorno !== indice)
@@ -329,14 +321,12 @@ export function CreaOrdineMateriaPrimaModal(props: {
   function alternaData(iso: string) {
     if (operazione !== "pianificazione" || frequenza !== "manuale") return;
     if (iso < inizio || iso > fine) return;
-    setToccata(true);
     setDateScelte((correnti) =>
       correnti.includes(iso) ? correnti.filter((data) => data !== iso) : [...correnti, iso].sort()
     );
   }
 
   function aggiornaConsegna(indice: number, patch: Partial<ConsegnaAnteprima>) {
-    setToccata(true);
     setConsegne((correnti) =>
       correnti.map((consegna, posizione) =>
         posizione === indice ? { ...consegna, ...patch } : consegna
@@ -350,7 +340,6 @@ export function CreaOrdineMateriaPrimaModal(props: {
       setErroreLocale("Indica prima la quantità da copiare.");
       return;
     }
-    setToccata(true);
     setConsegne((correnti) => correnti.map((consegna) => ({ ...consegna, quantita: base })));
   }
 
@@ -365,7 +354,6 @@ export function CreaOrdineMateriaPrimaModal(props: {
       return;
     }
     const base = numeroTesto(quantita);
-    setToccata(true);
     setErroreLocale(null);
     setConsegne((correnti) =>
       [
@@ -523,7 +511,6 @@ export function CreaOrdineMateriaPrimaModal(props: {
                   nome={unitaNome}
                   personalizzata={personalizzata}
                   onChange={(valore) => {
-                    setToccata(true);
                     setUnitaSigla(valore.sigla);
                     setUnitaNome(valore.nome);
                     setPersonalizzata(valore.personalizzata);
@@ -636,18 +623,13 @@ export function CreaOrdineMateriaPrimaModal(props: {
                           className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2"
                         />
                       </label>
-                      <label className="block text-sm">
-                        Prima consegna
-                        <input
-                          type="date"
-                          value={primaConsegna}
-                          onChange={(evento) => tocca(setPrimaConsegna)(evento.target.value)}
-                          className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2"
-                        />
-                      </label>
+                      <p className="text-sm text-slate-800">
+                        Prima consegna: {primaUtile ? `${primaUtile}, primo giorno utile del periodo` : "nel periodo non c'è un giorno consentito"}.
+                      </p>
                       <p className="text-sm text-slate-600 md:col-span-2">
-                        N sono giorni di calendario. Se una ricorrenza cade in un giorno non
-                        consentito, viene saltata e la successiva resta sulla sequenza originale.
+                        N sono giorni di calendario, a partire da quel giorno. Se una ricorrenza
+                        cade in un giorno non consentito, viene saltata e la successiva resta
+                        sulla sequenza originale.
                       </p>
                     </div>
                   ) : null}
@@ -755,7 +737,6 @@ export function CreaOrdineMateriaPrimaModal(props: {
                     <button
                       type="button"
                       onClick={() => {
-                        setToccata(true);
                         setConsegne((correnti) => correnti.filter((_, posizione) => posizione !== indice));
                       }}
                       className="rounded border border-slate-300 px-2 py-1 text-xs"
@@ -818,19 +799,6 @@ export function CreaOrdineMateriaPrimaModal(props: {
           ) : null}
           {errore ? (
             <p className="mt-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">{errore}</p>
-          ) : null}
-          {chiediChiusura ? (
-            <div className="mt-3 rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm">
-              <p>Ci sono modifiche non salvate. Chiudere la procedura?</p>
-              <div className="mt-2 flex gap-2">
-                <button type="button" onClick={() => setChiediChiusura(false)} className="rounded-lg border border-slate-300 px-3 py-1.5">
-                  Continua
-                </button>
-                <button type="button" onClick={props.onClose} className="rounded-lg bg-slate-900 px-3 py-1.5 text-white">
-                  Chiudi senza salvare
-                </button>
-              </div>
-            </div>
           ) : null}
         </div>
         <div className="flex flex-wrap justify-between gap-2 border-t border-slate-200 px-4 py-3">
@@ -926,17 +894,18 @@ function CalendarioScelta(props: {
         {props.celle.map((iso) => {
           const nelPeriodo = iso >= props.inizio && iso <= props.fine;
           const prevista = props.previste.includes(iso) || props.scelte.includes(iso);
-          const esclusa = props.escluse.includes(iso);
+          const esclusa = props.escluse.includes(iso) && !prevista;
           let classe = "border-slate-200 bg-white text-slate-700";
           if (nelPeriodo) classe = "border-sky-200 bg-sky-50 text-slate-800";
-          if (esclusa) classe = "border-amber-300 bg-amber-100 text-amber-900 line-through";
-          if (prevista) classe = "border-emerald-800 bg-emerald-700 text-white";
+          if (esclusa) classe = "border-amber-300 bg-amber-50 text-amber-900 line-through";
+          if (prevista) classe = "border-violet-800 bg-violet-700 font-semibold text-white";
           return (
             <button
               key={iso}
               type="button"
-              disabled={!props.manuale}
-              onClick={() => props.onGiorno(iso)}
+              onClick={() => {
+                if (props.manuale) props.onGiorno(iso);
+              }}
               className={`min-h-10 rounded border text-xs ${classe} ${iso.slice(0, 7) === props.mese.slice(0, 7) ? "" : "opacity-40"}`}
             >
               {Number(iso.slice(8))}
@@ -944,6 +913,11 @@ function CalendarioScelta(props: {
           );
         })}
       </div>
+      <ul className="mt-2 flex flex-wrap gap-2 text-xs">
+        <li className="rounded bg-sky-50 px-2 py-1 text-sky-950">Periodo</li>
+        <li className="rounded bg-violet-700 px-2 py-1 text-white">Consegna</li>
+        <li className="rounded bg-amber-50 px-2 py-1 text-amber-900 line-through">Esclusa</li>
+      </ul>
     </div>
   );
 }
