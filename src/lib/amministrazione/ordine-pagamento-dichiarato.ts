@@ -1,3 +1,76 @@
+export type RataDichiarazione = {
+  id: string;
+  importo: number;
+  stato: "pagato" | "da_pagare" | "annullata";
+  dataScadenza: string;
+};
+
+/**
+ * Pagamento per intero oppure di una sola rata.
+ * L'importo non si digita: è il totale della fattura o l'importo della rata.
+ * L'ordine risulta saldato solo quando non restano rate da pagare.
+ */
+export function decisionePagamentoDichiarato(input: {
+  dataPagamento: string;
+  fatturaTotale: number | null;
+  fatturaAnnullata?: boolean;
+  rate: readonly RataDichiarazione[];
+  scelta: string;
+}):
+  | {
+      ok: true;
+      importo: number;
+      rateDaSegnare: string[];
+      saldata: boolean;
+      descrizione: string;
+    }
+  | { ok: false; motivo: string } {
+  const base = importoPagamentoDaFattura({
+    dataPagamento: input.dataPagamento,
+    fatturaTotale: input.fatturaTotale,
+    fatturaAnnullata: input.fatturaAnnullata,
+  });
+  if (!base.ok) return base;
+  const attive = input.rate.filter((rata) => rata.stato !== "annullata");
+  const aperte = attive.filter((rata) => rata.stato === "da_pagare");
+  const scelta = input.scelta.trim();
+  if (scelta === "intero" || (scelta === "" && attive.length === 0)) {
+    const importo = aperte.length
+      ? aperte.reduce((totale, rata) => totale + rata.importo, 0)
+      : base.importo;
+    return {
+      ok: true,
+      importo,
+      rateDaSegnare: aperte.map((rata) => rata.id),
+      saldata: true,
+      descrizione: "Fattura pagata per intero",
+    };
+  }
+  if (attive.length === 0) {
+    return {
+      ok: false,
+      motivo: "Non ci sono rate. Dichiara la fattura pagata per intero.",
+    };
+  }
+  const rata = attive.find((voce) => voce.id === scelta);
+  if (!rata) {
+    return { ok: false, motivo: "Seleziona la fattura per intero oppure una rata." };
+  }
+  if (rata.stato !== "da_pagare") {
+    return { ok: false, motivo: "Questa rata risulta già pagata." };
+  }
+  const restano = aperte.filter((voce) => voce.id !== rata.id);
+  const [anno, mese, giorno] = rata.dataScadenza.slice(0, 10).split("-");
+  const quando = anno && mese && giorno ? `${giorno}/${mese}/${anno}` : rata.dataScadenza;
+  return {
+    ok: true,
+    importo: rata.importo,
+    rateDaSegnare: [rata.id],
+    saldata: restano.length === 0,
+    descrizione: `Rata in scadenza il ${quando}`,
+  };
+}
+
 /** L'importo del pagamento è il totale già scritto sulla fattura. Non si digita. */
 export function importoPagamentoDaFattura(input: {
   dataPagamento: string;

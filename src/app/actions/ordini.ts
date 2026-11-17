@@ -50,7 +50,7 @@ import {
 } from "@/lib/ecosystem/listino-vigente";
 import { resolveClientePerOrdineFromRawAction } from "@/app/actions/clienti";
 import { requireAreaAccess } from "@/lib/areas/guard";
-import { importoPagamentoDaFattura } from "@/lib/amministrazione/ordine-pagamento-dichiarato";
+import { decisionePagamentoDichiarato } from "@/lib/amministrazione/ordine-pagamento-dichiarato";
 import {
   finalizeScontoOnCreate,
   loadScontoOperatoreCtx,
@@ -643,6 +643,69 @@ export async function getOrdineAction(
   return { success: true, ordine };
 }
 
+export async function pagamentiFatturaOrdineAction(ordineId: string): Promise<
+  | {
+      success: true;
+      numero: string;
+      totale: number;
+      rate: Array<{
+        id: string;
+        dataScadenza: string;
+        importo: number;
+        stato: "pagato" | "da_pagare" | "annullata";
+      }>;
+    }
+  | { success: false; error: string }
+> {
+  await requireAreaAccess("amministrazione");
+  const id = ordineId.trim();
+  if (!id) return { success: false, error: "Ordine non indicato." };
+  const supabase = await createClient();
+  const { data: fattura, error } = await supabase
+    .from("fatture_emesse")
+    .select("id, numero_fattura, totale, stato_pagamento")
+    .eq("ordine_id", id)
+    .eq("tipo_documento", "fattura")
+    .is("deleted_at", null)
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (error) return { success: false, error: error.message };
+  if (!fattura || fattura.stato_pagamento === "annullata") {
+    return {
+      success: false,
+      error: fattura
+        ? "La fattura è annullata. Il pagamento non è stato registrato."
+        : "Manca la fattura. Nessun importo è stato inserito a mano.",
+    };
+  }
+  const { data: rate, error: rateErr } = await supabase
+    .from("fatture_emesse_dilazioni")
+    .select("id, data_scadenza, importo, stato_pagamento, sort_order")
+    .eq("fattura_id", fattura.id)
+    .is("deleted_at", null)
+    .order("sort_order", { ascending: true });
+  if (rateErr) return { success: false, error: rateErr.message };
+  return {
+    success: true,
+    numero: String(fattura.numero_fattura ?? "").trim(),
+    totale: Number(fattura.totale) || 0,
+    rate: (rate ?? []).map((rata) => ({
+      id: String(rata.id),
+      dataScadenza: String(rata.data_scadenza ?? "").slice(0, 10),
+      importo: Number(rata.importo) || 0,
+      stato: statoRataPagamento(String(rata.stato_pagamento)),
+    })),
+  };
+}
+
+function statoRataPagamento(
+  valore: string
+): "pagato" | "da_pagare" | "annullata" {
+  if (valore === "pagato" || valore === "annullata") return valore;
+  return "da_pagare";
+}
+
 /** Segna l'ordine pagato. L'importo è il totale della fattura già salvata. La ricevuta è facoltativa. */
 export async function dichiaraOrdinePagatoAction(
   formData: FormData
@@ -651,6 +714,8 @@ export async function dichiaraOrdinePagatoAction(
       success: true;
       importo: number;
       dataPagamento: string;
+      saldata: boolean;
+      descrizione: string;
       ricevuta: { storagePath: string; fileName: string } | null;
     }
   | { success: false; error: string }
@@ -684,11 +749,23 @@ export async function dichiaraOrdinePagatoAction(
     .maybeSingle();
   if (fatErr) return { success: false, error: fatErr.message };
 
-  const decisione = importoPagamentoDaFattura({
+  const { data: rate, error: rateErr } = await supabase
+    .from("fatture_emesse_dilazioni")
+    .select("id, data_scadenza, importo, stato_pagamento")
+    .eq("fattura_id", fattura?.id ?? "00000000-0000-0000-0000-000000000000")
+    .is("deleted_at", null);
+  if (rateErr) return { success: false, error: rateErr.message };
+  const decisione = decisionePagamentoDichiarato({
     dataPagamento,
-    fatturaTotale:
-      fattura && fattura.totale != null ? Number(fattura.totale) : null,
+    fatturaTotale: fattura && fattura.totale != null ? Number(fattura.totale) : null,
     fatturaAnnullata: fattura?.stato_pagamento === "annullata",
+    rate: (rate ?? []).map((rata) => ({
+      id: String(rata.id),
+      importo: Number(rata.importo) || 0,
+      stato: statoRataPagamento(String(rata.stato_pagamento)),
+      dataScadenza: String(rata.data_scadenza ?? ""),
+    })),
+    scelta: String(formData.get("scelta") ?? "intero"),
   });
   if (!decisione.ok) return { success: false, error: decisione.motivo };
   if (!fattura) {
@@ -715,21 +792,46 @@ export async function dichiaraOrdinePagatoAction(
     ricevuta = { storagePath: up.path, fileName: up.name };
   }
 
-  const { error: fatUpErr } = await supabase
-    .from("fatture_emesse")
-    .update({
-      stato_pagamento: "pagato",
-      updated_by: auth.userId,
-    })
-    .eq("id", fattura.id);
-  if (fatUpErr) return { success: false, error: fatUpErr.message };
+  if (decisione.rateDaSegnare.length > 0) {
+    const { data: segnate, error: dilErr } = await supabase
+      .from("fatture_emesse_dilazioni")
+      .update({
+        stato_pagamento: "pagato",
+        updated_by: auth.userId,
+      })
+      .in("id", decisione.rateDaSegnare)
+      .eq("fattura_id", fattura.id)
+      .is("deleted_at", null)
+      .eq("stato_pagamento", "da_pagare")
+      .select("id");
+    if (dilErr) return { success: false, error: dilErr.message };
+    if ((segnate ?? []).length !== decisione.rateDaSegnare.length) {
+      return {
+        success: false,
+        error: "Una rata risulta già pagata. Nessun altro pagamento è stato registrato.",
+      };
+    }
+  }
+
+  if (decisione.saldata) {
+    const { error: fatUpErr } = await supabase
+      .from("fatture_emesse")
+      .update({
+        stato_pagamento: "pagato",
+        updated_by: auth.userId,
+      })
+      .eq("id", fattura.id);
+    if (fatUpErr) return { success: false, error: fatUpErr.message };
+  }
 
   const patch: Record<string, unknown> = {
-    pagato: true,
-    data_pagamento: dataPagamento,
     versione: Number(ordine.versione ?? 1) + 1,
     updated_by: auth.userId,
   };
+  if (decisione.saldata) {
+    patch.pagato = true;
+    patch.data_pagamento = dataPagamento;
+  }
   if (ricevuta) {
     patch.ricevuta_pagamento_storage_path = ricevuta.storagePath;
     patch.ricevuta_pagamento_file_name = ricevuta.fileName;
@@ -746,27 +848,19 @@ export async function dichiaraOrdinePagatoAction(
     return { success: false, error: "L'ordine risulta già pagato." };
   }
 
-  await supabase
-    .from("fatture_emesse_dilazioni")
-    .update({
-      stato_pagamento: "pagato",
-      updated_by: auth.userId,
-    })
-    .eq("fattura_id", fattura.id)
-    .is("deleted_at", null)
-    .eq("stato_pagamento", "da_pagare");
-
   await writeAuditLog({
     entity_type: "ordini",
     entity_id: ordineId,
     action: "update",
     actor_id: auth.userId,
-    summary: `Ordine ${ordine.numero_interno} dichiarato pagato il ${dataPagamento}. Importo dalla fattura.`,
+    summary: `${decisione.descrizione}. Ordine ${ordine.numero_interno}, pagamento del ${dataPagamento}.`,
     payload: {
       dataPagamento,
       importo: decisione.importo,
       fatturaId: fattura.id,
       numeroFattura: fattura.numero_fattura,
+      saldata: decisione.saldata,
+      rate: decisione.rateDaSegnare,
       ricevuta: Boolean(ricevuta),
     },
   });
@@ -775,6 +869,8 @@ export async function dichiaraOrdinePagatoAction(
     success: true,
     importo: decisione.importo,
     dataPagamento,
+    saldata: decisione.saldata,
+    descrizione: decisione.descrizione,
     ricevuta,
   };
 }
