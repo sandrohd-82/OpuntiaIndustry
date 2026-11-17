@@ -1,7 +1,10 @@
 "use client";
 
 import { useEffect, useId, useRef, useState } from "react";
-import type { MateriaCalendario } from "@/app/actions/approvvigionamento";
+import {
+  fornitoriCompatibiliApprovvigionamentoAction,
+  type MateriaCalendario,
+} from "@/app/actions/approvvigionamento";
 import { SelettoreUnita } from "@/components/produzione/SelettoreUnita";
 import {
   aggiungiGiorni,
@@ -119,6 +122,12 @@ export function CreaOrdineMateriaPrimaModal(props: {
   const [giorniConsentiti, setGiorniConsentiti] = useState<number[]>([0, 1, 2, 3, 4, 5, 6]);
   const [dateScelte, setDateScelte] = useState<string[]>([]);
   const [mese, setMese] = useState(oggi);
+  const [fornitoriElenco, setFornitoriElenco] = useState<
+    { id: string; nome: string; targa: string }[]
+  >([]);
+  const [fornitoriMessaggio, setFornitoriMessaggio] = useState<string | null>(
+    "Seleziona la materia prima per vedere i fornitori abilitati."
+  );
   const [consegne, setConsegne] = useState<ConsegnaAnteprima[]>([]);
   const [escluse, setEscluse] = useState<string[]>([]);
   const [nuovaData, setNuovaData] = useState(oggi);
@@ -126,6 +135,37 @@ export function CreaOrdineMateriaPrimaModal(props: {
   useEffect(() => {
     dialogo.current?.focus();
   }, []);
+
+  useEffect(() => {
+    if (!materiaId) {
+      setFornitoriElenco([]);
+      setFornitoriMessaggio("Seleziona la materia prima per vedere i fornitori abilitati.");
+      setFornitoreId("");
+      return;
+    }
+    let attivo = true;
+    setFornitoriMessaggio("Caricamento fornitori…");
+    void fornitoriCompatibiliApprovvigionamentoAction([materiaId]).then((res) => {
+      if (!attivo) return;
+      if (!res.success) {
+        setFornitoriElenco([]);
+        setFornitoriMessaggio(res.error);
+        return;
+      }
+      setFornitoriElenco(res.fornitori);
+      setFornitoriMessaggio(
+        res.fornitori.length === 0
+          ? "Nessun fornitore abilitato per questa materia prima."
+          : null
+      );
+      setFornitoreId((corrente) =>
+        res.fornitori.some((voce) => voce.id === corrente) ? corrente : ""
+      );
+    });
+    return () => {
+      attivo = false;
+    };
+  }, [materiaId]);
 
   function tocca<T>(aggiorna: (valore: T) => void) {
     return (valore: T) => {
@@ -242,7 +282,7 @@ export function CreaOrdineMateriaPrimaModal(props: {
   }
 
   const materia = props.materie.find((voce) => voce.id === materiaId);
-  const fornitore = props.fornitori.find((voce) => voce.id === fornitoreId);
+  const fornitore = fornitoriElenco.find((voce) => voce.id === fornitoreId);
   const unita = etichettaUnita(unitaSigla, personalizzata ? unitaNome : "");
   const generazione = passo === 3 ? calcola() : null;
   const escluseVisibili = generazione && generazione.ok ? generazione.escluse : escluse;
@@ -445,101 +485,110 @@ export function CreaOrdineMateriaPrimaModal(props: {
             </div>
           ) : null}
           {passo === 2 ? (
-            <div className="grid gap-3 md:grid-cols-2">
+            <div className="space-y-3">
+              <div className="flex flex-nowrap items-end gap-2 overflow-x-auto">
+                <label className="block min-w-52 flex-1 text-sm">
+                  Materia prima
+                  <select
+                    value={materiaId}
+                    onChange={(evento) => {
+                      const id = evento.target.value;
+                      tocca(setMateriaId)(id);
+                      const catalogo = props.materie.find((voce) => voce.id === id)?.unitaMisura ?? "";
+                      setUnitaSigla(catalogo);
+                      setUnitaNome("");
+                      setPersonalizzata(false);
+                    }}
+                    className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2"
+                  >
+                    <option value="">Seleziona</option>
+                    {props.materie.map((voce) => (
+                      <option key={voce.id} value={voce.id}>
+                        {voce.codice} · {voce.nome}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label className="block w-28 shrink-0 text-sm">
+                  Quantità
+                  <input
+                    value={quantita}
+                    inputMode="decimal"
+                    onChange={(evento) => tocca(setQuantita)(evento.target.value)}
+                    className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2"
+                  />
+                </label>
+                <SelettoreUnita
+                  sigla={unitaSigla}
+                  nome={unitaNome}
+                  personalizzata={personalizzata}
+                  onChange={(valore) => {
+                    setToccata(true);
+                    setUnitaSigla(valore.sigla);
+                    setUnitaNome(valore.nome);
+                    setPersonalizzata(valore.personalizzata);
+                  }}
+                />
+                <div className="flex shrink-0 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => tocca(setTipoQuantita)("precisa")}
+                    className={`rounded-lg border px-3 py-2 text-sm ${tipoQuantita === "precisa" ? "border-slate-900 bg-slate-900 text-white" : "border-slate-300"}`}
+                  >
+                    Precisa
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => tocca(setTipoQuantita)("stimata")}
+                    className={`rounded-lg border px-3 py-2 text-sm ${tipoQuantita === "stimata" ? "border-slate-900 bg-slate-900 text-white" : "border-slate-300"}`}
+                  >
+                    Stimata
+                  </button>
+                </div>
+              </div>
               <label className="block text-sm">
                 Fornitore
                 <select
                   value={fornitoreId}
+                  disabled={!materiaId || fornitoriElenco.length === 0}
                   onChange={(evento) => tocca(setFornitoreId)(evento.target.value)}
-                  className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2"
+                  className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 disabled:bg-slate-50"
                 >
-                  <option value="">Seleziona</option>
-                  {props.fornitori.map((voce) => (
+                  <option value="">
+                    {fornitoriElenco.length === 0 ? "Nessun fornitore" : "Seleziona"}
+                  </option>
+                  {fornitoriElenco.map((voce) => (
                     <option key={voce.id} value={voce.id}>
                       {voce.nome}
                     </option>
                   ))}
                 </select>
+                {fornitoriMessaggio ? (
+                  <span className="mt-1 block text-xs text-slate-500">{fornitoriMessaggio}</span>
+                ) : null}
               </label>
-              <label className="block text-sm">
-                Materia prima
-                <select
-                  value={materiaId}
-                  onChange={(evento) => {
-                    const id = evento.target.value;
-                    tocca(setMateriaId)(id);
-                    const catalogo = props.materie.find((voce) => voce.id === id)?.unitaMisura ?? "";
-                    setUnitaSigla(catalogo);
-                    setUnitaNome("");
-                    setPersonalizzata(false);
-                  }}
-                  className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2"
-                >
-                  <option value="">Seleziona</option>
-                  {props.materie.map((voce) => (
-                    <option key={voce.id} value={voce.id}>
-                      {voce.codice} · {voce.nome}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <SelettoreUnita
-                sigla={unitaSigla}
-                nome={unitaNome}
-                personalizzata={personalizzata}
-                onChange={(valore) => {
-                  setToccata(true);
-                  setUnitaSigla(valore.sigla);
-                  setUnitaNome(valore.nome);
-                  setPersonalizzata(valore.personalizzata);
-                }}
-              />
-              <label className="block text-sm">
-                Quantità
-                <input
-                  value={quantita}
-                  inputMode="decimal"
-                  onChange={(evento) => tocca(setQuantita)(evento.target.value)}
-                  className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2"
-                />
-              </label>
-              <div className="flex gap-2">
-                <button
-                  type="button"
-                  onClick={() => tocca(setTipoQuantita)("precisa")}
-                  className={`rounded-lg border px-3 py-2 text-sm ${tipoQuantita === "precisa" ? "border-slate-900 bg-slate-900 text-white" : "border-slate-300"}`}
-                >
-                  Precisa
-                </button>
-                <button
-                  type="button"
-                  onClick={() => tocca(setTipoQuantita)("stimata")}
-                  className={`rounded-lg border px-3 py-2 text-sm ${tipoQuantita === "stimata" ? "border-slate-900 bg-slate-900 text-white" : "border-slate-300"}`}
-                >
-                  Stimata
-                </button>
-              </div>
-              <label className="block text-sm">
-                Data iniziale
-                <input
-                  type="date"
-                  value={inizio}
-                  onChange={(evento) => tocca(setInizio)(evento.target.value)}
-                  className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2"
-                />
-              </label>
-              {operazione === "pianificazione" ? (
-                <label className="block text-sm">
+              <div className="flex flex-nowrap items-end gap-3">
+                <label className="block min-w-40 flex-1 text-sm">
+                  Data iniziale
+                  <input
+                    type="date"
+                    value={inizio}
+                    onChange={(evento) => tocca(setInizio)(evento.target.value)}
+                    className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2"
+                  />
+                </label>
+                <label className="block min-w-40 flex-1 text-sm">
                   Data finale
                   <input
                     type="date"
                     value={fine}
+                    disabled={operazione !== "pianificazione"}
                     onChange={(evento) => tocca(setFine)(evento.target.value)}
-                    className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2"
+                    className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 disabled:bg-slate-50"
                   />
                 </label>
-              ) : null}
-              <label className="block text-sm md:col-span-2">
+              </div>
+              <label className="block text-sm">
                 Note
                 <textarea
                   value={note}
