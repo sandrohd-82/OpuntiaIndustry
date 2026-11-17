@@ -2,6 +2,10 @@ import { notFound, redirect } from "next/navigation";
 import { AreaPlaceholder } from "@/components/areas/AreaPlaceholder";
 import { AppHeader } from "@/components/layout/AppHeader";
 import { CalendarioApprovvigionamento } from "@/components/produzione/CalendarioApprovvigionamento";
+import {
+  CalendarioTestAzioni,
+  CalendarioTestProvider,
+} from "@/components/produzione/calendario-test-contesto";
 import { RisposteFornitoreProduzione } from "@/components/produzione/RisposteFornitoreProduzione";
 import { RepartiBoard } from "@/components/produzione/RepartiBoard";
 import { requireAreaAccess } from "@/lib/areas/guard";
@@ -59,16 +63,17 @@ export default async function ProduzioneSectionPage({
 
   if (section === "calendario-ordini-materie-prime") {
     return (
-      <>
+      <CalendarioTestProvider>
         <AppHeader
           title="Calendario ordini materie prime"
           subtitle="Bozze e versioni pubblicate. La pubblicazione avvisa il fornitore. Una proposta accettata non pubblica da sola la versione successiva."
+          actions={<CalendarioTestAzioni />}
         />
         <div className="p-4 md:p-6">
           <CalendarioApprovvigionamento />
           <RisposteFornitoreProduzione />
         </div>
-      </>
+      </CalendarioTestProvider>
     );
   }
 

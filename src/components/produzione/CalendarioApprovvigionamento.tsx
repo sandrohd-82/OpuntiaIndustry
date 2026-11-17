@@ -25,6 +25,7 @@ import {
   CreaOrdineMateriaPrimaModal,
   type BozzaOrdineMateria,
 } from "@/components/produzione/CreaOrdineMateriaPrimaModal";
+import { useRegistraAzioniTest } from "@/components/produzione/calendario-test-contesto";
 import { SelettoreUnita } from "@/components/produzione/SelettoreUnita";
 import {
   RevisionePianoPannello,
@@ -63,7 +64,6 @@ import {
   serializzaMemoriaTest,
 } from "@/lib/produzione/memoria-test-approvvigionamento";
 import {
-  etichettaMeseAnno,
   etichettaUnita,
   normalizzaUnitaApprovvigionamento,
   unitaStandard,
@@ -198,6 +198,12 @@ function spostaMese(iso: string, delta: number) {
   ).getUTCDate();
   const giornoUtile = Math.min(giorno, ultimo);
   return `${destinazione.getUTCFullYear()}-${pad(destinazione.getUTCMonth() + 1)}-${pad(giornoUtile)}`;
+}
+
+function nomeMese(iso: string, delta = 0) {
+  const [anno, mese] = iso.split("-").map(Number);
+  const data = new Date(Date.UTC(anno, mese - 1 + delta, 1));
+  return MESI[data.getUTCMonth()] ?? "";
 }
 
 function etichettaGiorno(iso: string) {
@@ -1408,95 +1414,85 @@ export function CalendarioApprovvigionamento() {
     };
   }
 
+  useRegistraAzioniTest({
+    attiva: test,
+    alterna: () => setTest((corrente) => !corrente),
+    annulla: annullaProva,
+  });
+
+  const etichetteVista: Record<Vista, string> = {
+    mese: "Mese",
+    settimana: "Settimana",
+    giorno: "Giorno",
+  };
+
   return (
     <div className="grid gap-4">
       <section className="min-w-0 rounded-xl border border-[var(--border)] bg-white p-3">
-        <div className="mb-3 flex flex-wrap items-center gap-2">
-          <div className="inline-flex rounded-lg border border-slate-200 p-0.5">
-            {(["mese", "settimana", "giorno"] as const).map((voce) => (
-              <button
-                key={voce}
-                type="button"
-                onClick={() => setVista(voce)}
-                className={`rounded-md px-3 py-1.5 text-sm ${vista === voce ? "bg-slate-900 text-white" : "text-slate-700"}`}
-              >
-                {voce === "mese" ? "Mese" : (voce === "settimana" ? "Settimana" : "Giorno")}
-              </button>
-            ))}
+        <div className="mb-3 flex flex-wrap items-end gap-4">
+          <div>
+            <p className="mb-1 text-xs font-medium text-slate-500">Visualizza per</p>
+            <div className="inline-flex rounded-lg border border-slate-200 p-0.5">
+              {(["mese", "settimana", "giorno"] as const).map((voce) => (
+                <button
+                  key={voce}
+                  type="button"
+                  onClick={() => setVista(voce)}
+                  className={`rounded-md px-3 py-1.5 text-sm ${vista === voce ? "bg-slate-900 text-white" : "text-slate-700"}`}
+                >
+                  {etichetteVista[voce]}
+                </button>
+              ))}
+            </div>
           </div>
-          <button
-            type="button"
-            onClick={() => setAncora((corrente) => spostaMese(corrente, -1))}
-            className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm"
-          >
-            Mese precedente
-          </button>
-          <p className="min-w-40 px-2 text-center text-lg font-semibold tracking-wide text-slate-900">
-            {etichettaMeseAnno(ancora)}
-          </p>
-          <button
-            type="button"
-            onClick={() => setAncora(oggi)}
-            className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm"
-          >
-            Oggi
-          </button>
-          <button
-            type="button"
-            onClick={() => setAncora((corrente) => spostaMese(corrente, 1))}
-            className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm"
-          >
-            Mese successivo
-          </button>
-          <select
-            aria-label="Mese"
-            value={ancora.slice(5, 7)}
-            onChange={(event) => setAncora(`${ancora.slice(0, 4)}-${event.target.value}-01`)}
-            className="rounded-lg border border-slate-300 px-2 py-1.5 text-sm"
-          >
-            {MESI.map((nome, indice) => (
-              <option key={nome} value={String(indice + 1).padStart(2, "0")}>
-                {nome}
-              </option>
-            ))}
-          </select>
-          <select
-            aria-label="Anno"
-            value={ancora.slice(0, 4)}
-            onChange={(event) => setAncora(`${event.target.value}-${ancora.slice(5, 7)}-01`)}
-            className="rounded-lg border border-slate-300 px-2 py-1.5 text-sm"
-          >
-            {anniNavigazione(ancora, inizio, fine).map((anno) => (
-              <option key={anno} value={anno}>
-                {anno}
-              </option>
-            ))}
-          </select>
+          <div className="flex items-end gap-2">
+            <button
+              type="button"
+              aria-label={`Vai a ${nomeMese(ancora, -1)}`}
+              onClick={() => setAncora((corrente) => spostaMese(corrente, -1))}
+              className="flex flex-col items-center px-1 text-slate-800"
+            >
+              <span className="text-xl leading-none">←</span>
+              <span className="text-[10px] text-slate-500">{nomeMese(ancora, -1)}</span>
+            </button>
+            <p className="min-w-28 px-1 pb-1 text-center text-lg font-semibold text-slate-900">
+              {nomeMese(ancora)}
+            </p>
+            <button
+              type="button"
+              aria-label={`Vai a ${nomeMese(ancora, 1)}`}
+              onClick={() => setAncora((corrente) => spostaMese(corrente, 1))}
+              className="flex flex-col items-center px-1 text-slate-800"
+            >
+              <span className="text-xl leading-none">→</span>
+              <span className="text-[10px] text-slate-500">{nomeMese(ancora, 1)}</span>
+            </button>
+          </div>
+          <label className="text-xs text-slate-500">
+            Anno
+            <select
+              aria-label="Anno"
+              value={ancora.slice(0, 4)}
+              onChange={(event) => setAncora(`${event.target.value}-${ancora.slice(5, 7)}-01`)}
+              className="mt-1 block rounded-lg border border-slate-300 px-2 py-1.5 text-sm text-slate-900"
+            >
+              {anniNavigazione(ancora, inizio, fine).map((anno) => (
+                <option key={anno} value={anno}>
+                  {anno}
+                </option>
+              ))}
+            </select>
+          </label>
           <button
             type="button"
             onClick={() => {
               setErrore(null);
               setCreaAperta(true);
             }}
-            className="rounded-lg bg-emerald-700 px-4 py-2 text-sm font-semibold tracking-wide text-white"
+            className="ml-auto rounded-lg bg-emerald-700 px-4 py-2 text-sm font-semibold tracking-wide text-white"
           >
             CREA ORDINE MATERIA PRIMA
           </button>
-          <button
-            type="button"
-            onClick={() => setTest((corrente) => !corrente)}
-            className={`rounded-lg border px-3 py-1.5 text-sm ${test ? "border-amber-700 bg-amber-100" : "border-slate-300"}`}
-          >
-            {test ? "Modalità test attiva" : "Modalità test"}
-          </button>
-          <button
-            type="button"
-            onClick={annullaProva}
-            className="rounded-lg border border-red-300 px-3 py-1.5 text-sm text-red-800"
-          >
-            Annulla test
-          </button>
-          <p className="text-sm text-slate-600">{etichettaGiorno(ancora)}</p>
         </div>
         {test ? (
           <div className="mb-3 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-950">
