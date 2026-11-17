@@ -7,6 +7,96 @@ import {
   type PianoRicevuto,
   type VersioneRicevuta,
 } from "@/app/actions/approvvigionamento-portale";
+import { giorniMese, versioneAccettabile } from "@/lib/produzione/approvvigionamento";
+import {
+  pdfPianificazione,
+  xlsxPianificazione,
+  type DocumentoPianificazione,
+} from "@/lib/produzione/documento-pianificazione";
+
+function documentoPiano(
+  fornitore: string,
+  piano: PianoRicevuto,
+  ordini: readonly VersioneRicevuta[]
+): DocumentoPianificazione {
+  const consegne = piano.ordini.map((voce) => {
+    const dettaglio = ordini.find((ordine) => ordine.id === voce.versioneId);
+    const riga = dettaglio?.righe[0];
+    return {
+      data: voce.dataConsegna,
+      quantita: riga?.quantita ?? 0,
+      tipoQuantita: riga?.tipoQuantita ?? "precisa",
+      stato: voce.annullata ? "annullata" : "pubblicata",
+    };
+  });
+  const prima = ordini.find((ordine) => ordine.id === piano.ordini[0]?.versioneId)?.righe[0];
+  return {
+    codice: `${piano.codice} v${piano.numero}`,
+    fornitore,
+    materia: prima ? `${prima.codice} ${prima.nome}` : "Materia della versione",
+    unita: prima?.unitaMisura ?? "",
+    periodoInizio: piano.periodoInizio,
+    periodoFine: piano.periodoFine,
+    note: piano.etichetta,
+    consegne,
+  };
+}
+
+function CalendarioPiano(props: { piano: PianoRicevuto; ordini: readonly VersioneRicevuta[] }) {
+  const [mese, setMese] = useState(props.piano.periodoInizio.slice(0, 7));
+  const giorni = giorniMese(mese);
+  const primo = new Date(`${mese}-01T00:00:00Z`);
+  const offset = (primo.getUTCDay() + 6) % 7;
+  const celle = [...Array.from({ length: offset }, () => ""), ...giorni];
+  return (
+    <div className="mt-3">
+      <div className="mb-2 flex items-center gap-2 text-sm">
+        <button
+          type="button"
+          onClick={() => setMese(sposta(mese, -1))}
+          className="rounded border border-slate-300 px-2 py-1"
+        >
+          Mese precedente
+        </button>
+        <span>{mese}</span>
+        <button
+          type="button"
+          onClick={() => setMese(sposta(mese, 1))}
+          className="rounded border border-slate-300 px-2 py-1"
+        >
+          Mese successivo
+        </button>
+      </div>
+      <div className="grid grid-cols-7 gap-1 text-xs">
+        {celle.map((iso, indice) => {
+          const voci = props.piano.ordini.filter((voce) => voce.dataConsegna === iso);
+          const nelPeriodo = iso >= props.piano.periodoInizio && iso <= props.piano.periodoFine;
+          return (
+            <div
+              key={`${indice}-${iso}`}
+              className={`min-h-12 rounded border p-1 ${nelPeriodo ? "bg-indigo-50" : "bg-white"}`}
+            >
+              {iso ? Number(iso.slice(8)) : ""}
+              {voci.map((voce) => (
+                <p key={voce.versioneId} className={voce.annullata ? "line-through text-slate-500" : ""}>
+                  {voce.annullata ? "Annullata" : voce.codice}
+                </p>
+              ))}
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function sposta(mese: string, delta: number): string {
+  const data = new Date(`${mese}-01T00:00:00Z`);
+  data.setUTCMonth(data.getUTCMonth() + delta);
+  const anno = data.getUTCFullYear();
+  const numero = String(data.getUTCMonth() + 1).padStart(2, "0");
+  return `${anno}-${numero}`;
+}
 
 function statoPresaOrdine(ordine: VersioneRicevuta): string {
   if (ordine.confermataAt) {
@@ -18,7 +108,25 @@ function statoPresaOrdine(ordine: VersioneRicevuta): string {
   return "In attesa di presa visione di questa versione";
 }
 
+function etichettaTipologia(tipologia: PianoRicevuto["tipologia"]): string {
+  if (tipologia === "mensile") return "Piano mensile";
+  if (tipologia === "regolare") return "Ogni N giorni";
+  if (tipologia === "personalizzata") return "Date scelte";
+  return "Piano settimanale";
+}
+
+async function scarica(nome: string, bytes: Uint8Array, mime: string) {
+  const blob = new Blob([Uint8Array.from(bytes)], { type: mime });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = nome;
+  link.click();
+  URL.revokeObjectURL(url);
+}
+
 export function OrdiniRicevutiFornitore(props: {
+  fornitore: string;
   ordini: VersioneRicevuta[];
   piani: PianoRicevuto[];
 }) {
@@ -114,10 +222,15 @@ export function OrdiniRicevutiFornitore(props: {
               {pianoAperto.codice} · versione {pianoAperto.numero}
             </h2>
             <p className="text-sm text-slate-600">
-              {pianoAperto.tipologia === "mensile" ? "Piano mensile" : "Piano settimanale"} ·{" "}
-              {pianoAperto.periodoInizio} – {pianoAperto.periodoFine}
+              {etichettaTipologia(pianoAperto.tipologia)} · {pianoAperto.periodoInizio} –{" "}
+              {pianoAperto.periodoFine}
             </p>
             <p className="mt-1 text-sm font-medium text-slate-800">{pianoAperto.etichetta}</p>
+            {pianoAperto.ruolo !== "corrente" ? (
+              <p className="mt-1 text-sm text-slate-700">
+                Versione storica superata. Non va accettata al posto della versione corrente.
+              </p>
+            ) : null}
             {pianoAperto.ruolo === "corrente" && pianoAperto.bozzaNonPubblicata ? (
               <p className="mt-1 text-sm text-amber-900">
                 In Produzione ci sono modifiche non ancora pubblicate.
@@ -128,13 +241,53 @@ export function OrdiniRicevutiFornitore(props: {
                 ? `Presa visione di questa versione, il ${pianoAperto.confermataAt.slice(0, 16).replace("T", " ")}`
                 : "In attesa di presa visione di questa versione"}
             </p>
+            <CalendarioPiano piano={pianoAperto} ordini={props.ordini} />
             <ul className="mt-3 space-y-1 text-sm">
-              {pianoAperto.ordini.map((voce) => (
-                <li key={voce.versioneId}>
-                  {voce.codice} v{voce.numero} · {voce.dataConsegna}
-                </li>
-              ))}
+              {pianoAperto.ordini.map((voce) => {
+                const dettaglio = props.ordini.find((ordine) => ordine.id === voce.versioneId);
+                const quantita = dettaglio?.righe
+                  .map((riga) => `${riga.quantita} ${riga.unitaMisura} ${riga.tipoQuantita}`)
+                  .join(", ");
+                return (
+                  <li key={voce.versioneId} className={voce.annullata ? "text-slate-500 line-through" : ""}>
+                    {voce.codice} v{voce.numero} · {voce.dataConsegna}
+                    {quantita ? ` · ${quantita}` : ""}
+                    {voce.annullata ? " · annullata, non più valida" : ""}
+                  </li>
+                );
+              })}
             </ul>
+            <div className="mt-3 flex flex-wrap gap-2">
+              <button
+                type="button"
+                onClick={() =>
+                  void scarica(
+                    `${pianoAperto.codice}-v${pianoAperto.numero}.pdf`,
+                    pdfPianificazione(documentoPiano(props.fornitore, pianoAperto, props.ordini)),
+                    "application/pdf"
+                  )
+                }
+                className="rounded-lg border border-slate-300 px-3 py-2 text-sm"
+              >
+                Esporta PDF
+              </button>
+              <button
+                type="button"
+                onClick={() =>
+                  void xlsxPianificazione(documentoPiano(props.fornitore, pianoAperto, props.ordini)).then(
+                    (bytes) =>
+                      scarica(
+                        `${pianoAperto.codice}-v${pianoAperto.numero}.xlsx`,
+                        bytes,
+                        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                      )
+                  )
+                }
+                className="rounded-lg border border-slate-300 px-3 py-2 text-sm"
+              >
+                Esporta Excel
+              </button>
+            </div>
             <button
               type="button"
               disabled={pending}
@@ -155,9 +308,19 @@ export function OrdiniRicevutiFornitore(props: {
             </h2>
             <p className="text-sm font-medium text-slate-800">{ordine.etichetta}</p>
             <p className="text-sm text-slate-600">Consegna {ordine.dataConsegna}</p>
+            {ordine.ruolo !== "corrente" ? (
+              <p className="mt-1 text-sm text-slate-700">
+                Versione storica superata. Non va accettata al posto della versione corrente.
+              </p>
+            ) : null}
+            {ordine.annullata ? (
+              <p className="mt-1 text-sm text-slate-700">
+                Consegna annullata. Questa versione non è più valida.
+              </p>
+            ) : null}
             {ordine.ruolo === "corrente" && ordine.bozzaNonPubblicata ? (
               <p className="mt-1 text-sm text-amber-900">
-                In Produzione ci sono modifiche non ancora pubblicate.
+                In Produzione ci sono modifiche non ancora pubblicate. La versione mostrata resta quella già inviata.
               </p>
             ) : null}
             <p className="mt-1 text-sm text-slate-600">{statoPresaOrdine(ordine)}</p>
@@ -181,7 +344,7 @@ export function OrdiniRicevutiFornitore(props: {
               La conferma riguarda solo la versione visualizzata. Una versione successiva va confermata
               di nuovo.
             </p>
-            {ordine.ruolo === "corrente" ? <RispostaOrdine ordine={ordine} /> : null}
+            {ordine.ruolo === "corrente" && !ordine.annullata ? <RispostaOrdine ordine={ordine} /> : null}
           </div>
         ) : (
           <p className="text-sm text-slate-500">Seleziona un ordine pubblicato.</p>
@@ -214,6 +377,15 @@ function RispostaOrdine({ ordine }: { ordine: VersioneRicevuta }) {
   }
 
   function invia() {
+    const controllo = versioneAccettabile({
+      ruolo: ordine.ruolo,
+      annullata: ordine.annullata,
+      giaRisposta: Boolean(ordine.risposta),
+    });
+    if (!controllo.ok) {
+      setErroreLocale(controllo.motivo);
+      return;
+    }
     if (!chiave.current) chiave.current = crypto.randomUUID();
     const righe = ordine.righe.flatMap((riga) => {
       const testo = quantita[riga.codice];
@@ -309,7 +481,7 @@ function RispostaOrdine({ ordine }: { ordine: VersioneRicevuta }) {
         disabled={pending}
         className="rounded-lg border border-slate-300 px-3 py-2 text-sm font-medium disabled:opacity-60"
       >
-        Invia risposta
+        {tipo === "conferma" ? "Accetta" : "Invia risposta"}
       </button>
       <p className="text-xs text-slate-500">
         La risposta non riscrive la versione pubblicata. Se Produzione accetta una proposta, pubblica

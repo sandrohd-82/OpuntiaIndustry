@@ -3,9 +3,9 @@
 import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import {
   aggiornaApprovvigionamentoAction,
+  aggiungiConsegnaPianoAction,
   aggiornaComposizionePianoAction,
   annullaConsegnaApprovvigionamentoAction,
-  collegaConsegnaPianoAction,
   estendiPeriodoPianoAction,
   fornitoriCompatibiliApprovvigionamentoAction,
   listaMaterieApprovvigionamentoAction,
@@ -24,13 +24,31 @@ import { PianificazioneApprovvigionamento } from "@/components/produzione/Pianif
 import {
   aggiungiGiorni,
   anteprimaConsegne,
+  consegnaSelezionataValida,
   giorniMese,
+  meseDaData,
   quadriApprovvigionamento,
   giorniSettimana,
   lunediSettimana,
+  riepilogoApprovvigionamento,
   type TipoQuantitaApprovvigionamento,
   type VoceRiepilogo,
 } from "@/lib/produzione/approvvigionamento";
+import { aspettoGiorno, classeCellaCalendario, LEGENDA_CALENDARIO } from "@/lib/produzione/aspetto-calendario";
+import {
+  pdfPianificazione,
+  xlsxPianificazione,
+  type DocumentoPianificazione,
+} from "@/lib/produzione/documento-pianificazione";
+import {
+  aggiungiConsegnaInProva,
+  annullaConsegnaInProva,
+  modificaConsegnaInProva,
+  ordineSingoloInProva,
+  pianificaInProva,
+  pubblicaInProva,
+  sessioneTestVuota,
+} from "@/lib/produzione/sessione-test-approvvigionamento";
 
 type Vista = "mese" | "settimana" | "giorno";
 type Operazione = "" | "singolo" | "pianificazione";
@@ -42,6 +60,50 @@ type RigaForm = {
 };
 
 const FERIE = ["Lun", "Mar", "Mer", "Gio", "Ven", "Sab", "Dom"];
+const MESI = ["Gennaio", "Febbraio", "Marzo", "Aprile", "Maggio", "Giugno", "Luglio", "Agosto", "Settembre", "Ottobre", "Novembre", "Dicembre"];
+
+function anniNavigazione(ancora: string, inizio: string, fine: string): number[] {
+  const valori = [Number(ancora.slice(0, 4)), Number(inizio.slice(0, 4)), Number(fine.slice(0, 4))];
+  const minimo = Math.min(...valori.filter((anno) => Number.isFinite(anno))) - 1;
+  const massimo = Math.max(...valori.filter((anno) => Number.isFinite(anno))) + 2;
+  const anni: number[] = [];
+  for (let anno = minimo; anno <= massimo; anno += 1) anni.push(anno);
+  return anni;
+}
+
+function documentoPianoSalvato(
+  piano: PianoCalendario,
+  ordini: readonly OrdineCalendario[]
+): DocumentoPianificazione {
+  const collegati = ordini.filter((ordine) => ordine.pianoId === piano.id);
+  const prima = collegati[0]?.righe[0];
+  return {
+    codice: piano.codice,
+    fornitore: piano.fornitore,
+    materia: prima ? `${prima.codice} ${prima.nome}` : "Materie del piano",
+    unita: prima?.unitaMisura ?? "",
+    periodoInizio: piano.periodoInizio,
+    periodoFine: piano.periodoFine,
+    note: `${etichettaTipologia(piano.tipologia)} · revisione ${piano.revisione}`,
+    consegne: collegati.map((ordine) => ({
+      data: ordine.dataConsegna,
+      quantita: ordine.righe.reduce((totale, riga) => totale + riga.quantita, 0),
+      tipoQuantita: ordine.righe.some((riga) => riga.tipoQuantita === "stimata") ? "stimata" : "precisa",
+      stato: ordine.stato,
+    })),
+  };
+}
+
+function scaricaFile(nome: string, bytes: Uint8Array, mime: string) {
+  const copia = new Uint8Array(bytes.byteLength);
+  copia.set(bytes);
+  const url = URL.createObjectURL(new Blob([copia], { type: mime }));
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = nome;
+  link.click();
+  URL.revokeObjectURL(url);
+}
 
 function pad(n: number) {
   return String(n).padStart(2, "0");
@@ -135,6 +197,10 @@ export function CalendarioApprovvigionamento() {
   const [filtroPiano, setFiltroPiano] = useState("");
   const [dataAggiunta, setDataAggiunta] = useState(oggi);
   const [qtyAggiunta, setQtyAggiunta] = useState("");
+  const [materiaAggiunta, setMateriaAggiunta] = useState("");
+  const [tipoAggiunta, setTipoAggiunta] = useState<TipoQuantitaApprovvigionamento>("precisa");
+  const [test, setTest] = useState(false);
+  const [sessione, setSessione] = useState(sessioneTestVuota());
   const [vociRiepilogo, setVociRiepilogo] = useState<VoceRiepilogo[]>([]);
   const [consegneRiepilogo, setConsegneRiepilogo] = useState(0);
   const [errore, setErrore] = useState<string | null>(null);
@@ -172,9 +238,24 @@ export function CalendarioApprovvigionamento() {
   }
 
   useEffect(() => {
+    if (test) return;
     ricarica();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [periodo.da, periodo.a]);
+  }, [periodo.da, periodo.a, test]);
+
+  useEffect(() => {
+    if (!test) return;
+    setOrdini(
+      sessione.ordini.filter(
+        (ordine) => ordine.dataConsegna >= periodo.da && ordine.dataConsegna <= periodo.a
+      )
+    );
+    setPiani(
+      sessione.piani.filter(
+        (piano) => piano.periodoInizio <= periodo.a && piano.periodoFine >= periodo.da
+      )
+    );
+  }, [test, sessione, periodo]);
 
   useEffect(() => {
     let attivo = true;
@@ -279,6 +360,22 @@ export function CalendarioApprovvigionamento() {
       setErrore("Una consegna annullata non si modifica.");
       return;
     }
+    if (test && corrente) {
+      const esito = modificaConsegnaInProva(sessione, {
+        ordineId: corrente.id,
+        data: giorno,
+        note,
+        quantita: Number(payloadRighe()[0]?.quantita ?? 0),
+        tipoQuantita: payloadRighe()[0]?.tipoQuantita ?? "precisa",
+      });
+      if (!esito.ok) {
+        setErrore(esito.motivo);
+        return;
+      }
+      setSessione(esito.sessione);
+      setMessaggio(esito.messaggio);
+      return;
+    }
     const pianoCorrente = piani.find((piano) => piano.id === corrente?.pianoId);
     startTransition(async () => {
       if (
@@ -323,6 +420,10 @@ export function CalendarioApprovvigionamento() {
 
   function copiaOrdine(ordine: OrdineCalendario) {
     setErrore(null);
+    if (test) {
+      setErrore("In modalità test la copia non è disponibile: non deve scrivere sul database.");
+      return;
+    }
     startTransition(async () => {
       const res = await salvaApprovvigionamentiAction({
         chiave: chiaveStabile(),
@@ -356,6 +457,10 @@ export function CalendarioApprovvigionamento() {
   }
 
   function copiaSettimanaCorrente() {
+    if (test) {
+      setErrore("In modalità test la copia non è disponibile: non deve scrivere sul database.");
+      return;
+    }
     const inizio = lunediSettimana(ancora);
     const destinazione = lunediSettimana(settimanaDestinazione);
     const spostamento =
@@ -419,6 +524,58 @@ export function CalendarioApprovvigionamento() {
     }
     setErrore(null);
     setMessaggio(null);
+    if (test) {
+      const materiaScelta = {
+        materiaPrimaId: materiaId,
+        codice: materia.codice,
+        nome: materia.nome,
+        quantita: numeroTesto(quantitaBase),
+        unitaMisura: materia.unitaMisura ?? "",
+        unitaCatalogo: materia.unitaMisura,
+        tipoQuantita,
+      };
+      const esito =
+        operazione === "singolo"
+          ? ordineSingoloInProva(sessione, {
+              fornitoreId,
+              fornitore: fornitori.find((voce) => voce.id === fornitoreId)?.nome ?? "Fornitore",
+              note,
+              data: giorno,
+              quantita: numeroTesto(quantitaBase),
+              tipoQuantita,
+              materia: materiaScelta,
+            })
+          : pianificaInProva(sessione, {
+        fornitoreId,
+        fornitore: fornitori.find((voce) => voce.id === fornitoreId)?.nome ?? "Fornitore",
+        note,
+        inizio,
+        fine,
+        cadenza,
+        ogniGiorni: Number(ogniGiorni),
+        dateScelte,
+        quantita: numeroTesto(quantitaBase),
+        copiaQuantita,
+        quantitaPerData: quantitaOverride,
+        tipoQuantita,
+        materia: {
+          materiaPrimaId: materiaId,
+          codice: materia?.codice ?? "",
+          nome: materia?.nome ?? "",
+          quantita: numeroTesto(quantitaBase),
+          unitaMisura: materia?.unitaMisura ?? "",
+          unitaCatalogo: materia?.unitaMisura ?? null,
+          tipoQuantita,
+        },
+      });
+      if (!esito.ok) {
+        setErrore(esito.motivo);
+        return;
+      }
+      setSessione(esito.sessione);
+      setMessaggio(esito.messaggio);
+      return;
+    }
     const meta =
       operazione === "pianificazione"
         ? {
@@ -467,7 +624,12 @@ export function CalendarioApprovvigionamento() {
   function apriPiano(scelto: PianoCalendario) {
     setPianoAperto(scelto.id);
     setComposizione(scelto.ordini);
+    setAncora(scelto.periodoInizio);
     chiudiOperazione();
+    if (test) {
+      setOrdiniPiano(sessione.ordini.filter((ordine) => ordine.pianoId === scelto.id));
+      return;
+    }
     startTransition(async () => {
       const res = await listaOrdiniApprovvigionamentoAction({
         da: scelto.periodoInizio,
@@ -483,6 +645,16 @@ export function CalendarioApprovvigionamento() {
 
   function pubblicaOrdine(ordine: OrdineCalendario) {
     setErrore(null);
+    if (test) {
+      const esito = pubblicaInProva(sessione, { ambito: "ordine", id: ordine.id });
+      if (!esito.ok) {
+        setErrore(esito.motivo);
+        return;
+      }
+      setSessione(esito.sessione);
+      setMessaggio(esito.messaggio);
+      return;
+    }
     startTransition(async () => {
       const res = await pubblicaOrdineApprovvigionamentoAction({
         chiave: chiaveStabile(),
@@ -501,6 +673,16 @@ export function CalendarioApprovvigionamento() {
 
   function pubblicaPiano(scelto: PianoCalendario) {
     setErrore(null);
+    if (test) {
+      const esito = pubblicaInProva(sessione, { ambito: "piano", id: scelto.id });
+      if (!esito.ok) {
+        setErrore(esito.motivo);
+        return;
+      }
+      setSessione(esito.sessione);
+      setMessaggio(esito.messaggio);
+      return;
+    }
     startTransition(async () => {
       const res = await pubblicaPianoApprovvigionamentoAction({
         chiave: chiaveStabile(),
@@ -531,6 +713,10 @@ export function CalendarioApprovvigionamento() {
   }
 
   function salvaComposizione() {
+    if (test) {
+      setErrore("In prova si aggiunge o si annulla la singola consegna.");
+      return;
+    }
     const scelto = piani.find((voce) => voce.id === pianoAperto);
     if (!scelto || composizione.length === 0) {
       setErrore("Il piano deve contenere almeno un ordine.");
@@ -556,6 +742,16 @@ export function CalendarioApprovvigionamento() {
 
   function annullaConsegna(ordine: OrdineCalendario) {
     setErrore(null);
+    if (test) {
+      const esito = annullaConsegnaInProva(sessione, ordine.id);
+      if (!esito.ok) {
+        setErrore(esito.motivo);
+        return;
+      }
+      setSessione(esito.sessione);
+      setMessaggio(esito.messaggio);
+      return;
+    }
     startTransition(async () => {
       const res = await annullaConsegnaApprovvigionamentoAction({
         chiave: `${chiaveStabile()}-annulla`,
@@ -577,36 +773,60 @@ export function CalendarioApprovvigionamento() {
   }
 
   function aggiungiConsegnaAlPiano(piano: PianoCalendario) {
-    const base = ordiniPiano.find((ordine) => ordine.righe.length > 0);
-    const riga = base?.righe[0];
+    const materia = materie.find((voce) => voce.id === materiaAggiunta);
     const quantita = numeroTesto(qtyAggiunta);
-    if (!riga || !base) {
-      setErrore("Il piano non ha una materia da copiare sulla nuova consegna.");
-      return;
-    }
-    if (!(quantita > 0)) {
-      setErrore("Indica la quantità della nuova consegna.");
+    const controllo = consegnaSelezionataValida({
+      materiaPrimaId: materiaAggiunta,
+      quantita,
+      unitaCatalogo: materia?.unitaMisura ?? null,
+      unitaRichiesta: materia?.unitaMisura ?? "",
+      tipoQuantita: tipoAggiunta,
+      data: dataAggiunta,
+    });
+    if (!controllo.ok) {
+      setErrore(controllo.motivo);
       return;
     }
     setErrore(null);
+    if (test) {
+      const esito = aggiungiConsegnaInProva(sessione, {
+        pianoId: piano.id,
+        data: dataAggiunta,
+        quantita,
+        materia: {
+          materiaPrimaId: materiaAggiunta,
+          codice: materia?.codice ?? "",
+          nome: materia?.nome ?? "",
+          quantita,
+          unitaMisura: materia?.unitaMisura ?? "",
+          unitaCatalogo: materia?.unitaMisura ?? null,
+          tipoQuantita: controllo.tipoQuantita,
+        },
+      });
+      if (!esito.ok) {
+        setErrore(esito.motivo);
+        return;
+      }
+      setSessione(esito.sessione);
+      setMessaggio(esito.messaggio);
+      const aggiornato = esito.sessione.piani.find((voce) => voce.id === piano.id);
+      if (aggiornato) apriPiano(aggiornato);
+      return;
+    }
     startTransition(async () => {
-      const creato = await salvaApprovvigionamentiAction({
+      const creato = await aggiungiConsegnaPianoAction({
         chiave: `${chiaveStabile()}-aggiunta`,
-        tipo: "crea",
-        ordini: [
+        pianoId: piano.id,
+        revisione: piano.revisione,
+        data: dataAggiunta,
+        note: "",
+        righe: [
           {
-            fornitoreId: piano.fornitoreId,
-            dataConsegna: dataAggiunta,
+            materiaPrimaId: materiaAggiunta,
+            quantita,
+            unitaMisura: materia?.unitaMisura ?? "",
+            tipoQuantita: controllo.tipoQuantita,
             note: "",
-            righe: [
-              {
-                materiaPrimaId: riga.materiaPrimaId,
-                quantita,
-                unitaMisura: riga.unitaMisura,
-                tipoQuantita: riga.tipoQuantita,
-                note: "",
-              },
-            ],
           },
         ],
       });
@@ -614,34 +834,19 @@ export function CalendarioApprovvigionamento() {
         setErrore(creato.error);
         return;
       }
-      const ordineCreato = creato.ordini[0];
-      if (!ordineCreato) {
-        setErrore("Consegna non creata.");
-        return;
-      }
-      const collegato = await collegaConsegnaPianoAction({
-        chiave: `${chiaveStabile()}-collega`,
-        pianoId: piano.id,
-        ordineId: ordineCreato.id,
-        revisione: piano.revisione,
-      });
-      if (!collegato.success) {
-        setErrore(collegato.error);
-        return;
-      }
       chiudiOperazione();
       setMessaggio(
-        collegato.riusata
+        creato.riusata
           ? "Consegna già collegata a questa pianificazione."
           : "Consegna aggiunta alla pianificazione esistente. Non è stata pubblicata."
       );
       ricarica();
       apriPiano({
         ...piano,
-        revisione: collegato.revisione,
-        periodoInizio: collegato.periodoInizio || piano.periodoInizio,
-        periodoFine: collegato.periodoFine || piano.periodoFine,
-        ordini: [...piano.ordini, ordineCreato.id],
+        revisione: creato.revisione,
+        periodoInizio: creato.periodoInizio || piano.periodoInizio,
+        periodoFine: creato.periodoFine || piano.periodoFine,
+        ordini: [...piano.ordini, creato.ordineId],
       });
     });
   }
@@ -699,6 +904,38 @@ export function CalendarioApprovvigionamento() {
   const chiaveResoconto = `${ordiniFiltrati.map((ordine) => ordine.id).join(",")}|${filtroMateria}`;
 
   useEffect(() => {
+    if (test) {
+      const righe = ordiniFiltrati
+        .filter((ordine) => ordine.stato !== "annullato")
+        .flatMap((ordine) =>
+          ordine.righe
+            .filter((riga) => !filtroMateria || riga.materiaPrimaId === filtroMateria)
+            .map((riga) => ({
+              ordineId: ordine.id,
+              materiaId: riga.materiaPrimaId,
+              unita: riga.unitaMisura,
+              tipoQuantita: riga.tipoQuantita,
+              pianificata: riga.quantita,
+              ordinata: ordine.versionePubblicata == null ? 0 : riga.quantita,
+              confermata: 0,
+              arrivata: null,
+              arrivataMancante: false,
+              accettata: null,
+              respinta: null,
+              scaricata: null,
+              lottiCollegati: false,
+              unitaLottoDiversa: false,
+            }))
+        );
+      const res = riepilogoApprovvigionamento({
+        righe,
+        giacenza: null,
+        motivoGiacenza: "In prova la giacenza aziendale non viene letta.",
+      });
+      setConsegneRiepilogo(res.consegne);
+      setVociRiepilogo(res.voci);
+      return;
+    }
     let attivo = true;
     void resocontoApprovvigionamentoAction({
       ordineIds: ordiniFiltrati.map((ordine) => ordine.id),
@@ -713,7 +950,7 @@ export function CalendarioApprovvigionamento() {
     };
     // Il riepilogo segue gli ordini filtrati del periodo aperto.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [chiaveResoconto]);
+  }, [chiaveResoconto, test]);
 
   function clicGiorno(iso: string) {
     if (operazione === "pianificazione" && cadenza === "personalizzata" && iso >= inizio && iso <= fine) {
@@ -728,6 +965,27 @@ export function CalendarioApprovvigionamento() {
 
   const celle = vista === "mese" ? celleMese(ancora) : giorniSettimana(ancora);
   const delGiorno = ordiniFiltrati.filter((ordine) => ordine.dataConsegna === giorno);
+  const materiaDocumento = materie.find((voce) => voce.id === materiaId);
+  const fornitoreDocumento = fornitori.find((voce) => voce.id === fornitoreId)?.nome ?? "Fornitore";
+
+  function documentoAnteprima(): DocumentoPianificazione {
+    const consegne = anteprima && anteprima.ok ? anteprima.consegne : [];
+    return {
+      codice: test ? "Anteprima di prova" : "Anteprima",
+      fornitore: fornitoreDocumento,
+      materia: materiaDocumento ? `${materiaDocumento.codice} ${materiaDocumento.nome}` : "Materia non scelta",
+      unita: materiaDocumento?.unitaMisura ?? "",
+      periodoInizio: operazione === "singolo" ? giorno : inizio,
+      periodoFine: operazione === "singolo" ? giorno : fine,
+      note: note || "Anteprima non salvata.",
+      consegne: consegne.map((consegna) => ({
+        data: consegna.data,
+        quantita: consegna.quantita,
+        tipoQuantita: consegna.tipoQuantita,
+        stato: "prevista",
+      })),
+    };
+  }
 
   return (
     <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_22rem]">
@@ -747,16 +1005,10 @@ export function CalendarioApprovvigionamento() {
           </div>
           <button
             type="button"
-            onClick={() =>
-              setAncora((corrente) =>
-                vista === "mese"
-                  ? spostaMese(corrente, -1)
-                  : aggiungiGiorni(corrente, vista === "settimana" ? -7 : -1)
-              )
-            }
+            onClick={() => setAncora((corrente) => spostaMese(corrente, -1))}
             className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm"
           >
-            Precedente
+            Mese precedente
           </button>
           <button
             type="button"
@@ -767,19 +1019,49 @@ export function CalendarioApprovvigionamento() {
           </button>
           <button
             type="button"
-            onClick={() =>
-              setAncora((corrente) =>
-                vista === "mese"
-                  ? spostaMese(corrente, 1)
-                  : aggiungiGiorni(corrente, vista === "settimana" ? 7 : 1)
-              )
-            }
+            onClick={() => setAncora((corrente) => spostaMese(corrente, 1))}
             className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm"
           >
-            Successivo
+            Mese successivo
+          </button>
+          <select
+            aria-label="Mese"
+            value={ancora.slice(5, 7)}
+            onChange={(event) => setAncora(`${ancora.slice(0, 4)}-${event.target.value}-01`)}
+            className="rounded-lg border border-slate-300 px-2 py-1.5 text-sm"
+          >
+            {MESI.map((nome, indice) => (
+              <option key={nome} value={String(indice + 1).padStart(2, "0")}>
+                {nome}
+              </option>
+            ))}
+          </select>
+          <select
+            aria-label="Anno"
+            value={ancora.slice(0, 4)}
+            onChange={(event) => setAncora(`${event.target.value}-${ancora.slice(5, 7)}-01`)}
+            className="rounded-lg border border-slate-300 px-2 py-1.5 text-sm"
+          >
+            {anniNavigazione(ancora, inizio, fine).map((anno) => (
+              <option key={anno} value={anno}>
+                {anno}
+              </option>
+            ))}
+          </select>
+          <button
+            type="button"
+            onClick={() => setTest((corrente) => !corrente)}
+            className={`rounded-lg border px-3 py-1.5 text-sm ${test ? "border-amber-700 bg-amber-100" : "border-slate-300"}`}
+          >
+            {test ? "Modalità test attiva" : "Modalità test"}
           </button>
           <p className="text-sm text-slate-600">{etichettaGiorno(ancora)}</p>
         </div>
+        {test ? (
+          <p className="mb-3 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-950">
+            Modalità test: stesse regole della produzione, nessuna scrittura sul database e nessuna mail.
+          </p>
+        ) : null}
         <div className="mb-3 grid gap-2 md:grid-cols-4">
           <select
             value={filtroFornitore}
@@ -846,6 +1128,45 @@ export function CalendarioApprovvigionamento() {
             ))}
           </ul>
         </div>
+        <ul className="mb-3 flex flex-wrap gap-2 text-xs">
+          {LEGENDA_CALENDARIO.map((voce) => (
+            <li key={voce.chiave} className={`rounded px-2 py-1 ${voce.classe}`}>
+              {voce.etichetta}
+            </li>
+          ))}
+        </ul>
+        {anteprima && anteprima.ok ? (
+          <div className="mb-3 flex flex-wrap gap-2">
+            <button
+              type="button"
+              onClick={() =>
+                void scaricaFile(
+                  "anteprima-pianificazione.pdf",
+                  pdfPianificazione(documentoAnteprima()),
+                  "application/pdf"
+                )
+              }
+              className="rounded-lg border border-slate-300 px-3 py-2 text-sm"
+            >
+              Esporta PDF
+            </button>
+            <button
+              type="button"
+              onClick={() =>
+                void xlsxPianificazione(documentoAnteprima()).then((bytes) =>
+                  scaricaFile(
+                    "anteprima-pianificazione.xlsx",
+                    bytes,
+                    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                  )
+                )
+              }
+              className="rounded-lg border border-slate-300 px-3 py-2 text-sm"
+            >
+              Esporta Excel
+            </button>
+          </div>
+        ) : null}
         {vista !== "giorno" ? (
           <div className="grid grid-cols-7 gap-1">
             {FERIE.map((nome) => (
@@ -857,12 +1178,21 @@ export function CalendarioApprovvigionamento() {
               const voci = ordiniFiltrati.filter((ordine) => ordine.dataConsegna === iso);
               const fuoriMese = vista === "mese" && iso.slice(0, 7) !== ancora.slice(0, 7);
               const prevista = dateAnteprima.has(iso);
+              const nelPeriodo =
+                operazione === "pianificazione" && inizio <= iso && iso <= fine && Boolean(inizio && fine);
+              const aspetto = aspettoGiorno({
+                nelPeriodo,
+                consegnaPrevista: prevista,
+                selezionato: dateScelte.includes(iso),
+                stati: voci.map((ordine) => ordine.stato),
+                confermati: voci.map((ordine) => ordine.confermataDalFornitore),
+              });
               return (
                 <button
                   key={iso}
                   type="button"
                   onClick={() => clicGiorno(iso)}
-                  className={`min-h-24 rounded-lg border p-1 text-left ${iso === giorno ? "border-slate-900" : "border-slate-200"} ${fuoriMese ? "bg-slate-50 text-slate-400" : "bg-white"}`}
+                  className={`min-h-24 rounded-lg border p-1 text-left ${iso === giorno ? "border-slate-900" : "border-slate-200"} ${fuoriMese ? "opacity-60" : ""} ${classeCellaCalendario(aspetto)}`}
                 >
                   <span className="text-xs font-medium">{Number(iso.slice(8))}</span>
                   <ul className="mt-1 space-y-1">
@@ -915,7 +1245,7 @@ export function CalendarioApprovvigionamento() {
                       onClick={() => pubblicaOrdine(ordine)}
                       className="rounded-lg bg-slate-900 px-2 py-1 text-xs font-medium text-white disabled:opacity-60"
                     >
-                      Pubblica e invia
+                      {test ? "Pubblicazione simulata" : "Pubblica e invia"}
                     </button>
                     <button
                       type="button"
@@ -968,7 +1298,11 @@ export function CalendarioApprovvigionamento() {
             chiudiOperazione();
           }}
           onGiorno={setGiorno}
-          onInizio={setInizio}
+          onInizio={(valore) => {
+            setInizio(valore);
+            const mese = meseDaData(valore);
+            if (mese) setAncora(mese);
+          }}
           onFine={setFine}
           onCadenza={setCadenza}
           onOgni={setOgniGiorni}
@@ -1053,8 +1387,11 @@ export function CalendarioApprovvigionamento() {
                   onClick={() => pubblicaPiano(voce)}
                   className="mt-1 rounded-lg bg-slate-900 px-2 py-1 text-xs font-medium text-white disabled:opacity-60"
                 >
-                  Pubblica e invia
+                  {test ? "Pubblicazione simulata" : "Invia pianificazione al fornitore"}
                 </button>
+                <p className="mt-1 text-xs text-slate-500">
+                  Pubblica la versione già salvata. Non cambia quantità né date e non parte dal salvataggio della bozza.
+                </p>
               </li>
             ))}
           </ul>
@@ -1130,7 +1467,70 @@ export function CalendarioApprovvigionamento() {
                     </li>
                   ))}
               </ul>
+              <div className="mt-3 flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    const scelto = piani.find((voce) => voce.id === pianoAperto);
+                    if (!scelto) return;
+                    const documento = documentoPianoSalvato(scelto, ordiniPiano);
+                    void scaricaFile(
+                      `${scelto.codice}.pdf`,
+                      pdfPianificazione(documento),
+                      "application/pdf"
+                    );
+                  }}
+                  className="rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                >
+                  Esporta PDF
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const scelto = piani.find((voce) => voce.id === pianoAperto);
+                    if (!scelto) return;
+                    void xlsxPianificazione(documentoPianoSalvato(scelto, ordiniPiano)).then((bytes) =>
+                      scaricaFile(
+                        `${scelto.codice}.xlsx`,
+                        bytes,
+                        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                      )
+                    );
+                  }}
+                  className="rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                >
+                  Esporta Excel
+                </button>
+              </div>
               <div className="mt-3 flex flex-wrap items-end gap-2">
+                <label className="text-sm">
+                  Materia
+                  <select
+                    value={materiaAggiunta}
+                    onChange={(event) => setMateriaAggiunta(event.target.value)}
+                    className="mt-1 block rounded-lg border border-slate-300 px-2 py-2"
+                  >
+                    <option value="">Seleziona</option>
+                    {materie.map((voce) => (
+                      <option key={voce.id} value={voce.id}>
+                        {voce.codice} · {voce.unitaMisura ?? "senza unità"}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label className="text-sm">
+                  Tipo
+                  <select
+                    value={tipoAggiunta}
+                    onChange={(event) =>
+                      setTipoAggiunta(event.target.value === "stimata" ? "stimata" : "precisa")
+                    }
+                    className="mt-1 block rounded-lg border border-slate-300 px-2 py-2"
+                  >
+                    <option value="precisa">Precisa</option>
+                    <option value="stimata">Stimata</option>
+                  </select>
+                </label>
                 <label className="text-sm">
                   Nuova data
                   <input

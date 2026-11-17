@@ -30,6 +30,7 @@ export type VersioneRicevuta = {
     nome: string;
     quantita: number;
     unitaMisura: string;
+    tipoQuantita: "precisa" | "stimata";
     note: string;
   }[];
   confermataAt: string | null;
@@ -38,6 +39,7 @@ export type VersioneRicevuta = {
   etichetta: string;
   bozzaNonPubblicata: boolean;
   copertaDalPiano: boolean;
+  annullata: boolean;
   risposta: {
     id: string;
     tipo: string;
@@ -51,7 +53,7 @@ export type PianoRicevuto = {
   id: string;
   numero: number;
   codice: string;
-  tipologia: "settimanale" | "mensile";
+  tipologia: "settimanale" | "mensile" | "regolare" | "personalizzata";
   periodoInizio: string;
   periodoFine: string;
   ordini: {
@@ -60,6 +62,7 @@ export type PianoRicevuto = {
     numero: number;
     codice: string;
     dataConsegna: string;
+    annullata: boolean;
   }[];
   confermataAt: string | null;
   ruolo: RuoloVersionePortale;
@@ -79,7 +82,7 @@ async function fornitorePortale(): Promise<{ userId: string; fornitoreId: string
 }
 
 export async function listaOrdiniRicevutiAction(): Promise<
-  { success: true; ordini: VersioneRicevuta[]; piani: PianoRicevuto[] } | Errore
+  { success: true; fornitore: string; ordini: VersioneRicevuta[]; piani: PianoRicevuto[] } | Errore
 > {
   const accesso = await fornitorePortale();
   if ("success" in accesso) return accesso;
@@ -101,21 +104,28 @@ export async function listaOrdiniRicevutiAction(): Promise<
     "approvvigionamenti_segnali_portale"
   );
   if (erroreSegnali) return { success: false, error: "Ordini ricevuti non disponibili." };
-  const segnaleOrdine = new Map<string, { numero: number; bozza: boolean }>();
-  const segnalePiano = new Map<string, { numero: number; bozza: boolean }>();
+  const segnaleOrdine = new Map<string, { numero: number; bozza: boolean; annullata: boolean }>();
+  const segnalePiano = new Map<string, { numero: number; bozza: boolean; annullata: boolean }>();
   for (const row of segnali ?? []) {
     const voce = row as {
       ambito?: string;
       riferimento_id?: string;
       versione_pubblicata?: number;
       bozza_non_pubblicata?: boolean;
+      annullata?: boolean;
     };
     const destinazione = voce.ambito === "piano" ? segnalePiano : segnaleOrdine;
     destinazione.set(String(voce.riferimento_id), {
       numero: Number(voce.versione_pubblicata),
       bozza: Boolean(voce.bozza_non_pubblicata),
+      annullata: Boolean(voce.annullata),
     });
   }
+  const { data: anagrafica } = await supabase
+    .from("fornitori")
+    .select("ragione_sociale")
+    .eq("id", accesso.fornitoreId)
+    .maybeSingle();
   const versioneIds = (versioni ?? []).map((row) => String(row.id));
   const pianoIds = (piani ?? []).map((row) => String(row.id));
   const { data: prese } = versioneIds.length || pianoIds.length
@@ -157,8 +167,10 @@ export async function listaOrdiniRicevutiAction(): Promise<
   const rispostaPerVersione = new Map(
     (risposte ?? []).map((row) => [String(row.versione_id), row])
   );
+  const nomeFornitore = String(anagrafica?.ragione_sociale ?? "Fornitore");
   return {
     success: true,
+    fornitore: nomeFornitore,
     ordini: (versioni ?? []).map((row) => {
       const presa = presaOrdine.get(String(row.id));
       const righe = Array.isArray(row.righe) ? row.righe : [];
@@ -175,6 +187,7 @@ export async function listaOrdiniRicevutiAction(): Promise<
             nome?: string;
             quantita?: number;
             unitaMisura?: string;
+            tipoQuantita?: string;
             note?: string;
           };
           return {
@@ -182,6 +195,7 @@ export async function listaOrdiniRicevutiAction(): Promise<
             nome: String(voce.nome ?? ""),
             quantita: Number(voce.quantita ?? 0),
             unitaMisura: String(voce.unitaMisura ?? ""),
+            tipoQuantita: voce.tipoQuantita === "stimata" ? "stimata" : "precisa",
             note: String(voce.note ?? ""),
           };
         }),
@@ -195,6 +209,7 @@ export async function listaOrdiniRicevutiAction(): Promise<
           ruoloVersionePortale(Number(row.numero), segnaleOrdine.get(String(row.ordine_id))?.numero ?? null) ===
             "corrente" && Boolean(segnaleOrdine.get(String(row.ordine_id))?.bozza),
         copertaDalPiano: coperteDalPiano.has(String(row.id)),
+        annullata: Boolean(segnaleOrdine.get(String(row.ordine_id))?.annullata),
         risposta: (() => {
           const risposta = rispostaPerVersione.get(String(row.id));
           if (!risposta) return null;
@@ -216,7 +231,10 @@ export async function listaOrdiniRicevutiAction(): Promise<
         id: String(row.id),
         numero: Number(row.numero),
         codice: String(row.codice),
-        tipologia: row.tipologia === "mensile" ? "mensile" : "settimanale",
+        tipologia:
+          row.tipologia === "mensile" || row.tipologia === "regolare" || row.tipologia === "personalizzata"
+            ? row.tipologia
+            : "settimanale",
         periodoInizio: String(row.periodo_inizio),
         periodoFine: String(row.periodo_fine),
         ordini: ordini.map((voce) => {
@@ -233,6 +251,7 @@ export async function listaOrdiniRicevutiAction(): Promise<
             numero: Number(riga.numero ?? 0),
             codice: String(riga.codice ?? ""),
             dataConsegna: String(riga.dataConsegna ?? ""),
+            annullata: Boolean(segnaleOrdine.get(String(riga.ordineId ?? ""))?.annullata),
           };
         }),
         confermataAt: presaPiano.get(String(row.id)) ?? null,

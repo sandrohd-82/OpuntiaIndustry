@@ -65,6 +65,7 @@ export type OrdineCalendario = {
   pianoId: string | null;
   pianoCodice: string | null;
   origineOrdineId: string | null;
+  confermataDalFornitore: boolean;
   bilancio: {
     codice: string;
     unitaMisura: string;
@@ -346,7 +347,7 @@ export async function listaOrdiniApprovvigionamentoAction(input: {
     }
   }
   const versioneIds = [...versioneCorrente.values()];
-  const [{ data: notifiche }, { data: prese }, { data: presePiano }] = await Promise.all([
+  const [{ data: notifiche }, { data: prese }, { data: presePiano }, { data: conferme }] = await Promise.all([
     versioneIds.length
       ? supabase
           .from("approvvigionamenti_notifiche")
@@ -365,6 +366,15 @@ export async function listaOrdiniApprovvigionamentoAction(input: {
           .select("profile_id, confermata_at, copertura")
           .not("versione_piano_id", "is", null)
           .in("fornitore_id", fornitoreIds)
+      : Promise.resolve({ data: [] }),
+    versioneIds.length
+      ? supabase
+          .from("approvvigionamenti_risposte_fornitore")
+          .select("versione_id")
+          .in("versione_id", versioneIds)
+          .eq("tipo", "conferma")
+          .eq("stato", "accettata")
+          .is("deleted_at", null)
       : Promise.resolve({ data: [] }),
   ]);
   const notificaPerVersione = new Map(
@@ -400,6 +410,7 @@ export async function listaOrdiniApprovvigionamentoAction(input: {
     });
     if (trovata) coperturaPerVersione.set(versioneId, trovata);
   }
+  const confermate = new Set((conferme ?? []).map((row) => String(row.versione_id)));
   const nomiProfili = await nomiDiProfili(
     supabase,
     [...coperturaPerVersione.values()].map((voce) => voce.profileId)
@@ -532,6 +543,7 @@ export async function listaOrdiniApprovvigionamentoAction(input: {
       pianoId: pianoPerOrdine.get(String(row.id)) ?? null,
       pianoCodice: codicePiano.get(pianoPerOrdine.get(String(row.id)) ?? "") ?? null,
       origineOrdineId: row.origine_ordine_id ? String(row.origine_ordine_id) : null,
+      confermataDalFornitore: confermate.has(versioneCorrente.get(String(row.id)) ?? ""),
       bilancio: bilancioDi(
         versioneCorrente.get(String(row.id)) ?? "",
         snapshotPerVersione.get(versioneCorrente.get(String(row.id)) ?? "") ?? [],
@@ -1330,5 +1342,62 @@ export async function estendiPeriodoPianoAction(raw: unknown): Promise<
     riusata: Boolean(corpo.riusata),
     esteso: Boolean(corpo.esteso),
     revisione: Number(corpo.revisione ?? parsed.data.revisione),
+  };
+}
+
+export async function aggiungiConsegnaPianoAction(raw: unknown): Promise<
+  {
+    success: true;
+    riusata: boolean;
+    ordineId: string;
+    codice: string;
+    revisione: number;
+    periodoInizio: string;
+    periodoFine: string;
+  } | Errore
+> {
+  const parsed = z
+    .object({
+      chiave: chiaveSchema,
+      pianoId: uuidSchema,
+      revisione: z.number().int().positive(),
+      data: giornoSchema,
+      note: z.string().trim().max(2000).optional().default(""),
+      righe: z.array(rigaSchema).min(1).max(20),
+    })
+    .safeParse(raw);
+  if (!parsed.success) {
+    return { success: false, error: parsed.error.issues[0]?.message ?? "Consegna non valida." };
+  }
+  const auth = await richiedi();
+  const supabase = await createClient();
+  const { data, error } = await supabase.rpc("approvvigionamento_aggiungi_consegna_piano", {
+    p_chiave: parsed.data.chiave,
+    p_piano_id: parsed.data.pianoId,
+    p_revisione: parsed.data.revisione,
+    p_data: parsed.data.data,
+    p_note: parsed.data.note,
+    p_righe: parsed.data.righe,
+  });
+  if (error) return { success: false, error: messaggioDb(error, "Consegna non aggiunta.") };
+  const corpo = comeOggetto(data);
+  const ordineId = String(corpo.ordineId ?? "");
+  if (!ordineId) return { success: false, error: "Consegna non aggiunta." };
+  await writeAuditLog({
+    entity_type: "approvvigionamenti_piani",
+    entity_id: parsed.data.pianoId,
+    action: "aggiungi",
+    actor_id: auth.userId,
+    summary: "Consegna creata e collegata alla stessa pianificazione.",
+    payload: { riusata: Boolean(corpo.riusata), ordineId },
+  });
+  return {
+    success: true,
+    riusata: Boolean(corpo.riusata),
+    ordineId,
+    codice: String(corpo.codice ?? ""),
+    revisione: Number(corpo.revisione ?? parsed.data.revisione),
+    periodoInizio: String(corpo.periodoInizio ?? ""),
+    periodoFine: String(corpo.periodoFine ?? ""),
   };
 }

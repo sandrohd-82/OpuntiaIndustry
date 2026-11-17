@@ -103,6 +103,29 @@ export function etichettaVersionePortale(ruolo: RuoloVersionePortale): string {
   return ruolo === "corrente" ? "Versione pubblicata corrente" : "Versione storica superata";
 }
 
+/** Una versione superata o una consegna annullata non si accettano. */
+export function versioneAccettabile(input: {
+  ruolo: RuoloVersionePortale;
+  annullata: boolean;
+  giaRisposta: boolean;
+}): { ok: true } | { ok: false; motivo: string } {
+  if (input.annullata) {
+    return { ok: false, motivo: "Consegna annullata. Questa versione non è più valida." };
+  }
+  if (input.ruolo !== "corrente") {
+    return { ok: false, motivo: "Versione storica superata. Non va accettata." };
+  }
+  if (input.giaRisposta) {
+    return { ok: false, motivo: "Questa versione ha già una risposta." };
+  }
+  return { ok: true };
+}
+
+export function meseDaData(iso: string): string | null {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(iso)) return null;
+  return `${iso.slice(0, 7)}-01`;
+}
+
 export const AVVISO_BOZZA_NON_PUBBLICATA =
   "In Produzione ci sono modifiche non ancora pubblicate.";
 
@@ -220,6 +243,31 @@ export function rigaOrdineValida(input: {
     return { ok: false, motivo: "L'unità non coincide con il catalogo." };
   }
   return { ok: true };
+}
+
+/** La nuova consegna usa materia, unità e tipo scelti, non la prima riga del piano. */
+export function consegnaSelezionataValida(input: {
+  materiaPrimaId: string;
+  quantita: number;
+  unitaCatalogo: string | null;
+  unitaRichiesta: string;
+  tipoQuantita: string;
+  data: string;
+}): { ok: true; tipoQuantita: "precisa" | "stimata" } | { ok: false; motivo: string } {
+  const riga = rigaOrdineValida({
+    materiaPrimaId: input.materiaPrimaId,
+    quantita: input.quantita,
+    unitaCatalogo: input.unitaCatalogo,
+    unitaRichiesta: input.unitaRichiesta,
+  });
+  if (!riga.ok) return riga;
+  if (input.tipoQuantita !== "precisa" && input.tipoQuantita !== "stimata") {
+    return { ok: false, motivo: "Indica se la quantità è precisa o stimata." };
+  }
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(input.data)) {
+    return { ok: false, motivo: "Data non valida." };
+  }
+  return { ok: true, tipoQuantita: input.tipoQuantita };
 }
 
 export function fornitoreAssegnabile(input: {

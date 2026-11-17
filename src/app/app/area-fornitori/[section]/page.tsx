@@ -86,7 +86,11 @@ export default async function AreaFornitoriSectionPage({ params, searchParams }:
         <AppHeader title={page.label} subtitle={page.description} />
         <div className="p-4 md:p-6">
           {ricevuti.success ? (
-            <OrdiniRicevutiFornitore ordini={ricevuti.ordini} piani={ricevuti.piani} />
+            <OrdiniRicevutiFornitore
+              fornitore={ricevuti.fornitore}
+              ordini={ricevuti.ordini}
+              piani={ricevuti.piani}
+            />
           ) : (
             <p className="max-w-xl rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-950">
               {ricevuti.error}
