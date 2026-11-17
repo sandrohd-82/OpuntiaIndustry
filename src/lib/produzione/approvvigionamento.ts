@@ -678,3 +678,156 @@ export function riepilogoApprovvigionamento(input: {
     ],
   };
 }
+
+export type ConsegnaSalvataResoconto = {
+  ordineId: string;
+  data: string;
+  materiaId: string;
+  materia: string;
+  unita: string;
+  tipoQuantita: TipoQuantitaApprovvigionamento;
+  pianificata: number;
+  ordinata: number;
+  confermata: number;
+  arrivata: number | null;
+  arrivataMancante: boolean;
+  accettata: number | null;
+  respinta: number | null;
+  scaricata: number | null;
+  lottiCollegati: boolean;
+  unitaLottoDiversa: boolean;
+};
+
+export type ConsegnaAnteprimaResoconto = {
+  data: string;
+  materiaId: string;
+  materia: string;
+  unita: string;
+  tipoQuantita: TipoQuantitaApprovvigionamento;
+  quantita: number;
+};
+
+export type GruppoResocontoApprovvigionamento = {
+  materiaId: string;
+  materia: string;
+  unita: string;
+  consegneSalvate: number;
+  consegneAnteprima: number;
+  precisaSalvata: number;
+  stimataSalvata: number;
+  precisaAnteprima: number;
+  stimataAnteprima: number;
+  ordinata: number;
+  confermata: number;
+  arrivata: number | null;
+  motivoArrivo: string | null;
+  accettata: number | null;
+  respinta: number | null;
+  scaricata: number | null;
+  motivoLotti: string | null;
+};
+
+/** L'anteprima non salvata non entra nei filtri che non la riguardano. */
+export function anteprimaEsclusaDalFiltro(input: {
+  attiva: boolean;
+  materiaId: string;
+  fornitoreId: string;
+  filtroMateria: string;
+  filtroFornitore: string;
+  filtroStato: string;
+  filtroPiano: string;
+}): string | null {
+  if (!input.attiva) return null;
+  if (input.filtroMateria && input.filtroMateria !== input.materiaId) {
+    return "L'anteprima non è nel filtro materia. Il resoconto non la include.";
+  }
+  if (input.filtroFornitore && input.filtroFornitore !== input.fornitoreId) {
+    return "L'anteprima non è nel filtro fornitore. Il resoconto non la include.";
+  }
+  if (input.filtroStato && input.filtroStato !== "bozza") {
+    return "L'anteprima è una bozza non salvata e non entra nello stato filtrato.";
+  }
+  if (input.filtroPiano) {
+    return "L'anteprima non appartiene alla pianificazione filtrata. Il resoconto non la include.";
+  }
+  return null;
+}
+
+/**
+ * Somma l'anteprima non salvata accanto agli ordini già registrati.
+ * Una consegna già salvata, stessa data materia e unità, non viene contata due volte.
+ * L'anteprima non diventa quantità ordinata, confermata o di magazzino.
+ * Unità diverse restano in gruppi separati.
+ */
+export function resocontoConAnteprima(input: {
+  salvate: readonly ConsegnaSalvataResoconto[];
+  anteprima: readonly ConsegnaAnteprimaResoconto[];
+}): { consegnePreviste: number; gruppi: GruppoResocontoApprovvigionamento[] } {
+  const giaSalvata = new Set(
+    input.salvate
+      .filter((riga) => riga.data)
+      .map((riga) => `${riga.data}|${riga.materiaId}|${riga.unita}`)
+  );
+  const anteprimaNuova = input.anteprima.filter(
+    (consegna) => !giaSalvata.has(`${consegna.data}|${consegna.materiaId}|${consegna.unita}`)
+  );
+  const chiavi = new Set<string>();
+  for (const riga of input.salvate) chiavi.add(`${riga.materiaId}|${riga.unita}`);
+  for (const consegna of anteprimaNuova) chiavi.add(`${consegna.materiaId}|${consegna.unita}`);
+  const gruppi: GruppoResocontoApprovvigionamento[] = [];
+  for (const chiave of chiavi) {
+    const salvate = input.salvate.filter((riga) => `${riga.materiaId}|${riga.unita}` === chiave);
+    const previste = anteprimaNuova.filter(
+      (consegna) => `${consegna.materiaId}|${consegna.unita}` === chiave
+    );
+    const esempio = salvate[0] ?? previste[0];
+    if (!esempio) continue;
+    const arrivoMancante = salvate.some((riga) => riga.arrivataMancante);
+    const unitaLottoDiversa = salvate.some((riga) => riga.unitaLottoDiversa);
+    const senzaLotti = salvate.length > 0 && salvate.every((riga) => !riga.lottiCollegati);
+    let motivoLotti: string | null = null;
+    if (unitaLottoDiversa) motivoLotti = "Unità del lotto diversa. Nessuna conversione.";
+    else if (senzaLotti) motivoLotti = "Nessun lotto LM- collegato a queste consegne.";
+    const sommaSalvata = (tipo: TipoQuantitaApprovvigionamento) =>
+      salvate
+        .filter((riga) => riga.tipoQuantita === tipo)
+        .reduce((totale, riga) => totale + riga.pianificata, 0);
+    const sommaPrevista = (tipo: TipoQuantitaApprovvigionamento) =>
+      previste
+        .filter((consegna) => consegna.tipoQuantita === tipo)
+        .reduce((totale, consegna) => totale + consegna.quantita, 0);
+    gruppi.push({
+      materiaId: esempio.materiaId,
+      materia: esempio.materia,
+      unita: esempio.unita,
+      consegneSalvate: new Set(salvate.map((riga) => riga.ordineId)).size,
+      consegneAnteprima: previste.length,
+      precisaSalvata: sommaSalvata("precisa"),
+      stimataSalvata: sommaSalvata("stimata"),
+      precisaAnteprima: sommaPrevista("precisa"),
+      stimataAnteprima: sommaPrevista("stimata"),
+      ordinata: salvate.reduce((totale, riga) => totale + riga.ordinata, 0),
+      confermata: salvate.reduce((totale, riga) => totale + riga.confermata, 0),
+      arrivata: arrivoMancante
+        ? null
+        : salvate.reduce((totale, riga) => totale + (riga.arrivata ?? 0), 0),
+      motivoArrivo: arrivoMancante ? "Una consegna non ha ancora la quantità arrivata." : null,
+      accettata: motivoLotti
+        ? null
+        : salvate.reduce((totale, riga) => totale + (riga.accettata ?? 0), 0),
+      respinta: motivoLotti
+        ? null
+        : salvate.reduce((totale, riga) => totale + (riga.respinta ?? 0), 0),
+      scaricata: motivoLotti
+        ? null
+        : salvate.reduce((totale, riga) => totale + (riga.scaricata ?? 0), 0),
+      motivoLotti,
+    });
+  }
+  gruppi.sort((a, b) => `${a.materia}|${a.unita}`.localeCompare(`${b.materia}|${b.unita}`));
+  return {
+    consegnePreviste:
+      new Set(input.salvate.map((riga) => riga.ordineId)).size + anteprimaNuova.length,
+    gruppi,
+  };
+}

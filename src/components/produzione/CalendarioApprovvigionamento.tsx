@@ -34,13 +34,17 @@ import {
 import {
   aggiungiGiorni,
   anteprimaConsegne,
+  anteprimaEsclusaDalFiltro,
   consegnaSelezionataValida,
   giorniMese,
   meseDaData,
   quadriApprovvigionamento,
   giorniSettimana,
   lunediSettimana,
+  resocontoConAnteprima,
   riepilogoApprovvigionamento,
+  type ConsegnaSalvataResoconto,
+  type GruppoResocontoApprovvigionamento,
   type TipoQuantitaApprovvigionamento,
   type VoceRiepilogo,
 } from "@/lib/produzione/approvvigionamento";
@@ -239,6 +243,77 @@ function testoPiani(piani: { codice: string }[]) {
   return `Piani: ${piani.map((piano) => piano.codice).join(", ")}.`;
 }
 
+function testoMetrica(valore: number | null, unita: string, motivo: string | null): string {
+  if (motivo) return `non disponibile. ${motivo}`;
+  return `${valore ?? 0} ${unita}`;
+}
+
+function GruppoResoconto({ gruppo }: { gruppo: GruppoResocontoApprovvigionamento }) {
+  const soloAnteprima = gruppo.consegneAnteprima > 0 && gruppo.consegneSalvate === 0;
+  return (
+    <li
+      className={`rounded-lg border p-2 text-sm ${
+        soloAnteprima ? "border-amber-300 bg-amber-50" : "border-slate-200 bg-white"
+      }`}
+    >
+      <p className="font-medium text-slate-900">
+        {gruppo.materia} · {gruppo.unita}
+      </p>
+      {gruppo.consegneAnteprima > 0 ? (
+        <p className="mt-1 text-amber-950">
+          Anteprima non salvata · {gruppo.consegneAnteprima} consegne. Non è un ordine ufficiale.
+        </p>
+      ) : null}
+      {gruppo.consegneSalvate > 0 ? (
+        <p className="mt-1 text-slate-700">
+          Pianificazione salvata · {gruppo.consegneSalvate} consegne
+        </p>
+      ) : null}
+      <ul className="mt-1 grid gap-0.5 md:grid-cols-2">
+        <li className="text-amber-950">
+          Quantità pianificata precisa, anteprima: {gruppo.precisaAnteprima} {gruppo.unita}
+        </li>
+        <li className="text-amber-950">
+          Quantità pianificata stimata, anteprima: {gruppo.stimataAnteprima} {gruppo.unita}
+        </li>
+        <li>
+          Quantità pianificata precisa, salvata: {gruppo.precisaSalvata} {gruppo.unita}
+        </li>
+        <li>
+          Quantità pianificata stimata, salvata: {gruppo.stimataSalvata} {gruppo.unita}
+        </li>
+        <li>Quantità ordinata/pubblicata: {gruppo.ordinata} {gruppo.unita}</li>
+        <li>Quantità confermata: {gruppo.confermata} {gruppo.unita}</li>
+        <li>
+          Quantità arrivata: {testoMetrica(gruppo.arrivata, gruppo.unita, gruppo.motivoArrivo)}
+        </li>
+        <li>
+          Quantità accettata: {testoMetrica(gruppo.accettata, gruppo.unita, gruppo.motivoLotti)}
+        </li>
+        <li>
+          Quantità respinta: {testoMetrica(gruppo.respinta, gruppo.unita, gruppo.motivoLotti)}
+        </li>
+        <li>
+          Quantità scaricata: {testoMetrica(gruppo.scaricata, gruppo.unita, gruppo.motivoLotti)}
+        </li>
+      </ul>
+    </li>
+  );
+}
+
+function GiacenzaResoconto({ voci }: { voci: VoceRiepilogo[] }) {
+  const giacenza = voci.find((voce) => voce.chiave === "giacenza");
+  if (!giacenza) return null;
+  return (
+    <p className="mt-2 text-sm text-slate-700">
+      {giacenza.etichetta}:{" "}
+      {giacenza.disponibile
+        ? `${giacenza.valore ?? 0}${giacenza.unita ? ` ${giacenza.unita}` : ""}`
+        : `non disponibile. ${giacenza.motivo ?? ""}`}
+    </p>
+  );
+}
+
 export function CalendarioApprovvigionamento() {
   const oggi = oggiLocale();
   const [vista, setVista] = useState<Vista>("mese");
@@ -295,7 +370,7 @@ export function CalendarioApprovvigionamento() {
   const saltaMemoria = useRef(false);
   testRef.current = test;
   const [vociRiepilogo, setVociRiepilogo] = useState<VoceRiepilogo[]>([]);
-  const [consegneRiepilogo, setConsegneRiepilogo] = useState(0);
+  const [righeUfficiali, setRigheUfficiali] = useState<ConsegnaSalvataResoconto[]>([]);
   const [errore, setErrore] = useState<string | null>(null);
   const [messaggio, setMessaggio] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
@@ -1096,7 +1171,32 @@ export function CalendarioApprovvigionamento() {
         giacenza: null,
         motivoGiacenza: "In prova la giacenza aziendale non viene letta.",
       });
-      setConsegneRiepilogo(res.consegne);
+      setRigheUfficiali(
+        ordiniFiltrati
+          .filter((ordine) => ordine.stato !== "annullato")
+          .flatMap((ordine) =>
+            ordine.righe
+              .filter((riga) => !filtroMateria || riga.materiaPrimaId === filtroMateria)
+              .map((riga) => ({
+                ordineId: ordine.id,
+                data: ordine.dataConsegna,
+                materiaId: riga.materiaPrimaId,
+                materia: `${riga.codice} ${riga.nome}`,
+                unita: riga.unitaMisura,
+                tipoQuantita: riga.tipoQuantita,
+                pianificata: riga.quantita,
+                ordinata: ordine.versionePubblicata == null ? 0 : riga.quantita,
+                confermata: 0,
+                arrivata: null,
+                arrivataMancante: false,
+                accettata: null,
+                respinta: null,
+                scaricata: null,
+                lottiCollegati: false,
+                unitaLottoDiversa: false,
+              }))
+          )
+      );
       setVociRiepilogo(res.voci);
       return;
     }
@@ -1106,7 +1206,13 @@ export function CalendarioApprovvigionamento() {
       materiaId: filtroMateria || undefined,
     }).then((res) => {
       if (!attivo || !res.success) return;
-      setConsegneRiepilogo(res.consegne);
+      setRigheUfficiali(
+        res.righe.map((riga) => ({
+          ...riga,
+          ordinata: riga.ordinata ?? 0,
+          confermata: riga.confermata ?? 0,
+        }))
+      );
       setVociRiepilogo(res.voci);
     });
     return () => {
@@ -1115,6 +1221,47 @@ export function CalendarioApprovvigionamento() {
     // Il riepilogo segue gli ordini filtrati del periodo aperto.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [chiaveResoconto, test]);
+
+  const anteprimaAttiva = Boolean(anteprima && anteprima.ok && anteprima.consegne.length > 0);
+  const esclusioneAnteprima = anteprimaEsclusaDalFiltro({
+    attiva: anteprimaAttiva,
+    materiaId,
+    fornitoreId,
+    filtroMateria,
+    filtroFornitore,
+    filtroStato,
+    filtroPiano,
+  });
+  const resoconto = useMemo(() => {
+    const salvate = righeUfficiali.map((riga) => {
+      const materia = materie.find((voce) => voce.id === riga.materiaId);
+      return {
+        ...riga,
+        materia: materia ? `${materia.codice} ${materia.nome}` : riga.materia,
+      };
+    });
+    const previste =
+      anteprima && anteprima.ok && !esclusioneAnteprima
+        ? anteprima.consegne.map((consegna) => {
+            const materia = materie.find((voce) => voce.id === materiaId);
+            return {
+              data: consegna.data,
+              materiaId: materiaId || "anteprima",
+              materia: materia ? `${materia.codice} ${materia.nome}` : "Materia non scelta",
+              unita: consegna.unitaMisura,
+              tipoQuantita: consegna.tipoQuantita,
+              quantita: consegna.quantita,
+            };
+          })
+        : [];
+    return resocontoConAnteprima({ salvate, anteprima: previste });
+  }, [
+    righeUfficiali,
+    anteprima,
+    esclusioneAnteprima,
+    materiaId,
+    materie,
+  ]);
 
   function clicGiorno(iso: string) {
     if (operazione === "pianificazione" && cadenza === "personalizzata" && iso >= inizio && iso <= fine) {
@@ -1358,18 +1505,24 @@ export function CalendarioApprovvigionamento() {
         </div>
         <div className="mb-3 rounded-lg border border-slate-200 p-2">
           <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-            Resoconto · {consegneRiepilogo} consegne
+            Resoconto · {resoconto.consegnePreviste} consegne previste
           </p>
-          <ul className="mt-2 grid gap-1 text-sm md:grid-cols-2">
-            {vociRiepilogo.map((voce) => (
-              <li key={voce.chiave}>
-                {voce.etichetta}:{" "}
-                {voce.disponibile
-                  ? `${voce.valore ?? 0}${voce.unita ? ` ${voce.unita}` : ""}`
-                  : `non disponibile. ${voce.motivo ?? ""}`}
-              </li>
-            ))}
-          </ul>
+          {esclusioneAnteprima ? (
+            <p className="mt-2 rounded-lg border border-amber-300 bg-amber-50 px-2 py-1 text-sm text-amber-950">
+              {esclusioneAnteprima}
+            </p>
+          ) : null}
+          {resoconto.gruppi.length === 0 && !esclusioneAnteprima ? (
+            <p className="mt-2 text-sm text-slate-600">Nessuna consegna nel resoconto.</p>
+          ) : null}
+          {resoconto.gruppi.length > 0 ? (
+            <ul className="mt-2 grid gap-2">
+              {resoconto.gruppi.map((gruppo) => (
+                <GruppoResoconto key={`${gruppo.materiaId}|${gruppo.unita}`} gruppo={gruppo} />
+              ))}
+            </ul>
+          ) : null}
+          <GiacenzaResoconto voci={vociRiepilogo} />
         </div>
         <ul className="mb-3 flex flex-wrap gap-2 text-xs">
           {LEGENDA_CALENDARIO.map((voce) => (

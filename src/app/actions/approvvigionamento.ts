@@ -1078,13 +1078,24 @@ export async function differenzeOrdineApprovvigionamentoAction(
 export async function resocontoApprovvigionamentoAction(input: {
   ordineIds: string[];
   materiaId?: string;
-}): Promise<{ success: true; consegne: number; voci: VoceRiepilogo[] } | Errore> {
+}): Promise<
+  | {
+      success: true;
+      consegne: number;
+      voci: VoceRiepilogo[];
+      righe: Array<
+        RigaRiepilogoApprovvigionamento & { data: string; materia: string }
+      >;
+    }
+  | Errore
+> {
   await richiedi();
   const ids = [...new Set(input.ordineIds.filter((id) => uuidSchema.safeParse(id).success))].slice(0, 200);
   const materiaFiltro = input.materiaId && uuidSchema.safeParse(input.materiaId).success ? input.materiaId : "";
   if (!ids.length) {
     return {
       success: true,
+      righe: [],
       ...riepilogoApprovvigionamento({
         righe: [],
         giacenza: null,
@@ -1095,7 +1106,7 @@ export async function resocontoApprovvigionamentoAction(input: {
   const supabase = await createClient();
   const { data: ordini, error } = await supabase
     .from("approvvigionamenti_ordini")
-    .select("id, versione_pubblicata, stato")
+    .select("id, versione_pubblicata, stato, data_consegna")
     .in("id", ids)
     .is("deleted_at", null);
   if (error) return { success: false, error: "Resoconto non disponibile." };
@@ -1193,6 +1204,9 @@ export async function resocontoApprovvigionamentoAction(input: {
     lista.push(lotto);
     lottiPerRiga.set(chiave, lista);
   }
+  const dataOrdine = new Map(
+    (ordini ?? []).map((row) => [String(row.id), String(row.data_consegna ?? "").slice(0, 10)])
+  );
   const fatti: RigaRiepilogoApprovvigionamento[] = [];
   const attivi = new Set(
     (ordini ?? [])
@@ -1278,7 +1292,15 @@ export async function resocontoApprovvigionamentoAction(input: {
       giacenza = { quantita: Number(saldo.quantita_kg), unita: String(saldo.unita) };
     }
   }
-  return { success: true, ...riepilogoApprovvigionamento({ righe: fatti, giacenza, motivoGiacenza }) };
+  return {
+    success: true,
+    righe: fatti.map((riga) => ({
+      ...riga,
+      data: dataOrdine.get(riga.ordineId) ?? "",
+      materia: codiceMateria.get(riga.materiaId) ?? riga.materiaId,
+    })),
+    ...riepilogoApprovvigionamento({ righe: fatti, giacenza, motivoGiacenza }),
+  };
 }
 
 export async function annullaConsegnaApprovvigionamentoAction(raw: unknown): Promise<
