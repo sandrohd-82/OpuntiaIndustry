@@ -50,7 +50,10 @@ import {
 } from "@/lib/ecosystem/listino-vigente";
 import { resolveClientePerOrdineFromRawAction } from "@/app/actions/clienti";
 import { requireAreaAccess } from "@/lib/areas/guard";
-import { decisionePagamentoDichiarato } from "@/lib/amministrazione/ordine-pagamento-dichiarato";
+import {
+  decisionePagamentoDichiarato,
+  riepilogoDilazioniPagate,
+} from "@/lib/amministrazione/ordine-pagamento-dichiarato";
 import {
   finalizeScontoOnCreate,
   loadScontoOperatoreCtx,
@@ -430,7 +433,17 @@ export async function listOrdiniAction(
 async function fattureElencoPerOrdini(ids: string[]) {
   const map = new Map<
     string,
-    { id: string; numero: string; inviata: boolean; totale: number }
+    {
+      id: string;
+      numero: string;
+      inviata: boolean;
+      totale: number;
+      dilazioni: {
+        pagate: number;
+        aperte: number;
+        importoPagato: number;
+      } | null;
+    }
   >();
   if (ids.length === 0) return map;
   const service = createServiceClient();
@@ -461,6 +474,38 @@ async function fattureElencoPerOrdini(ids: string[]) {
         ficId: row.fic_id,
       }),
       totale: Number(row.totale) || 0,
+      dilazioni: null,
+    });
+  }
+  const fatturaIds = [...map.values()].map((fattura) => fattura.id);
+  if (fatturaIds.length === 0) return map;
+  const { data: dilazioni } = await service
+    .from("fatture_emesse_dilazioni")
+    .select("fattura_id, importo, stato_pagamento")
+    .in("fattura_id", fatturaIds)
+    .is("deleted_at", null);
+  const perFattura = new Map<string, { stato: string; importo: number }[]>();
+  for (const raw of dilazioni ?? []) {
+    const rata = raw as {
+      fattura_id?: string | null;
+      importo?: number | null;
+      stato_pagamento?: string | null;
+    };
+    const fatturaId = String(rata.fattura_id ?? "");
+    if (!fatturaId) continue;
+    const lista = perFattura.get(fatturaId) ?? [];
+    lista.push({
+      stato: String(rata.stato_pagamento ?? ""),
+      importo: Number(rata.importo) || 0,
+    });
+    perFattura.set(fatturaId, lista);
+  }
+  for (const [ordineId, fattura] of map) {
+    const rate = perFattura.get(fattura.id) ?? [];
+    if (rate.length === 0) continue;
+    map.set(ordineId, {
+      ...fattura,
+      dilazioni: riepilogoDilazioniPagate(rate),
     });
   }
   return map;

@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import {
   decisionePagamentoDichiarato,
   importoPagamentoDaFattura,
+  riepilogoDilazioniPagate,
 } from "./ordine-pagamento-dichiarato";
 
 const ok = importoPagamentoDaFattura({
@@ -76,5 +77,16 @@ const gia = decisionePagamentoDichiarato({
   scelta: "a",
 });
 assert.equal(gia.ok, false);
+
+const parziale = riepilogoDilazioniPagate([
+  { stato: "pagato", importo: 100 },
+  { stato: "da_pagare", importo: 50 },
+  { stato: "annullata", importo: 20 },
+]);
+assert.equal(parziale.pagate, 1);
+assert.equal(parziale.aperte, 1);
+assert.equal(parziale.importoPagato, 100);
+const nessuna = riepilogoDilazioniPagate([{ stato: "da_pagare", importo: 80 }]);
+assert.equal(nessuna.pagate, 0);
 
 console.log("ordine-pagamento-dichiarato: ok");

@@ -1,3 +1,25 @@
+/** Quante rate risultano già pagate, per la riga dell'elenco ordini. */
+export function riepilogoDilazioniPagate(
+  rate: readonly { stato: string; importo: number }[]
+): { pagate: number; aperte: number; importoPagato: number } {
+  let pagate = 0;
+  let aperte = 0;
+  let importoPagato = 0;
+  for (const rata of rate) {
+    if (rata.stato === "pagato") {
+      pagate += 1;
+      importoPagato += Number(rata.importo) || 0;
+    } else if (rata.stato === "da_pagare") {
+      aperte += 1;
+    }
+  }
+  return {
+    pagate,
+    aperte,
+    importoPagato: Math.round((importoPagato + Number.EPSILON) * 100) / 100,
+  };
+}
+
 export type RataDichiarazione = {
   id: string;
   importo: number;

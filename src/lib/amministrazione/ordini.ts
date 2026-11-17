@@ -233,6 +233,12 @@ export type Ordine = {
     numero: string;
     inviata: boolean;
     totale: number;
+    /** Rate della fattura. Nullo se il pagamento non è dilazionato. */
+    dilazioni: {
+      pagate: number;
+      aperte: number;
+      importoPagato: number;
+    } | null;
   } | null;
   /** Proforma salvata sull'ordine, con numero già assegnato. `totale` è il totale del documento. */
   proformaElenco?: {
