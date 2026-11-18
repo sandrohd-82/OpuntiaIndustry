@@ -123,6 +123,20 @@ export async function listaOrdiniRicevutiAction(): Promise<
       .order("periodo_inizio", { ascending: true }),
   ]);
   if (error || errorePiani) return { success: false, error: "Ordini ricevuti non disponibili." };
+  const idsOrdinePortale = [...new Set((versioni ?? []).map((riga) => String(riga.ordine_id)))];
+  const idsPianoPortale = [...new Set((piani ?? []).map((riga) => String(riga.piano_id)))];
+  const [{ data: ordiniProva }, { data: pianiProva }] = await Promise.all([
+    idsOrdinePortale.length
+      ? supabase.from("approvvigionamenti_ordini").select("id").in("id", idsOrdinePortale).eq("prova", true)
+      : Promise.resolve({ data: [] as { id: string }[] }),
+    idsPianoPortale.length
+      ? supabase.from("approvvigionamenti_piani").select("id").in("id", idsPianoPortale).eq("prova", true)
+      : Promise.resolve({ data: [] as { id: string }[] }),
+  ]);
+  const esclusiOrdini = new Set((ordiniProva ?? []).map((riga) => String(riga.id)));
+  const esclusiPiani = new Set((pianiProva ?? []).map((riga) => String(riga.id)));
+  const versioniUfficiali = (versioni ?? []).filter((riga) => !esclusiOrdini.has(String(riga.ordine_id)));
+  const pianiUfficiali = (piani ?? []).filter((riga) => !esclusiPiani.has(String(riga.piano_id)));
   const { data: segnali, error: erroreSegnali } = await supabase.rpc(
     "approvvigionamenti_segnali_portale"
   );
@@ -149,8 +163,8 @@ export async function listaOrdiniRicevutiAction(): Promise<
     .select("ragione_sociale")
     .eq("id", accesso.fornitoreId)
     .maybeSingle();
-  const versioneIds = (versioni ?? []).map((row) => String(row.id));
-  const pianoIds = (piani ?? []).map((row) => String(row.id));
+  const versioneIds = versioniUfficiali.map((row) => String(row.id));
+  const pianoIds = pianiUfficiali.map((row) => String(row.id));
   const { data: prese } = versioneIds.length || pianoIds.length
     ? await supabase
         .from("approvvigionamenti_prese_visione")
@@ -194,7 +208,7 @@ export async function listaOrdiniRicevutiAction(): Promise<
   return {
     success: true,
     fornitore: nomeFornitore,
-    ordini: (versioni ?? []).map((row) => {
+    ordini: versioniUfficiali.map((row) => {
       const presa = presaOrdine.get(String(row.id));
       const righe = Array.isArray(row.righe) ? row.righe : [];
       return {
@@ -250,7 +264,7 @@ export async function listaOrdiniRicevutiAction(): Promise<
         })(),
       };
     }),
-    piani: (piani ?? []).map((row) => {
+    piani: pianiUfficiali.map((row) => {
       const ordini = Array.isArray(row.ordini) ? row.ordini : [];
       return {
         id: String(row.id),

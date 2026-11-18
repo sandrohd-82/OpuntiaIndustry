@@ -15,7 +15,9 @@ import {
   pubblicaPianoApprovvigionamentoAction,
   recuperaNotificaApprovvigionamentoAction,
   resocontoApprovvigionamentoAction,
+  eliminaDatiProvaApprovvigionamentoAction,
   inviaEmailProvaApprovvigionamentoAction,
+  reinviaInvioApprovvigionamentoAction,
   salvaApprovvigionamentiAction,
   type MateriaCalendario,
   type OrdineCalendario,
@@ -63,6 +65,8 @@ import {
   leggiMemoriaTest,
   serializzaMemoriaTest,
 } from "@/lib/produzione/memoria-test-approvvigionamento";
+import { messaggioSalvataggioConfermato } from "@/lib/produzione/invio-conferma";
+import { MESSAGGIO_CONFERMA_INCERTA } from "@/lib/produzione/notifica-distribuzione";
 import {
   etichettaUnita,
   normalizzaUnitaApprovvigionamento,
@@ -77,12 +81,9 @@ import {
   type PropostaRevisione,
 } from "@/lib/produzione/revisione-piano";
 import {
-  aggiungiConsegnaInProva,
-  annullaConsegnaInProva,
   modificaConsegnaInProva,
   ordineSingoloInProva,
   pianificaInProva,
-  pubblicaInProva,
   sessioneTestVuota,
 } from "@/lib/produzione/sessione-test-approvvigionamento";
 
@@ -382,6 +383,7 @@ export function CalendarioApprovvigionamento() {
   const [creaAperta, setCreaAperta] = useState(false);
   const [errore, setErrore] = useState<string | null>(null);
   const [messaggio, setMessaggio] = useState<string | null>(null);
+  const [invioDaRiprovare, setInvioDaRiprovare] = useState<null | { id: string; stato: "incerta" | "fallita" }>(null);
   const [pending, startTransition] = useTransition();
   const chiaveRef = useRef<string | null>(null);
 
@@ -396,11 +398,11 @@ export function CalendarioApprovvigionamento() {
   }, [vista, ancora]);
 
   function ricarica() {
+    const prova = testRef.current;
     startTransition(async () => {
-      if (vietatoInProva()) return;
       const [res, pianiRes] = await Promise.all([
-        listaOrdiniApprovvigionamentoAction(periodo),
-        listaPianiApprovvigionamentoAction(periodo),
+        listaOrdiniApprovvigionamentoAction({ ...periodo, prova }),
+        listaPianiApprovvigionamentoAction({ ...periodo, prova }),
       ]);
       if (!res.success) {
         setErrore(res.error);
@@ -416,24 +418,10 @@ export function CalendarioApprovvigionamento() {
   }
 
   useEffect(() => {
-    if (test) return;
+    if (!memoriaPronta) return;
     ricarica();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [periodo.da, periodo.a, test]);
-
-  useEffect(() => {
-    if (!test) return;
-    setOrdini(
-      sessione.ordini.filter(
-        (ordine) => ordine.dataConsegna >= periodo.da && ordine.dataConsegna <= periodo.a
-      )
-    );
-    setPiani(
-      sessione.piani.filter(
-        (piano) => piano.periodoInizio <= periodo.a && piano.periodoFine >= periodo.da
-      )
-    );
-  }, [test, sessione, periodo]);
+  }, [periodo.da, periodo.a, test, memoriaPronta]);
 
   useEffect(() => {
     const letta = leggiMemoriaTest(window.sessionStorage.getItem(CHIAVE_MEMORIA_TEST));
@@ -868,53 +856,6 @@ export function CalendarioApprovvigionamento() {
     }
     setErrore(null);
     setMessaggio(null);
-    const fornitoreNome = fornitori.find((voce) => voce.id === bozza.fornitoreId)?.nome ?? "Fornitore";
-    if (test) {
-      const materiaScelta = {
-        materiaPrimaId: bozza.materiaId,
-        codice: materia.codice,
-        nome: materia.nome,
-        quantita: bozza.consegne[0]?.quantita ?? 0,
-        unitaMisura: unitaScelta.sigla,
-        unitaCatalogo: materia.unitaMisura,
-        tipoQuantita: bozza.tipoQuantita,
-      };
-      const esito =
-        bozza.operazione === "singolo"
-          ? ordineSingoloInProva(sessione, {
-              fornitoreId: bozza.fornitoreId,
-              fornitore: fornitoreNome,
-              note: bozza.note,
-              data: bozza.consegne[0]?.data ?? bozza.inizio,
-              quantita: bozza.consegne[0]?.quantita ?? 0,
-              tipoQuantita: bozza.tipoQuantita,
-              materia: materiaScelta,
-            })
-          : pianificaInProva(sessione, {
-              fornitoreId: bozza.fornitoreId,
-              fornitore: fornitoreNome,
-              note: bozza.note,
-              inizio: bozza.inizio,
-              fine: bozza.fine,
-              cadenza: bozza.tipologia,
-              ogniGiorni: bozza.ogniGiorni ?? 1,
-              dateScelte: bozza.consegne.map((consegna) => consegna.data),
-              quantita: bozza.consegne[0]?.quantita ?? 0,
-              copiaQuantita: true,
-              quantitaPerData: {},
-              tipoQuantita: bozza.tipoQuantita,
-              consegne: bozza.consegne,
-              materia: materiaScelta,
-            });
-      if (!esito.ok) {
-        setErrore(esito.motivo);
-        return;
-      }
-      setSessione(esito.sessione);
-      setMessaggio(esito.messaggio);
-      setCreaAperta(false);
-      return;
-    }
     const meta =
       bozza.operazione === "pianificazione"
         ? {
@@ -926,10 +867,11 @@ export function CalendarioApprovvigionamento() {
           }
         : undefined;
     startTransition(async () => {
-      if (vietatoInProva()) return;
       const res = await salvaApprovvigionamentiAction({
         chiave: chiaveStabile(),
         tipo: bozza.operazione === "pianificazione" ? "pianificazione" : "crea",
+        prova: test,
+        invio: bozza.invio?.invia ? bozza.invio : undefined,
         ordini: bozza.consegne.map((consegna) => ({
           fornitoreId: bozza.fornitoreId,
           dataConsegna: consegna.data,
@@ -951,13 +893,21 @@ export function CalendarioApprovvigionamento() {
         setErrore(res.error);
         return;
       }
+      const esito = messaggioSalvataggioConfermato({
+        riusata: res.riusata,
+        invioRichiesto: Boolean(bozza.invio?.invia),
+        confermato: Boolean(bozza.invio),
+        invio: res.invio,
+      });
       chiudiOperazione();
       setCreaAperta(false);
-      setMessaggio(
-        res.riusata
-          ? "Operazione già registrata. Nessun secondo ordine."
-          : "Bozza salvata. Non è stata pubblicata e non è stata inviata al fornitore."
-      );
+      setMessaggio(esito.messaggio);
+      setErrore(esito.errore);
+      if (res.invio?.id && (res.invio.stato === "incerta" || res.invio.stato === "fallita")) {
+        setInvioDaRiprovare({ id: res.invio.id, stato: res.invio.stato });
+      } else {
+        setInvioDaRiprovare(null);
+      }
       ricarica();
     });
   }
@@ -967,18 +917,16 @@ export function CalendarioApprovvigionamento() {
     setComposizione(scelto.ordini);
     setAncora(scelto.periodoInizio);
     chiudiOperazione();
-    if (test) {
-      setOrdiniPiano(sessione.ordini.filter((ordine) => ordine.pianoId === scelto.id));
-      return;
+    if (!test) {
+      void listaPropostePianoAction(scelto.id).then((res) => {
+        if (res.success) setProposteAzienda(res.proposte);
+      });
     }
-    void listaPropostePianoAction(scelto.id).then((res) => {
-      if (res.success) setProposteAzienda(res.proposte);
-    });
     startTransition(async () => {
-      if (vietatoInProva()) return;
       const res = await listaOrdiniApprovvigionamentoAction({
         da: scelto.periodoInizio,
         a: scelto.periodoFine,
+        prova: test,
       });
       if (!res.success) {
         setErrore(res.error);
@@ -991,13 +939,7 @@ export function CalendarioApprovvigionamento() {
   function pubblicaOrdine(ordine: OrdineCalendario) {
     setErrore(null);
     if (test) {
-      const esito = pubblicaInProva(sessione, { ambito: "ordine", id: ordine.id });
-      if (!esito.ok) {
-        setErrore(esito.motivo);
-        return;
-      }
-      setSessione(esito.sessione);
-      setMessaggio(esito.messaggio);
+      setErrore("I dati di prova non si pubblicano e non generano carichi.");
       return;
     }
     startTransition(async () => {
@@ -1020,13 +962,7 @@ export function CalendarioApprovvigionamento() {
   function pubblicaPiano(scelto: PianoCalendario) {
     setErrore(null);
     if (test) {
-      const esito = pubblicaInProva(sessione, { ambito: "piano", id: scelto.id });
-      if (!esito.ok) {
-        setErrore(esito.motivo);
-        return;
-      }
-      setSessione(esito.sessione);
-      setMessaggio(esito.messaggio);
+      setErrore("I dati di prova non si pubblicano e non generano carichi.");
       return;
     }
     startTransition(async () => {
@@ -1092,13 +1028,7 @@ export function CalendarioApprovvigionamento() {
   function annullaConsegna(ordine: OrdineCalendario) {
     setErrore(null);
     if (test) {
-      const esito = annullaConsegnaInProva(sessione, ordine.id);
-      if (!esito.ok) {
-        setErrore(esito.motivo);
-        return;
-      }
-      setSessione(esito.sessione);
-      setMessaggio(esito.messaggio);
+      setErrore("Per togliere i dati di prova usa Elimina dati test.");
       return;
     }
     startTransition(async () => {
@@ -1143,33 +1073,8 @@ export function CalendarioApprovvigionamento() {
       return;
     }
     setErrore(null);
-    if (test) {
-      const esito = aggiungiConsegnaInProva(sessione, {
-        pianoId: piano.id,
-        data: dataAggiunta,
-        quantita,
-        materia: {
-          materiaPrimaId: materiaAggiunta,
-          codice: materia?.codice ?? "",
-          nome: materia?.nome ?? "",
-          quantita,
-          unitaMisura: unitaScelta.sigla,
-          unitaCatalogo: materia?.unitaMisura ?? null,
-          tipoQuantita: controllo.tipoQuantita,
-        },
-      });
-      if (!esito.ok) {
-        setErrore(esito.motivo);
-        return;
-      }
-      setSessione(esito.sessione);
-      setMessaggio(esito.messaggio);
-      const aggiornato = esito.sessione.piani.find((voce) => voce.id === piano.id);
-      if (aggiornato) apriPiano(aggiornato);
-      return;
-    }
     startTransition(async () => {
-      if (vietatoInProva()) return;
+      if (!test && vietatoInProva()) return;
       const creato = await aggiungiConsegnaPianoAction({
         chiave: `${chiaveStabile()}-aggiunta`,
         pianoId: piano.id,
@@ -1422,10 +1327,37 @@ export function CalendarioApprovvigionamento() {
     };
   }
 
+  function eliminaDatiTest() {
+    if (
+      !window.confirm(
+        "Eliminare definitivamente tutti i dati di prova degli approvvigionamenti? Gli ordini aziendali restano. Gli invii in corso o con esito incerto e i loro ordini restano finché l'esito è ricostruibile."
+      )
+    ) {
+      return;
+    }
+    startTransition(async () => {
+      const res = await eliminaDatiProvaApprovvigionamentoAction();
+      if (!res.success) {
+        setErrore(res.error);
+        return;
+      }
+      annullaMemoriaTest();
+      window.sessionStorage.removeItem(CHIAVE_MEMORIA_TEST);
+      saltaMemoria.current = true;
+      setSessione(sessioneTestVuota());
+      setProposte([]);
+      setInvioDaRiprovare(null);
+      setErrore(null);
+      setMessaggio(res.messaggio);
+      ricarica();
+    });
+  }
+
   useRegistraAzioniTest({
     attiva: test,
     alterna: () => setTest((corrente) => !corrente),
     annulla: annullaProva,
+    elimina: eliminaDatiTest,
   });
 
   const etichetteVista: Record<Vista, string> = {
@@ -1502,9 +1434,48 @@ export function CalendarioApprovvigionamento() {
             CREA ORDINE MATERIA PRIMA
           </button>
         </div>
+        {messaggio && !creaAperta ? (
+          <p className="mb-3 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-900">{messaggio}</p>
+        ) : null}
+        {errore && !creaAperta ? (
+          <p className="mb-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">{errore}</p>
+        ) : null}
+        {invioDaRiprovare && !creaAperta ? (
+          <button
+            type="button"
+            onClick={() => {
+              if (!invioDaRiprovare) return;
+              if (invioDaRiprovare.stato === "incerta" && !window.confirm(MESSAGGIO_CONFERMA_INCERTA)) return;
+              const conferma = invioDaRiprovare.stato === "incerta";
+              const id = invioDaRiprovare.id;
+              startTransition(async () => {
+                const res = await reinviaInvioApprovvigionamentoAction({ id, confermaIncerta: conferma });
+                if (!res.success) {
+                  setErrore(res.error);
+                  return;
+                }
+                const esito = messaggioSalvataggioConfermato({
+                  riusata: true,
+                  invioRichiesto: true,
+                  invio: res.invio,
+                });
+                setMessaggio(esito.messaggio);
+                setErrore(esito.errore);
+                if (res.invio.id && (res.invio.stato === "incerta" || res.invio.stato === "fallita")) {
+                  setInvioDaRiprovare({ id: res.invio.id, stato: res.invio.stato });
+                } else {
+                  setInvioDaRiprovare(null);
+                }
+              });
+            }}
+            className="mb-3 rounded-lg border border-amber-700 px-3 py-2 text-sm text-amber-950"
+          >
+            {invioDaRiprovare.stato === "incerta" ? "Reinvia con conferma" : "Riprova invio"}
+          </button>
+        ) : null}
         {test ? (
           <div className="mb-3 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-950">
-            <p>Modalità test: stesse regole della produzione. Nessuna scrittura sul database aziendale.</p>
+            <p>Modalità test: gli ordini di prova restano salvati e visibili. Usano codici TEST- e non i progressivi AP- o PP-. Non si pubblicano e non generano carichi.</p>
             <label className="mt-2 block">
               Email destinatario di prova
               <input

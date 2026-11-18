@@ -2,6 +2,7 @@
 
 import { useEffect, useId, useRef, useState } from "react";
 import {
+  emailFornitoreApprovvigionamentoAction,
   fornitoriCompatibiliApprovvigionamentoAction,
   type MateriaCalendario,
 } from "@/app/actions/approvvigionamento";
@@ -24,7 +25,22 @@ import {
   pdfPianificazione,
   xlsxPianificazione,
 } from "@/lib/produzione/documento-pianificazione";
+import {
+  DESTINATARIO_PROVA,
+  bozzaInvioConferma,
+  validaDestinatarioSingolo,
+} from "@/lib/produzione/invio-conferma";
 import { etichettaUnita } from "@/lib/produzione/unita-approvvigionamento";
+
+export type InvioBozzaOrdine = {
+  invia: boolean;
+  destinatario: string;
+  oggetto: string;
+  testo: string;
+  pdf: boolean;
+  xlsx: boolean;
+  confermaIncerta: boolean;
+};
 
 export type BozzaOrdineMateria = {
   operazione: "singolo" | "pianificazione";
@@ -40,6 +56,7 @@ export type BozzaOrdineMateria = {
   tipologia: "regolare" | "personalizzata" | "giorni_fissi";
   ogniGiorni: number | null;
   consegne: ConsegnaAnteprima[];
+  invio?: InvioBozzaOrdine;
 };
 
 const PASSI = [
@@ -284,6 +301,15 @@ export function CreaOrdineMateriaPrimaModal(props: {
     };
   }
 
+  const [invioAperto, setInvioAperto] = useState(false);
+  const [inviaEmail, setInviaEmail] = useState(true);
+  const [destinatario, setDestinatario] = useState("");
+  const [oggetto, setOggetto] = useState("");
+  const [testo, setTesto] = useState("");
+  const [allegaPdf, setAllegaPdf] = useState(true);
+  const [allegaXlsx, setAllegaXlsx] = useState(false);
+  const [confermaIncerta, setConfermaIncerta] = useState(false);
+
   function salva() {
     const motivo = valida(4);
     if (motivo) {
@@ -291,6 +317,57 @@ export function CreaOrdineMateriaPrimaModal(props: {
       return;
     }
     props.onSalva(bozza());
+  }
+
+  function apriConferma() {
+    const motivo = valida(4);
+    if (motivo) {
+      setErroreLocale(motivo);
+      return;
+    }
+    const bozzaMail = bozzaInvioConferma(props.prova);
+    setInviaEmail(true);
+    setDestinatario(props.prova ? DESTINATARIO_PROVA : "");
+    setOggetto(bozzaMail.oggetto);
+    setTesto(bozzaMail.testo);
+    setAllegaPdf(true);
+    setAllegaXlsx(false);
+    setConfermaIncerta(false);
+    setErroreLocale(null);
+    setInvioAperto(true);
+    if (!props.prova && fornitoreId) {
+      void emailFornitoreApprovvigionamentoAction(fornitoreId).then((res) => {
+        if (res.success && res.email) {
+          setDestinatario((corrente) => corrente || res.email);
+        }
+      });
+    }
+  }
+
+  function confermaESalva() {
+    if (inviaEmail) {
+      const esito = validaDestinatarioSingolo(destinatario);
+      if (!esito.ok) {
+        setErroreLocale(esito.motivo);
+        return;
+      }
+      if (oggetto.trim().length < 3 || testo.trim().length < 3) {
+        setErroreLocale("Oggetto e testo sono obbligatori.");
+        return;
+      }
+    }
+    props.onSalva({
+      ...bozza(),
+      invio: {
+        invia: inviaEmail,
+        destinatario,
+        oggetto,
+        testo,
+        pdf: allegaPdf,
+        xlsx: allegaXlsx,
+        confermaIncerta,
+      },
+    });
   }
 
   function chiudi() {
@@ -423,6 +500,7 @@ export function CreaOrdineMateriaPrimaModal(props: {
 
   const celle = celleMese(mese);
   const errore = erroreLocale || props.errore;
+  const etichettaConferma = operazione === "singolo" ? "Conferma ordine" : "Conferma pianificazione";
 
   return (
     <div
@@ -440,6 +518,10 @@ export function CreaOrdineMateriaPrimaModal(props: {
         onKeyDown={(evento) => {
           if (evento.key === "Escape") {
             evento.preventDefault();
+            if (invioAperto) {
+              setInvioAperto(false);
+              return;
+            }
             chiudi();
           }
         }}
@@ -451,7 +533,7 @@ export function CreaOrdineMateriaPrimaModal(props: {
               Crea ordine materia prima
             </h2>
             <p className="text-sm text-slate-600">
-              Passaggio {passo} di 5 · {PASSI[passo - 1]}. Il salvataggio non invia email.
+              Passaggio {passo} di 5 · {PASSI[passo - 1]}. Salva bozza non invia email.
             </p>
           </div>
           <button type="button" onClick={chiudi} className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm">
@@ -472,7 +554,7 @@ export function CreaOrdineMateriaPrimaModal(props: {
         <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4">
           {props.prova ? (
             <p className="mb-3 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-950">
-              Modalità test: nessuna scrittura aziendale, nessun numero AP- o PP- e nessuna mail.
+              Modalità test: il salvataggio resta nel database con codice TEST-. Non usa i progressivi AP- o PP-, non pubblica e non genera carichi. L&apos;email, se richiesta, non usa l&apos;indirizzo del fornitore.
             </p>
           ) : null}
           {passo === 1 ? (
@@ -831,7 +913,7 @@ export function CreaOrdineMateriaPrimaModal(props: {
                 </button>
               </div>
               <p className="text-slate-600">
-                Salva bozza e Conferma registrano la pianificazione senza pubblicarla e senza scrivere al fornitore.
+                Salva bozza registra senza email e senza pubblicazione. Conferma apre la bozza della mail: l&apos;invio parte solo dopo il salvataggio riuscito.
               </p>
             </div>
           ) : null}
@@ -869,16 +951,104 @@ export function CreaOrdineMateriaPrimaModal(props: {
                 <button
                   type="button"
                   disabled={props.pending}
-                  onClick={salva}
+                  onClick={apriConferma}
                   className="rounded-lg bg-emerald-700 px-4 py-2 text-sm font-semibold text-white disabled:opacity-60"
                 >
-                  {props.pending ? "Salvo…" : "Conferma pianificazione"}
+                  {props.pending ? "Salvo…" : etichettaConferma}
                 </button>
               </>
             )}
           </div>
         </div>
       </div>
+      {invioAperto ? (
+        <div className="fixed inset-0 z-[90] flex items-end justify-center bg-black/50 p-3 sm:items-center">
+          <div
+            role="dialog"
+            aria-modal="true"
+            className="max-h-[90vh] w-full max-w-xl overflow-y-auto rounded-2xl bg-white p-4 shadow-xl"
+          >
+            <h3 className="text-lg font-semibold text-slate-900">Conferma e invio</h3>
+            <p className="mt-1 text-sm text-slate-600">
+              Conferma e salva registra l&apos;ordine e lo mostra in elenco. L&apos;email parte solo dopo il salvataggio. Non pubblica nel portale fornitore.
+            </p>
+            <label className="mt-3 flex items-center gap-2 text-sm">
+              <input type="checkbox" checked={inviaEmail} onChange={(evento) => setInviaEmail(evento.target.checked)} />
+              Invia email
+            </label>
+            <label className="mt-3 block text-sm">
+              Destinatario
+              <input
+                value={destinatario}
+                onChange={(evento) => setDestinatario(evento.target.value)}
+                disabled={!inviaEmail}
+                className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 disabled:bg-slate-50"
+              />
+            </label>
+            <label className="mt-3 block text-sm">
+              Oggetto
+              <input
+                value={oggetto}
+                onChange={(evento) => setOggetto(evento.target.value)}
+                disabled={!inviaEmail}
+                className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 disabled:bg-slate-50"
+              />
+            </label>
+            <label className="mt-3 block text-sm">
+              Testo
+              <textarea
+                value={testo}
+                onChange={(evento) => setTesto(evento.target.value)}
+                disabled={!inviaEmail}
+                rows={8}
+                className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 disabled:bg-slate-50"
+              />
+            </label>
+            <div className="mt-3 flex flex-wrap gap-4 text-sm">
+              <label className="flex items-center gap-2">
+                <input type="checkbox" checked={allegaPdf} disabled={!inviaEmail} onChange={(evento) => setAllegaPdf(evento.target.checked)} />
+                PDF
+              </label>
+              <label className="flex items-center gap-2">
+                <input type="checkbox" checked={allegaXlsx} disabled={!inviaEmail} onChange={(evento) => setAllegaXlsx(evento.target.checked)} />
+                Excel
+              </label>
+            </div>
+            <p className="mt-3 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700">
+              Anteprima allegati: {allegaPdf ? "PDF" : "senza PDF"}
+              {allegaXlsx ? " e Excel" : ""}. I file sono generati dalla versione salvata, non da questa anteprima a video.
+              {props.prova ? " Destinatario di prova predefinito: sandrohd@gmail.com." : ""}
+            </p>
+            <label className="mt-3 flex items-start gap-2 text-sm">
+              <input
+                type="checkbox"
+                checked={confermaIncerta}
+                onChange={(evento) => setConfermaIncerta(evento.target.checked)}
+              />
+              <span>
+                Se un invio precedente ha esito incerto, confermo il reinvio sapendo che potrebbe produrre una seconda email.
+              </span>
+            </label>
+            <div className="mt-4 flex flex-wrap justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setInvioAperto(false)}
+                className="rounded-lg border border-slate-300 px-4 py-2 text-sm"
+              >
+                Torna al riepilogo
+              </button>
+              <button
+                type="button"
+                disabled={props.pending}
+                onClick={confermaESalva}
+                className="rounded-lg bg-emerald-700 px-4 py-2 text-sm font-semibold text-white disabled:opacity-60"
+              >
+                {props.pending ? "Salvo…" : "Conferma e salva"}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }

@@ -6,6 +6,7 @@ type AzioniTest = {
   attiva: boolean;
   alterna: () => void;
   annulla: () => void;
+  elimina: () => void;
 };
 
 const Registra = createContext<((azioni: AzioniTest | null) => void) | null>(null);
@@ -29,6 +30,7 @@ export function useRegistraAzioniTest(azioni: AzioniTest) {
       attiva: azioni.attiva,
       alterna: () => ref.current.alterna(),
       annulla: () => ref.current.annulla(),
+      elimina: () => ref.current.elimina(),
     });
   }, [azioni.attiva, setAzioni]);
   useEffect(() => {
@@ -55,6 +57,15 @@ export function CalendarioTestAzioni() {
       >
         Annulla test
       </button>
+      {azioni.attiva ? (
+        <button
+          type="button"
+          onClick={azioni.elimina}
+          className="rounded-lg border border-red-700 bg-red-50 px-3 py-1.5 text-sm text-red-900"
+        >
+          Elimina dati test
+        </button>
+      ) : null}
     </>
   );
 }

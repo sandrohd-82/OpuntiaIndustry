@@ -15,6 +15,13 @@ import { primoIndirizzoEmail } from "@/lib/produzione/haccp-versioni";
 import { inviaDaCasellaAnagrafica } from "@/lib/anagrafica/casella-invio";
 import { eseguiNotificaDistribuzione } from "@/lib/produzione/notifica-distribuzione-invio";
 import { pdfPianificazione, type DocumentoPianificazione } from "@/lib/produzione/documento-pianificazione";
+import { accodaEInviaConfermato, reinviaInvioConfermato } from "@/lib/produzione/invio-conferma-server";
+import {
+  messaggioEliminazioneProva,
+  rifiutaEmailFornitore,
+  validaDestinatarioSingolo,
+  type EsitoInvioConfermato,
+} from "@/lib/produzione/invio-conferma";
 import { preparaEmailProva } from "@/lib/produzione/revisione-piano";
 import { createClient } from "@/lib/supabase/server";
 
@@ -303,17 +310,20 @@ export async function fornitoriCompatibiliApprovvigionamentoAction(
 export async function listaOrdiniApprovvigionamentoAction(input: {
   da: string;
   a: string;
+  prova?: boolean;
 }): Promise<{ success: true; ordini: OrdineCalendario[] } | Errore> {
   await richiedi();
   const da = giornoSchema.safeParse(input.da);
   const a = giornoSchema.safeParse(input.a);
   if (!da.success || !a.success) return { success: false, error: "Periodo non valido." };
+  const prova = input.prova === true;
   const supabase = await createClient();
   const { data: ordini, error } = await supabase
     .from("approvvigionamenti_ordini")
     .select(
       "id, codice, fornitore_id, data_consegna, note, stato, origine_ordine_id, revisione, versione_pubblicata"
     )
+    .eq("prova", prova)
     .is("deleted_at", null)
     .gte("data_consegna", da.data)
     .lte("data_consegna", a.data)
@@ -594,17 +604,20 @@ export async function listaOrdiniApprovvigionamentoAction(input: {
 export async function listaPianiApprovvigionamentoAction(input: {
   da: string;
   a: string;
+  prova?: boolean;
 }): Promise<{ success: true; piani: PianoCalendario[] } | Errore> {
   await richiedi();
   const da = giornoSchema.safeParse(input.da);
   const a = giornoSchema.safeParse(input.a);
   if (!da.success || !a.success) return { success: false, error: "Periodo non valido." };
+  const prova = input.prova === true;
   const supabase = await createClient();
   const { data: piani, error } = await supabase
     .from("approvvigionamenti_piani")
     .select(
       "id, codice, fornitore_id, periodo_inizio, periodo_fine, tipologia, revisione, stato, versione_pubblicata"
     )
+    .eq("prova", prova)
     .is("deleted_at", null)
     .lte("periodo_inizio", a.data)
     .gte("periodo_fine", da.data)
@@ -718,6 +731,7 @@ export async function salvaApprovvigionamentiAction(raw: unknown): Promise<
     riusata: boolean;
     ordini: { id: string; codice: string; dataConsegna: string }[];
     piani: { id: string; codice: string; tipologia: string }[];
+    invio: EsitoInvioConfermato | null;
   } | Errore
 > {
   const parsed = z
@@ -725,6 +739,18 @@ export async function salvaApprovvigionamentiAction(raw: unknown): Promise<
       chiave: chiaveSchema,
       tipo: z.enum(["crea", "copia", "settimana", "piano", "pianificazione"]),
       ordini: z.array(ordineSchema).min(1).max(200),
+      prova: z.boolean().optional().default(false),
+      invio: z
+        .object({
+          invia: z.boolean(),
+          destinatario: z.string().trim().max(200).optional().default(""),
+          oggetto: z.string().trim().max(200).optional().default(""),
+          testo: z.string().trim().max(4000).optional().default(""),
+          pdf: z.boolean().optional().default(false),
+          xlsx: z.boolean().optional().default(false),
+          confermaIncerta: z.boolean().optional().default(false),
+        })
+        .optional(),
     })
     .safeParse(raw);
   if (!parsed.success) {
@@ -732,6 +758,27 @@ export async function salvaApprovvigionamentiAction(raw: unknown): Promise<
   }
   const auth = await richiedi();
   const supabase = await createClient();
+  const richiesto = parsed.data.invio?.invia ? parsed.data.invio : null;
+  if (richiesto) {
+    const destinatario = validaDestinatarioSingolo(richiesto.destinatario);
+    if (!destinatario.ok) return { success: false, error: destinatario.motivo };
+    if (richiesto.oggetto.trim().length < 3 || richiesto.testo.trim().length < 3) {
+      return { success: false, error: "Oggetto e testo sono obbligatori." };
+    }
+    if (parsed.data.prova && /http/i.test(`${richiesto.oggetto} ${richiesto.testo}`)) {
+      return { success: false, error: "La mail di prova non può contenere un collegamento." };
+    }
+    if (parsed.data.prova) {
+      const { data: anagrafiche } = await supabase
+        .from("fornitori")
+        .select("email")
+        .ilike("email", destinatario.email)
+        .limit(1);
+      const emailFornitore = anagrafiche?.[0]?.email ? String(anagrafiche[0].email) : null;
+      const rifiuto = rifiutaEmailFornitore(destinatario.email, emailFornitore);
+      if (rifiuto) return { success: false, error: rifiuto };
+    }
+  }
   const ordiniRichiesti = parsed.data.ordini.map((ordine) => ({
     ...ordine,
     righe: righeCanoniche(ordine.righe),
@@ -740,6 +787,7 @@ export async function salvaApprovvigionamentiAction(raw: unknown): Promise<
     p_chiave: parsed.data.chiave,
     p_tipo: parsed.data.tipo,
     p_ordini: ordiniRichiesti,
+    p_prova: parsed.data.prova,
   });
   if (error) return { success: false, error: messaggioDb(error, "Registrazione non riuscita.") };
   const corpo = comeOggetto(data);
@@ -771,20 +819,54 @@ export async function salvaApprovvigionamentiAction(raw: unknown): Promise<
     summary: corpo.riusata
       ? "Operazione già registrata: nessun nuovo ordine."
       : `Registrate ${ordini.length} bozze di approvvigionamento.`,
-    payload: { riusata: Boolean(corpo.riusata), ordini: ordini.length, piani: piani.length },
+    payload: {
+      riusata: Boolean(corpo.riusata),
+      ordini: ordini.length,
+      piani: piani.length,
+      prova: parsed.data.prova,
+      impersonatoDa: auth.impersonating ? auth.actorUserId : null,
+    },
   });
   if (!corpo.riusata) {
     for (const salvato of ordini) {
-      const richiesto = ordiniRichiesti.find((ordine) => ordine.dataConsegna === salvato.dataConsegna);
-      if (!richiesto) continue;
+      const rigaRichiesta = ordiniRichiesti.find((ordine) => ordine.dataConsegna === salvato.dataConsegna);
+      if (!rigaRichiesta) continue;
       try {
-        await memorizzaNomiUnita(supabase, salvato.id, richiesto.righe);
+        await memorizzaNomiUnita(supabase, salvato.id, rigaRichiesta.righe);
       } catch (errore) {
         return { success: false, error: errore instanceof Error ? errore.message : "Nome dell'unità non memorizzato." };
       }
     }
   }
-  return { success: true, riusata: Boolean(corpo.riusata), ordini, piani };
+  let invio: EsitoInvioConfermato | null = null;
+  if (richiesto) {
+    const destinatario = validaDestinatarioSingolo(richiesto.destinatario);
+    invio = await accodaEInviaConfermato({
+      supabase,
+      chiaveSalvataggio: parsed.data.chiave,
+      ordineIds: ordini.map((ordine) => ordine.id),
+      pianoId: piani[0]?.id ?? null,
+      destinatario: destinatario.ok ? destinatario.email : richiesto.destinatario,
+      oggetto: richiesto.oggetto,
+      testo: richiesto.testo,
+      pdf: richiesto.pdf,
+      xlsx: richiesto.xlsx,
+      confermaIncerta: richiesto.confermaIncerta,
+    });
+    await writeAuditLog({
+      entity_type: "approvvigionamenti_invii",
+      entity_id: invio.id ?? parsed.data.chiave,
+      action: "invio",
+      actor_id: auth.userId,
+      summary: `Invio ordine confermato: ${invio.stato}.`,
+      payload: {
+        stato: invio.stato,
+        prova: parsed.data.prova,
+        impersonatoDa: auth.impersonating ? auth.actorUserId : null,
+      },
+    });
+  }
+  return { success: true, riusata: Boolean(corpo.riusata), ordini, piani, invio };
 }
 
 export async function aggiornaApprovvigionamentoAction(raw: unknown): Promise<
@@ -919,6 +1001,17 @@ async function avvisaPubblicazione(notificaId: string | null, confermaIncerta: b
   });
 }
 
+async function bloccaSeProva(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  tabella: "approvvigionamenti_ordini" | "approvvigionamenti_piani",
+  id: string
+): Promise<string | null> {
+  const { data, error } = await supabase.from(tabella).select("prova").eq("id", id).maybeSingle();
+  if (error) return "Verifica dei dati di prova non disponibile.";
+  if (data?.prova) return "I dati di prova non si pubblicano e non generano carichi.";
+  return null;
+}
+
 export async function pubblicaOrdineApprovvigionamentoAction(raw: unknown): Promise<
   { success: true; numero: number; notifica: string } | Errore
 > {
@@ -932,6 +1025,8 @@ export async function pubblicaOrdineApprovvigionamentoAction(raw: unknown): Prom
   if (!parsed.success) return { success: false, error: "Pubblicazione non valida." };
   const auth = await richiedi();
   const supabase = await createClient();
+  const bloccoOrdine = await bloccaSeProva(supabase, "approvvigionamenti_ordini", parsed.data.ordineId);
+  if (bloccoOrdine) return { success: false, error: bloccoOrdine };
   const { data, error } = await supabase.rpc("pubblica_approvvigionamento_ordine", {
     p_chiave: parsed.data.chiave,
     p_ordine_id: parsed.data.ordineId,
@@ -969,6 +1064,8 @@ export async function pubblicaPianoApprovvigionamentoAction(raw: unknown): Promi
   if (!parsed.success) return { success: false, error: "Pubblicazione non valida." };
   const auth = await richiedi();
   const supabase = await createClient();
+  const bloccoPiano = await bloccaSeProva(supabase, "approvvigionamenti_piani", parsed.data.pianoId);
+  if (bloccoPiano) return { success: false, error: bloccoPiano };
   const { data, error } = await supabase.rpc("pubblica_approvvigionamento_piano", {
     p_chiave: parsed.data.chiave,
     p_piano_id: parsed.data.pianoId,
@@ -1114,10 +1211,14 @@ export async function resocontoApprovvigionamentoAction(input: {
   const supabase = await createClient();
   const { data: ordini, error } = await supabase
     .from("approvvigionamenti_ordini")
-    .select("id, versione_pubblicata, stato, data_consegna")
+    .select("id, versione_pubblicata, stato, data_consegna, prova")
     .in("id", ids)
     .is("deleted_at", null);
   if (error) return { success: false, error: "Resoconto non disponibile." };
+  const prove = (ordini ?? []).filter((ordine) => ordine.prova);
+  if (prove.length > 0 && prove.length !== (ordini ?? []).length) {
+    return { success: false, error: "I dati di prova non si mescolano con gli ordini aziendali." };
+  }
   const { data: righe } = await supabase
     .from("approvvigionamenti_righe")
     .select("ordine_id, materia_prima_id, quantita, unita_misura, tipo_quantita")
@@ -1492,6 +1593,79 @@ export async function aggiungiConsegnaPianoAction(raw: unknown): Promise<
     periodoInizio: String(corpo.periodoInizio ?? ""),
     periodoFine: String(corpo.periodoFine ?? ""),
   };
+}
+
+export async function emailFornitoreApprovvigionamentoAction(
+  fornitoreId: string
+): Promise<{ success: true; email: string } | Errore> {
+  await richiedi();
+  if (!uuidSchema.safeParse(fornitoreId).success) return { success: false, error: "Fornitore non valido." };
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from("fornitori")
+    .select("email")
+    .eq("id", fornitoreId)
+    .is("deleted_at", null)
+    .maybeSingle();
+  if (error) return { success: false, error: "Email del fornitore non disponibile." };
+  return { success: true, email: data?.email ? String(data.email) : "" };
+}
+
+export async function reinviaInvioApprovvigionamentoAction(raw: unknown): Promise<
+  { success: true; invio: EsitoInvioConfermato } | Errore
+> {
+  const parsed = z
+    .object({ id: uuidSchema, confermaIncerta: z.boolean().optional().default(false) })
+    .safeParse(raw);
+  if (!parsed.success) return { success: false, error: "Invio non valido." };
+  const auth = await richiedi();
+  const supabase = await createClient();
+  const invio = await reinviaInvioConfermato({
+    supabase,
+    id: parsed.data.id,
+    confermaIncerta: parsed.data.confermaIncerta,
+  });
+  await writeAuditLog({
+    entity_type: "approvvigionamenti_invii",
+    entity_id: parsed.data.id,
+    action: "reinvio",
+    actor_id: auth.userId,
+    summary: `Reinvio ordine confermato: ${invio.stato}.`,
+    payload: {
+      stato: invio.stato,
+      confermaIncerta: parsed.data.confermaIncerta,
+      impersonatoDa: auth.impersonating ? auth.actorUserId : null,
+    },
+  });
+  return { success: true, invio };
+}
+
+export async function eliminaDatiProvaApprovvigionamentoAction(): Promise<
+  { success: true; messaggio: string; protetti: number } | Errore
+> {
+  const auth = await richiedi();
+  const supabase = await createClient();
+  const { data, error } = await supabase.rpc("elimina_dati_prova_approvvigionamento");
+  if (error) return { success: false, error: messaggioDb(error, "Eliminazione dei dati di prova non riuscita.") };
+  const corpo = comeOggetto(data);
+  const protetti = Number(corpo.protetti ?? 0);
+  const messaggio = messaggioEliminazioneProva(protetti);
+  await writeAuditLog({
+    entity_type: "approvvigionamenti_ordini",
+    entity_id: auth.userId,
+    action: "elimina_prova",
+    actor_id: auth.userId,
+    summary: messaggio,
+    payload: {
+      ordini: Number(corpo.ordini ?? 0),
+      piani: Number(corpo.piani ?? 0),
+      inviiAnnullati: Number(corpo.inviiAnnullati ?? 0),
+      inviiEliminati: Number(corpo.inviiEliminati ?? 0),
+      protetti,
+      impersonatoDa: auth.impersonating ? auth.actorUserId : null,
+    },
+  });
+  return { success: true, messaggio, protetti };
 }
 
 const documentoProvaSchema = z.object({

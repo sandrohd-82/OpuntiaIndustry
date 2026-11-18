@@ -222,6 +222,21 @@ export async function creaCaricoApprovvigionamentoAction(raw: unknown): Promise<
   if (!parsed.success) return { success: false, error: "Carico non valido." };
   const { auth } = await requireAreaAccess("produzione");
   const supabase = await createClient();
+  const { data: versione } = await supabase
+    .from("approvvigionamenti_versioni")
+    .select("ordine_id")
+    .eq("id", parsed.data.versioneId)
+    .maybeSingle();
+  if (versione?.ordine_id) {
+    const { data: ordineProva } = await supabase
+      .from("approvvigionamenti_ordini")
+      .select("prova")
+      .eq("id", String(versione.ordine_id))
+      .maybeSingle();
+    if (ordineProva?.prova) {
+      return { success: false, error: "I dati di prova non si pubblicano e non generano carichi." };
+    }
+  }
   const { data, error } = await supabase.rpc("crea_carico_approvvigionamento", {
     p_chiave: parsed.data.chiave,
     p_versione_id: parsed.data.versioneId,
