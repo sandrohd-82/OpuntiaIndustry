@@ -98,6 +98,20 @@ assert.equal(pdfTesto.includes("Marzo 2026"), true);
 assert.equal(pdfTesto.includes("Elenco consegne"), true);
 assert.equal(pdfTesto.indexOf("Gennaio 2026") < pdfTesto.indexOf("Elenco consegne"), true);
 assert.equal((pdfTesto.match(/\/Type\s*\/Page(?!s)/g) ?? []).length >= 4, true);
+const nomeLungo =
+  "Opuntia Industry Societa Agricola Cooperativa dei Produttori del Ficodindia della Valle del Belice e delle Colline Siciliane a Responsabilita Limitata con stabilimento";
+const stampa = pdfPianificazione({
+  ...documento,
+  codice: "Anteprima di prova",
+  fornitore: nomeLungo,
+  note: "Anteprima non salvata.",
+});
+const stampaTesto = Buffer.from(stampa).toString("latin1");
+assert.equal(stampaTesto.includes("Anteprima di prova"), false);
+assert.equal(stampaTesto.includes("Anteprima non salvata"), false);
+assert.equal(stampaTesto.includes(`(${nomeLungo})`), false);
+assert.equal(stampaTesto.includes("Opuntia Industry"), true);
+assert.equal(stampaTesto.includes("stabilimento"), true);
 void xlsxPianificazione(documento).then(async (xlsx) => {
   assert.equal(xlsx.byteLength > 500, true);
   const wb = new ExcelJS.Workbook();

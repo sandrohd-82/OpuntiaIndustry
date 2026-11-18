@@ -138,6 +138,24 @@ function nomeMese(primo: string): string {
   return `${NOMI_MESI[mese - 1] ?? ""} ${primo.slice(0, 4)}`;
 }
 
+function codiceVisibile(codice: string): string {
+  const pulito = codice.trim();
+  if (pulito === "Anteprima" || pulito === "Anteprima di prova") return "";
+  return pulito;
+}
+
+function noteVisibili(note: string): string {
+  const pulito = note.trim();
+  if (pulito.startsWith("Anteprima non salvata")) return "";
+  return pulito;
+}
+
+function righeNelCampo(pdf: jsPDF, testo: string, larghezza: number): string[] {
+  const righe = pdf.splitTextToSize(testo, larghezza);
+  if (Array.isArray(righe)) return righe;
+  return [righe];
+}
+
 function disegnaMese(
   pdf: jsPDF,
   documento: DocumentoPianificazione,
@@ -147,14 +165,20 @@ function disegnaMese(
   const sinistra = 10;
   const larghezza = 277;
   const colonna = larghezza / 7;
-  const alto = 26;
   const settimane = settimaneDelMese(primo);
-  const altezzaRiga = Math.min(28, (176 - 7) / Math.max(settimane.length, 1));
   pdf.setFontSize(16);
   pdf.setTextColor(15, 23, 42);
   pdf.text(nomeMese(primo), sinistra, 14);
   pdf.setFontSize(10);
-  pdf.text(`${documento.codice} · ${documento.fornitore} · ${documento.materia}`, sinistra, 21);
+  const intestazione = [codiceVisibile(documento.codice), documento.fornitore, documento.materia]
+    .map((parte) => parte.trim())
+    .filter((parte) => parte.length > 0)
+    .join(" · ");
+  const righeIntestazione = intestazione ? righeNelCampo(pdf, intestazione, larghezza) : [];
+  if (righeIntestazione.length > 0) pdf.text(righeIntestazione, sinistra, 21);
+  const alto = 21 + righeIntestazione.length * 4.6 + 3;
+  const spazioRighe = 202 - alto - 7;
+  const altezzaRiga = Math.min(28, spazioRighe / Math.max(settimane.length, 1));
   FERIALI.forEach((feriale, indice) => {
     pdf.setFillColor(15, 23, 42);
     pdf.rect(sinistra + indice * colonna, alto, colonna, 7, "F");
@@ -195,8 +219,10 @@ function disegnaElenco(pdf: jsPDF, documento: DocumentoPianificazione) {
   pdf.setTextColor(15, 23, 42);
   pdf.text("Elenco consegne", 14, 16);
   pdf.setFontSize(10);
-  const righe = [
-    `Pianificazione: ${documento.codice}`,
+  const codice = codiceVisibile(documento.codice);
+  const note = noteVisibili(documento.note);
+  const campi = [
+    codice ? `Pianificazione: ${codice}` : "",
     `Fornitore: ${documento.fornitore}`,
     `Materia prima: ${documento.materia}`,
     `Unità: ${documento.unita}`,
@@ -204,11 +230,16 @@ function disegnaElenco(pdf: jsPDF, documento: DocumentoPianificazione) {
     `Consegne: ${totali.consegne}`,
     `Totale precisa: ${testoTotale(totali.precisa, documento.unita)}`,
     `Totale stimata: ${testoTotale(totali.stimata, documento.unita)}`,
-    `Note: ${documento.note || "—"}`,
-  ];
-  righe.forEach((riga, indice) => pdf.text(riga, 14, 24 + indice * 5));
+    note ? `Note: ${note}` : "",
+  ].filter((campo) => campo.length > 0);
+  let cursore = 24;
+  for (const campo of campi) {
+    const righe = righeNelCampo(pdf, campo, 269);
+    pdf.text(righe, 14, cursore);
+    cursore += righe.length * 5;
+  }
   autoTable(pdf, {
-    startY: 24 + righe.length * 5 + 4,
+    startY: cursore + 4,
     head: [["Data", "Quantità", "Unità", "Precisa/stimata", "Stato"]],
     body: righeTesto(documento),
     styles: { fontSize: 9 },
@@ -304,7 +335,7 @@ export async function xlsxPianificazione(documento: DocumentoPianificazione): Pr
   scriviCalendari(foglio, documento, mappaQuantita(documento));
   foglio.addRow([]);
   const testata: [string, string][] = [
-    ["Pianificazione", documento.codice],
+    ["Pianificazione", codiceVisibile(documento.codice)],
     ["Fornitore", documento.fornitore],
     ["Materia prima", documento.materia],
     ["Unità", documento.unita],
@@ -312,11 +343,15 @@ export async function xlsxPianificazione(documento: DocumentoPianificazione): Pr
     ["Consegne", String(totali.consegne)],
     ["Totale precisa", testoTotale(totali.precisa, documento.unita)],
     ["Totale stimata", testoTotale(totali.stimata, documento.unita)],
-    ["Note", documento.note || "—"],
+    ["Note", noteVisibili(documento.note)],
   ];
   for (const [etichetta, valore] of testata) {
+    if (!valore) continue;
     const riga = foglio.addRow([etichetta, valore]);
     riga.getCell(1).font = { bold: true };
+    foglio.mergeCells(riga.number, 2, riga.number, 7);
+    riga.getCell(2).alignment = { wrapText: true, vertical: "middle" };
+    riga.height = 16 * Math.max(1, Math.ceil(valore.length / 70));
   }
   foglio.addRow([]);
   const intestazione = foglio.addRow(["Data", "Quantità", "Unità", "Precisa/stimata", "Stato"]);
