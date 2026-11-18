@@ -6,6 +6,7 @@ import {
   type MateriaCalendario,
 } from "@/app/actions/approvvigionamento";
 import { SelettoreUnita } from "@/components/produzione/SelettoreUnita";
+import { InfoHint } from "@/components/ui/InfoHint";
 import {
   aggiungiGiorni,
   anteprimaConsegne,
@@ -23,7 +24,7 @@ import {
   pdfPianificazione,
   xlsxPianificazione,
 } from "@/lib/produzione/documento-pianificazione";
-import { etichettaMeseAnno, etichettaUnita } from "@/lib/produzione/unita-approvvigionamento";
+import { etichettaUnita } from "@/lib/produzione/unita-approvvigionamento";
 
 export type BozzaOrdineMateria = {
   operazione: "singolo" | "pianificazione";
@@ -117,6 +118,7 @@ export function CreaOrdineMateriaPrimaModal(props: {
   const [note, setNote] = useState("");
   const [frequenza, setFrequenza] = useState<FrequenzaProcedura>("ogni_n");
   const [ogniGiorni, setOgniGiorni] = useState("3");
+  const [primaConsegna, setPrimaConsegna] = useState(oggi);
   const [giorniConsentiti, setGiorniConsentiti] = useState<number[]>([0, 1, 2, 3, 4, 5, 6]);
   const [dateScelte, setDateScelte] = useState<string[]>([]);
   const [mese, setMese] = useState(oggi);
@@ -165,6 +167,21 @@ export function CreaOrdineMateriaPrimaModal(props: {
     };
   }, [materiaId]);
 
+  useEffect(() => {
+    if (passo === 3 && inizio) setMese(inizio);
+  }, [passo, inizio]);
+
+  useEffect(() => {
+    const utile = primoGiornoUtile(inizio, fine, giorniConsentiti);
+    if (!utile) return;
+    setPrimaConsegna((corrente) => {
+      const nelPeriodo = corrente >= inizio && corrente <= fine;
+      const consentito = giorniConsentiti.includes(indiceGiornoSettimana(corrente));
+      if (nelPeriodo && consentito) return corrente;
+      return utile;
+    });
+  }, [inizio, fine, giorniConsentiti]);
+
   function tocca<T>(aggiorna: (valore: T) => void) {
     return (valore: T) => {
       setErroreLocale(null);
@@ -179,6 +196,7 @@ export function CreaOrdineMateriaPrimaModal(props: {
       inizio,
       fine,
       frequenza: operazione === "singolo" ? undefined : frequenza,
+      primaConsegna,
       giorniConsentiti,
       ogniGiorni: Number(ogniGiorni),
       dateScelte,
@@ -202,6 +220,12 @@ export function CreaOrdineMateriaPrimaModal(props: {
       }
     }
     if (corrente === 3 && operazione === "pianificazione") {
+      if (
+        frequenza === "ogni_n" &&
+        !giorniConsentiti.includes(indiceGiornoSettimana(primaConsegna))
+      ) {
+        return "Il primo giorno deve essere uno dei giorni consentiti.";
+      }
       const gen = calcola();
       if (!gen.ok) return gen.motivo;
     }
@@ -295,9 +319,8 @@ export function CreaOrdineMateriaPrimaModal(props: {
     .map((giorno) => giorno.nome)
     .join(", ");
   let regola = "Ordine singolo, una sola consegna.";
-  const primaUtile = primoGiornoUtile(inizio, fine, giorniConsentiti);
   if (operazione === "pianificazione" && frequenza === "ogni_n") {
-    regola = `Ogni ${ogniGiorni} giorni di calendario, prima consegna ${primaUtile ?? "assente"}. Giorni consentiti: ${giorniConsentitiTesto}. Un giorno non consentito si salta e non si sposta.`;
+    regola = `Ogni ${ogniGiorni} giorni di calendario, prima consegna ${primaConsegna}. Giorni consentiti: ${giorniConsentitiTesto}. Un giorno non consentito si salta e non si sposta.`;
   } else if (operazione === "pianificazione" && frequenza === "giorni_fissi") {
     regola = `Giorni fissi della settimana: ${giorniConsentitiTesto}.`;
   } else if (operazione === "pianificazione") {
@@ -498,7 +521,14 @@ export function CreaOrdineMateriaPrimaModal(props: {
                   </select>
                 </label>
                 <label className="block w-28 shrink-0 text-sm">
-                  Quantità
+                  <span className="inline-flex items-center gap-1">
+                    Quantità
+                    {operazione === "pianificazione" ? (
+                      <InfoHint title="Quantità per consegna" overlayClassName="z-[120]">
+                        La quantità è quella di ogni giorno di arrivo previsto, non il totale di tutta la pianificazione.
+                      </InfoHint>
+                    ) : null}
+                  </span>
                   <input
                     value={quantita}
                     inputMode="decimal"
@@ -623,9 +653,17 @@ export function CreaOrdineMateriaPrimaModal(props: {
                           className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2"
                         />
                       </label>
-                      <p className="text-sm text-slate-800">
-                        Prima consegna: {primaUtile ? `${primaUtile}, primo giorno utile del periodo` : "nel periodo non c'è un giorno consentito"}.
-                      </p>
+                      <label className="block text-sm">
+                        Primo giorno
+                        <input
+                          type="date"
+                          min={inizio}
+                          max={fine}
+                          value={primaConsegna}
+                          onChange={(evento) => tocca(setPrimaConsegna)(evento.target.value)}
+                          className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2"
+                        />
+                      </label>
                       <p className="text-sm text-slate-600 md:col-span-2">
                         N sono giorni di calendario, a partire da quel giorno. Se una ricorrenza
                         cade in un giorno non consentito, viene saltata e la successiva resta
@@ -854,6 +892,27 @@ function scarica(nome: string, bytes: Uint8Array, mime: string) {
   link.click();
 }
 
+const NOMI_MESI = [
+  "Gennaio",
+  "Febbraio",
+  "Marzo",
+  "Aprile",
+  "Maggio",
+  "Giugno",
+  "Luglio",
+  "Agosto",
+  "Settembre",
+  "Ottobre",
+  "Novembre",
+  "Dicembre",
+];
+
+function nomeMeseIso(iso: string, delta = 0) {
+  const [anno, mese] = iso.slice(0, 10).split("-").map(Number);
+  const data = new Date(Date.UTC(anno, mese - 1 + delta, 1));
+  return NOMI_MESI[data.getUTCMonth()] ?? "";
+}
+
 function CalendarioScelta(props: {
   mese: string;
   celle: string[];
@@ -868,21 +927,27 @@ function CalendarioScelta(props: {
 }) {
   return (
     <div>
-      <div className="mb-2 flex items-center justify-between">
+      <div className="mb-2 flex items-end justify-center gap-2">
         <button
           type="button"
+          aria-label={`Vai a ${nomeMeseIso(props.mese, -1)}`}
           onClick={() => props.onMese(aggiungiGiorni(`${props.mese.slice(0, 7)}-01`, -1))}
-          className="rounded border border-slate-300 px-2 py-1 text-xs"
+          className="flex flex-col items-center px-1 text-slate-800"
         >
-          Mese precedente
+          <span className="text-xl leading-none">←</span>
+          <span className="text-[10px] text-slate-500">{nomeMeseIso(props.mese, -1)}</span>
         </button>
-        <p className="text-sm font-medium">{etichettaMeseAnno(props.mese)}</p>
+        <p className="min-w-28 px-1 pb-1 text-center text-lg font-semibold text-slate-900">
+          {nomeMeseIso(props.mese)}
+        </p>
         <button
           type="button"
+          aria-label={`Vai a ${nomeMeseIso(props.mese, 1)}`}
           onClick={() => props.onMese(aggiungiGiorni(`${props.mese.slice(0, 7)}-15`, 20))}
-          className="rounded border border-slate-300 px-2 py-1 text-xs"
+          className="flex flex-col items-center px-1 text-slate-800"
         >
-          Mese successivo
+          <span className="text-xl leading-none">→</span>
+          <span className="text-[10px] text-slate-500">{nomeMeseIso(props.mese, 1)}</span>
         </button>
       </div>
       <div className="grid grid-cols-7 gap-1 text-center text-[11px] text-slate-500">
