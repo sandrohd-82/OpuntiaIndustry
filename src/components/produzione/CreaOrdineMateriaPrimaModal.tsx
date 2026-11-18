@@ -772,6 +772,9 @@ export function CreaOrdineMateriaPrimaModal(props: {
           ) : null}
           {passo === 3 ? (
             <div className="space-y-3">
+              <p className="text-sm font-medium text-slate-800">
+                Questa pagina imposta le cadenze di scarico della merce.
+              </p>
               {operazione === "singolo" ? (
                 <p className="text-sm text-slate-700">
                   L&apos;ordine singolo ha una sola consegna, il {inizio}. Non serve una frequenza.
