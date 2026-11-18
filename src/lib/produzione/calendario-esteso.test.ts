@@ -92,6 +92,9 @@ const pdf = pdfPianificazione(documento);
 const pdfTesto = Buffer.from(pdf).toString("latin1");
 assert.equal(pdf.byteLength > 500, true);
 assert.equal(pdfTesto.includes("PP-TEST"), true);
+assert.equal(pdfTesto.includes("10/01/2026"), true);
+assert.equal(pdfTesto.includes("01/01/2026"), true);
+assert.equal(pdfTesto.includes("2026-01-10"), false);
 assert.equal(pdfTesto.includes("Gennaio 2026"), true);
 assert.equal(pdfTesto.includes("Febbraio 2026"), true);
 assert.equal(pdfTesto.includes("Marzo 2026"), true);
@@ -129,7 +132,9 @@ void xlsxPianificazione(documento).then(async (xlsx) => {
   assert.equal(gennaio >= 0 && febbraio > gennaio && marzo > febbraio && elenco > marzo, true);
   assert.equal(testi.includes("10\n4"), true);
   assert.equal(testi.includes("10\n2"), true);
-  assert.equal(testi.includes("2026-01-10"), true);
+  assert.equal(testi.includes("10/01/2026"), true);
+  assert.equal(testi.includes("01/01/2026 – 31/03/2026"), true);
+  assert.equal(testi.includes("2026-01-10"), false);
   console.log("calendario esteso: ok");
 }).catch((errore: unknown) => {
   console.error(errore);

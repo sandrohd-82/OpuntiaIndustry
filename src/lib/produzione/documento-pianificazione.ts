@@ -47,9 +47,19 @@ function testoTotale(valore: number | null, unita: string): string {
   return `${valore} ${unita}`;
 }
 
+function dataItaliana(iso: string): string {
+  if (!giornoValido(iso)) return iso;
+  const [anno, mese, giorno] = iso.split("-");
+  return `${giorno}/${mese}/${anno}`;
+}
+
+function periodoItaliano(inizio: string, fine: string): string {
+  return `${dataItaliana(inizio)} – ${dataItaliana(fine)}`;
+}
+
 function righeTesto(documento: DocumentoPianificazione): string[][] {
   return documento.consegne.map((consegna) => [
-    consegna.data,
+    dataItaliana(consegna.data),
     String(consegna.quantita),
     consegna.unita || documento.unita,
     consegna.tipoQuantita,
@@ -226,7 +236,7 @@ function disegnaElenco(pdf: jsPDF, documento: DocumentoPianificazione) {
     `Fornitore: ${documento.fornitore}`,
     `Materia prima: ${documento.materia}`,
     `Unità: ${documento.unita}`,
-    `Periodo: ${documento.periodoInizio} – ${documento.periodoFine}`,
+    `Periodo: ${periodoItaliano(documento.periodoInizio, documento.periodoFine)}`,
     `Consegne: ${totali.consegne}`,
     `Totale precisa: ${testoTotale(totali.precisa, documento.unita)}`,
     `Totale stimata: ${testoTotale(totali.stimata, documento.unita)}`,
@@ -339,7 +349,7 @@ export async function xlsxPianificazione(documento: DocumentoPianificazione): Pr
     ["Fornitore", documento.fornitore],
     ["Materia prima", documento.materia],
     ["Unità", documento.unita],
-    ["Periodo", `${documento.periodoInizio} – ${documento.periodoFine}`],
+    ["Periodo", periodoItaliano(documento.periodoInizio, documento.periodoFine)],
     ["Consegne", String(totali.consegne)],
     ["Totale precisa", testoTotale(totali.precisa, documento.unita)],
     ["Totale stimata", testoTotale(totali.stimata, documento.unita)],
@@ -358,7 +368,7 @@ export async function xlsxPianificazione(documento: DocumentoPianificazione): Pr
   intestazione.font = { bold: true };
   for (const consegna of documento.consegne) {
     foglio.addRow([
-      consegna.data,
+      dataItaliana(consegna.data),
       consegna.quantita,
       consegna.unita || documento.unita,
       consegna.tipoQuantita,
