@@ -44,11 +44,25 @@ assert.equal(salvato.consegne[0]?.unita, "cladodi");
 assert.equal(salvato.consegne[0]?.data, "2026-01-10");
 assert.equal("allegato" in salvato, false);
 
-const bozza = bozzaInvioConferma();
-assert.equal(bozza.oggetto.startsWith("TEST —"), true);
-assert.equal(bozza.testo.includes("Agrinsicilia"), true);
+const bozza = bozzaInvioConferma({
+  materia: "MpClB/36 Cladodi Biologici da 12 a 36 mesi",
+  unita: "Kg",
+  inizio: "2027-01-08",
+  fine: "2027-03-26",
+  consegne: Array.from({ length: 33 }, () => ({ quantita: 10000, tipoQuantita: "stimata" })),
+});
+assert.equal(bozza.oggetto, "Ordine di approvvigionamento");
+assert.equal(bozza.testo.includes("TEST"), false);
 assert.equal(bozza.testo.includes("http"), false);
-assert.equal(validaOggettoTest("Ordine reale").ok, false);
+assert.match(bozza.testo, /mesi 01-02-03\/2027/);
+assert.match(bozza.testo, /Materia prima: MpClB\/36 Cladodi Biologici da 12 a 36 mesi/);
+assert.match(bozza.testo, /Unità: Kg/);
+assert.match(bozza.testo, /Periodo: 08\/01\/27 – 26\/03\/27/);
+assert.match(bozza.testo, /Consegne: 33/);
+assert.match(bozza.testo, /Totale precisa: 0 Kg/);
+assert.match(bozza.testo, /Totale stimata: 330000 Kg/);
+assert.match(bozza.testo, /Distinti Saluti Opuntia Italia/);
+assert.equal(validaOggettoTest("AB").ok, false);
 assert.equal(validaOggettoTest(bozza.oggetto).ok, true);
 assert.equal(DESTINATARIO_PROVA, "sandrohd@gmail.com");
 assert.equal(validaDestinatarioSingolo("sandrohd@gmail.com").ok, true);
@@ -328,6 +342,7 @@ assert.equal(esecuzione.includes("pubblica_approvvigionamento"), false);
 assert.equal(esecuzione.includes("cc:"), false);
 assert.equal(esecuzione.includes("bcc:"), false);
 assert.equal(esecuzione.includes("inviaDaCasellaAnagrafica"), true);
+assert.equal(esecuzione.includes("testoConRiferimento"), false);
 
 const portale = readFileSync(
   new URL("../../app/actions/approvvigionamento-portale.ts", import.meta.url),
@@ -339,11 +354,11 @@ assert.match(azione, /destinatarioConfermato/);
 assert.equal(azione.includes("if (parsed.data.prova) {\n      const { data: anagrafiche }"), false);
 
 const sqlTest = readFileSync(
-  new URL("../../../supabase/migrations/20261118150000_approvvigionamenti_invio_solo_test.sql", import.meta.url),
+  new URL("../../../supabase/migrations/20261118160000_approvvigionamenti_invio_senza_prefisso_test.sql", import.meta.url),
   "utf8"
 );
-assert.match(sqlTest, /approvvigionamenti_invii_solo_test/);
-assert.match(sqlTest, /TEST —/);
+assert.match(sqlTest, /approvvigionamento_invio_solo_test/);
+assert.equal(sqlTest.includes("deve iniziare con TEST"), false);
 assert.match(sqlTest, /fornitori/);
 assert.equal(/insert into public\.approvvigionamenti_notifiche/.test(sqlTest), false);
 

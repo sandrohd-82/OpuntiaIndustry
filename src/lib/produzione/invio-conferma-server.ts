@@ -10,7 +10,6 @@ import {
   chiaveInvioConfermato,
   concludiTentativoInvio,
   documentoDalleRigheSalvate,
-  testoConRiferimento,
   type EsitoInvioConfermato,
 } from "@/lib/produzione/invio-conferma";
 
@@ -150,7 +149,7 @@ export async function accodaEInviaConfermato(input: {
   confermaIncerta: boolean;
 }): Promise<EsitoInvioConfermato> {
   const confermato = await documentoConfermato(input.supabase, input.ordineIds, input.pianoId);
-  const testo = testoConRiferimento(input.testo, confermato.documento.codice);
+  const testo = input.testo.trim();
   const { data, error } = await input.supabase.rpc("prenota_invio_approvvigionamento", {
     p_chiave: chiaveInvioConfermato(input.chiaveSalvataggio),
     p_ordine_id: confermato.ordineId,

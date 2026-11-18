@@ -351,8 +351,26 @@ export function CreaOrdineMateriaPrimaModal(props: {
       setErroreLocale(destinatario.motivo);
       return;
     }
-    if (!oggetto.trim()) {
-      const modello = bozzaInvioConferma();
+    const allineata = Boolean(
+      bozzaApprovata &&
+        bozzaApprovata.impronta ===
+          improntaCorrente({
+            destinatario: props.emailTest,
+            oggetto,
+            testo,
+            pdf: allegaPdf,
+            xlsx: allegaXlsx,
+          })
+    );
+    if (!allineata) {
+      const materiaVoce = props.materie.find((voce) => voce.id === materiaId);
+      const modello = bozzaInvioConferma({
+        materia: materiaVoce ? `${materiaVoce.codice} ${materiaVoce.nome}` : "Materia",
+        unita: etichettaUnita(unitaSigla, personalizzata ? unitaNome : ""),
+        inizio,
+        fine: operazione === "singolo" ? inizio : fine,
+        consegne,
+      });
       setOggetto(modello.oggetto);
       setTesto(modello.testo);
     }

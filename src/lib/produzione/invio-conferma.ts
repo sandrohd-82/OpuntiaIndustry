@@ -64,17 +64,62 @@ export function nomeAllegatoConfermato(codice: string): string {
   return pulito || "ordine-approvvigionamento";
 }
 
-export function bozzaInvioConferma(): { oggetto: string; testo: string } {
+function dataBreveMail(iso: string): string {
+  const [anno, mese, giorno] = iso.split("-");
+  return `${giorno}/${mese}/${anno.slice(2)}`;
+}
+
+function mesiDelPeriodo(inizio: string, fine: string): string {
+  const gruppi = new Map<string, string[]>();
+  let anno = Number(inizio.slice(0, 4));
+  let mese = Number(inizio.slice(5, 7));
+  const fineAnno = Number(fine.slice(0, 4));
+  const fineMese = Number(fine.slice(5, 7));
+  let guardia = 0;
+  while ((anno < fineAnno || (anno === fineAnno && mese <= fineMese)) && guardia < 36) {
+    const chiave = String(anno);
+    const lista = gruppi.get(chiave) ?? [];
+    lista.push(String(mese).padStart(2, "0"));
+    gruppi.set(chiave, lista);
+    mese += 1;
+    if (mese > 12) {
+      mese = 1;
+      anno += 1;
+    }
+    guardia += 1;
+  }
+  return [...gruppi.entries()].map(([annoGruppo, mesi]) => `${mesi.join("-")}/${annoGruppo}`).join(", ");
+}
+
+export function bozzaInvioConferma(input: {
+  materia: string;
+  unita: string;
+  inizio: string;
+  fine: string;
+  consegne: { quantita: number; tipoQuantita: string }[];
+}): { oggetto: string; testo: string } {
+  const unita = input.unita.trim();
+  const precisa = input.consegne
+    .filter((consegna) => consegna.tipoQuantita === "precisa")
+    .reduce((totale, consegna) => totale + consegna.quantita, 0);
+  const stimata = input.consegne
+    .filter((consegna) => consegna.tipoQuantita === "stimata")
+    .reduce((totale, consegna) => totale + consegna.quantita, 0);
   return {
-    oggetto: "TEST — Ordine di approvvigionamento",
+    oggetto: "Ordine di approvvigionamento",
     testo: [
-      "TEST",
-      "Agrinsicilia ha registrato un ordine di approvvigionamento.",
-      "La versione confermata e negli allegati selezionati.",
-      "Questa mail e solo l'avviso. Non conferma la lettura, non e un'accettazione e non garantisce la consegna.",
-      "Non pubblica l'ordine nel portale fornitore.",
+      `Salve, in allegato trova la pianificazione dell'approvvigionamento dei mesi ${mesiDelPeriodo(input.inizio, input.fine)}.`,
       "",
-      "Il codice confermato viene aggiunto dopo il salvataggio.",
+      `Materia prima: ${input.materia.trim()}`,
+      `Unità: ${unita}`,
+      `Periodo: ${dataBreveMail(input.inizio)} – ${dataBreveMail(input.fine)}`,
+      `Consegne: ${input.consegne.length}`,
+      `Totale precisa: ${precisa} ${unita}`,
+      `Totale stimata: ${stimata} ${unita}`,
+      "",
+      "Si prega accettare o segnalare eventuali problemi dalla sua area personale sul gestionale OpuntiaIndustry",
+      "",
+      "Distinti Saluti Opuntia Italia",
     ].join("\n"),
   };
 }
@@ -83,10 +128,7 @@ export function validaOggettoTest(
   oggetto: string
 ): { ok: true; oggetto: string } | { ok: false; motivo: string } {
   const valore = oggetto.trim();
-  if (!valore.startsWith("TEST —")) {
-    return { ok: false, motivo: "L'oggetto deve iniziare con TEST —." };
-  }
-  if (valore.length < 8 || valore.length > 200) {
+  if (valore.length < 3 || valore.length > 200) {
     return { ok: false, motivo: "Oggetto non valido." };
   }
   if (/http/i.test(valore)) {
