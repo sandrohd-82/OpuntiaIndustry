@@ -14,6 +14,7 @@ import { bilancioVersione } from "@/lib/produzione/carichi";
 import { primoIndirizzoEmail } from "@/lib/produzione/haccp-versioni";
 import { inviaDaCasellaAnagrafica } from "@/lib/anagrafica/casella-invio";
 import { eseguiNotificaDistribuzione } from "@/lib/produzione/notifica-distribuzione-invio";
+import { pdfPianificazione, type DocumentoPianificazione } from "@/lib/produzione/documento-pianificazione";
 import { preparaEmailProva } from "@/lib/produzione/revisione-piano";
 import { createClient } from "@/lib/supabase/server";
 
@@ -1493,8 +1494,30 @@ export async function aggiungiConsegnaPianoAction(raw: unknown): Promise<
   };
 }
 
+const documentoProvaSchema = z.object({
+  codice: z.string().trim().min(1).max(40),
+  fornitore: z.string().trim().min(1).max(200),
+  materia: z.string().trim().min(1).max(200),
+  unita: z.string().trim().min(1).max(40),
+  periodoInizio: giornoSchema,
+  periodoFine: giornoSchema,
+  note: z.string().trim().max(500),
+  consegne: z
+    .array(
+      z.object({
+        data: giornoSchema,
+        quantita: z.number().positive().max(1_000_000),
+        tipoQuantita: z.enum(["precisa", "stimata"]),
+        stato: z.string().trim().min(1).max(40),
+        unita: z.string().trim().max(40).optional(),
+      })
+    )
+    .min(1)
+    .max(200),
+});
+
 export async function inviaEmailProvaApprovvigionamentoAction(raw: unknown): Promise<
-  | { success: true; inviata: boolean; to: string; subject: string; text: string }
+  | { success: true; inviata: boolean; to: string; subject: string; text: string; allegato: string }
   | Errore
 > {
   const parsed = z
@@ -1503,14 +1526,18 @@ export async function inviaEmailProvaApprovvigionamentoAction(raw: unknown): Pro
       emailFornitore: z.string().trim().max(200).nullable().optional(),
       codice: z.string().trim().max(40),
       conferma: z.boolean(),
+      documento: documentoProvaSchema.optional(),
     })
     .safeParse(raw);
   if (!parsed.success) return { success: false, error: "Email di prova non valida." };
   await richiedi();
+  if (parsed.data.conferma && !parsed.data.documento) {
+    return { success: false, error: "Apri la pianificazione di prova da allegare." };
+  }
   const preparata = preparaEmailProva({
     destinatario: parsed.data.destinatario,
     emailFornitore: parsed.data.emailFornitore ?? null,
-    codice: parsed.data.codice,
+    codice: parsed.data.documento?.codice || parsed.data.codice,
     conferma: parsed.data.conferma,
   });
   if (!preparata.ok) return { success: false, error: preparata.motivo };
@@ -1530,14 +1557,25 @@ export async function inviaEmailProvaApprovvigionamentoAction(raw: unknown): Pro
       to: preparata.busta.to,
       subject: preparata.busta.subject,
       text: preparata.busta.text,
+      allegato: preparata.busta.allegato,
     };
   }
+  const documento = parsed.data.documento;
+  if (!documento) return { success: false, error: "Apri la pianificazione di prova da allegare." };
   try {
+    const pdf = pdfPianificazione(documento as DocumentoPianificazione);
     await inviaDaCasellaAnagrafica({
       to: preparata.busta.to,
       subject: preparata.busta.subject,
       text: preparata.busta.text,
       soloSmtp: true,
+      attachments: [
+        {
+          filename: preparata.busta.allegato,
+          content: Buffer.from(pdf),
+          contentType: "application/pdf",
+        },
+      ],
     });
   } catch (errore) {
     const testo = errore instanceof Error ? errore.message : "Email di prova non partita.";
@@ -1549,5 +1587,6 @@ export async function inviaEmailProvaApprovvigionamentoAction(raw: unknown): Pro
     to: preparata.busta.to,
     subject: preparata.busta.subject,
     text: preparata.busta.text,
+    allegato: preparata.busta.allegato,
   };
 }

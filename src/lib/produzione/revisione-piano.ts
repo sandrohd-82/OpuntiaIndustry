@@ -228,10 +228,16 @@ export type BustaProva = {
   bcc: null;
   subject: string;
   text: string;
+  allegato: string;
   invio: boolean;
 };
 
-/** Una sola busta, verso l'indirizzo di prova, senza collegamenti operativi. */
+export function nomeAllegatoProva(codice: string): string {
+  const pulito = codice.trim().replace(/[^\w.-]+/g, "-").replace(/^-+|-+$/g, "");
+  return `${pulito || "pianificazione-di-prova"}.pdf`;
+}
+
+/** Stesso avviso del fornitore, segnato TEST, con il PDF al posto del collegamento al gestionale. */
 export function preparaEmailProva(input: {
   destinatario: string;
   emailFornitore: string | null;
@@ -247,15 +253,17 @@ export function preparaEmailProva(input: {
   if (fornitore && destinatario === fornitore) {
     return { ok: false, motivo: "Questo è l'indirizzo del fornitore reale. La prova non parte." };
   }
-  const subject = `TEST — Pianificazione ${input.codice || "di prova"}`;
+  const codice = input.codice.trim() || "di prova";
+  const subject = "TEST — Ordine di approvvigionamento disponibile";
   const text = [
     "TEST",
-    "Questa è una prova del calendario approvvigionamenti.",
-    "Non modifica ordini, piani o versioni pubblicate.",
-    "Non contiene un collegamento operativo.",
+    "Agrinsicilia ha pubblicato un ordine di approvvigionamento.",
+    "Si legge dopo l'accesso, in Gestionale fornitori, sezione Ordini ricevuti.",
+    "Questa mail e solo l'avviso. Non conferma la lettura, non e un'accettazione e non garantisce la consegna.",
     "",
-    `Pianificazione: ${input.codice || "anteprima"}`,
-    "Il messaggio resta solo su questo indirizzo di prova.",
+    `Pianificazione: ${codice}`,
+    "In questa prova la pianificazione e nel PDF allegato.",
+    "Non c'e un collegamento al gestionale e non modifica ordini, piani o versioni pubblicate.",
   ].join("\n");
   if (text.includes("http") || subject.includes("http")) {
     return { ok: false, motivo: "La mail di prova non può contenere un collegamento." };
@@ -268,6 +276,7 @@ export function preparaEmailProva(input: {
       bcc: null,
       subject,
       text,
+      allegato: nomeAllegatoProva(codice),
       invio: input.conferma,
     },
   };

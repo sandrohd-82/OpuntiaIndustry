@@ -370,7 +370,7 @@ export function CalendarioApprovvigionamento() {
   const [sessione, setSessione] = useState(sessioneTestVuota());
   const [proposte, setProposte] = useState<PropostaRevisione[]>([]);
   const [proposteAzienda, setProposteAzienda] = useState<PropostaRevisione[]>([]);
-  const [emailProva, setEmailProva] = useState("");
+  const [emailProva, setEmailProva] = useState("sandrohd@gmail.com");
   const [confermaEmail, setConfermaEmail] = useState(false);
   const [anteprimaEmail, setAnteprimaEmail] = useState<string | null>(null);
   const [memoriaPronta, setMemoriaPronta] = useState(false);
@@ -440,7 +440,7 @@ export function CalendarioApprovvigionamento() {
     if (letta) {
       setSessione(letta.sessione);
       setProposte(letta.proposte);
-      setEmailProva(letta.email);
+      setEmailProva(letta.email || "sandrohd@gmail.com");
       setTest(letta.attiva);
     }
     setMemoriaPronta(true);
@@ -1395,6 +1395,14 @@ export function CalendarioApprovvigionamento() {
   const materiaDocumento = materie.find((voce) => voce.id === materiaId);
   const fornitoreDocumento = fornitori.find((voce) => voce.id === fornitoreId)?.nome ?? "Fornitore";
 
+  function documentoEmailProva(): DocumentoPianificazione | null {
+    const scelto = piani.find((voce) => voce.id === pianoAperto);
+    if (!scelto) return null;
+    const documento = documentoPianoSalvato(scelto, ordiniPiano);
+    if (documento.consegne.length === 0) return null;
+    return documento;
+  }
+
   function documentoAnteprima(): DocumentoPianificazione {
     const consegne = anteprima && anteprima.ok ? anteprima.consegne : [];
     return {
@@ -1513,10 +1521,16 @@ export function CalendarioApprovvigionamento() {
               <button
                 type="button"
                 onClick={() => {
+                  const documento = documentoEmailProva();
+                  if (!documento) {
+                    setErrore("Apri la pianificazione di prova da allegare.");
+                    setAnteprimaEmail(null);
+                    return;
+                  }
                   const preparata = preparaEmailProva({
                     destinatario: emailProva,
                     emailFornitore: null,
-                    codice: piani.find((piano) => piano.id === pianoAperto)?.codice ?? "prova",
+                    codice: documento.codice,
                     conferma: false,
                   });
                   if (!preparata.ok) {
@@ -1525,7 +1539,9 @@ export function CalendarioApprovvigionamento() {
                     return;
                   }
                   setErrore(null);
-                  setAnteprimaEmail(`${preparata.busta.subject}\n\n${preparata.busta.text}`);
+                  setAnteprimaEmail(
+                    `${preparata.busta.subject}\n\n${preparata.busta.text}\n\nAllegato: ${preparata.busta.allegato}`
+                  );
                 }}
                 className="rounded border border-amber-700 px-2 py-1"
               >
@@ -1543,19 +1559,26 @@ export function CalendarioApprovvigionamento() {
                 type="button"
                 disabled={!confermaEmail || pending}
                 onClick={() => {
-                  const codice = piani.find((piano) => piano.id === pianoAperto)?.codice ?? "prova";
+                  const documento = documentoEmailProva();
+                  if (!documento) {
+                    setErrore("Apri la pianificazione di prova da allegare.");
+                    return;
+                  }
                   startTransition(async () => {
                     const res = await inviaEmailProvaApprovvigionamentoAction({
                       destinatario: emailProva,
                       emailFornitore: null,
-                      codice,
+                      codice: documento.codice,
                       conferma: true,
+                      documento,
                     });
                     if (!res.success) {
                       setErrore(res.error);
                       return;
                     }
-                    setMessaggio(`Email di prova inviata solo a ${res.to}. Nessun altro destinatario.`);
+                    setMessaggio(
+                      `Email di prova inviata solo a ${res.to}, con allegato ${res.allegato}. Nessun altro destinatario.`
+                    );
                   });
                 }}
                 className="rounded bg-amber-900 px-2 py-1 text-white disabled:opacity-60"

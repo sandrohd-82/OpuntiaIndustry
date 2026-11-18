@@ -172,8 +172,14 @@ const anteprima = preparaEmailProva({
 if (!anteprima.ok) throw new Error("anteprima");
 assert.equal(anteprima.busta.invio, false);
 assert.equal(anteprima.busta.subject.startsWith("TEST"), true);
+assert.equal(anteprima.busta.subject.includes("Ordine di approvvigionamento disponibile"), true);
 assert.equal(anteprima.busta.text.startsWith("TEST"), true);
+assert.equal(anteprima.busta.text.includes("Agrinsicilia ha pubblicato"), true);
+assert.equal(anteprima.busta.text.includes("PDF allegato"), true);
 assert.equal(anteprima.busta.text.includes("http"), false);
+assert.equal(anteprima.busta.allegato, "TEST-PP-0001.pdf");
+assert.equal(anteprima.busta.cc, null);
+assert.equal(anteprima.busta.bcc, null);
 const primaBusta = preparaEmailProva({
   destinatario: "prova@example.com",
   emailFornitore: "reale@fornitore.it",
@@ -228,7 +234,10 @@ const azione = readFileSync(
 );
 const invio = azione.slice(azione.indexOf("export async function inviaEmailProvaApprovvigionamentoAction"));
 assert.match(invio, /soloSmtp: true/);
+assert.match(invio, /pdfPianificazione/);
+assert.match(invio, /attachments/);
 assert.equal(invio.includes("writeAuditLog"), false);
+assert.equal(invio.includes("pubblica_approvvigionamento"), false);
 assert.equal(invio.includes("cc:"), false);
 assert.equal(invio.includes("bcc:"), false);
 
@@ -236,8 +245,14 @@ const calendario = readFileSync(
   new URL("../../components/produzione/CalendarioApprovvigionamento.tsx", import.meta.url),
   "utf8"
 );
+const pulsantiTest = readFileSync(
+  new URL("../../components/produzione/calendario-test-contesto.tsx", import.meta.url),
+  "utf8"
+);
 assert.equal(calendario.includes("registraPropostaPianoAction"), false);
-assert.match(calendario, /Annulla test/);
+assert.match(calendario, /documentoEmailProva/);
+assert.match(calendario, /conferma: true/);
+assert.match(pulsantiTest, /Annulla test/);
 const recupera = calendario.slice(
   calendario.indexOf("function recupera"),
   calendario.indexOf("function salvaComposizione")
