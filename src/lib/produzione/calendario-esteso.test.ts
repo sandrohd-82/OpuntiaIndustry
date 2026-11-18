@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
+import ExcelJS from "exceljs";
 import { aspettoGiorno, classeCellaCalendario } from "./aspetto-calendario";
 import {
   consegnaSelezionataValida,
@@ -88,10 +89,37 @@ assert.equal(totali.consegne, 2);
 assert.equal(totali.precisa, 4);
 assert.equal(totali.stimata, 2);
 const pdf = pdfPianificazione(documento);
+const pdfTesto = Buffer.from(pdf).toString("latin1");
 assert.equal(pdf.byteLength > 500, true);
-assert.equal(Buffer.from(pdf).toString("latin1").includes("PP-TEST"), true);
-void xlsxPianificazione(documento).then((xlsx) => {
+assert.equal(pdfTesto.includes("PP-TEST"), true);
+assert.equal(pdfTesto.includes("Gennaio 2026"), true);
+assert.equal(pdfTesto.includes("Febbraio 2026"), true);
+assert.equal(pdfTesto.includes("Marzo 2026"), true);
+assert.equal(pdfTesto.includes("Elenco consegne"), true);
+assert.equal(pdfTesto.indexOf("Gennaio 2026") < pdfTesto.indexOf("Elenco consegne"), true);
+assert.equal((pdfTesto.match(/\/Type\s*\/Page(?!s)/g) ?? []).length >= 4, true);
+void xlsxPianificazione(documento).then(async (xlsx) => {
   assert.equal(xlsx.byteLength > 500, true);
+  const wb = new ExcelJS.Workbook();
+  await wb.xlsx.load(Buffer.from(xlsx) as unknown as Parameters<ExcelJS.Xlsx["load"]>[0]);
+  const foglio = wb.worksheets[0];
+  if (!foglio) throw new Error("manca il foglio");
+  const testi: string[] = [];
+  foglio.eachRow((riga) => {
+    riga.eachCell((cella) => testi.push(String(cella.value ?? "")));
+  });
+  const gennaio = testi.indexOf("Gennaio 2026");
+  const febbraio = testi.indexOf("Febbraio 2026");
+  const marzo = testi.indexOf("Marzo 2026");
+  const elenco = testi.indexOf("Data");
+  assert.equal(gennaio >= 0 && febbraio > gennaio && marzo > febbraio && elenco > marzo, true);
+  assert.equal(testi.includes("10\n4"), true);
+  assert.equal(testi.includes("10\n2"), true);
+  assert.equal(testi.includes("2026-01-10"), true);
+  console.log("calendario esteso: ok");
+}).catch((errore: unknown) => {
+  console.error(errore);
+  process.exit(1);
 });
 
 let sessione = sessioneTestVuota();
@@ -201,5 +229,3 @@ const sql = readFileSync(
 assert.match(sql, /approvvigionamento_aggiungi_consegna_piano/);
 assert.match(sql, /annullata boolean/);
 assert.equal(sql.includes("delete from public.approvvigionamenti_versioni"), false);
-
-console.log("calendario esteso: ok");
