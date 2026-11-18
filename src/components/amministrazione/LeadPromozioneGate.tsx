@@ -1,7 +1,15 @@
 "use client";
 
+import dynamic from "next/dynamic";
 import { useCallback, useEffect, useState } from "react";
-import { ClienteFormModal } from "@/components/amministrazione/ClienteFormModal";
+
+const ClienteFormModal = dynamic(
+  () =>
+    import("@/components/amministrazione/ClienteFormModal").then(
+      (mod) => mod.ClienteFormModal
+    ),
+  { ssr: false }
+);
 import {
   confirmPromozioneLeadAction,
   listMiePromozioniAperteAction,
@@ -45,7 +53,10 @@ export function LeadPromozioneGate() {
   }, []);
 
   useEffect(() => {
-    void reload();
+    const timer = window.setTimeout(() => {
+      void reload();
+    }, 3000);
+    return () => window.clearTimeout(timer);
   }, [reload]);
 
   if (!pratica) return null;

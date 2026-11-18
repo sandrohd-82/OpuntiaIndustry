@@ -1,7 +1,15 @@
 "use client";
 
+import dynamic from "next/dynamic";
 import { useEffect, useRef, useState } from "react";
-import { FatturaRegistrazioneModal } from "@/components/amministrazione/FatturaRegistrazioneModal";
+
+const FatturaRegistrazioneModal = dynamic(
+  () =>
+    import("@/components/amministrazione/FatturaRegistrazioneModal").then(
+      (mod) => mod.FatturaRegistrazioneModal
+    ),
+  { ssr: false }
+);
 import {
   apriDocumentoFatturaMailAction,
   decidiFatturaMailAction,
@@ -46,6 +54,7 @@ export function FattureMailCandidatiModal() {
     setBanner("Controllo le fatture nelle mail del 2026…");
     setPeriodo("2026");
     async function run() {
+      await new Promise((resolve) => window.setTimeout(resolve, 2000));
       for (let passo = 0; passo < 60 && vivo && !ferma.current; passo += 1) {
         const res = await listFattureMailDaValutareAction();
         if (!vivo || ferma.current) return;
@@ -62,6 +71,7 @@ export function FattureMailCandidatiModal() {
           setBanner(
             `Controllo le fatture nelle mail del ${res.periodo || "2026"}…`
           );
+          await new Promise((resolve) => window.setTimeout(resolve, 1000));
           continue;
         }
         setInControllo(false);

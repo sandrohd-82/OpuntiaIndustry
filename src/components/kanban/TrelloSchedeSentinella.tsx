@@ -1,23 +1,27 @@
 "use client";
 
 import { useEffect } from "react";
-import { usePathname } from "next/navigation";
 import { rilevaSchedeTrelloAction } from "@/app/actions/trello-utente";
 import { notifyNotificheNav } from "@/lib/notifiche/nav-event";
 
-export function TrelloSchedeSentinella() {
-  const pathname = usePathname();
+const INTERVALLO_CONTROLLO_MS = 60_000;
 
+export function TrelloSchedeSentinella() {
   useEffect(() => {
     let attivo = true;
-    void rilevaSchedeTrelloAction().then((res) => {
-      if (!attivo || !res.success || res.nuove < 1) return;
-      notifyNotificheNav();
-    });
+    function controlla() {
+      void rilevaSchedeTrelloAction().then((res) => {
+        if (!attivo || !res.success || res.nuove < 1) return;
+        notifyNotificheNav();
+      });
+    }
+    controlla();
+    const timer = window.setInterval(controlla, INTERVALLO_CONTROLLO_MS);
     return () => {
       attivo = false;
+      window.clearInterval(timer);
     };
-  }, [pathname]);
+  }, []);
 
   return null;
 }
