@@ -80,7 +80,7 @@ function pad2(valore: number): string {
 
 function mesiDelDocumento(documento: DocumentoPianificazione): string[] {
   const date = documento.consegne.map((consegna) => consegna.data).filter(giornoValido).sort();
-  let inizio = giornoValido(documento.periodoInizio) ? documento.periodoInizio : (date[0] ?? "");
+  const inizio = giornoValido(documento.periodoInizio) ? documento.periodoInizio : (date[0] ?? "");
   let fine = giornoValido(documento.periodoFine) ? documento.periodoFine : (date[date.length - 1] ?? inizio);
   if (!giornoValido(inizio) || !giornoValido(fine)) return [];
   if (fine < inizio) fine = inizio;
