@@ -2,7 +2,6 @@
 
 import { useEffect, useId, useRef, useState } from "react";
 import {
-  emailFornitoreApprovvigionamentoAction,
   fornitoriCompatibiliApprovvigionamentoAction,
   type MateriaCalendario,
 } from "@/app/actions/approvvigionamento";
@@ -26,9 +25,13 @@ import {
   xlsxPianificazione,
 } from "@/lib/produzione/documento-pianificazione";
 import {
-  DESTINATARIO_PROVA,
   bozzaInvioConferma,
+  improntaMailOrdine,
+  mailProntaAllInvio,
+  pulsanteFinale,
   validaDestinatarioSingolo,
+  validaOggettoTest,
+  type BozzaMailApprovata,
 } from "@/lib/produzione/invio-conferma";
 import { etichettaUnita } from "@/lib/produzione/unita-approvvigionamento";
 
@@ -113,6 +116,7 @@ export function CreaOrdineMateriaPrimaModal(props: {
   fornitori: { id: string; nome: string; targa: string }[];
   pending: boolean;
   prova: boolean;
+  emailTest: string;
   errore: string | null;
   onClose: () => void;
   onSalva: (bozza: BozzaOrdineMateria) => void;
@@ -301,71 +305,131 @@ export function CreaOrdineMateriaPrimaModal(props: {
     };
   }
 
-  const [invioAperto, setInvioAperto] = useState(false);
-  const [inviaEmail, setInviaEmail] = useState(true);
-  const [destinatario, setDestinatario] = useState("");
+  const [bozzaAperta, setBozzaAperta] = useState(false);
+  const [inviaMail, setInviaMail] = useState(false);
   const [oggetto, setOggetto] = useState("");
   const [testo, setTesto] = useState("");
   const [allegaPdf, setAllegaPdf] = useState(true);
   const [allegaXlsx, setAllegaXlsx] = useState(false);
-  const [confermaIncerta, setConfermaIncerta] = useState(false);
+  const [bozzaApprovata, setBozzaApprovata] = useState<BozzaMailApprovata | null>(null);
 
-  function salva() {
-    const motivo = valida(4);
-    if (motivo) {
-      setErroreLocale(motivo);
-      return;
-    }
-    props.onSalva(bozza());
+  function improntaCorrente(bozzaMail: {
+    destinatario: string;
+    oggetto: string;
+    testo: string;
+    pdf: boolean;
+    xlsx: boolean;
+  }) {
+    const corrente = bozza();
+    return improntaMailOrdine({
+      destinatario: bozzaMail.destinatario,
+      oggetto: bozzaMail.oggetto,
+      testo: bozzaMail.testo,
+      pdf: bozzaMail.pdf,
+      xlsx: bozzaMail.xlsx,
+      fornitoreId: corrente.fornitoreId,
+      materiaId: corrente.materiaId,
+      note: corrente.note,
+      unita: etichettaUnita(corrente.unitaSigla, corrente.personalizzata ? corrente.unitaNome : ""),
+      consegne: corrente.consegne.map((consegna) => ({
+        data: consegna.data,
+        quantita: consegna.quantita,
+        unita: consegna.unitaMisura,
+        tipoQuantita: consegna.tipoQuantita,
+      })),
+    });
   }
 
-  function apriConferma() {
+  function apriBozza() {
     const motivo = valida(4);
     if (motivo) {
       setErroreLocale(motivo);
       return;
     }
-    const bozzaMail = bozzaInvioConferma(props.prova);
-    setInviaEmail(true);
-    setDestinatario(props.prova ? DESTINATARIO_PROVA : "");
-    setOggetto(bozzaMail.oggetto);
-    setTesto(bozzaMail.testo);
-    setAllegaPdf(true);
-    setAllegaXlsx(false);
-    setConfermaIncerta(false);
+    const destinatario = validaDestinatarioSingolo(props.emailTest);
+    if (!destinatario.ok) {
+      setErroreLocale(destinatario.motivo);
+      return;
+    }
+    if (!oggetto.trim()) {
+      const modello = bozzaInvioConferma();
+      setOggetto(modello.oggetto);
+      setTesto(modello.testo);
+    }
     setErroreLocale(null);
-    setInvioAperto(true);
-    if (!props.prova && fornitoreId) {
-      void emailFornitoreApprovvigionamentoAction(fornitoreId).then((res) => {
-        if (res.success && res.email) {
-          setDestinatario((corrente) => corrente || res.email);
-        }
-      });
-    }
+    setBozzaAperta(true);
   }
 
-  function confermaESalva() {
-    if (inviaEmail) {
-      const esito = validaDestinatarioSingolo(destinatario);
-      if (!esito.ok) {
-        setErroreLocale(esito.motivo);
-        return;
-      }
-      if (oggetto.trim().length < 3 || testo.trim().length < 3) {
-        setErroreLocale("Oggetto e testo sono obbligatori.");
-        return;
-      }
+  function approvaMail() {
+    const destinatario = validaDestinatarioSingolo(props.emailTest);
+    if (!destinatario.ok) {
+      setErroreLocale(destinatario.motivo);
+      return;
+    }
+    const oggettoOk = validaOggettoTest(oggetto);
+    if (!oggettoOk.ok) {
+      setErroreLocale(oggettoOk.motivo);
+      return;
+    }
+    if (testo.trim().length < 3) {
+      setErroreLocale("Il testo è obbligatorio.");
+      return;
+    }
+    if (/http/i.test(testo)) {
+      setErroreLocale("La mail di prova non può contenere un collegamento.");
+      return;
+    }
+    if (!allegaPdf && !allegaXlsx) {
+      setErroreLocale("Seleziona il PDF, l'Excel o entrambi.");
+      return;
+    }
+    const approvata: BozzaMailApprovata = {
+      destinatario: destinatario.email,
+      oggetto: oggettoOk.oggetto,
+      testo: testo.trim(),
+      pdf: allegaPdf,
+      xlsx: allegaXlsx,
+      impronta: "",
+    };
+    approvata.impronta = improntaCorrente(approvata);
+    setOggetto(approvata.oggetto);
+    setTesto(approvata.testo);
+    setBozzaApprovata(approvata);
+    setBozzaAperta(false);
+    setErroreLocale(null);
+  }
+
+  function finalizza() {
+    const motivo = valida(4);
+    if (motivo) {
+      setErroreLocale(motivo);
+      return;
+    }
+    if (!inviaMail) {
+      props.onSalva(bozza());
+      return;
+    }
+    const impronta = improntaCorrente({
+      destinatario: props.emailTest,
+      oggetto,
+      testo,
+      pdf: allegaPdf,
+      xlsx: allegaXlsx,
+    });
+    if (!bozzaApprovata || bozzaApprovata.impronta !== impronta) {
+      setErroreLocale("Approva di nuovo la bozza: i dati dell'ordine sono cambiati.");
+      return;
     }
     props.onSalva({
       ...bozza(),
       invio: {
-        invia: inviaEmail,
-        destinatario,
-        oggetto,
-        testo,
-        pdf: allegaPdf,
-        xlsx: allegaXlsx,
-        confermaIncerta,
+        invia: true,
+        destinatario: bozzaApprovata.destinatario,
+        oggetto: bozzaApprovata.oggetto,
+        testo: bozzaApprovata.testo,
+        pdf: bozzaApprovata.pdf,
+        xlsx: bozzaApprovata.xlsx,
+        confermaIncerta: false,
       },
     });
   }
@@ -500,7 +564,15 @@ export function CreaOrdineMateriaPrimaModal(props: {
 
   const celle = celleMese(mese);
   const errore = erroreLocale || props.errore;
-  const etichettaConferma = operazione === "singolo" ? "Conferma ordine" : "Conferma pianificazione";
+  const improntaVisibile = improntaCorrente({
+    destinatario: props.emailTest,
+    oggetto,
+    testo,
+    pdf: allegaPdf,
+    xlsx: allegaXlsx,
+  });
+  const mailPronta = mailProntaAllInvio(bozzaApprovata, improntaVisibile, inviaMail);
+  const etichettaFinale = pulsanteFinale(inviaMail, mailPronta);
 
   return (
     <div
@@ -518,8 +590,8 @@ export function CreaOrdineMateriaPrimaModal(props: {
         onKeyDown={(evento) => {
           if (evento.key === "Escape") {
             evento.preventDefault();
-            if (invioAperto) {
-              setInvioAperto(false);
+            if (bozzaAperta) {
+              setBozzaAperta(false);
               return;
             }
             chiudi();
@@ -912,9 +984,30 @@ export function CreaOrdineMateriaPrimaModal(props: {
                   Esporta Excel
                 </button>
               </div>
-              <p className="text-slate-600">
-                Salva bozza registra senza email e senza pubblicazione. Conferma apre la bozza della mail: l&apos;invio parte solo dopo il salvataggio riuscito.
+              <p>
+                <span className="font-medium">Destinatario effettivo.</span> {props.emailTest || "non indicato"}
               </p>
+              <label className="flex items-center gap-2">
+                <input
+                  type="checkbox"
+                  checked={inviaMail}
+                  onChange={(evento) => setInviaMail(evento.target.checked)}
+                />
+                Invia mail a fornitore
+              </label>
+              <p className="text-slate-600">
+                Se chiedi la mail, parte solo verso l&apos;indirizzo TEST della pagina, dopo che hai approvato la bozza e salvato l&apos;ordine. Il fornitore in anagrafica non la riceve.
+              </p>
+              {mailPronta ? (
+                <div className="flex flex-wrap items-center gap-3">
+                  <p className="rounded-lg border border-emerald-300 bg-emerald-50 px-3 py-2 font-medium text-emerald-800">
+                    Mail pronta all&apos;invio
+                  </p>
+                  <button type="button" onClick={apriBozza} className="rounded-lg border border-slate-300 px-3 py-2">
+                    Modifica bozza mail
+                  </button>
+                </div>
+              ) : null}
             </div>
           ) : null}
           {errore ? (
@@ -943,46 +1036,33 @@ export function CreaOrdineMateriaPrimaModal(props: {
                 <button
                   type="button"
                   disabled={props.pending}
-                  onClick={salva}
-                  className="rounded-lg border border-slate-900 px-4 py-2 text-sm font-medium disabled:opacity-60"
-                >
-                  Salva bozza
-                </button>
-                <button
-                  type="button"
-                  disabled={props.pending}
-                  onClick={apriConferma}
+                  onClick={etichettaFinale === "Crea bozza mail" ? apriBozza : finalizza}
                   className="rounded-lg bg-emerald-700 px-4 py-2 text-sm font-semibold text-white disabled:opacity-60"
                 >
-                  {props.pending ? "Salvo…" : etichettaConferma}
+                  {props.pending ? "Salvo…" : etichettaFinale}
                 </button>
               </>
             )}
           </div>
         </div>
       </div>
-      {invioAperto ? (
+      {bozzaAperta ? (
         <div className="fixed inset-0 z-[90] flex items-end justify-center bg-black/50 p-3 sm:items-center">
           <div
             role="dialog"
             aria-modal="true"
             className="max-h-[90vh] w-full max-w-xl overflow-y-auto rounded-2xl bg-white p-4 shadow-xl"
           >
-            <h3 className="text-lg font-semibold text-slate-900">Conferma e invio</h3>
+            <h3 className="text-lg font-semibold text-slate-900">Bozza mail</h3>
             <p className="mt-1 text-sm text-slate-600">
-              Conferma e salva registra l&apos;ordine e lo mostra in elenco. L&apos;email parte solo dopo il salvataggio. Non pubblica nel portale fornitore.
+              Approvare la bozza non invia nulla e non salva l&apos;ordine. Il destinatario è quello TEST della pagina.
             </p>
-            <label className="mt-3 flex items-center gap-2 text-sm">
-              <input type="checkbox" checked={inviaEmail} onChange={(evento) => setInviaEmail(evento.target.checked)} />
-              Invia email
-            </label>
             <label className="mt-3 block text-sm">
-              Destinatario
+              Destinatario TEST
               <input
-                value={destinatario}
-                onChange={(evento) => setDestinatario(evento.target.value)}
-                disabled={!inviaEmail}
-                className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 disabled:bg-slate-50"
+                value={props.emailTest}
+                readOnly
+                className="mt-1 w-full rounded-lg border border-slate-300 bg-slate-50 px-3 py-2"
               />
             </label>
             <label className="mt-3 block text-sm">
@@ -990,8 +1070,7 @@ export function CreaOrdineMateriaPrimaModal(props: {
               <input
                 value={oggetto}
                 onChange={(evento) => setOggetto(evento.target.value)}
-                disabled={!inviaEmail}
-                className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 disabled:bg-slate-50"
+                className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2"
               />
             </label>
             <label className="mt-3 block text-sm">
@@ -999,51 +1078,45 @@ export function CreaOrdineMateriaPrimaModal(props: {
               <textarea
                 value={testo}
                 onChange={(evento) => setTesto(evento.target.value)}
-                disabled={!inviaEmail}
                 rows={8}
-                className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 disabled:bg-slate-50"
+                className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2"
               />
             </label>
             <div className="mt-3 flex flex-wrap gap-4 text-sm">
               <label className="flex items-center gap-2">
-                <input type="checkbox" checked={allegaPdf} disabled={!inviaEmail} onChange={(evento) => setAllegaPdf(evento.target.checked)} />
-                PDF
+                <input type="checkbox" checked={allegaPdf} onChange={(evento) => setAllegaPdf(evento.target.checked)} />
+                Allega PDF
               </label>
               <label className="flex items-center gap-2">
-                <input type="checkbox" checked={allegaXlsx} disabled={!inviaEmail} onChange={(evento) => setAllegaXlsx(evento.target.checked)} />
-                Excel
+                <input type="checkbox" checked={allegaXlsx} onChange={(evento) => setAllegaXlsx(evento.target.checked)} />
+                Allega Excel
               </label>
             </div>
+            <div className="mt-3 flex flex-wrap gap-2">
+              <button type="button" onClick={() => esporta("pdf")} className="rounded-lg border border-slate-300 px-3 py-2 text-sm">
+                Scarica PDF
+              </button>
+              <button type="button" onClick={() => esporta("xlsx")} className="rounded-lg border border-slate-300 px-3 py-2 text-sm">
+                Scarica Excel
+              </button>
+            </div>
             <p className="mt-3 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700">
-              Anteprima allegati: {allegaPdf ? "PDF" : "senza PDF"}
-              {allegaXlsx ? " e Excel" : ""}. I file sono generati dalla versione salvata, non da questa anteprima a video.
-              {props.prova ? " Destinatario di prova predefinito: sandrohd@gmail.com." : ""}
+              Gli allegati usano i dati correnti dell&apos;ordine. In invio il server li ricostruisce dalle righe salvate.
             </p>
-            <label className="mt-3 flex items-start gap-2 text-sm">
-              <input
-                type="checkbox"
-                checked={confermaIncerta}
-                onChange={(evento) => setConfermaIncerta(evento.target.checked)}
-              />
-              <span>
-                Se un invio precedente ha esito incerto, confermo il reinvio sapendo che potrebbe produrre una seconda email.
-              </span>
-            </label>
             <div className="mt-4 flex flex-wrap justify-end gap-2">
               <button
                 type="button"
-                onClick={() => setInvioAperto(false)}
+                onClick={() => setBozzaAperta(false)}
                 className="rounded-lg border border-slate-300 px-4 py-2 text-sm"
               >
-                Torna al riepilogo
+                Chiudi
               </button>
               <button
                 type="button"
-                disabled={props.pending}
-                onClick={confermaESalva}
-                className="rounded-lg bg-emerald-700 px-4 py-2 text-sm font-semibold text-white disabled:opacity-60"
+                onClick={approvaMail}
+                className="rounded-lg bg-emerald-700 px-4 py-2 text-sm font-semibold text-white"
               >
-                {props.pending ? "Salvo…" : "Conferma e salva"}
+                Approva mail
               </button>
             </div>
           </div>

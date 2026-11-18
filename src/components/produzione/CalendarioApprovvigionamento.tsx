@@ -65,7 +65,7 @@ import {
   leggiMemoriaTest,
   serializzaMemoriaTest,
 } from "@/lib/produzione/memoria-test-approvvigionamento";
-import { messaggioSalvataggioConfermato } from "@/lib/produzione/invio-conferma";
+import { DESTINATARIO_PROVA, messaggioSalvataggioConfermato } from "@/lib/produzione/invio-conferma";
 import { MESSAGGIO_CONFERMA_INCERTA } from "@/lib/produzione/notifica-distribuzione";
 import {
   etichettaUnita,
@@ -371,7 +371,7 @@ export function CalendarioApprovvigionamento() {
   const [sessione, setSessione] = useState(sessioneTestVuota());
   const [proposte, setProposte] = useState<PropostaRevisione[]>([]);
   const [proposteAzienda, setProposteAzienda] = useState<PropostaRevisione[]>([]);
-  const [emailProva, setEmailProva] = useState("sandrohd@gmail.com");
+  const [emailProva, setEmailProva] = useState(DESTINATARIO_PROVA);
   const [confermaEmail, setConfermaEmail] = useState(false);
   const [anteprimaEmail, setAnteprimaEmail] = useState<string | null>(null);
   const [memoriaPronta, setMemoriaPronta] = useState(false);
@@ -383,6 +383,7 @@ export function CalendarioApprovvigionamento() {
   const [creaAperta, setCreaAperta] = useState(false);
   const [errore, setErrore] = useState<string | null>(null);
   const [messaggio, setMessaggio] = useState<string | null>(null);
+  const [mailEsito, setMailEsito] = useState<string | null>(null);
   const [invioDaRiprovare, setInvioDaRiprovare] = useState<null | { id: string; stato: "incerta" | "fallita" }>(null);
   const [pending, startTransition] = useTransition();
   const chiaveRef = useRef<string | null>(null);
@@ -428,7 +429,7 @@ export function CalendarioApprovvigionamento() {
     if (letta) {
       setSessione(letta.sessione);
       setProposte(letta.proposte);
-      setEmailProva(letta.email || "sandrohd@gmail.com");
+      setEmailProva(letta.email || DESTINATARIO_PROVA);
       setTest(letta.attiva);
     }
     setMemoriaPronta(true);
@@ -440,12 +441,17 @@ export function CalendarioApprovvigionamento() {
       saltaMemoria.current = false;
       return;
     }
-    if (!test && sessione.ordini.length === 0 && proposte.length === 0) return;
     window.sessionStorage.setItem(
       CHIAVE_MEMORIA_TEST,
       serializzaMemoriaTest({ attiva: test, email: emailProva, sessione, proposte })
     );
   }, [memoriaPronta, test, emailProva, sessione, proposte]);
+
+  useEffect(() => {
+    if (!messaggio || (!messaggio.includes("visibile in elenco") && !messaggio.includes("già registrata"))) {
+      setMailEsito(null);
+    }
+  }, [messaggio]);
 
   useEffect(() => {
     let attivo = true;
@@ -497,7 +503,7 @@ export function CalendarioApprovvigionamento() {
     saltaMemoria.current = true;
     setSessione(sessioneTestVuota());
     setProposte([]);
-    setEmailProva("");
+    setEmailProva(DESTINATARIO_PROVA);
     setConfermaEmail(false);
     setAnteprimaEmail(null);
     setTest(false);
@@ -896,12 +902,13 @@ export function CalendarioApprovvigionamento() {
       const esito = messaggioSalvataggioConfermato({
         riusata: res.riusata,
         invioRichiesto: Boolean(bozza.invio?.invia),
-        confermato: Boolean(bozza.invio),
+        confermato: true,
         invio: res.invio,
       });
       chiudiOperazione();
       setCreaAperta(false);
-      setMessaggio(esito.messaggio);
+      setMessaggio(esito.salvataggio);
+      setMailEsito(esito.mail);
       setErrore(esito.errore);
       if (res.invio?.id && (res.invio.stato === "incerta" || res.invio.stato === "fallita")) {
         setInvioDaRiprovare({ id: res.invio.id, stato: res.invio.stato });
@@ -1423,19 +1430,35 @@ export function CalendarioApprovvigionamento() {
               ))}
             </select>
           </label>
+          <label className="ml-auto text-xs text-slate-500">
+            Email destinatario TEST
+            <input
+              aria-label="Email destinatario TEST"
+              value={emailProva}
+              onChange={(event) => {
+                setEmailProva(event.target.value);
+                setConfermaEmail(false);
+                setAnteprimaEmail(null);
+              }}
+              className="mt-1 block w-48 rounded-lg border border-slate-300 bg-white px-2 py-1.5 text-sm text-slate-900"
+            />
+          </label>
           <button
             type="button"
             onClick={() => {
               setErrore(null);
               setCreaAperta(true);
             }}
-            className="ml-auto rounded-lg bg-emerald-700 px-4 py-2 text-sm font-semibold tracking-wide text-white"
+            className="rounded-lg bg-emerald-700 px-4 py-2 text-sm font-semibold tracking-wide text-white"
           >
             CREA ORDINE MATERIA PRIMA
           </button>
         </div>
         {messaggio && !creaAperta ? (
           <p className="mb-3 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-900">{messaggio}</p>
+        ) : null}
+        {mailEsito && !creaAperta ? (
+          <p className="mb-3 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-800">{mailEsito}</p>
         ) : null}
         {errore && !creaAperta ? (
           <p className="mb-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">{errore}</p>
@@ -1457,9 +1480,11 @@ export function CalendarioApprovvigionamento() {
                 const esito = messaggioSalvataggioConfermato({
                   riusata: true,
                   invioRichiesto: true,
+                  confermato: true,
                   invio: res.invio,
                 });
-                setMessaggio(esito.messaggio);
+                setMessaggio(esito.salvataggio);
+                setMailEsito(esito.mail);
                 setErrore(esito.errore);
                 if (res.invio.id && (res.invio.stato === "incerta" || res.invio.stato === "fallita")) {
                   setInvioDaRiprovare({ id: res.invio.id, stato: res.invio.stato });
@@ -1476,18 +1501,7 @@ export function CalendarioApprovvigionamento() {
         {test ? (
           <div className="mb-3 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-950">
             <p>Modalità test: gli ordini di prova restano salvati e visibili. Usano codici TEST- e non i progressivi AP- o PP-. Non si pubblicano e non generano carichi.</p>
-            <label className="mt-2 block">
-              Email destinatario di prova
-              <input
-                value={emailProva}
-                onChange={(event) => {
-                  setEmailProva(event.target.value);
-                  setConfermaEmail(false);
-                  setAnteprimaEmail(null);
-                }}
-                className="mt-1 block w-full max-w-sm rounded border border-amber-300 bg-white px-2 py-1"
-              />
-            </label>
+            <p className="mt-2">Destinatario effettivo: {emailProva || "non indicato"}</p>
             <div className="mt-2 flex flex-wrap gap-2">
               <button
                 type="button"
@@ -2114,6 +2128,7 @@ export function CalendarioApprovvigionamento() {
           fornitori={fornitori}
           pending={pending}
           prova={test}
+          emailTest={emailProva}
           errore={errore}
           onClose={() => setCreaAperta(false)}
           onSalva={salvaProcedura}

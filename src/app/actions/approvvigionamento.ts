@@ -20,6 +20,7 @@ import {
   messaggioEliminazioneProva,
   rifiutaEmailFornitore,
   validaDestinatarioSingolo,
+  validaOggettoTest,
   type EsitoInvioConfermato,
 } from "@/lib/produzione/invio-conferma";
 import { preparaEmailProva } from "@/lib/produzione/revisione-piano";
@@ -759,25 +760,29 @@ export async function salvaApprovvigionamentiAction(raw: unknown): Promise<
   const auth = await richiedi();
   const supabase = await createClient();
   const richiesto = parsed.data.invio?.invia ? parsed.data.invio : null;
+  let oggettoConfermato = "";
+  let destinatarioConfermato = "";
   if (richiesto) {
     const destinatario = validaDestinatarioSingolo(richiesto.destinatario);
     if (!destinatario.ok) return { success: false, error: destinatario.motivo };
-    if (richiesto.oggetto.trim().length < 3 || richiesto.testo.trim().length < 3) {
+    const oggetto = validaOggettoTest(richiesto.oggetto);
+    if (!oggetto.ok) return { success: false, error: oggetto.motivo };
+    if (richiesto.testo.trim().length < 3) {
       return { success: false, error: "Oggetto e testo sono obbligatori." };
     }
-    if (parsed.data.prova && /http/i.test(`${richiesto.oggetto} ${richiesto.testo}`)) {
+    if (/http/i.test(richiesto.testo)) {
       return { success: false, error: "La mail di prova non può contenere un collegamento." };
     }
-    if (parsed.data.prova) {
-      const { data: anagrafiche } = await supabase
-        .from("fornitori")
-        .select("email")
-        .ilike("email", destinatario.email)
-        .limit(1);
-      const emailFornitore = anagrafiche?.[0]?.email ? String(anagrafiche[0].email) : null;
-      const rifiuto = rifiutaEmailFornitore(destinatario.email, emailFornitore);
-      if (rifiuto) return { success: false, error: rifiuto };
-    }
+    const { data: anagrafiche } = await supabase
+      .from("fornitori")
+      .select("email")
+      .ilike("email", destinatario.email)
+      .limit(1);
+    const emailFornitore = anagrafiche?.[0]?.email ? String(anagrafiche[0].email) : null;
+    const rifiuto = rifiutaEmailFornitore(destinatario.email, emailFornitore);
+    if (rifiuto) return { success: false, error: rifiuto };
+    oggettoConfermato = oggetto.oggetto;
+    destinatarioConfermato = destinatario.email;
   }
   const ordiniRichiesti = parsed.data.ordini.map((ordine) => ({
     ...ordine,
@@ -840,14 +845,13 @@ export async function salvaApprovvigionamentiAction(raw: unknown): Promise<
   }
   let invio: EsitoInvioConfermato | null = null;
   if (richiesto) {
-    const destinatario = validaDestinatarioSingolo(richiesto.destinatario);
     invio = await accodaEInviaConfermato({
       supabase,
       chiaveSalvataggio: parsed.data.chiave,
       ordineIds: ordini.map((ordine) => ordine.id),
       pianoId: piani[0]?.id ?? null,
-      destinatario: destinatario.ok ? destinatario.email : richiesto.destinatario,
-      oggetto: richiesto.oggetto,
+      destinatario: destinatarioConfermato,
+      oggetto: oggettoConfermato,
       testo: richiesto.testo,
       pdf: richiesto.pdf,
       xlsx: richiesto.xlsx,

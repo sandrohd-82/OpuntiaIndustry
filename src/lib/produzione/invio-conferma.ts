@@ -64,22 +64,92 @@ export function nomeAllegatoConfermato(codice: string): string {
   return pulito || "ordine-approvvigionamento";
 }
 
-export function bozzaInvioConferma(prova: boolean): { oggetto: string; testo: string } {
-  const oggetto = prova
-    ? "TEST — Ordine di approvvigionamento"
-    : "Ordine di approvvigionamento";
-  const testo = [
-    prova ? "TEST" : "",
-    "Agrinsicilia ha registrato un ordine di approvvigionamento.",
-    "La versione confermata e negli allegati selezionati.",
-    "Questa mail non pubblica l'ordine nel portale fornitore.",
-    "Non conferma la lettura, non e un'accettazione e non garantisce la consegna.",
-    "",
-    "Il codice confermato viene aggiunto dopo il salvataggio.",
-  ]
-    .filter((riga, indice) => indice > 0 || riga.length > 0)
-    .join("\n");
-  return { oggetto, testo };
+export function bozzaInvioConferma(): { oggetto: string; testo: string } {
+  return {
+    oggetto: "TEST — Ordine di approvvigionamento",
+    testo: [
+      "TEST",
+      "Agrinsicilia ha registrato un ordine di approvvigionamento.",
+      "La versione confermata e negli allegati selezionati.",
+      "Questa mail e solo l'avviso. Non conferma la lettura, non e un'accettazione e non garantisce la consegna.",
+      "Non pubblica l'ordine nel portale fornitore.",
+      "",
+      "Il codice confermato viene aggiunto dopo il salvataggio.",
+    ].join("\n"),
+  };
+}
+
+export function validaOggettoTest(
+  oggetto: string
+): { ok: true; oggetto: string } | { ok: false; motivo: string } {
+  const valore = oggetto.trim();
+  if (!valore.startsWith("TEST —")) {
+    return { ok: false, motivo: "L'oggetto deve iniziare con TEST —." };
+  }
+  if (valore.length < 8 || valore.length > 200) {
+    return { ok: false, motivo: "Oggetto non valido." };
+  }
+  if (/http/i.test(valore)) {
+    return { ok: false, motivo: "La mail di prova non può contenere un collegamento." };
+  }
+  return { ok: true, oggetto: valore };
+}
+
+export type BozzaMailApprovata = {
+  impronta: string;
+  destinatario: string;
+  oggetto: string;
+  testo: string;
+  pdf: boolean;
+  xlsx: boolean;
+};
+
+export function improntaMailOrdine(input: {
+  destinatario: string;
+  oggetto: string;
+  testo: string;
+  pdf: boolean;
+  xlsx: boolean;
+  fornitoreId: string;
+  materiaId: string;
+  note: string;
+  unita: string;
+  consegne: { data: string; quantita: number; unita: string; tipoQuantita: string }[];
+}): string {
+  return JSON.stringify({
+    destinatario: input.destinatario.trim().toLowerCase(),
+    oggetto: input.oggetto.trim(),
+    testo: input.testo.trim(),
+    pdf: input.pdf,
+    xlsx: input.xlsx,
+    fornitoreId: input.fornitoreId,
+    materiaId: input.materiaId,
+    note: input.note.trim(),
+    unita: input.unita.trim(),
+    consegne: input.consegne.map((consegna) => ({
+      data: consegna.data,
+      quantita: consegna.quantita,
+      unita: consegna.unita,
+      tipoQuantita: consegna.tipoQuantita,
+    })),
+  });
+}
+
+export function mailProntaAllInvio(
+  approvata: BozzaMailApprovata | null,
+  impronta: string,
+  richiesta: boolean
+): boolean {
+  return richiesta && Boolean(approvata) && approvata?.impronta === impronta;
+}
+
+export function pulsanteFinale(
+  richiesta: boolean,
+  pronta: boolean
+): "Finalizza e salva ordine" | "Crea bozza mail" | "Finalizza e invia mail" {
+  if (!richiesta) return "Finalizza e salva ordine";
+  if (pronta) return "Finalizza e invia mail";
+  return "Crea bozza mail";
 }
 
 export function testoConRiferimento(testo: string, codice: string): string {
@@ -99,7 +169,7 @@ export function validaDestinatarioSingolo(valore: string): { ok: true; email: st
 export function rifiutaEmailFornitore(destinatario: string, emailFornitore: string | null): string | null {
   const fornitore = (emailFornitore ?? "").trim().toLowerCase();
   if (fornitore && destinatario.trim().toLowerCase() === fornitore) {
-    return "In prova non si usa l'indirizzo del fornitore in anagrafica.";
+    return "Questa procedura non invia all'indirizzo di un fornitore in anagrafica.";
   }
   return null;
 }
@@ -109,37 +179,46 @@ export function messaggioSalvataggioConfermato(input: {
   invioRichiesto: boolean;
   confermato?: boolean;
   invio: EsitoInvioConfermato | null;
-}): { messaggio: string; errore: string | null } {
+}): { salvataggio: string; mail: string | null; messaggio: string; errore: string | null } {
+  const unisci = (salvataggio: string, mail: string | null, errore: string | null) => ({
+    salvataggio,
+    mail,
+    messaggio: mail ? `${salvataggio} ${mail}` : salvataggio,
+    errore,
+  });
   if (!input.invioRichiesto) {
     if (input.confermato) {
-      return {
-        messaggio: input.riusata
-          ? "Operazione già registrata. Nessun secondo ordine e nessuna email."
-          : "Ordine registrato ed è visibile in elenco. Nessuna email e nessuna pubblicazione.",
-        errore: null,
-      };
+      return unisci(
+        input.riusata
+          ? "Operazione già registrata. Nessun secondo ordine."
+          : "Ordine salvato ed è visibile in elenco. Nessuna email e nessuna pubblicazione.",
+        null,
+        null
+      );
     }
-    return {
-      messaggio: input.riusata
-        ? "Operazione già registrata. Nessun secondo ordine e nessuna email."
+    return unisci(
+      input.riusata
+        ? "Operazione già registrata. Nessun secondo ordine."
         : "Bozza salvata. Non è stata pubblicata e non è stata inviata.",
-      errore: null,
-    };
+      null,
+      null
+    );
   }
+  const salvataggio = input.riusata
+    ? "Operazione già registrata. Nessun secondo ordine."
+    : "Ordine salvato ed è visibile in elenco.";
   const stato = input.invio?.stato ?? "non_inviata";
-  const base = input.riusata
-    ? "Operazione già registrata."
-    : "Ordine registrato ed è visibile in elenco.";
-  if (stato === "inviata") return { messaggio: `${base} Email inviata.`, errore: null };
-  if (stato === "in_invio") return { messaggio: `${base} Invio già in corso.`, errore: null };
+  if (stato === "inviata") return unisci(salvataggio, "Mail inviata", null);
   if (stato === "fallita") {
-    return {
-      messaggio: base,
-      errore: input.invio?.errore ?? "Invio non riuscito. Il server non ha accettato il messaggio: si può riprovare.",
-    };
+    return unisci(
+      salvataggio,
+      "Invio non riuscito.",
+      input.invio?.errore ?? "Invio non riuscito. Il server non ha accettato il messaggio: si può riprovare."
+    );
   }
-  if (stato === "incerta") return { messaggio: base, errore: MESSAGGIO_CONFERMA_INCERTA };
-  return { messaggio: base, errore: input.invio?.errore ?? "Email non accodata." };
+  if (stato === "incerta") return unisci(salvataggio, "Esito incerto.", MESSAGGIO_CONFERMA_INCERTA);
+  if (!input.invio?.id) return unisci(salvataggio, null, input.invio?.errore ?? "Email non accodata.");
+  return unisci(salvataggio, "Mail in attesa di invio", null);
 }
 
 export function messaggioEliminazioneProva(protetti: number): string {

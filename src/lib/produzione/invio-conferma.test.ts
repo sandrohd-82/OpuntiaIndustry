@@ -9,12 +9,16 @@ import {
   chiaveInvioConfermato,
   concludiTentativoInvio,
   documentoDalleRigheSalvate,
+  improntaMailOrdine,
+  mailProntaAllInvio,
   messaggioEliminazioneProva,
   messaggioSalvataggioConfermato,
+  pulsanteFinale,
   rifiutaEmailFornitore,
   selezioneEliminazioneProva,
   testoConRiferimento,
   validaDestinatarioSingolo,
+  validaOggettoTest,
 } from "./invio-conferma";
 
 const salvato = documentoDalleRigheSalvate({
@@ -40,31 +44,113 @@ assert.equal(salvato.consegne[0]?.unita, "cladodi");
 assert.equal(salvato.consegne[0]?.data, "2026-01-10");
 assert.equal("allegato" in salvato, false);
 
-const bozza = bozzaInvioConferma(true);
-assert.equal(bozza.oggetto.startsWith("TEST"), true);
+const bozza = bozzaInvioConferma();
+assert.equal(bozza.oggetto.startsWith("TEST —"), true);
+assert.equal(bozza.testo.includes("Agrinsicilia"), true);
 assert.equal(bozza.testo.includes("http"), false);
-assert.equal(bozzaInvioConferma(false).oggetto.startsWith("TEST"), false);
+assert.equal(validaOggettoTest("Ordine reale").ok, false);
+assert.equal(validaOggettoTest(bozza.oggetto).ok, true);
 assert.equal(DESTINATARIO_PROVA, "sandrohd@gmail.com");
 assert.equal(validaDestinatarioSingolo("sandrohd@gmail.com").ok, true);
+assert.equal(validaDestinatarioSingolo("").ok, false);
 assert.equal(validaDestinatarioSingolo("a@b.c, c@d.e").ok, false);
 assert.equal(
   rifiutaEmailFornitore("reale@fornitore.it", "reale@fornitore.it"),
-  "In prova non si usa l'indirizzo del fornitore in anagrafica."
+  "Questa procedura non invia all'indirizzo di un fornitore in anagrafica."
 );
 assert.equal(rifiutaEmailFornitore(DESTINATARIO_PROVA, "reale@fornitore.it"), null);
 assert.match(testoConRiferimento("Testo operatore", "TEST-PP-26-0001"), /TEST-PP-26-0001/);
 assert.equal(chiaveInvioConfermato("chiave-salva-1"), "chiave-salva-1:invio");
 
-const senzaEmail = messaggioSalvataggioConfermato({ riusata: false, invioRichiesto: false, invio: null });
-assert.match(senzaEmail.messaggio, /Bozza salvata/);
+const consegnaBase = {
+  destinatario: DESTINATARIO_PROVA,
+  oggetto: bozza.oggetto,
+  testo: bozza.testo,
+  pdf: true,
+  xlsx: false,
+  fornitoreId: "fornitore-1",
+  materiaId: "materia-1",
+  note: "",
+  unita: "cladodi",
+  consegne: [{ data: "2026-01-10", quantita: 100, unita: "cladodi", tipoQuantita: "precisa" }],
+};
+const impronta = improntaMailOrdine(consegnaBase);
+const approvata = {
+  impronta,
+  destinatario: DESTINATARIO_PROVA,
+  oggetto: bozza.oggetto,
+  testo: bozza.testo,
+  pdf: true,
+  xlsx: false,
+};
+assert.equal(mailProntaAllInvio(approvata, impronta, true), true);
+assert.equal(pulsanteFinale(false, false), "Finalizza e salva ordine");
+assert.equal(pulsanteFinale(true, false), "Crea bozza mail");
+assert.equal(pulsanteFinale(true, true), "Finalizza e invia mail");
+assert.equal(mailProntaAllInvio(approvata, impronta, false), false);
+const dopoModifica = improntaMailOrdine({
+  ...consegnaBase,
+  consegne: [{ data: "2026-01-10", quantita: 90, unita: "cladodi", tipoQuantita: "precisa" }],
+});
+assert.equal(mailProntaAllInvio(approvata, dopoModifica, true), false);
+assert.notEqual(
+  impronta,
+  improntaMailOrdine({ ...consegnaBase, xlsx: true })
+);
+assert.notEqual(
+  impronta,
+  improntaMailOrdine({ ...consegnaBase, oggetto: `${bozza.oggetto} rivisto` })
+);
+
+const senzaEmail = messaggioSalvataggioConfermato({
+  riusata: false,
+  invioRichiesto: false,
+  confermato: true,
+  invio: null,
+});
+assert.match(senzaEmail.salvataggio, /visibile in elenco/);
+assert.equal(senzaEmail.mail, null);
 assert.equal(senzaEmail.errore, null);
+
+const accodata = messaggioSalvataggioConfermato({
+  riusata: false,
+  invioRichiesto: true,
+  invio: { id: "1", stato: "non_inviata", richiedeConferma: false, errore: null },
+});
+assert.match(accodata.salvataggio, /visibile in elenco/);
+assert.equal(accodata.mail, "Mail in attesa di invio");
+assert.equal(accodata.messaggio.includes("Mail inviata"), false);
+
+const inCorso = messaggioSalvataggioConfermato({
+  riusata: false,
+  invioRichiesto: true,
+  invio: { id: "1", stato: "in_invio", richiedeConferma: false, errore: null },
+});
+assert.equal(inCorso.mail, "Mail in attesa di invio");
+
+const inviata = messaggioSalvataggioConfermato({
+  riusata: false,
+  invioRichiesto: true,
+  invio: { id: "1", stato: "inviata", richiedeConferma: false, errore: null },
+});
+assert.equal(inviata.mail, "Mail inviata");
+assert.match(inviata.salvataggio, /visibile in elenco/);
+
+const fallita = messaggioSalvataggioConfermato({
+  riusata: false,
+  invioRichiesto: true,
+  invio: { id: "1", stato: "fallita", richiedeConferma: false, errore: "SMTP rifiutato" },
+});
+assert.match(fallita.salvataggio, /visibile in elenco/);
+assert.equal(fallita.errore, "SMTP rifiutato");
+assert.equal(fallita.mail, "Invio non riuscito.");
 
 const incerto = messaggioSalvataggioConfermato({
   riusata: false,
   invioRichiesto: true,
   invio: { id: "1", stato: "incerta", richiedeConferma: true, errore: MESSAGGIO_CONFERMA_INCERTA },
 });
-assert.match(incerto.messaggio, /visibile in elenco/);
+assert.match(incerto.salvataggio, /visibile in elenco/);
 assert.equal(incerto.errore, MESSAGGIO_CONFERMA_INCERTA);
 
 async function verificaInvio() {
@@ -248,6 +334,39 @@ const portale = readFileSync(
   "utf8"
 );
 assert.match(portale, /eq\("prova", true\)/);
+assert.match(azione, /validaOggettoTest/);
+assert.match(azione, /destinatarioConfermato/);
+assert.equal(azione.includes("if (parsed.data.prova) {\n      const { data: anagrafiche }"), false);
+
+const sqlTest = readFileSync(
+  new URL("../../../supabase/migrations/20261118150000_approvvigionamenti_invio_solo_test.sql", import.meta.url),
+  "utf8"
+);
+assert.match(sqlTest, /approvvigionamenti_invii_solo_test/);
+assert.match(sqlTest, /TEST —/);
+assert.match(sqlTest, /fornitori/);
+assert.equal(/insert into public\.approvvigionamenti_notifiche/.test(sqlTest), false);
+
+const modale = readFileSync(
+  new URL("../../components/produzione/CreaOrdineMateriaPrimaModal.tsx", import.meta.url),
+  "utf8"
+);
+assert.match(modale, /pulsanteFinale/);
+assert.match(modale, /Crea bozza mail/);
+assert.match(modale, /Approva mail/);
+assert.match(modale, /Mail pronta all/);
+assert.match(modale, /Modifica bozza mail/);
+assert.match(modale, /readOnly/);
+assert.match(modale, /pdfPianificazione/);
+assert.match(modale, /xlsxPianificazione/);
+assert.equal(modale.includes("emailFornitoreApprovvigionamentoAction"), false);
+
+const calendario = readFileSync(
+  new URL("../../components/produzione/CalendarioApprovvigionamento.tsx", import.meta.url),
+  "utf8"
+);
+assert.match(calendario, /Email destinatario TEST/);
+assert.match(calendario, /emailTest=\{emailProva\}/);
 
 console.log("invio conferma: ok");
 }
