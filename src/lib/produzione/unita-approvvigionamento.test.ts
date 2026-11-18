@@ -50,7 +50,7 @@ assert.equal(
     unitaCatalogo: null,
     unitaRichiesta: "kg",
   }).ok,
-  false
+  true
 );
 
 const totali = totaliDocumento({
@@ -77,5 +77,12 @@ assert.equal(sql.includes("update public.approvvigionamenti_ordini"), false);
 assert.equal(sql.includes("nextval"), false);
 assert.equal(sql.includes("materie_prime_unita_check"), false);
 assert.match(sql, /approvvigionamento_valida_righe/);
+const sqlOrdine = readFileSync(
+  new URL("../../../supabase/migrations/20261118120000_approvvigionamenti_unita_ordine.sql", import.meta.url),
+  "utf8"
+);
+assert.match(sqlOrdine, /approvvigionamento_valida_righe/);
+assert.equal(sqlOrdine.includes("unità di misura in catalogo"), false);
+assert.equal(sqlOrdine.includes("materie_prime"), false);
 
 console.log("unita approvvigionamento: ok");

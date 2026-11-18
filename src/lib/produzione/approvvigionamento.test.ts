@@ -53,7 +53,16 @@ assert.equal(
     unitaCatalogo: null,
     unitaRichiesta: "kg",
   }).ok,
-  false
+  true
+);
+assert.equal(
+  rigaOrdineValida({
+    materiaPrimaId: MP,
+    quantita: 100,
+    unitaCatalogo: null,
+    unitaRichiesta: "cladodi",
+  }).ok,
+  true
 );
 assert.equal(
   rigaOrdineValida({

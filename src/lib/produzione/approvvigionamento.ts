@@ -3,10 +3,7 @@ import {
   unitaMateriaPrimaValida,
   type UnitaMateriaPrima,
 } from "@/lib/amministrazione/materie-prime";
-import {
-  normalizzaUnitaApprovvigionamento,
-  unitaMagazzinoCompatibile,
-} from "@/lib/produzione/unita-approvvigionamento";
+import { normalizzaUnitaApprovvigionamento } from "@/lib/produzione/unita-approvvigionamento";
 
 export type StatoOrdineApprovvigionamento =
   | "bozza"
@@ -239,12 +236,6 @@ export function rigaOrdineValida(input: {
   }
   const unita = normalizzaUnitaApprovvigionamento(input.unitaRichiesta);
   if (!unita.ok) return unita;
-  if (unitaMagazzinoCompatibile(unita.sigla) && !unitaMateriaPrimaValida(input.unitaCatalogo)) {
-    return {
-      ok: false,
-      motivo: "La materia prima non ha un'unità di misura in catalogo.",
-    };
-  }
   return { ok: true };
 }
 
