@@ -250,8 +250,10 @@ const pulsantiTest = readFileSync(
   "utf8"
 );
 assert.equal(calendario.includes("registraPropostaPianoAction"), false);
-assert.match(calendario, /documentoEmailProva/);
-assert.match(calendario, /conferma: true/);
+assert.equal(calendario.includes("documentoEmailProva"), false);
+assert.equal(calendario.includes("Anteprima email"), false);
+assert.equal(calendario.includes("Invia solo all"), false);
+assert.match(calendario, /Email destinatario TEST/);
 assert.match(pulsantiTest, /Annulla test/);
 const recupera = calendario.slice(
   calendario.indexOf("function recupera"),

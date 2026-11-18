@@ -16,7 +16,6 @@ import {
   recuperaNotificaApprovvigionamentoAction,
   resocontoApprovvigionamentoAction,
   eliminaDatiProvaApprovvigionamentoAction,
-  inviaEmailProvaApprovvigionamentoAction,
   reinviaInvioApprovvigionamentoAction,
   salvaApprovvigionamentiAction,
   type MateriaCalendario,
@@ -75,7 +74,6 @@ import {
 import {
   costruisciRevisionePiano,
   decidiVoceRevisione,
-  preparaEmailProva,
   scritturaAziendaleConsentita,
   type ConsegnaUfficiale,
   type PropostaRevisione,
@@ -372,8 +370,6 @@ export function CalendarioApprovvigionamento() {
   const [proposte, setProposte] = useState<PropostaRevisione[]>([]);
   const [proposteAzienda, setProposteAzienda] = useState<PropostaRevisione[]>([]);
   const [emailProva, setEmailProva] = useState(DESTINATARIO_PROVA);
-  const [confermaEmail, setConfermaEmail] = useState(false);
-  const [anteprimaEmail, setAnteprimaEmail] = useState<string | null>(null);
   const [memoriaPronta, setMemoriaPronta] = useState(false);
   const testRef = useRef(false);
   const saltaMemoria = useRef(false);
@@ -504,8 +500,6 @@ export function CalendarioApprovvigionamento() {
     setSessione(sessioneTestVuota());
     setProposte([]);
     setEmailProva(DESTINATARIO_PROVA);
-    setConfermaEmail(false);
-    setAnteprimaEmail(null);
     setTest(false);
     setOrdineId(null);
   }
@@ -1307,14 +1301,6 @@ export function CalendarioApprovvigionamento() {
   const materiaDocumento = materie.find((voce) => voce.id === materiaId);
   const fornitoreDocumento = fornitori.find((voce) => voce.id === fornitoreId)?.nome ?? "Fornitore";
 
-  function documentoEmailProva(): DocumentoPianificazione | null {
-    const scelto = piani.find((voce) => voce.id === pianoAperto);
-    if (!scelto) return null;
-    const documento = documentoPianoSalvato(scelto, ordiniPiano);
-    if (documento.consegne.length === 0) return null;
-    return documento;
-  }
-
   function documentoAnteprima(): DocumentoPianificazione {
     const consegne = anteprima && anteprima.ok ? anteprima.consegne : [];
     return {
@@ -1435,11 +1421,7 @@ export function CalendarioApprovvigionamento() {
             <input
               aria-label="Email destinatario TEST"
               value={emailProva}
-              onChange={(event) => {
-                setEmailProva(event.target.value);
-                setConfermaEmail(false);
-                setAnteprimaEmail(null);
-              }}
+              onChange={(event) => setEmailProva(event.target.value)}
               className="mt-1 block w-48 rounded-lg border border-slate-300 bg-white px-2 py-1.5 text-sm text-slate-900"
             />
           </label>
@@ -1497,84 +1479,6 @@ export function CalendarioApprovvigionamento() {
           >
             {invioDaRiprovare.stato === "incerta" ? "Reinvia con conferma" : "Riprova invio"}
           </button>
-        ) : null}
-        {test ? (
-          <div className="mb-3 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-950">
-            <p>Modalità test: gli ordini di prova restano salvati e visibili. Usano codici TEST- e non i progressivi AP- o PP-. Non si pubblicano e non generano carichi.</p>
-            <p className="mt-2">Destinatario effettivo: {emailProva || "non indicato"}</p>
-            <div className="mt-2 flex flex-wrap gap-2">
-              <button
-                type="button"
-                onClick={() => {
-                  const documento = documentoEmailProva();
-                  if (!documento) {
-                    setErrore("Apri la pianificazione di prova da allegare.");
-                    setAnteprimaEmail(null);
-                    return;
-                  }
-                  const preparata = preparaEmailProva({
-                    destinatario: emailProva,
-                    emailFornitore: null,
-                    codice: documento.codice,
-                    conferma: false,
-                  });
-                  if (!preparata.ok) {
-                    setErrore(preparata.motivo);
-                    setAnteprimaEmail(null);
-                    return;
-                  }
-                  setErrore(null);
-                  setAnteprimaEmail(
-                    `${preparata.busta.subject}\n\n${preparata.busta.text}\n\nAllegato: ${preparata.busta.allegato}`
-                  );
-                }}
-                className="rounded border border-amber-700 px-2 py-1"
-              >
-                Anteprima email
-              </button>
-              <label className="flex items-center gap-2">
-                <input
-                  type="checkbox"
-                  checked={confermaEmail}
-                  onChange={(event) => setConfermaEmail(event.target.checked)}
-                />
-                Confermo l&apos;invio solo a questo indirizzo
-              </label>
-              <button
-                type="button"
-                disabled={!confermaEmail || pending}
-                onClick={() => {
-                  const documento = documentoEmailProva();
-                  if (!documento) {
-                    setErrore("Apri la pianificazione di prova da allegare.");
-                    return;
-                  }
-                  startTransition(async () => {
-                    const res = await inviaEmailProvaApprovvigionamentoAction({
-                      destinatario: emailProva,
-                      emailFornitore: null,
-                      codice: documento.codice,
-                      conferma: true,
-                      documento,
-                    });
-                    if (!res.success) {
-                      setErrore(res.error);
-                      return;
-                    }
-                    setMessaggio(
-                      `Email di prova inviata solo a ${res.to}, con allegato ${res.allegato}. Nessun altro destinatario.`
-                    );
-                  });
-                }}
-                className="rounded bg-amber-900 px-2 py-1 text-white disabled:opacity-60"
-              >
-                Invia solo all&apos;indirizzo di prova
-              </button>
-            </div>
-            {anteprimaEmail ? (
-              <pre className="mt-2 whitespace-pre-wrap rounded bg-white p-2 text-xs text-slate-800">{anteprimaEmail}</pre>
-            ) : null}
-          </div>
         ) : null}
         <div className="mb-3 grid gap-2 md:grid-cols-4">
           <select
