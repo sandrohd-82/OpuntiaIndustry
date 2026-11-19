@@ -39,12 +39,9 @@ import {
   loadTitolareCooperativaUserIds,
   resolveDefaultCommercialeId,
 } from "@/lib/auth/commerciale-lineage";
-import {
-  etichettaAffiancato,
-  resolveCommercialeAppartenenza,
-} from "@/lib/auth/commerciale";
 import { isSuperadminProfile } from "@/lib/auth/roles";
 import { anagraficaListOrClause } from "@/lib/auth/anagrafica-visibility";
+import { raccogliElencoClienti } from "@/lib/amministrazione/elenco-clienti";
 import { syncCommercialeOnSchedaUpdate } from "@/app/actions/commerciale-anagrafica";
 import type { ClienteInsert, ClienteRow } from "@/types/database";
 import { z } from "zod";
@@ -166,128 +163,40 @@ export async function listClientiAction(marca?: string): Promise<
   const inizioAccesso = performance.now();
   await requireAnyAreaAccess(["amministrazione", "commerciale"]);
   const accessoMs = Math.round(performance.now() - inizioAccesso);
-  const supabase = await createClient();
-  const inizioFiltro = performance.now();
-  const listOr = await anagraficaListOrClause();
-  const filtroMs = Math.round(performance.now() - inizioFiltro);
-
-  let q = supabase
-    .from("clienti")
-    .select("*")
-    .is("deleted_at", null);
-  if (listOr) {
-    q = q.or(listOr);
-  }
-  const inizioQuery = performance.now();
-  const { data, error } = await q.order("created_at", { ascending: false });
-  const queryMs = Math.round(performance.now() - inizioQuery);
-
-  if (error) {
-    return { success: false, error: error.message };
-  }
-
-  const rows = (data ?? []) as ClienteRow[];
-  const inizioEtichette = performance.now();
-  const inizioIdentificativi = performance.now();
-  const [commercialIds, titolareIds] = await Promise.all([
-    loadCommercialeUserIds(),
-    loadTitolareCooperativaUserIds(),
-  ]);
-  const identificativiMs = Math.round(performance.now() - inizioIdentificativi);
-  const inizioUtenti = performance.now();
-  const labels = await loadCommercialeLabels(
-    rows
-      .flatMap((r) => [
-        r.commerciale_id ?? "",
-        r.created_by ?? "",
-        r.affiancato_id ?? "",
-      ])
-      .filter(Boolean)
-  );
-  const etichetteUtentiMs = Math.round(performance.now() - inizioUtenti);
-  const inizioNomi = performance.now();
-  const nomiPersona = await loadOrganigrammaNomi(
-    rows.flatMap((r) =>
-      [
-        !r.commerciale_id && r.commerciale_persona_id
-          ? String(r.commerciale_persona_id)
-          : "",
-        r.affiancato_persona_id ? String(r.affiancato_persona_id) : "",
-      ].filter(Boolean)
-    )
-  );
-  const nomiMs = Math.round(performance.now() - inizioNomi);
-  const inizioPrenotate = performance.now();
-  const prenotate = new Map<string, string>();
-  if (rows.length > 0) {
-    const { data: canc } = await supabase
-      .from("clienti_cancellazioni")
-      .select("id, cliente_id")
-      .eq("stato", "prenotata")
-      .is("deleted_at", null)
-      .in(
-        "cliente_id",
-        rows.map((r) => r.id)
-      );
-    for (const row of canc ?? []) {
-      prenotate.set(String(row.cliente_id), String(row.id));
-    }
-  }
-  const prenotateMs = Math.round(performance.now() - inizioPrenotate);
-  const inizioMappa = performance.now();
-  const clienti = rows.map((row) => {
-    const resolved = resolveCommercialeAppartenenza({
-      commercialeId: row.commerciale_id ?? null,
-      createdBy: row.created_by ?? null,
-      commercialIds,
-      titolareIds,
-      labels,
-    });
-    const cliente = mapClienteRow(row, {
-      nome: resolved.commercialeNome,
-      grado: resolved.commercialeGrado,
-    });
-    cliente.commercialeId = resolved.commercialeId;
-    if (!row.commerciale_id && row.commerciale_persona_id) {
-      const personaId = String(row.commerciale_persona_id);
-      const etichetta = nomiPersona.get(personaId);
-      cliente.commercialeId = null;
-      cliente.commercialePersonaId = personaId;
-      cliente.commercialeNome = etichetta?.nome ?? "Commerciale";
-      cliente.commercialeGrado = etichetta?.grado ?? null;
-    }
-    const affiancato = etichettaAffiancato({
-      affiancatoId: cliente.affiancatoId,
-      affiancatoPersonaId: cliente.affiancatoPersonaId,
-      labels,
-      persone: nomiPersona,
-    });
-    if (affiancato) {
-      cliente.affiancatoNome = affiancato.nome;
-      cliente.affiancatoGrado = affiancato.grado;
-    }
-    cliente.cancellazioneId = prenotate.get(row.id) ?? null;
-    cliente.cancellazionePrenotata = prenotate.has(row.id);
-    return cliente;
+  return raccogliElencoClienti({
+    accessoMs,
+    inizioAzione,
+    apriClient: () => createClient(),
+    filtro: () => anagraficaListOrClause(),
+    identificativi: () =>
+      Promise.all([loadCommercialeUserIds(), loadTitolareCooperativaUserIds()]),
+    query: async (supabase, listOr) => {
+      let q = supabase.from("clienti").select("*").is("deleted_at", null);
+      if (listOr) q = q.or(listOr);
+      return q.order("created_at", { ascending: false });
+    },
+    etichette: (ids) => loadCommercialeLabels(ids),
+    nomi: (ids) => loadOrganigrammaNomi(ids),
+    prenotate: leggiCancellazioniPrenotate,
   });
-  const mappaMs = Math.round(performance.now() - inizioMappa);
-  return {
-    success: true,
-    clienti,
-    tempi: {
-      accessoMs,
-      filtroMs,
-      queryMs,
-      identificativiMs,
-      etichetteUtentiMs,
-      nomiMs,
-      prenotateMs,
-      mappaMs,
-      etichetteMs: Math.round(performance.now() - inizioEtichette),
-      totaleMs: Math.round(performance.now() - inizioAzione),
-      righe: rows.length,
-    } satisfies TempiServerElencoClienti,
-  };
+}
+
+async function leggiCancellazioniPrenotate(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  clienteIds: string[]
+): Promise<Map<string, string>> {
+  const prenotate = new Map<string, string>();
+  if (clienteIds.length === 0) return prenotate;
+  const { data: canc } = await supabase
+    .from("clienti_cancellazioni")
+    .select("id, cliente_id")
+    .eq("stato", "prenotata")
+    .is("deleted_at", null)
+    .in("cliente_id", clienteIds);
+  for (const row of canc ?? []) {
+    prenotate.set(String(row.cliente_id), String(row.id));
+  }
+  return prenotate;
 }
 
 export async function createClienteAction(

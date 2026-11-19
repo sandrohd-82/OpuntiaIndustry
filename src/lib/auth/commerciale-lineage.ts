@@ -179,8 +179,13 @@ export const loadCommercialeOperatorContext = cache(
 /** Cariche dei titolari della cooperativa. Non sono commerciali. */
 export const CARICHE_TITOLARE_COOPERATIVA = ["presidente", "vicepresidente"] as const;
 
-/** Presidente e Vicepresidente: le aziende che caricano restano della cooperativa. */
-export async function loadTitolareCooperativaUserIds(): Promise<Set<string>> {
+/**
+ * Stesso risultato per ogni utente: sono le cariche della cooperativa.
+ * `cache()` di React dura una sola richiesta e non attraversa utenti,
+ * richieste successive o un'altra impersonificazione.
+ */
+export const loadTitolareCooperativaUserIds = cache(
+  async function loadTitolareCooperativaUserIds(): Promise<Set<string>> {
   const service = createServiceClient();
   const { data: mansioni } = await service
     .from("organigramma_mansioni")
@@ -215,7 +220,8 @@ export async function loadTitolareCooperativaUserIds(): Promise<Set<string>> {
     if (uid) ids.add(uid);
   }
   return ids;
-}
+  }
+);
 
 /** Super Admin: non diventano «area commerciale» se creano un’anagrafica. */
 export async function loadSuperadminUserIds(): Promise<Set<string>> {
@@ -246,8 +252,11 @@ export async function loadSuperadminUserIds(): Promise<Set<string>> {
 /**
  * Stesso insieme del picker Super Admin: persone in organigramma con utente,
  * più reparto/grado commerciale. Esclude i Super Admin.
+ * Non dipende dall'utente connesso: la memoria resta nella richiesta corrente.
  */
-export async function loadCommercialeUserIds(): Promise<Set<string>> {
+export const loadCommercialeUserIds = cache(async function loadCommercialeUserIds(): Promise<
+  Set<string>
+> {
   const service = createServiceClient();
   const [{ data: persone }, { data: fromReparti }, { data: graded }, supers] =
     await Promise.all([
@@ -286,7 +295,7 @@ export async function loadCommercialeUserIds(): Promise<Set<string>> {
   for (const id of titolari) ids.delete(id);
   for (const id of supers) ids.delete(id);
   return ids;
-}
+});
 
 export async function resolveDefaultCommercialeId(opts: {
   userId: string;
