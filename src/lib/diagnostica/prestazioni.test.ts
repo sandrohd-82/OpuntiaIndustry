@@ -8,6 +8,8 @@ import {
   decisioneScansioneFatture,
   decisioneScansionePromozioni,
   interpretaAzione,
+  corpoContieneMarca,
+  fasiAzioneAssociata,
   trattoElencoClienti,
   mappaMenuDaCaricare,
   percorsoMisurabile,
@@ -483,8 +485,41 @@ assert.deepEqual(fasiChiamataClient({ clic: 0, fine: 100, fetch: [] }), {
   dopoMs: null,
   fetchOsservati: 0,
 });
+assert.equal(corpoContieneMarca('["oi0123456789abcdef"]', "oi0123456789abcdef"), true);
+assert.equal(corpoContieneMarca('["altra-azione"]', "oi0123456789abcdef"), false);
+assert.equal(corpoContieneMarca("oi0123456789abcdef", "corta"), false);
+const associata = fasiAzioneAssociata({
+  avvio: 1_000,
+  fine: 12_500,
+  richiesta: { inizio: 9_500, fine: 12_400 },
+  altreAzioni: 2,
+});
+assert.equal(associata.associata, true);
+assert.equal(associata.primaMs, 8_500);
+assert.equal(associata.fetchMs, 2_900);
+assert.equal(associata.dopoMs, 100);
+assert.equal(associata.altreAzioni, 2);
+assert.deepEqual(
+  fasiAzioneAssociata({ avvio: 0, fine: 11_000, richiesta: null, altreAzioni: 8 }),
+  { associata: false, primaMs: null, fetchMs: null, dopoMs: null, altreAzioni: 8 }
+);
 assert.equal(
   trattoElencoClienti({
+    primaDelFetchMs: 20_000,
+    queryMs: 80,
+    etichetteMs: 40,
+    accessoMs: 30,
+    filtroMs: 10,
+    dopoIlFetchMs: 20,
+    renderingMs: 15,
+    fetchMs: 200,
+    totaleMs: 160,
+  }),
+  "nessun tratto oltre un secondo"
+);
+assert.equal(
+  trattoElencoClienti({
+    associata: true,
     primaDelFetchMs: 20_000,
     queryMs: 80,
     etichetteMs: 40,
@@ -499,6 +534,7 @@ assert.equal(
 );
 assert.equal(
   trattoElencoClienti({
+    associata: true,
     primaDelFetchMs: 200,
     queryMs: 18_000,
     etichetteMs: 40,

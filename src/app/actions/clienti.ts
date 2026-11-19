@@ -155,10 +155,13 @@ export async function previewNextCodiceTargaClienteAction(): Promise<
   }
 }
 
-export async function listClientiAction(): Promise<
+export async function listClientiAction(marca?: string): Promise<
   | { success: true; clienti: Cliente[]; tempi: TempiServerElencoClienti }
   | { success: false; error: string }
 > {
+  if (typeof marca === "string" && marca.length > 40) {
+    return { success: false, error: "Richiesta elenco non valida." };
+  }
   const inizioAzione = performance.now();
   const inizioAccesso = performance.now();
   await requireAnyAreaAccess(["amministrazione", "commerciale"]);
@@ -185,10 +188,13 @@ export async function listClientiAction(): Promise<
 
   const rows = (data ?? []) as ClienteRow[];
   const inizioEtichette = performance.now();
+  const inizioIdentificativi = performance.now();
   const [commercialIds, titolareIds] = await Promise.all([
     loadCommercialeUserIds(),
     loadTitolareCooperativaUserIds(),
   ]);
+  const identificativiMs = Math.round(performance.now() - inizioIdentificativi);
+  const inizioUtenti = performance.now();
   const labels = await loadCommercialeLabels(
     rows
       .flatMap((r) => [
@@ -198,6 +204,8 @@ export async function listClientiAction(): Promise<
       ])
       .filter(Boolean)
   );
+  const etichetteUtentiMs = Math.round(performance.now() - inizioUtenti);
+  const inizioNomi = performance.now();
   const nomiPersona = await loadOrganigrammaNomi(
     rows.flatMap((r) =>
       [
@@ -208,6 +216,8 @@ export async function listClientiAction(): Promise<
       ].filter(Boolean)
     )
   );
+  const nomiMs = Math.round(performance.now() - inizioNomi);
+  const inizioPrenotate = performance.now();
   const prenotate = new Map<string, string>();
   if (rows.length > 0) {
     const { data: canc } = await supabase
@@ -223,47 +233,56 @@ export async function listClientiAction(): Promise<
       prenotate.set(String(row.cliente_id), String(row.id));
     }
   }
+  const prenotateMs = Math.round(performance.now() - inizioPrenotate);
+  const inizioMappa = performance.now();
+  const clienti = rows.map((row) => {
+    const resolved = resolveCommercialeAppartenenza({
+      commercialeId: row.commerciale_id ?? null,
+      createdBy: row.created_by ?? null,
+      commercialIds,
+      titolareIds,
+      labels,
+    });
+    const cliente = mapClienteRow(row, {
+      nome: resolved.commercialeNome,
+      grado: resolved.commercialeGrado,
+    });
+    cliente.commercialeId = resolved.commercialeId;
+    if (!row.commerciale_id && row.commerciale_persona_id) {
+      const personaId = String(row.commerciale_persona_id);
+      const etichetta = nomiPersona.get(personaId);
+      cliente.commercialeId = null;
+      cliente.commercialePersonaId = personaId;
+      cliente.commercialeNome = etichetta?.nome ?? "Commerciale";
+      cliente.commercialeGrado = etichetta?.grado ?? null;
+    }
+    const affiancato = etichettaAffiancato({
+      affiancatoId: cliente.affiancatoId,
+      affiancatoPersonaId: cliente.affiancatoPersonaId,
+      labels,
+      persone: nomiPersona,
+    });
+    if (affiancato) {
+      cliente.affiancatoNome = affiancato.nome;
+      cliente.affiancatoGrado = affiancato.grado;
+    }
+    cliente.cancellazioneId = prenotate.get(row.id) ?? null;
+    cliente.cancellazionePrenotata = prenotate.has(row.id);
+    return cliente;
+  });
+  const mappaMs = Math.round(performance.now() - inizioMappa);
   return {
     success: true,
-    clienti: rows.map((row) => {
-      const resolved = resolveCommercialeAppartenenza({
-        commercialeId: row.commerciale_id ?? null,
-        createdBy: row.created_by ?? null,
-        commercialIds,
-        titolareIds,
-        labels,
-      });
-      const cliente = mapClienteRow(row, {
-        nome: resolved.commercialeNome,
-        grado: resolved.commercialeGrado,
-      });
-      cliente.commercialeId = resolved.commercialeId;
-      if (!row.commerciale_id && row.commerciale_persona_id) {
-        const personaId = String(row.commerciale_persona_id);
-        const etichetta = nomiPersona.get(personaId);
-        cliente.commercialeId = null;
-        cliente.commercialePersonaId = personaId;
-        cliente.commercialeNome = etichetta?.nome ?? "Commerciale";
-        cliente.commercialeGrado = etichetta?.grado ?? null;
-      }
-      const affiancato = etichettaAffiancato({
-        affiancatoId: cliente.affiancatoId,
-        affiancatoPersonaId: cliente.affiancatoPersonaId,
-        labels,
-        persone: nomiPersona,
-      });
-      if (affiancato) {
-        cliente.affiancatoNome = affiancato.nome;
-        cliente.affiancatoGrado = affiancato.grado;
-      }
-      cliente.cancellazioneId = prenotate.get(row.id) ?? null;
-      cliente.cancellazionePrenotata = prenotate.has(row.id);
-      return cliente;
-    }),
+    clienti,
     tempi: {
       accessoMs,
       filtroMs,
       queryMs,
+      identificativiMs,
+      etichetteUtentiMs,
+      nomiMs,
+      prenotateMs,
+      mappaMs,
       etichetteMs: Math.round(performance.now() - inizioEtichette),
       totaleMs: Math.round(performance.now() - inizioAzione),
       righe: rows.length,

@@ -109,6 +109,11 @@ export type TempiServerElencoClienti = {
   accessoMs: number;
   filtroMs: number;
   queryMs: number;
+  identificativiMs: number;
+  etichetteUtentiMs: number;
+  nomiMs: number;
+  prenotateMs: number;
+  mappaMs: number;
   etichetteMs: number;
   totaleMs: number;
   righe: number;
@@ -116,6 +121,8 @@ export type TempiServerElencoClienti = {
 
 export type MisuraElencoClienti = TempiServerElencoClienti & {
   montaggioAAvvioMs: number;
+  associata: boolean;
+  altreAzioni: number;
   primaDelFetchMs: number | null;
   fetchMs: number | null;
   dopoIlFetchMs: number | null;
@@ -449,7 +456,42 @@ export function fasiChiamataClient(input: {
   };
 }
 
+export function corpoContieneMarca(corpo: string, marca: string): boolean {
+  return marca.length >= 16 && corpo.includes(marca);
+}
+
+export function fasiAzioneAssociata(input: {
+  avvio: number;
+  fine: number;
+  richiesta: { inizio: number; fine: number } | null;
+  altreAzioni: number;
+}): {
+  associata: boolean;
+  primaMs: number | null;
+  fetchMs: number | null;
+  dopoMs: number | null;
+  altreAzioni: number;
+} {
+  if (input.richiesta == null) {
+    return {
+      associata: false,
+      primaMs: null,
+      fetchMs: null,
+      dopoMs: null,
+      altreAzioni: input.altreAzioni,
+    };
+  }
+  return {
+    associata: true,
+    primaMs: Math.max(0, Math.round(input.richiesta.inizio - input.avvio)),
+    fetchMs: Math.max(0, Math.round(input.richiesta.fine - input.richiesta.inizio)),
+    dopoMs: Math.max(0, Math.round(input.fine - input.richiesta.fine)),
+    altreAzioni: input.altreAzioni,
+  };
+}
+
 export function trattoElencoClienti(misura: {
+  associata?: boolean;
   primaDelFetchMs: number | null;
   queryMs: number;
   etichetteMs: number;
@@ -460,14 +502,15 @@ export function trattoElencoClienti(misura: {
   fetchMs: number | null;
   totaleMs: number;
 }): string {
+  const associata = misura.associata === true;
   const tratti: [string, number][] = [
-    ["prima dell'invio", misura.primaDelFetchMs ?? 0],
+    ["prima dell'invio", associata ? (misura.primaDelFetchMs ?? 0) : 0],
     ["query clienti", misura.queryMs],
     ["etichette", misura.etichetteMs],
     ["accesso", misura.accessoMs],
     ["filtro visibilità", misura.filtroMs],
-    ["fetch oltre la funzione", Math.max(0, (misura.fetchMs ?? 0) - misura.totaleMs)],
-    ["dopo la risposta", misura.dopoIlFetchMs ?? 0],
+    ["fetch oltre la funzione", associata ? Math.max(0, (misura.fetchMs ?? 0) - misura.totaleMs) : 0],
+    ["dopo la risposta", associata ? (misura.dopoIlFetchMs ?? 0) : 0],
     ["rendering", misura.renderingMs ?? 0],
   ];
   const scelto = tratti.reduce((corrente, voce) => (voce[1] > corrente[1] ? voce : corrente));

@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { salvaMisuraElencoClienti } from "@/components/diagnostica/misura-elenco-clienti";
-import { fasiChiamataClient } from "@/lib/diagnostica/prestazioni";
+import { corpoContieneMarca, fasiAzioneAssociata } from "@/lib/diagnostica/prestazioni";
 import {
   createClienteAction,
   listClientiAction,
@@ -16,8 +16,8 @@ export function useClienti() {
   const [ready, setReady] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const refresh = useCallback(async () => {
-    const result = await listClientiAction();
+  const refresh = useCallback(async (marca?: string) => {
+    const result = await listClientiAction(marca);
     if (result.success) {
       setClienti(result.clienti);
       setError(null);
@@ -30,29 +30,42 @@ export function useClienti() {
   useEffect(() => {
     const misuraPagina = window.location.pathname.startsWith("/app/commerciale/clienti");
     const montato = performance.now();
-    const visti: { inizio: number; fine: number }[] = [];
+    const marca = misuraPagina ? marcaElencoClienti() : undefined;
+    let corrispondenza: { inizio: number; fine: number } | null = null;
+    let altreAzioni = 0;
     const originale = misuraPagina ? window.fetch.bind(window) : null;
-    if (originale) {
-      window.fetch = (input: RequestInfo | URL, init?: RequestInit) => {
+    if (originale && marca) {
+      window.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
         const inizioFetch = performance.now();
-        return originale(input, init).finally(() => {
-          visti.push({ inizio: inizioFetch, fine: performance.now() });
-        });
+        const nostra = richiestaElencoClienti(input, init, marca);
+        if (intestazioneAzione(input, init) && !nostra && corrispondenza == null) {
+          altreAzioni += 1;
+        }
+        const risposta = await originale(input, init);
+        if (nostra) corrispondenza = { inizio: inizioFetch, fine: performance.now() };
+        return risposta;
       };
     }
     const avvio = performance.now();
-    void refresh()
+    void refresh(marca)
       .then((result) => {
         if (!misuraPagina || !result.success) return;
         const fine = performance.now();
-        const fasi = fasiChiamataClient({ clic: avvio, fine, fetch: visti });
+        const fasi = fasiAzioneAssociata({
+          avvio,
+          fine,
+          richiesta: corrispondenza,
+          altreAzioni,
+        });
         salvaMisuraElencoClienti({
           ...result.tempi,
           montaggioAAvvioMs: Math.max(0, Math.round(avvio - montato)),
+          associata: fasi.associata,
+          altreAzioni: fasi.altreAzioni,
           primaDelFetchMs: fasi.primaMs,
-          fetchMs: fasi.reteMs,
+          fetchMs: fasi.fetchMs,
           dopoIlFetchMs: fasi.dopoMs,
-          fetchOsservati: fasi.fetchOsservati,
+          fetchOsservati: fasi.altreAzioni + (fasi.associata ? 1 : 0),
           attesaAzioneMs: Math.round(fine - avvio),
           ricevutoAt: fine,
           renderingMs: null,
@@ -130,4 +143,45 @@ export function useClienti() {
     removeCliente,
     refresh,
   };
+}
+
+function marcaElencoClienti(): string {
+  const byte = new Uint8Array(12);
+  crypto.getRandomValues(byte);
+  return `oi${Array.from(byte, (n) => n.toString(16).padStart(2, "0")).join("")}`;
+}
+
+function intestazioneAzione(input: RequestInfo | URL, init?: RequestInit): boolean {
+  try {
+    const headers = new Headers(
+      init?.headers ?? (input instanceof Request ? input.headers : undefined)
+    );
+    return headers.has("next-action");
+  } catch {
+    return false;
+  }
+}
+
+function richiestaElencoClienti(
+  input: RequestInfo | URL,
+  init: RequestInit | undefined,
+  marca: string
+): boolean {
+  if (!intestazioneAzione(input, init)) return false;
+  return corpoContieneMarca(testoCorpoAzione(init?.body), marca);
+}
+
+function testoCorpoAzione(body: BodyInit | null | undefined): string {
+  if (typeof body === "string") return body;
+  if (typeof URLSearchParams !== "undefined" && body instanceof URLSearchParams) {
+    return body.toString();
+  }
+  if (typeof FormData !== "undefined" && body instanceof FormData) {
+    const parti: string[] = [];
+    for (const value of body.values()) {
+      if (typeof value === "string") parti.push(value);
+    }
+    return parti.join("\n");
+  }
+  return "";
 }

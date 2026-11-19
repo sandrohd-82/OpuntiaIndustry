@@ -325,14 +325,28 @@ export function DiagnosticaPrestazioni({ origine }: { origine: "locale" | "produ
           <div className="mt-2 space-y-1">
             <p>
               Dal montaggio all&apos;avvio {elenco.montaggioAAvvioMs} ms. Attesa dell&apos;azione{" "}
-              {elenco.attesaAzioneMs} ms, di cui prima dell&apos;invio {ms(elenco.primaDelFetchMs)},
-              fetch {ms(elenco.fetchMs)}, dopo la risposta {ms(elenco.dopoIlFetchMs)}. Fetch
-              osservati {elenco.fetchOsservati}.
+              {elenco.attesaAzioneMs} ms.
             </p>
+            {elenco.associata ? (
+              <p>
+                Richiesta associata a listClientiAction. Prima dell&apos;invio{" "}
+                {ms(elenco.primaDelFetchMs)}. Fino alle intestazioni {ms(elenco.fetchMs)}. Lettura
+                della risposta {ms(elenco.dopoIlFetchMs)}. Altre Server Action partite prima:{" "}
+                {elenco.altreAzioni}.
+              </p>
+            ) : (
+              <p>
+                La richiesta di listClientiAction non è stata associata. I tempi di invio non sono
+                usati. Server Action viste durante l&apos;attesa: {elenco.altreAzioni ?? 0}.
+              </p>
+            )}
             <p>
               Dentro la funzione: accesso {elenco.accessoMs} ms, filtro {elenco.filtroMs} ms, query{" "}
-              {elenco.queryMs} ms, etichette {elenco.etichetteMs} ms, totale {elenco.totaleMs} ms.
-              Righe {elenco.righe}. Rendering {ms(elenco.renderingMs)}.
+              {elenco.queryMs} ms. Etichette {elenco.etichetteMs} ms, di cui identificativi{" "}
+              {ms(elenco.identificativiMs ?? null)}, nomi utente {ms(elenco.etichetteUtentiMs ?? null)},
+              persone {ms(elenco.nomiMs ?? null)}, prenotate {ms(elenco.prenotateMs ?? null)}, mappa{" "}
+              {ms(elenco.mappaMs ?? null)}. Totale {elenco.totaleMs} ms. Righe {elenco.righe}.
+              Rendering {ms(elenco.renderingMs)}.
             </p>
             <p>Tratto più lungo: {trattoElencoClienti(elenco)}.</p>
           </div>
