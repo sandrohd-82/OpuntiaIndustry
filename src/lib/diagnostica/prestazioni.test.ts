@@ -1,10 +1,14 @@
 import assert from "node:assert/strict";
 import {
   areaMisurabile,
+  chiudiNavigazione,
   controlloTrelloConsentito,
   decisioneScansioneFatture,
   decisioneScansionePromozioni,
+  interpretaAzione,
   mappaMenuDaCaricare,
+  percorsoMisurabile,
+  richiestaBloccaNavigazione,
   preloadReadlinkRichiesto,
   readlinkEisdirDaIgnorare,
   scansioneFattureMailRichiesta,
@@ -233,4 +237,107 @@ assert.equal(preloadReadlinkRichiesto("win32"), true);
 assert.equal(preloadReadlinkRichiesto("linux"), false);
 assert.equal(areaMisurabile("/app/amministrazione/fatture/abc"), "/app/amministrazione");
 assert.equal(areaMisurabile("/app/dashboard"), "/app/dashboard");
+
+const conInattivita = chiudiNavigazione({
+  area: "/app/impostazioni",
+  clic: 70_000,
+  commit: 70_800,
+  ora: 70_800,
+  schedaNascosta: false,
+  risorse: [
+    {
+      nome: "https://app.example/app/dashboard?_rsc=vecchia",
+      start: 100,
+      requestStart: 120,
+      responseStart: 71_000,
+      responseEnd: 71_200,
+      duration: 71_100,
+      middlewareMs: 80,
+    },
+    {
+      nome: "https://app.example/app/impostazioni/fiscale?_rsc=nuova",
+      start: 70_100,
+      requestStart: 70_140,
+      responseStart: 70_420,
+      responseEnd: 70_500,
+      duration: 400,
+      middlewareMs: 90,
+    },
+    {
+      nome: "https://app.example/api/avvisi",
+      start: 70_110,
+      requestStart: 70_110,
+      responseStart: 71_110,
+      responseEnd: 71_110,
+      duration: 5_000,
+      middlewareMs: null,
+    },
+  ],
+});
+assert.equal(conInattivita.transizioneMs, 800);
+assert.equal(conInattivita.completata, true);
+assert.equal(conInattivita.schedaNascosta, false);
+assert.equal(conInattivita.attesaPrimaRichiestaMs, 140);
+assert.equal(conInattivita.rispostaServerMs, 280);
+assert.equal(conInattivita.downloadMs, 80);
+assert.equal(conInattivita.renderingMs, 300);
+assert.equal(conInattivita.middlewareMs, 90);
+assert.equal(conInattivita.bloccanti, 1);
+assert.equal(conInattivita.richiesteFinestra, 2);
+assert.equal(conInattivita.lente[0]?.blocca, false);
+assert.equal(conInattivita.lente[1]?.blocca, true);
+
+const incompleta = chiudiNavigazione({
+  area: "/app/impostazioni",
+  clic: 1_000,
+  commit: null,
+  ora: 80_000,
+  schedaNascosta: true,
+  risorse: [],
+});
+assert.equal(incompleta.completata, false);
+assert.equal(incompleta.schedaNascosta, true);
+assert.equal(incompleta.transizioneMs, 20_000);
+assert.equal(incompleta.rispostaServerMs, null);
+
+assert.equal(
+  percorsoMisurabile("https://app.example/app/impostazioni/fatture/11111111-2222-3333-4444-555555555555?_rsc=token"),
+  "/app/impostazioni/fatture"
+);
+assert.equal(percorsoMisurabile("https://app.example/api/private?token=segreto"), "/altro");
+assert.equal(
+  richiestaBloccaNavigazione("https://app.example/app/dashboard?_rsc=x", "/app/impostazioni"),
+  false
+);
+assert.equal(
+  richiestaBloccaNavigazione("https://app.example/app/impostazioni?_rsc=x", "/app/impostazioni"),
+  true
+);
+
+assert.match(
+  interpretaAzione({
+    andataMs: 7_714,
+    azioneMs: 400,
+    contestoMs: 381,
+    istanzaMs: 1_200,
+    invioMs: 20,
+    ttfbMs: 7_400,
+    downloadMs: 40,
+    middlewareMs: 90,
+  }),
+  /avvio a freddo/
+);
+assert.match(
+  interpretaAzione({
+    andataMs: 7_714,
+    azioneMs: 400,
+    contestoMs: 381,
+    istanzaMs: 120_000,
+    invioMs: 20,
+    ttfbMs: 7_400,
+    downloadMs: 40,
+    middlewareMs: 90,
+  }),
+  /prima della funzione/
+);
 console.log("prestazioni: ok");

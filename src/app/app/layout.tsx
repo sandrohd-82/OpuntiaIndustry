@@ -12,7 +12,7 @@ import { TrelloSchedeSentinella } from "@/components/kanban/TrelloSchedeSentinel
 import { PageAccessToggle } from "@/components/layout/PageAccessToggle";
 import { WelcomeModal } from "@/components/layout/WelcomeModal";
 import { FattureMailCandidatiModal } from "@/components/amministrazione/FattureMailCandidatiModal";
-import { RegistratoreNavigazione } from "@/components/diagnostica/DiagnosticaPrestazioni";
+import { RegistratoreNavigazione } from "@/components/diagnostica/RegistratoreNavigazione";
 import { LeadPromozioneGate } from "@/components/amministrazione/LeadPromozioneGate";
 import {
   NotificationConsentBanner,
