@@ -8,15 +8,9 @@ import {
   useMemo,
   useState,
 } from "react";
-import {
-  savePushSubscriptionAction,
-  vapidPublicKeyAction,
-} from "@/app/actions/notifiche";
-import {
-  ackAvvisoAction,
-  listMieiAvvisiPendentiAction,
-  type DueAvvisoRow,
-} from "@/app/actions/pn-avvisi";
+import { savePushSubscriptionAction } from "@/app/actions/notifiche";
+import { ackAvvisoAction, type DueAvvisoRow } from "@/app/actions/pn-avvisi";
+import { leggiAvvisiPendenti, leggiChiaveVapid } from "@/lib/navigazione/nav-letture-client";
 import { notifyNotificheNav } from "@/lib/notifiche/nav-event";
 import { PnAvvisoSvegliaModal } from "@/components/layout/PnAvvisoSvegliaModal";
 
@@ -223,7 +217,7 @@ export function PushNotificationsProvider({
       }
       const key =
         process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY?.trim() ||
-        (await vapidPublicKeyAction());
+        (await leggiChiaveVapid());
       if (key && canUsePush()) {
         const ok = await subscribePush(key);
         if (!ok) {
@@ -285,7 +279,7 @@ export function PushNotificationsProvider({
       try {
         const key =
           process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY?.trim() ||
-          (await vapidPublicKeyAction());
+          (await leggiChiaveVapid());
         if (!key || cancelled || !canUsePush()) return;
         await subscribePush(key);
       } catch {
@@ -324,7 +318,7 @@ export function PushNotificationsProvider({
   useEffect(() => {
     let cancelled = false;
     async function tick() {
-      const res = await listMieiAvvisiPendentiAction();
+      const res = await leggiAvvisiPendenti();
       if (cancelled || !res.success) return;
       showDueSveglia(res.items);
     }

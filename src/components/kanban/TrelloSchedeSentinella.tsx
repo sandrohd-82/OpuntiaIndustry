@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect } from "react";
-import { rilevaSchedeTrelloAction } from "@/app/actions/trello-utente";
+import { leggiSchedeTrello } from "@/lib/navigazione/nav-letture-client";
 import { controlloTrelloConsentito } from "@/lib/diagnostica/prestazioni";
 import { notifyNotificheNav } from "@/lib/notifiche/nav-event";
 
@@ -16,7 +16,7 @@ export function TrelloSchedeSentinella() {
       if (!controlloTrelloConsentito({ finestraNascosta, richiestaInCorso })) return;
       richiestaInCorso = true;
       try {
-        const res = await rilevaSchedeTrelloAction();
+        const res = await leggiSchedeTrello();
         if (!attivo || !res.success || res.nuove < 1) return;
         notifyNotificheNav();
       } finally {

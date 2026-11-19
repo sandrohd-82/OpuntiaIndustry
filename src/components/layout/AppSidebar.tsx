@@ -57,21 +57,27 @@ import {
   toggleAccordion,
   type NavContrast,
 } from "@/lib/areas/nav-layer";
-import { countOrdiniDaProcessareAction } from "@/app/actions/ordini";
-import { countPreventiviAttesaSpedizioneNavAction } from "@/app/actions/preventivi";
 import {
   PREVENTIVI_SPEDIZIONE_NAV_EVENT,
 } from "@/lib/amministrazione/preventivi";
-import { bootstrapAppNavAction } from "@/app/actions/nav-bootstrap";
 import { ORDINI_DA_PROCESSARE_NAV_EVENT } from "@/lib/amministrazione/ordini-nav";
-import { countUnreadNotificheAction } from "@/app/actions/notifiche";
 import { NOTIFICHE_NAV_EVENT } from "@/lib/notifiche/nav-event";
 import { createClient } from "@/lib/supabase/client";
 import {
   MAGAZZINO_MAPPE_NAV_EVENT,
   MAGAZZINO_SECTIONS,
 } from "@/lib/areas/magazzino";
-import { listMappaMenuNavAction } from "@/app/actions/magazzino-mappa";
+import {
+  leggiBootstrapMenu,
+  leggiHaccpRoutine,
+  leggiMappaMenu,
+  leggiNotificheNonLette,
+  leggiOrdiniDaProcessare,
+  leggiPreventiviSpedizione,
+  leggiProduzioneAree,
+  leggiTicketBadge,
+  leggiWebmailMenu,
+} from "@/lib/navigazione/nav-letture-client";
 import { mappaMenuDaCaricare } from "@/lib/diagnostica/prestazioni";
 import {
   MAPPA_MENU_NAV_EVENT,
@@ -86,8 +92,6 @@ import {
   PRODUZIONE_AREE_NAV_EVENT,
   PRODUZIONE_SECTIONS,
 } from "@/lib/areas/produzione";
-import { listProduzioneAreeAction } from "@/app/actions/produzione-aree";
-import { listHaccpRoutineAction } from "@/app/actions/haccp";
 import {
   formatResiduoHaccp,
   type HaccpCategoria,
@@ -100,11 +104,7 @@ import {
   mergeArchivioWebmailCaselle,
 } from "@/lib/areas/archivio";
 import { isWebHubPath, webSectionsForAccess } from "@/lib/areas/web";
-import {
-  listWebmailMenuAccountsAction,
-  setImpersonatedWebmailAreaAccessAction,
-} from "@/app/actions/webmail";
-import { getTicketNavBadgeAction } from "@/app/actions/strumenti-ticket-impostazioni";
+import { setImpersonatedWebmailAreaAccessAction } from "@/app/actions/webmail";
 import { TicketNavDots } from "@/components/strumenti/TicketNavDots";
 import { TICKET_NAV_EVENT } from "@/lib/strumenti/ticket-nav";
 import { ChatUnreadBadge } from "@/components/chat/ChatUnreadBadge";
@@ -729,7 +729,7 @@ export function AppSidebar({
     const archivioBase = filterArchivioNavByAccess(areas);
     const wantWebmailAccounts =
       hasArchivio && archivioBase.some((s) => s.slug === "webmail");
-    void bootstrapAppNavAction({
+    void leggiBootstrapMenu({
       ordini: hasAmministrazione && isAdminLike,
       notifiche: hasPn,
       ticket: hasTicketMenu,
@@ -811,7 +811,7 @@ export function AppSidebar({
     }
     let cancelled = false;
     function loadCount() {
-      void countOrdiniDaProcessareAction()
+      void leggiOrdiniDaProcessare()
         .then((res) => {
           if (cancelled || !res.success) return;
           setDaProcessareCount(res.totale);
@@ -836,7 +836,7 @@ export function AppSidebar({
     }
     let cancelled = false;
     function loadCount() {
-      void countPreventiviAttesaSpedizioneNavAction()
+      void leggiPreventiviSpedizione()
         .then((res) => {
           if (cancelled || !res.success) return;
           setSpedizioneAttesaCount(res.totale);
@@ -881,7 +881,7 @@ export function AppSidebar({
     }
     let cancelled = false;
     function loadUnread() {
-      void countUnreadNotificheAction("attivita")
+      void leggiNotificheNonLette("attivita")
         .then((res) => {
           if (cancelled || !res.success) return;
           setPnAttivitaUnread(res.totale);
@@ -921,7 +921,7 @@ export function AppSidebar({
     }
     let cancelled = false;
     function loadTicketBadge() {
-      void getTicketNavBadgeAction()
+      void leggiTicketBadge()
         .then((res) => {
           if (cancelled || !res.success) return;
           setTicketNav({
@@ -978,7 +978,7 @@ export function AppSidebar({
   useEffect(() => {
     let cancelled = false;
     function loadNav() {
-      void listMappaMenuNavAction()
+      void leggiMappaMenu()
         .then((res) => {
           if (cancelled || !res.success) return;
           setMappaMenuNodi(res.nodi);
@@ -1009,7 +1009,7 @@ export function AppSidebar({
       return;
     }
     mappaRichiesta.current = true;
-    void listMappaMenuNavAction()
+    void leggiMappaMenu()
       .then((res) => {
         if (!res.success) {
           mappaRichiesta.current = false;
@@ -1027,7 +1027,7 @@ export function AppSidebar({
     if (!hasProduzione) return;
     let cancelled = false;
     function loadNav() {
-      void listProduzioneAreeAction()
+      void leggiProduzioneAree()
         .then((res) => {
           if (cancelled || !res.success) return;
           setProduzioneNav(mergeProduzioneNavWithAree(res.items));
@@ -1052,7 +1052,7 @@ export function AppSidebar({
     if (!hasProduzione) return;
     let cancelled = false;
     function loadRoutine() {
-      void listHaccpRoutineAction()
+      void leggiHaccpRoutine()
         .then((res) => {
           if (cancelled || !res.success) return;
           setHaccpRoutine({ categorie: res.categorie, voci: res.voci });
@@ -1081,7 +1081,7 @@ export function AppSidebar({
     }
     let cancelled = false;
     function reload() {
-      void listWebmailMenuAccountsAction().then((res) => {
+      void leggiWebmailMenu().then((res) => {
         if (cancelled || !res.success) return;
         setWebmailGrantTone(res.grantTone);
       });

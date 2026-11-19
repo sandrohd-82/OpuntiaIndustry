@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { FaBell } from "react-icons/fa6";
-import { countUnreadNotificheAction } from "@/app/actions/notifiche";
+import { leggiNotificheNonLette } from "@/lib/navigazione/nav-letture-client";
 import { NOTIFICHE_NAV_EVENT } from "@/lib/notifiche/nav-event";
 import { createClient } from "@/lib/supabase/client";
 
@@ -13,7 +13,7 @@ export function NotificheBell() {
   useEffect(() => {
     let cancelled = false;
     function load() {
-      void countUnreadNotificheAction()
+      void leggiNotificheNonLette()
         .then((res) => {
           if (cancelled || !res.success) return;
           setUnread(res.totale);
