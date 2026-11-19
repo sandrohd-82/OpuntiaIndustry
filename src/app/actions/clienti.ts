@@ -26,6 +26,7 @@ import { fiscalConflictMessage } from "@/lib/amministrazione/azienda-collegata";
 import { normalizeVatKey } from "@/lib/amministrazione/fic-anagrafiche";
 import { fraseConfermaSoftDelete } from "@/lib/soft-delete";
 import { requireAnyAreaAccess, requireAreaAccess } from "@/lib/areas/guard";
+import type { TempiServerElencoClienti } from "@/lib/diagnostica/prestazioni";
 import { assertAnagraficaPrivilege } from "@/lib/auth/anagrafica-privileges-server";
 import {
   parseAnagraficaOrdineFromRaw,
@@ -155,12 +156,17 @@ export async function previewNextCodiceTargaClienteAction(): Promise<
 }
 
 export async function listClientiAction(): Promise<
-  | { success: true; clienti: Cliente[] }
+  | { success: true; clienti: Cliente[]; tempi: TempiServerElencoClienti }
   | { success: false; error: string }
 > {
+  const inizioAzione = performance.now();
+  const inizioAccesso = performance.now();
   await requireAnyAreaAccess(["amministrazione", "commerciale"]);
+  const accessoMs = Math.round(performance.now() - inizioAccesso);
   const supabase = await createClient();
+  const inizioFiltro = performance.now();
   const listOr = await anagraficaListOrClause();
+  const filtroMs = Math.round(performance.now() - inizioFiltro);
 
   let q = supabase
     .from("clienti")
@@ -169,13 +175,16 @@ export async function listClientiAction(): Promise<
   if (listOr) {
     q = q.or(listOr);
   }
+  const inizioQuery = performance.now();
   const { data, error } = await q.order("created_at", { ascending: false });
+  const queryMs = Math.round(performance.now() - inizioQuery);
 
   if (error) {
     return { success: false, error: error.message };
   }
 
   const rows = (data ?? []) as ClienteRow[];
+  const inizioEtichette = performance.now();
   const [commercialIds, titolareIds] = await Promise.all([
     loadCommercialeUserIds(),
     loadTitolareCooperativaUserIds(),
@@ -251,6 +260,14 @@ export async function listClientiAction(): Promise<
       cliente.cancellazionePrenotata = prenotate.has(row.id);
       return cliente;
     }),
+    tempi: {
+      accessoMs,
+      filtroMs,
+      queryMs,
+      etichetteMs: Math.round(performance.now() - inizioEtichette),
+      totaleMs: Math.round(performance.now() - inizioAzione),
+      righe: rows.length,
+    } satisfies TempiServerElencoClienti,
   };
 }
 

@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { misuraContestoAction } from "@/app/actions/diagnostica-prestazioni";
+import { leggiMisuraElencoClienti } from "@/components/diagnostica/misura-elenco-clienti";
 import { preparaRegistroRisorse, risorseRaccolte } from "@/components/diagnostica/osservatorio-risorse";
 import {
   CHIAVE_NAVIGAZIONI,
@@ -9,7 +10,9 @@ import {
   fasiChiamataClient,
   interpretaAzione,
   raggruppaRichieste,
+  trattoElencoClienti,
   type GruppoRichieste,
+  type MisuraElencoClienti,
   type ResocontoNavigazione,
   type RisorsaOsservata,
 } from "@/lib/diagnostica/prestazioni";
@@ -137,6 +140,7 @@ export function DiagnosticaPrestazioni({ origine }: { origine: "locale" | "produ
     durataMedia: 0,
   });
   const [contesto, setContesto] = useState("");
+  const [elenco, setElenco] = useState<MisuraElencoClienti | null>(null);
   const [inCorso, setInCorso] = useState(false);
 
   function aggiorna() {
@@ -168,6 +172,7 @@ export function DiagnosticaPrestazioni({ origine }: { origine: "locale" | "produ
     );
     setRegistro(raccolte.length);
     setScript(javascriptTrasferito());
+    setElenco(leggiMisuraElencoClienti());
   }
 
   useEffect(() => {
@@ -277,7 +282,7 @@ export function DiagnosticaPrestazioni({ origine }: { origine: "locale" | "produ
               <li key={`${voce.area}-${indice}`} className="border-t border-slate-100 pt-2">
                 <p className="font-medium">
                   {voce.area}
-                  {voce.completata ? "" : ", percorso non completato entro 20 s"}
+                  {voce.completata ? "" : ", percorso non completato entro 60 s"}
                   {voce.schedaNascosta ? ", scheda in background" : ""}
                   {voce.chiusa ? "" : ", misura ancora aperta"}
                 </p>
@@ -308,6 +313,29 @@ export function DiagnosticaPrestazioni({ origine }: { origine: "locale" | "produ
               </li>
             ))}
           </ul>
+        )}
+      </section>
+      <section className="rounded-xl border border-slate-200 bg-white p-4">
+        <h2 className="font-semibold">Elenco clienti</h2>
+        {elenco == null ? (
+          <p className="mt-2">
+            Apri Commerciale, poi Clienti, attendi che l&apos;elenco sia usabile e torna qui.
+          </p>
+        ) : (
+          <div className="mt-2 space-y-1">
+            <p>
+              Dal montaggio all&apos;avvio {elenco.montaggioAAvvioMs} ms. Attesa dell&apos;azione{" "}
+              {elenco.attesaAzioneMs} ms, di cui prima dell&apos;invio {ms(elenco.primaDelFetchMs)},
+              fetch {ms(elenco.fetchMs)}, dopo la risposta {ms(elenco.dopoIlFetchMs)}. Fetch
+              osservati {elenco.fetchOsservati}.
+            </p>
+            <p>
+              Dentro la funzione: accesso {elenco.accessoMs} ms, filtro {elenco.filtroMs} ms, query{" "}
+              {elenco.queryMs} ms, etichette {elenco.etichetteMs} ms, totale {elenco.totaleMs} ms.
+              Righe {elenco.righe}. Rendering {ms(elenco.renderingMs)}.
+            </p>
+            <p>Tratto più lungo: {trattoElencoClienti(elenco)}.</p>
+          </div>
         )}
       </section>
       <section className="rounded-xl border border-slate-200 bg-white p-4">

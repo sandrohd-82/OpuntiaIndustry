@@ -103,6 +103,27 @@ export const CHIAVE_NAVIGAZIONI = "prestazioni-navigazioni-2";
 export const CHIAVE_NAVIGAZIONI_OBSOLETA = "prestazioni-aree";
 export const CHIAVE_NAVIGAZIONI_PRECEDENTE = "prestazioni-navigazioni";
 export const FINESTRA_RICHIESTE_MS = 60_000;
+export const CHIAVE_ELENCO_CLIENTI = "prestazioni-elenco-clienti";
+
+export type TempiServerElencoClienti = {
+  accessoMs: number;
+  filtroMs: number;
+  queryMs: number;
+  etichetteMs: number;
+  totaleMs: number;
+  righe: number;
+};
+
+export type MisuraElencoClienti = TempiServerElencoClienti & {
+  montaggioAAvvioMs: number;
+  primaDelFetchMs: number | null;
+  fetchMs: number | null;
+  dopoIlFetchMs: number | null;
+  fetchOsservati: number;
+  attesaAzioneMs: number;
+  ricevutoAt: number;
+  renderingMs: number | null;
+};
 export const AREE_CONTENUTO = [
   "dashboard",
   "amministrazione",
@@ -110,7 +131,7 @@ export const AREE_CONTENUTO = [
   "produzione",
   "magazzino",
 ] as const;
-const LIMITE_NAVIGAZIONE_MS = 20_000;
+export const LIMITE_NAVIGAZIONE_MS = 60_000;
 
 export type CategoriaRichiesta =
   | "navigazione"
@@ -426,6 +447,32 @@ export function fasiChiamataClient(input: {
     dopoMs: Math.max(0, Math.round(input.fine - principale.fine)),
     fetchOsservati: utili.length,
   };
+}
+
+export function trattoElencoClienti(misura: {
+  primaDelFetchMs: number | null;
+  queryMs: number;
+  etichetteMs: number;
+  accessoMs: number;
+  filtroMs: number;
+  dopoIlFetchMs: number | null;
+  renderingMs: number | null;
+  fetchMs: number | null;
+  totaleMs: number;
+}): string {
+  const tratti: [string, number][] = [
+    ["prima dell'invio", misura.primaDelFetchMs ?? 0],
+    ["query clienti", misura.queryMs],
+    ["etichette", misura.etichetteMs],
+    ["accesso", misura.accessoMs],
+    ["filtro visibilità", misura.filtroMs],
+    ["fetch oltre la funzione", Math.max(0, (misura.fetchMs ?? 0) - misura.totaleMs)],
+    ["dopo la risposta", misura.dopoIlFetchMs ?? 0],
+    ["rendering", misura.renderingMs ?? 0],
+  ];
+  const scelto = tratti.reduce((corrente, voce) => (voce[1] > corrente[1] ? voce : corrente));
+  if (scelto[1] < 1000) return "nessun tratto oltre un secondo";
+  return scelto[0];
 }
 
 export function interpretaAzione(input: {

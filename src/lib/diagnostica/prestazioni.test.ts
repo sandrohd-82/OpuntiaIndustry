@@ -8,6 +8,7 @@ import {
   decisioneScansioneFatture,
   decisioneScansionePromozioni,
   interpretaAzione,
+  trattoElencoClienti,
   mappaMenuDaCaricare,
   percorsoMisurabile,
   raggruppaRichieste,
@@ -300,7 +301,7 @@ const incompleta = chiudiNavigazione({
 });
 assert.equal(incompleta.completata, false);
 assert.equal(incompleta.schedaNascosta, true);
-assert.equal(incompleta.transizioneMs, 20_000);
+assert.equal(incompleta.transizioneMs, 60_000);
 assert.equal(incompleta.rispostaServerMs, null);
 
 assert.equal(
@@ -482,4 +483,46 @@ assert.deepEqual(fasiChiamataClient({ clic: 0, fine: 100, fetch: [] }), {
   dopoMs: null,
   fetchOsservati: 0,
 });
+assert.equal(
+  trattoElencoClienti({
+    primaDelFetchMs: 20_000,
+    queryMs: 80,
+    etichetteMs: 40,
+    accessoMs: 30,
+    filtroMs: 10,
+    dopoIlFetchMs: 20,
+    renderingMs: 15,
+    fetchMs: 200,
+    totaleMs: 160,
+  }),
+  "prima dell'invio"
+);
+assert.equal(
+  trattoElencoClienti({
+    primaDelFetchMs: 200,
+    queryMs: 18_000,
+    etichetteMs: 40,
+    accessoMs: 30,
+    filtroMs: 10,
+    dopoIlFetchMs: 20,
+    renderingMs: 15,
+    fetchMs: 18_200,
+    totaleMs: 18_080,
+  }),
+  "query clienti"
+);
+assert.equal(
+  trattoElencoClienti({
+    primaDelFetchMs: 100,
+    queryMs: 80,
+    etichetteMs: 40,
+    accessoMs: 30,
+    filtroMs: 10,
+    dopoIlFetchMs: 20,
+    renderingMs: null,
+    fetchMs: 200,
+    totaleMs: 160,
+  }),
+  "nessun tratto oltre un secondo"
+);
 console.log("prestazioni: ok");

@@ -54,6 +54,8 @@ import { SoftDeleteConfirmModal } from "@/components/amministrazione/SoftDeleteC
 import { PageLoading } from "@/components/ui/BusyIndicator";
 import { SortableTh } from "@/components/ui/SortableTh";
 import { nextSortState, type SortState } from "@/lib/ui/list-sort";
+import { segnaDatiPagina } from "@/components/diagnostica/SegnaContenuto";
+import { segnaRenderingElencoClienti } from "@/components/diagnostica/misura-elenco-clienti";
 import { useClienti } from "@/hooks/useClienti";
 import {
   formatCommercialeAssegnazione,
@@ -554,6 +556,12 @@ export function ClientiBoard() {
     });
     exitPdfSelectMode();
   }
+
+  useEffect(() => {
+    if (!ready || error) return;
+    segnaRenderingElencoClienti(performance.now());
+    segnaDatiPagina();
+  }, [ready, error]);
 
   if (!ready) {
     return <PageLoading label="Caricamento clienti" />;

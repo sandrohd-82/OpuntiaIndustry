@@ -12,6 +12,7 @@ import {
 import {
   areaMisurabile,
   chiudiNavigazione,
+  LIMITE_NAVIGAZIONE_MS,
   CHIAVE_NAVIGAZIONI,
   CHIAVE_NAVIGAZIONI_OBSOLETA,
   CHIAVE_NAVIGAZIONI_PRECEDENTE,
@@ -145,7 +146,7 @@ export function RegistratoreNavigazione() {
         if (!attesa.current || attesa.current.clic !== clic) return;
         pubblica(true);
         attesa.current = null;
-      }, 20_000);
+      }, LIMITE_NAVIGAZIONE_MS);
     }
 
     function onClick(event: MouseEvent) {

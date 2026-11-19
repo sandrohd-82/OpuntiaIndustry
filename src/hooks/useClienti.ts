@@ -1,7 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { segnaDatiPagina } from "@/components/diagnostica/SegnaContenuto";
+import { salvaMisuraElencoClienti } from "@/components/diagnostica/misura-elenco-clienti";
+import { fasiChiamataClient } from "@/lib/diagnostica/prestazioni";
 import {
   createClienteAction,
   listClientiAction,
@@ -23,13 +24,47 @@ export function useClienti() {
     } else {
       setError(result.error);
     }
+    return result;
   }, []);
 
   useEffect(() => {
-    void refresh().finally(() => {
-      setReady(true);
-      segnaDatiPagina();
-    });
+    const misuraPagina = window.location.pathname.startsWith("/app/commerciale/clienti");
+    const montato = performance.now();
+    const visti: { inizio: number; fine: number }[] = [];
+    const originale = misuraPagina ? window.fetch.bind(window) : null;
+    if (originale) {
+      window.fetch = (input: RequestInfo | URL, init?: RequestInit) => {
+        const inizioFetch = performance.now();
+        return originale(input, init).finally(() => {
+          visti.push({ inizio: inizioFetch, fine: performance.now() });
+        });
+      };
+    }
+    const avvio = performance.now();
+    void refresh()
+      .then((result) => {
+        if (!misuraPagina || !result.success) return;
+        const fine = performance.now();
+        const fasi = fasiChiamataClient({ clic: avvio, fine, fetch: visti });
+        salvaMisuraElencoClienti({
+          ...result.tempi,
+          montaggioAAvvioMs: Math.max(0, Math.round(avvio - montato)),
+          primaDelFetchMs: fasi.primaMs,
+          fetchMs: fasi.reteMs,
+          dopoIlFetchMs: fasi.dopoMs,
+          fetchOsservati: fasi.fetchOsservati,
+          attesaAzioneMs: Math.round(fine - avvio),
+          ricevutoAt: fine,
+          renderingMs: null,
+        });
+      })
+      .catch(() => {
+        setError("Elenco clienti non disponibile.");
+      })
+      .finally(() => {
+        if (originale) window.fetch = originale;
+        setReady(true);
+      });
   }, [refresh]);
 
   async function addCliente(input: ClienteInput) {
