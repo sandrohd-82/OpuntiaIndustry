@@ -205,14 +205,14 @@ export async function scriviElaborazioneRegistro(input: {
       }
     }
     const pdf = doc.classica
-      ? buildFatturaClassicaPdf({
+      ? await buildFatturaClassicaPdf({
           model: doc.classica,
           numeroSequenza: doc.numeroSequenza,
           showSequenza: doc.numeroSequenza != null,
           fileName,
           logo,
         })
-      : buildPaperFatturaPdf({
+      : await buildPaperFatturaPdf({
           model: doc.model,
           numeroSequenza: doc.numeroSequenza,
           fileName,

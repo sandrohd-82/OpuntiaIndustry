@@ -1,4 +1,6 @@
-import ExcelJS from "exceljs";
+import {
+  creaWorkbook,
+} from "@/lib/documenti/carica-libreria";
 import {
   listinoExportFilename,
   listinoExportRowCells,
@@ -11,7 +13,7 @@ export async function buildListinoXlsxBuffer(
   meta: ListinoExportMeta,
   rows: ListinoExportRow[]
 ): Promise<{ filename: string; buffer: Buffer }> {
-  const wb = new ExcelJS.Workbook();
+  const wb = await creaWorkbook();
   wb.creator = "OpuntiaIndustry";
   wb.created = new Date();
   wb.title = meta.nome || `Listino ${meta.codice}`;

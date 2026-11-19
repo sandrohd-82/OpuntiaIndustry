@@ -1,5 +1,8 @@
-import { jsPDF } from "jspdf";
-import autoTable from "jspdf-autotable";
+import type { jsPDF } from "jspdf";
+import {
+  creaJsPdf,
+  tabellaJsPdf,
+} from "@/lib/documenti/carica-libreria";
 import {
   contrattoStatoLabel,
   contrattoTipoLabel,
@@ -139,12 +142,12 @@ function triggerBlobDownload(blob: Blob, filename: string) {
 
 const TESSERA_MM = 36;
 
-function writeAnagrafica(
+async function writeAnagrafica(
   doc: jsPDF,
   payload: PersonaSchedaExportPayload,
   startY: number,
   fotoDataUrl: string | null
-): number {
+): Promise<number> {
   const p = payload.persona;
   const margin = 14;
   let y = startY;
@@ -183,7 +186,7 @@ function writeAnagrafica(
     [t("In forza"), t(p.inForza ? "Sì" : "No")],
     [t("Note"), t(p.note || "—")],
   ];
-  autoTable(doc, {
+  await tabellaJsPdf(doc, {
     startY: y,
     margin: { left: margin, right: fotoDataUrl ? TESSERA_MM + 18 : margin },
     theme: "plain",
@@ -210,11 +213,11 @@ function writeAnagrafica(
   return y;
 }
 
-function writeContrattiArea(
+async function writeContrattiArea(
   doc: jsPDF,
   payload: PersonaSchedaExportPayload,
   startY: number
-): number {
+): Promise<number> {
   const margin = 14;
   const items = Array.isArray(payload.contratti) ? payload.contratti : [];
   const files = Array.isArray(payload.files) ? payload.files : [];
@@ -262,7 +265,7 @@ function writeContrattiArea(
     ];
     if (c.tacitoRinnovo) rows.push(["Tacito rinnovo", "Si"]);
     if (c.note?.trim()) rows.push(["Note", c.note]);
-    autoTable(doc, {
+    await tabellaJsPdf(doc, {
       startY: y,
       margin: { left: margin, right: margin },
       theme: "plain",
@@ -295,7 +298,7 @@ function writeContrattiArea(
 export async function downloadPersonaSchedaPdf(
   payload: PersonaSchedaExportPayload
 ): Promise<void> {
-  const doc = new jsPDF({ unit: "mm", format: "a4" });
+  const doc = await creaJsPdf({ unit: "mm", format: "a4" });
   const margin = 14;
   const p = payload.persona;
   const sel = payload.selection;
@@ -325,10 +328,10 @@ export async function downloadPersonaSchedaPdf(
   }
 
   if (sel.anagrafica || sel.foto) {
-    y = writeAnagrafica(doc, payload, y, sel.foto ? fotoDataUrl : null);
+    y = await writeAnagrafica(doc, payload, y, sel.foto ? fotoDataUrl : null);
   }
 
-  function sectionTable(title: string, head: string[], body: string[][]) {
+  async function sectionTable(title: string, head: string[], body: string[][]) {
     if (y > 250) {
       doc.addPage();
       y = 16;
@@ -341,7 +344,7 @@ export async function downloadPersonaSchedaPdf(
     const safeBody = body.length
       ? body.map((row) => row.map((cell) => t(cell)))
       : [[t("Nessun elemento")]];
-    autoTable(doc, {
+    await tabellaJsPdf(doc, {
       startY: y,
       margin: { left: margin, right: margin },
       head: [safeHead],
@@ -419,7 +422,7 @@ export async function downloadPersonaSchedaPdf(
     );
   }
   if (sel.contrattiElenco || sel.contrattiFile) {
-    y = writeContrattiArea(doc, payload, y);
+    y = await writeContrattiArea(doc, payload, y);
   }
   if (sel.busteElenco) {
     sectionTable(

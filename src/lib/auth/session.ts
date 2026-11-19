@@ -1,4 +1,5 @@
 import { cache } from "react";
+import { notaPrestazione } from "@/lib/diagnostica/prestazioni";
 import { cookies } from "next/headers";
 import { AREA_ROUTES } from "@/lib/areas/config";
 import { TWO_FA_SESSION_COOKIE } from "@/lib/auth/constants";
@@ -25,11 +26,13 @@ export interface AuthContext {
 }
 
 export const getAuthUser = cache(async function getAuthUser() {
+  const inizio = performance.now();
   const supabase = await createClient();
   const {
     data: { user },
     error,
   } = await supabase.auth.getUser();
+  notaPrestazione("auth.getUser", inizio);
   if (error || !user) return null;
   return user;
 });
@@ -44,6 +47,7 @@ export const isSecondFactorVerified = cache(async function isSecondFactorVerifie
   const uid = userId ?? (await getAuthUser())?.id;
   if (!uid) return false;
 
+  const inizio = performance.now();
   const supabase = await createClient();
   const { hashSessionToken } = await import("@/lib/auth/two-factor");
   const tokenHash = hashSessionToken(token);
@@ -55,13 +59,14 @@ export const isSecondFactorVerified = cache(async function isSecondFactorVerifie
     .eq("user_id", uid)
     .gt("expires_at", new Date().toISOString())
     .maybeSingle();
-
+  notaPrestazione("auth.2fa", inizio);
   return Boolean(data);
 });
 
 export const getProfile = cache(async function getProfile(
   userId: string
 ): Promise<Profile | null> {
+  const inizio = performance.now();
   const supabase = await createClient();
   const { data, error } = await supabase
     .from("profiles")
@@ -69,6 +74,7 @@ export const getProfile = cache(async function getProfile(
     .eq("id", userId)
     .eq("is_active", true)
     .single();
+  notaPrestazione("auth.profilo", inizio);
 
   if (error || !data) return null;
   return data as Profile;
@@ -77,10 +83,12 @@ export const getProfile = cache(async function getProfile(
 export const getUserAreas = cache(async function getUserAreas(
   userId: string
 ): Promise<UserArea[]> {
+  const inizio = performance.now();
   const supabase = await createClient();
   const { data, error } = await supabase.rpc("get_user_areas", {
     p_user_id: userId,
   });
+  notaPrestazione("auth.aree", inizio);
 
   if (error || !data) return [];
   return data as UserArea[];
@@ -131,6 +139,8 @@ const getActiveImpersonationTargetId = cache(async function getActiveImpersonati
 });
 
 export const getAuthContext = cache(async function getAuthContext(): Promise<AuthContext | null> {
+  const inizio = performance.now();
+  try {
   const user = await getAuthUser();
   if (!user?.email) return null;
 
@@ -175,6 +185,9 @@ export const getAuthContext = cache(async function getAuthContext(): Promise<Aut
     mustEnrollTotp,
     welcomePending,
   };
+  } finally {
+    notaPrestazione("auth.contesto", inizio);
+  }
 });
 
 export function userCanAccessArea(

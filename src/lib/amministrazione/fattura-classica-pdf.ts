@@ -1,5 +1,8 @@
-import { jsPDF } from "jspdf";
-import autoTable from "jspdf-autotable";
+import type { jsPDF } from "jspdf";
+import {
+  creaJsPdf,
+  tabellaJsPdf,
+} from "@/lib/documenti/carica-libreria";
 import type { FatturaClassicaStampaModel } from "@/lib/amministrazione/fattura-classica-stampa";
 import { prezzoScontatoUnitario } from "@/lib/amministrazione/fatture";
 import {
@@ -137,13 +140,13 @@ type ColonnaTabella = {
 };
 
 /** Griglia con il titolo sulla stessa linea dei valori della colonna. */
-function disegnaTabella(
+async function disegnaTabella(
   doc: jsPDF,
   y: number,
   colonne: ColonnaTabella[],
   body: string[][]
-): number {
-  autoTable(doc, {
+): Promise<number> {
+  await tabellaJsPdf(doc, {
     startY: y,
     margin: { left: 12, right: 12 },
     theme: "grid",
@@ -273,15 +276,15 @@ function drawAvvisoEstero(doc: jsPDF, nazione: string | null, y: number): number
   return y + 8;
 }
 
-export function buildFatturaClassicaPdf(input: {
+export async function buildFatturaClassicaPdf(input: {
   model: FatturaClassicaStampaModel;
   numeroSequenza: number | null;
   showSequenza: boolean;
   fileName: string;
   /** Solo sulle emesse: stesso marchio della fattura inviata al cliente. */
   logo?: LogoIntestazione | null;
-}): FilePdf {
-  const doc = new jsPDF({ unit: "mm", format: "a4" });
+}): Promise<FilePdf> {
+  const doc = await creaJsPdf({ unit: "mm", format: "a4" });
   const m = input.model;
   const data = dataLunga(m.dataDocumento);
   const right = 198;
@@ -396,7 +399,7 @@ export function buildFatturaClassicaPdf(input: {
   const gap = Math.max(6, Math.min(18, free / 2));
   y += gap;
 
-  const after = disegnaTabella(
+  const after = await disegnaTabella(
     doc,
     y,
     COLONNE_FATTURA,
@@ -498,7 +501,7 @@ const COLONNE_RICEVUTA: ColonnaTabella[] = [
   { titolo: "Importo", larghezza: 26, align: "right" },
 ];
 
-export function buildPaperFatturaPdf(input: {
+export async function buildPaperFatturaPdf(input: {
   model: PaperInvoiceModel;
   numeroSequenza: number | null;
   fileName: string;
@@ -506,8 +509,8 @@ export function buildPaperFatturaPdf(input: {
   comeInviata?: boolean;
   notaCredito?: boolean;
   logo?: LogoIntestazione | null;
-}): FilePdf {
-  const doc = new jsPDF({ unit: "mm", format: "a4" });
+}): Promise<FilePdf> {
+  const doc = await creaJsPdf({ unit: "mm", format: "a4" });
   const m = input.model;
   const data = dataLunga(m.data ?? "");
   const nota = Boolean(input.comeInviata && input.notaCredito);
@@ -549,7 +552,7 @@ export function buildPaperFatturaPdf(input: {
   doc.text("DESTINATARIO", 12, y + 5);
   doc.setFontSize(11);
   doc.text(testo(m.destinatario.ragioneSociale).toUpperCase(), 12, y + 10);
-  const after = disegnaTabella(
+  const after = await disegnaTabella(
     doc,
     y + 16,
     input.comeInviata ? COLONNE_FATTURA : COLONNE_RICEVUTA,
@@ -644,7 +647,7 @@ export async function blobImmagineInPdf(blob: Blob): Promise<Blob> {
     const ctx = canvas.getContext("2d");
     if (!ctx) throw new Error("canvas");
     ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-    const doc = new jsPDF({ unit: "mm", format: "a4" });
+    const doc = await creaJsPdf({ unit: "mm", format: "a4" });
     const margin = 8;
     const maxW = 210 - margin * 2;
     const maxH = 297 - margin * 2;

@@ -1,7 +1,9 @@
 "use client";
 
 import dynamic from "next/dynamic";
+import { usePathname } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
+import { scansioneFattureMailRichiesta } from "@/lib/diagnostica/prestazioni";
 
 const FatturaRegistrazioneModal = dynamic(
   () =>
@@ -19,6 +21,7 @@ import {
 import type { Fattura } from "@/lib/amministrazione/fatture";
 
 const NASCOSTO = "fatture-mail-candidati-dopo";
+const SCANSIONE = "fatture-mail-scansione-fatta";
 
 function euro(n: number | null): string {
   if (n == null || !Number.isFinite(n)) return "—";
@@ -44,54 +47,56 @@ export function FattureMailCandidatiModal() {
   const [inControllo, setInControllo] = useState(false);
   const [banner, setBanner] = useState<string | null>(null);
   const ferma = useRef(false);
+  const elencato = useRef(false);
+  const pathname = usePathname();
+
+  async function carica(scansiona: boolean) {
+    if (ferma.current) return;
+    setInControllo(true);
+    setBanner(
+      scansiona ? "Controllo le fatture nelle mail del 2026…" : "Fatture già trovate nelle mail"
+    );
+    const res = await listFattureMailDaValutareAction(scansiona ? { scansiona: true } : undefined);
+    if (ferma.current) return;
+    setInControllo(false);
+    if (!res.success) {
+      setErrore(res.error);
+      setBanner(res.error);
+      return;
+    }
+    setPeriodo(res.periodo || "2026");
+    setMancanti(res.caselleMancanti);
+    setCandidati(res.candidati);
+    if (scansiona && res.restano) {
+      setBanner("Restano mail da controllare. Usa Aggiorna dalle mail per il passaggio successivo.");
+      return;
+    }
+    const quante = res.candidati.length;
+    if (quante === 0) setBanner("Nessuna fattura nuova da registrare");
+    else if (quante === 1) setBanner("C'è 1 fattura da registrare");
+    else setBanner(`Ci sono ${quante} fatture da registrare`);
+  }
 
   useEffect(() => {
     if (typeof window !== "undefined" && sessionStorage.getItem(NASCOSTO) === "1") {
       return;
     }
-    let vivo = true;
-    setInControllo(true);
-    setBanner("Controllo le fatture nelle mail del 2026…");
-    setPeriodo("2026");
-    async function run() {
-      await new Promise((resolve) => window.setTimeout(resolve, 2000));
-      for (let passo = 0; passo < 60 && vivo && !ferma.current; passo += 1) {
-        const res = await listFattureMailDaValutareAction();
-        if (!vivo || ferma.current) return;
-        if (!res.success) {
-          setErrore(res.error);
-          setBanner(res.error);
-          setInControllo(false);
-          return;
-        }
-        setPeriodo(res.periodo || "2026");
-        setMancanti(res.caselleMancanti);
-        setCandidati(res.candidati);
-        if (res.restano) {
-          setBanner(
-            `Controllo le fatture nelle mail del ${res.periodo || "2026"}…`
-          );
-          await new Promise((resolve) => window.setTimeout(resolve, 1000));
-          continue;
-        }
-        setInControllo(false);
-        const quante = res.candidati.length;
-        setBanner(
-          quante === 0
-            ? "Nessuna fattura nuova da registrare"
-            : (quante === 1
-              ? "C'è 1 fattura da registrare"
-              : `Ci sono ${quante} fatture da registrare`)
-        );
-        return;
-      }
-      setInControllo(false);
-    }
-    void run();
-    return () => {
-      vivo = false;
-    };
-  }, []);
+    const giaEseguita = sessionStorage.getItem(SCANSIONE) === "1";
+    const scansiona = scansioneFattureMailRichiesta({
+      areaAmministrazione: pathname.startsWith("/app/amministrazione"),
+      giaEseguita,
+      richiestoOperatore: false,
+    });
+    if (!scansiona && elencato.current) return;
+    if (scansiona) sessionStorage.setItem(SCANSIONE, "1");
+    elencato.current = true;
+    void carica(scansiona);
+  }, [pathname]);
+
+  function aggiornaDalleMail() {
+    sessionStorage.setItem(SCANSIONE, "1");
+    void carica(true);
+  }
 
   useEffect(() => {
     if (inControllo || !banner) return;
@@ -275,7 +280,15 @@ export function FattureMailCandidatiModal() {
                 ))}
               </ul>
             </div>
-            <div className="flex justify-end border-t border-slate-200 px-5 py-3">
+            <div className="flex justify-end gap-2 border-t border-slate-200 px-5 py-3">
+              <button
+                type="button"
+                disabled={inControllo}
+                onClick={aggiornaDalleMail}
+                className="rounded-lg border border-slate-300 px-3 py-1.5 text-xs font-medium text-slate-700 disabled:opacity-40"
+              >
+                Aggiorna dalle mail
+              </button>
               <button
                 type="button"
                 onClick={piuTardi}

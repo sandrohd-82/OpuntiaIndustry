@@ -568,7 +568,9 @@ export function CreaOrdineMateriaPrimaModal(props: {
       })),
     };
     if (tipo === "pdf") {
-      scarica("anteprima-pianificazione.pdf", pdfPianificazione(documento), "application/pdf");
+      void pdfPianificazione(documento).then((bytes) =>
+        scarica("anteprima-pianificazione.pdf", bytes, "application/pdf")
+      );
       return;
     }
     void xlsxPianificazione(documento).then((bytes) =>

@@ -319,7 +319,7 @@ export async function allegatiConfermati(input: {
   documento: DocumentoPianificazione;
   pdf: boolean;
   xlsx: boolean;
-  pdfBytes: (documento: DocumentoPianificazione) => Uint8Array;
+  pdfBytes: (documento: DocumentoPianificazione) => Uint8Array | Promise<Uint8Array>;
   xlsxBytes: (documento: DocumentoPianificazione) => Promise<Uint8Array>;
 }): Promise<Array<{ filename: string; content: Buffer; contentType: string }>> {
   const nome = nomeAllegatoConfermato(input.documento.codice);
@@ -327,7 +327,7 @@ export async function allegatiConfermati(input: {
   if (input.pdf) {
     allegati.push({
       filename: `${nome}.pdf`,
-      content: Buffer.from(input.pdfBytes(input.documento)),
+      content: Buffer.from(await input.pdfBytes(input.documento)),
       contentType: "application/pdf",
     });
   }

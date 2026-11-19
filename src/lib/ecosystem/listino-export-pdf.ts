@@ -1,5 +1,8 @@
-import { jsPDF } from "jspdf";
-import autoTable from "jspdf-autotable";
+import type { jsPDF } from "jspdf";
+import {
+  creaJsPdf,
+  tabellaJsPdf,
+} from "@/lib/documenti/carica-libreria";
 import {
   listinoExportFilename,
   listinoExportRowCells,
@@ -25,11 +28,11 @@ function splitProductBlocks(rows: ListinoExportRow[]): ListinoExportRow[][] {
   return blocks;
 }
 
-export function downloadListinoPdf(
+export async function downloadListinoPdf(
   meta: ListinoExportMeta,
   rows: ListinoExportRow[]
-): void {
-  const doc = new jsPDF({ orientation: "landscape", unit: "mm", format: "a4" });
+): Promise<void> {
+  const doc = await creaJsPdf({ orientation: "landscape", unit: "mm", format: "a4" });
   const pageWidth = doc.internal.pageSize.getWidth();
   const marginX = 12;
   let y = 12;
@@ -83,7 +86,7 @@ export function downloadListinoPdf(
   };
 
   for (const block of splitProductBlocks(rows)) {
-    autoTable(doc, {
+    await tabellaJsPdf(doc, {
       ...tableOpts,
       startY: y,
       head: [],

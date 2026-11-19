@@ -1,6 +1,8 @@
+import {
+  creaJsPdf,
+} from "@/lib/documenti/carica-libreria";
 import { z } from "zod";
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { jsPDF } from "jspdf";
 import { loadProfiles } from "@/lib/chat/queries";
 import { listActiveTopics } from "@/lib/chat/topic-api";
 import { chatDayKey, chatDayLabel } from "@/lib/chat/day-headers";
@@ -606,7 +608,7 @@ export async function buildChatExportPdf(
     selectedPrintableIds?: string[];
   }
 ): Promise<{ blob: Blob; filename: string }> {
-  const doc = new jsPDF({ unit: "pt", format: "a4" });
+  const doc = await creaJsPdf({ unit: "pt", format: "a4" });
   const margin = 40;
   const pageW = doc.internal.pageSize.getWidth();
   const pageH = doc.internal.pageSize.getHeight();

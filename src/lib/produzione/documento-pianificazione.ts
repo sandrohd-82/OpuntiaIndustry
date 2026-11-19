@@ -1,6 +1,10 @@
-import { jsPDF } from "jspdf";
-import autoTable from "jspdf-autotable";
-import ExcelJS from "exceljs";
+import type { Borders, Worksheet } from "exceljs";
+import type { jsPDF } from "jspdf";
+import {
+  creaJsPdf,
+  creaWorkbook,
+  tabellaJsPdf,
+} from "@/lib/documenti/carica-libreria";
 import { aggiungiGiorni, giornoValido, lunediSettimana } from "@/lib/produzione/approvvigionamento";
 
 export type ConsegnaDocumento = {
@@ -223,7 +227,7 @@ function disegnaMese(
   pdf.setTextColor(0, 0, 0);
 }
 
-function disegnaElenco(pdf: jsPDF, documento: DocumentoPianificazione) {
+async function disegnaElenco(pdf: jsPDF, documento: DocumentoPianificazione) {
   const totali = totaliDocumento(documento);
   pdf.setFontSize(16);
   pdf.setTextColor(15, 23, 42);
@@ -248,7 +252,7 @@ function disegnaElenco(pdf: jsPDF, documento: DocumentoPianificazione) {
     pdf.text(righe, 14, cursore);
     cursore += righe.length * 5;
   }
-  autoTable(pdf, {
+  await tabellaJsPdf(pdf, {
     startY: cursore + 4,
     head: [["Data", "Quantità", "Unità", "Precisa/stimata", "Stato"]],
     body: righeTesto(documento),
@@ -258,8 +262,8 @@ function disegnaElenco(pdf: jsPDF, documento: DocumentoPianificazione) {
   });
 }
 
-export function pdfPianificazione(documento: DocumentoPianificazione): Uint8Array {
-  const pdf = new jsPDF({ orientation: "landscape", unit: "mm", format: "a4" });
+export async function pdfPianificazione(documento: DocumentoPianificazione): Promise<Uint8Array> {
+  const pdf = await creaJsPdf({ orientation: "landscape", unit: "mm", format: "a4" });
   const mappa = mappaQuantita(documento);
   const mesi = mesiDelDocumento(documento);
   mesi.forEach((primo, indice) => {
@@ -267,11 +271,11 @@ export function pdfPianificazione(documento: DocumentoPianificazione): Uint8Arra
     disegnaMese(pdf, documento, primo, mappa);
   });
   if (mesi.length > 0) pdf.addPage("a4", "landscape");
-  disegnaElenco(pdf, documento);
+  await disegnaElenco(pdf, documento);
   return new Uint8Array(pdf.output("arraybuffer"));
 }
 
-const BORDO_GIORNO: Partial<ExcelJS.Borders> = {
+const BORDO_GIORNO: Partial<Borders> = {
   top: { style: "thin", color: { argb: "FFCBD5E1" } },
   left: { style: "thin", color: { argb: "FFCBD5E1" } },
   bottom: { style: "thin", color: { argb: "FFCBD5E1" } },
@@ -279,7 +283,7 @@ const BORDO_GIORNO: Partial<ExcelJS.Borders> = {
 };
 
 function scriviCalendari(
-  foglio: ExcelJS.Worksheet,
+  foglio: Worksheet,
   documento: DocumentoPianificazione,
   mappa: Map<string, string[]>
 ) {
@@ -328,7 +332,7 @@ function scriviCalendari(
 
 export async function xlsxPianificazione(documento: DocumentoPianificazione): Promise<Uint8Array> {
   const totali = totaliDocumento(documento);
-  const wb = new ExcelJS.Workbook();
+  const wb = await creaWorkbook();
   wb.creator = "OpuntiaIndustry";
   const foglio = wb.addWorksheet("Pianificazione", {
     pageSetup: { paperSize: 9, orientation: "landscape" },

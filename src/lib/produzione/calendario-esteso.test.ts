@@ -88,7 +88,8 @@ const totali = totaliDocumento(documento);
 assert.equal(totali.consegne, 2);
 assert.equal(totali.precisa, 4);
 assert.equal(totali.stimata, 2);
-const pdf = pdfPianificazione(documento);
+void (async () => {
+const pdf = await pdfPianificazione(documento);
 const pdfTesto = Buffer.from(pdf).toString("latin1");
 assert.equal(pdf.byteLength > 500, true);
 assert.equal(pdfTesto.includes("PP-TEST"), true);
@@ -103,7 +104,7 @@ assert.equal(pdfTesto.indexOf("Gennaio 2026") < pdfTesto.indexOf("Elenco consegn
 assert.equal((pdfTesto.match(/\/Type\s*\/Page(?!s)/g) ?? []).length >= 4, true);
 const nomeLungo =
   "Opuntia Industry Societa Agricola Cooperativa dei Produttori del Ficodindia della Valle del Belice e delle Colline Siciliane a Responsabilita Limitata con stabilimento";
-const stampa = pdfPianificazione({
+const stampa = await pdfPianificazione({
   ...documento,
   codice: "Anteprima di prova",
   fornitore: nomeLungo,
@@ -115,7 +116,8 @@ assert.equal(stampaTesto.includes("Anteprima non salvata"), false);
 assert.equal(stampaTesto.includes(`(${nomeLungo})`), false);
 assert.equal(stampaTesto.includes("Opuntia Industry"), true);
 assert.equal(stampaTesto.includes("stabilimento"), true);
-void xlsxPianificazione(documento).then(async (xlsx) => {
+const xlsx = await xlsxPianificazione(documento);
+{
   assert.equal(xlsx.byteLength > 500, true);
   const wb = new ExcelJS.Workbook();
   await wb.xlsx.load(Buffer.from(xlsx) as unknown as Parameters<ExcelJS.Xlsx["load"]>[0]);
@@ -136,7 +138,8 @@ void xlsxPianificazione(documento).then(async (xlsx) => {
   assert.equal(testi.includes("01/01/2026 – 31/03/2026"), true);
   assert.equal(testi.includes("2026-01-10"), false);
   console.log("calendario esteso: ok");
-}).catch((errore: unknown) => {
+}
+})().catch((errore: unknown) => {
   console.error(errore);
   process.exit(1);
 });

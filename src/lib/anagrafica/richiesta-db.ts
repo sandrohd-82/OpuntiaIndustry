@@ -496,7 +496,7 @@ export async function scaricaPdfPubblico(
   const mancanti = erroriPdf(form);
   if (mancanti.length) return { errore: "Per il PDF mancano dei dati.", mancanti };
   const data = oggiRoma();
-  const bytes = pdfAnagraficaAziendale(form, data);
+  const bytes = await pdfAnagraficaAziendale(form, data);
   const versione = row.versione + 1;
   const chi = owner(row);
   const fileName = "Anagrafica-Aziendale.pdf";

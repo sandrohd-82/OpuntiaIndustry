@@ -375,8 +375,8 @@ export async function verificaOtpFirma(input: {
   const path = `${chiId}/anagrafica-richiesta/${row.id}-${suffisso}-${versione}.pdf`;
   const bytes =
     documento === "anagrafica"
-      ? pdfAnagraficaAziendale(form, quando, timbro)
-      : pdfPresaVisione({
+      ? await pdfAnagraficaAziendale(form, quando, timbro)
+      : await pdfPresaVisione({
           tipo: documento,
           dataFirma: dataRoma(firmataIl),
           firmatario: nomeFirma ?? "",
@@ -522,7 +522,7 @@ async function copiaPresaVisione(
     "sconosciuto";
   const timbro = `Firmato digitalmente via OTP | Mail: ${emailFirma} | Data e Ora: ${quandoRoma(quandoData)} | IP: ${ip} | Codice Transazione: ${hash}`;
   const marketing = row.privacy_consenso_marketing === "nego" ? "nego" : "presto";
-  const bytes = pdfPresaVisione({
+  const bytes = await pdfPresaVisione({
     tipo: documento,
     dataFirma: dataRoma(quandoData),
     firmatario: nome,
@@ -560,7 +560,7 @@ export async function leggiCopiaFirmata(
     const quando = quandoRoma(new Date(row.firmata_at));
     const ip = String(row.firma_ip ?? "") || "sconosciuto";
     const timbro = `Firmato digitalmente via OTP | Mail: ${emailFirma} | Data e Ora: ${quando} | IP: ${ip} | Codice Transazione: ${hash}`;
-    const bytes = pdfAnagraficaAziendale(normalizzaForm(row.payload), quando, timbro);
+    const bytes = await pdfAnagraficaAziendale(normalizzaForm(row.payload), quando, timbro);
     await service.storage.from(ANAGRAFICA_DOCUMENTI_BUCKET).upload(path, bytes, {
       contentType: "application/pdf",
       upsert: true,

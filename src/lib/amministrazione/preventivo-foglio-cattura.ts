@@ -1,4 +1,6 @@
-import { jsPDF } from "jspdf";
+import {
+  creaJsPdf,
+} from "@/lib/documenti/carica-libreria";
 import { domToPng } from "modern-screenshot";
 
 /** Foto della scheda già a video, messa su A4. Non ridisegna il preventivo. */
@@ -7,7 +9,7 @@ export async function foglioPreventivoToPdfBase64(node: HTMLElement): Promise<st
     scale: 2,
     backgroundColor: "#ffffff",
   });
-  const pdf = new jsPDF({ unit: "mm", format: "a4", compress: true });
+  const pdf = await creaJsPdf({ unit: "mm", format: "a4", compress: true });
   const props = pdf.getImageProperties(dataUrl);
   const pageW = 210;
   const pageH = 297;

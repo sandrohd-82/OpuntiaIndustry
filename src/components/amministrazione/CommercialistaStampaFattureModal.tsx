@@ -107,26 +107,28 @@ export function CommercialistaStampaFattureModal({
       );
       const comeInviata = kind === "emessa" || kind === "nota_emessa";
       const logo = comeInviata ? await caricaLogoIntestazione() : null;
-      const files = docs.map((doc, i) => {
-        const fileName = nomi[i] ?? "fattura.pdf";
-        if (doc.classica) {
-          return buildFatturaClassicaPdf({
-            model: doc.classica,
+      const files = await Promise.all(
+        docs.map((doc, i) => {
+          const fileName = nomi[i] ?? "fattura.pdf";
+          if (doc.classica) {
+            return buildFatturaClassicaPdf({
+              model: doc.classica,
+              numeroSequenza: doc.numeroSequenza,
+              showSequenza,
+              fileName,
+              logo,
+            });
+          }
+          return buildPaperFatturaPdf({
+            model: doc.model,
             numeroSequenza: doc.numeroSequenza,
-            showSequenza,
             fileName,
+            comeInviata,
+            notaCredito: doc.notaCredito,
             logo,
           });
-        }
-        return buildPaperFatturaPdf({
-          model: doc.model,
-          numeroSequenza: doc.numeroSequenza,
-          fileName,
-          comeInviata,
-          notaCredito: doc.notaCredito,
-          logo,
-        });
-      });
+        })
+      );
       const n = await salvaPdfSeparati(files);
       void auditCommercialistaPaperAction({
         kind,

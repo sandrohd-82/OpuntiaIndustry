@@ -1,4 +1,7 @@
-import ExcelJS from "exceljs";
+import type { Cell, Workbook } from "exceljs";
+import {
+  creaWorkbook,
+} from "@/lib/documenti/carica-libreria";
 import {
   COLORI_TIPO_DOCUMENTO,
   righeCartellaUscita,
@@ -56,7 +59,7 @@ function euroTesto(n: number): string {
 }
 
 /** Importo visibile ma barrato: non entra nell'IVA detraibile né nell'imponibile. */
-function segnaNonContabilizzato(cell: ExcelJS.Cell, importo: number): void {
+function segnaNonContabilizzato(cell: Cell, importo: number): void {
   cell.value = {
     richText: [
       { font: { name: "Calibri", size: 9, color: { argb: "FF64748B" } }, text: "NC non contabilizzato\n" },
@@ -70,7 +73,7 @@ function segnaNonContabilizzato(cell: ExcelJS.Cell, importo: number): void {
 }
 
 function cellaApreFattura(
-  cell: ExcelJS.Cell,
+  cell: Cell,
   testo: string,
   href: string
 ): void {
@@ -139,10 +142,10 @@ export async function buildElaborazioneFattureXlsx(input: {
   cartellaRelativa?: string;
   /** Stessi nomi con cui i file vengono scritti nella cartella. */
   nomiFile?: string[];
-  workbook?: ExcelJS.Workbook;
+  workbook?: Workbook;
 }): Promise<{ filename: string; base64: string; bytes: Uint8Array }> {
   const righe = righeElaborazioneFatture(input.docs, input.kind, input.nomiFile);
-  const wb = input.workbook ?? new ExcelJS.Workbook();
+  const wb = input.workbook ?? await creaWorkbook();
   wb.creator = "OpuntiaIndustry";
   wb.created = new Date();
   const nomeFoglio = nomeFoglioRegistro(input.kind);
@@ -257,10 +260,10 @@ export async function buildUscitaCartellaXlsx(input: {
   kind: CommercialistaRegistroKind;
   docs: FatturaElaborazioneSorgente[];
   cartellaRelativa?: string;
-  workbook?: ExcelJS.Workbook;
+  workbook?: Workbook;
 }): Promise<{ filename: string; bytes: Uint8Array }> {
   const righe = righeCartellaUscita(input.docs, input.kind);
-  const wb = input.workbook ?? new ExcelJS.Workbook();
+  const wb = input.workbook ?? await creaWorkbook();
   wb.creator = "OpuntiaIndustry";
   wb.created = new Date();
   const ws = wb.addWorksheet(nomeFoglioRegistro(input.kind), {
@@ -351,10 +354,10 @@ export const NOME_RESOCONTO_COMPLETO = "Resoconto completo.xlsx";
 /** Un solo foglio: tutti i tipi in ordine di data, con il link al PDF nella cartella del tipo. */
 export async function buildResocontoCompletoXlsx(
   voci: VoceResocontoCompleto[],
-  workbook?: ExcelJS.Workbook
+  workbook?: Workbook
 ): Promise<{ filename: string; bytes: Uint8Array }> {
   const righe = righeResocontoCompleto(voci);
-  const wb = workbook ?? new ExcelJS.Workbook();
+  const wb = workbook ?? await creaWorkbook();
   wb.creator = "OpuntiaIndustry";
   wb.created = new Date();
   const ws = wb.addWorksheet("Resoconto completo", {

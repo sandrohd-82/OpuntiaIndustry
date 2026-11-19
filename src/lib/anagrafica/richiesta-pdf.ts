@@ -1,4 +1,6 @@
-import { jsPDF } from "jspdf";
+import {
+  creaJsPdf,
+} from "@/lib/documenti/carica-libreria";
 import type { AnagraficaFormPayload, SedeAnagraficaForm } from "@/lib/anagrafica/richiesta-form";
 import {
   altezzaTimbro,
@@ -18,12 +20,12 @@ function rigaSede(sede: SedeAnagraficaForm): string[] {
   return lines.length ? lines : ["—"];
 }
 
-export function pdfAnagraficaAziendale(
+export async function pdfAnagraficaAziendale(
   form: AnagraficaFormPayload,
   dataCompilazione: string,
   timbro?: string
-): Buffer {
-  const doc = new jsPDF({ unit: "mm", format: "a4" });
+): Promise<Buffer> {
+  const doc = await creaJsPdf({ unit: "mm", format: "a4" });
   const left = 16;
   const width = 178;
   const limite = 278;

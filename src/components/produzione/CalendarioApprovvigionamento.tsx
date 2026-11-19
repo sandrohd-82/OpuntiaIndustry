@@ -1563,13 +1563,11 @@ export function CalendarioApprovvigionamento() {
           <div className="mb-3 flex flex-wrap gap-2">
             <button
               type="button"
-              onClick={() =>
-                void scaricaFile(
-                  "anteprima-pianificazione.pdf",
-                  pdfPianificazione(documentoAnteprima()),
-                  "application/pdf"
-                )
-              }
+              onClick={() => {
+                void pdfPianificazione(documentoAnteprima()).then((bytes) =>
+                  scaricaFile("anteprima-pianificazione.pdf", bytes, "application/pdf")
+                );
+              }}
               className="rounded-lg border border-slate-300 px-3 py-2 text-sm"
             >
               Esporta PDF
@@ -1811,10 +1809,8 @@ export function CalendarioApprovvigionamento() {
                     const scelto = piani.find((voce) => voce.id === pianoAperto);
                     if (!scelto) return;
                     const documento = documentoPianoSalvato(scelto, ordiniPiano);
-                    void scaricaFile(
-                      `${scelto.codice}.pdf`,
-                      pdfPianificazione(documento),
-                      "application/pdf"
+                    void pdfPianificazione(documento).then((bytes) =>
+                      scaricaFile(`${scelto.codice}.pdf`, bytes, "application/pdf")
                     );
                   }}
                   className="rounded-lg border border-slate-300 px-3 py-2 text-sm"

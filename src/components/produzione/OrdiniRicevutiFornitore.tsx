@@ -290,10 +290,13 @@ export function OrdiniRicevutiFornitore(props: {
               <button
                 type="button"
                 onClick={() =>
-                  void scarica(
-                    `${pianoAperto.codice}-v${pianoAperto.numero}.pdf`,
-                    pdfPianificazione(documentoPiano(props.fornitore, pianoAperto, props.ordini)),
-                    "application/pdf"
+                  void pdfPianificazione(documentoPiano(props.fornitore, pianoAperto, props.ordini)).then(
+                    (bytes) =>
+                      scarica(
+                        `${pianoAperto.codice}-v${pianoAperto.numero}.pdf`,
+                        bytes,
+                        "application/pdf"
+                      )
                   )
                 }
                 className="rounded-lg border border-slate-300 px-3 py-2 text-sm"

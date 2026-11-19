@@ -179,14 +179,16 @@ export async function scanPromozioniDaFattureAction(
   return { opened };
 }
 
-export async function listMiePromozioniAperteAction(): Promise<
+export async function listMiePromozioniAperteAction(input?: {
+  scansiona?: boolean;
+}): Promise<
   | { success: true; items: LeadPromozioneAperta[] }
   | { success: false; error: string }
 > {
   const auth = await getAuthContext();
   if (!auth) return { success: false, error: "Non autenticato." };
 
-  await scanPromozioniDaFattureAction();
+  if (input?.scansiona) await scanPromozioniDaFattureAction();
 
   const service = createServiceClient();
   const { data: rows, error } = await service

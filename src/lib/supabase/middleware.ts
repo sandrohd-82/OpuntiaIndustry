@@ -5,6 +5,7 @@ import {
   parseProfileStatoOperativo,
 } from "@/lib/auth/stato-operativo";
 import type { ProfileStatoOperativo } from "@/lib/auth/stato-operativo";
+import { notaPrestazione } from "@/lib/diagnostica/prestazioni";
 
 function nextWithForwardedCookies(request: NextRequest) {
   const requestHeaders = new Headers(request.headers);
@@ -45,17 +46,21 @@ export async function updateSession(request: NextRequest) {
     }
   );
 
+  const inizioUtente = performance.now();
   const {
     data: { user },
   } = await supabase.auth.getUser();
+  notaPrestazione("middleware.getUser", inizioUtente);
 
   let statoOperativo: ProfileStatoOperativo = "operativo";
   if (user) {
+    const inizioProfilo = performance.now();
     const { data } = await supabase
       .from("profiles")
       .select("stato_operativo")
       .eq("id", user.id)
       .maybeSingle();
+    notaPrestazione("middleware.stato", inizioProfilo);
     statoOperativo = parseProfileStatoOperativo(data?.stato_operativo);
     if (!isOperatorSelfLoginAllowed(statoOperativo)) {
       await supabase.auth.signOut();

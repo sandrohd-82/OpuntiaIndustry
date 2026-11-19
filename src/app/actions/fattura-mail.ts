@@ -176,7 +176,7 @@ export async function inviaFatturaDaWebmailAction(
         "Manca il logo in intestazione: la fattura non può partire diversa dalla bozza.",
     };
   }
-  const pdf = buildFatturaA4PdfBlob({
+  const pdf = await buildFatturaA4PdfBlob({
     numeroFattura: numero,
     dataDocumento: String(fattura.data_emissione ?? ""),
     destinatario,

@@ -1741,7 +1741,7 @@ export async function inviaEmailProvaApprovvigionamentoAction(raw: unknown): Pro
   const documento = parsed.data.documento;
   if (!documento) return { success: false, error: "Apri la pianificazione di prova da allegare." };
   try {
-    const pdf = pdfPianificazione(documento as DocumentoPianificazione);
+    const pdf = await pdfPianificazione(documento as DocumentoPianificazione);
     await inviaDaCasellaAnagrafica({
       to: preparata.busta.to,
       subject: preparata.busta.subject,

@@ -1,4 +1,6 @@
-import ExcelJS from "exceljs";
+import {
+  creaWorkbook,
+} from "@/lib/documenti/carica-libreria";
 import {
   dataElencoIt,
   type LatoElenco,
@@ -24,7 +26,7 @@ export async function buildElencoMistoXlsx(input: {
   trimestre: number;
   righe: RigaElencoMisto[];
 }): Promise<{ filename: string; base64: string }> {
-  const wb = new ExcelJS.Workbook();
+  const wb = await creaWorkbook();
   wb.creator = "OpuntiaIndustry";
   wb.created = new Date();
   const nome =

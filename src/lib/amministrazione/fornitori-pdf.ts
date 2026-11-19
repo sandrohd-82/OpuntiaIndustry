@@ -1,5 +1,8 @@
-import { jsPDF } from "jspdf";
-import autoTable from "jspdf-autotable";
+import type { jsPDF } from "jspdf";
+import {
+  creaJsPdf,
+  tabellaJsPdf,
+} from "@/lib/documenti/carica-libreria";
 import {
   formatSedeBreve,
   hasActiveFornitoriFilters,
@@ -124,12 +127,12 @@ function addPageFooters(doc: jsPDF) {
   }
 }
 
-function exportPrincipali(
+async function exportPrincipali(
   fornitori: Fornitore[],
   filters: FornitoriFilters,
   selectionMode: boolean
 ) {
-  const doc = new jsPDF({ orientation: "landscape", unit: "mm", format: "a4" });
+  const doc = await creaJsPdf({ orientation: "landscape", unit: "mm", format: "a4" });
   const y = writeHeader(
     doc,
     "Fornitori — dati principali",
@@ -139,7 +142,7 @@ function exportPrincipali(
     "Solo riga elenco"
   );
 
-  autoTable(doc, {
+  await tabellaJsPdf(doc, {
     startY: y,
     head: [
       ["Targa", "R. Sociale", "P. IVA", "Sede Amm.", "Sede ritiro", "Prodotti"],
@@ -210,12 +213,12 @@ function writeLabelValue(
   return y + wrapped.length * 4.2 + 2;
 }
 
-function exportCompleta(
+async function exportCompleta(
   fornitori: Fornitore[],
   filters: FornitoriFilters,
   selectionMode: boolean
 ) {
-  const doc = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4" });
+  const doc = await creaJsPdf({ orientation: "portrait", unit: "mm", format: "a4" });
   const pageWidth = doc.internal.pageSize.getWidth();
   const marginX = 14;
   const contentWidth = pageWidth - marginX * 2;
@@ -300,17 +303,16 @@ function exportCompleta(
   return doc;
 }
 
-export function exportFornitoriPdf(
+export async function exportFornitoriPdf(
   fornitori: Fornitore[],
   filters: FornitoriFilters,
   options?: { selectionMode?: boolean; detailLevel?: PdfDetailLevel }
-): void {
+): Promise<void> {
   const selectionMode = Boolean(options?.selectionMode);
   const detailLevel = options?.detailLevel ?? "principali";
-  const doc =
-    detailLevel === "completa"
-      ? exportCompleta(fornitori, filters, selectionMode)
-      : exportPrincipali(fornitori, filters, selectionMode);
+  const doc = await (detailLevel === "completa"
+    ? exportCompleta(fornitori, filters, selectionMode)
+    : exportPrincipali(fornitori, filters, selectionMode));
 
   const stamp = new Date().toISOString().slice(0, 10);
   const scope = selectionMode

@@ -1,6 +1,9 @@
+import type { jsPDF } from "jspdf";
+import {
+  creaJsPdf,
+} from "@/lib/documenti/carica-libreria";
 import { readFileSync } from "fs";
 import path from "path";
-import { jsPDF } from "jspdf";
 import { AGRINSICILIA_LETTERHEAD } from "@/lib/amministrazione/preventivo-letterhead";
 import {
   BLOCCHI_CONDIZIONI,
@@ -120,8 +123,8 @@ export function numeraPagine(doc: jsPDF) {
   doc.setTextColor(0);
 }
 
-export function pdfPresaVisione(input: InputPdf): Buffer {
-  const doc = new jsPDF({ unit: "mm", format: "a4" });
+export async function pdfPresaVisione(input: InputPdf): Promise<Buffer> {
+  const doc = await creaJsPdf({ unit: "mm", format: "a4" });
   const left = 16;
   const width = 178;
   const titolo = input.tipo === "privacy" ? TITOLO_PRIVACY : TITOLO_CONDIZIONI;

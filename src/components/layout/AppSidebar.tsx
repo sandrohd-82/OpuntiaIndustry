@@ -72,6 +72,7 @@ import {
   MAGAZZINO_SECTIONS,
 } from "@/lib/areas/magazzino";
 import { listMappaMenuNavAction } from "@/app/actions/magazzino-mappa";
+import { mappaMenuDaCaricare } from "@/lib/diagnostica/prestazioni";
 import {
   MAPPA_MENU_NAV_EVENT,
   mergeAreaNavWithMappaMenu,
@@ -694,6 +695,7 @@ export function AppSidebar({
   const userClosedRef = useRef(userClosed);
   userClosedRef.current = userClosed;
   const lastPathnameRef = useRef<string | null>(null);
+  const mappaRichiesta = useRef(false);
   const [collapsed, setCollapsed] = useState(false);
 
   useEffect(() => {
@@ -731,7 +733,7 @@ export function AppSidebar({
       ordini: hasAmministrazione && isAdminLike,
       notifiche: hasPn,
       ticket: hasTicketMenu,
-      mappa: true,
+      mappa: false,
       produzione: hasProduzione,
       webmailAccounts: wantWebmailAccounts,
       webmailGrant: testMenuMode && canCreateProfiles,
@@ -994,6 +996,32 @@ export function AppSidebar({
       window.removeEventListener(MAGAZZINO_MAPPE_NAV_EVENT, loadNav);
     };
   }, []);
+
+  useEffect(() => {
+    const areaAperta = openMap[NAV_ROOT_KEY];
+    if (
+      !mappaMenuDaCaricare({
+        giaCaricata: mappaRichiesta.current,
+        percorso: pathname,
+        areaAperta: typeof areaAperta === "string" ? areaAperta : undefined,
+      })
+    ) {
+      return;
+    }
+    mappaRichiesta.current = true;
+    void listMappaMenuNavAction()
+      .then((res) => {
+        if (!res.success) {
+          mappaRichiesta.current = false;
+          return;
+        }
+        setMappaMenuNodi(res.nodi);
+        setMappaMenuMappe(res.mappe);
+      })
+      .catch(() => {
+        mappaRichiesta.current = false;
+      });
+  }, [pathname, openMap]);
 
   useEffect(() => {
     if (!hasProduzione) return;

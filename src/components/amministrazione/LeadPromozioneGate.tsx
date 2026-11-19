@@ -1,7 +1,9 @@
 "use client";
 
 import dynamic from "next/dynamic";
-import { useCallback, useEffect, useState } from "react";
+import { usePathname } from "next/navigation";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { scansionePromozioniRichiesta } from "@/lib/diagnostica/prestazioni";
 
 const ClienteFormModal = dynamic(
   () =>
@@ -31,8 +33,8 @@ export function LeadPromozioneGate() {
   const [lead, setLead] = useState<ClientePossibile | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  const reload = useCallback(async () => {
-    const res = await listMiePromozioniAperteAction();
+  const reload = useCallback(async (scansiona = false) => {
+    const res = await listMiePromozioniAperteAction(scansiona ? { scansiona: true } : undefined);
     if (!res.success) {
       setError(res.error);
       return;
@@ -52,12 +54,22 @@ export function LeadPromozioneGate() {
     setLead(leads.items.find((item) => item.id === next.leadId) ?? null);
   }, []);
 
+  const pathname = usePathname();
+  const elencato = useRef(false);
+  const scansioneFatta = useRef(false);
+
   useEffect(() => {
-    const timer = window.setTimeout(() => {
-      void reload();
-    }, 3000);
-    return () => window.clearTimeout(timer);
-  }, [reload]);
+    const areaPertinente =
+      pathname.startsWith("/app/amministrazione") || pathname.startsWith("/app/commerciale");
+    const scansiona = scansionePromozioniRichiesta({
+      areaPertinente,
+      giaEseguita: scansioneFatta.current,
+    });
+    if (!scansiona && elencato.current) return;
+    if (scansiona) scansioneFatta.current = true;
+    elencato.current = true;
+    void reload(scansiona);
+  }, [pathname, reload]);
 
   if (!pratica) return null;
 

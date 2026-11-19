@@ -1,5 +1,8 @@
-import { jsPDF } from "jspdf";
-import autoTable from "jspdf-autotable";
+import type { jsPDF } from "jspdf";
+import {
+  creaJsPdf,
+  tabellaJsPdf,
+} from "@/lib/documenti/carica-libreria";
 import {
   etichettaScontoDocumento,
   nettoUnitarioDocumento,
@@ -140,7 +143,7 @@ export async function buildFatturaA4PdfPronto(
     logoDaUrl(AGRINSICILIA_LETTERHEAD.logoSrc, 78, 28),
     logoDaUrl(OPUNTIA_ITALIA_LOGO.src, 22, 12),
   ]);
-  return buildFatturaA4PdfBlob({
+  return await buildFatturaA4PdfBlob({
     ...input,
     loghi: { agrinsicilia, opuntia },
   });
@@ -160,11 +163,11 @@ export async function fatturaA4PdfComeBozza(
 }
 
 /** PDF della bozza A4: intestazione, voci modificate, trasporto e totali. */
-export function buildFatturaA4PdfBlob(input: FatturaA4PdfInput): {
+export async function buildFatturaA4PdfBlob(input: FatturaA4PdfInput): Promise<{
   blob: Blob;
   fileName: string;
-} {
-  const doc = new jsPDF({ unit: "mm", format: "a4" });
+}> {
+  const doc = await creaJsPdf({ unit: "mm", format: "a4" });
   const L = AGRINSICILIA_LETTERHEAD;
   const totals = totalsFromFatturaRighe(input.righe);
   const right = 196;
@@ -273,7 +276,7 @@ export function buildFatturaA4PdfBlob(input: FatturaA4PdfInput): {
   y += 16;
 
   const ivaUnica = input.righe.find((r) => r.ivaPercentuale > 0)?.ivaPercentuale;
-  autoTable(doc, {
+  await tabellaJsPdf(doc, {
     startY: y,
     margin: { left, right: 14 },
     theme: "grid",

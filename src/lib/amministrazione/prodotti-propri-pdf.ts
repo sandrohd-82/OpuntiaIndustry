@@ -1,5 +1,7 @@
-import { jsPDF } from "jspdf";
-import autoTable from "jspdf-autotable";
+import {
+  creaJsPdf,
+  tabellaJsPdf,
+} from "@/lib/documenti/carica-libreria";
 import {
   hasActiveProdottiPropriFilters,
   type ProdottoProprio,
@@ -67,14 +69,14 @@ function safeFilenamePart(value: string): string {
   return value.replace(/[^\w\-]+/g, "_").replace(/_+/g, "_").slice(0, 40);
 }
 
-export function exportProdottiPropriPdf(
+export async function exportProdottiPropriPdf(
   prodotti: ProdottoProprio[],
   filters: ProdottiPropriFilters,
   options?: { giacenze?: Record<string, ProdottiPropriPdfGiacenza> }
-): void {
+): Promise<void> {
   const giacenze = options?.giacenze;
   const withQty = Boolean(giacenze);
-  const doc = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4" });
+  const doc = await creaJsPdf({ orientation: "portrait", unit: "mm", format: "a4" });
   const pageWidth = doc.internal.pageSize.getWidth();
   const marginX = 14;
   let y = 16;
@@ -111,7 +113,7 @@ export function exportProdottiPropriPdf(
   }
   y += 3;
 
-  autoTable(doc, {
+  await tabellaJsPdf(doc, {
     startY: y,
     head: [
       withQty

@@ -82,7 +82,9 @@ async function segnaGemelle(
     .is("deleted_at", null);
 }
 
-export async function listFattureMailDaValutareAction(): Promise<
+export async function listFattureMailDaValutareAction(input?: {
+  scansiona?: boolean;
+}): Promise<
   | {
       success: true;
       candidati: FatturaMailCandidato[];
@@ -107,13 +109,15 @@ export async function listFattureMailDaValutareAction(): Promise<
 
   const annoMail = intervalloAnnoMailFatture();
   const supabase = createServiceClient();
-  const scan = await scanFattureMailDopoSync(supabase, {
-    backlog: true,
-    dal: annoMail.dal,
-    al: annoMail.al,
-    limite: 40,
-    maxAllegati: 8,
-  });
+  const scan = input?.scansiona
+    ? await scanFattureMailDopoSync(supabase, {
+        backlog: true,
+        dal: annoMail.dal,
+        al: annoMail.al,
+        limite: 40,
+        maxAllegati: 8,
+      })
+    : { restano: false, controllati: 0 };
 
   const { data: accounts, error: accErr } = await supabase
     .from("webmail_accounts")
