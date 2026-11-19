@@ -1,5 +1,6 @@
 import { signOut } from "@/app/actions/auth";
 import type { ReactNode } from "react";
+import { SegnaContenutoVisibile } from "@/components/diagnostica/SegnaContenuto";
 import { NotificheBell } from "@/components/layout/NotificheBell";
 import { InfoSezione } from "@/components/ui/InfoSezione";
 import { spiegazionePagina } from "@/lib/ui/spiegazione-pagina";
@@ -14,6 +15,7 @@ type Props = {
 export function AppHeader({ title, subtitle, actions }: Props) {
   return (
     <header className="flex items-center justify-between border-b border-[var(--border)] bg-[var(--card)] py-4 pr-6 pl-16">
+      <SegnaContenutoVisibile />
       <div>
         <div className="flex flex-wrap items-center gap-2">
           <h1 className="text-xl font-semibold">{title}</h1>

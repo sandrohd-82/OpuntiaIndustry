@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { useSegnaDatiPagina } from "@/components/diagnostica/SegnaContenuto";
 import { useRouter } from "next/navigation";
 import { FaPlus, FaTrash } from "react-icons/fa6";
 import { listPersoneMinimeAction } from "@/app/actions/organigramma";
@@ -73,6 +74,7 @@ export function FoglioIngressoMpForm({ foglioId }: Props) {
   const [item, setItem] = useState<FoglioIngressoMp | null>(null);
 
   const [catalogReady, setCatalogReady] = useState(false);
+  useSegnaDatiPagina(catalogReady && !loading);
   const [fornitori, setFornitori] = useState<FornitoreIngressoOpt[]>([]);
   const [materie, setMaterie] = useState<Array<{ id: string; label: string; isBio: boolean }>>([]);
   const [catalogo, setCatalogo] = useState<ConfezionamentoMp[]>([]);

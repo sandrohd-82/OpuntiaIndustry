@@ -46,13 +46,16 @@ export async function updateSession(request: NextRequest) {
     }
   );
 
+  const inizioSessione = performance.now();
   const inizioUtente = performance.now();
   const {
     data: { user },
   } = await supabase.auth.getUser();
+  const utenteMs = Math.round(performance.now() - inizioUtente);
   notaPrestazione("middleware.getUser", inizioUtente);
 
   let statoOperativo: ProfileStatoOperativo = "operativo";
+  let statoMs: number | null = null;
   if (user) {
     const inizioProfilo = performance.now();
     const { data } = await supabase
@@ -60,13 +63,32 @@ export async function updateSession(request: NextRequest) {
       .select("stato_operativo")
       .eq("id", user.id)
       .maybeSingle();
+    statoMs = Math.round(performance.now() - inizioProfilo);
     notaPrestazione("middleware.stato", inizioProfilo);
     statoOperativo = parseProfileStatoOperativo(data?.stato_operativo);
     if (!isOperatorSelfLoginAllowed(statoOperativo)) {
       await supabase.auth.signOut();
+      segnaTempiSessione(supabaseResponse, inizioSessione, utenteMs, statoMs);
       return { supabaseResponse, user: null, statoOperativo };
     }
   }
 
+  segnaTempiSessione(supabaseResponse, inizioSessione, utenteMs, statoMs);
   return { supabaseResponse, user, statoOperativo };
+}
+
+function segnaTempiSessione(
+  risposta: NextResponse,
+  inizioSessione: number,
+  utenteMs: number,
+  statoMs: number | null
+) {
+  risposta.headers.append("Server-Timing", `middleware-utente;dur=${utenteMs}`);
+  if (statoMs != null) {
+    risposta.headers.append("Server-Timing", `middleware-stato;dur=${statoMs}`);
+  }
+  risposta.headers.append(
+    "Server-Timing",
+    `middleware-sessione;dur=${Math.round(performance.now() - inizioSessione)}`
+  );
 }

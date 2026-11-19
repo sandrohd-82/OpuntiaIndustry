@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import { segnaDatiPagina } from "@/components/diagnostica/SegnaContenuto";
 import {
   createFornitoreAction,
   listFornitoriAction,
@@ -32,7 +33,10 @@ export function useFornitori() {
   }, []);
 
   useEffect(() => {
-    void refresh().finally(() => setReady(true));
+    void refresh().finally(() => {
+      setReady(true);
+      segnaDatiPagina();
+    });
   }, [refresh]);
 
   async function addFornitore(

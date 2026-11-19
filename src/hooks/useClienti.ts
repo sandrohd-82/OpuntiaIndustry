@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import { segnaDatiPagina } from "@/components/diagnostica/SegnaContenuto";
 import {
   createClienteAction,
   listClientiAction,
@@ -25,7 +26,10 @@ export function useClienti() {
   }, []);
 
   useEffect(() => {
-    void refresh().finally(() => setReady(true));
+    void refresh().finally(() => {
+      setReady(true);
+      segnaDatiPagina();
+    });
   }, [refresh]);
 
   async function addCliente(input: ClienteInput) {

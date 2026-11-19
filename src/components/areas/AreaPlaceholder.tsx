@@ -1,3 +1,4 @@
+import { SegnaDatiPronti } from "@/components/diagnostica/SegnaContenuto";
 import { AppHeader } from "@/components/layout/AppHeader";
 
 type Props = {
@@ -9,6 +10,7 @@ export function AreaPlaceholder({ title, description }: Props) {
   return (
     <>
       <AppHeader title={title} subtitle={description} />
+      <SegnaDatiPronti />
       <div className="p-6">
         <div className="rounded-xl border border-dashed border-[var(--border)] bg-[var(--card)] p-12 text-center">
           <p className="text-[var(--muted)]">

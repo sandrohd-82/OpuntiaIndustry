@@ -2,12 +2,14 @@ import assert from "node:assert/strict";
 import {
   areaMisurabile,
   chiudiNavigazione,
+  classificaRichiesta,
   controlloTrelloConsentito,
   decisioneScansioneFatture,
   decisioneScansionePromozioni,
   interpretaAzione,
   mappaMenuDaCaricare,
   percorsoMisurabile,
+  raggruppaRichieste,
   richiestaBloccaNavigazione,
   preloadReadlinkRichiesto,
   readlinkEisdirDaIgnorare,
@@ -340,4 +342,124 @@ assert.match(
   }),
   /prima della funzione/
 );
+
+const prefetchConclusa = chiudiNavigazione({
+  area: "/app/magazzino",
+  clic: 5_000,
+  commit: 5_080,
+  contenuto: 5_200,
+  dati: 5_900,
+  ora: 5_900,
+  schedaNascosta: false,
+  risorse: [
+    {
+      nome: "https://app.example/app/magazzino/panoramica?_rsc=prima",
+      start: 1_000,
+      requestStart: 1_020,
+      responseStart: 1_400,
+      responseEnd: 1_500,
+      duration: 500,
+      middlewareMs: 40,
+    },
+  ],
+});
+assert.equal(prefetchConclusa.motivoRete, "prefetch-conclusa");
+assert.equal(prefetchConclusa.rispostaServerMs, null);
+assert.equal(prefetchConclusa.prefetchMs, 500);
+assert.equal(prefetchConclusa.transizioneMs, 80);
+assert.equal(prefetchConclusa.contenutoMs, 200);
+assert.equal(prefetchConclusa.datiMs, 900);
+
+const prefetchAperta = chiudiNavigazione({
+  area: "/app/produzione",
+  clic: 5_000,
+  commit: 5_600,
+  ora: 5_600,
+  schedaNascosta: false,
+  risorse: [
+    {
+      nome: "https://app.example/app/produzione/foglio-ingresso-mp/nuovo?_rsc=aperta",
+      start: 4_800,
+      requestStart: 4_820,
+      responseStart: 5_300,
+      responseEnd: 5_400,
+      duration: 600,
+      middlewareMs: 70,
+    },
+  ],
+});
+assert.equal(prefetchAperta.motivoRete, "prefetch-in-corso");
+assert.equal(prefetchAperta.attesaPrimaRichiestaMs, 0);
+assert.equal(prefetchAperta.rispostaServerMs, 480);
+assert.equal(prefetchAperta.bloccanti, 1);
+
+const senzaRete = chiudiNavigazione({
+  area: "/app/dashboard",
+  clic: 1_000,
+  commit: 1_040,
+  contenuto: 1_050,
+  dati: 1_050,
+  ora: 1_050,
+  schedaNascosta: false,
+  bufferPieno: true,
+  risorse: [],
+});
+assert.equal(senzaRete.motivoRete, "registro-pieno");
+assert.equal(senzaRete.rispostaServerMs, null);
+assert.equal(senzaRete.downloadMs, null);
+
+assert.equal(classificaRichiesta("https://app.example/app/dashboard?_rsc=1"), "navigazione");
+assert.equal(classificaRichiesta("https://proj.supabase.co/auth/v1/user"), "autenticazione");
+assert.equal(classificaRichiesta("https://app.example/api/notifiche/letto"), "notifiche");
+assert.equal(classificaRichiesta("https://proj.supabase.co/rest/v1/clienti"), "dati");
+assert.equal(classificaRichiesta("https://app.example/_next/static/chunks/app.js"), "script");
+assert.equal(classificaRichiesta("https://app.example/app/dashboard"), "altro");
+
+const gruppi = raggruppaRichieste({
+  ora: 80_000,
+  finestraMs: 60_000,
+  risorse: [
+    {
+      nome: "https://app.example/app/dashboard",
+      start: 10_000,
+      requestStart: 10_000,
+      responseStart: 10_100,
+      responseEnd: 10_100,
+      duration: 100,
+      middlewareMs: null,
+    },
+    {
+      nome: "https://app.example/app/dashboard",
+      start: 40_000,
+      requestStart: 40_000,
+      responseStart: 40_200,
+      responseEnd: 40_200,
+      duration: 200,
+      middlewareMs: null,
+    },
+    {
+      nome: "https://app.example/app/dashboard",
+      start: 60_000,
+      requestStart: 60_000,
+      responseStart: 60_200,
+      responseEnd: 60_200,
+      duration: 200,
+      middlewareMs: null,
+    },
+    {
+      nome: "https://app.example/app/magazzino?_rsc=1",
+      start: 70_000,
+      requestStart: 70_000,
+      responseStart: 70_300,
+      responseEnd: 70_400,
+      duration: 400,
+      middlewareMs: 50,
+    },
+  ],
+});
+assert.equal(gruppi.length, 2);
+assert.equal(gruppi[0]?.categoria, "altro");
+assert.equal(gruppi[0]?.conteggio, 2);
+assert.equal(gruppi[0]?.intervalloMedianoMs, 20_000);
+assert.equal(gruppi[1]?.categoria, "navigazione");
 console.log("prestazioni: ok");

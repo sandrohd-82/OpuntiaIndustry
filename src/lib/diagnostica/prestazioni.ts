@@ -99,9 +99,33 @@ export function areaMisurabile(pathname: string): string {
   return `/app/${parti[1]}`;
 }
 
-export const CHIAVE_NAVIGAZIONI = "prestazioni-navigazioni";
+export const CHIAVE_NAVIGAZIONI = "prestazioni-navigazioni-2";
 export const CHIAVE_NAVIGAZIONI_OBSOLETA = "prestazioni-aree";
+export const CHIAVE_NAVIGAZIONI_PRECEDENTE = "prestazioni-navigazioni";
+export const FINESTRA_RICHIESTE_MS = 60_000;
+export const AREE_CONTENUTO = [
+  "dashboard",
+  "amministrazione",
+  "commerciale",
+  "produzione",
+  "magazzino",
+] as const;
 const LIMITE_NAVIGAZIONE_MS = 20_000;
+
+export type CategoriaRichiesta =
+  | "navigazione"
+  | "script"
+  | "autenticazione"
+  | "notifiche"
+  | "dati"
+  | "altro";
+
+export type MotivoRete =
+  | "misurata"
+  | "prefetch-conclusa"
+  | "prefetch-in-corso"
+  | "registro-pieno"
+  | "non-esposta";
 
 export type RisorsaOsservata = {
   nome: string;
@@ -120,10 +144,16 @@ export type VoceLenta = {
 };
 
 export type ResocontoNavigazione = {
+  id: number;
   area: string;
   completata: boolean;
   schedaNascosta: boolean;
+  chiusa: boolean;
   transizioneMs: number;
+  contenutoMs: number | null;
+  datiMs: number | null;
+  motivoRete: MotivoRete;
+  prefetchMs: number | null;
   attesaPrimaRichiestaMs: number | null;
   rispostaServerMs: number | null;
   downloadMs: number | null;
@@ -131,7 +161,18 @@ export type ResocontoNavigazione = {
   middlewareMs: number | null;
   richiesteFinestra: number;
   bloccanti: number;
+  secondarieAperte: number;
+  bufferPieno: boolean;
   lente: VoceLenta[];
+};
+
+export type GruppoRichieste = {
+  categoria: CategoriaRichiesta;
+  percorso: string;
+  conteggio: number;
+  durataMediaMs: number;
+  durataMaxMs: number;
+  intervalloMedianoMs: number | null;
 };
 
 /** Solo area e, al massimo, la sezione. Query, token e identificativi restano fuori. */
@@ -156,7 +197,7 @@ export function percorsoMisurabile(nome: string): string {
 
 export function richiestaBloccaNavigazione(nome: string, area: string): boolean {
   const query = nome.includes("?") ? nome.slice(nome.indexOf("?") + 1) : "";
-  if (!/(?:^|&)_rsc=/.test(query)) return false;
+  if (!/(?:^|&)_rsc(?:=|&|$)/.test(query)) return false;
   let path = nome.split("?")[0] ?? nome;
   try {
     path = new URL(nome, "https://misura.locale").pathname;
@@ -166,17 +207,73 @@ export function richiestaBloccaNavigazione(nome: string, area: string): boolean 
   return path === area || path.startsWith(`${area}/`);
 }
 
+export function classificaRichiesta(nome: string): CategoriaRichiesta {
+  const query = nome.includes("?") ? nome.slice(nome.indexOf("?") + 1) : "";
+  let path = nome.split("?")[0] ?? nome;
+  try {
+    path = new URL(nome, "https://misura.locale").pathname;
+  } catch {
+    path = nome.split("?")[0] ?? nome;
+  }
+  if (path.includes("/_next/static") || path.endsWith(".js") || path.endsWith(".css")) {
+    return "script";
+  }
+  if (path.includes("/auth/v1")) return "autenticazione";
+  if (
+    path.includes("/notifiche") ||
+    path.includes("/avvisi") ||
+    path.includes("/trello") ||
+    path.includes("/api/chat/notify")
+  ) {
+    return "notifiche";
+  }
+  if (/(?:^|&)_rsc(?:=|&|$)/.test(query)) return "navigazione";
+  if (path.startsWith("/api/") || path.includes("/rest/v1")) return "dati";
+  return "altro";
+}
+
+export function nomeSenzaSegreti(nome: string): string {
+  let url: URL;
+  try {
+    url = new URL(nome, "https://misura.locale");
+  } catch {
+    return "https://misura.locale/altro";
+  }
+  const parti = url.pathname
+    .split("/")
+    .filter(Boolean)
+    .map((parte) =>
+      /^[0-9a-f]{8}-/i.test(parte) || /^\d+$/.test(parte) || parte.length > 24
+        ? ":id"
+        : parte
+    );
+  const path = `/${parti.join("/")}`;
+  const rsc = url.searchParams.has("_rsc");
+  return rsc ? `https://misura.locale${path}?_rsc=1` : `https://misura.locale${path}`;
+}
+
 /**
  * Il tempo parte dal clic e si chiude al commit della nuova pagina.
  * Ciò che è avvenuto prima del clic, anche decine di secondi di inattività,
  * non entra nel resoconto.
  */
+function ultima(risorse: RisorsaOsservata[]): RisorsaOsservata | null {
+  return risorse.reduce<RisorsaOsservata | null>((scelta, risorsa) => {
+    if (!scelta || risorsa.responseEnd > scelta.responseEnd) return risorsa;
+    return scelta;
+  }, null);
+}
+
 export function chiudiNavigazione(input: {
   area: string;
   clic: number;
   commit: number | null;
+  contenuto?: number | null;
+  dati?: number | null;
   ora: number;
   schedaNascosta: boolean;
+  chiusa?: boolean;
+  bufferPieno?: boolean;
   risorse: RisorsaOsservata[];
 }): ResocontoNavigazione {
   const limite = input.clic + LIMITE_NAVIGAZIONE_MS;
@@ -188,11 +285,28 @@ export function chiudiNavigazione(input: {
   const bloccanti = nellaFinestra.filter((risorsa) =>
     richiestaBloccaNavigazione(risorsa.nome, input.area)
   );
-  const primaria = bloccanti.reduce<RisorsaOsservata | null>((scelta, risorsa) => {
-    if (!scelta || risorsa.responseEnd > scelta.responseEnd) return risorsa;
-    return scelta;
-  }, null);
+  const inCorsoPrima = input.risorse.filter(
+    (risorsa) =>
+      richiestaBloccaNavigazione(risorsa.nome, input.area) &&
+      risorsa.start < input.clic - 5 &&
+      (risorsa.responseEnd === 0 || risorsa.responseEnd >= input.clic)
+  );
+  const conclusePrima = input.risorse.filter(
+    (risorsa) =>
+      richiestaBloccaNavigazione(risorsa.nome, input.area) &&
+      risorsa.responseEnd > 0 &&
+      risorsa.responseEnd < input.clic
+  );
+  const primariaFinestra = ultima(bloccanti);
+  const primariaPrecedente = ultima(inCorsoPrima);
+  const primaria = primariaFinestra ?? primariaPrecedente;
+  const prefetch = ultima(conclusePrima);
   const inizioRete = primaria ? primaria.requestStart || primaria.start : 0;
+  let motivoRete: MotivoRete = "non-esposta";
+  if (primariaFinestra) motivoRete = "misurata";
+  else if (primariaPrecedente) motivoRete = "prefetch-in-corso";
+  else if (prefetch) motivoRete = "prefetch-conclusa";
+  else if (input.bufferPieno) motivoRete = "registro-pieno";
   const lente = [...nellaFinestra]
     .sort((a, b) => b.duration - a.duration)
     .slice(0, 5)
@@ -201,13 +315,30 @@ export function chiudiNavigazione(input: {
       ms: Math.round(risorsa.duration),
       blocca: richiestaBloccaNavigazione(risorsa.nome, input.area),
     }));
+  const istanteContenuto = input.contenuto ?? fine;
+  const secondarieAperte = nellaFinestra.filter(
+    (risorsa) =>
+      !richiestaBloccaNavigazione(risorsa.nome, input.area) &&
+      (risorsa.responseEnd === 0 || risorsa.responseEnd > istanteContenuto)
+  ).length;
 
   return {
+    id: Math.round(input.clic),
     area: input.area,
     completata,
     schedaNascosta: input.schedaNascosta,
+    chiusa: input.chiusa ?? true,
     transizioneMs: Math.max(0, Math.round(fine - input.clic)),
-    attesaPrimaRichiestaMs: primaria ? Math.max(0, Math.round(inizioRete - input.clic)) : null,
+    contenutoMs:
+      input.contenuto != null ? Math.max(0, Math.round(input.contenuto - input.clic)) : null,
+    datiMs: input.dati != null ? Math.max(0, Math.round(input.dati - input.clic)) : null,
+    motivoRete,
+    prefetchMs: prefetch ? Math.round(prefetch.duration) : null,
+    attesaPrimaRichiestaMs: primaria
+      ? primariaFinestra
+        ? Math.max(0, Math.round(inizioRete - input.clic))
+        : 0
+      : null,
     rispostaServerMs:
       primaria && primaria.responseStart > 0
         ? Math.max(0, Math.round(primaria.responseStart - inizioRete))
@@ -222,9 +353,52 @@ export function chiudiNavigazione(input: {
         : null,
     middlewareMs: primaria?.middlewareMs ?? null,
     richiesteFinestra: nellaFinestra.length,
-    bloccanti: bloccanti.length,
+    bloccanti: bloccanti.length + (primariaFinestra || inCorsoPrima.length === 0 ? 0 : 1),
+    secondarieAperte,
+    bufferPieno: Boolean(input.bufferPieno),
     lente,
   };
+}
+
+export function raggruppaRichieste(input: {
+  risorse: RisorsaOsservata[];
+  ora: number;
+  finestraMs: number;
+}): GruppoRichieste[] {
+  const dentro = input.risorse.filter(
+    (risorsa) => risorsa.start >= input.ora - input.finestraMs && risorsa.start <= input.ora
+  );
+  const gruppi = new Map<string, RisorsaOsservata[]>();
+  for (const risorsa of dentro) {
+    const categoria = classificaRichiesta(risorsa.nome);
+    const chiave = `${categoria}|${percorsoMisurabile(risorsa.nome)}`;
+    const lista = gruppi.get(chiave) ?? [];
+    lista.push(risorsa);
+    gruppi.set(chiave, lista);
+  }
+  const risultato: GruppoRichieste[] = [];
+  for (const [chiave, lista] of gruppi) {
+    const [categoria, percorso] = chiave.split("|") as [CategoriaRichiesta, string];
+    const ordinate = [...lista].sort((a, b) => a.start - b.start);
+    const intervalli: number[] = [];
+    for (let i = 1; i < ordinate.length; i += 1) {
+      intervalli.push(ordinate[i].start - ordinate[i - 1].start);
+    }
+    intervalli.sort((a, b) => a - b);
+    const durata = ordinate.reduce((somma, risorsa) => somma + risorsa.duration, 0);
+    risultato.push({
+      categoria,
+      percorso,
+      conteggio: ordinate.length,
+      durataMediaMs: Math.round(durata / ordinate.length),
+      durataMaxMs: Math.round(Math.max(...ordinate.map((risorsa) => risorsa.duration))),
+      intervalloMedianoMs:
+        intervalli.length === 0
+          ? null
+          : Math.round(intervalli[Math.floor(intervalli.length / 2)] ?? 0),
+    });
+  }
+  return risultato.sort((a, b) => b.conteggio - a.conteggio || b.durataMaxMs - a.durataMaxMs);
 }
 
 export function interpretaAzione(input: {

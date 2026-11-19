@@ -17,6 +17,8 @@ function copySessionCookies(from: NextResponse, to: NextResponse) {
   from.cookies.getAll().forEach((c) => {
     to.cookies.set(c);
   });
+  const tempi = from.headers.get("server-timing");
+  if (tempi) to.headers.append("Server-Timing", tempi);
   return to;
 }
 
@@ -179,11 +181,30 @@ async function instrada(request: NextRequest) {
   return supabaseResponse;
 }
 
+function durataHeader(headers: Headers, nome: string): number | null {
+  const valori = headers.get("server-timing");
+  if (!valori) return null;
+  for (const parte of valori.split(",")) {
+    const [etichetta, durata] = parte.trim().split(";");
+    if (etichetta !== nome || !durata?.startsWith("dur=")) continue;
+    const numero = Number(durata.slice(4));
+    if (Number.isFinite(numero)) return numero;
+  }
+  return null;
+}
+
 export async function middleware(request: NextRequest) {
   const inizio = performance.now();
   const risposta = await instrada(request);
   const ms = Math.round(performance.now() - inizio);
+  const sessione = durataHeader(risposta.headers, "middleware-sessione");
   risposta.headers.append("Server-Timing", `middleware;dur=${ms}`);
+  if (sessione != null) {
+    risposta.headers.append(
+      "Server-Timing",
+      `middleware-dopo;dur=${Math.max(0, ms - sessione)}`
+    );
+  }
   return risposta;
 }
 

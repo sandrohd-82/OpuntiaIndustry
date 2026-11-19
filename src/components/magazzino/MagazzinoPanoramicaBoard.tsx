@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useSegnaDatiPagina } from "@/components/diagnostica/SegnaContenuto";
 import Link from "next/link";
 import { getMagazzinoPanoramicaAction } from "@/app/actions/magazzino";
 import { WorkcenterCameraBar } from "@/components/produzione/WorkcenterCameraBar";
@@ -45,6 +46,7 @@ function CardLink({
 export function MagazzinoPanoramicaBoard() {
   const [data, setData] = useState<MagazzinoPanoramica | null>(null);
   const [error, setError] = useState<string | null>(null);
+  useSegnaDatiPagina(data != null || error != null);
 
   useEffect(() => {
     void getMagazzinoPanoramicaAction().then((res) => {
