@@ -1,5 +1,6 @@
 "use client";
 
+import dynamic from "next/dynamic";
 import { useEffect, useMemo, useState, useTransition } from "react";
 import {
   FaArrowsRotate,
@@ -23,8 +24,6 @@ import {
   rifiutaCancellazioneClienteAction,
   type ClienteCancellazionePrenotata,
 } from "@/app/actions/clienti";
-import { AnagraficaSchedaDetail } from "@/components/amministrazione/AnagraficaSchedaDetail";
-import { ClienteSchedaCompletaModal } from "@/components/amministrazione/ClienteSchedaCompletaModal";
 import {
   ActionGate,
   useActionAccess,
@@ -32,9 +31,6 @@ import {
 } from "@/components/layout/ActionAccessProvider";
 import { AZ } from "@/lib/auth/action-access";
 import { getCommercialeAnagraficaContextAction } from "@/app/actions/commerciale-anagrafica";
-import { AziendaTimelineModal } from "@/components/amministrazione/AziendaTimelineModal";
-import { CollegaAziendaScelteModal } from "@/components/amministrazione/CollegaAziendaScelteModal";
-import { ClienteFormModal } from "@/components/amministrazione/ClienteFormModal";
 import {
   AziendaFigliaRaccordo,
   SchedaDock,
@@ -47,10 +43,7 @@ import {
 } from "@/lib/amministrazione/azienda-collegata";
 import { ClientiFiltersPanel } from "@/components/amministrazione/ClientiFiltersPanel";
 import { CodiceTargaBadge } from "@/components/amministrazione/CodiceTargaBadge";
-import { FatturaSyncQueueModal } from "@/components/amministrazione/FatturaSyncQueueModal";
-import { PdfExportDetailModal } from "@/components/amministrazione/PdfExportDetailModal";
 import { ProdottoProprioProductTag } from "@/components/amministrazione/ProdottoProprioProductTag";
-import { SoftDeleteConfirmModal } from "@/components/amministrazione/SoftDeleteConfirmModal";
 import { PageLoading } from "@/components/ui/BusyIndicator";
 import { SortableTh } from "@/components/ui/SortableTh";
 import { nextSortState, type SortState } from "@/lib/ui/list-sort";
@@ -71,10 +64,116 @@ import {
   type Cliente,
   type ClientiFilters,
 } from "@/lib/amministrazione/clienti";
-import { exportClientiPdf } from "@/lib/amministrazione/clienti-pdf";
 import type { FatturaSyncQueueItem } from "@/lib/amministrazione/fatture-sync";
 import type { PdfDetailLevel } from "@/lib/amministrazione/pdf-export";
 import type { ProdottoProprio } from "@/lib/amministrazione/prodotti-propri";
+
+function AttesaNelFlusso({ label }: { label: string }) {
+  return (
+    <p role="status" className="text-xs text-[var(--muted)]">
+      {label}
+    </p>
+  );
+}
+
+function AttesaModulo({ label }: { label: string }) {
+  return (
+    <p
+      role="status"
+      className="pointer-events-none fixed bottom-4 right-4 z-30 max-w-xs rounded-md border border-[var(--border)] bg-white/95 px-3 py-1.5 text-xs text-[var(--muted)] shadow-sm"
+    >
+      {label}
+    </p>
+  );
+}
+
+const AnagraficaSchedaDetail = dynamic(
+  () =>
+    import("@/components/amministrazione/AnagraficaSchedaDetail").then(
+      (mod) => mod.AnagraficaSchedaDetail
+    ),
+  {
+    ssr: false,
+    loading: () => <AttesaNelFlusso label="Caricamento dettaglio…" />,
+  }
+);
+
+const ClienteSchedaCompletaModal = dynamic(
+  () =>
+    import("@/components/amministrazione/ClienteSchedaCompletaModal").then(
+      (mod) => mod.ClienteSchedaCompletaModal
+    ),
+  {
+    ssr: false,
+    loading: () => <AttesaModulo label="Caricamento scheda completa…" />,
+  }
+);
+
+const ClienteFormModal = dynamic(
+  () =>
+    import("@/components/amministrazione/ClienteFormModal").then(
+      (mod) => mod.ClienteFormModal
+    ),
+  {
+    ssr: false,
+    loading: () => <AttesaModulo label="Caricamento scheda…" />,
+  }
+);
+
+const AziendaTimelineModal = dynamic(
+  () =>
+    import("@/components/amministrazione/AziendaTimelineModal").then(
+      (mod) => mod.AziendaTimelineModal
+    ),
+  {
+    ssr: false,
+    loading: () => <AttesaModulo label="Caricamento timeline…" />,
+  }
+);
+
+const CollegaAziendaScelteModal = dynamic(
+  () =>
+    import("@/components/amministrazione/CollegaAziendaScelteModal").then(
+      (mod) => mod.CollegaAziendaScelteModal
+    ),
+  {
+    ssr: false,
+    loading: () => <AttesaModulo label="Caricamento collegamento…" />,
+  }
+);
+
+const FatturaSyncQueueModal = dynamic(
+  () =>
+    import("@/components/amministrazione/FatturaSyncQueueModal").then(
+      (mod) => mod.FatturaSyncQueueModal
+    ),
+  {
+    ssr: false,
+    loading: () => <AttesaModulo label="Caricamento sincronizzazione…" />,
+  }
+);
+
+const SoftDeleteConfirmModal = dynamic(
+  () =>
+    import("@/components/amministrazione/SoftDeleteConfirmModal").then(
+      (mod) => mod.SoftDeleteConfirmModal
+    ),
+  {
+    ssr: false,
+    loading: () => <AttesaModulo label="Caricamento conferma…" />,
+  }
+);
+
+const PdfExportDetailModal = dynamic(
+  () =>
+    import("@/components/amministrazione/PdfExportDetailModal").then(
+      (mod) => mod.PdfExportDetailModal
+    ),
+  {
+    ssr: false,
+    loading: () => <AttesaModulo label="Caricamento export…" />,
+  }
+);
 
 function ClienteRow({
   cliente,
@@ -389,6 +488,7 @@ export function ClientiBoard() {
   const [filters, setFilters] = useState<ClientiFilters>(emptyClientiFilters());
   const [pdfSelectMode, setPdfSelectMode] = useState(false);
   const [pdfDetailOpen, setPdfDetailOpen] = useState(false);
+  const [pdfModulo, setPdfModulo] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [syncItems, setSyncItems] = useState<FatturaSyncQueueItem[] | null>(
     null
@@ -550,10 +650,18 @@ export function ClientiBoard() {
 
   function confirmExportPdf(detailLevel: PdfDetailLevel) {
     const rows = selectedVisible.length > 0 ? selectedVisible : filtered;
-    exportClientiPdf(rows, filters, {
-      selectionMode: selectedVisible.length > 0,
-      detailLevel,
-    });
+    const selectionMode = selectedVisible.length > 0;
+    setPdfModulo(true);
+    void import("@/lib/amministrazione/clienti-pdf")
+      .then(({ exportClientiPdf }) => {
+        void exportClientiPdf(rows, filters, { selectionMode, detailLevel });
+      })
+      .catch(() => {
+        setSaveError("Export PDF non disponibile. Riprova.");
+      })
+      .finally(() => {
+        setPdfModulo(false);
+      });
     exitPdfSelectMode();
   }
 
@@ -572,6 +680,11 @@ export function ClientiBoard() {
       <div className="flex flex-wrap items-center justify-between gap-3">
         <p className="text-sm text-[var(--muted)]">
           Elenco clienti con filtri e export PDF.
+          {pdfModulo ? (
+            <span role="status" className="ml-2 text-xs">
+              Preparazione PDF…
+            </span>
+          ) : null}
         </p>
         <div className="flex flex-wrap items-center gap-2">
           {clienti.length > 0 && (
