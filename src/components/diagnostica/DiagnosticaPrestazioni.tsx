@@ -6,6 +6,7 @@ import { preparaRegistroRisorse, risorseRaccolte } from "@/components/diagnostic
 import {
   CHIAVE_NAVIGAZIONI,
   FINESTRA_RICHIESTE_MS,
+  fasiChiamataClient,
   interpretaAzione,
   raggruppaRichieste,
   type GruppoRichieste,
@@ -176,24 +177,40 @@ export function DiagnosticaPrestazioni({ origine }: { origine: "locale" | "produ
   async function misuraAzione() {
     setInCorso(true);
     const inizio = performance.now();
-    const res = await misuraContestoAction();
-    const andata = Math.round(performance.now() - inizio);
+    const fetchVisti: { inizio: number; fine: number }[] = [];
+    const originale = window.fetch.bind(window);
+    window.fetch = (input: RequestInfo | URL, init?: RequestInit) => {
+      const inizioFetch = performance.now();
+      return originale(input, init).finally(() => {
+        fetchVisti.push({ inizio: inizioFetch, fine: performance.now() });
+      });
+    };
+    let res: Awaited<ReturnType<typeof misuraContestoAction>>;
+    try {
+      res = await misuraContestoAction();
+    } finally {
+      window.fetch = originale;
+    }
+    const fine = performance.now();
+    const andata = Math.round(fine - inizio);
+    const fasi = fasiChiamataClient({ clic: inizio, fine, fetch: fetchVisti });
     setInCorso(false);
     if (!res.success) {
       setContesto("La misura non è disponibile per questo profilo.");
       return;
     }
-    const candidate = risorseDa(inizio).filter(
-      (risorsa) => risorsa.duration > 0 && risorsa.responseStart > 0
-    );
-    const richiesta = candidate.reduce<RisorsaOsservata | null>((scelta, risorsa) => {
-      if (!scelta || risorsa.duration > scelta.duration) return risorsa;
-      return scelta;
-    }, null);
-    const invio =
-      richiesta == null
-        ? null
-        : Math.max(0, Math.round((richiesta.requestStart || richiesta.start) - inizio));
+    let richiesta: RisorsaOsservata | null = null;
+    if (fasi.primaMs != null) {
+      const atteso = inizio + fasi.primaMs;
+      let distanzaMigliore = 81;
+      for (const risorsa of risorseDa(inizio)) {
+        const distanza = Math.abs(risorsa.start - atteso);
+        if (distanza < distanzaMigliore) {
+          distanzaMigliore = distanza;
+          richiesta = risorsa;
+        }
+      }
+    }
     const ttfb =
       richiesta == null || richiesta.responseStart <= 0
         ? null
@@ -210,13 +227,13 @@ export function DiagnosticaPrestazioni({ origine }: { origine: "locale" | "produ
       azioneMs: res.azioneMs,
       contestoMs: res.contestoMs,
       istanzaMs: res.istanzaMs,
-      invioMs: invio,
+      invioMs: fasi.primaMs,
       ttfbMs: ttfb,
       downloadMs: download,
       middlewareMs: richiesta?.middlewareMs ?? null,
     });
     setContesto(
-      `Richiesta completa ${andata} ms. Invio ${ms(invio)}. Risposta server ${ms(ttfb)}. Download ${ms(download)}. Middleware ${ms(richiesta?.middlewareMs ?? null)}. Funzione ${res.azioneMs} ms, di cui verifica autenticazione ${res.contestoMs} ms. Istanza accesa da ${Math.round(res.istanzaMs / 1000)} s. Origine: ${res.origine}. ${lettura}`
+      `Attesa dal clic ${andata} ms. Prima dell'invio ${ms(fasi.primaMs)}. Durata del fetch ${ms(fasi.reteMs)}. Dopo la risposta ${ms(fasi.dopoMs)}. Fetch osservati ${fasi.fetchOsservati}. Risposta server ${ms(ttfb)}. Download ${ms(download)}. Middleware ${ms(richiesta?.middlewareMs ?? null)}. Funzione ${res.azioneMs} ms, di cui verifica autenticazione ${res.contestoMs} ms. Istanza accesa da ${Math.round(res.istanzaMs / 1000)} s. Origine: ${res.origine}. ${lettura}`
     );
     aggiorna();
   }

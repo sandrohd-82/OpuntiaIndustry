@@ -3,6 +3,7 @@ import {
   areaMisurabile,
   chiudiNavigazione,
   classificaRichiesta,
+  fasiChiamataClient,
   controlloTrelloConsentito,
   decisioneScansioneFatture,
   decisioneScansionePromozioni,
@@ -327,7 +328,7 @@ assert.match(
     downloadMs: 40,
     middlewareMs: 90,
   }),
-  /avvio a freddo/
+  /prima della funzione/
 );
 assert.match(
   interpretaAzione({
@@ -462,4 +463,23 @@ assert.equal(gruppi[0]?.categoria, "altro");
 assert.equal(gruppi[0]?.conteggio, 2);
 assert.equal(gruppi[0]?.intervalloMedianoMs, 20_000);
 assert.equal(gruppi[1]?.categoria, "navigazione");
+
+const fasi = fasiChiamataClient({
+  clic: 0,
+  fine: 6_740,
+  fetch: [
+    { inizio: 100, fine: 400 },
+    { inizio: 5_000, fine: 6_700 },
+  ],
+});
+assert.equal(fasi.fetchOsservati, 2);
+assert.equal(fasi.primaMs, 5_000);
+assert.equal(fasi.reteMs, 1_700);
+assert.equal(fasi.dopoMs, 40);
+assert.deepEqual(fasiChiamataClient({ clic: 0, fine: 100, fetch: [] }), {
+  primaMs: null,
+  reteMs: null,
+  dopoMs: null,
+  fetchOsservati: 0,
+});
 console.log("prestazioni: ok");

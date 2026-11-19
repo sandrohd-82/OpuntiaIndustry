@@ -401,6 +401,33 @@ export function raggruppaRichieste(input: {
   return risultato.sort((a, b) => b.conteggio - a.conteggio || b.durataMaxMs - a.durataMaxMs);
 }
 
+export function fasiChiamataClient(input: {
+  clic: number;
+  fine: number;
+  fetch: { inizio: number; fine: number }[];
+}): {
+  primaMs: number | null;
+  reteMs: number | null;
+  dopoMs: number | null;
+  fetchOsservati: number;
+} {
+  const utili = input.fetch.filter(
+    (voce) => voce.fine >= input.clic && voce.inizio <= input.fine + 20
+  );
+  if (utili.length === 0) {
+    return { primaMs: null, reteMs: null, dopoMs: null, fetchOsservati: 0 };
+  }
+  const principale = utili.reduce((scelta, voce) =>
+    Math.abs(voce.fine - input.fine) < Math.abs(scelta.fine - input.fine) ? voce : scelta
+  );
+  return {
+    primaMs: Math.max(0, Math.round(principale.inizio - input.clic)),
+    reteMs: Math.max(0, Math.round(principale.fine - principale.inizio)),
+    dopoMs: Math.max(0, Math.round(input.fine - principale.fine)),
+    fetchOsservati: utili.length,
+  };
+}
+
 export function interpretaAzione(input: {
   andataMs: number;
   azioneMs: number;
@@ -413,11 +440,8 @@ export function interpretaAzione(input: {
 }): string {
   const fuori = Math.max(0, input.andataMs - input.azioneMs);
   const istanzaSecondi = Math.round(input.istanzaMs / 1000);
-  if (input.istanzaMs < 20_000 && fuori > 2_000) {
-    return `Istanza accesa da ${istanzaSecondi} s. ${fuori} ms sono fuori dal corpo della funzione: compatibile con un avvio a freddo.`;
-  }
   if (input.invioMs != null && input.invioMs > 1_000) {
-    return `Il browser ha atteso ${input.invioMs} ms prima di inviare la richiesta.`;
+    return `Il browser ha atteso ${input.invioMs} ms prima di inviare la richiesta. Istanza accesa da ${istanzaSecondi} s.`;
   }
   if (input.downloadMs != null && input.downloadMs > 1_000) {
     return `Il trasferimento della risposta ha richiesto ${input.downloadMs} ms.`;

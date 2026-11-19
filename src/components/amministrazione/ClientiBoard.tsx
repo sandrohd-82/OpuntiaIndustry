@@ -446,13 +446,17 @@ export function ClientiBoard() {
       if (!result.success) return;
       setProdottiByCode(new Map(result.prodotti.map((p) => [p.codice, p])));
     })();
-  }, [clienti]);
+  }, []);
 
-  useEffect(() => {
+  function caricaCancellazioni() {
     void listCancellazioniClientePrenotateAction().then((res) => {
       if (res.success) setPendingCanc(res.items);
     });
-  }, [clienti]);
+  }
+
+  useEffect(() => {
+    caricaCancellazioni();
+  }, []);
 
   useEffect(() => {
     void getCommercialeAnagraficaContextAction().then((ctx) => {
@@ -1077,6 +1081,7 @@ export function ClientiBoard() {
             if (!result.success) {
               throw new Error(result.error);
             }
+            caricaCancellazioni();
             setDeleting(null);
             setEditing((prev) =>
               prev
