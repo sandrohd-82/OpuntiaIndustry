@@ -1,5 +1,4 @@
 import { notFound, redirect } from "next/navigation";
-import { ClientiBoard } from "@/components/amministrazione/ClientiBoard";
 import { FatturaEmissioneBoard } from "@/components/amministrazione/FatturaEmissioneBoard";
 import { ListiniB2bBoard } from "@/components/amministrazione/ListiniB2bBoard";
 import { PossibiliClientiBoard } from "@/components/amministrazione/PossibiliClientiBoard";
@@ -52,17 +51,6 @@ export default async function CommercialeSectionPage({ params }: Props) {
 
   const page = resolveCommercialePage([section]);
   if (!page) notFound();
-
-  if (section === "clienti") {
-    return (
-      <>
-        <AppHeader title={page.label} subtitle={page.description} />
-        <div className="p-6">
-          <ClientiBoard />
-        </div>
-      </>
-    );
-  }
 
   if (section === "possibili-clienti") {
     return (
