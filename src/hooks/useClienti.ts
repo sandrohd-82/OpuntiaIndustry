@@ -2,7 +2,15 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { salvaMisuraElencoClienti } from "@/components/diagnostica/misura-elenco-clienti";
-import { corpoContieneMarca, fasiAzioneAssociata } from "@/lib/diagnostica/prestazioni";
+import {
+  CHIAVE_CLIC_AREA,
+  CHIAVE_SONDA_PRESTAZIONI,
+  classeRichiestaOsservata,
+  clicAMontaggio,
+  corpoContieneMarca,
+  fasiAzioneAssociata,
+  riassuntoRichiesteAperte,
+} from "@/lib/diagnostica/prestazioni";
 import {
   createClienteAction,
   listClientiAction,
@@ -28,28 +36,39 @@ export function useClienti() {
   }, []);
 
   useEffect(() => {
-    const misuraPagina = window.location.pathname.startsWith("/app/commerciale/clienti");
+    const misuraPagina =
+      window.location.pathname.startsWith("/app/commerciale/clienti") &&
+      sondaPrestazioniAttiva();
     const montato = performance.now();
     const marca = misuraPagina ? marcaElencoClienti() : undefined;
     let corrispondenza: { inizio: number; fine: number } | null = null;
+    let nostroInizio: number | null = null;
     let altreAzioni = 0;
+    let fetchOrdinari = 0;
+    let fetchRsc = 0;
     const originale = misuraPagina ? window.fetch.bind(window) : null;
+    const avvio = performance.now();
+    const giaAperte = misuraPagina ? richiesteGiaAperte(avvio) : null;
+    const clicAMontaggioMs = misuraPagina ? clicAMontaggio(leggiClicArea(), montato) : null;
     if (originale && marca) {
       window.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
         const inizioFetch = performance.now();
-        const nostra = richiestaElencoClienti(input, init, marca);
-        if (intestazioneAzione(input, init) && !nostra && corrispondenza == null) {
-          altreAzioni += 1;
+        const classe = classeOsservata(input, init, marca);
+        if (classe === "elenco") {
+          nostroInizio = inizioFetch;
+        } else if (inizioFetch >= avvio && (nostroInizio == null || inizioFetch < nostroInizio)) {
+          if (classe === "azione" && corpoAzioneLeggibile(init?.body)) altreAzioni += 1;
+          else if (classe === "rsc") fetchRsc += 1;
+          else if (classe === "ordinario") fetchOrdinari += 1;
         }
         const risposta = await originale(input, init);
-        if (nostra) corrispondenza = { inizio: inizioFetch, fine: performance.now() };
+        if (classe === "elenco") corrispondenza = { inizio: inizioFetch, fine: performance.now() };
         return risposta;
       };
     }
-    const avvio = performance.now();
     void refresh(marca)
       .then((result) => {
-        if (!misuraPagina || !result.success) return;
+        if (!misuraPagina || !result.success || giaAperte == null) return;
         const fine = performance.now();
         const fasi = fasiAzioneAssociata({
           avvio,
@@ -60,12 +79,20 @@ export function useClienti() {
         salvaMisuraElencoClienti({
           ...result.tempi,
           montaggioAAvvioMs: Math.max(0, Math.round(avvio - montato)),
+          clicAMontaggioMs,
           associata: fasi.associata,
           altreAzioni: fasi.altreAzioni,
           primaDelFetchMs: fasi.primaMs,
           fetchMs: fasi.fetchMs,
           dopoIlFetchMs: fasi.dopoMs,
-          fetchOsservati: fasi.altreAzioni + (fasi.associata ? 1 : 0),
+          fetchOsservati: altreAzioni + fetchOrdinari + fetchRsc + (fasi.associata ? 1 : 0),
+          fetchOrdinari,
+          fetchRsc,
+          inCorso: giaAperte.inCorso,
+          inCorsoRsc: giaAperte.inCorsoRsc,
+          inCorsoNonClassificati: giaAperte.inCorsoNonClassificati,
+          etaMassimaInCorsoMs: giaAperte.etaMassimaMs,
+          inCorsoAffidabile: giaAperte.affidabile,
           attesaAzioneMs: Math.round(fine - avvio),
           ricevutoAt: fine,
           renderingMs: null,
@@ -151,24 +178,87 @@ function marcaElencoClienti(): string {
   return `oi${Array.from(byte, (n) => n.toString(16).padStart(2, "0")).join("")}`;
 }
 
-function intestazioneAzione(input: RequestInfo | URL, init?: RequestInit): boolean {
+function sondaPrestazioniAttiva(): boolean {
   try {
-    const headers = new Headers(
-      init?.headers ?? (input instanceof Request ? input.headers : undefined)
-    );
-    return headers.has("next-action");
+    return sessionStorage.getItem(CHIAVE_SONDA_PRESTAZIONI) === "1";
   } catch {
     return false;
   }
 }
 
-function richiestaElencoClienti(
+function leggiClicArea(): { area: string; t: number } | null {
+  try {
+    const grezzo = sessionStorage.getItem(CHIAVE_CLIC_AREA);
+    if (!grezzo) return null;
+    const valore = JSON.parse(grezzo) as { area?: unknown; t?: unknown };
+    if (typeof valore.area !== "string" || typeof valore.t !== "number") return null;
+    return { area: valore.area, t: valore.t };
+  } catch {
+    return null;
+  }
+}
+
+function intestazioniRichiesta(input: RequestInfo | URL, init?: RequestInit): Headers {
+  const base = input instanceof Request ? input.headers : undefined;
+  const out = new Headers(base);
+  if (init?.headers) {
+    new Headers(init.headers).forEach((valore, chiave) => out.set(chiave, valore));
+  }
+  return out;
+}
+
+function urlRichiesta(input: RequestInfo | URL): string {
+  if (typeof input === "string") return input;
+  if (input instanceof URL) return input.href;
+  return input.url;
+}
+
+function classeOsservata(
   input: RequestInfo | URL,
   init: RequestInit | undefined,
   marca: string
-): boolean {
-  if (!intestazioneAzione(input, init)) return false;
-  return corpoContieneMarca(testoCorpoAzione(init?.body), marca);
+): "elenco" | "azione" | "rsc" | "ordinario" {
+  try {
+    const headers = intestazioniRichiesta(input, init);
+    const azione = headers.has("next-action");
+    return classeRichiestaOsservata({
+      azione,
+      rsc: headers.has("rsc") || urlRichiesta(input).includes("_rsc"),
+      contieneMarca: azione && corpoContieneMarca(testoCorpoAzione(init?.body), marca),
+    });
+  } catch {
+    return "ordinario";
+  }
+}
+
+function richiesteGiaAperte(ora: number) {
+  try {
+    const voci: { start: number; responseEnd: number; rsc: boolean }[] = [];
+    for (const voce of performance.getEntriesByType("resource")) {
+      const risorsa = voce as PerformanceResourceTiming;
+      voci.push({
+        start: risorsa.startTime,
+        responseEnd: risorsa.responseEnd,
+        rsc: risorsa.name.includes("_rsc"),
+      });
+    }
+    return { ...riassuntoRichiesteAperte(voci, ora), affidabile: true };
+  } catch {
+    return {
+      inCorso: 0,
+      inCorsoRsc: 0,
+      inCorsoNonClassificati: 0,
+      etaMassimaMs: null as number | null,
+      affidabile: false,
+    };
+  }
+}
+
+function corpoAzioneLeggibile(body: BodyInit | null | undefined): boolean {
+  if (typeof body === "string") return true;
+  if (typeof URLSearchParams !== "undefined" && body instanceof URLSearchParams) return true;
+  if (typeof FormData !== "undefined" && body instanceof FormData) return true;
+  return false;
 }
 
 function testoCorpoAzione(body: BodyInit | null | undefined): string {

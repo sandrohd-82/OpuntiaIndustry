@@ -104,6 +104,8 @@ export const CHIAVE_NAVIGAZIONI_OBSOLETA = "prestazioni-aree";
 export const CHIAVE_NAVIGAZIONI_PRECEDENTE = "prestazioni-navigazioni";
 export const FINESTRA_RICHIESTE_MS = 60_000;
 export const CHIAVE_ELENCO_CLIENTI = "prestazioni-elenco-clienti";
+export const CHIAVE_CLIC_AREA = "prestazioni-clic-area";
+export const CHIAVE_SONDA_PRESTAZIONI = "prestazioni-sonda";
 
 export type TempiServerElencoClienti = {
   accessoMs: number;
@@ -130,7 +132,21 @@ export type MisuraElencoClienti = TempiServerElencoClienti & {
   attesaAzioneMs: number;
   ricevutoAt: number;
   renderingMs: number | null;
+  clicAMontaggioMs?: number | null;
+  fetchOrdinari?: number;
+  fetchRsc?: number;
+  inCorso?: number;
+  inCorsoRsc?: number;
+  inCorsoNonClassificati?: number;
+  etaMassimaInCorsoMs?: number | null;
+  inCorsoAffidabile?: boolean;
 };
+
+export type ConclusioneAttesaInvio =
+  | "dimostrata"
+  | "compatibile"
+  | "non-identificata"
+  | "sotto-il-secondo";
 export const AREE_CONTENUTO = [
   "dashboard",
   "amministrazione",
@@ -458,6 +474,78 @@ export function fasiChiamataClient(input: {
 
 export function corpoContieneMarca(corpo: string, marca: string): boolean {
   return marca.length >= 16 && corpo.includes(marca);
+}
+
+export function clicAMontaggio(
+  clic: { area: string; t: number } | null,
+  montato: number
+): number | null {
+  if (clic == null || clic.area !== "commerciale") return null;
+  if (!Number.isFinite(clic.t) || !Number.isFinite(montato) || clic.t > montato) return null;
+  const delta = montato - clic.t;
+  if (delta > LIMITE_NAVIGAZIONE_MS) return null;
+  return Math.round(delta);
+}
+
+export function riassuntoRichiesteAperte(
+  voci: { start: number; responseEnd: number; rsc: boolean }[],
+  ora: number
+): {
+  inCorso: number;
+  inCorsoRsc: number;
+  inCorsoNonClassificati: number;
+  etaMassimaMs: number | null;
+} {
+  let inCorso = 0;
+  let inCorsoRsc = 0;
+  let inCorsoNonClassificati = 0;
+  let etaMassimaMs: number | null = null;
+  for (const voce of voci) {
+    if (voce.responseEnd !== 0 || !Number.isFinite(voce.start) || voce.start > ora) continue;
+    inCorso += 1;
+    if (voce.rsc) inCorsoRsc += 1;
+    else inCorsoNonClassificati += 1;
+    const eta = Math.max(0, Math.round(ora - voce.start));
+    if (etaMassimaMs == null || eta > etaMassimaMs) etaMassimaMs = eta;
+  }
+  return { inCorso, inCorsoRsc, inCorsoNonClassificati, etaMassimaMs };
+}
+
+export function classeRichiestaOsservata(input: {
+  azione: boolean;
+  rsc: boolean;
+  contieneMarca: boolean;
+}): "elenco" | "azione" | "rsc" | "ordinario" {
+  if (input.azione && input.contieneMarca) return "elenco";
+  if (input.azione) return "azione";
+  if (input.rsc) return "rsc";
+  return "ordinario";
+}
+
+export function conclusioneAttesaInvio(input: {
+  associata: boolean;
+  primaDelFetchMs: number | null;
+  altreAzioni: number;
+  fetchOrdinari: number;
+  fetchRsc: number;
+  inCorso: number;
+  inCorsoAffidabile: boolean;
+}): ConclusioneAttesaInvio {
+  if (!input.associata || input.primaDelFetchMs == null) return "non-identificata";
+  if (input.primaDelFetchMs < 1000) return "sotto-il-secondo";
+  if (input.altreAzioni > 0) return "dimostrata";
+  const indizi =
+    input.fetchOrdinari + input.fetchRsc + (input.inCorsoAffidabile ? input.inCorso : 0);
+  if (indizi > 0) return "compatibile";
+  return "non-identificata";
+}
+
+export function rispostaAdElencoProntoMs(
+  dopoIlFetchMs: number | null,
+  renderingMs: number | null
+): number | null {
+  if (dopoIlFetchMs == null && renderingMs == null) return null;
+  return (dopoIlFetchMs ?? 0) + (renderingMs ?? 0);
 }
 
 export function fasiAzioneAssociata(input: {

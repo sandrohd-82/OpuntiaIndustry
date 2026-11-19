@@ -8,8 +8,13 @@ import {
   decisioneScansioneFatture,
   decisioneScansionePromozioni,
   interpretaAzione,
+  classeRichiestaOsservata,
+  clicAMontaggio,
+  conclusioneAttesaInvio,
   corpoContieneMarca,
   fasiAzioneAssociata,
+  riassuntoRichiesteAperte,
+  rispostaAdElencoProntoMs,
   trattoElencoClienti,
   mappaMenuDaCaricare,
   percorsoMisurabile,
@@ -561,4 +566,76 @@ assert.equal(
   }),
   "nessun tratto oltre un secondo"
 );
+assert.equal(clicAMontaggio({ area: "commerciale", t: 1000 }, 4000), 3000);
+assert.equal(clicAMontaggio({ area: "amministrazione", t: 1000 }, 4000), null);
+assert.equal(clicAMontaggio({ area: "commerciale", t: 1000 }, 70_000), null);
+assert.equal(clicAMontaggio(null, 4000), null);
+assert.deepEqual(
+  riassuntoRichiesteAperte(
+    [
+      { start: 100, responseEnd: 0, rsc: true },
+      { start: 50, responseEnd: 0, rsc: false },
+      { start: 10, responseEnd: 80, rsc: false },
+    ],
+    1000
+  ),
+  { inCorso: 2, inCorsoRsc: 1, inCorsoNonClassificati: 1, etaMassimaMs: 950 }
+);
+assert.equal(classeRichiestaOsservata({ azione: true, rsc: false, contieneMarca: true }), "elenco");
+assert.equal(classeRichiestaOsservata({ azione: true, rsc: true, contieneMarca: false }), "azione");
+assert.equal(classeRichiestaOsservata({ azione: false, rsc: true, contieneMarca: false }), "rsc");
+assert.equal(
+  classeRichiestaOsservata({ azione: false, rsc: false, contieneMarca: false }),
+  "ordinario"
+);
+assert.equal(
+  conclusioneAttesaInvio({
+    associata: true,
+    primaDelFetchMs: 2880,
+    altreAzioni: 2,
+    fetchOrdinari: 0,
+    fetchRsc: 0,
+    inCorso: 0,
+    inCorsoAffidabile: true,
+  }),
+  "dimostrata"
+);
+assert.equal(
+  conclusioneAttesaInvio({
+    associata: true,
+    primaDelFetchMs: 2880,
+    altreAzioni: 0,
+    fetchOrdinari: 0,
+    fetchRsc: 1,
+    inCorso: 3,
+    inCorsoAffidabile: true,
+  }),
+  "compatibile"
+);
+assert.equal(
+  conclusioneAttesaInvio({
+    associata: true,
+    primaDelFetchMs: 2880,
+    altreAzioni: 0,
+    fetchOrdinari: 0,
+    fetchRsc: 0,
+    inCorso: 4,
+    inCorsoAffidabile: false,
+  }),
+  "non-identificata"
+);
+assert.equal(
+  conclusioneAttesaInvio({
+    associata: true,
+    primaDelFetchMs: 40,
+    altreAzioni: 3,
+    fetchOrdinari: 1,
+    fetchRsc: 1,
+    inCorso: 2,
+    inCorsoAffidabile: true,
+  }),
+  "sotto-il-secondo"
+);
+assert.equal(rispostaAdElencoProntoMs(8, 6), 14);
+assert.equal(rispostaAdElencoProntoMs(null, null), null);
 console.log("prestazioni: ok");

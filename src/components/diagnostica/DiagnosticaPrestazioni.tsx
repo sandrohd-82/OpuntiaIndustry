@@ -10,7 +10,10 @@ import {
   fasiChiamataClient,
   interpretaAzione,
   raggruppaRichieste,
+  conclusioneAttesaInvio,
+  rispostaAdElencoProntoMs,
   trattoElencoClienti,
+  type ConclusioneAttesaInvio,
   type GruppoRichieste,
   type MisuraElencoClienti,
   type ResocontoNavigazione,
@@ -42,6 +45,24 @@ function kilobyte(byte: number): string {
 
 function ms(valore: number | null): string {
   return valore == null ? "non esposto" : `${valore} ms`;
+}
+
+function testoConclusione(esito: ConclusioneAttesaInvio): string {
+  if (esito === "dimostrata") {
+    return "Causa direttamente dimostrata: altre Server Action sono partite prima del fetch dell'elenco.";
+  }
+  if (esito === "compatibile") {
+    return "Attesa compatibile con coda occupata. Le richieste contemporanee restano indizi.";
+  }
+  if (esito === "sotto-il-secondo") {
+    return "Il tratto prima dell'invio è sotto il secondo.";
+  }
+  return "Causa non identificata.";
+}
+
+function testoInCorso(elenco: MisuraElencoClienti): string {
+  if (!elenco.inCorsoAffidabile) return "non esposto";
+  return String(elenco.inCorso ?? 0);
 }
 
 function rigaTempi(valori: number[]): string {
@@ -323,21 +344,48 @@ export function DiagnosticaPrestazioni({ origine }: { origine: "locale" | "produ
           </p>
         ) : (
           <div className="mt-2 space-y-1">
-            <p>
-              Dal montaggio all&apos;avvio {elenco.montaggioAAvvioMs} ms. Attesa dell&apos;azione{" "}
-              {elenco.attesaAzioneMs} ms.
-            </p>
+            <p>Attesa complessiva dell&apos;azione {elenco.attesaAzioneMs} ms.</p>
             {elenco.associata ? (
-              <p>
-                Richiesta associata a listClientiAction. Prima dell&apos;invio{" "}
-                {ms(elenco.primaDelFetchMs)}. Fino alle intestazioni {ms(elenco.fetchMs)}. Lettura
-                della risposta {ms(elenco.dopoIlFetchMs)}. Altre Server Action partite prima:{" "}
-                {elenco.altreAzioni}.
-              </p>
+              <div className="space-y-1">
+                <p>Clic → montaggio: {ms(elenco.clicAMontaggioMs ?? null)}.</p>
+                <p>Montaggio → invocazione: {elenco.montaggioAAvvioMs} ms.</p>
+                <p>Invocazione → inizio del fetch: {ms(elenco.primaDelFetchMs)}.</p>
+                <p>Fetch → intestazioni: {ms(elenco.fetchMs)}.</p>
+                <p>
+                  Risposta → elenco pronto:{" "}
+                  {ms(rispostaAdElencoProntoMs(elenco.dopoIlFetchMs, elenco.renderingMs))}. Lettura{" "}
+                  {ms(elenco.dopoIlFetchMs)}, rendering {ms(elenco.renderingMs)}.
+                </p>
+                <p>
+                  Durante l&apos;attesa del fetch: altre Server Action {elenco.altreAzioni}, fetch
+                  ordinari {elenco.fetchOrdinari ?? 0}, richieste RSC {elenco.fetchRsc ?? 0}.
+                </p>
+                <p>
+                  Già in corso all&apos;inizio: {testoInCorso(elenco)}. Con _rsc{" "}
+                  {elenco.inCorsoRsc ?? 0}, senza classificazione {elenco.inCorsoNonClassificati ?? 0},
+                  la più vecchia {ms(elenco.etaMassimaInCorsoMs ?? null)}.
+                </p>
+                <p>
+                  {testoConclusione(
+                    conclusioneAttesaInvio({
+                      associata: true,
+                      primaDelFetchMs: elenco.primaDelFetchMs,
+                      altreAzioni: elenco.altreAzioni,
+                      fetchOrdinari: elenco.fetchOrdinari ?? 0,
+                      fetchRsc: elenco.fetchRsc ?? 0,
+                      inCorso: elenco.inCorso ?? 0,
+                      inCorsoAffidabile: elenco.inCorsoAffidabile === true,
+                    })
+                  )}
+                </p>
+                <p>
+                  Il browser non distingue una Server Action già in esecuzione da un refresh interno
+                  del router: le risorse già aperte non espongono next-action e restano solo indizi.
+                </p>
+              </div>
             ) : (
               <p>
-                La richiesta di listClientiAction non è stata associata. I tempi di invio non sono
-                usati. Server Action viste durante l&apos;attesa: {elenco.altreAzioni ?? 0}.
+                La richiesta di listClientiAction non è stata associata. Causa non identificata.
               </p>
             )}
             <p>

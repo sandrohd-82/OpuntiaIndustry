@@ -13,9 +13,11 @@ import {
   areaMisurabile,
   chiudiNavigazione,
   LIMITE_NAVIGAZIONE_MS,
+  CHIAVE_CLIC_AREA,
   CHIAVE_NAVIGAZIONI,
   CHIAVE_NAVIGAZIONI_OBSOLETA,
   CHIAVE_NAVIGAZIONI_PRECEDENTE,
+  CHIAVE_SONDA_PRESTAZIONI,
   type ResocontoNavigazione,
 } from "@/lib/diagnostica/prestazioni";
 
@@ -87,6 +89,13 @@ export function RegistratoreNavigazione() {
   const pathname = usePathname();
   const attesa = useRef<Attesa | null>(null);
   const scadenza = useRef<number | null>(null);
+  if (typeof window !== "undefined") {
+    try {
+      sessionStorage.setItem(CHIAVE_SONDA_PRESTAZIONI, "1");
+    } catch {
+      /* la sonda resta spenta */
+    }
+  }
 
   const pubblica = useCallback((chiusa: boolean) => {
     const corrente = attesa.current;
@@ -131,6 +140,14 @@ export function RegistratoreNavigazione() {
       if (attesa.current) pubblica(true);
       azzeraSegnaleRegistroPieno();
       const clic = performance.now();
+      try {
+        sessionStorage.setItem(
+          CHIAVE_CLIC_AREA,
+          JSON.stringify({ area: areaPath.split("/")[2] ?? "", t: clic })
+        );
+      } catch {
+        /* il clic resta solo nel resoconto */
+      }
       attesa.current = {
         area: areaPath,
         slug: areaPath.split("/")[2] ?? "",
