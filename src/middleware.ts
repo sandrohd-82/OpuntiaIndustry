@@ -52,7 +52,7 @@ function safeAppRedirect(raw: string | null): string {
   return path;
 }
 
-export async function middleware(request: NextRequest) {
+async function instrada(request: NextRequest) {
   const { pathname } = request.nextUrl;
   const { supabaseResponse, user, statoOperativo } =
     await updateSession(request);
@@ -177,6 +177,14 @@ export async function middleware(request: NextRequest) {
   }
 
   return supabaseResponse;
+}
+
+export async function middleware(request: NextRequest) {
+  const inizio = performance.now();
+  const risposta = await instrada(request);
+  const ms = Math.round(performance.now() - inizio);
+  risposta.headers.append("Server-Timing", `middleware;dur=${ms}`);
+  return risposta;
 }
 
 export const config = {

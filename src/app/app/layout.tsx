@@ -12,6 +12,7 @@ import { TrelloSchedeSentinella } from "@/components/kanban/TrelloSchedeSentinel
 import { PageAccessToggle } from "@/components/layout/PageAccessToggle";
 import { WelcomeModal } from "@/components/layout/WelcomeModal";
 import { FattureMailCandidatiModal } from "@/components/amministrazione/FattureMailCandidatiModal";
+import { RegistratoreNavigazione } from "@/components/diagnostica/DiagnosticaPrestazioni";
 import { LeadPromozioneGate } from "@/components/amministrazione/LeadPromozioneGate";
 import {
   NotificationConsentBanner,
@@ -273,7 +274,10 @@ export default async function AppLayout({
       </div>
       {auth.welcomePending ? <WelcomeModal name={welcomeName} /> : null}
       {isSuperadminProfile(auth.profile) && !auth.impersonating ? (
-        <FattureMailCandidatiModal />
+        <>
+          <FattureMailCandidatiModal />
+          <RegistratoreNavigazione />
+        </>
       ) : null}
       <LeadPromozioneGate />
     </div>

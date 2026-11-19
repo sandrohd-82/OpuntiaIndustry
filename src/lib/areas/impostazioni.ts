@@ -26,6 +26,13 @@ export const IMPOSTAZIONI_SECTIONS: readonly NavItem[] = [
     path: "/app/impostazioni/compiti",
     superAdminOnly: true,
   },
+  {
+    slug: "prestazioni",
+    label: "Prestazioni",
+    description: "Tempi di navigazione di questa sessione, senza dati personali",
+    path: "/app/impostazioni/prestazioni",
+    superAdminOnly: true,
+  },
 ];
 
 export function firstImpostazioniPath(): string {

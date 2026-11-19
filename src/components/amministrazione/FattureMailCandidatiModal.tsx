@@ -3,7 +3,11 @@
 import dynamic from "next/dynamic";
 import { usePathname } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
-import { scansioneFattureMailRichiesta } from "@/lib/diagnostica/prestazioni";
+import {
+  decisioneScansioneFatture,
+  statoScansioneDopoEsito,
+  type StatoScansioneMail,
+} from "@/lib/diagnostica/prestazioni";
 
 const FatturaRegistrazioneModal = dynamic(
   () =>
@@ -48,61 +52,83 @@ export function FattureMailCandidatiModal() {
   const [banner, setBanner] = useState<string | null>(null);
   const ferma = useRef(false);
   const elencato = useRef(false);
+  const richiestaInCorso = useRef(false);
   const pathname = usePathname();
 
+  function statoSalvato(): StatoScansioneMail {
+    const valore = sessionStorage.getItem(SCANSIONE);
+    if (valore === "completa" || valore === "incompleta") return valore;
+    return "assente";
+  }
+
   async function carica(scansiona: boolean) {
-    if (ferma.current) return;
+    if (ferma.current || richiestaInCorso.current) return;
+    richiestaInCorso.current = true;
     setInControllo(true);
+    setErrore(null);
     setBanner(
       scansiona ? "Controllo le fatture nelle mail del 2026…" : "Fatture già trovate nelle mail"
     );
-    const res = await listFattureMailDaValutareAction(scansiona ? { scansiona: true } : undefined);
-    if (ferma.current) return;
-    setInControllo(false);
-    if (!res.success) {
-      setErrore(res.error);
-      setBanner(res.error);
-      return;
+    try {
+      const res = await listFattureMailDaValutareAction(scansiona ? { scansiona: true } : undefined);
+      if (ferma.current) return;
+      if (!res.success) {
+        setErrore(res.error);
+        setBanner(res.error);
+        return;
+      }
+      if (scansiona) {
+        sessionStorage.setItem(
+          SCANSIONE,
+          statoScansioneDopoEsito({ riuscita: true, restano: res.restano })
+        );
+      }
+      elencato.current = true;
+      setPeriodo(res.periodo || "2026");
+      setMancanti(res.caselleMancanti);
+      setCandidati(res.candidati);
+      if (scansiona && res.restano) {
+        setBanner("Restano mail da controllare. Usa Aggiorna dalle mail per il passaggio successivo.");
+        return;
+      }
+      const quante = res.candidati.length;
+      if (quante === 0) setBanner("Nessuna fattura nuova da registrare");
+      else if (quante === 1) setBanner("C'è 1 fattura da registrare");
+      else setBanner(`Ci sono ${quante} fatture da registrare`);
+    } catch {
+      setErrore("La scansione non è riuscita.");
+      setBanner("La scansione non è riuscita. Usa Aggiorna dalle mail per riprovare.");
+    } finally {
+      richiestaInCorso.current = false;
+      setInControllo(false);
     }
-    setPeriodo(res.periodo || "2026");
-    setMancanti(res.caselleMancanti);
-    setCandidati(res.candidati);
-    if (scansiona && res.restano) {
-      setBanner("Restano mail da controllare. Usa Aggiorna dalle mail per il passaggio successivo.");
-      return;
-    }
-    const quante = res.candidati.length;
-    if (quante === 0) setBanner("Nessuna fattura nuova da registrare");
-    else if (quante === 1) setBanner("C'è 1 fattura da registrare");
-    else setBanner(`Ci sono ${quante} fatture da registrare`);
   }
 
   useEffect(() => {
     if (typeof window !== "undefined" && sessionStorage.getItem(NASCOSTO) === "1") {
       return;
     }
-    const giaEseguita = sessionStorage.getItem(SCANSIONE) === "1";
-    const scansiona = scansioneFattureMailRichiesta({
+    const decisione = decisioneScansioneFatture({
       areaAmministrazione: pathname.startsWith("/app/amministrazione"),
-      giaEseguita,
+      stato: statoSalvato(),
       richiestoOperatore: false,
+      richiestaInCorso: richiestaInCorso.current,
+      elencoGiaRiuscito: elencato.current,
     });
-    if (!scansiona && elencato.current) return;
-    if (scansiona) sessionStorage.setItem(SCANSIONE, "1");
-    elencato.current = true;
-    void carica(scansiona);
+    if (decisione === "attendi") return;
+    void carica(decisione === "scansione");
   }, [pathname]);
 
   function aggiornaDalleMail() {
-    sessionStorage.setItem(SCANSIONE, "1");
+    if (richiestaInCorso.current) return;
     void carica(true);
   }
 
   useEffect(() => {
-    if (inControllo || !banner) return;
+    if (inControllo || !banner || errore) return;
     const timer = window.setTimeout(() => setBanner(null), 4500);
     return () => window.clearTimeout(timer);
-  }, [inControllo, banner]);
+  }, [inControllo, banner, errore]);
 
   function piuTardi() {
     ferma.current = true;
@@ -174,14 +200,24 @@ export function FattureMailCandidatiModal() {
     <>
       {banner ? (
         <div className="pointer-events-none fixed inset-x-0 bottom-4 z-[70] flex justify-center px-4 print:hidden">
-          <button
-            type="button"
-            onClick={apriElenco}
-            disabled={inControllo || candidati.length === 0}
-            className="pointer-events-auto max-w-md rounded-full bg-slate-900 px-4 py-2 text-sm text-white shadow-lg disabled:cursor-default"
-          >
-            {banner}
-          </button>
+          <div className="pointer-events-auto flex max-w-xl flex-wrap items-center justify-center gap-2">
+            <button
+              type="button"
+              onClick={apriElenco}
+              disabled={inControllo || candidati.length === 0}
+              className="rounded-full bg-slate-900 px-4 py-2 text-sm text-white shadow-lg disabled:cursor-default"
+            >
+              {banner}
+            </button>
+            <button
+              type="button"
+              onClick={aggiornaDalleMail}
+              disabled={inControllo}
+              className="rounded-full border border-white/30 bg-white px-4 py-2 text-sm text-slate-900 shadow-lg disabled:opacity-40"
+            >
+              Aggiorna dalle mail
+            </button>
+          </div>
         </div>
       ) : null}
       {aperto ? (

@@ -3,7 +3,7 @@
 import dynamic from "next/dynamic";
 import { usePathname } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { scansionePromozioniRichiesta } from "@/lib/diagnostica/prestazioni";
+import { decisioneScansionePromozioni } from "@/lib/diagnostica/prestazioni";
 
 const ClienteFormModal = dynamic(
   () =>
@@ -32,43 +32,59 @@ export function LeadPromozioneGate() {
   const [pratica, setPratica] = useState<LeadPromozioneAperta | null>(null);
   const [lead, setLead] = useState<ClientePossibile | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const elencato = useRef(false);
+  const scansioneFatta = useRef(false);
+  const richiestaInCorso = useRef(false);
 
   const reload = useCallback(async (scansiona = false) => {
-    const res = await listMiePromozioniAperteAction(scansiona ? { scansiona: true } : undefined);
-    if (!res.success) {
-      setError(res.error);
-      return;
+    if (richiestaInCorso.current) return false;
+    richiestaInCorso.current = true;
+    try {
+      const res = await listMiePromozioniAperteAction(scansiona ? { scansiona: true } : undefined);
+      if (!res.success) {
+        setError(res.error);
+        return false;
+      }
+      const next = res.items[0] ?? null;
+      setPratica(next);
+      setError(null);
+      if (!next) {
+        setLead(null);
+        return true;
+      }
+      const leads = await listClientiPossibiliAction();
+      if (!leads.success) {
+        setLead(null);
+        return true;
+      }
+      setLead(leads.items.find((item) => item.id === next.leadId) ?? null);
+      return true;
+    } catch {
+      setError("La scansione non è riuscita.");
+      return false;
+    } finally {
+      richiestaInCorso.current = false;
     }
-    const next = res.items[0] ?? null;
-    setPratica(next);
-    setError(null);
-    if (!next) {
-      setLead(null);
-      return;
-    }
-    const leads = await listClientiPossibiliAction();
-    if (!leads.success) {
-      setLead(null);
-      return;
-    }
-    setLead(leads.items.find((item) => item.id === next.leadId) ?? null);
   }, []);
 
   const pathname = usePathname();
-  const elencato = useRef(false);
-  const scansioneFatta = useRef(false);
 
   useEffect(() => {
     const areaPertinente =
       pathname.startsWith("/app/amministrazione") || pathname.startsWith("/app/commerciale");
-    const scansiona = scansionePromozioniRichiesta({
+    const decisione = decisioneScansionePromozioni({
       areaPertinente,
-      giaEseguita: scansioneFatta.current,
+      giaRiuscita: scansioneFatta.current,
+      richiestaInCorso: richiestaInCorso.current,
+      elencoGiaRiuscito: elencato.current,
     });
-    if (!scansiona && elencato.current) return;
-    if (scansiona) scansioneFatta.current = true;
-    elencato.current = true;
-    void reload(scansiona);
+    if (decisione === "attendi") return;
+    const scansiona = decisione === "scansione";
+    void reload(scansiona).then((riuscita) => {
+      if (!riuscita) return;
+      elencato.current = true;
+      if (scansiona) scansioneFatta.current = true;
+    });
   }, [pathname, reload]);
 
   if (!pratica) return null;
