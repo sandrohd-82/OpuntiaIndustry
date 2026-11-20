@@ -1,6 +1,11 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useLayoutEffect, useState } from "react";
+import {
+  osservaAzioneScheda,
+  prevediAzioneScheda,
+  useMisuraScheda,
+} from "@/components/diagnostica/misura-scheda-completa";
 import { createPortal } from "react-dom";
 import {
   annullaTestAnagraficaAction,
@@ -44,13 +49,25 @@ export function RichiediAnagraficaButton({
   const [occupato, setOccupato] = useState(false);
   const [faseTest, setFaseTest] = useState(false);
   const [testAttivo, setTestAttivo] = useState(false);
+  const misura = useMisuraScheda();
+
+  useLayoutEffect(() => {
+    if (!misura) return;
+    prevediAzioneScheda(misura.generazione, "riepilogo");
+  }, [misura]);
 
   useEffect(() => {
     setEmailScheda(emailIniziale);
   }, [emailIniziale]);
 
   useEffect(() => {
-    void riepilogoAnagraficaFormAction({ kind, id }).then((esito) => {
+    const esegui = () => riepilogoAnagraficaFormAction({ kind, id });
+    void (misura
+      ? osservaAzioneScheda(misura.generazione, "riepilogo", esegui, (esito) =>
+          "errore" in esito ? "errore" : "ok"
+        )
+      : esegui()
+    ).then((esito) => {
       if ("errore" in esito) return;
       setStato(esito.stato);
       setScadeAt(esito.scadeAt);
@@ -59,7 +76,7 @@ export function RichiediAnagraficaButton({
       setFaseTest(esito.faseTest);
       setTestAttivo(esito.testAttivo);
     });
-  }, [kind, id]);
+  }, [kind, id, misura]);
 
   function applicaRiepilogo(dopo: {
     stato: string | null;

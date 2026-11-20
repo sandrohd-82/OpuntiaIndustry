@@ -106,6 +106,7 @@ export const FINESTRA_RICHIESTE_MS = 60_000;
 export const CHIAVE_ELENCO_CLIENTI = "prestazioni-elenco-clienti";
 export const CHIAVE_CLIC_AREA = "prestazioni-clic-area";
 export const CHIAVE_SONDA_PRESTAZIONI = "prestazioni-sonda";
+export const CHIAVE_SCHEDA_COMPLETA = "prestazioni-scheda-completa";
 
 export type TempiServerElencoClienti = {
   accessoMs: number;

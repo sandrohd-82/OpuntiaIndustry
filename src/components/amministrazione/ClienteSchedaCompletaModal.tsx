@@ -1,7 +1,17 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { loadClienteSchedaCompletaAction } from "@/app/actions/anagrafica-documenti";
+import {
+  ContestoMisuraScheda,
+  generazioneSchedaDaMontare,
+  osservaAzioneScheda,
+  segnaChiusuraSchedaCompleta,
+  segnaDatiScheda,
+  segnaErroreScheda,
+  segnaMontaggioSchedaCompleta,
+  useValoreMisuraScheda,
+} from "@/components/diagnostica/misura-scheda-completa";
 import { AnagraficaDocumentiPanel } from "@/components/amministrazione/AnagraficaDocumentiPanel";
 import {
   AnagraficaSchedaDetail,
@@ -62,19 +72,39 @@ export function ClienteSchedaCompletaModal({
       lineageIds,
     })
   );
+  const ricordata = useRef<{ clienteId: string; generazione: number | null } | null>(
+    null
+  );
+  if (!ricordata.current || ricordata.current.clienteId !== cliente.id) {
+    ricordata.current = {
+      clienteId: cliente.id,
+      generazione: generazioneSchedaDaMontare(cliente.id),
+    };
+  }
+  const generazione = ricordata.current.generazione;
+  const misura = useValoreMisuraScheda(generazione);
   const [error, setError] = useState<string | null>(null);
   const [documenti, setDocumenti] = useState<AnagraficaDocumento[] | null>(
     null
   );
   const [ordini, setOrdini] = useState<ClienteSchedaOrdineSlim[]>([]);
   const [fatture, setFatture] = useState<ClienteSchedaFatturaSlim[]>([]);
+  const datiPronti = useRef<number | null>(null);
+  const errorePronto = useRef<number | null>(null);
 
   function reload() {
-    void loadClienteSchedaCompletaAction(cliente.id).then((res) => {
+    void osservaAzioneScheda(
+      generazione,
+      "scheda",
+      () => loadClienteSchedaCompletaAction(cliente.id),
+      (res) => (res.success ? "ok" : "errore")
+    ).then((res) => {
       if (!res.success) {
+        errorePronto.current = generazione;
         setError(res.error);
         return;
       }
+      datiPronti.current = generazione;
       setError(null);
       setDocumenti(res.documenti);
       setOrdini(res.ordini);
@@ -84,7 +114,34 @@ export function ClienteSchedaCompletaModal({
 
   useEffect(() => {
     reload();
+    // La sonda legge la generazione già fissata per questo cliente e non aggiunge richieste.
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- stesso avvio di prima, legato al cliente
   }, [cliente.id]);
+
+  useLayoutEffect(() => {
+    if (generazione == null) return;
+    segnaMontaggioSchedaCompleta(generazione);
+    return () => segnaChiusuraSchedaCompleta(generazione);
+  }, [generazione]);
+
+  useLayoutEffect(() => {
+    if (generazione == null || documenti === null || datiPronti.current !== generazione) {
+      return;
+    }
+    segnaDatiScheda(generazione);
+  }, [generazione, documenti]);
+
+  useLayoutEffect(() => {
+    if (
+      generazione == null ||
+      !error ||
+      documenti !== null ||
+      errorePronto.current !== generazione
+    ) {
+      return;
+    }
+    segnaErroreScheda(generazione);
+  }, [generazione, error, documenti]);
 
   const model: AnagraficaSchedaDetailModel = {
     id: cliente.id,
@@ -192,9 +249,9 @@ export function ClienteSchedaCompletaModal({
     </>
   );
 
-  if (embedded) return body;
-
-  return (
+  const contenuto = embedded ? (
+    body
+  ) : (
     <div
       className="fixed inset-0 z-[70] flex items-center justify-center bg-slate-950/60 p-4"
       role="presentation"
@@ -223,5 +280,9 @@ export function ClienteSchedaCompletaModal({
         {body}
       </div>
     </div>
+  );
+
+  return (
+    <ContestoMisuraScheda.Provider value={misura}>{contenuto}</ContestoMisuraScheda.Provider>
   );
 }

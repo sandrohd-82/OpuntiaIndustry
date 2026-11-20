@@ -1,6 +1,11 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useLayoutEffect, useState } from "react";
+import {
+  osservaAzioneScheda,
+  prevediAzioneScheda,
+  useMisuraScheda,
+} from "@/components/diagnostica/misura-scheda-completa";
 import { createPortal } from "react-dom";
 import {
   listAllerteAziendaAction,
@@ -30,6 +35,14 @@ export function AziendaNoteBanner({
     emails.join("|"),
     telefoni.join("|"),
   ].join("§");
+  const misura = useMisuraScheda();
+
+  useLayoutEffect(() => {
+    if (!misura) return;
+    const haQualcosa = chiave.split("§").some((parte) => parte.length > 0);
+    if (!haQualcosa) return;
+    prevediAzioneScheda(misura.generazione, "allerte");
+  }, [misura, chiave]);
 
   useEffect(() => {
     const utili = aziende.filter((a) => a.id);
@@ -42,11 +55,18 @@ export function AziendaNoteBanner({
     }
     let cancelled = false;
     const timer = window.setTimeout(() => {
-      void listAllerteAziendaAction({
-        aziende: utili,
-        emails: mail,
-        telefoni: tel,
-      }).then((res) => {
+      const esegui = () =>
+        listAllerteAziendaAction({
+          aziende: utili,
+          emails: mail,
+          telefoni: tel,
+        });
+      void (misura
+        ? osservaAzioneScheda(misura.generazione, "allerte", esegui, (res) =>
+            res.success ? "ok" : "errore"
+          )
+        : esegui()
+      ).then((res) => {
         if (cancelled || !res.success) return;
         setVoci(res.aziende);
         if (res.aziende.length === 0) setAperta(false);
@@ -56,7 +76,9 @@ export function AziendaNoteBanner({
       cancelled = true;
       window.clearTimeout(timer);
     };
-  }, [chiave]);
+    // chiave riassume aziende, mail e telefoni: la sonda non aggiunge un altro ciclo.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [chiave, misura]);
 
   if (voci.length === 0 || typeof document === "undefined") return null;
 

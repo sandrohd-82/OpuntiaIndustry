@@ -49,6 +49,10 @@ import { SortableTh } from "@/components/ui/SortableTh";
 import { nextSortState, type SortState } from "@/lib/ui/list-sort";
 import { segnaDatiPagina } from "@/components/diagnostica/SegnaContenuto";
 import { segnaRenderingElencoClienti } from "@/components/diagnostica/misura-elenco-clienti";
+import {
+  iniziaAperturaScheda,
+  segnaAttesaModuloScheda,
+} from "@/components/diagnostica/misura-scheda-completa";
 import { useClienti } from "@/hooks/useClienti";
 import {
   formatCommercialeAssegnazione,
@@ -105,7 +109,10 @@ const ClienteSchedaCompletaModal = dynamic(
     ),
   {
     ssr: false,
-    loading: () => <AttesaModulo label="Caricamento scheda completa…" />,
+    loading: () => {
+      segnaAttesaModuloScheda();
+      return <AttesaModulo label="Caricamento scheda completa…" />;
+    },
   }
 );
 
@@ -977,7 +984,10 @@ export function ClientiBoard() {
                     setEditing(item);
                   }}
                   onTimeline={(item) => setTimelineFor(item)}
-                  onSchedaCompleta={(item) => setSchedaCompleta(item)}
+                  onSchedaCompleta={(item) => {
+                    iniziaAperturaScheda(item.id);
+                    setSchedaCompleta(item);
+                  }}
                   onCollega={
                     !nested && !cliente.isPrivato
                       ? (item) => {

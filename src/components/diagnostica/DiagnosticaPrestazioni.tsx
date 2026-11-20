@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { misuraContestoAction } from "@/app/actions/diagnostica-prestazioni";
 import { leggiMisuraElencoClienti } from "@/components/diagnostica/misura-elenco-clienti";
+import { leggiMisureSchedaCompleta } from "@/components/diagnostica/misura-scheda-completa";
 import { preparaRegistroRisorse, risorseRaccolte } from "@/components/diagnostica/osservatorio-risorse";
 import {
   CHIAVE_NAVIGAZIONI,
@@ -19,6 +20,15 @@ import {
   type ResocontoNavigazione,
   type RisorsaOsservata,
 } from "@/lib/diagnostica/prestazioni";
+import {
+  coppieParallele,
+  CRITERIO_SCHEDA_UTILIZZABILE,
+  montaggioAdAvvioMs,
+  NOMI_AZIONE_SCHEDA,
+  relazioneOndate,
+  type MisuraSchedaCompleta,
+  type NomeAzioneScheda,
+} from "@/lib/diagnostica/scheda-completa";
 
 const ETICHETTE: Record<GruppoRichieste["categoria"], string> = {
   navigazione: "Navigazione",
@@ -45,6 +55,45 @@ function kilobyte(byte: number): string {
 
 function ms(valore: number | null): string {
   return valore == null ? "non esposto" : `${valore} ms`;
+}
+
+const ETICHETTE_AZIONE: Record<NomeAzioneScheda, string> = {
+  scheda: "loadClienteSchedaCompletaAction",
+  extra: "loadAnagraficaExtraAction",
+  schede: "listAziendaSchedeCardAction",
+  referenti: "listEntityReferentiAction",
+  riepilogo: "riepilogoAnagraficaFormAction",
+  allerte: "listAllerteAziendaAction",
+};
+
+const ETICHETTE_RIPETIZIONE = {
+  prima: "Prima apertura di questo cliente",
+  seconda: "Seconda apertura dello stesso cliente",
+  successiva: "Apertura successiva dello stesso cliente",
+} as const;
+
+function testoRelazione(misura: MisuraSchedaCompleta): string {
+  const relazione = relazioneOndate(misura);
+  if (relazione === "sequenziale") {
+    return "Le altre azioni partono dopo la fine di loadClienteSchedaCompletaAction.";
+  }
+  if (relazione === "parallela") {
+    const coppie = coppieParallele(misura)
+      .map(([a, b]) => `${ETICHETTE_AZIONE[a]} con ${ETICHETTE_AZIONE[b]}`)
+      .join("; ");
+    return `Almeno un'azione si sovrappone a un'altra. ${coppie}`;
+  }
+  return "La sequenza non è ancora completa.";
+}
+
+function testoAzione(misura: MisuraSchedaCompleta, nome: NomeAzioneScheda): string {
+  const azione = misura.azioni[nome];
+  if (!azione) {
+    return nome === "scheda" ? "non avviata" : "non eseguita";
+  }
+  const esito = azione.esito == null ? "in corso" : azione.esito === "ok" ? "riuscita" : "fallita";
+  const durata = azione.durataMs == null ? "in corso" : `${azione.durataMs} ms`;
+  return `avvio dal clic ${azione.avvioDalClicMs} ms, durata ${durata}, ${esito}`;
 }
 
 function testoConclusione(esito: ConclusioneAttesaInvio): string {
@@ -162,6 +211,7 @@ export function DiagnosticaPrestazioni({ origine }: { origine: "locale" | "produ
   });
   const [contesto, setContesto] = useState("");
   const [elenco, setElenco] = useState<MisuraElencoClienti | null>(null);
+  const [schede, setSchede] = useState<MisuraSchedaCompleta[]>([]);
   const [inCorso, setInCorso] = useState(false);
 
   function aggiorna() {
@@ -194,6 +244,7 @@ export function DiagnosticaPrestazioni({ origine }: { origine: "locale" | "produ
     setRegistro(raccolte.length);
     setScript(javascriptTrasferito());
     setElenco(leggiMisuraElencoClienti());
+    setSchede(leggiMisureSchedaCompleta());
   }
 
   useEffect(() => {
@@ -398,6 +449,54 @@ export function DiagnosticaPrestazioni({ origine }: { origine: "locale" | "produ
             </p>
             <p>Tratto più lungo: {trattoElencoClienti(elenco)}.</p>
           </div>
+        )}
+      </section>
+      <section className="rounded-xl border border-slate-200 bg-white p-4">
+        <h2 className="font-semibold">Scheda completa</h2>
+        <p className="mt-2 leading-relaxed">{CRITERIO_SCHEDA_UTILIZZABILE}</p>
+        <p className="mt-2 leading-relaxed">
+          La durata è il tempo della singola azione. Utilizzabile è il tempo dal clic fino al
+          criterio. Il download del modulo, se avviene, sta nel tratto clic → montaggio e non nelle
+          durate delle azioni. listAllerteAziendaAction parte dopo l&apos;attesa già presente nel
+          banner: quell&apos;attesa entra nel tempo utilizzabile, non nella durata dell&apos;azione.
+        </p>
+        {schede.length === 0 ? (
+          <p className="mt-2">
+            Apri Commerciale, poi Clienti, apri Scheda completa e torna qui.
+          </p>
+        ) : (
+          <ul className="mt-2 space-y-3">
+            {[...schede].reverse().map((misura) => (
+              <li key={misura.generazione} className="border-t border-slate-100 pt-2">
+                <p className="font-medium">
+                  Apertura {misura.generazione}. {ETICHETTE_RIPETIZIONE[misura.ripetizione]}.
+                </p>
+                <p className="mt-1">
+                  Clic → montaggio: {ms(misura.clicAMontaggioMs)}.{" "}
+                  {misura.moduloAtteso
+                    ? "È comparsa l'attesa del modulo."
+                    : "Non è comparsa l'attesa del modulo."}
+                </p>
+                <p>
+                  Montaggio → avvio della prima azione: {ms(montaggioAdAvvioMs(misura))}.
+                </p>
+                {NOMI_AZIONE_SCHEDA.map((nome) => (
+                  <p key={nome}>
+                    {ETICHETTE_AZIONE[nome]}: {testoAzione(misura, nome)}.
+                  </p>
+                ))}
+                <p>Prima visualizzazione dei dati: {ms(misura.primaVisualizzazioneMs)}.</p>
+                <p>
+                  Fino a scheda utilizzabile:{" "}
+                  {misura.chiusaPrima
+                    ? "chiusa prima del criterio"
+                    : ms(misura.utilizzabileMs)}
+                  .
+                </p>
+                <p>{testoRelazione(misura)}</p>
+              </li>
+            ))}
+          </ul>
         )}
       </section>
       <section className="rounded-xl border border-slate-200 bg-white p-4">

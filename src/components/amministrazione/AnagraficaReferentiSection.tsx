@@ -1,6 +1,11 @@
 "use client";
 
-import { useCallback, useEffect, useState, useTransition } from "react";
+import { useCallback, useEffect, useLayoutEffect, useState, useTransition } from "react";
+import {
+  osservaAzioneScheda,
+  prevediAzioneScheda,
+  useMisuraScheda,
+} from "@/components/diagnostica/misura-scheda-completa";
 import { FaBook, FaPen, FaPlus, FaTrash, FaUser, FaUserPlus } from "react-icons/fa6";
 import {
   linkEntityReferenteAction,
@@ -41,10 +46,22 @@ export function AnagraficaReferentiSection({
   const [pending, startTransition] = useTransition();
 
   const aziendaTipo: RubricaAziendaTipo = tipo;
+  const misura = useMisuraScheda();
+
+  useLayoutEffect(() => {
+    if (!misura) return;
+    prevediAzioneScheda(misura.generazione, "referenti");
+  }, [misura]);
 
   const reload = useCallback(() => {
     setLoading(true);
-    void listEntityReferentiAction({ tipo, entityId }).then((res) => {
+    const esegui = () => listEntityReferentiAction({ tipo, entityId });
+    void (misura
+      ? osservaAzioneScheda(misura.generazione, "referenti", esegui, (res) =>
+          res.success ? "ok" : "errore"
+        )
+      : esegui()
+    ).then((res) => {
       setLoading(false);
       if (!res.success) {
         setError(res.error);
@@ -53,7 +70,7 @@ export function AnagraficaReferentiSection({
       setError(null);
       setItems(res.items);
     });
-  }, [tipo, entityId]);
+  }, [tipo, entityId, misura]);
 
   useEffect(() => {
     reload();

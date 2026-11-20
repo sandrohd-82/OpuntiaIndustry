@@ -1,6 +1,11 @@
 "use client";
 
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useLayoutEffect, useState, type ReactNode } from "react";
+import {
+  osservaAzioneScheda,
+  prevediAzioneScheda,
+  useMisuraScheda,
+} from "@/components/diagnostica/misura-scheda-completa";
 import { loadAnagraficaExtraAction } from "@/app/actions/anagrafica-extra";
 import {
   listAziendaSchedeCardAction,
@@ -142,23 +147,40 @@ export function AnagraficaSchedaDetail({
   const [schede, setSchede] = useState<AziendaSchedaCardItem[]>([]);
   const [schedaApertaId, setSchedaApertaId] = useState<string | null>(null);
   const manageReferenti = canEditReferenti ?? canEditDocumenti;
+  const misura = useMisuraScheda();
+
+  useLayoutEffect(() => {
+    if (!misura) return;
+    prevediAzioneScheda(misura.generazione, "extra");
+    prevediAzioneScheda(misura.generazione, "schede");
+  }, [misura]);
 
   useEffect(() => {
-    void loadAnagraficaExtraAction({
+    const input = {
       ownerKind: model.kind === "cliente" ? "cliente" : "cliente_possibile",
       ownerId: model.id,
-    }).then((res) => {
+    } as const;
+    const extra = () => loadAnagraficaExtraAction(input);
+    const schedeCard = () => listAziendaSchedeCardAction(input);
+    void (misura
+      ? osservaAzioneScheda(misura.generazione, "extra", extra, (res) =>
+          res.success ? "ok" : "errore"
+        )
+      : extra()
+    ).then((res) => {
       if (!res.success) return;
       setSediExtra(res.sedi);
       setBrandExtra(res.brand);
     });
-    void listAziendaSchedeCardAction({
-      ownerKind: model.kind === "cliente" ? "cliente" : "cliente_possibile",
-      ownerId: model.id,
-    }).then((res) => {
+    void (misura
+      ? osservaAzioneScheda(misura.generazione, "schede", schedeCard, (res) =>
+          res.success ? "ok" : "errore"
+        )
+      : schedeCard()
+    ).then((res) => {
       if (res.success) setSchede(res.items);
     });
-  }, [model.id, model.kind]);
+  }, [model.id, model.kind, misura]);
 
   async function apriScheda(item: AziendaSchedaCardItem) {
     const res = await openSchedaFromTimelineAction({
