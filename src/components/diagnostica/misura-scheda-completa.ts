@@ -34,6 +34,7 @@ const conteggi = new Map<string, number>();
 const chiusure = new Map<number, number>();
 let attesa: Attesa | null = null;
 let prossimaGenerazione = 1;
+let contatoreAllineato = false;
 
 export type ContestoScheda = { generazione: number };
 
@@ -77,12 +78,32 @@ function salva(misure: MisuraSchedaCompleta[]) {
   }
 }
 
+function ultimaMisura(
+  misure: MisuraSchedaCompleta[],
+  generazione: number
+): number {
+  for (let indice = misure.length - 1; indice >= 0; indice -= 1) {
+    if (misure[indice]?.generazione === generazione) return indice;
+  }
+  return -1;
+}
+
+function allineaContatore() {
+  if (contatoreAllineato) return;
+  contatoreAllineato = true;
+  let massimo = 0;
+  for (const misura of leggiMisureSchedaCompleta()) {
+    if (misura.generazione > massimo) massimo = misura.generazione;
+  }
+  if (massimo >= prossimaGenerazione) prossimaGenerazione = massimo + 1;
+}
+
 function aggiorna(
   generazione: number,
   muta: (misura: MisuraSchedaCompleta) => MisuraSchedaCompleta
 ) {
   const misure = leggiMisureSchedaCompleta();
-  const indice = misure.findIndex((misura) => misura.generazione === generazione);
+  const indice = ultimaMisura(misure, generazione);
   if (indice < 0) return;
   const clic = clicPerGenerazione.get(generazione);
   let prossima = muta(misure[indice]);
@@ -95,6 +116,7 @@ function aggiorna(
 
 export function iniziaAperturaScheda(clienteId: string) {
   if (!sondaAttiva() || !clienteId) return;
+  allineaContatore();
   const conteggio = (conteggi.get(clienteId) ?? 0) + 1;
   conteggi.set(clienteId, conteggio);
   const generazione = prossimaGenerazione;
@@ -156,10 +178,9 @@ export function osservaAzioneScheda<T>(
 ): Promise<T> {
   if (generazione == null) return esegui();
   const clic = clicPerGenerazione.get(generazione);
-  const giaAvviata = leggiMisureSchedaCompleta().some(
-    (misura) =>
-      misura.generazione === generazione && misura.azioni[nome] != null
-  );
+  const presenti = leggiMisureSchedaCompleta();
+  const ultima = ultimaMisura(presenti, generazione);
+  const giaAvviata = ultima >= 0 && presenti[ultima]?.azioni[nome] != null;
   if (clic == null || giaAvviata) return esegui();
   aggiorna(generazione, (misura) =>
     avviaAzione(misura, nome, performance.now() - clic)
