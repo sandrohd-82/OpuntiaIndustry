@@ -6,15 +6,14 @@ import {
   CHIAVE_SONDA_PRESTAZIONI,
 } from "@/lib/diagnostica/prestazioni";
 import {
-  applicaUtilizzabile,
+  applicaCaricamentoCompleto,
   apriMisuraScheda,
   avviaAzione,
   chiudiMisuraScheda,
   concludiAzione,
   normalizzaMisureScheda,
   prevediAzione,
-  segnaDatiVisibili,
-  segnaErroreVisibile,
+  segnaDatiBase,
   segnaModuloAtteso,
   segnaMontaggioScheda,
   type EsitoAzioneScheda,
@@ -88,7 +87,7 @@ function aggiorna(
   const clic = clicPerGenerazione.get(generazione);
   let prossima = muta(misure[indice]);
   if (clic != null) {
-    prossima = applicaUtilizzabile(prossima, performance.now() - clic);
+    prossima = applicaCaricamentoCompleto(prossima, performance.now() - clic);
   }
   misure[indice] = prossima;
   salva(misure);
@@ -139,16 +138,10 @@ export function segnaChiusuraSchedaCompleta(generazione: number) {
   chiusure.set(generazione, timer);
 }
 
-export function segnaDatiScheda(generazione: number) {
+export function segnaDatiBaseScheda(generazione: number) {
   const clic = clicPerGenerazione.get(generazione);
   if (clic == null) return;
-  aggiorna(generazione, (misura) =>
-    segnaDatiVisibili(misura, performance.now() - clic)
-  );
-}
-
-export function segnaErroreScheda(generazione: number) {
-  aggiorna(generazione, segnaErroreVisibile);
+  aggiorna(generazione, (misura) => segnaDatiBase(misura, performance.now() - clic));
 }
 
 export function prevediAzioneScheda(generazione: number, nome: NomeAzioneScheda) {

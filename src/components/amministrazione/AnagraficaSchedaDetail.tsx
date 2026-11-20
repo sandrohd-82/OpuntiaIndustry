@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useLayoutEffect, useState, type ReactNode } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import {
   osservaAzioneScheda,
   prevediAzioneScheda,
@@ -14,6 +14,10 @@ import {
 } from "@/app/actions/schede-ordini";
 import { SchedaOrdineModal } from "@/components/produzione/SchedaOrdineModal";
 import { AziendaNoteBanner } from "@/components/amministrazione/AziendaNoteBanner";
+import {
+  rispostaAncoraValida,
+  statoSezione,
+} from "@/lib/diagnostica/scheda-completa";
 import { CanaleReadonlyActions } from "@/components/amministrazione/CanaleAttenzioneControls";
 import { AnagraficaReferentiSection } from "@/components/amministrazione/AnagraficaReferentiSection";
 import { ProdottoProprioProductTag } from "@/components/amministrazione/ProdottoProprioProductTag";
@@ -135,18 +139,31 @@ export function AnagraficaSchedaDetail({
   canEditDocumenti = false,
   canEditReferenti,
   hideDocumenti = false,
+  attesaSezioni = false,
+  richiediAnagrafica,
+  modificheAbilitate = true,
 }: {
   model: AnagraficaSchedaDetailModel;
   prodottiByCode: Map<string, ProdottoProprio>;
   canEditDocumenti?: boolean;
   canEditReferenti?: boolean;
   hideDocumenti?: boolean;
+  /** Solo Scheda completa: attesa, errore e vuoto dopo la risposta. */
+  attesaSezioni?: boolean;
+  /** Lettura del form anche prima che le modifiche siano abilitate. */
+  richiediAnagrafica?: boolean;
+  modificheAbilitate?: boolean;
 }) {
   const [sediExtra, setSediExtra] = useState<AnagraficaSede[]>([]);
   const [brandExtra, setBrandExtra] = useState<AnagraficaBrand[]>([]);
   const [schede, setSchede] = useState<AziendaSchedaCardItem[]>([]);
   const [schedaApertaId, setSchedaApertaId] = useState<string | null>(null);
+  const [extraStato, setExtraStato] = useState<"attesa" | "pronto" | "errore">("attesa");
+  const [schedeStato, setSchedeStato] = useState<"attesa" | "pronto" | "errore">("attesa");
   const manageReferenti = canEditReferenti ?? canEditDocumenti;
+  const mostraRichiedi = richiediAnagrafica ?? manageReferenti;
+  const idCorrente = useRef(model.id);
+  idCorrente.current = model.id;
   const misura = useMisuraScheda();
 
   useLayoutEffect(() => {
@@ -156,21 +173,42 @@ export function AnagraficaSchedaDetail({
   }, [misura]);
 
   useEffect(() => {
+    let attiva = true;
+    const idRichiesta = model.id;
+    if (attesaSezioni) {
+      setExtraStato("attesa");
+      setSchedeStato("attesa");
+      setSediExtra([]);
+      setBrandExtra([]);
+      setSchede([]);
+      setSchedaApertaId(null);
+    }
     const input = {
       ownerKind: model.kind === "cliente" ? "cliente" : "cliente_possibile",
-      ownerId: model.id,
+      ownerId: idRichiesta,
     } as const;
     const extra = () => loadAnagraficaExtraAction(input);
     const schedeCard = () => listAziendaSchedeCardAction(input);
+    const valida = () =>
+      rispostaAncoraValida({
+        attiva,
+        idRichiesta,
+        idCorrente: idCorrente.current,
+      });
     void (misura
       ? osservaAzioneScheda(misura.generazione, "extra", extra, (res) =>
           res.success ? "ok" : "errore"
         )
       : extra()
     ).then((res) => {
-      if (!res.success) return;
+      if (!valida()) return;
+      if (!res.success) {
+        if (attesaSezioni) setExtraStato("errore");
+        return;
+      }
       setSediExtra(res.sedi);
       setBrandExtra(res.brand);
+      if (attesaSezioni) setExtraStato("pronto");
     });
     void (misura
       ? osservaAzioneScheda(misura.generazione, "schede", schedeCard, (res) =>
@@ -178,16 +216,35 @@ export function AnagraficaSchedaDetail({
         )
       : schedeCard()
     ).then((res) => {
-      if (res.success) setSchede(res.items);
+      if (!valida()) return;
+      if (!res.success) {
+        if (attesaSezioni) setSchedeStato("errore");
+        return;
+      }
+      setSchede(res.items);
+      if (attesaSezioni) setSchedeStato("pronto");
     });
-  }, [model.id, model.kind, misura]);
+    return () => {
+      attiva = false;
+    };
+  }, [model.id, model.kind, misura, attesaSezioni]);
 
   async function apriScheda(item: AziendaSchedaCardItem) {
+    const idRichiesta = model.id;
     const res = await openSchedaFromTimelineAction({
       schedaId: item.schedaId,
       ordineId: item.ordineId,
       campionaturaId: item.campionaturaId,
     });
+    if (
+      !rispostaAncoraValida({
+        attiva: true,
+        idRichiesta,
+        idCorrente: idCorrente.current,
+      })
+    ) {
+      return;
+    }
     if (res.success) setSchedaApertaId(res.schedaId);
   }
 
@@ -198,8 +255,10 @@ export function AnagraficaSchedaDetail({
           Cancellazione prenotata: in attesa di conferma Super Admin.
         </p>
       ) : null}
-      {manageReferenti ? (
+      {mostraRichiedi ? (
         <RichiediAnagraficaButton
+          modificheAbilitate={modificheAbilitate}
+          mostraAttesa={attesaSezioni}
           kind={model.kind}
           id={model.id}
           emailIniziale={model.email}
@@ -298,9 +357,19 @@ export function AnagraficaSchedaDetail({
       </AnagraficaSchedaSection>
 
       <AnagraficaSchedaSection title="Schede ordine / campionature" tone="schede">
-        {schede.length === 0 ? (
+        {attesaSezioni &&
+        statoSezione({ esito: schedeStato, vuota: schede.length === 0 }) === "attesa" ? (
+          <p role="status" className="text-sm text-[var(--muted)]">
+            Caricamento schede ordine…
+          </p>
+        ) : null}
+        {attesaSezioni && schedeStato === "errore" ? (
+          <p className="text-sm text-red-700">Schede ordine non disponibili.</p>
+        ) : null}
+        {(!attesaSezioni || schedeStato === "pronto") && schede.length === 0 ? (
           <p className="text-sm text-[var(--muted)]">Nessuna scheda</p>
-        ) : (
+        ) : null}
+        {(!attesaSezioni || schedeStato === "pronto") && schede.length > 0 ? (
           <ul className="space-y-2">
             {schede.map((item) => (
               <li key={item.key}>
@@ -322,10 +391,18 @@ export function AnagraficaSchedaDetail({
               </li>
             ))}
           </ul>
-        )}
+        ) : null}
       </AnagraficaSchedaSection>
 
       <AnagraficaSchedaSection title="Sedi" tone="sedi">
+        {attesaSezioni && extraStato === "attesa" ? (
+          <p role="status" className="mb-2 text-sm text-[var(--muted)]">
+            Caricamento altre sedi…
+          </p>
+        ) : null}
+        {attesaSezioni && extraStato === "errore" ? (
+          <p className="mb-2 text-sm text-red-700">Altre sedi non disponibili.</p>
+        ) : null}
         <div className="grid gap-3 sm:grid-cols-2">
       {sediExtra.length > 0 ? (
         ensurePrimaryLegale(sediExtra).map((sede) => (
@@ -358,9 +435,19 @@ export function AnagraficaSchedaDetail({
       </AnagraficaSchedaSection>
 
       <AnagraficaSchedaSection title="Brand" tone="brand">
-        {brandExtra.length === 0 ? (
+        {attesaSezioni &&
+        statoSezione({ esito: extraStato, vuota: brandExtra.length === 0 }) === "attesa" ? (
+          <p role="status" className="mt-1 text-sm text-[var(--muted)]">
+            Caricamento brand…
+          </p>
+        ) : null}
+        {attesaSezioni && extraStato === "errore" ? (
+          <p className="mt-1 text-sm text-red-700">Brand non disponibili.</p>
+        ) : null}
+        {(!attesaSezioni || extraStato === "pronto") && brandExtra.length === 0 ? (
           <p className="mt-1 text-sm text-[var(--muted)]">Nessun brand</p>
-        ) : (
+        ) : null}
+        {(!attesaSezioni || extraStato === "pronto") && brandExtra.length > 0 ? (
           <ul className="mt-2 grid gap-3 sm:grid-cols-2">
             {brandExtra.map((b) => (
               <li
@@ -405,7 +492,7 @@ export function AnagraficaSchedaDetail({
               </li>
             ))}
           </ul>
-        )}
+        ) : null}
       </AnagraficaSchedaSection>
 
       <AnagraficaSchedaSection
@@ -437,6 +524,7 @@ export function AnagraficaSchedaDetail({
       </AnagraficaSchedaSection>
 
       <AnagraficaReferentiSection
+        attesaRisposta={attesaSezioni}
         tipo={model.kind === "cliente" ? "cliente" : "cliente_possibile"}
         entityId={model.id}
         entityLabel={model.ragioneSociale}
@@ -480,7 +568,10 @@ export function AnagraficaSchedaDetail({
           onClose={() => setSchedaApertaId(null)}
         />
       ) : null}
-      <AziendaNoteBanner aziende={[{ tipo: model.kind, id: model.id }]} />
+      <AziendaNoteBanner
+        mostraAttesa={attesaSezioni}
+        aziende={[{ tipo: model.kind, id: model.id }]}
+      />
     </div>
   );
 }

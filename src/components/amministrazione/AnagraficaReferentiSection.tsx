@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useLayoutEffect, useState, useTransition } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, useTransition } from "react";
 import {
   osservaAzioneScheda,
   prevediAzioneScheda,
@@ -22,17 +22,20 @@ import {
   type RubricaAziendaTipo,
   type RubricaContatto,
 } from "@/lib/rubrica/types";
+import { rispostaAncoraValida } from "@/lib/diagnostica/scheda-completa";
 
 export function AnagraficaReferentiSection({
   tipo,
   entityId,
   entityLabel,
   canEdit,
+  attesaRisposta = false,
 }: {
   tipo: EntityReferentiTipo;
   entityId: string;
   entityLabel: string;
   canEdit: boolean;
+  attesaRisposta?: boolean;
 }) {
   const [items, setItems] = useState<RubricaContatto[]>([]);
   const [loading, setLoading] = useState(true);
@@ -46,6 +49,9 @@ export function AnagraficaReferentiSection({
   const [pending, startTransition] = useTransition();
 
   const aziendaTipo: RubricaAziendaTipo = tipo;
+  const idCorrente = useRef(entityId);
+  const montato = useRef(true);
+  idCorrente.current = entityId;
   const misura = useMisuraScheda();
 
   useLayoutEffect(() => {
@@ -54,14 +60,24 @@ export function AnagraficaReferentiSection({
   }, [misura]);
 
   const reload = useCallback(() => {
+    const idRichiesta = entityId;
     setLoading(true);
-    const esegui = () => listEntityReferentiAction({ tipo, entityId });
+    const esegui = () => listEntityReferentiAction({ tipo, entityId: idRichiesta });
     void (misura
       ? osservaAzioneScheda(misura.generazione, "referenti", esegui, (res) =>
           res.success ? "ok" : "errore"
         )
       : esegui()
     ).then((res) => {
+      if (
+        !rispostaAncoraValida({
+          attiva: montato.current,
+          idRichiesta,
+          idCorrente: idCorrente.current,
+        })
+      ) {
+        return;
+      }
       setLoading(false);
       if (!res.success) {
         setError(res.error);
@@ -73,6 +89,15 @@ export function AnagraficaReferentiSection({
   }, [tipo, entityId, misura]);
 
   useEffect(() => {
+    montato.current = true;
+    return () => {
+      montato.current = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    setItems([]);
+    setError(null);
     reload();
   }, [reload]);
 
@@ -191,7 +216,7 @@ export function AnagraficaReferentiSection({
       {error ? <p className="text-sm text-red-600">{error}</p> : null}
       {loading ? (
         <p className="text-sm text-[var(--muted)]">Caricamento referenti…</p>
-      ) : items.length === 0 ? (
+      ) : items.length === 0 && !(attesaRisposta && error) ? (
         <p className="text-sm text-[var(--muted)]">
           {canEdit
             ? "Nessun referente. Usa + omino per crearne uno o collegarlo dalla rubrica."

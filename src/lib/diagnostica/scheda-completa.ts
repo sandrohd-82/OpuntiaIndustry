@@ -1,11 +1,35 @@
 /**
- * La scheda è utilizzabile quando i dati di loadClienteSchedaCompletaAction
- * sono visibili e ogni azione prevista da quella apertura è conclusa.
- * Se la prima azione fallisce, è utilizzabile quando l'errore è visibile.
- * Il montaggio del riquadro non rende la scheda utilizzabile.
+ * Dati base visibili: anagrafica già nota, dipinta senza aspettare le azioni.
+ * Sezione disponibile: la singola azione è conclusa, anche in errore.
+ * Caricamento completo: la prima azione e ogni sezione prevista sono concluse.
+ * Il montaggio del riquadro non basta, e lo stato vuoto non precede la risposta.
  */
 export const CRITERIO_SCHEDA_UTILIZZABILE =
-  "La scheda è utilizzabile quando i dati di loadClienteSchedaCompletaAction sono visibili e ogni azione prevista da quella apertura è conclusa. Se la prima azione fallisce, è utilizzabile quando l'errore è visibile. Il montaggio del riquadro non rende la scheda utilizzabile.";
+  "I dati base sono l'anagrafica già nota, visibile senza aspettare le azioni. Una sezione è disponibile quando la sua azione è conclusa, anche in errore. Il caricamento è completo quando la prima azione e ogni sezione prevista sono concluse. Il montaggio del riquadro non basta e lo stato vuoto non precede la risposta.";
+
+export function rispostaAncoraValida(input: {
+  attiva: boolean;
+  idRichiesta: string;
+  idCorrente: string;
+}): boolean {
+  return input.attiva && input.idRichiesta === input.idCorrente;
+}
+
+export function statoSezione(input: {
+  esito: "attesa" | "pronto" | "errore";
+  vuota: boolean;
+}): "attesa" | "errore" | "vuota" | "dati" {
+  if (input.esito === "attesa") return "attesa";
+  if (input.esito === "errore") return "errore";
+  return input.vuota ? "vuota" : "dati";
+}
+
+export function sezioneDisponibileMs(
+  azione: AzioneSchedaMisura | undefined
+): number | null {
+  if (!azione || azione.esito == null || azione.durataMs == null) return null;
+  return azione.avvioDalClicMs + azione.durataMs;
+}
 
 export const NOMI_AZIONE_SCHEDA = [
   "scheda",
@@ -33,6 +57,8 @@ export type MisuraSchedaCompleta = {
   moduloAtteso: boolean;
   clicAMontaggioMs: number | null;
   primaVisualizzazioneMs: number | null;
+  datiBaseVisibiliMs: number | null;
+  caricamentoCompletoMs: number | null;
   erroreVisibile: boolean;
   utilizzabileMs: number | null;
   chiusaPrima: boolean;
@@ -59,6 +85,8 @@ export function apriMisuraScheda(
     moduloAtteso: false,
     clicAMontaggioMs: null,
     primaVisualizzazioneMs: null,
+    datiBaseVisibiliMs: null,
+    caricamentoCompletoMs: null,
     erroreVisibile: false,
     utilizzabileMs: null,
     chiusaPrima: false,
@@ -128,6 +156,15 @@ export function concludiAzione(
   };
 }
 
+export function segnaDatiBase(
+  misura: MisuraSchedaCompleta,
+  dalClicMs: number
+): MisuraSchedaCompleta {
+  if (misura.datiBaseVisibiliMs != null) return misura;
+  const ms = Math.max(0, Math.round(dalClicMs));
+  return { ...misura, datiBaseVisibiliMs: ms, primaVisualizzazioneMs: ms };
+}
+
 export function segnaDatiVisibili(
   misura: MisuraSchedaCompleta,
   dalClicMs: number
@@ -144,28 +181,35 @@ export function segnaErroreVisibile(misura: MisuraSchedaCompleta): MisuraSchedaC
   return { ...misura, erroreVisibile: true };
 }
 
-export function criterioUtilizzabile(misura: MisuraSchedaCompleta): boolean {
+export function criterioCaricamentoCompleto(misura: MisuraSchedaCompleta): boolean {
   const prima = misura.azioni.scheda;
   if (!prima || prima.esito == null) return false;
-  if (prima.esito === "errore") return misura.erroreVisibile;
-  if (misura.primaVisualizzazioneMs == null) return false;
   return misura.previste.every((nome) => misura.azioni[nome]?.esito != null);
+}
+
+export function criterioUtilizzabile(misura: MisuraSchedaCompleta): boolean {
+  return criterioCaricamentoCompleto(misura);
+}
+
+export function applicaCaricamentoCompleto(
+  misura: MisuraSchedaCompleta,
+  dalClicMs: number
+): MisuraSchedaCompleta {
+  if (misura.chiusaPrima || misura.caricamentoCompletoMs != null) return misura;
+  if (!criterioCaricamentoCompleto(misura)) return misura;
+  const ms = Math.max(0, Math.round(dalClicMs));
+  return { ...misura, caricamentoCompletoMs: ms, utilizzabileMs: ms };
 }
 
 export function applicaUtilizzabile(
   misura: MisuraSchedaCompleta,
   dalClicMs: number
 ): MisuraSchedaCompleta {
-  if (misura.chiusaPrima || misura.utilizzabileMs != null) return misura;
-  if (!criterioUtilizzabile(misura)) return misura;
-  return {
-    ...misura,
-    utilizzabileMs: Math.max(0, Math.round(dalClicMs)),
-  };
+  return applicaCaricamentoCompleto(misura, dalClicMs);
 }
 
 export function chiudiMisuraScheda(misura: MisuraSchedaCompleta): MisuraSchedaCompleta {
-  if (misura.utilizzabileMs != null || misura.chiusaPrima) return misura;
+  if (misura.caricamentoCompletoMs != null || misura.chiusaPrima) return misura;
   return { ...misura, chiusaPrima: true };
 }
 
@@ -253,6 +297,10 @@ export function normalizzaMisureScheda(valore: unknown): MisuraSchedaCompleta[] 
       clicAMontaggioMs: record.clicAMontaggioMs == null ? null : numero(record.clicAMontaggioMs),
       primaVisualizzazioneMs:
         record.primaVisualizzazioneMs == null ? null : numero(record.primaVisualizzazioneMs),
+      datiBaseVisibiliMs:
+        record.datiBaseVisibiliMs == null ? null : numero(record.datiBaseVisibiliMs),
+      caricamentoCompletoMs:
+        record.caricamentoCompletoMs == null ? null : numero(record.caricamentoCompletoMs),
       erroreVisibile: record.erroreVisibile === true,
       utilizzabileMs: record.utilizzabileMs == null ? null : numero(record.utilizzabileMs),
       chiusaPrima: record.chiusaPrima === true,

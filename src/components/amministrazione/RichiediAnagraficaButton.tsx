@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useLayoutEffect, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import {
   osservaAzioneScheda,
   prevediAzioneScheda,
@@ -12,6 +12,7 @@ import {
   inviaRichiestaAnagraficaAction,
   riepilogoAnagraficaFormAction,
 } from "@/app/actions/anagrafica-richiesta";
+import { rispostaAncoraValida } from "@/lib/diagnostica/scheda-completa";
 
 function etichettaStato(stato: string | null, scadeAt: string | null): string {
   if (stato === "firmata") return "Anagrafica firmata e archiviata.";
@@ -33,10 +34,14 @@ export function RichiediAnagraficaButton({
   kind,
   id,
   emailIniziale,
+  modificheAbilitate = true,
+  mostraAttesa = false,
 }: {
   kind: "cliente" | "cliente_possibile";
   id: string;
   emailIniziale: string;
+  modificheAbilitate?: boolean;
+  mostraAttesa?: boolean;
 }) {
   const [emailScheda, setEmailScheda] = useState(emailIniziale);
   const [emailModale, setEmailModale] = useState(emailIniziale);
@@ -49,6 +54,10 @@ export function RichiediAnagraficaButton({
   const [occupato, setOccupato] = useState(false);
   const [faseTest, setFaseTest] = useState(false);
   const [testAttivo, setTestAttivo] = useState(false);
+  const [letturaPronta, setLetturaPronta] = useState(!mostraAttesa);
+  const [erroreLettura, setErroreLettura] = useState("");
+  const idCorrente = useRef(id);
+  idCorrente.current = id;
   const misura = useMisuraScheda();
 
   useLayoutEffect(() => {
@@ -61,22 +70,49 @@ export function RichiediAnagraficaButton({
   }, [emailIniziale]);
 
   useEffect(() => {
-    const esegui = () => riepilogoAnagraficaFormAction({ kind, id });
+    let attiva = true;
+    const idRichiesta = id;
+    setModaleAperta(false);
+    if (mostraAttesa) {
+      setLetturaPronta(false);
+      setErroreLettura("");
+    }
+    const esegui = () => riepilogoAnagraficaFormAction({ kind, id: idRichiesta });
     void (misura
       ? osservaAzioneScheda(misura.generazione, "riepilogo", esegui, (esito) =>
           "errore" in esito ? "errore" : "ok"
         )
       : esegui()
     ).then((esito) => {
-      if ("errore" in esito) return;
+      if (
+        !rispostaAncoraValida({
+          attiva,
+          idRichiesta,
+          idCorrente: idCorrente.current,
+        })
+      ) {
+        return;
+      }
+      if ("errore" in esito) {
+        if (mostraAttesa) {
+          setErroreLettura("Anagrafica non disponibile.");
+          setLetturaPronta(true);
+        }
+        return;
+      }
+      setErroreLettura("");
       setStato(esito.stato);
       setScadeAt(esito.scadeAt);
       setEmailScheda(esito.email);
       setBanca(esito.form.bancaAppoggio);
       setFaseTest(esito.faseTest);
       setTestAttivo(esito.testAttivo);
+      setLetturaPronta(true);
     });
-  }, [kind, id, misura]);
+    return () => {
+      attiva = false;
+    };
+  }, [kind, id, misura, mostraAttesa]);
 
   function applicaRiepilogo(dopo: {
     stato: string | null;
@@ -156,7 +192,7 @@ export function RichiediAnagraficaButton({
                 </button>
                 <button
                   type="button"
-                  disabled={occupato}
+                  disabled={occupato || !modificheAbilitate}
                   onClick={async () => {
                     const destinatario = emailModale.trim();
                     setOccupato(true);
@@ -201,12 +237,20 @@ export function RichiediAnagraficaButton({
           Fase di test. Il form funziona e i dati si salvano. Annulla test riporta la scheda a com&apos;era prima dell&apos;invio e ritira il link e i PDF di prova.
         </p>
       ) : null}
-      <p className="mt-1 text-sm text-[var(--muted)]">{etichettaStato(stato, scadeAt)}</p>
+      {mostraAttesa && !letturaPronta ? (
+        <p role="status" className="mt-1 text-sm text-[var(--muted)]">
+          Caricamento anagrafica…
+        </p>
+      ) : null}
+      {erroreLettura ? <p className="mt-1 text-sm text-red-700">{erroreLettura}</p> : null}
+      {(!mostraAttesa || letturaPronta) && !erroreLettura ? (
+        <p className="mt-1 text-sm text-[var(--muted)]">{etichettaStato(stato, scadeAt)}</p>
+      ) : null}
       {banca ? <p className="mt-1 text-sm">Banca: {banca}.</p> : null}
       <div className="mt-3 flex flex-wrap gap-2">
         <button
           type="button"
-          disabled={occupato}
+          disabled={occupato || !modificheAbilitate}
           onClick={apriModale}
           className="rounded-lg bg-slate-900 px-4 py-2 text-sm font-semibold text-white"
         >
@@ -215,7 +259,7 @@ export function RichiediAnagraficaButton({
         {testAttivo ? (
           <button
             type="button"
-            disabled={occupato}
+            disabled={occupato || !modificheAbilitate}
             onClick={async () => {
               setOccupato(true);
               setMessaggio("");

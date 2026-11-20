@@ -26,6 +26,7 @@ import {
   montaggioAdAvvioMs,
   NOMI_AZIONE_SCHEDA,
   relazioneOndate,
+  sezioneDisponibileMs,
   type MisuraSchedaCompleta,
   type NomeAzioneScheda,
 } from "@/lib/diagnostica/scheda-completa";
@@ -81,7 +82,7 @@ function testoRelazione(misura: MisuraSchedaCompleta): string {
     const coppie = coppieParallele(misura)
       .map(([a, b]) => `${ETICHETTE_AZIONE[a]} con ${ETICHETTE_AZIONE[b]}`)
       .join("; ");
-    return `Almeno un'azione si sovrappone a un'altra. ${coppie}`;
+    return `Le chiamate si sovrappongono nel tempo misurato. La coda del browser può eseguirle una dopo l'altra. ${coppie}`;
   }
   return "La sequenza non è ancora completa.";
 }
@@ -455,10 +456,12 @@ export function DiagnosticaPrestazioni({ origine }: { origine: "locale" | "produ
         <h2 className="font-semibold">Scheda completa</h2>
         <p className="mt-2 leading-relaxed">{CRITERIO_SCHEDA_UTILIZZABILE}</p>
         <p className="mt-2 leading-relaxed">
-          La durata è il tempo della singola azione. Utilizzabile è il tempo dal clic fino al
-          criterio. Il download del modulo, se avviene, sta nel tratto clic → montaggio e non nelle
-          durate delle azioni. listAllerteAziendaAction parte dopo l&apos;attesa già presente nel
-          banner: quell&apos;attesa entra nel tempo utilizzabile, non nella durata dell&apos;azione.
+          I dati base sono l&apos;anagrafica già nota, visibile al montaggio. Ogni sezione indica
+          quando la sua azione è conclusa. Il caricamento completo arriva quando la prima azione e
+          tutte le sezioni previste sono concluse, anche in errore. La durata parte dalla chiamata
+          e può includere l&apos;attesa in coda: Next.js 15.5.18 esegue le Server Action una alla
+          volta. Non è stato aggiunto un percorso che salti questa coda. L&apos;attesa di 350 ms
+          degli avvisi sta nel tempo della sezione, non nella durata della sola azione.
         </p>
         {schede.length === 0 ? (
           <p className="mt-2">
@@ -482,15 +485,16 @@ export function DiagnosticaPrestazioni({ origine }: { origine: "locale" | "produ
                 </p>
                 {NOMI_AZIONE_SCHEDA.map((nome) => (
                   <p key={nome}>
-                    {ETICHETTE_AZIONE[nome]}: {testoAzione(misura, nome)}.
+                    {ETICHETTE_AZIONE[nome]}: {testoAzione(misura, nome)}. Sezione disponibile dal
+                    clic: {ms(sezioneDisponibileMs(misura.azioni[nome]))}.
                   </p>
                 ))}
-                <p>Prima visualizzazione dei dati: {ms(misura.primaVisualizzazioneMs)}.</p>
+                <p>Dati base visibili: {ms(misura.datiBaseVisibiliMs)}.</p>
                 <p>
-                  Fino a scheda utilizzabile:{" "}
+                  Caricamento completo:{" "}
                   {misura.chiusaPrima
                     ? "chiusa prima del criterio"
-                    : ms(misura.utilizzabileMs)}
+                    : ms(misura.caricamentoCompletoMs)}
                   .
                 </p>
                 <p>{testoRelazione(misura)}</p>

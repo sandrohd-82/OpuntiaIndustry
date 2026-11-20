@@ -21,15 +21,18 @@ type Props = {
   aziende?: AziendaRef[];
   emails?: string[];
   telefoni?: string[];
+  mostraAttesa?: boolean;
 };
 
 export function AziendaNoteBanner({
   aziende = [],
   emails = [],
   telefoni = [],
+  mostraAttesa = false,
 }: Props) {
   const [voci, setVoci] = useState<AziendaAllerta[]>([]);
   const [aperta, setAperta] = useState(false);
+  const [esito, setEsito] = useState<"attesa" | "pronto" | "errore">("attesa");
   const chiave = [
     aziende.map((a) => `${a.tipo}:${a.id}`).join(","),
     emails.join("|"),
@@ -48,9 +51,15 @@ export function AziendaNoteBanner({
     const utili = aziende.filter((a) => a.id);
     const mail = emails.map((e) => e.trim()).filter(Boolean);
     const tel = telefoni.map((t) => t.trim()).filter(Boolean);
+    if (mostraAttesa) {
+      setEsito("attesa");
+      setVoci([]);
+      setAperta(false);
+    }
     if (utili.length === 0 && mail.length === 0 && tel.length === 0) {
       setVoci([]);
       setAperta(false);
+      if (mostraAttesa) setEsito("pronto");
       return;
     }
     let cancelled = false;
@@ -67,9 +76,14 @@ export function AziendaNoteBanner({
           )
         : esegui()
       ).then((res) => {
-        if (cancelled || !res.success) return;
+        if (cancelled) return;
+        if (!res.success) {
+          if (mostraAttesa) setEsito("errore");
+          return;
+        }
         setVoci(res.aziende);
         if (res.aziende.length === 0) setAperta(false);
+        if (mostraAttesa) setEsito("pronto");
       });
     }, 350);
     return () => {
@@ -78,8 +92,18 @@ export function AziendaNoteBanner({
     };
     // chiave riassume aziende, mail e telefoni: la sonda non aggiunge un altro ciclo.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [chiave, misura]);
+  }, [chiave, misura, mostraAttesa]);
 
+  if (mostraAttesa && esito === "attesa") {
+    return (
+      <p role="status" className="text-sm text-[var(--muted)]">
+        Caricamento avvisi…
+      </p>
+    );
+  }
+  if (mostraAttesa && esito === "errore") {
+    return <p className="text-sm text-red-700">Avvisi non disponibili.</p>;
+  }
   if (voci.length === 0 || typeof document === "undefined") return null;
 
   const conteggio = voci.reduce(

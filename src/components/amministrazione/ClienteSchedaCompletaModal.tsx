@@ -7,18 +7,17 @@ import {
   generazioneSchedaDaMontare,
   osservaAzioneScheda,
   segnaChiusuraSchedaCompleta,
-  segnaDatiScheda,
-  segnaErroreScheda,
+  segnaDatiBaseScheda,
   segnaMontaggioSchedaCompleta,
   useValoreMisuraScheda,
 } from "@/components/diagnostica/misura-scheda-completa";
+import { rispostaAncoraValida } from "@/lib/diagnostica/scheda-completa";
 import { AnagraficaDocumentiPanel } from "@/components/amministrazione/AnagraficaDocumentiPanel";
 import {
   AnagraficaSchedaDetail,
   type AnagraficaSchedaDetailModel,
 } from "@/components/amministrazione/AnagraficaSchedaDetail";
 import { AnagraficaSchedaSection } from "@/components/amministrazione/AnagraficaSchedaSection";
-import { PageLoading } from "@/components/ui/BusyIndicator";
 import type {
   AnagraficaDocumento,
   ClienteSchedaFatturaSlim,
@@ -84,64 +83,98 @@ export function ClienteSchedaCompletaModal({
   const generazione = ricordata.current.generazione;
   const misura = useValoreMisuraScheda(generazione);
   const [error, setError] = useState<string | null>(null);
+  const [verificaOk, setVerificaOk] = useState(false);
   const [documenti, setDocumenti] = useState<AnagraficaDocumento[] | null>(
     null
   );
   const [ordini, setOrdini] = useState<ClienteSchedaOrdineSlim[]>([]);
   const [fatture, setFatture] = useState<ClienteSchedaFatturaSlim[]>([]);
-  const datiPronti = useRef<number | null>(null);
-  const errorePronto = useRef<number | null>(null);
+  const idVivo = useRef(cliente.id);
+  const montato = useRef(true);
+  idVivo.current = cliente.id;
+
+  useEffect(() => {
+    montato.current = true;
+    return () => {
+      montato.current = false;
+    };
+  }, []);
 
   function reload() {
+    const idRichiesta = cliente.id;
     void osservaAzioneScheda(
       generazione,
       "scheda",
-      () => loadClienteSchedaCompletaAction(cliente.id),
+      () => loadClienteSchedaCompletaAction(idRichiesta),
       (res) => (res.success ? "ok" : "errore")
     ).then((res) => {
+      if (
+        !rispostaAncoraValida({
+          attiva: montato.current,
+          idRichiesta,
+          idCorrente: idVivo.current,
+        })
+      ) {
+        return;
+      }
       if (!res.success) {
-        errorePronto.current = generazione;
+        setVerificaOk(false);
         setError(res.error);
         return;
       }
-      datiPronti.current = generazione;
       setError(null);
       setDocumenti(res.documenti);
       setOrdini(res.ordini);
       setFatture(res.fatture);
+      setVerificaOk(true);
     });
   }
 
   useEffect(() => {
-    reload();
-    // La sonda legge la generazione già fissata per questo cliente e non aggiunge richieste.
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- stesso avvio di prima, legato al cliente
-  }, [cliente.id]);
+    let attiva = true;
+    const idRichiesta = cliente.id;
+    setVerificaOk(false);
+    setError(null);
+    setDocumenti(null);
+    setOrdini([]);
+    setFatture([]);
+    void osservaAzioneScheda(
+      generazione,
+      "scheda",
+      () => loadClienteSchedaCompletaAction(idRichiesta),
+      (res) => (res.success ? "ok" : "errore")
+    ).then((res) => {
+      if (
+        !rispostaAncoraValida({
+          attiva: attiva && montato.current,
+          idRichiesta,
+          idCorrente: idVivo.current,
+        })
+      ) {
+        return;
+      }
+      if (!res.success) {
+        setVerificaOk(false);
+        setError(res.error);
+        return;
+      }
+      setError(null);
+      setDocumenti(res.documenti);
+      setOrdini(res.ordini);
+      setFatture(res.fatture);
+      setVerificaOk(true);
+    });
+    return () => {
+      attiva = false;
+    };
+  }, [cliente.id, generazione]);
 
   useLayoutEffect(() => {
     if (generazione == null) return;
     segnaMontaggioSchedaCompleta(generazione);
+    segnaDatiBaseScheda(generazione);
     return () => segnaChiusuraSchedaCompleta(generazione);
-  }, [generazione]);
-
-  useLayoutEffect(() => {
-    if (generazione == null || documenti === null || datiPronti.current !== generazione) {
-      return;
-    }
-    segnaDatiScheda(generazione);
-  }, [generazione, documenti]);
-
-  useLayoutEffect(() => {
-    if (
-      generazione == null ||
-      !error ||
-      documenti !== null ||
-      errorePronto.current !== generazione
-    ) {
-      return;
-    }
-    segnaErroreScheda(generazione);
-  }, [generazione, error, documenti]);
+  }, [generazione, cliente.id]);
 
   const model: AnagraficaSchedaDetailModel = {
     id: cliente.id,
@@ -168,27 +201,33 @@ export function ClienteSchedaCompletaModal({
     cancellazionePrenotata: cliente.cancellazionePrenotata,
   };
 
+  const modifiche = canEdit && verificaOk;
   const body = (
-    <>
+    <div className="space-y-4">
+        <AnagraficaSchedaDetail
+          attesaSezioni
+          model={model}
+          prodottiByCode={prodottiByCode}
+          canEditReferenti={modifiche}
+          richiediAnagrafica={canEdit}
+          modificheAbilitate={verificaOk}
+          hideDocumenti
+        />
         {error ? (
-          <p className="mb-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">
+          <p className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">
             {error}
           </p>
         ) : null}
-
-        {documenti === null ? (
-          <PageLoading label="Caricamento scheda completa" />
-        ) : (
+        {documenti === null && !error ? (
+          <p role="status" className="text-sm text-[var(--muted)]">
+            Caricamento documenti, ordini e fatture…
+          </p>
+        ) : null}
+        {documenti !== null ? (
           <div className="space-y-4">
-            <AnagraficaSchedaDetail
-              model={model}
-              prodottiByCode={prodottiByCode}
-              canEditReferenti={canEdit}
-              hideDocumenti
-            />
             <AnagraficaDocumentiPanel
               clienteId={cliente.id}
-              canEdit={canEdit}
+              canEdit={modifiche}
               items={documenti}
               onChanged={reload}
             />
@@ -245,8 +284,8 @@ export function ClienteSchedaCompletaModal({
               )}
             </AnagraficaSchedaSection>
           </div>
-        )}
-    </>
+        ) : null}
+    </div>
   );
 
   const contenuto = embedded ? (
