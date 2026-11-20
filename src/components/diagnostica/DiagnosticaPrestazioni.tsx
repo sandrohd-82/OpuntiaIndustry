@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { misuraContestoAction } from "@/app/actions/diagnostica-prestazioni";
+import { differenzaNonAttribuitaMs } from "@/lib/diagnostica/tempi-server-scheda";
 import { leggiMisuraElencoClienti } from "@/components/diagnostica/misura-elenco-clienti";
 import { leggiMisureSchedaCompleta } from "@/components/diagnostica/misura-scheda-completa";
 import { preparaRegistroRisorse, risorseRaccolte } from "@/components/diagnostica/osservatorio-risorse";
@@ -85,6 +86,38 @@ function testoRelazione(misura: MisuraSchedaCompleta): string {
     return `Le chiamate si sovrappongono nel tempo misurato. La coda del browser può eseguirle una dopo l'altra. ${coppie}`;
   }
   return "La sequenza non è ancora completa.";
+}
+
+const ETICHETTE_PASSO = {
+  accesso: "Controlli di accesso",
+  query: "Query",
+  gemelli: "Clienti collegati",
+  ilike: "Ricerche ilike",
+  url: "URL firmati",
+  funzione: "Funzione SQL avvisi",
+  note: "Note",
+  attenzioni: "Attenzioni",
+  timeline: "Timeline",
+  spedizioni: "Spedizioni",
+} as const;
+
+function testoServer(misura: MisuraSchedaCompleta, nome: NomeAzioneScheda): string | null {
+  if (nome !== "scheda" && nome !== "schede" && nome !== "allerte") return null;
+  const azione = misura.azioni[nome];
+  if (!azione?.server) return "Durata server: non esposta.";
+  const browser =
+    azione.durataMs == null ? "in corso" : `${azione.durataMs} ms`;
+  const nonAttribuita = differenzaNonAttribuitaMs(
+    azione.durataMs,
+    azione.server.totaleMs
+  );
+  const differenza = nonAttribuita == null ? "non esposta" : `${nonAttribuita} ms`;
+  const passi = azione.server.passi.map((passo) => {
+    const righe = passo.righe == null ? "" : `, ${passo.righe} righe`;
+    return `${ETICHETTE_PASSO[passo.nome]} ${passo.ms} ms${righe}`;
+  });
+  const dettaglio = passi.length === 0 ? "" : ` ${passi.join("; ")}.`;
+  return `Durata browser: ${browser}. Durata server: ${azione.server.totaleMs} ms. Differenza non attribuita, fra coda, rete e altro: ${differenza}.${dettaglio}`;
 }
 
 function testoAzione(misura: MisuraSchedaCompleta, nome: NomeAzioneScheda): string {
@@ -483,12 +516,18 @@ export function DiagnosticaPrestazioni({ origine }: { origine: "locale" | "produ
                 <p>
                   Montaggio → avvio della prima azione: {ms(montaggioAdAvvioMs(misura))}.
                 </p>
-                {NOMI_AZIONE_SCHEDA.map((nome) => (
-                  <p key={nome}>
-                    {ETICHETTE_AZIONE[nome]}: {testoAzione(misura, nome)}. Sezione disponibile dal
-                    clic: {ms(sezioneDisponibileMs(misura.azioni[nome]))}.
-                  </p>
-                ))}
+                {NOMI_AZIONE_SCHEDA.map((nome) => {
+                  const server = testoServer(misura, nome);
+                  return (
+                    <div key={nome}>
+                      <p>
+                        {ETICHETTE_AZIONE[nome]}: {testoAzione(misura, nome)}. Sezione disponibile dal
+                        clic: {ms(sezioneDisponibileMs(misura.azioni[nome]))}.
+                      </p>
+                      {server ? <p>{server}</p> : null}
+                    </div>
+                  );
+                })}
                 <p>Dati base visibili: {ms(misura.datiBaseVisibiliMs)}.</p>
                 <p>
                   Caricamento completo:{" "}

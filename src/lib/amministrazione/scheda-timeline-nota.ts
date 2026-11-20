@@ -99,6 +99,7 @@ export async function loadUltimoStatoSchede(input: {
   schedaIds: string[];
   ordineIds: string[];
   campionaturaIds: string[];
+  segnaTempo?: (nome: "timeline" | "spedizioni", ms: number, righe: number) => void;
 }): Promise<{
   lastByScheda: Map<string, { tipo: string; at: string }>;
   consegnaByScheda: Map<string, string>;
@@ -109,12 +110,18 @@ export async function loadUltimoStatoSchede(input: {
   const shipByEntity = new Map<string, { status: string; at: string | null }>();
   const schedaIds = [...new Set(input.schedaIds.filter(Boolean))];
   if (schedaIds.length) {
+    const inizio = performance.now();
     const { data } = await input.service
       .from("produzione_schede_timeline")
       .select("scheda_id, evento_at, evento_tipo")
       .in("scheda_id", schedaIds)
       .order("evento_at", { ascending: false })
       .limit(1200);
+    input.segnaTempo?.(
+      "timeline",
+      Math.max(0, Math.round(performance.now() - inizio)),
+      data?.length ?? 0
+    );
     for (const row of data ?? []) {
       const sid = String(row.scheda_id);
       const tipo = String(row.evento_tipo ?? "");
@@ -137,6 +144,7 @@ export async function loadUltimoStatoSchede(input: {
   ].filter((k) => k.id);
   if (entityKeys.length) {
     const ids = [...new Set(entityKeys.map((k) => k.id))];
+    const inizio = performance.now();
     const { data } = await input.service
       .from("shipping_trackings")
       .select(
@@ -146,6 +154,11 @@ export async function loadUltimoStatoSchede(input: {
       .is("deleted_at", null)
       .order("updated_at", { ascending: false })
       .limit(400);
+    input.segnaTempo?.(
+      "spedizioni",
+      Math.max(0, Math.round(performance.now() - inizio)),
+      data?.length ?? 0
+    );
     for (const row of data ?? []) {
       const key = `${row.entity_type}:${row.entity_id}`;
       if (shipByEntity.has(key)) continue;

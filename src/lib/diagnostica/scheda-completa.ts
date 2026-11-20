@@ -4,6 +4,8 @@
  * Caricamento completo: la prima azione e ogni sezione prevista sono concluse.
  * Il montaggio del riquadro non basta, e lo stato vuoto non precede la risposta.
  */
+import { normalizzaTempiServer, type TempiServerScheda } from "@/lib/diagnostica/tempi-server-scheda";
+
 export const CRITERIO_SCHEDA_UTILIZZABILE =
   "I dati base sono l'anagrafica già nota, visibile senza aspettare le azioni. Una sezione è disponibile quando la sua azione è conclusa, anche in errore. Il caricamento è completo quando la prima azione e ogni sezione prevista sono concluse. Il montaggio del riquadro non basta e lo stato vuoto non precede la risposta.";
 
@@ -49,6 +51,7 @@ export type AzioneSchedaMisura = {
   avvioDalClicMs: number;
   durataMs: number | null;
   esito: EsitoAzioneScheda | null;
+  server: TempiServerScheda | null;
 };
 
 export type MisuraSchedaCompleta = {
@@ -130,6 +133,7 @@ export function avviaAzione(
         avvioDalClicMs: Math.max(0, Math.round(avvioDalClicMs)),
         durataMs: null,
         esito: null,
+        server: null,
       },
     },
   };
@@ -139,7 +143,8 @@ export function concludiAzione(
   misura: MisuraSchedaCompleta,
   nome: NomeAzioneScheda,
   durataMs: number,
-  esito: EsitoAzioneScheda
+  esito: EsitoAzioneScheda,
+  server?: TempiServerScheda | null
 ): MisuraSchedaCompleta {
   const azione = misura.azioni[nome];
   if (!azione || azione.esito != null) return misura;
@@ -151,6 +156,7 @@ export function concludiAzione(
         ...azione,
         durataMs: Math.max(0, Math.round(durataMs)),
         esito,
+        server: server ?? null,
       },
     },
   };
@@ -266,6 +272,7 @@ function azioneDa(valore: unknown): AzioneSchedaMisura | null {
     avvioDalClicMs: avvio,
     durataMs: durata,
     esito: esito as EsitoAzioneScheda | null,
+    server: normalizzaTempiServer(riga.server),
   };
 }
 

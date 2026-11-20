@@ -5,6 +5,13 @@ import { numeroFatturaVisibile } from "@/lib/amministrazione/numero-fattura";
 import { fatturaEmessaPrenotataNonInviata } from "@/lib/amministrazione/fatture";
 import { isFatturaProva } from "@/lib/amministrazione/prova-ordine";
 import { requireAnyAreaAccess } from "@/lib/areas/guard";
+import { getAuthContext } from "@/lib/auth/session";
+import {
+  apriCronometroServer,
+  includiTempiServer,
+  tempiServerVisibili,
+  type TempiServerScheda,
+} from "@/lib/diagnostica/tempi-server-scheda";
 import { resolveAnagraficaListVisibility } from "@/lib/auth/anagrafica-visibility";
 import { loadCommercialeUserIds } from "@/lib/auth/commerciale-lineage";
 import {
@@ -560,12 +567,17 @@ export async function loadClienteSchedaCompletaAction(
       documenti: AnagraficaDocumento[];
       ordini: ClienteSchedaOrdineSlim[];
       fatture: ClienteSchedaFatturaSlim[];
+      tempiServer?: TempiServerScheda;
     }
   | { success: false; error: string }
 > {
+  const orologio = apriCronometroServer();
+  const inizioAccesso = performance.now();
   const gate = await assertClienteVisibile(clienteId);
+  orologio.segna("accesso", inizioAccesso);
   if (!gate.ok) return { success: false, error: gate.error };
   const supabase = await createClient();
+  const inizioQuery = performance.now();
   const [docsRes, ordRes, fatRes] = await Promise.all([
     supabase
       .from("anagrafica_documenti")
@@ -590,12 +602,26 @@ export async function loadClienteSchedaCompletaAction(
       .order("data_emissione", { ascending: false })
       .limit(80),
   ]);
+  orologio.segna(
+    "query",
+    inizioQuery,
+    (docsRes.data?.length ?? 0) +
+      (ordRes.data?.length ?? 0) +
+      (fatRes.data?.length ?? 0)
+  );
   if (docsRes.error) return { success: false, error: docsRes.error.message };
   if (ordRes.error) return { success: false, error: ordRes.error.message };
   if (fatRes.error) return { success: false, error: fatRes.error.message };
 
   const rows = (docsRes.data ?? []) as DocRow[];
+  const inizioUrl = performance.now();
   const urls = await signedUrls(rows.map((r) => r.storage_path));
+  orologio.segna(
+    "url",
+    inizioUrl,
+    rows.filter((riga) => riga.storage_path).length
+  );
+  const auth = await getAuthContext();
   return {
     success: true,
     documenti: rows.map((r) => mapDoc(r, urls.get(r.storage_path) ?? null)),
@@ -624,5 +650,6 @@ export async function loadClienteSchedaCompletaAction(
       statoPagamento: String(r.stato_pagamento ?? ""),
       tipoDocumento: String(r.tipo_documento ?? "fattura"),
     })),
+    ...includiTempiServer(tempiServerVisibili(auth), orologio.chiudi()),
   };
 }

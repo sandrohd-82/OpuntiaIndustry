@@ -20,6 +20,7 @@ import {
   type MisuraSchedaCompleta,
   type NomeAzioneScheda,
 } from "@/lib/diagnostica/scheda-completa";
+import { normalizzaTempiServer } from "@/lib/diagnostica/tempi-server-scheda";
 
 const LIMITE = 8;
 
@@ -188,8 +189,12 @@ export function osservaAzioneScheda<T>(
   const inizio = performance.now();
   return esegui().then(
     (valore) => {
+      const server =
+        valore && typeof valore === "object" && "tempiServer" in valore
+          ? normalizzaTempiServer(valore.tempiServer)
+          : null;
       aggiorna(generazione, (misura) =>
-        concludiAzione(misura, nome, performance.now() - inizio, esito(valore))
+        concludiAzione(misura, nome, performance.now() - inizio, esito(valore), server)
       );
       return valore;
     },

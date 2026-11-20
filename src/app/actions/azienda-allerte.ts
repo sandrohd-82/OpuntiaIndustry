@@ -6,6 +6,12 @@ import {
   parseCanaleEmailList,
 } from "@/lib/amministrazione/contatto-canale-attenzione";
 import { getAuthContext } from "@/lib/auth/session";
+import {
+  apriCronometroServer,
+  includiTempiServer,
+  tempiServerVisibili,
+  type TempiServerScheda,
+} from "@/lib/diagnostica/tempi-server-scheda";
 import { createClient } from "@/lib/supabase/server";
 import { z } from "zod";
 
@@ -67,14 +73,29 @@ function aggiungiTel(dest: Set<string>, raw: string) {
 }
 
 export async function listAllerteAziendaAction(raw: unknown): Promise<
-  { success: true; aziende: AziendaAllerta[] } | { success: false; error: string }
+  | {
+      success: true;
+      aziende: AziendaAllerta[];
+      tempiServer?: TempiServerScheda;
+    }
+  | { success: false; error: string }
 > {
+  const orologio = apriCronometroServer();
+  const inizioAccesso = performance.now();
   const auth = await getAuthContext();
+  orologio.segna("accesso", inizioAccesso);
+  function rispondi(aziende: AziendaAllerta[]) {
+    return {
+      success: true as const,
+      aziende,
+      ...includiTempiServer(tempiServerVisibili(auth), orologio.chiudi()),
+    };
+  }
   if (!auth?.userId || !auth.isSecondFactorVerified) {
-    return { success: true, aziende: [] };
+    return rispondi([]);
   }
   const parsed = inputSchema.safeParse(raw);
-  if (!parsed.success) return { success: true, aziende: [] };
+  if (!parsed.success) return rispondi([]);
 
   const emails = [
     ...new Set(
@@ -93,7 +114,7 @@ export async function listAllerteAziendaAction(raw: unknown): Promise<
     emails.length === 0 &&
     telefoni.length === 0
   ) {
-    return { success: true, aziende: [] };
+    return rispondi([]);
   }
 
   const supabase = await createClient();
@@ -116,10 +137,16 @@ export async function listAllerteAziendaAction(raw: unknown): Promise<
     });
   }
 
+  const inizioFunzione = performance.now();
   const rpc = await supabase.rpc("allerte_schede_anagrafica", {
     p_aziende: parsed.data.aziende,
     p_emails: emails,
   });
+  orologio.segna(
+    "funzione",
+    inizioFunzione,
+    Array.isArray(rpc.data) ? rpc.data.length : 0
+  );
   const daFunzione = !rpc.error && Array.isArray(rpc.data);
   if (daFunzione) {
     for (const row of rpc.data as Array<Record<string, unknown>>) {
@@ -149,9 +176,10 @@ export async function listAllerteAziendaAction(raw: unknown): Promise<
     }
   }
 
-  if (schede.size === 0) return { success: true, aziende: [] };
+  if (schede.size === 0) return rispondi([]);
 
   const ids = [...schede.values()].map((s) => s.id);
+  const inizioNote = performance.now();
   const { data: noteRows } = await supabase
     .from("pn_note")
     .select("id, titolo, body, entity_type, entity_id")
@@ -159,6 +187,7 @@ export async function listAllerteAziendaAction(raw: unknown): Promise<
     .eq("stato", "attiva")
     .is("deleted_at", null)
     .order("created_at", { ascending: false });
+  orologio.segna("note", inizioNote, noteRows?.length ?? 0);
 
   const notePer = new Map<Chiave, AziendaAllertaNota[]>();
   for (const row of noteRows ?? []) {
@@ -179,12 +208,14 @@ export async function listAllerteAziendaAction(raw: unknown): Promise<
   const tuttiTel = [...new Set([...schede.values()].flatMap((s) => s.telefoni))];
   const avvisi: AziendaAllertaAvviso[] = [];
   if (tutteMail.length > 0) {
+    const inizioMail = performance.now();
     const { data } = await supabase
       .from("contatto_canale_attenzioni")
       .select("id, canale, valore_normalizzato, valore_display, clausola")
       .eq("canale", "email")
       .in("valore_normalizzato", tutteMail)
       .is("deleted_at", null);
+    orologio.segna("attenzioni", inizioMail, data?.length ?? 0);
     for (const row of data ?? []) {
       avvisi.push({
         id: String(row.id),
@@ -195,12 +226,14 @@ export async function listAllerteAziendaAction(raw: unknown): Promise<
     }
   }
   if (tuttiTel.length > 0) {
+    const inizioTel = performance.now();
     const { data } = await supabase
       .from("contatto_canale_attenzioni")
       .select("id, canale, valore_normalizzato, valore_display, clausola")
       .eq("canale", "telefono")
       .in("valore_normalizzato", tuttiTel)
       .is("deleted_at", null);
+    orologio.segna("attenzioni", inizioTel, data?.length ?? 0);
     for (const row of data ?? []) {
       avvisi.push({
         id: String(row.id),
@@ -236,5 +269,5 @@ export async function listAllerteAziendaAction(raw: unknown): Promise<
     });
   }
 
-  return { success: true, aziende };
+  return rispondi(aziende);
 }
