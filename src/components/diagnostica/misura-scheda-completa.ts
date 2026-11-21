@@ -12,6 +12,7 @@ import {
   chiudiMisuraScheda,
   concludiAzione,
   normalizzaMisureScheda,
+  segnaReteAzione,
   prevediAzione,
   segnaDatiBase,
   segnaModuloAtteso,
@@ -20,6 +21,7 @@ import {
   type MisuraSchedaCompleta,
   type NomeAzioneScheda,
 } from "@/lib/diagnostica/scheda-completa";
+import { associaReteAzione, type IstanteRete } from "@/lib/diagnostica/rete-scheda";
 import { normalizzaTempiServer } from "@/lib/diagnostica/tempi-server-scheda";
 
 const LIMITE = 8;
@@ -189,22 +191,71 @@ export function osservaAzioneScheda<T>(
   const inizio = performance.now();
   return esegui().then(
     (valore) => {
+      const completamento = performance.now();
       const server =
         valore && typeof valore === "object" && "tempiServer" in valore
           ? normalizzaTempiServer(valore.tempiServer)
           : null;
       aggiorna(generazione, (misura) =>
-        concludiAzione(misura, nome, performance.now() - inizio, esito(valore), server)
+        concludiAzione(misura, nome, completamento - inizio, esito(valore), server)
       );
+      collegaRete(generazione, nome, inizio, completamento);
       return valore;
     },
     (errore: unknown) => {
+      const completamento = performance.now();
       aggiorna(generazione, (misura) =>
-        concludiAzione(misura, nome, performance.now() - inizio, "errore")
+        concludiAzione(misura, nome, completamento - inizio, "errore")
       );
+      collegaRete(generazione, nome, inizio, completamento);
       throw errore;
     }
   );
+}
+
+function collegaRete(
+  generazione: number,
+  nome: NomeAzioneScheda,
+  invocazione: number,
+  completamento: number
+) {
+  const leggi = () => {
+    aggiorna(generazione, (misura) =>
+      segnaReteAzione(
+        misura,
+        nome,
+        associaReteAzione({
+          invocazione,
+          completamento,
+          risorse: risorseDellaPagina(),
+        })
+      )
+    );
+  };
+  window.setTimeout(leggi, 0);
+}
+
+function risorseDellaPagina(): IstanteRete[] {
+  const percorso = window.location.pathname;
+  const risorse: IstanteRete[] = [];
+  for (const voce of performance.getEntriesByType("resource")) {
+    const risorsa = voce as PerformanceResourceTiming;
+    if (risorsa.initiatorType !== "fetch") continue;
+    let percorsoVoce = "";
+    try {
+      percorsoVoce = new URL(risorsa.name).pathname;
+    } catch {
+      continue;
+    }
+    if (percorsoVoce !== percorso) continue;
+    risorse.push({
+      start: risorsa.startTime,
+      requestStart: risorsa.requestStart,
+      responseStart: risorsa.responseStart,
+      responseEnd: risorsa.responseEnd,
+    });
+  }
+  return risorse;
 }
 
 export function useValoreMisuraScheda(generazione: number | null): ContestoScheda | null {

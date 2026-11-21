@@ -4,6 +4,10 @@
  * Caricamento completo: la prima azione e ogni sezione prevista sono concluse.
  * Il montaggio del riquadro non basta, e lo stato vuoto non precede la risposta.
  */
+import {
+  normalizzaReteAzione,
+  type ReteAzioneScheda,
+} from "@/lib/diagnostica/rete-scheda";
 import { normalizzaTempiServer, type TempiServerScheda } from "@/lib/diagnostica/tempi-server-scheda";
 
 export const CRITERIO_SCHEDA_UTILIZZABILE =
@@ -52,6 +56,7 @@ export type AzioneSchedaMisura = {
   durataMs: number | null;
   esito: EsitoAzioneScheda | null;
   server: TempiServerScheda | null;
+  rete: ReteAzioneScheda | null;
 };
 
 export type MisuraSchedaCompleta = {
@@ -134,6 +139,7 @@ export function avviaAzione(
         durataMs: null,
         esito: null,
         server: null,
+        rete: null,
       },
     },
   };
@@ -158,6 +164,23 @@ export function concludiAzione(
         esito,
         server: server ?? null,
       },
+    },
+  };
+}
+
+export function segnaReteAzione(
+  misura: MisuraSchedaCompleta,
+  nome: NomeAzioneScheda,
+  rete: ReteAzioneScheda
+): MisuraSchedaCompleta {
+  const azione = misura.azioni[nome];
+  if (!azione || azione.rete?.affidabilita === "verificata") return misura;
+  if (azione.rete && rete.affidabilita === "incerta") return misura;
+  return {
+    ...misura,
+    azioni: {
+      ...misura.azioni,
+      [nome]: { ...azione, rete },
     },
   };
 }
@@ -273,6 +296,7 @@ function azioneDa(valore: unknown): AzioneSchedaMisura | null {
     durataMs: durata,
     esito: esito as EsitoAzioneScheda | null,
     server: normalizzaTempiServer(riga.server),
+    rete: normalizzaReteAzione(riga.rete),
   };
 }
 

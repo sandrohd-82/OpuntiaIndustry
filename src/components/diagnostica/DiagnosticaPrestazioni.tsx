@@ -120,6 +120,19 @@ function testoServer(misura: MisuraSchedaCompleta, nome: NomeAzioneScheda): stri
   return `Durata browser: ${browser}. Durata server: ${azione.server.totaleMs} ms. Differenza non attribuita, fra coda, rete e altro: ${differenza}.${dettaglio}`;
 }
 
+function testoCoda(misura: MisuraSchedaCompleta, nome: NomeAzioneScheda): string | null {
+  const azione = misura.azioni[nome];
+  if (!azione?.esito) return null;
+  const server =
+    azione.server == null ? "non esposta" : `${azione.server.totaleMs} ms`;
+  const rete = azione.rete;
+  if (!rete) return `Rete: in lettura. Durata server: ${server}.`;
+  if (rete.affidabilita === "incerta") {
+    return `Associazione incerta. Durata server: ${server}.`;
+  }
+  return `Attesa prima della richiesta HTTP: ${rete.attesaHttpMs} ms. Durata HTTP: ${rete.httpMs} ms. Primo byte: ${rete.primoByteMs} ms. Dopo la risposta: ${rete.dopoRispostaMs} ms. Durata server: ${server}. Affidabilità verificata.`;
+}
+
 function testoAzione(misura: MisuraSchedaCompleta, nome: NomeAzioneScheda): string {
   const azione = misura.azioni[nome];
   if (!azione) {
@@ -518,12 +531,14 @@ export function DiagnosticaPrestazioni({ origine }: { origine: "locale" | "produ
                 </p>
                 {NOMI_AZIONE_SCHEDA.map((nome) => {
                   const server = testoServer(misura, nome);
+                  const coda = testoCoda(misura, nome);
                   return (
                     <div key={nome}>
                       <p>
                         {ETICHETTE_AZIONE[nome]}: {testoAzione(misura, nome)}. Sezione disponibile dal
                         clic: {ms(sezioneDisponibileMs(misura.azioni[nome]))}.
                       </p>
+                      {coda ? <p>{coda}</p> : null}
                       {server ? <p>{server}</p> : null}
                     </div>
                   );
