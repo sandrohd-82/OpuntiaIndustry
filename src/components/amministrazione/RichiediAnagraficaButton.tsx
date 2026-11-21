@@ -30,18 +30,48 @@ function stessaMail(a: string, b: string): boolean {
   return a.trim().toLowerCase() === b.trim().toLowerCase();
 }
 
+type RiepilogoCoordinato =
+  | { errore: string }
+  | { success: false; error: string }
+  | {
+      stato: string | null;
+      scadeAt: string | null;
+      email: string;
+      faseTest: boolean;
+      testAttivo: boolean;
+      form: { bancaAppoggio: string };
+    };
+
+function riepilogoPronto(
+  esito: RiepilogoCoordinato
+): esito is {
+  stato: string | null;
+  scadeAt: string | null;
+  email: string;
+  faseTest: boolean;
+  testAttivo: boolean;
+  form: { bancaAppoggio: string };
+} {
+  return !("errore" in esito) && !("success" in esito);
+}
+
+
 export function RichiediAnagraficaButton({
   kind,
   id,
   emailIniziale,
   modificheAbilitate = true,
   mostraAttesa = false,
+  letturaCoordinata = false,
+  riepilogoCoordinato,
 }: {
   kind: "cliente" | "cliente_possibile";
   id: string;
   emailIniziale: string;
   modificheAbilitate?: boolean;
   mostraAttesa?: boolean;
+  letturaCoordinata?: boolean;
+  riepilogoCoordinato?: RiepilogoCoordinato | null;
 }) {
   const [emailScheda, setEmailScheda] = useState(emailIniziale);
   const [emailModale, setEmailModale] = useState(emailIniziale);
@@ -61,15 +91,38 @@ export function RichiediAnagraficaButton({
   const misura = useMisuraScheda();
 
   useLayoutEffect(() => {
-    if (!misura) return;
+    if (!misura || letturaCoordinata) return;
     prevediAzioneScheda(misura.generazione, "riepilogo");
-  }, [misura]);
+  }, [misura, letturaCoordinata]);
 
   useEffect(() => {
     setEmailScheda(emailIniziale);
   }, [emailIniziale]);
 
   useEffect(() => {
+    if (!letturaCoordinata) return;
+    if (riepilogoCoordinato === undefined) {
+      setLetturaPronta(false);
+      setErroreLettura("");
+      return;
+    }
+    if (riepilogoCoordinato == null || !riepilogoPronto(riepilogoCoordinato)) {
+      setErroreLettura("Anagrafica non disponibile.");
+      setLetturaPronta(true);
+      return;
+    }
+    setErroreLettura("");
+    setStato(riepilogoCoordinato.stato);
+    setScadeAt(riepilogoCoordinato.scadeAt);
+    setEmailScheda(riepilogoCoordinato.email);
+    setBanca(riepilogoCoordinato.form.bancaAppoggio);
+    setFaseTest(riepilogoCoordinato.faseTest);
+    setTestAttivo(riepilogoCoordinato.testAttivo);
+    setLetturaPronta(true);
+  }, [letturaCoordinata, riepilogoCoordinato, id]);
+
+  useEffect(() => {
+    if (letturaCoordinata) return;
     let attiva = true;
     const idRichiesta = id;
     setModaleAperta(false);
@@ -112,7 +165,7 @@ export function RichiediAnagraficaButton({
     return () => {
       attiva = false;
     };
-  }, [kind, id, misura, mostraAttesa]);
+  }, [kind, id, misura, mostraAttesa, letturaCoordinata]);
 
   function applicaRiepilogo(dopo: {
     stato: string | null;

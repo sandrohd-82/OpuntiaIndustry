@@ -17,11 +17,17 @@ type AziendaRef = {
   id: string;
 };
 
+type EsitoAllerteCoordinate =
+  | { success: true; aziende: AziendaAllerta[] }
+  | { success: false; error: string };
+
 type Props = {
   aziende?: AziendaRef[];
   emails?: string[];
   telefoni?: string[];
   mostraAttesa?: boolean;
+  letturaCoordinata?: boolean;
+  esitoCoordinato?: EsitoAllerteCoordinate;
 };
 
 export function AziendaNoteBanner({
@@ -29,6 +35,8 @@ export function AziendaNoteBanner({
   emails = [],
   telefoni = [],
   mostraAttesa = false,
+  letturaCoordinata = false,
+  esitoCoordinato,
 }: Props) {
   const [voci, setVoci] = useState<AziendaAllerta[]>([]);
   const [aperta, setAperta] = useState(false);
@@ -41,13 +49,31 @@ export function AziendaNoteBanner({
   const misura = useMisuraScheda();
 
   useLayoutEffect(() => {
-    if (!misura) return;
+    if (!misura || letturaCoordinata) return;
     const haQualcosa = chiave.split("§").some((parte) => parte.length > 0);
     if (!haQualcosa) return;
     prevediAzioneScheda(misura.generazione, "allerte");
-  }, [misura, chiave]);
+  }, [misura, chiave, letturaCoordinata]);
 
   useEffect(() => {
+    if (letturaCoordinata) {
+      if (!esitoCoordinato) {
+        if (mostraAttesa) {
+          setEsito("attesa");
+          setVoci([]);
+          setAperta(false);
+        }
+        return;
+      }
+      if (!esitoCoordinato.success) {
+        if (mostraAttesa) setEsito("errore");
+        return;
+      }
+      setVoci(esitoCoordinato.aziende);
+      if (esitoCoordinato.aziende.length === 0) setAperta(false);
+      if (mostraAttesa) setEsito("pronto");
+      return;
+    }
     const utili = aziende.filter((a) => a.id);
     const mail = emails.map((e) => e.trim()).filter(Boolean);
     const tel = telefoni.map((t) => t.trim()).filter(Boolean);
@@ -92,7 +118,7 @@ export function AziendaNoteBanner({
     };
     // chiave riassume aziende, mail e telefoni: la sonda non aggiunge un altro ciclo.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [chiave, misura, mostraAttesa]);
+  }, [chiave, misura, mostraAttesa, letturaCoordinata, esitoCoordinato]);
 
   if (mostraAttesa && esito === "attesa") {
     return (

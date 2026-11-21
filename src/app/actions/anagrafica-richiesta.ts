@@ -3,12 +3,12 @@
 import { getPublicAppUrl } from "@/lib/auth/app-url";
 import { requireAnyAreaAccess } from "@/lib/areas/guard";
 import { FASE_TEST_ANAGRAFICA } from "@/lib/anagrafica/fase-test";
+import { leggiRiepilogoAnagrafica } from "@/lib/anagrafica/riepilogo-lettura";
 import {
   annullaTestAnagrafica,
   nuovoToken,
   preparaInvioAnagrafica,
   precompilaDaScheda,
-  riepilogoRichiesta,
 } from "@/lib/anagrafica/richiesta-db";
 import {
   arubaHaSospesoInvio,
@@ -22,12 +22,10 @@ function emailOk(value: string): boolean {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value.trim());
 }
 
-export async function riepilogoAnagraficaFormAction(input: {
-  kind: "cliente" | "cliente_possibile";
-  id: string;
-}) {
-  await requireAnyAreaAccess(["amministrazione", "commerciale"]);
-  return riepilogoRichiesta(input.kind, input.id);
+export async function riepilogoAnagraficaFormAction(
+  input: Parameters<typeof leggiRiepilogoAnagrafica>[0]
+): ReturnType<typeof leggiRiepilogoAnagrafica> {
+  return leggiRiepilogoAnagrafica(input);
 }
 
 export async function inviaRichiestaAnagraficaAction(input: {

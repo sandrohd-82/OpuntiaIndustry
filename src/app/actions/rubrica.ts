@@ -1,7 +1,15 @@
 "use server";
 
 import { writeAuditLog } from "@/lib/audit";
-import { requireAnyAreaAccess, requireAreaAccess } from "@/lib/areas/guard";
+import { requireAreaAccess } from "@/lib/areas/guard";
+import {
+  CONTATTO_SELECT,
+  guardRubricaAnagrafica,
+  junctionFor,
+  mapContatto,
+  type EntityReferentiTipo,
+} from "@/lib/rubrica/anagrafica-comune";
+import { leggiReferentiAnagrafica } from "@/lib/rubrica/referenti-lettura";
 import {
   codiceMansioneFromNome,
   mansioniAffini,
@@ -27,40 +35,7 @@ async function guard() {
   return requireAreaAccess("amministrazione");
 }
 
-async function guardRubricaAnagrafica() {
-  return requireAnyAreaAccess([
-    "amministrazione",
-    "produzione",
-    "commerciale",
-  ]);
-}
 
-const CONTATTO_SELECT =
-  "id, nome, cognome, telefono, email, rapporto, azienda_tipo, azienda_id, azienda_label, mansione_id, mansione, note, indirizzo, cap, citta, provincia, nazione, created_at, updated_at";
-
-function mapContatto(r: Record<string, unknown>): RubricaContatto {
-  return {
-    id: String(r.id),
-    nome: String(r.nome ?? ""),
-    cognome: String(r.cognome ?? ""),
-    telefono: String(r.telefono ?? ""),
-    email: String(r.email ?? ""),
-    rapporto: r.rapporto as RubricaContatto["rapporto"],
-    aziendaTipo: r.azienda_tipo as RubricaAziendaTipo,
-    aziendaId: r.azienda_id ? String(r.azienda_id) : null,
-    aziendaLabel: String(r.azienda_label ?? ""),
-    mansioneId: r.mansione_id ? String(r.mansione_id) : null,
-    mansione: String(r.mansione ?? ""),
-    note: String(r.note ?? ""),
-    indirizzo: String(r.indirizzo ?? ""),
-    cap: String(r.cap ?? ""),
-    citta: String(r.citta ?? ""),
-    provincia: String(r.provincia ?? ""),
-    nazione: String(r.nazione ?? ""),
-    createdAt: String(r.created_at),
-    updatedAt: String(r.updated_at),
-  };
-}
 
 function mapMansione(r: Record<string, unknown>): RubricaMansione {
   return {
@@ -794,61 +769,12 @@ export async function listWebmailMessagesLiteAction(input?: {
   };
 }
 
-export type EntityReferentiTipo =
-  | "cliente"
-  | "fornitore"
-  | "cliente_possibile";
+export type { EntityReferentiTipo } from "@/lib/rubrica/anagrafica-comune";
 
-function junctionFor(tipo: EntityReferentiTipo) {
-  if (tipo === "cliente") {
-    return {
-      table: "clienti_referenti" as const,
-      fk: "cliente_id" as const,
-      aziendaTipo: "cliente" as const,
-    };
-  }
-  if (tipo === "fornitore") {
-    return {
-      table: "fornitori_referenti" as const,
-      fk: "fornitore_id" as const,
-      aziendaTipo: "fornitore" as const,
-    };
-  }
-  return {
-    table: "clienti_possibili_referenti" as const,
-    fk: "cliente_possibile_id" as const,
-    aziendaTipo: "cliente_possibile" as const,
-  };
-}
-
-export async function listEntityReferentiAction(input: {
-  tipo: EntityReferentiTipo;
-  entityId: string;
-}): Promise<
-  { success: true; items: RubricaContatto[] } | { success: false; error: string }
-> {
-  await guardRubricaAnagrafica();
-  const j = junctionFor(input.tipo);
-  const supabase = await createClient();
-  const { data: links, error } = await supabase
-    .from(j.table)
-    .select("contatto_id")
-    .eq(j.fk, input.entityId);
-  if (error) return { success: false, error: error.message };
-  const ids = (links ?? []).map((r) => String(r.contatto_id));
-  if (ids.length === 0) return { success: true, items: [] };
-  const { data: contatti, error: e3 } = await supabase
-    .from("rubrica_contatti")
-    .select(CONTATTO_SELECT)
-    .in("id", ids)
-    .is("deleted_at", null);
-  if (e3) return { success: false, error: e3.message };
-  return {
-    success: true,
-    items: (contatti ?? []).map((r) =>
-      mapContatto(r as Record<string, unknown>)
-    ),
-  };
+export async function listEntityReferentiAction(
+  input: Parameters<typeof leggiReferentiAnagrafica>[0]
+): ReturnType<typeof leggiReferentiAnagrafica> {
+  return leggiReferentiAnagrafica(input);
 }
 
 /** Sostituisce i referenti collegati all’anagrafica e aggiorna azienda sul contatto. */

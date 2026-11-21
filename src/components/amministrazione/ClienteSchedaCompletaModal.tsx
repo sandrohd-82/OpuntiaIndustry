@@ -2,6 +2,7 @@
 
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { loadClienteSchedaCompletaAction } from "@/app/actions/anagrafica-documenti";
+import { caricaSchedaCompletaInizialeAction } from "@/app/actions/scheda-completa-iniziale";
 import {
   ContestoMisuraScheda,
   generazioneSchedaDaMontare,
@@ -16,6 +17,7 @@ import { AnagraficaDocumentiPanel } from "@/components/amministrazione/Anagrafic
 import {
   AnagraficaSchedaDetail,
   type AnagraficaSchedaDetailModel,
+  type PacchettoSezioniScheda,
 } from "@/components/amministrazione/AnagraficaSchedaDetail";
 import { AnagraficaSchedaSection } from "@/components/amministrazione/AnagraficaSchedaSection";
 import type {
@@ -89,6 +91,7 @@ export function ClienteSchedaCompletaModal({
   );
   const [ordini, setOrdini] = useState<ClienteSchedaOrdineSlim[]>([]);
   const [fatture, setFatture] = useState<ClienteSchedaFatturaSlim[]>([]);
+  const [pacchetto, setPacchetto] = useState<PacchettoSezioniScheda | null>(null);
   const idVivo = useRef(cliente.id);
   const montato = useRef(true);
   idVivo.current = cliente.id;
@@ -138,11 +141,16 @@ export function ClienteSchedaCompletaModal({
     setDocumenti(null);
     setOrdini([]);
     setFatture([]);
+    setPacchetto(null);
     void osservaAzioneScheda(
       generazione,
       "scheda",
-      () => loadClienteSchedaCompletaAction(idRichiesta),
-      (res) => (res.success ? "ok" : "errore")
+      () =>
+        caricaSchedaCompletaInizialeAction({
+          clienteId: idRichiesta,
+          includiRiepilogo: canEdit,
+        }),
+      (res) => (res.scheda.success ? "ok" : "errore")
     ).then((res) => {
       if (
         !rispostaAncoraValida({
@@ -153,21 +161,29 @@ export function ClienteSchedaCompletaModal({
       ) {
         return;
       }
-      if (!res.success) {
+      setPacchetto({
+        id: idRichiesta,
+        extra: res.extra,
+        schede: res.schede,
+        referenti: res.referenti,
+        riepilogo: res.riepilogo,
+        allerte: res.allerte,
+      });
+      if (!res.scheda.success) {
         setVerificaOk(false);
-        setError(res.error);
+        setError(res.scheda.error);
         return;
       }
       setError(null);
-      setDocumenti(res.documenti);
-      setOrdini(res.ordini);
-      setFatture(res.fatture);
+      setDocumenti(res.scheda.documenti);
+      setOrdini(res.scheda.ordini);
+      setFatture(res.scheda.fatture);
       setVerificaOk(true);
     });
     return () => {
       attiva = false;
     };
-  }, [cliente.id, generazione]);
+  }, [cliente.id, generazione, canEdit]);
 
   useLayoutEffect(() => {
     if (generazione == null) return;
@@ -206,6 +222,8 @@ export function ClienteSchedaCompletaModal({
     <div className="space-y-4">
         <AnagraficaSchedaDetail
           attesaSezioni
+          letturaCoordinata
+          pacchetto={pacchetto}
           model={model}
           prodottiByCode={prodottiByCode}
           canEditReferenti={modifiche}

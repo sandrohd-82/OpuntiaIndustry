@@ -30,12 +30,18 @@ export function AnagraficaReferentiSection({
   entityLabel,
   canEdit,
   attesaRisposta = false,
+  letturaCoordinata = false,
+  esitoCoordinato,
 }: {
   tipo: EntityReferentiTipo;
   entityId: string;
   entityLabel: string;
   canEdit: boolean;
   attesaRisposta?: boolean;
+  letturaCoordinata?: boolean;
+  esitoCoordinato?:
+    | { success: true; items: RubricaContatto[] }
+    | { success: false; error: string };
 }) {
   const [items, setItems] = useState<RubricaContatto[]>([]);
   const [loading, setLoading] = useState(true);
@@ -55,9 +61,9 @@ export function AnagraficaReferentiSection({
   const misura = useMisuraScheda();
 
   useLayoutEffect(() => {
-    if (!misura) return;
+    if (!misura || letturaCoordinata) return;
     prevediAzioneScheda(misura.generazione, "referenti");
-  }, [misura]);
+  }, [misura, letturaCoordinata]);
 
   const reload = useCallback(() => {
     const idRichiesta = entityId;
@@ -96,10 +102,28 @@ export function AnagraficaReferentiSection({
   }, []);
 
   useEffect(() => {
+    if (letturaCoordinata) return;
     setItems([]);
     setError(null);
     reload();
-  }, [reload]);
+  }, [reload, letturaCoordinata]);
+
+  useEffect(() => {
+    if (!letturaCoordinata) return;
+    if (!esitoCoordinato) {
+      setItems([]);
+      setError(null);
+      setLoading(true);
+      return;
+    }
+    setLoading(false);
+    if (!esitoCoordinato.success) {
+      setError(esitoCoordinato.error);
+      return;
+    }
+    setError(null);
+    setItems(esitoCoordinato.items);
+  }, [letturaCoordinata, esitoCoordinato, entityId]);
 
   useEffect(() => {
     if (!showPick) return;

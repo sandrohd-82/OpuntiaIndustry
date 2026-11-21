@@ -34,6 +34,30 @@ import type { ProdottoProprio } from "@/lib/amministrazione/prodotti-propri";
 import type { ClientePossibileTrattativa } from "@/lib/promemorie-e-note/trattativa";
 import { AnagraficaDocumentiPanel } from "@/components/amministrazione/AnagraficaDocumentiPanel";
 import { RichiediAnagraficaButton } from "@/components/amministrazione/RichiediAnagraficaButton";
+import type { AziendaAllerta } from "@/app/actions/azienda-allerte";
+import type { RubricaContatto } from "@/lib/rubrica/types";
+
+type EsitoLettura<T> = ({ success: true } & T) | { success: false; error: string };
+
+export type PacchettoSezioniScheda = {
+  id: string;
+  extra: EsitoLettura<{ sedi: AnagraficaSede[]; brand: AnagraficaBrand[] }>;
+  schede: EsitoLettura<{ items: AziendaSchedaCardItem[] }>;
+  referenti: EsitoLettura<{ items: RubricaContatto[] }>;
+  riepilogo:
+    | null
+    | { errore: string }
+    | { success: false; error: string }
+    | {
+        stato: string | null;
+        scadeAt: string | null;
+        email: string;
+        faseTest: boolean;
+        testAttivo: boolean;
+        form: { bancaAppoggio: string };
+      };
+  allerte: EsitoLettura<{ aziende: AziendaAllerta[] }>;
+};
 import {
   ANAGRAFICA_SEDE_TONE,
   AnagraficaSchedaSection,
@@ -142,6 +166,8 @@ export function AnagraficaSchedaDetail({
   attesaSezioni = false,
   richiediAnagrafica,
   modificheAbilitate = true,
+  letturaCoordinata = false,
+  pacchetto = null,
 }: {
   model: AnagraficaSchedaDetailModel;
   prodottiByCode: Map<string, ProdottoProprio>;
@@ -153,6 +179,9 @@ export function AnagraficaSchedaDetail({
   /** Lettura del form anche prima che le modifiche siano abilitate. */
   richiediAnagrafica?: boolean;
   modificheAbilitate?: boolean;
+  /** Scheda completa: le sei letture iniziali arrivano dal coordinatore. */
+  letturaCoordinata?: boolean;
+  pacchetto?: PacchettoSezioniScheda | null;
 }) {
   const [sediExtra, setSediExtra] = useState<AnagraficaSede[]>([]);
   const [brandExtra, setBrandExtra] = useState<AnagraficaBrand[]>([]);
@@ -167,12 +196,39 @@ export function AnagraficaSchedaDetail({
   const misura = useMisuraScheda();
 
   useLayoutEffect(() => {
-    if (!misura) return;
+    if (!misura || letturaCoordinata) return;
     prevediAzioneScheda(misura.generazione, "extra");
     prevediAzioneScheda(misura.generazione, "schede");
-  }, [misura]);
+  }, [misura, letturaCoordinata]);
 
   useEffect(() => {
+    if (!letturaCoordinata) return;
+    if (attesaSezioni) {
+      setExtraStato("attesa");
+      setSchedeStato("attesa");
+      setSediExtra([]);
+      setBrandExtra([]);
+      setSchede([]);
+      setSchedaApertaId(null);
+    }
+    if (!pacchetto || pacchetto.id !== model.id) return;
+    if (!pacchetto.extra.success) {
+      if (attesaSezioni) setExtraStato("errore");
+    } else {
+      setSediExtra(pacchetto.extra.sedi);
+      setBrandExtra(pacchetto.extra.brand);
+      if (attesaSezioni) setExtraStato("pronto");
+    }
+    if (!pacchetto.schede.success) {
+      if (attesaSezioni) setSchedeStato("errore");
+    } else {
+      setSchede(pacchetto.schede.items);
+      if (attesaSezioni) setSchedeStato("pronto");
+    }
+  }, [letturaCoordinata, pacchetto, model.id, attesaSezioni]);
+
+  useEffect(() => {
+    if (letturaCoordinata) return;
     let attiva = true;
     const idRichiesta = model.id;
     if (attesaSezioni) {
@@ -227,7 +283,7 @@ export function AnagraficaSchedaDetail({
     return () => {
       attiva = false;
     };
-  }, [model.id, model.kind, misura, attesaSezioni]);
+  }, [model.id, model.kind, misura, attesaSezioni, letturaCoordinata]);
 
   async function apriScheda(item: AziendaSchedaCardItem) {
     const idRichiesta = model.id;
@@ -259,6 +315,8 @@ export function AnagraficaSchedaDetail({
         <RichiediAnagraficaButton
           modificheAbilitate={modificheAbilitate}
           mostraAttesa={attesaSezioni}
+          letturaCoordinata={letturaCoordinata}
+          riepilogoCoordinato={pacchetto?.id === model.id ? pacchetto.riepilogo : undefined}
           kind={model.kind}
           id={model.id}
           emailIniziale={model.email}
@@ -525,6 +583,10 @@ export function AnagraficaSchedaDetail({
 
       <AnagraficaReferentiSection
         attesaRisposta={attesaSezioni}
+        letturaCoordinata={letturaCoordinata}
+        esitoCoordinato={
+          pacchetto?.id === model.id ? pacchetto.referenti : undefined
+        }
         tipo={model.kind === "cliente" ? "cliente" : "cliente_possibile"}
         entityId={model.id}
         entityLabel={model.ragioneSociale}
@@ -570,6 +632,8 @@ export function AnagraficaSchedaDetail({
       ) : null}
       <AziendaNoteBanner
         mostraAttesa={attesaSezioni}
+        letturaCoordinata={letturaCoordinata}
+        esitoCoordinato={pacchetto?.id === model.id ? pacchetto.allerte : undefined}
         aziende={[{ tipo: model.kind, id: model.id }]}
       />
     </div>
