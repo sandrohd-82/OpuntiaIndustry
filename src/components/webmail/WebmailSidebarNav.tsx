@@ -11,11 +11,15 @@ import {
 } from "react";
 import { usePathname } from "next/navigation";
 import {
-  listWebmailMenuAccountsAction,
   listWebmailUnreadInboxByAccountAction,
   setImpersonatedWebmailAccountAccessAction,
   setImpersonatedWebmailAllAccountsAccessAction,
 } from "@/app/actions/webmail";
+import { leggiWebmailMenu } from "@/lib/navigazione/nav-letture-client";
+import {
+  esitoMenuWebmail,
+  type MenuWebmailLetto,
+} from "@/lib/navigazione/menu-webmail-esito";
 import { MenuAreaAccessToggle } from "@/components/layout/MenuAreaAccessToggle";
 import { toneForGrantSelection, type AccessTone } from "@/lib/auth/page-access";
 import {
@@ -144,18 +148,21 @@ export function WebmailSidebarNav({
   onGrantToneChangeRef.current = onGrantToneChange;
 
   const load = useCallback(() => {
-    void listWebmailMenuAccountsAction().then((res) => {
-      if (!res.success) {
+    void leggiWebmailMenu().then((res) => {
+      const letto = res as MenuWebmailLetto;
+      const decisione = esitoMenuWebmail(letto);
+      if (decisione === "conserva") return;
+      if (decisione === "svuota" || !letto.success) {
         setAccounts([]);
         setGrantedIds([]);
         setAssignMode(false);
         onGrantToneChangeRef.current?.("unset");
         return;
       }
-      setAccounts(res.accounts);
-      setGrantedIds(res.grantedIds);
-      setAssignMode(res.assignMode);
-      onGrantToneChangeRef.current?.(res.grantTone);
+      setAccounts(letto.accounts);
+      setGrantedIds(letto.grantedIds);
+      setAssignMode(letto.assignMode);
+      onGrantToneChangeRef.current?.(letto.grantTone);
     });
     void listWebmailUnreadInboxByAccountAction().then((res) => {
       if (res.success) setUnreadByAccount(res.byAccountId);

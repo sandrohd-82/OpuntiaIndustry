@@ -83,6 +83,8 @@ export function ClienteSchedaCompletaModal({
     };
   }
   const generazione = ricordata.current.generazione;
+  const canEditRef = useRef(canEdit);
+  canEditRef.current = canEdit;
   const misura = useValoreMisuraScheda(generazione);
   const [error, setError] = useState<string | null>(null);
   const [verificaOk, setVerificaOk] = useState(false);
@@ -133,6 +135,7 @@ export function ClienteSchedaCompletaModal({
     });
   }
 
+  // canEdit si legge all'avvio: un aggiornamento successivo non riesegue le sei letture.
   useEffect(() => {
     let attiva = true;
     const idRichiesta = cliente.id;
@@ -148,7 +151,7 @@ export function ClienteSchedaCompletaModal({
       () =>
         caricaSchedaCompletaInizialeAction({
           clienteId: idRichiesta,
-          includiRiepilogo: canEdit,
+          includiRiepilogo: canEditRef.current,
         }),
       (res) => (res.scheda.success ? "ok" : "errore")
     ).then((res) => {
@@ -183,7 +186,7 @@ export function ClienteSchedaCompletaModal({
     return () => {
       attiva = false;
     };
-  }, [cliente.id, generazione, canEdit]);
+  }, [cliente.id, generazione]);
 
   useLayoutEffect(() => {
     if (generazione == null) return;

@@ -106,7 +106,32 @@ export function RichiediAnagraficaButton({
       setErroreLettura("");
       return;
     }
-    if (riepilogoCoordinato == null || !riepilogoPronto(riepilogoCoordinato)) {
+    if (riepilogoCoordinato === null) {
+      let attiva = true;
+      const idRichiesta = id;
+      setLetturaPronta(false);
+      setErroreLettura("");
+      void riepilogoAnagraficaFormAction({ kind, id: idRichiesta }).then((esito) => {
+        if (!attiva || idCorrente.current !== idRichiesta) return;
+        if (!riepilogoPronto(esito)) {
+          setErroreLettura("Anagrafica non disponibile.");
+          setLetturaPronta(true);
+          return;
+        }
+        setErroreLettura("");
+        setStato(esito.stato);
+        setScadeAt(esito.scadeAt);
+        setEmailScheda(esito.email);
+        setBanca(esito.form.bancaAppoggio);
+        setFaseTest(esito.faseTest);
+        setTestAttivo(esito.testAttivo);
+        setLetturaPronta(true);
+      });
+      return () => {
+        attiva = false;
+      };
+    }
+    if (!riepilogoPronto(riepilogoCoordinato)) {
       setErroreLettura("Anagrafica non disponibile.");
       setLetturaPronta(true);
       return;
@@ -119,7 +144,7 @@ export function RichiediAnagraficaButton({
     setFaseTest(riepilogoCoordinato.faseTest);
     setTestAttivo(riepilogoCoordinato.testAttivo);
     setLetturaPronta(true);
-  }, [letturaCoordinata, riepilogoCoordinato, id]);
+  }, [letturaCoordinata, riepilogoCoordinato, id, kind]);
 
   useEffect(() => {
     if (letturaCoordinata) return;
