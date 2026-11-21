@@ -51,6 +51,15 @@ function testoTotale(valore: number | null, unita: string): string {
   return `${valore} ${unita}`;
 }
 
+function righeRiepilogo(documento: DocumentoPianificazione): { etichetta: string; valore: string }[] {
+  const totali = totaliDocumento(documento);
+  return [
+    { etichetta: "Consegne", valore: String(totali.consegne) },
+    { etichetta: "Totale precisa", valore: testoTotale(totali.precisa, documento.unita) },
+    { etichetta: "Totale stimata", valore: testoTotale(totali.stimata, documento.unita) },
+  ];
+}
+
 function dataItaliana(iso: string): string {
   if (!giornoValido(iso)) return iso;
   const [anno, mese, giorno] = iso.split("-");
@@ -174,7 +183,8 @@ function disegnaMese(
   pdf: jsPDF,
   documento: DocumentoPianificazione,
   primo: string,
-  mappa: Map<string, string[]>
+  mappa: Map<string, string[]>,
+  riepilogo: { etichetta: string; valore: string }[] | null
 ) {
   const sinistra = 10;
   const larghezza = 277;
@@ -184,13 +194,22 @@ function disegnaMese(
   pdf.setTextColor(15, 23, 42);
   pdf.text(nomeMese(primo), sinistra, 14);
   pdf.setFontSize(10);
+  let cursore = 21;
+  if (riepilogo) {
+    for (const voce of riepilogo) {
+      const righe = righeNelCampo(pdf, `${voce.etichetta}: ${voce.valore}`, larghezza);
+      pdf.text(righe, sinistra, cursore);
+      cursore += righe.length * 4.6;
+    }
+    if (riepilogo.length > 0) cursore += 2;
+  }
   const intestazione = [codiceVisibile(documento.codice), documento.fornitore, documento.materia]
     .map((parte) => parte.trim())
     .filter((parte) => parte.length > 0)
     .join(" · ");
   const righeIntestazione = intestazione ? righeNelCampo(pdf, intestazione, larghezza) : [];
-  if (righeIntestazione.length > 0) pdf.text(righeIntestazione, sinistra, 21);
-  const alto = 21 + righeIntestazione.length * 4.6 + 3;
+  if (righeIntestazione.length > 0) pdf.text(righeIntestazione, sinistra, cursore);
+  const alto = cursore + righeIntestazione.length * 4.6 + 3;
   const spazioRighe = 202 - alto - 7;
   const altezzaRiga = Math.min(28, spazioRighe / Math.max(settimane.length, 1));
   FERIALI.forEach((feriale, indice) => {
@@ -227,23 +246,27 @@ function disegnaMese(
   pdf.setTextColor(0, 0, 0);
 }
 
-async function disegnaElenco(pdf: jsPDF, documento: DocumentoPianificazione) {
-  const totali = totaliDocumento(documento);
+async function disegnaElenco(
+  pdf: jsPDF,
+  documento: DocumentoPianificazione,
+  riepilogoSottoTitolo: boolean
+) {
   pdf.setFontSize(16);
   pdf.setTextColor(15, 23, 42);
   pdf.text("Elenco consegne", 14, 16);
   pdf.setFontSize(10);
   const codice = codiceVisibile(documento.codice);
   const note = noteVisibili(documento.note);
+  const riepilogo = riepilogoSottoTitolo
+    ? righeRiepilogo(documento).map((voce) => `${voce.etichetta}: ${voce.valore}`)
+    : [];
   const campi = [
+    ...riepilogo,
     codice ? `Pianificazione: ${codice}` : "",
     `Fornitore: ${documento.fornitore}`,
     `Materia prima: ${documento.materia}`,
     `Unità: ${documento.unita}`,
     `Periodo: ${periodoItaliano(documento.periodoInizio, documento.periodoFine)}`,
-    `Consegne: ${totali.consegne}`,
-    `Totale precisa: ${testoTotale(totali.precisa, documento.unita)}`,
-    `Totale stimata: ${testoTotale(totali.stimata, documento.unita)}`,
     note ? `Note: ${note}` : "",
   ].filter((campo) => campo.length > 0);
   let cursore = 24;
@@ -266,12 +289,13 @@ export async function pdfPianificazione(documento: DocumentoPianificazione): Pro
   const pdf = await creaJsPdf({ orientation: "landscape", unit: "mm", format: "a4" });
   const mappa = mappaQuantita(documento);
   const mesi = mesiDelDocumento(documento);
+  const riepilogo = righeRiepilogo(documento);
   mesi.forEach((primo, indice) => {
     if (indice > 0) pdf.addPage("a4", "landscape");
-    disegnaMese(pdf, documento, primo, mappa);
+    disegnaMese(pdf, documento, primo, mappa, indice === 0 ? riepilogo : null);
   });
   if (mesi.length > 0) pdf.addPage("a4", "landscape");
-  await disegnaElenco(pdf, documento);
+  await disegnaElenco(pdf, documento, mesi.length === 0);
   return new Uint8Array(pdf.output("arraybuffer"));
 }
 
@@ -282,16 +306,36 @@ const BORDO_GIORNO: Partial<Borders> = {
   right: { style: "thin", color: { argb: "FFCBD5E1" } },
 };
 
+function scriviRiepilogo(
+  foglio: Worksheet,
+  riepilogo: { etichetta: string; valore: string }[]
+) {
+  for (const voce of riepilogo) {
+    const riga = foglio.addRow([voce.etichetta, voce.valore]);
+    riga.getCell(1).font = { bold: true };
+    foglio.mergeCells(riga.number, 2, riga.number, 7);
+    riga.getCell(2).alignment = { wrapText: true, vertical: "middle" };
+    riga.height = 16 * Math.max(1, Math.ceil(voce.valore.length / 70));
+  }
+}
+
 function scriviCalendari(
   foglio: Worksheet,
   documento: DocumentoPianificazione,
-  mappa: Map<string, string[]>
+  mappa: Map<string, string[]>,
+  riepilogo: { etichetta: string; valore: string }[]
 ) {
+  let primoMese = true;
   for (const primo of mesiDelDocumento(documento)) {
     const titolo = foglio.addRow([nomeMese(primo)]);
     foglio.mergeCells(titolo.number, 1, titolo.number, 7);
     titolo.font = { bold: true, size: 14, color: { argb: "FF0F172A" } };
     titolo.height = 22;
+    if (primoMese) {
+      scriviRiepilogo(foglio, riepilogo);
+      foglio.addRow([]);
+      primoMese = false;
+    }
     const feriali = foglio.addRow(FERIALI);
     feriali.font = { bold: true, color: { argb: "FFFFFFFF" } };
     feriali.eachCell((cella) => {
@@ -331,7 +375,6 @@ function scriviCalendari(
 }
 
 export async function xlsxPianificazione(documento: DocumentoPianificazione): Promise<Uint8Array> {
-  const totali = totaliDocumento(documento);
   const wb = await creaWorkbook();
   wb.creator = "OpuntiaIndustry";
   const foglio = wb.addWorksheet("Pianificazione", {
@@ -346,7 +389,10 @@ export async function xlsxPianificazione(documento: DocumentoPianificazione): Pr
     { width: 16 },
     { width: 16 },
   ];
-  scriviCalendari(foglio, documento, mappaQuantita(documento));
+  const riepilogo = righeRiepilogo(documento);
+  const mesi = mesiDelDocumento(documento);
+  if (mesi.length === 0) scriviRiepilogo(foglio, riepilogo);
+  scriviCalendari(foglio, documento, mappaQuantita(documento), mesi.length === 0 ? [] : riepilogo);
   foglio.addRow([]);
   const testata: [string, string][] = [
     ["Pianificazione", codiceVisibile(documento.codice)],
@@ -354,9 +400,6 @@ export async function xlsxPianificazione(documento: DocumentoPianificazione): Pr
     ["Materia prima", documento.materia],
     ["Unità", documento.unita],
     ["Periodo", periodoItaliano(documento.periodoInizio, documento.periodoFine)],
-    ["Consegne", String(totali.consegne)],
-    ["Totale precisa", testoTotale(totali.precisa, documento.unita)],
-    ["Totale stimata", testoTotale(totali.stimata, documento.unita)],
     ["Note", noteVisibili(documento.note)],
   ];
   for (const [etichetta, valore] of testata) {

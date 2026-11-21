@@ -101,6 +101,15 @@ assert.equal(pdfTesto.includes("Febbraio 2026"), true);
 assert.equal(pdfTesto.includes("Marzo 2026"), true);
 assert.equal(pdfTesto.includes("Elenco consegne"), true);
 assert.equal(pdfTesto.indexOf("Gennaio 2026") < pdfTesto.indexOf("Elenco consegne"), true);
+assert.equal(pdfTesto.includes("Consegne: 2"), true);
+assert.equal(pdfTesto.includes("Totale precisa: 4 kg"), true);
+assert.equal(pdfTesto.includes("Totale stimata: 2 kg"), true);
+assert.equal(pdfTesto.split("Totale precisa").length, 2);
+assert.equal(
+  pdfTesto.indexOf("Gennaio 2026") < pdfTesto.indexOf("Totale precisa") &&
+    pdfTesto.indexOf("Totale precisa") < pdfTesto.indexOf("Elenco consegne"),
+  true
+);
 assert.equal((pdfTesto.match(/\/Type\s*\/Page(?!s)/g) ?? []).length >= 4, true);
 const nomeLungo =
   "Opuntia Industry Societa Agricola Cooperativa dei Produttori del Ficodindia della Valle del Belice e delle Colline Siciliane a Responsabilita Limitata con stabilimento";
@@ -131,7 +140,13 @@ const xlsx = await xlsxPianificazione(documento);
   const febbraio = testi.indexOf("Febbraio 2026");
   const marzo = testi.indexOf("Marzo 2026");
   const elenco = testi.indexOf("Data");
+  const totale = testi.indexOf("Totale precisa");
   assert.equal(gennaio >= 0 && febbraio > gennaio && marzo > febbraio && elenco > marzo, true);
+  assert.equal(gennaio < totale && totale < febbraio && totale < elenco, true);
+  assert.equal(testi.filter((voce) => voce === "Totale precisa").length, 1);
+  assert.equal(testi.filter((voce) => voce === "Consegne").length, 1);
+  assert.equal(testi.includes("4 kg"), true);
+  assert.equal(testi.includes("2 kg"), true);
   assert.equal(testi.includes("10\n4"), true);
   assert.equal(testi.includes("10\n2"), true);
   assert.equal(testi.includes("10/01/2026"), true);
