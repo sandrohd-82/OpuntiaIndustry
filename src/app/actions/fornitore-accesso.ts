@@ -296,8 +296,56 @@ const creaAccountSchema = z.object({
   cognome: z.string().trim().min(1, "Cognome obbligatorio").max(80),
 });
 
+/** Insert con la sessione del Super Admin: service_role non ha il grant sulla tabella. */
+async function inserisciCollegamentoAccount(input: {
+  profileId: string;
+  fornitoreId: string;
+  actorId: string;
+}): Promise<{ ok: true; accessoId: string; giaCollegato: boolean } | Errore> {
+  const supabase = await createClient();
+  const { data: attivo, error: attivoError } = await supabase
+    .from("fornitori_accessi")
+    .select("id, fornitore_id")
+    .eq("profile_id", input.profileId)
+    .is("deleted_at", null)
+    .maybeSingle();
+  if (attivoError) {
+    return { success: false, error: "Collegamento non verificabile." };
+  }
+  if (attivo?.fornitore_id === input.fornitoreId) {
+    return { ok: true, accessoId: String(attivo.id), giaCollegato: true };
+  }
+  if (attivo) {
+    return {
+      success: false,
+      error:
+        "Questo account è già collegato a un altro fornitore. Usa Collega account esistente per spostarlo.",
+    };
+  }
+
+  const { data: collegato, error: linkError } = await supabase
+    .from("fornitori_accessi")
+    .insert({
+      profile_id: input.profileId,
+      fornitore_id: input.fornitoreId,
+      created_by: input.actorId,
+      updated_by: input.actorId,
+    })
+    .select("id")
+    .single();
+  if (linkError || !collegato) {
+    console.error("fornitori_accessi insert:", linkError?.message);
+    return {
+      success: false,
+      error:
+        "Account creato, ma il collegamento al fornitore non è riuscito. Usa Collega account esistente.",
+    };
+  }
+  return { ok: true, accessoId: String(collegato.id), giaCollegato: false };
+}
+
 export async function creaAccountFornitoreAction(raw: unknown): Promise<
-  { success: true; profileId: string } | Errore
+  { success: true; profileId: string; giaPresente: boolean } | Errore
 > {
   const parsed = creaAccountSchema.safeParse(raw);
   if (!parsed.success) {
@@ -330,41 +378,57 @@ export async function creaAccountFornitoreAction(raw: unknown): Promise<
     actorId: gate.userId,
     resetExisting: false,
   });
-  if ("error" in creato) return { success: false, error: creato.error };
-
-  const { data: collegato, error: linkError } = await service
-    .from("fornitori_accessi")
-    .insert({
-      profile_id: creato.userId,
-      fornitore_id: parsed.data.fornitoreId,
-      created_by: gate.userId,
-      updated_by: gate.userId,
-    })
-    .select("id")
-    .single();
-  if (linkError || !collegato) {
-    return {
-      success: false,
-      error:
-        "Account creato, ma il collegamento al fornitore non è riuscito. Usa Collega account esistente.",
-    };
+  let profileId = "";
+  let giaPresente = false;
+  if ("error" in creato) {
+    if (!creato.error.includes("Esiste già un profilo")) {
+      return { success: false, error: creato.error };
+    }
+    const { data: esistente, error: esistenteError } = await service
+      .from("profiles")
+      .select("id, app_roles(code)")
+      .ilike("email", parsed.data.email.trim().toLowerCase())
+      .maybeSingle();
+    const ruolo = esistente?.app_roles as
+      | { code?: string }
+      | { code?: string }[]
+      | null
+      | undefined;
+    const codice = Array.isArray(ruolo) ? ruolo[0]?.code : ruolo?.code;
+    if (esistenteError || !esistente || codice !== RUOLO_FORNITORE) {
+      return { success: false, error: creato.error };
+    }
+    profileId = String(esistente.id);
+    giaPresente = true;
+  } else {
+    profileId = creato.userId;
   }
+
+  const collegato = await inserisciCollegamentoAccount({
+    profileId,
+    fornitoreId: parsed.data.fornitoreId,
+    actorId: gate.userId,
+  });
+  if (!("ok" in collegato)) return collegato;
 
   await writeAuditLog({
     action: "profile_create_test",
     entity_type: "profiles",
-    entity_id: creato.userId,
+    entity_id: profileId,
     actor_id: gate.userId,
-    summary: `Account fornitore ${nome} creato e collegato. Accesso iniziale solo Area Fornitori.`,
+    summary: giaPresente
+      ? `Account fornitore ${nome} già presente: collegamento completato. Accesso iniziale solo Area Fornitori.`
+      : `Account fornitore ${nome} creato e collegato. Accesso iniziale solo Area Fornitori.`,
     payload: {
       email: parsed.data.email.trim().toLowerCase(),
       fornitore_id: parsed.data.fornitoreId,
       ruolo: RUOLO_FORNITORE,
-      accesso_id: collegato.id,
+      accesso_id: collegato.accessoId,
+      gia_presente: giaPresente,
     },
   });
 
-  return { success: true, profileId: creato.userId };
+  return { success: true, profileId, giaPresente };
 }
 
 async function motivoSospensioneAziendale(

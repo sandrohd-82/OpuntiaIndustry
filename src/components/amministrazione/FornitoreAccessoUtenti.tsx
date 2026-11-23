@@ -133,7 +133,9 @@ export function FornitoreAccessoUtenti({
       setCognome("");
       setEmail("");
       setMessaggio(
-        "Account creato e collegato. Parte con i soli accessi dell'Area Fornitori. Il primo accesso si invia quando il profilo diventa operativo."
+        res.giaPresente
+          ? "Account già presente: collegamento a questo fornitore completato."
+          : "Account creato e collegato. Parte con i soli accessi dell'Area Fornitori. Il primo accesso si invia quando il profilo diventa operativo."
       );
       ricarica();
     });
