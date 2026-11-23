@@ -1,21 +1,6 @@
 import { notFound, redirect } from "next/navigation";
 import { AreaPlaceholder } from "@/components/areas/AreaPlaceholder";
 import { AppHeader } from "@/components/layout/AppHeader";
-import { FogliIngressoElenco } from "@/components/produzione/FogliIngressoElenco";
-import { FoglioIngressoScheda } from "@/components/produzione/FoglioIngressoScheda";
-import {
-  leggiFoglioIngressoAction,
-  listFogliIngressoAction,
-} from "@/app/actions/foglio-ingresso";
-import { ControlloProcessoDettaglio } from "@/components/produzione/ControlloProcessiVista";
-import { DocumentiAbilitazioneFornitore } from "@/components/produzione/DocumentiAbilitazioneFornitore";
-import { LineeGuidaFornitore } from "@/components/produzione/LineeGuidaFornitore";
-import { listaOrdiniRicevutiAction } from "@/app/actions/approvvigionamento-portale";
-import { OrdiniRicevutiFornitore } from "@/components/produzione/OrdiniRicevutiFornitore";
-import { listaDocumentiAbilitazionePortaleAction } from "@/app/actions/requisiti-fornitore";
-import { listLineeGuidaRicevuteAction } from "@/app/actions/haccp-linee-guida";
-import { processoControlloBySlug } from "@/lib/produzione/controllo-processi";
-import { contestoMaterialeIngresso } from "@/lib/produzione/fornitore-accesso-server";
 import {
   AREA_FORNITORI_SECTIONS,
   resolveAreaFornitoriPage,
@@ -44,6 +29,12 @@ export default async function AreaFornitoriSectionPage({ params, searchParams }:
   if (!page) notFound();
 
   if (section === "linee-guida") {
+    const { listLineeGuidaRicevuteAction } = await import(
+      "@/app/actions/haccp-linee-guida"
+    );
+    const { LineeGuidaFornitore } = await import(
+      "@/components/produzione/LineeGuidaFornitore"
+    );
     const ricevute = await listLineeGuidaRicevuteAction();
     return (
       <>
@@ -62,6 +53,12 @@ export default async function AreaFornitoriSectionPage({ params, searchParams }:
   }
 
   if (section === "documenti") {
+    const { listaDocumentiAbilitazionePortaleAction } = await import(
+      "@/app/actions/requisiti-fornitore"
+    );
+    const { DocumentiAbilitazioneFornitore } = await import(
+      "@/components/produzione/DocumentiAbilitazioneFornitore"
+    );
     const documenti = await listaDocumentiAbilitazionePortaleAction();
     return (
       <>
@@ -80,6 +77,12 @@ export default async function AreaFornitoriSectionPage({ params, searchParams }:
   }
 
   if (section === "ordini-ricevuti") {
+    const { listaOrdiniRicevutiAction } = await import(
+      "@/app/actions/approvvigionamento-portale"
+    );
+    const { OrdiniRicevutiFornitore } = await import(
+      "@/components/produzione/OrdiniRicevutiFornitore"
+    );
     const ricevuti = await listaOrdiniRicevutiAction();
     return (
       <>
@@ -102,23 +105,43 @@ export default async function AreaFornitoriSectionPage({ params, searchParams }:
   }
 
   if (section === "materiale-in-ingresso") {
+    const { processoControlloBySlug } = await import(
+      "@/lib/produzione/controllo-processi"
+    );
+    const { contestoMaterialeIngresso } = await import(
+      "@/lib/produzione/fornitore-accesso-server"
+    );
     const processo = processoControlloBySlug("materiale-in-ingresso");
     if (!processo) notFound();
     const accesso = await contestoMaterialeIngresso(null);
     if (accesso.esito === "negato") {
+      const testo =
+        accesso.motivo === "non_collegato"
+          ? "Il tuo utente non è collegato a un fornitore. I dati riservati restano chiusi finché Agrinsicilia non associa l'anagrafica."
+          : "Accesso non consentito ai dati di questo fornitore.";
       return (
         <>
           <AppHeader title={page.label} subtitle={page.description} />
           <div className="p-6">
             <p className="max-w-xl rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-950">
-              {accesso.motivo === "non_collegato"
-                ? "Il tuo utente non è collegato a un fornitore. I dati riservati restano chiusi finché Agrinsicilia non associa l'anagrafica."
-                : "Accesso non consentito ai dati di questo fornitore."}
+              {testo}
             </p>
           </div>
         </>
       );
     }
+    const { leggiFoglioIngressoAction, listFogliIngressoAction } = await import(
+      "@/app/actions/foglio-ingresso"
+    );
+    const { FoglioIngressoScheda } = await import(
+      "@/components/produzione/FoglioIngressoScheda"
+    );
+    const { FogliIngressoElenco } = await import(
+      "@/components/produzione/FogliIngressoElenco"
+    );
+    const { ControlloProcessoDettaglio } = await import(
+      "@/components/produzione/ControlloProcessiVista"
+    );
     const query = await searchParams;
     if (query.foglio) {
       const dettaglio = await leggiFoglioIngressoAction("fornitore", query.foglio);
@@ -153,12 +176,5 @@ export default async function AreaFornitoriSectionPage({ params, searchParams }:
     );
   }
 
-  return (
-    <>
-      <AppHeader title={page.label} subtitle={page.description} />
-      <div className="p-6">
-        <AreaPlaceholder title={page.label} description={page.description} />
-      </div>
-    </>
-  );
+  return <AreaPlaceholder title={page.label} description={page.description} />;
 }
