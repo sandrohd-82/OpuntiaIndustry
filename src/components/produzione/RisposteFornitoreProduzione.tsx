@@ -2,10 +2,16 @@
 
 import { useEffect, useState, useTransition } from "react";
 import {
+  anteprimaRevisioneRispostaAction,
+  applicaRevisioneRispostaAction,
   decidiRispostaFornitoreAction,
+  listaProposteAccettateAction,
   listaRisposteProduzioneAction,
+  type AnteprimaRevisione,
+  type PropostaAccettata,
   type RispostaInEsame,
 } from "@/app/actions/approvvigionamento-portale";
+import { RiepilogoRevisioneBozza } from "@/components/produzione/RiepilogoRevisioneBozza";
 
 const ETICHETTA: Record<string, string> = {
   proposta: "Proposta di modifica",
@@ -15,6 +21,8 @@ const ETICHETTA: Record<string, string> = {
 
 export function RisposteFornitoreProduzione() {
   const [risposte, setRisposte] = useState<RispostaInEsame[]>([]);
+  const [accettate, setAccettate] = useState<PropostaAccettata[]>([]);
+  const [anteprima, setAnteprima] = useState<(AnteprimaRevisione & { rispostaId: string }) | null>(null);
   const [note, setNote] = useState<Record<string, string>>({});
   const [messaggio, setMessaggio] = useState<string | null>(null);
   const [errore, setErrore] = useState<string | null>(null);
@@ -22,14 +30,21 @@ export function RisposteFornitoreProduzione() {
 
   useEffect(() => {
     let attivo = true;
-    void listaRisposteProduzioneAction().then((res) => {
-      if (!attivo) return;
-      if (!res.success) {
-        setErrore(res.error);
-        return;
+    void Promise.all([listaRisposteProduzioneAction(), listaProposteAccettateAction()]).then(
+      ([res, approvate]) => {
+        if (!attivo) return;
+        if (!res.success) {
+          setErrore(res.error);
+          return;
+        }
+        if (!approvate.success) {
+          setErrore(approvate.error);
+          return;
+        }
+        setRisposte(res.risposte);
+        setAccettate(approvate.proposte);
       }
-      setRisposte(res.risposte);
-    });
+    );
     return () => {
       attivo = false;
     };
@@ -50,7 +65,7 @@ export function RisposteFornitoreProduzione() {
       }
       setMessaggio(
         esito === "accettata"
-          ? "Proposta accettata. Pubblica una nuova versione dal calendario con i dati concordati: questa decisione non la pubblica."
+          ? "Proposta accettata. Usa Prepara revisione ordine per copiarla sulla bozza: la versione pubblicata non cambia."
           : "Proposta respinta. La versione pubblicata resta invariata."
       );
     });
@@ -120,6 +135,69 @@ export function RisposteFornitoreProduzione() {
           ))}
         </ul>
       )}
+      {accettate.length > 0 ? (
+        <div className="mt-4 border-t border-slate-200 pt-3">
+          <h3 className="text-sm font-semibold text-slate-800">Proposte accettate</h3>
+          <ul className="mt-2 space-y-3">
+            {accettate.map((proposta) => (
+              <li key={proposta.id} className="rounded-lg border border-slate-200 p-3 text-sm">
+                <p className="font-medium text-slate-900">
+                  {proposta.ordineCodice} · versione {proposta.versioneNumero} · {ETICHETTA[proposta.tipo] ?? proposta.tipo}
+                </p>
+                <p className="mt-1 text-slate-700">{proposta.motivazione}</p>
+                <button
+                  type="button"
+                  disabled={pending}
+                  onClick={() => {
+                    setErrore(null);
+                    startTransition(async () => {
+                      const res = await anteprimaRevisioneRispostaAction(proposta.id);
+                      if (!res.success) {
+                        setErrore(res.error);
+                        return;
+                      }
+                      setAnteprima({ rispostaId: proposta.id, ...res });
+                    });
+                  }}
+                  className="mt-2 rounded-lg bg-slate-900 px-3 py-1.5 text-sm font-medium text-white disabled:opacity-60"
+                >
+                  Prepara revisione ordine
+                </button>
+                {anteprima?.rispostaId === proposta.id ? (
+                  <RiepilogoRevisioneBozza
+                    differenze={anteprima.differenze}
+                    motivo={anteprima.motivo}
+                    applicabile={anteprima.applicabile}
+                    giaApplicata={anteprima.giaApplicata}
+                    pending={pending}
+                    onChiudi={() => setAnteprima(null)}
+                    onConferma={() => {
+                      const corrente = anteprima;
+                      startTransition(async () => {
+                        const res = await applicaRevisioneRispostaAction({
+                          rispostaId: corrente.rispostaId,
+                          revisione: corrente.revisione,
+                          pianoRevisione: corrente.pianoRevisione,
+                        });
+                        if (!res.success) {
+                          setErrore(res.error);
+                          return;
+                        }
+                        setAnteprima(null);
+                        setMessaggio(
+                          res.giaApplicata
+                            ? "Proposta già applicata alla bozza. La versione pubblicata resta quella corrente."
+                            : "Bozza aggiornata. La versione pubblicata non è cambiata. Pubblicala dal calendario: il fornitore dovrà accettare la nuova versione."
+                        );
+                      });
+                    }}
+                  />
+                ) : null}
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
     </section>
   );
 }

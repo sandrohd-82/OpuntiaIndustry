@@ -3,6 +3,7 @@
 import { useState } from "react";
 import type { BozzaConsegna, ConsegnaUfficiale, PropostaRevisione } from "@/lib/produzione/revisione-piano";
 import { etichettaDifferenza } from "@/lib/produzione/revisione-piano";
+import { propostaProntaPerRevisione } from "@/lib/produzione/revisione-da-proposta";
 import { SelettoreUnita } from "@/components/produzione/SelettoreUnita";
 import { unitaStandard } from "@/lib/produzione/unita-approvvigionamento";
 
@@ -170,6 +171,7 @@ export function ValutazioneRevisione(props: {
   proposte: PropostaRevisione[];
   pending: boolean;
   onDecidi: (propostaId: string, voceId: string, esito: "accettata" | "respinta", nota: string) => void;
+  onPrepara?: (proposta: PropostaRevisione) => void;
 }) {
   const [note, setNote] = useState<Record<string, string>>({});
   if (!props.proposte.length) return null;
@@ -216,6 +218,16 @@ export function ValutazioneRevisione(props: {
               )}
             </div>
           ))}
+          {props.onPrepara && propostaProntaPerRevisione(proposta.voci) ? (
+            <button
+              type="button"
+              disabled={props.pending}
+              onClick={() => props.onPrepara?.(proposta)}
+              className="rounded-lg bg-slate-900 px-3 py-2 text-sm font-medium text-white disabled:opacity-60"
+            >
+              Prepara revisione ordine
+            </button>
+          ) : null}
         </div>
       ))}
     </div>

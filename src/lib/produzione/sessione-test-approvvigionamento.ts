@@ -70,6 +70,7 @@ function ordineVuoto(
     bilancio: [],
     carichi: [],
     confermataDalFornitore: false,
+    accordo: null,
     righe: [riga],
   };
 }

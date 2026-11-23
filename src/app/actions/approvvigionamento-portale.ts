@@ -7,11 +7,33 @@ import { eUtenteInternoHaccp } from "@/lib/produzione/fornitore-accesso";
 import { soggettoAccessoFornitore } from "@/lib/produzione/fornitore-accesso-server";
 import { validaRispostaFornitore } from "@/lib/produzione/risposta-fornitore";
 import {
+  aggiungiConsegnaPianoAction,
+  aggiornaApprovvigionamentoAction,
+  annullaConsegnaApprovvigionamentoAction,
+  estendiPeriodoPianoAction,
+} from "@/app/actions/approvvigionamento";
+import {
+  bozzaDopoProposta,
+  chiaveEstensioneRisposta,
+  chiaveRevisioneRisposta,
+  chiaveVoceRevisione,
+  materiaIdVoce,
+  riepilogoVociAccettate,
+  rigaPianoAggiornata,
+  statoAccordoFornitore,
+  statoRispostaAccordo,
+  tipoRispostaAccordo,
+  type DifferenzaRevisione,
+  type RigaBozzaRevisione,
+  type StatoAccordoFornitore,
+} from "@/lib/produzione/revisione-da-proposta";
+import {
   costruisciRevisionePiano,
   decidiVoceRevisione,
   type BozzaConsegna,
   type ConsegnaUfficiale,
   type PropostaRevisione,
+  type VoceRevisione,
 } from "@/lib/produzione/revisione-piano";
 import { risolviAccessoMaterialeIngresso } from "@/lib/produzione/fornitore-accesso";
 import {
@@ -19,6 +41,7 @@ import {
   ruoloVersionePortale,
   type RuoloVersionePortale,
 } from "@/lib/produzione/approvvigionamento";
+import { normalizzaUnitaApprovvigionamento } from "@/lib/produzione/unita-approvvigionamento";
 import { createClient } from "@/lib/supabase/server";
 
 const uuidSchema = z.string().uuid();
@@ -48,6 +71,7 @@ export type VersioneRicevuta = {
   bozzaNonPubblicata: boolean;
   copertaDalPiano: boolean;
   annullata: boolean;
+  accordo: StatoAccordoFornitore | null;
   risposta: {
     id: string;
     tipo: string;
@@ -204,6 +228,9 @@ export async function listaOrdiniRicevutiAction(): Promise<
   const rispostaPerVersione = new Map(
     (risposte ?? []).map((row) => [String(row.versione_id), row])
   );
+  const ordineDiVersione = new Map(
+    versioniUfficiali.map((row) => [String(row.id), String(row.ordine_id)])
+  );
   const nomeFornitore = String(anagrafica?.ragione_sociale ?? "Fornitore");
   return {
     success: true,
@@ -249,6 +276,27 @@ export async function listaOrdiniRicevutiAction(): Promise<
             "corrente" && Boolean(segnaleOrdine.get(String(row.ordine_id))?.bozza),
         copertaDalPiano: coperteDalPiano.has(String(row.id)),
         annullata: Boolean(segnaleOrdine.get(String(row.ordine_id))?.annullata),
+        accordo: (() => {
+          const ruolo = ruoloVersionePortale(
+            Number(row.numero),
+            segnaleOrdine.get(String(row.ordine_id))?.numero ?? null
+          );
+          if (ruolo !== "corrente") return null;
+          const risposta = rispostaPerVersione.get(String(row.id));
+          const confermaPrecedente = (risposte ?? []).some((altra) => {
+            if (String(altra.versione_id) === String(row.id)) return false;
+            if (altra.tipo !== "conferma" || altra.stato !== "accettata") return false;
+            return ordineDiVersione.get(String(altra.versione_id)) === String(row.ordine_id);
+          });
+          return statoAccordoFornitore({
+            pubblicato: true,
+            annullata: Boolean(segnaleOrdine.get(String(row.ordine_id))?.annullata),
+            bozzaNonPubblicata: Boolean(segnaleOrdine.get(String(row.ordine_id))?.bozza),
+            rispostaTipo: tipoRispostaAccordo(risposta ? String(risposta.tipo) : null),
+            rispostaStato: statoRispostaAccordo(risposta ? String(risposta.stato) : null),
+            confermaSuVersionePrecedente: confermaPrecedente,
+          });
+        })(),
         risposta: (() => {
           const risposta = rispostaPerVersione.get(String(row.id));
           if (!risposta) return null;
@@ -645,4 +693,848 @@ export async function decidiVocePropostaPianoAction(raw: unknown): Promise<
     });
   }
   return { success: true, riusata: decisa.riusata, proposta: decisa.proposta };
+}
+
+type ClientApprovvigionamento = Awaited<ReturnType<typeof createClient>>;
+
+type ContestoBozza = {
+  id: string;
+  codice: string;
+  fornitoreId: string;
+  dataConsegna: string;
+  note: string;
+  revisione: number;
+  versionePubblicata: number | null;
+  versioneCorrenteId: string | null;
+  presaVisioneAt: string | null;
+  foglioIngressoId: string | null;
+  righe: RigaBozzaRevisione[];
+  carichi: number;
+  piano: { id: string; inizio: string; fine: string; revisione: number; versioneId: string | null } | null;
+};
+
+export type AnteprimaRevisione = {
+  differenze: DifferenzaRevisione[];
+  applicabile: boolean;
+  motivo: string | null;
+  giaApplicata: boolean;
+  revisione: number;
+  pianoRevisione: number | null;
+  revisioni: { ordineId: string; revisione: number }[];
+};
+
+function giornoBreve(valore: unknown): string {
+  return String(valore ?? "").slice(0, 10);
+}
+
+function righeProposta(raw: unknown): { codice: string; quantita: number; unitaMisura: string }[] {
+  if (!Array.isArray(raw)) return [];
+  return raw.map((voce) => {
+    const riga = voce as { codice?: string; quantita?: number; unitaMisura?: string };
+    return {
+      codice: String(riga.codice ?? ""),
+      quantita: Number(riga.quantita ?? 0),
+      unitaMisura: String(riga.unitaMisura ?? ""),
+    };
+  });
+}
+
+function righePayload(righe: readonly RigaBozzaRevisione[]) {
+  return righe.map((riga) => ({
+    materiaPrimaId: riga.materiaPrimaId,
+    quantita: riga.quantita,
+    unitaMisura: riga.unitaMisura,
+    unitaNome: riga.unitaNome,
+    tipoQuantita: riga.tipoQuantita,
+    note: riga.note,
+  }));
+}
+
+function giaUsata(errore: string): boolean {
+  return errore.includes("già stata usata");
+}
+
+function bloccoBozza(bozza: ContestoBozza): string | null {
+  if (bozza.presaVisioneAt || bozza.foglioIngressoId) {
+    return "La bozza non si aggiorna perché risulta già collegata a una presa visione o a un foglio di ingresso. La versione pubblicata resta invariata.";
+  }
+  if (bozza.carichi > 0) {
+    return "La consegna ha già un carico. La bozza non si modifica e i carichi restano invariati.";
+  }
+  return null;
+}
+
+async function accessoProduzione(): Promise<{ userId: string } | Errore> {
+  const { auth } = await requireAreaAccess("produzione");
+  const soggetto = await soggettoAccessoFornitore();
+  if (!soggetto || !eUtenteInternoHaccp(soggetto)) {
+    return { success: false, error: "Accesso non consentito." };
+  }
+  return { userId: auth.userId };
+}
+
+async function chiaviGiaUsate(
+  supabase: ClientApprovvigionamento,
+  chiavi: string[]
+): Promise<Set<string> | null> {
+  if (!chiavi.length) return new Set();
+  const { data, error } = await supabase
+    .from("approvvigionamenti_operazioni")
+    .select("chiave")
+    .in("chiave", chiavi);
+  if (error) return null;
+  return new Set((data ?? []).map((row) => String(row.chiave)));
+}
+
+async function materiePerCodice(
+  supabase: ClientApprovvigionamento,
+  codici: string[]
+): Promise<Record<string, string>> {
+  const utili = [...new Set(codici.filter(Boolean))];
+  if (!utili.length) return {};
+  const { data } = await supabase.from("materie_prime").select("id, codice").in("codice", utili);
+  const mappa: Record<string, string> = {};
+  for (const row of data ?? []) mappa[String(row.codice)] = String(row.id);
+  return mappa;
+}
+
+async function leggiBozza(
+  supabase: ClientApprovvigionamento,
+  ordineId: string
+): Promise<ContestoBozza | Errore> {
+  const { data: ordine, error } = await supabase
+    .from("approvvigionamenti_ordini")
+    .select(
+      "id, codice, fornitore_id, data_consegna, note, revisione, stato, versione_pubblicata, presa_visione_at, foglio_ingresso_id"
+    )
+    .eq("id", ordineId)
+    .is("deleted_at", null)
+    .maybeSingle();
+  if (error || !ordine || ordine.stato === "annullato") {
+    return { success: false, error: "Consegna non disponibile." };
+  }
+  const [{ data: righe, error: erroreRighe }, { count, error: erroreCarichi }, { data: collegamenti }] =
+    await Promise.all([
+      supabase
+        .from("approvvigionamenti_righe")
+        .select("materia_prima_id, quantita, unita_misura, unita_nome, tipo_quantita, note, sort_order")
+        .eq("ordine_id", ordineId)
+        .is("deleted_at", null)
+        .order("sort_order", { ascending: true }),
+      supabase
+        .from("approvvigionamenti_carichi")
+        .select("id", { count: "exact", head: true })
+        .eq("ordine_id", ordineId)
+        .is("deleted_at", null),
+      supabase.from("approvvigionamenti_piani_ordini").select("piano_id").eq("ordine_id", ordineId).limit(1),
+    ]);
+  if (erroreRighe || erroreCarichi) return { success: false, error: "Dettaglio della bozza non disponibile." };
+  const materiaIds = [...new Set((righe ?? []).map((row) => String(row.materia_prima_id)))];
+  const { data: materie } = materiaIds.length
+    ? await supabase.from("materie_prime").select("id, codice").in("id", materiaIds)
+    : { data: [] };
+  const codici = new Map((materie ?? []).map((row) => [String(row.id), String(row.codice)]));
+  const pianoId = collegamenti?.[0]?.piano_id ? String(collegamenti[0].piano_id) : null;
+  const { data: piano } = pianoId
+    ? await supabase
+        .from("approvvigionamenti_piani")
+        .select("id, periodo_inizio, periodo_fine, revisione, versione_pubblicata")
+        .eq("id", pianoId)
+        .is("deleted_at", null)
+        .maybeSingle()
+    : { data: null };
+  let versioneCorrenteId: string | null = null;
+  if (ordine.versione_pubblicata != null) {
+    const { data: versione } = await supabase
+      .from("approvvigionamenti_versioni")
+      .select("id")
+      .eq("ordine_id", ordineId)
+      .eq("numero", ordine.versione_pubblicata)
+      .maybeSingle();
+    versioneCorrenteId = versione ? String(versione.id) : null;
+  }
+  let versionePianoId: string | null = null;
+  if (piano?.versione_pubblicata != null) {
+    const { data: versionePiano } = await supabase
+      .from("approvvigionamenti_piani_versioni")
+      .select("id")
+      .eq("piano_id", piano.id)
+      .eq("numero", piano.versione_pubblicata)
+      .maybeSingle();
+    versionePianoId = versionePiano ? String(versionePiano.id) : null;
+  }
+  return {
+    id: String(ordine.id),
+    codice: String(ordine.codice),
+    fornitoreId: String(ordine.fornitore_id),
+    dataConsegna: giornoBreve(ordine.data_consegna),
+    note: String(ordine.note ?? ""),
+    revisione: Number(ordine.revisione ?? 1),
+    versionePubblicata: ordine.versione_pubblicata == null ? null : Number(ordine.versione_pubblicata),
+    versioneCorrenteId,
+    presaVisioneAt: ordine.presa_visione_at ? String(ordine.presa_visione_at) : null,
+    foglioIngressoId: ordine.foglio_ingresso_id ? String(ordine.foglio_ingresso_id) : null,
+    carichi: count ?? 0,
+    righe: (righe ?? []).map((row) => ({
+      materiaPrimaId: String(row.materia_prima_id),
+      codice: codici.get(String(row.materia_prima_id)) ?? "",
+      quantita: Number(row.quantita),
+      unitaMisura: String(row.unita_misura),
+      unitaNome: String(row.unita_nome ?? ""),
+      tipoQuantita: row.tipo_quantita === "stimata" ? "stimata" : "precisa",
+      note: String(row.note ?? ""),
+    })),
+    piano: piano
+      ? {
+          id: String(piano.id),
+          inizio: giornoBreve(piano.periodo_inizio),
+          fine: giornoBreve(piano.periodo_fine),
+          revisione: Number(piano.revisione ?? 1),
+          versioneId: versionePianoId,
+        }
+      : null,
+  };
+}
+
+async function leggiRevisionePiano(
+  supabase: ClientApprovvigionamento,
+  pianoId: string
+): Promise<number | null> {
+  const { data } = await supabase
+    .from("approvvigionamenti_piani")
+    .select("revisione")
+    .eq("id", pianoId)
+    .maybeSingle();
+  return data ? Number(data.revisione ?? 1) : null;
+}
+
+async function allargaPeriodo(input: {
+  chiave: string;
+  pianoId: string;
+  revisione: number;
+  data: string;
+}): Promise<{ ok: true; revisione: number; inizio: string; fine: string } | Errore> {
+  const esteso = await estendiPeriodoPianoAction({
+    chiave: input.chiave,
+    pianoId: input.pianoId,
+    revisione: input.revisione,
+    data: input.data,
+  });
+  if (!esteso.success) return esteso;
+  return { ok: true, revisione: esteso.revisione, inizio: "", fine: "" };
+}
+
+export type PropostaAccettata = {
+  id: string;
+  ordineCodice: string;
+  versioneNumero: number;
+  tipo: string;
+  motivazione: string;
+  giaApplicata: boolean;
+};
+
+export async function listaProposteAccettateAction(): Promise<
+  { success: true; proposte: PropostaAccettata[] } | Errore
+> {
+  const accesso = await accessoProduzione();
+  if ("success" in accesso) return accesso;
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from("approvvigionamenti_risposte_fornitore")
+    .select("id, ordine_id, versione_id, tipo, motivazione")
+    .eq("stato", "accettata")
+    .in("tipo", ["proposta", "indisponibilita"])
+    .is("deleted_at", null)
+    .order("updated_at", { ascending: false })
+    .limit(50);
+  if (error) return { success: false, error: "Proposte accettate non disponibili." };
+  const ordineIds = [...new Set((data ?? []).map((row) => String(row.ordine_id)))];
+  const versioneIds = [...new Set((data ?? []).map((row) => String(row.versione_id)))];
+  const chiavi = (data ?? []).map((row) => chiaveRevisioneRisposta(String(row.id)));
+  const [{ data: ordini }, { data: versioni }, presenti] = await Promise.all([
+    ordineIds.length
+      ? supabase.from("approvvigionamenti_ordini").select("id, codice").in("id", ordineIds)
+      : Promise.resolve({ data: [] }),
+    versioneIds.length
+      ? supabase.from("approvvigionamenti_versioni").select("id, numero").in("id", versioneIds)
+      : Promise.resolve({ data: [] }),
+    chiaviGiaUsate(supabase, chiavi),
+  ]);
+  if (!presenti) return { success: false, error: "Proposte accettate non disponibili." };
+  const codici = new Map((ordini ?? []).map((row) => [String(row.id), String(row.codice)]));
+  const numeri = new Map((versioni ?? []).map((row) => [String(row.id), Number(row.numero)]));
+  return {
+    success: true,
+    proposte: (data ?? []).map((row) => ({
+      id: String(row.id),
+      ordineCodice: codici.get(String(row.ordine_id)) ?? "",
+      versioneNumero: numeri.get(String(row.versione_id)) ?? 0,
+      tipo: String(row.tipo),
+      motivazione: String(row.motivazione),
+      giaApplicata: presenti.has(chiaveRevisioneRisposta(String(row.id))),
+    })),
+  };
+}
+
+export async function anteprimaRevisioneRispostaAction(
+  rispostaId: string
+): Promise<({ success: true } & AnteprimaRevisione) | Errore> {
+  if (!uuidSchema.safeParse(rispostaId).success) {
+    return { success: false, error: "Proposta non valida." };
+  }
+  const accesso = await accessoProduzione();
+  if ("success" in accesso) return accesso;
+  const supabase = await createClient();
+  const preparata = await preparaRisposta(supabase, rispostaId);
+  if ("success" in preparata) return preparata;
+  return { success: true, ...preparata.anteprima };
+}
+
+export async function applicaRevisioneRispostaAction(raw: unknown): Promise<
+  { success: true; giaApplicata: boolean } | Errore
+> {
+  const parsed = z
+    .object({
+      rispostaId: uuidSchema,
+      revisione: z.number().int().positive(),
+      pianoRevisione: z.number().int().positive().nullable(),
+    })
+    .safeParse(raw);
+  if (!parsed.success) return { success: false, error: "Revisione non valida." };
+  const accesso = await accessoProduzione();
+  if ("success" in accesso) return accesso;
+  const supabase = await createClient();
+  const preparata = await preparaRisposta(supabase, parsed.data.rispostaId);
+  if ("success" in preparata) return preparata;
+  if (preparata.anteprima.giaApplicata) return { success: true, giaApplicata: true };
+  if (!preparata.anteprima.applicabile || !preparata.bozza) {
+    return { success: false, error: preparata.anteprima.motivo ?? "Proposta non applicabile." };
+  }
+  if (preparata.bozza.revisione !== parsed.data.revisione) {
+    return { success: false, error: "La bozza è stata modificata da un altro salvataggio. Riapri il riepilogo." };
+  }
+  const piano = preparata.bozza.piano;
+  if (
+    piano &&
+    preparata.dataConsegna &&
+    (preparata.dataConsegna < piano.inizio || preparata.dataConsegna > piano.fine)
+  ) {
+    if (piano.revisione !== parsed.data.pianoRevisione) {
+      return { success: false, error: "La pianificazione è stata modificata da un altro salvataggio. Riapri il riepilogo." };
+    }
+    const presenti = await chiaviGiaUsate(supabase, [chiaveEstensioneRisposta(parsed.data.rispostaId)]);
+    if (!presenti) return { success: false, error: "Revisione non applicata." };
+    if (!presenti.has(chiaveEstensioneRisposta(parsed.data.rispostaId))) {
+      const esteso = await allargaPeriodo({
+        chiave: chiaveEstensioneRisposta(parsed.data.rispostaId),
+        pianoId: piano.id,
+        revisione: piano.revisione,
+        data: preparata.dataConsegna,
+      });
+      if ("success" in esteso) {
+        if (!giaUsata(esteso.error)) return esteso;
+      }
+    }
+  }
+  const scritto = await aggiornaApprovvigionamentoAction({
+    chiave: chiaveRevisioneRisposta(parsed.data.rispostaId),
+    ordineId: preparata.bozza.id,
+    revisione: preparata.bozza.revisione,
+    ordine: {
+      fornitoreId: preparata.bozza.fornitoreId,
+      dataConsegna: preparata.dataConsegna,
+      note: preparata.bozza.note,
+      righe: righePayload(preparata.righe),
+    },
+  });
+  if (!scritto.success) {
+    if (giaUsata(scritto.error)) return { success: true, giaApplicata: true };
+    return scritto;
+  }
+  await writeAuditLog({
+    entity_type: "approvvigionamenti_risposte_fornitore",
+    entity_id: parsed.data.rispostaId,
+    action: "aggiorna",
+    actor_id: accesso.userId,
+    summary: "Proposta accettata copiata sulla bozza. La versione pubblicata non è stata modificata.",
+    payload: { riusata: scritto.riusata, ordineId: preparata.bozza.id },
+  });
+  return { success: true, giaApplicata: scritto.riusata };
+}
+
+async function preparaRisposta(
+  supabase: ClientApprovvigionamento,
+  rispostaId: string
+): Promise<
+  | {
+      anteprima: AnteprimaRevisione;
+      bozza: ContestoBozza | null;
+      dataConsegna: string;
+      righe: RigaBozzaRevisione[];
+    }
+  | Errore
+> {
+  const { data: risposta, error } = await supabase
+    .from("approvvigionamenti_risposte_fornitore")
+    .select("id, ordine_id, versione_id, tipo, stato, data_consegna_proposta, righe")
+    .eq("id", rispostaId)
+    .is("deleted_at", null)
+    .maybeSingle();
+  if (error || !risposta) return { success: false, error: "Proposta non trovata." };
+  if (risposta.stato !== "accettata" || (risposta.tipo !== "proposta" && risposta.tipo !== "indisponibilita")) {
+    return { success: false, error: "Si prepara la revisione solo di una proposta accettata." };
+  }
+  const bozza = await leggiBozza(supabase, String(risposta.ordine_id));
+  if ("success" in bozza) return bozza;
+  const presenti = await chiaviGiaUsate(supabase, [chiaveRevisioneRisposta(rispostaId)]);
+  if (!presenti) return { success: false, error: "Proposta non disponibile." };
+  const giaApplicata = presenti.has(chiaveRevisioneRisposta(rispostaId));
+  const vuota: AnteprimaRevisione = {
+    differenze: [],
+    applicabile: false,
+    motivo: null,
+    giaApplicata,
+    revisione: bozza.revisione,
+    pianoRevisione: bozza.piano?.revisione ?? null,
+    revisioni: [{ ordineId: bozza.id, revisione: bozza.revisione }],
+  };
+  if (bozza.versioneCorrenteId !== String(risposta.versione_id)) {
+    return {
+      anteprima: {
+        ...vuota,
+        motivo: "La proposta riguarda una versione non più corrente. Non si copia sulla bozza.",
+      },
+      bozza: null,
+      dataConsegna: bozza.dataConsegna,
+      righe: [],
+    };
+  }
+  const blocco = bloccoBozza(bozza);
+  if (blocco) {
+    return { anteprima: { ...vuota, motivo: blocco }, bozza: null, dataConsegna: bozza.dataConsegna, righe: [] };
+  }
+  const proposte = righeProposta(risposta.righe);
+  const mappa = await materiePerCodice(
+    supabase,
+    proposte.map((riga) => riga.codice)
+  );
+  const costruita = bozzaDopoProposta({
+    dataAttuale: bozza.dataConsegna,
+    dataProposta: risposta.data_consegna_proposta ? giornoBreve(risposta.data_consegna_proposta) : null,
+    righeAttuali: bozza.righe,
+    righeProposte: proposte,
+    materiePerCodice: mappa,
+  });
+  if (!costruita.ok) {
+    return {
+      anteprima: {
+        ...vuota,
+        motivo: giaApplicata
+          ? "Proposta già applicata alla bozza. Pubblica la nuova versione dal calendario."
+          : costruita.motivo,
+      },
+      bozza: null,
+      dataConsegna: bozza.dataConsegna,
+      righe: [],
+    };
+  }
+  return {
+    anteprima: {
+      ...vuota,
+      differenze: costruita.differenze,
+      applicabile: !giaApplicata,
+      motivo: giaApplicata
+        ? "Proposta già applicata alla bozza. Pubblica la nuova versione dal calendario."
+        : null,
+    },
+    bozza: giaApplicata ? null : bozza,
+    dataConsegna: costruita.dataConsegna,
+    righe: costruita.righe,
+  };
+}
+
+export async function anteprimaRevisionePianoAction(
+  propostaId: string
+): Promise<({ success: true } & AnteprimaRevisione) | Errore> {
+  if (!uuidSchema.safeParse(propostaId).success) return { success: false, error: "Revisione non valida." };
+  const accesso = await accessoProduzione();
+  if ("success" in accesso) return accesso;
+  const supabase = await createClient();
+  const preparata = await preparaPiano(supabase, propostaId);
+  if ("success" in preparata) return preparata;
+  return { success: true, ...preparata.anteprima };
+}
+
+export async function applicaRevisionePianoAction(raw: unknown): Promise<
+  { success: true; giaApplicata: boolean } | Errore
+> {
+  const parsed = z
+    .object({
+      propostaId: uuidSchema,
+      pianoRevisione: z.number().int().positive(),
+      revisioni: z
+        .array(z.object({ ordineId: uuidSchema, revisione: z.number().int().positive() }))
+        .max(200),
+    })
+    .safeParse(raw);
+  if (!parsed.success) return { success: false, error: "Revisione non valida." };
+  const accesso = await accessoProduzione();
+  if ("success" in accesso) return accesso;
+  const supabase = await createClient();
+  const preparata = await preparaPiano(supabase, parsed.data.propostaId);
+  if ("success" in preparata) return preparata;
+  if (preparata.anteprima.giaApplicata) return { success: true, giaApplicata: true };
+  if (!preparata.anteprima.applicabile) {
+    return { success: false, error: preparata.anteprima.motivo ?? "Revisione non applicabile." };
+  }
+  if (preparata.pianoRevisione !== parsed.data.pianoRevisione) {
+    return {
+      success: false,
+      error: "La pianificazione è stata modificata da un altro salvataggio. Riapri il riepilogo.",
+    };
+  }
+  const attese = new Map(parsed.data.revisioni.map((voce) => [voce.ordineId, voce.revisione]));
+  for (const [ordineId, revisione] of preparata.revisioni) {
+    if (attese.get(ordineId) !== revisione) {
+      return { success: false, error: "La bozza è stata modificata da un altro salvataggio. Riapri il riepilogo." };
+    }
+  }
+  let revisionePiano = preparata.pianoRevisione;
+  const revisioneOrdine = new Map(preparata.revisioni);
+  for (const passo of preparata.passi) {
+    if (passo.tipo === "aggiungi") {
+      const aggiunto = await aggiungiConsegnaPianoAction({
+        chiave: passo.chiave,
+        pianoId: preparata.pianoId,
+        revisione: revisionePiano,
+        data: passo.data,
+        note: "Da revisione accettata",
+        righe: [passo.riga],
+      });
+      if (!aggiunto.success) {
+        if (giaUsata(aggiunto.error)) {
+          const riletta = await leggiRevisionePiano(supabase, preparata.pianoId);
+          if (riletta != null) revisionePiano = riletta;
+          continue;
+        }
+        return {
+          success: false,
+          error: `Applicazione interrotta: ${aggiunto.error} Le modifiche già scritte restano sulla bozza e non vengono ripetute.`,
+        };
+      }
+      revisionePiano = aggiunto.revisione;
+      continue;
+    }
+    const revisione = revisioneOrdine.get(passo.ordineId);
+    if (!revisione) {
+      return { success: false, error: "Consegna non disponibile. Riapri il riepilogo." };
+    }
+    if (passo.tipo === "estendi") {
+      const esteso = await allargaPeriodo({
+        chiave: passo.chiave,
+        pianoId: preparata.pianoId,
+        revisione: revisionePiano,
+        data: passo.data,
+      });
+      if ("success" in esteso) {
+        if (!giaUsata(esteso.error)) return esteso;
+      } else {
+        revisionePiano = esteso.revisione;
+      }
+      const dopoEstensione = await leggiRevisionePiano(supabase, preparata.pianoId);
+      if (dopoEstensione != null) revisionePiano = dopoEstensione;
+      continue;
+    }
+    if (passo.tipo === "annulla") {
+      const annullato = await annullaConsegnaApprovvigionamentoAction({
+        chiave: passo.chiave,
+        ordineId: passo.ordineId,
+        revisione,
+      });
+      if (!annullato.success) {
+        if (giaUsata(annullato.error)) continue;
+        return {
+          success: false,
+          error: `Applicazione interrotta: ${annullato.error} Le modifiche già scritte restano sulla bozza e non vengono ripetute.`,
+        };
+      }
+      const dopoAnnullamento = await leggiRevisionePiano(supabase, preparata.pianoId);
+      if (dopoAnnullamento != null) revisionePiano = dopoAnnullamento;
+      continue;
+    }
+    const scritto = await aggiornaApprovvigionamentoAction({
+      chiave: passo.chiave,
+      ordineId: passo.ordineId,
+      revisione,
+      ordine: passo.ordine,
+    });
+    if (!scritto.success) {
+      if (giaUsata(scritto.error)) continue;
+      return {
+        success: false,
+        error: `Applicazione interrotta: ${scritto.error} Le modifiche già scritte restano sulla bozza e non vengono ripetute.`,
+      };
+    }
+    revisioneOrdine.set(passo.ordineId, scritto.revisione);
+    const dopoAggiornamento = await leggiRevisionePiano(supabase, preparata.pianoId);
+    if (dopoAggiornamento != null) revisionePiano = dopoAggiornamento;
+  }
+  await writeAuditLog({
+    entity_type: "approvvigionamenti_proposte_piano",
+    entity_id: parsed.data.propostaId,
+    action: "aggiorna",
+    actor_id: accesso.userId,
+    summary: "Modifiche accettate copiate sulla bozza del piano. La versione pubblicata non è stata modificata.",
+    payload: { passi: preparata.passi.length },
+  });
+  return { success: true, giaApplicata: false };
+}
+
+type PassoRevisione =
+  | { tipo: "estendi"; chiave: string; ordineId: string; data: string }
+  | { tipo: "annulla"; chiave: string; ordineId: string }
+  | {
+      tipo: "aggiorna";
+      chiave: string;
+      ordineId: string;
+      ordine: {
+        fornitoreId: string;
+        dataConsegna: string;
+        note: string;
+        righe: ReturnType<typeof righePayload>;
+      };
+    }
+  | {
+      tipo: "aggiungi";
+      chiave: string;
+      ordineId: string;
+      data: string;
+      riga: ReturnType<typeof righePayload>[number];
+    };
+
+async function preparaPiano(
+  supabase: ClientApprovvigionamento,
+  propostaId: string
+): Promise<
+  | {
+      anteprima: AnteprimaRevisione;
+      pianoId: string;
+      pianoRevisione: number;
+      revisioni: Map<string, number>;
+      ordiniIds: string[];
+      passi: PassoRevisione[];
+    }
+  | Errore
+> {
+  const { data, error } = await supabase
+    .from("approvvigionamenti_proposte_piano")
+    .select("id, piano_id, versione_piano_id, motivazione, voci")
+    .eq("id", propostaId)
+    .is("deleted_at", null)
+    .maybeSingle();
+  if (error || !data) return { success: false, error: "Revisione non trovata." };
+  const voci = (Array.isArray(data.voci) ? data.voci : []) as VoceRevisione[];
+  const riepilogo = riepilogoVociAccettate(voci);
+  const { data: piano, error: errorePiano } = await supabase
+    .from("approvvigionamenti_piani")
+    .select("id, revisione, versione_pubblicata, periodo_inizio, periodo_fine")
+    .eq("id", data.piano_id)
+    .is("deleted_at", null)
+    .maybeSingle();
+  if (errorePiano || !piano) return { success: false, error: "Piano non disponibile." };
+  let versioneCorrente: string | null = null;
+  if (piano.versione_pubblicata != null) {
+    const { data: versione } = await supabase
+      .from("approvvigionamenti_piani_versioni")
+      .select("id")
+      .eq("piano_id", piano.id)
+      .eq("numero", piano.versione_pubblicata)
+      .maybeSingle();
+    versioneCorrente = versione ? String(versione.id) : null;
+  }
+  const accettate = voci.filter((voce) => voce.stato === "accettata");
+  const chiavi = accettate.flatMap((voce) => [
+    chiaveVoceRevisione(voce.id, "aggiorna"),
+    chiaveVoceRevisione(voce.id, "annulla"),
+    chiaveVoceRevisione(voce.id, "aggiungi"),
+    chiaveVoceRevisione(voce.id, "estendi"),
+  ]);
+  const presenti = await chiaviGiaUsate(supabase, chiavi);
+  if (!presenti) return { success: false, error: "Revisione non disponibile." };
+  const vuota: AnteprimaRevisione = {
+    differenze: riepilogo.differenze,
+    applicabile: false,
+    motivo: riepilogo.motivo,
+    giaApplicata: false,
+    revisione: Number(piano.revisione ?? 1),
+    pianoRevisione: Number(piano.revisione ?? 1),
+    revisioni: [],
+  };
+  if (data.versione_piano_id && versioneCorrente && String(data.versione_piano_id) !== versioneCorrente) {
+    return {
+      anteprima: {
+        ...vuota,
+        motivo: "La revisione riguarda una versione del piano non più corrente. Non si copia sulla bozza.",
+      },
+      pianoId: String(piano.id),
+      pianoRevisione: Number(piano.revisione ?? 1),
+      revisioni: new Map(),
+      ordiniIds: [],
+      passi: [],
+    };
+  }
+  if (!riepilogo.applicabile) {
+    return {
+      anteprima: vuota,
+      pianoId: String(piano.id),
+      pianoRevisione: Number(piano.revisione ?? 1),
+      revisioni: new Map(),
+      ordiniIds: [],
+      passi: [],
+    };
+  }
+  const passi: PassoRevisione[] = [];
+  const revisioni = new Map<string, number>();
+  const bozze = new Map<string, ContestoBozza>();
+  const codici = accettate
+    .filter((voce) => voce.operazione === "aggiunta" && !materiaIdVoce(voce))
+    .map((voce) => voce.codice);
+  const materie = await materiePerCodice(supabase, codici);
+  for (const voce of accettate) {
+    if (voce.operazione === "aggiunta") {
+      if (presenti.has(chiaveVoceRevisione(voce.id, "aggiungi"))) continue;
+      const materiaPrimaId = materiaIdVoce(voce) ?? materie[voce.codice] ?? "";
+      const unita = normalizzaUnitaApprovvigionamento(voce.unita);
+      if (!unita.ok || !voce.dataDopo || !(Number(voce.quantitaDopo) > 0) || !uuidSchema.safeParse(materiaPrimaId).success) {
+        return {
+          anteprima: {
+            ...vuota,
+            motivo: unita.ok
+              ? `La consegna aggiunta ${voce.codice} non ha una materia applicabile. Aggiungila dal calendario.`
+              : "Unità proposta non prevista.",
+          },
+          pianoId: String(piano.id),
+          pianoRevisione: Number(piano.revisione ?? 1),
+          revisioni,
+          ordiniIds: [...bozze.keys()],
+          passi: [],
+        };
+      }
+      passi.push({
+        tipo: "aggiungi",
+        chiave: chiaveVoceRevisione(voce.id, "aggiungi"),
+        ordineId: String(piano.id),
+        data: voce.dataDopo,
+        riga: {
+          materiaPrimaId,
+          quantita: Number(voce.quantitaDopo),
+          unitaMisura: unita.sigla,
+          unitaNome: "",
+          tipoQuantita: voce.tipoQuantita === "stimata" ? "stimata" : "precisa",
+          note: "",
+        },
+      });
+      continue;
+    }
+    if (!voce.consegnaId) {
+      return {
+        anteprima: { ...vuota, motivo: "Una modifica accettata non indica la consegna." },
+        pianoId: String(piano.id),
+        pianoRevisione: Number(piano.revisione ?? 1),
+        revisioni,
+        ordiniIds: [],
+        passi: [],
+      };
+    }
+    const chiave =
+      voce.operazione === "eliminazione"
+        ? chiaveVoceRevisione(voce.id, "annulla")
+        : chiaveVoceRevisione(voce.id, "aggiorna");
+    if (presenti.has(chiave)) continue;
+    let bozza = bozze.get(voce.consegnaId);
+    if (!bozza) {
+      const letta = await leggiBozza(supabase, voce.consegnaId);
+      if ("success" in letta) return letta;
+      bozza = letta;
+      bozze.set(voce.consegnaId, letta);
+      revisioni.set(letta.id, letta.revisione);
+    }
+    const blocco = bloccoBozza(bozza);
+    if (blocco) {
+      return {
+        anteprima: { ...vuota, motivo: blocco },
+        pianoId: String(piano.id),
+        pianoRevisione: Number(piano.revisione ?? 1),
+        revisioni,
+        ordiniIds: [...bozze.keys()],
+        passi: [],
+      };
+    }
+    if (voce.operazione === "eliminazione") {
+      passi.push({ tipo: "annulla", chiave, ordineId: bozza.id });
+      continue;
+    }
+    const aggiornata = rigaPianoAggiornata({
+      dataAttuale: bozza.dataConsegna,
+      righe: bozza.righe,
+      voce,
+    });
+    if (!aggiornata.ok) {
+      return {
+        anteprima: { ...vuota, motivo: aggiornata.motivo },
+        pianoId: String(piano.id),
+        pianoRevisione: Number(piano.revisione ?? 1),
+        revisioni,
+        ordiniIds: [...bozze.keys()],
+        passi: [],
+      };
+    }
+    if (
+      bozza.piano &&
+      (aggiornata.dataConsegna < bozza.piano.inizio || aggiornata.dataConsegna > bozza.piano.fine) &&
+      !presenti.has(chiaveVoceRevisione(voce.id, "estendi"))
+    ) {
+      passi.push({
+        tipo: "estendi",
+        chiave: chiaveVoceRevisione(voce.id, "estendi"),
+        ordineId: bozza.id,
+        data: aggiornata.dataConsegna,
+      });
+    }
+    bozza.righe = aggiornata.righe;
+    bozza.dataConsegna = aggiornata.dataConsegna;
+    passi.push({
+      tipo: "aggiorna",
+      chiave,
+      ordineId: bozza.id,
+      ordine: {
+        fornitoreId: bozza.fornitoreId,
+        dataConsegna: aggiornata.dataConsegna,
+        note: bozza.note,
+        righe: righePayload(aggiornata.righe),
+      },
+    });
+  }
+  const rimaste = passi.filter((passo) => passo.tipo !== "estendi");
+  const giaApplicata = rimaste.length === 0;
+  return {
+    anteprima: {
+      differenze: riepilogo.differenze,
+      applicabile: !giaApplicata,
+      motivo: giaApplicata
+        ? "Revisione già applicata alla bozza. Pubblica la nuova versione dal calendario."
+        : presenti.size > 0
+          ? "Alcune modifiche sono già sulla bozza e non vengono ripetute."
+          : null,
+      giaApplicata,
+      revisione: [...revisioni.values()][0] ?? Number(piano.revisione ?? 1),
+      pianoRevisione: Number(piano.revisione ?? 1),
+      revisioni: [...revisioni.entries()].map(([ordineId, revisione]) => ({ ordineId, revisione })),
+    },
+    pianoId: String(piano.id),
+    pianoRevisione: Number(piano.revisione ?? 1),
+    revisioni,
+    ordiniIds: [...bozze.keys()],
+    passi: giaApplicata ? [] : passi,
+  };
 }

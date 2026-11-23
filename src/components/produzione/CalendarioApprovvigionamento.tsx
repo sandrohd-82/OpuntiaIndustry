@@ -33,9 +33,13 @@ import {
   ValutazioneRevisione,
 } from "@/components/produzione/RevisionePianoPannello";
 import {
+  anteprimaRevisionePianoAction,
+  applicaRevisionePianoAction,
   decidiVocePropostaPianoAction,
   listaPropostePianoAction,
+  type AnteprimaRevisione,
 } from "@/app/actions/approvvigionamento-portale";
+import { RiepilogoRevisioneBozza } from "@/components/produzione/RiepilogoRevisioneBozza";
 import {
   aggiungiGiorni,
   anteprimaConsegne,
@@ -71,6 +75,7 @@ import {
   normalizzaUnitaApprovvigionamento,
   unitaStandard,
 } from "@/lib/produzione/unita-approvvigionamento";
+import { etichettaStatoAccordo, riepilogoVociAccettate } from "@/lib/produzione/revisione-da-proposta";
 import {
   costruisciRevisionePiano,
   decidiVoceRevisione,
@@ -369,6 +374,9 @@ export function CalendarioApprovvigionamento() {
   const [sessione, setSessione] = useState(sessioneTestVuota());
   const [proposte, setProposte] = useState<PropostaRevisione[]>([]);
   const [proposteAzienda, setProposteAzienda] = useState<PropostaRevisione[]>([]);
+  const [anteprimaPiano, setAnteprimaPiano] = useState<
+    (AnteprimaRevisione & { propostaId: string; pianoId: string }) | null
+  >(null);
   const [emailProva, setEmailProva] = useState(DESTINATARIO_PROVA);
   const [memoriaPronta, setMemoriaPronta] = useState(false);
   const testRef = useRef(false);
@@ -2017,7 +2025,71 @@ export function CalendarioApprovvigionamento() {
                     setMessaggio("Esito registrato. Gli ordini ufficiali non sono stati modificati.");
                   });
                 }}
+                onPrepara={(proposta) => {
+                  if (testRef.current) {
+                    const riepilogo = riepilogoVociAccettate(proposta.voci);
+                    setAnteprimaPiano({
+                      propostaId: proposta.id,
+                      pianoId: proposta.pianoId,
+                      differenze: riepilogo.differenze,
+                      applicabile: false,
+                      motivo: riepilogo.applicabile
+                        ? "In prova la bozza non viene scritta."
+                        : riepilogo.motivo,
+                      giaApplicata: false,
+                      revisione: 1,
+                      pianoRevisione: null,
+                      revisioni: [],
+                    });
+                    return;
+                  }
+                  startTransition(async () => {
+                    const res = await anteprimaRevisionePianoAction(proposta.id);
+                    if (!res.success) {
+                      setErrore(res.error);
+                      return;
+                    }
+                    setAnteprimaPiano({
+                      propostaId: proposta.id,
+                      pianoId: proposta.pianoId,
+                      ...res,
+                    });
+                  });
+                }}
               />
+              {anteprimaPiano && anteprimaPiano.pianoId === pianoAperto ? (
+                <RiepilogoRevisioneBozza
+                  differenze={anteprimaPiano.differenze}
+                  motivo={anteprimaPiano.motivo}
+                  applicabile={anteprimaPiano.applicabile}
+                  giaApplicata={anteprimaPiano.giaApplicata}
+                  pending={pending}
+                  onChiudi={() => setAnteprimaPiano(null)}
+                  onConferma={() => {
+                    const anteprima = anteprimaPiano;
+                    if (anteprima.pianoRevisione == null) return;
+                    startTransition(async () => {
+                      if (vietatoInProva()) return;
+                      const res = await applicaRevisionePianoAction({
+                        propostaId: anteprima.propostaId,
+                        pianoRevisione: anteprima.pianoRevisione ?? 0,
+                        revisioni: anteprima.revisioni,
+                      });
+                      if (!res.success) {
+                        setErrore(res.error);
+                        return;
+                      }
+                      setAnteprimaPiano(null);
+                      setMessaggio(
+                        res.giaApplicata
+                          ? "Revisione già applicata alla bozza. La versione pubblicata resta quella corrente."
+                          : "Bozza aggiornata. La versione pubblicata non è cambiata: pubblicala perché il fornitore accetti la nuova versione."
+                      );
+                      ricarica();
+                    });
+                  }}
+                />
+              ) : null}
             </div>
           </div>
         ) : null}
@@ -2110,9 +2182,11 @@ function StatoOrdine(props: { ordine: OrdineCalendario }) {
     props.ordine.visioneOrigine === "piano" && quadri.presaVisione
       ? `${quadri.presaVisione} con il piano`
       : quadri.presaVisione;
+  const accordo = props.ordine.accordo ? etichettaStatoAccordo(props.ordine.accordo) : null;
   return (
     <p className="text-xs text-slate-700">
       {quadri.documento}
+      {accordo && accordo !== quadri.documento ? ` · ${accordo}` : ""}
       {quadri.notifica ? ` · ${quadri.notifica}` : ""}
       {presa ? ` · ${presa}` : ""}
       {props.ordine.visionatoDa ? ` · ${props.ordine.visionatoDa}` : ""}

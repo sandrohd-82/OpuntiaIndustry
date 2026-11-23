@@ -3,6 +3,12 @@
 import { z } from "zod";
 import { writeAuditLog } from "@/lib/audit";
 import { requireAreaAccess } from "@/lib/areas/guard";
+import {
+  statoAccordoFornitore,
+  statoRispostaAccordo,
+  tipoRispostaAccordo,
+  type StatoAccordoFornitore,
+} from "@/lib/produzione/revisione-da-proposta";
 import { normalizzaUnitaApprovvigionamento } from "@/lib/produzione/unita-approvvigionamento";
 import {
   presaCheCopreVersione,
@@ -81,6 +87,7 @@ export type OrdineCalendario = {
   pianoCodice: string | null;
   origineOrdineId: string | null;
   confermataDalFornitore: boolean;
+  accordo: StatoAccordoFornitore | null;
   bilancio: {
     codice: string;
     unitaMisura: string;
@@ -393,6 +400,7 @@ export async function listaOrdiniApprovvigionamentoAction(input: {
     }
   }
   const versioneIds = [...versioneCorrente.values()];
+  const idVersioni = (versioni ?? []).map((row) => String(row.id));
   const [{ data: notifiche }, { data: prese }, { data: presePiano }, { data: conferme }] = await Promise.all([
     versioneIds.length
       ? supabase
@@ -413,13 +421,11 @@ export async function listaOrdiniApprovvigionamentoAction(input: {
           .not("versione_piano_id", "is", null)
           .in("fornitore_id", fornitoreIds)
       : Promise.resolve({ data: [] }),
-    versioneIds.length
+    idVersioni.length
       ? supabase
           .from("approvvigionamenti_risposte_fornitore")
-          .select("versione_id")
-          .in("versione_id", versioneIds)
-          .eq("tipo", "conferma")
-          .eq("stato", "accettata")
+          .select("versione_id, tipo, stato")
+          .in("versione_id", idVersioni)
           .is("deleted_at", null)
       : Promise.resolve({ data: [] }),
   ]);
@@ -456,7 +462,23 @@ export async function listaOrdiniApprovvigionamentoAction(input: {
     });
     if (trovata) coperturaPerVersione.set(versioneId, trovata);
   }
-  const confermate = new Set((conferme ?? []).map((row) => String(row.versione_id)));
+  const confermate = new Set(
+    (conferme ?? [])
+      .filter((row) => row.tipo === "conferma" && row.stato === "accettata")
+      .map((row) => String(row.versione_id))
+  );
+  const ordineDiVersione = new Map(
+    (versioni ?? []).map((row) => [String(row.id), String(row.ordine_id)])
+  );
+  const rispostaCorrente = new Map<string, { tipo: string; stato: string }>();
+  const confermaPrecedente = new Set<string>();
+  for (const row of conferme ?? []) {
+    const ordineId = ordineDiVersione.get(String(row.versione_id));
+    if (!ordineId) continue;
+    const corrente = versioneCorrente.get(ordineId) === String(row.versione_id);
+    if (corrente) rispostaCorrente.set(ordineId, { tipo: String(row.tipo), stato: String(row.stato) });
+    if (!corrente && row.tipo === "conferma" && row.stato === "accettata") confermaPrecedente.add(ordineId);
+  }
   const nomiProfili = await nomiDiProfili(
     supabase,
     [...coperturaPerVersione.values()].map((voce) => voce.profileId)
@@ -591,6 +613,14 @@ export async function listaOrdiniApprovvigionamentoAction(input: {
       pianoCodice: codicePiano.get(pianoPerOrdine.get(String(row.id)) ?? "") ?? null,
       origineOrdineId: row.origine_ordine_id ? String(row.origine_ordine_id) : null,
       confermataDalFornitore: confermate.has(versioneCorrente.get(String(row.id)) ?? ""),
+      accordo: statoAccordoFornitore({
+        pubblicato: row.versione_pubblicata != null,
+        annullata: statoOrdine(row.stato) === "annullato",
+        bozzaNonPubblicata: statoOrdine(row.stato) === "da_ripubblicare",
+        rispostaTipo: tipoRispostaAccordo(rispostaCorrente.get(String(row.id))?.tipo),
+        rispostaStato: statoRispostaAccordo(rispostaCorrente.get(String(row.id))?.stato),
+        confermaSuVersionePrecedente: confermaPrecedente.has(String(row.id)),
+      }),
       bilancio: bilancioDi(
         versioneCorrente.get(String(row.id)) ?? "",
         snapshotPerVersione.get(versioneCorrente.get(String(row.id)) ?? "") ?? [],

@@ -31,6 +31,7 @@ export type VoceRevisione = {
   operazione: "data" | "quantita" | "data_quantita" | "unita" | "aggiunta" | "eliminazione";
   consegnaId: string | null;
   codice: string;
+  materiaId: string | null;
   materia: string;
   unita: string;
   tipoQuantita: "precisa" | "stimata";
@@ -84,6 +85,7 @@ export function costruisciRevisionePiano(input: {
         voceBase("eliminazione", {
           consegnaId: ufficiale.id,
           codice: ufficiale.codice,
+          materiaId: ufficiale.materiaId,
           materia: ufficiale.materia,
           unita: ufficiale.unita,
           tipoQuantita: ufficiale.tipoQuantita,
@@ -109,6 +111,7 @@ export function costruisciRevisionePiano(input: {
         voceBase("aggiunta", {
           consegnaId: null,
           codice: riga.codice || "Nuova",
+          materiaId: riga.materiaId,
           materia: riga.materia,
           unita: riga.unita,
           tipoQuantita: controllo.tipoQuantita,
@@ -132,6 +135,7 @@ export function costruisciRevisionePiano(input: {
       voceBase(operazione, {
         consegnaId: ufficiale.id,
         codice: ufficiale.codice,
+        materiaId: ufficiale.materiaId,
         materia: ufficiale.materia,
         unita: riga.unita,
         tipoQuantita: ufficiale.tipoQuantita,
@@ -148,6 +152,7 @@ export function costruisciRevisionePiano(input: {
       voceBase("eliminazione", {
         consegnaId: ufficiale.id,
         codice: ufficiale.codice,
+        materiaId: ufficiale.materiaId,
         materia: ufficiale.materia,
         unita: ufficiale.unita,
         tipoQuantita: ufficiale.tipoQuantita,

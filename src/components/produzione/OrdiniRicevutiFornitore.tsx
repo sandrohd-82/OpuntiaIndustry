@@ -10,6 +10,7 @@ import {
 } from "@/app/actions/approvvigionamento-portale";
 import { RevisionePianoPannello } from "@/components/produzione/RevisionePianoPannello";
 import type { ConsegnaUfficiale } from "@/lib/produzione/revisione-piano";
+import { etichettaStatoAccordo } from "@/lib/produzione/revisione-da-proposta";
 import { etichettaUnita } from "@/lib/produzione/unita-approvvigionamento";
 import { giorniMese, versioneAccettabile } from "@/lib/produzione/approvvigionamento";
 import {
@@ -221,6 +222,7 @@ export function OrdiniRicevutiFornitore(props: {
                     className="mt-1 block w-full truncate rounded bg-sky-50 px-2 py-1 text-left text-sm"
                   >
                     {voce.codice} v{voce.numero} · {voce.etichetta}
+                    {voce.accordo ? ` · ${etichettaStatoAccordo(voce.accordo)}` : ""}
                   </button>
                 ))}
               </li>
@@ -282,6 +284,7 @@ export function OrdiniRicevutiFornitore(props: {
                     {voce.codice} v{voce.numero} · {voce.dataConsegna}
                     {quantita ? ` · ${quantita}` : ""}
                     {voce.annullata ? " · annullata, non più valida" : ""}
+                    {dettaglio?.accordo ? ` · ${etichettaStatoAccordo(dettaglio.accordo)}` : ""}
                   </li>
                 );
               })}
@@ -367,6 +370,9 @@ export function OrdiniRicevutiFornitore(props: {
               {ordine.codice} · versione {ordine.numero}
             </h2>
             <p className="text-sm font-medium text-slate-800">{ordine.etichetta}</p>
+            {ordine.accordo ? (
+              <p className="text-sm font-medium text-slate-900">{etichettaStatoAccordo(ordine.accordo)}</p>
+            ) : null}
             <p className="text-sm text-slate-600">Consegna {ordine.dataConsegna}</p>
             {ordine.ruolo !== "corrente" ? (
               <p className="mt-1 text-sm text-slate-700">
