@@ -69,6 +69,7 @@ function sourceOf(segment: string | undefined) {
     segment === "webmail" ||
     segment === "magazzino" ||
     segment === "strumenti" ||
+    segment === "area-fornitori" ||
     segment === "area-fiscale"
   ) {
     return segment;

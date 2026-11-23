@@ -300,6 +300,53 @@ export const ARCHIVIO_SECTIONS: readonly NavItem[] = [
     ],
   },
   {
+    slug: "area-fornitori",
+    label: "Gestionale Fornitori",
+    description: "Archivio del portale fornitori di materia prima",
+    path: "/app/archivio/area-fornitori",
+    children: [
+      {
+        slug: "quaderno-di-campagna",
+        label: "Quaderno di campagna",
+        description: "Archivio del quaderno di campagna dei fornitori",
+        path: "/app/archivio/area-fornitori/quaderno-di-campagna",
+      },
+      {
+        slug: "calendario-raccolto",
+        label: "Calendario Raccolto",
+        description: "Archivio del calendario raccolto dei fornitori",
+        path: "/app/archivio/area-fornitori/calendario-raccolto",
+      },
+      {
+        slug: "linee-guida",
+        label: "Linee guida",
+        description: "Archivio delle linee guida HACCP distribuite ai fornitori",
+        path: "/app/archivio/area-fornitori/linee-guida",
+      },
+      {
+        slug: "documenti",
+        label: "Documenti",
+        description:
+          "Archivio di consenso privacy e accettazione contrattuale dei fornitori",
+        path: "/app/archivio/area-fornitori/documenti",
+      },
+      {
+        slug: "ordini-ricevuti",
+        label: "Ordini ricevuti",
+        description:
+          "Archivio degli ordini e dei piani pubblicati ai fornitori",
+        path: "/app/archivio/area-fornitori/ordini-ricevuti",
+      },
+      {
+        slug: "materiale-in-ingresso",
+        label: "Materiale in ingresso",
+        description:
+          "Archivio della parte fornitore sui fogli di controllo in ingresso",
+        path: "/app/archivio/area-fornitori/materiale-in-ingresso",
+      },
+    ],
+  },
+  {
     slug: "area-fiscale",
     label: "Area Fiscale",
     description: "Archivio contratti",
@@ -332,6 +379,7 @@ const ARCHIVIO_SOURCE_SLUGS: AreaSlug[] = [
   "webmail",
   "magazzino",
   "strumenti",
+  "area-fornitori",
   "area-fiscale",
 ];
 
