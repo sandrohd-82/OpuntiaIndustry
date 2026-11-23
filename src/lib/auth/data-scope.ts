@@ -6,6 +6,7 @@ export const DATA_SCOPE_MODES = [
   "proprie",
   "da_oggi",
   "aziende_proprie",
+  "spento",
 ] as const;
 
 export type DataScopeMode = (typeof DATA_SCOPE_MODES)[number];
@@ -61,31 +62,34 @@ export const SENSITIVE_SCOPE_GROUPS: readonly SensitiveScopeGroup[] = [
   {
     key: "anagrafiche_clienti",
     title: "Clienti, possibili clienti e rubrica",
-    hint: "Obbligatoria. Vale per elenco clienti, possibili clienti e rubrica. Le schede collegate al commerciale valgono come quelle caricate da lui (timeline e fatture). Sotto: timeline anche delle altre, modifica schede altrui, eliminazione.",
+    hint: "Obbligatoria. Vale per elenco clienti, possibili clienti e rubrica. Le schede collegate al commerciale valgono come quelle caricate da lui (timeline e fatture). Spento chiude questi elenchi. Sotto: timeline anche delle altre, modifica schede altrui, eliminazione.",
     required: true,
     modes: [
       { value: "tutte", label: "Tutte" },
       { value: "proprie", label: "Solo quelle da lui inserite o a lui collegate" },
+      { value: "spento", label: "Spento" },
     ],
   },
   {
     key: "fornitori",
     title: "Elenco fornitori",
-    hint: "Obbligatoria. Vale per l’elenco fornitori. Sotto: timeline, modifica schede altrui, eliminazione.",
+    hint: "Obbligatoria. Vale per l’elenco fornitori. Spento chiude l’elenco. Sotto: timeline, modifica schede altrui, eliminazione.",
     required: true,
     modes: [
       { value: "tutte", label: "Tutte" },
       { value: "proprie", label: "Solo quelli da lui inseriti" },
+      { value: "spento", label: "Spento" },
     ],
   },
   {
     key: "ordini",
     title: "Ordini",
-    hint: "Obbligatoria. Vale per gli ordini visibili al profilo.",
+    hint: "Obbligatoria. Vale per gli ordini visibili al profilo. Spento chiude l’elenco ordini.",
     required: true,
     modes: [
       { value: "tutte", label: "Tutti" },
       { value: "proprie", label: "Solo quelli da lui inseriti" },
+      { value: "spento", label: "Spento" },
     ],
   },
   {
@@ -280,6 +284,23 @@ export function commercialeFiscaleGrantPaths(): {
     ...all.filter((p) => !COMMERCIALISTA_EXCLUDED_PATH_SET.has(p)),
   ];
   return { grantOn: [...new Set(grantOn)], grantOff };
+}
+
+/** Pagine elenco accese o spente insieme all’ambito. */
+export const SCOPE_ELENCO_PAGINE: Readonly<Record<string, readonly string[]>> = {
+  anagrafiche_clienti: [
+    "/app/amministrazione/clienti/elenco",
+    "/app/amministrazione/clienti/possibili",
+    "/app/amministrazione/rubrica",
+  ],
+  fornitori: ["/app/amministrazione/fornitori/elenco"],
+  ordini: ["/app/amministrazione/ordini/elenco"],
+};
+
+export function ambitoElencoSpento(
+  scope: { skip: boolean; mode: string } | null | undefined
+): boolean {
+  return Boolean(scope && !scope.skip && scope.mode === "spento");
 }
 
 export function allowedModesForScope(scopeKey: string): DataScopeMode[] {

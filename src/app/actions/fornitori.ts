@@ -187,6 +187,9 @@ export async function listFornitoriAction(): Promise<
   await requireAreaAccess("amministrazione");
   const supabase = await createClient();
   const scope = await resolveScopeMode("fornitori");
+  if (scope && !scope.skip && scope.mode === "spento") {
+    return { success: true, fornitori: [] };
+  }
 
   let q = supabase
     .from("fornitori")

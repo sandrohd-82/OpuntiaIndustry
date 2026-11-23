@@ -12,6 +12,7 @@ import {
   FISCALE_VIEW_SCOPES,
   RICERCA_SVILUPPO_PATH,
   allowedModesForScope,
+  SCOPE_ELENCO_PAGINE,
   commercialeFiscaleGrantPaths,
   type DataScopeMode,
 } from "@/lib/auth/data-scope";
@@ -185,6 +186,17 @@ export async function setDataScopeAction(
       });
       if (!pageRes.ok) return { success: false, error: pageRes.error };
     }
+  }
+
+  const pagineElenco = SCOPE_ELENCO_PAGINE[scopeKey] ?? [];
+  for (const pageKey of pagineElenco) {
+    const pageRes = await upsertProfilePageKey(service, {
+      profileId: targetId,
+      actorUserId: gate.actorUserId,
+      pageKey,
+      visibile: mode !== "spento",
+    });
+    if (!pageRes.ok) return { success: false, error: pageRes.error };
   }
 
   await writeAudit(

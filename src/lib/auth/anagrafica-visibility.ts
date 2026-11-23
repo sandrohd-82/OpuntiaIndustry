@@ -21,6 +21,8 @@ export type AnagraficaListVisibility = {
   ownerIds: string[] | null;
   /** Senior (o commerciale con subordinati): anche le schede «Azienda». */
   includeAzienda: boolean;
+  /** Elenco clienti, possibili e rubrica chiusi: non cambia il perimetro ordini. */
+  elencoChiuso: boolean;
 };
 
 /**
@@ -36,9 +38,11 @@ export type AnagraficaListVisibility = {
 export const resolveAnagraficaListVisibility = cache(
   async (): Promise<AnagraficaListVisibility> => {
     const auth = await getAuthContext();
-    if (!auth) return { ownerIds: [], includeAzienda: false };
+    if (!auth) return { ownerIds: [], includeAzienda: false, elencoChiuso: true };
     const skip = isSuperadminProfile(auth.profile) && !auth.impersonating;
-    if (skip) return { ownerIds: null, includeAzienda: true };
+    if (skip) return { ownerIds: null, includeAzienda: true, elencoChiuso: false };
+    const scope = await resolveScopeMode("anagrafiche_clienti");
+    const elencoChiuso = Boolean(scope && !scope.skip && scope.mode === "spento");
     const op = await loadCommercialeOperatorContext(auth.userId);
     const hasSubordinates = op.subtreeIds.some((id) => id !== auth.userId);
     const canSeeAziendaInElenco =
@@ -47,16 +51,17 @@ export const resolveAnagraficaListVisibility = cache(
       return {
         ownerIds: op.subtreeIds,
         includeAzienda: canSeeAziendaInElenco,
+        elencoChiuso,
       };
     }
-    const scope = await resolveScopeMode("anagrafiche_clienti");
     if (scope && !scope.skip && scope.mode === "proprie") {
       return {
         ownerIds: op.subtreeIds.length > 0 ? op.subtreeIds : [auth.userId],
         includeAzienda: false,
+        elencoChiuso,
       };
     }
-    return { ownerIds: null, includeAzienda: true };
+    return { ownerIds: null, includeAzienda: true, elencoChiuso };
   }
 );
 
@@ -248,6 +253,7 @@ export function rigaNelPerimetro(
 /** Clausola `.or()` per elenchi clienti / possibili. `null` = nessun filtro. */
 export async function anagraficaListOrClause(): Promise<string | null> {
   const vis = await resolveAnagraficaListVisibility();
+  if (vis.elencoChiuso) return "id.eq.00000000-0000-0000-0000-000000000000";
   if (!vis.ownerIds) return null;
   const auth = await getAuthContext();
   const [personaIds, selfPersonaIds] = auth

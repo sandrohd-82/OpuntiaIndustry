@@ -365,6 +365,9 @@ export async function listOrdiniAction(
     return { success: true, ordini: [] };
   }
   const scope = await resolveScopeMode("ordini");
+  if (scope && !scope.skip && scope.mode === "spento") {
+    return { success: true, ordini: [] };
+  }
 
   let q = supabase
     .from("ordini")
@@ -618,6 +621,9 @@ export async function countOrdiniElencoAction(): Promise<
     return { success: true, merce: 0, campionature: 0 };
   }
   const scope = await resolveScopeMode("ordini");
+  if (scope && !scope.skip && scope.mode === "spento") {
+    return { success: true, merce: 0, campionature: 0 };
+  }
   let qVendita = supabase
     .from("ordini")
     .select("id", { count: "exact", head: true })

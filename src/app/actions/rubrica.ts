@@ -258,6 +258,9 @@ export async function listRubricaContattiAction(input?: {
   const scope = input?.skipScope
     ? null
     : await resolveScopeMode("anagrafiche_clienti");
+  if (scope && !scope.skip && scope.mode === "spento") {
+    return { success: true, items: [] };
+  }
   let q = supabase
     .from("rubrica_contatti")
     .select(CONTATTO_SELECT)
