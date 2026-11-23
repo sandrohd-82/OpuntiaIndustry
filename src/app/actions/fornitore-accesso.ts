@@ -2,13 +2,18 @@
 
 import { z } from "zod";
 import { writeAuditLog } from "@/lib/audit";
-import { getAuthContext } from "@/lib/auth/session";
+import { setProfileStatoOperativoAction } from "@/app/actions/impersonation";
+import { motivoAltriAccessiAziendali, RUOLO_FORNITORE } from "@/lib/auth/perimetro-fornitore";
+import { provisionTestProfile } from "@/lib/auth/provision-test-profile";
+import { isSuperadminProfile } from "@/lib/auth/roles";
+import { getAuthContext, getAuthUser, getProfile } from "@/lib/auth/session";
+import { parseProfileStatoOperativo, type ProfileStatoOperativo } from "@/lib/auth/stato-operativo";
 import { puoModificareCollegamentoFornitore } from "@/lib/produzione/fornitore-accesso";
 import {
   contestoMaterialeIngresso,
   soggettoAccessoFornitore,
 } from "@/lib/produzione/fornitore-accesso-server";
-import { createClient } from "@/lib/supabase/server";
+import { createClient, createServiceClient } from "@/lib/supabase/server";
 
 const uuidSchema = z.string().uuid();
 
@@ -22,6 +27,7 @@ export type AccessoFornitoreRiga = {
   profileId: string;
   email: string;
   nome: string;
+  stato: ProfileStatoOperativo;
 };
 
 export type ProfiloCollegabile = {
@@ -51,7 +57,9 @@ async function puoGestireCollegamenti(): Promise<
 
 export async function listaAccessiFornitoreAction(
   fornitoreId: string
-): Promise<{ success: true; accessi: AccessoFornitoreRiga[] } | Errore> {
+): Promise<
+  { success: true; accessi: AccessoFornitoreRiga[]; gestioneAccount: boolean } | Errore
+> {
   const parsed = uuidSchema.safeParse(fornitoreId);
   if (!parsed.success) return { success: false, error: "Fornitore non valido." };
   const gate = await puoGestireCollegamenti();
@@ -67,11 +75,14 @@ export async function listaAccessiFornitoreAction(
   if (error) return { success: false, error: "Collegamenti non disponibili." };
 
   const ids = (data ?? []).map((row) => row.profile_id as string);
-  if (ids.length === 0) return { success: true, accessi: [] };
+  const gestione = await soloSuperAdmin();
+  if (ids.length === 0) {
+    return { success: true, accessi: [], gestioneAccount: "ok" in gestione };
+  }
 
   const { data: profili, error: profiliError } = await supabase
     .from("profiles")
-    .select("id, email, full_name")
+    .select("id, email, full_name, stato_operativo")
     .in("id", ids);
   if (profiliError) return { success: false, error: "Utenti non disponibili." };
 
@@ -80,6 +91,7 @@ export async function listaAccessiFornitoreAction(
   );
   return {
     success: true,
+    gestioneAccount: "ok" in gestione,
     accessi: (data ?? []).map((row) => {
       const profilo = byId.get(row.profile_id as string);
       return {
@@ -87,9 +99,20 @@ export async function listaAccessiFornitoreAction(
         profileId: row.profile_id as string,
         email: (profilo?.email as string | undefined) ?? "",
         nome: (profilo?.full_name as string | null | undefined) || "Utente",
+        stato: parseProfileStatoOperativo(profilo?.stato_operativo),
       };
     }),
   };
+}
+
+async function soloSuperAdmin(): Promise<{ ok: true; userId: string } | Errore> {
+  const user = await getAuthUser();
+  if (!user) return { success: false, error: "Accesso richiesto." };
+  const actor = await getProfile(user.id);
+  if (!actor || !isSuperadminProfile(actor)) {
+    return { success: false, error: "Solo il Super Admin può gestire gli account fornitore." };
+  }
+  return { ok: true, userId: user.id };
 }
 
 export async function cercaProfiliCollegabiliAction(
@@ -263,6 +286,168 @@ export async function revocaAccessoFornitoreAction(
     },
   });
 
+  return { success: true };
+}
+
+const creaAccountSchema = z.object({
+  fornitoreId: uuidSchema,
+  email: z.string().trim().email("Email non valida"),
+  nome: z.string().trim().min(1, "Nome obbligatorio").max(80),
+  cognome: z.string().trim().min(1, "Cognome obbligatorio").max(80),
+});
+
+export async function creaAccountFornitoreAction(raw: unknown): Promise<
+  { success: true; profileId: string } | Errore
+> {
+  const parsed = creaAccountSchema.safeParse(raw);
+  if (!parsed.success) {
+    return { success: false, error: parsed.error.issues[0]?.message ?? "Dati non validi." };
+  }
+  const gate = await soloSuperAdmin();
+  if (!("ok" in gate)) return gate;
+
+  const service = createServiceClient();
+  const { data: fornitore, error: fornitoreError } = await service
+    .from("fornitori")
+    .select("id, ragione_sociale")
+    .eq("id", parsed.data.fornitoreId)
+    .is("deleted_at", null)
+    .maybeSingle();
+  if (fornitoreError || !fornitore) {
+    return { success: false, error: "Fornitore non trovato." };
+  }
+
+  const nome = `${parsed.data.nome} ${parsed.data.cognome}`.trim();
+  const creato = await provisionTestProfile(service, {
+    email: parsed.data.email,
+    fullName: nome,
+    firstName: parsed.data.nome,
+    lastName: parsed.data.cognome,
+    jobTitle: "Fornitore",
+    roleCode: RUOLO_FORNITORE,
+    gerarchia: "operatore",
+    potere: "operatore",
+    actorId: gate.userId,
+    resetExisting: false,
+  });
+  if ("error" in creato) return { success: false, error: creato.error };
+
+  const { data: collegato, error: linkError } = await service
+    .from("fornitori_accessi")
+    .insert({
+      profile_id: creato.userId,
+      fornitore_id: parsed.data.fornitoreId,
+      created_by: gate.userId,
+      updated_by: gate.userId,
+    })
+    .select("id")
+    .single();
+  if (linkError || !collegato) {
+    return {
+      success: false,
+      error:
+        "Account creato, ma il collegamento al fornitore non è riuscito. Usa Collega account esistente.",
+    };
+  }
+
+  await writeAuditLog({
+    action: "profile_create_test",
+    entity_type: "profiles",
+    entity_id: creato.userId,
+    actor_id: gate.userId,
+    summary: `Account fornitore ${nome} creato e collegato. Accesso iniziale solo Area Fornitori.`,
+    payload: {
+      email: parsed.data.email.trim().toLowerCase(),
+      fornitore_id: parsed.data.fornitoreId,
+      ruolo: RUOLO_FORNITORE,
+      accesso_id: collegato.id,
+    },
+  });
+
+  return { success: true, profileId: creato.userId };
+}
+
+async function motivoSospensioneAziendale(
+  profileId: string
+): Promise<string | null> {
+  const service = createServiceClient();
+  const [{ data: profilo }, { count: organigramma }, { count: reparti }, { count: caselle }] =
+    await Promise.all([
+      service.from("profiles").select("app_roles(code)").eq("id", profileId).maybeSingle(),
+      service
+        .from("organigramma_persone")
+        .select("id", { count: "exact", head: true })
+        .eq("user_id", profileId)
+        .is("deleted_at", null),
+      service
+        .from("profile_reparti")
+        .select("id", { count: "exact", head: true })
+        .eq("profile_id", profileId)
+        .is("deleted_at", null),
+      service
+        .from("webmail_account_grants")
+        .select("id", { count: "exact", head: true })
+        .eq("user_id", profileId)
+        .is("deleted_at", null),
+    ]);
+  const role = profilo?.app_roles as { code?: string } | { code?: string }[] | null | undefined;
+  const obj = Array.isArray(role) ? role[0] : role;
+  return motivoAltriAccessiAziendali({
+    ruolo: String(obj?.code ?? ""),
+    inOrganigramma: (organigramma ?? 0) > 0,
+    reparti: reparti ?? 0,
+    caselle: caselle ?? 0,
+  });
+}
+
+export async function impostaStatoAccountFornitoreAction(raw: unknown): Promise<
+  { success: true } | (Errore & { richiedeConferma?: boolean })
+> {
+  const parsed = z
+    .object({
+      fornitoreId: uuidSchema,
+      profileId: uuidSchema,
+      stato: z.enum(["sospeso", "operativo"]),
+      confermaAltriAccessi: z.boolean().optional(),
+    })
+    .safeParse(raw);
+  if (!parsed.success) return { success: false, error: "Operazione non valida." };
+  const gate = await soloSuperAdmin();
+  if (!("ok" in gate)) return gate;
+
+  const supabase = await createClient();
+  const { data: accesso, error } = await supabase
+    .from("fornitori_accessi")
+    .select("id")
+    .eq("fornitore_id", parsed.data.fornitoreId)
+    .eq("profile_id", parsed.data.profileId)
+    .is("deleted_at", null)
+    .maybeSingle();
+  if (error || !accesso) {
+    return { success: false, error: "Account non collegato a questo fornitore." };
+  }
+
+  if (parsed.data.stato === "sospeso" && !parsed.data.confermaAltriAccessi) {
+    const motivo = await motivoSospensioneAziendale(parsed.data.profileId);
+    if (motivo) return { success: false, error: motivo, richiedeConferma: true };
+  }
+
+  const esito = await setProfileStatoOperativoAction(parsed.data.stato, parsed.data.profileId);
+  if (!esito.success) return esito;
+  await writeAuditLog({
+    action: parsed.data.stato === "sospeso" ? "account_sospeso" : "account_riattivato",
+    entity_type: "profiles",
+    entity_id: parsed.data.profileId,
+    actor_id: gate.userId,
+    summary:
+      parsed.data.stato === "sospeso"
+        ? "Account fornitore sospeso. Il collegamento all'anagrafica resta."
+        : "Account fornitore riattivato. Il collegamento all'anagrafica resta.",
+    payload: {
+      fornitore_id: parsed.data.fornitoreId,
+      conferma_altri_accessi: Boolean(parsed.data.confermaAltriAccessi),
+    },
+  });
   return { success: true };
 }
 

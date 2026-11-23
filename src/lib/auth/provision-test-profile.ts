@@ -12,6 +12,7 @@ export const CREATABLE_ROLE_CODES = [
   "operator",
   "admin",
   "viewer",
+  "fornitore",
 ] as const;
 
 export type CreatableRoleCode = (typeof CREATABLE_ROLE_CODES)[number];

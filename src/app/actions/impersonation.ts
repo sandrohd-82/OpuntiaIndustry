@@ -241,7 +241,8 @@ export async function endImpersonationOnLogout(
 }
 
 export async function setProfileStatoOperativoAction(
-  stato: string
+  stato: string,
+  targetUserId?: string
 ): Promise<{ success: true } | { success: false; error: string }> {
   const gate = await requireRealSuperadmin();
   if (!gate.ok) return { success: false, error: gate.error };
@@ -252,18 +253,23 @@ export async function setProfileStatoOperativoAction(
   }
 
   const service = createServiceClient();
-  const { data: session } = await service
-    .from("impersonation_sessions")
-    .select("target_user_id")
-    .eq("actor_user_id", gate.actorUserId)
-    .is("ended_at", null)
-    .is("deleted_at", null)
-    .order("started_at", { ascending: false })
-    .limit(1)
-    .maybeSingle();
-  const targetId = session?.target_user_id
-    ? String(session.target_user_id)
-    : "";
+  let targetId = "";
+  if (targetUserId) {
+    const diretto = z.string().uuid().safeParse(targetUserId);
+    if (!diretto.success) return { success: false, error: "Profilo non valido." };
+    targetId = diretto.data;
+  } else {
+    const { data: session } = await service
+      .from("impersonation_sessions")
+      .select("target_user_id")
+      .eq("actor_user_id", gate.actorUserId)
+      .is("ended_at", null)
+      .is("deleted_at", null)
+      .order("started_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    targetId = session?.target_user_id ? String(session.target_user_id) : "";
+  }
   if (!targetId) {
     return {
       success: false,
@@ -289,9 +295,12 @@ export async function setProfileStatoOperativoAction(
 
   const previous = parseProfileStatoOperativo(target.stato_operativo);
   const now = new Date().toISOString();
+  const neverEnabled = !isProfileAlreadyEnabled(target);
   const activating =
     parsed.data === "operativo" &&
-    (previous === "test" || previous === "pre_operativo");
+    (previous === "test" ||
+      previous === "pre_operativo" ||
+      ((previous === "sospeso" || previous === "bloccato") && neverEnabled));
   let alreadyActive = isProfileAlreadyEnabled(target);
   if (!alreadyActive) {
     const { data: authUser } = await service.auth.admin.getUserById(targetId);

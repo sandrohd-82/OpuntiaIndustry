@@ -5,7 +5,8 @@ export type AppRoleCode =
   | "admin"
   | "manager"
   | "operator"
-  | "viewer";
+  | "viewer"
+  | "fornitore";
 
 export type AreaSlug =
   | "dashboard"

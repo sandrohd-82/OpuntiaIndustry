@@ -18,6 +18,7 @@ import {
 import { AZ } from "@/lib/auth/action-access";
 import { loadProfileAuthBundle } from "@/lib/auth/data-scope-enforce";
 import { upsertProfilePageKey } from "@/app/actions/page-access";
+import { eProfiloFornitore } from "@/lib/auth/ruolo-profilo";
 
 async function requireRealSuperadmin() {
   const user = await getAuthUser();
@@ -32,6 +33,11 @@ async function requireRealSuperadmin() {
     };
   }
   return { ok: true as const, actorUserId: user.id };
+}
+
+async function bloccaAmbitoFornitore(targetId: string): Promise<string | null> {
+  if (!(await eProfiloFornitore(targetId))) return null;
+  return "Questo account può ricevere solo i permessi dell'Area Fornitori.";
 }
 
 async function activeTargetId(actorUserId: string): Promise<string | null> {
@@ -126,6 +132,8 @@ export async function setDataScopeAction(
       error: "Entra nel profilo con lo switch per impostare gli ambiti.",
     };
   }
+  const ambitoFornitore = await bloccaAmbitoFornitore(targetId);
+  if (ambitoFornitore) return { success: false, error: ambitoFornitore };
 
   const scopeKey = String(scopeKeyRaw ?? "").trim();
   const mode = String(modeRaw ?? "").trim() as DataScopeMode;
@@ -254,6 +262,8 @@ export async function unlockLockedAreaAction(input: {
       error: "Entra nel profilo con lo switch per sbloccare l’area.",
     };
   }
+  const sbloccoFornitore = await bloccaAmbitoFornitore(targetId);
+  if (sbloccoFornitore) return { success: false, error: sbloccoFornitore };
 
   if (parsed.data.area === "fiscale" && parsed.data.isCommercialista == null) {
     return {
@@ -468,6 +478,8 @@ export async function setCommercialistaAction(
   if (!targetId) {
     return { success: false, error: "Entra nel profilo con lo switch." };
   }
+  const commercialistaFornitore = await bloccaAmbitoFornitore(targetId);
+  if (commercialistaFornitore) return { success: false, error: commercialistaFornitore };
 
   const bundle = await loadProfileAuthBundle(targetId);
   if (!bundle.settings.fiscaleUnlocked) {

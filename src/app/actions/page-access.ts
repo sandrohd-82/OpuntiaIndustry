@@ -23,6 +23,8 @@ import {
   lockedAreaKind,
 } from "@/lib/auth/data-scope";
 import { loadProfileAuthBundle } from "@/lib/auth/data-scope-enforce";
+import { permessoNelPerimetroFornitore } from "@/lib/auth/perimetro-fornitore";
+import { eProfiloFornitore } from "@/lib/auth/ruolo-profilo";
 import { createServiceClient } from "@/lib/supabase/server";
 
 type ServiceClient = ReturnType<typeof createServiceClient>;
@@ -77,6 +79,17 @@ async function requireRealSuperadmin() {
     return { ok: false as const, error: "Solo il Super Admin può impostare le pagine." };
   }
   return { ok: true as const, actorUserId: user.id };
+}
+
+async function bloccaPermessoFornitore(
+  targetId: string,
+  pageKey: string,
+  visibile: boolean
+): Promise<string | null> {
+  if (!visibile) return null;
+  if (!(await eProfiloFornitore(targetId))) return null;
+  if (permessoNelPerimetroFornitore(pageKey)) return null;
+  return "Questo account può ricevere solo i permessi dell'Area Fornitori.";
 }
 
 async function activeTargetId(actorUserId: string): Promise<string | null> {
@@ -157,6 +170,8 @@ export async function setPageAccessAction(
   if (!pageKey.startsWith("/app")) {
     return { success: false, error: "Pagina non valida." };
   }
+  const fuoriPagina = await bloccaPermessoFornitore(targetId, pageKey, visibile);
+  if (fuoriPagina) return { success: false, error: fuoriPagina };
 
   if (visibile && isSensitiveLockedPath(pageKey)) {
     const bundle = await loadProfileAuthBundle(targetId);
@@ -210,6 +225,8 @@ export async function setAreaAccessAction(
   if (!areaKey.startsWith("/app") || areaKey === "/app") {
     return { success: false, error: "Voce di menu non valida." };
   }
+  const fuoriArea = await bloccaPermessoFornitore(targetId, areaKey, visibile);
+  if (fuoriArea) return { success: false, error: fuoriArea };
 
   if (visibile && isSensitiveLockedPath(areaKey)) {
     const bundle = await loadProfileAuthBundle(targetId);
@@ -358,6 +375,8 @@ export async function setActionAccessAction(
   if (!ACTION_ACCESS_KEY_SET.has(actionKey)) {
     return { success: false, error: "Azione non valida." };
   }
+  const fuoriAzione = await bloccaPermessoFornitore(targetId, actionKey, visibile);
+  if (fuoriAzione) return { success: false, error: fuoriAzione };
 
   const needsDoubleConfirm = visibile && actionRequiresDoubleConfirm(actionKey);
   if (needsDoubleConfirm) {

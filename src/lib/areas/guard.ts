@@ -15,12 +15,14 @@ import type { AreaSlug } from "@/types/database";
 
 export function isTestImpersonation(auth: {
   impersonating: boolean;
-  profile: { stato_operativo?: string | null };
+  profile: {
+    stato_operativo?: string | null;
+    app_roles?: { code?: string | null } | null;
+  };
 }): boolean {
-  return (
-    auth.impersonating &&
-    isConfigStato(parseProfileStatoOperativo(auth.profile.stato_operativo))
-  );
+  if (!auth.impersonating) return false;
+  if (isConfigStato(parseProfileStatoOperativo(auth.profile.stato_operativo))) return true;
+  return auth.profile.app_roles?.code === "fornitore";
 }
 
 export async function requireAnyAreaAccess(slugs: AreaSlug[]) {
