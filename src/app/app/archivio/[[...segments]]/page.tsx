@@ -47,7 +47,9 @@ import {
   applySensitiveLocks,
   unrestrictedAuthSettings,
 } from "@/lib/auth/data-scope";
-import { filterNavByPageAccess } from "@/lib/auth/page-access";
+import { filterNavByPageAccess, isNavPathVisible } from "@/lib/auth/page-access";
+import { ARCHIVIO_FORNITORI_PERCORSO } from "@/lib/auth/perimetro-fornitore";
+import { getAuthContext, userCanAccessArea } from "@/lib/auth/session";
 import { isUnrestrictedSuperadmin } from "@/lib/auth/roles";
 import { withRoleAreaPageDefaults } from "@/lib/areas/config";
 import { createClient } from "@/lib/supabase/server";
@@ -82,6 +84,18 @@ export default async function ArchivioCatchAllPage({ params }: Props) {
   const source = sourceOf(segments[0]);
 
   if (segments.length === 0) {
+    const preliminare = await getAuthContext();
+    if (
+      preliminare &&
+      userCanAccessArea(preliminare.areas, "area-fornitori") &&
+      !userCanAccessArea(preliminare.areas, "archivio")
+    ) {
+      const { pageAccess: grezza } = await loadAccessMaps(preliminare.userId);
+      const mappa = withRoleAreaPageDefaults(grezza, preliminare.areas);
+      if (isNavPathVisible(ARCHIVIO_FORNITORI_PERCORSO, mappa)) {
+        redirect(ARCHIVIO_FORNITORI_PERCORSO);
+      }
+    }
     const { auth } = await requireAreaAccess("archivio");
     const nav = filterArchivioNavByAccess(auth.areas);
     const [{ pageAccess: rawPageAccess }, bundle] = await Promise.all([

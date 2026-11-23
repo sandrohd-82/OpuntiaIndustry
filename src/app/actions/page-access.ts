@@ -89,7 +89,7 @@ async function bloccaPermessoFornitore(
   if (!visibile) return null;
   if (!(await eProfiloFornitore(targetId))) return null;
   if (permessoNelPerimetroFornitore(pageKey)) return null;
-  return "Questo account può ricevere solo i permessi dell'Area Fornitori.";
+  return "Questo account può ricevere solo i permessi dell'Area Fornitori e dell'archivio del Gestionale Fornitori.";
 }
 
 async function activeTargetId(actorUserId: string): Promise<string | null> {

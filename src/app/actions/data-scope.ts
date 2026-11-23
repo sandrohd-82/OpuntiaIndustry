@@ -37,7 +37,7 @@ async function requireRealSuperadmin() {
 
 async function bloccaAmbitoFornitore(targetId: string): Promise<string | null> {
   if (!(await eProfiloFornitore(targetId))) return null;
-  return "Questo account può ricevere solo i permessi dell'Area Fornitori.";
+  return "Questo account può ricevere solo i permessi dell'Area Fornitori e dell'archivio del Gestionale Fornitori.";
 }
 
 async function activeTargetId(actorUserId: string): Promise<string | null> {

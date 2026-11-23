@@ -7,6 +7,11 @@ import {
 assert.equal(permessoNelPerimetroFornitore("/app/area-fornitori"), true);
 assert.equal(permessoNelPerimetroFornitore("/app/area-fornitori/ordini-ricevuti"), true);
 assert.equal(permessoNelPerimetroFornitore("action:/app/area-fornitori/ordini-ricevuti/x"), true);
+assert.equal(permessoNelPerimetroFornitore("/app/archivio/area-fornitori"), true);
+assert.equal(permessoNelPerimetroFornitore("/app/archivio/area-fornitori/ordini-ricevuti"), true);
+assert.equal(permessoNelPerimetroFornitore("action:/app/archivio/area-fornitori/documenti"), true);
+assert.equal(permessoNelPerimetroFornitore("/app/archivio"), false);
+assert.equal(permessoNelPerimetroFornitore("/app/archivio/produzione"), false);
 assert.equal(permessoNelPerimetroFornitore("/app/produzione"), false);
 assert.equal(permessoNelPerimetroFornitore("action:/app/amministrazione/organigramma/elenco-e-mansioni/crea-profilo"), false);
 

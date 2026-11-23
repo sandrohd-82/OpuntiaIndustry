@@ -5,7 +5,10 @@ import {
   isSuperadminProfile,
   isUnrestrictedSuperadmin,
 } from "@/lib/auth/roles";
-import { AREA_ROUTES } from "@/lib/areas/config";
+import { AREA_ROUTES, withRoleAreaPageDefaults } from "@/lib/areas/config";
+import { ARCHIVIO_FORNITORI_PERCORSO } from "@/lib/auth/perimetro-fornitore";
+import { isNavPathVisible } from "@/lib/auth/page-access";
+import { loadAccessMaps } from "@/app/actions/page-access";
 import { loadProfileAuthBundle } from "@/lib/auth/data-scope-enforce";
 import {
   isConfigStato,
@@ -108,9 +111,32 @@ export async function requireWebmailAccess() {
 /**
  * Pagina Archivio: serve l’area Archivio e l’area di origine della voce.
  */
+async function fornitoreConArchivioProprio(auth: NonNullable<Awaited<ReturnType<typeof getAuthContext>>>) {
+  if (!userCanAccessArea(auth.areas, "area-fornitori")) return false;
+  if (userCanAccessArea(auth.areas, "archivio")) return false;
+  const { pageAccess } = await loadAccessMaps(auth.userId);
+  return isNavPathVisible(
+    ARCHIVIO_FORNITORI_PERCORSO,
+    withRoleAreaPageDefaults(pageAccess, auth.areas)
+  );
+}
+
 export async function requireArchivioSource(
   source: AreaSlug | "webmail"
 ) {
+  if (source === "area-fornitori") {
+    const auth = await getAuthContext();
+    if (!auth) redirect("/login");
+    if (auth.mustEnrollTotp) redirect("/primo-accesso/2fa");
+    if (!auth.isSecondFactorVerified) redirect("/verify-email");
+    if (isUnrestrictedSuperadmin(auth) || (await fornitoreConArchivioProprio(auth))) {
+      return { auth };
+    }
+    if (isTestImpersonation(auth) && userCanAccessArea(auth.areas, "area-fornitori")) {
+      return { auth };
+    }
+  }
+
   const { auth } = await requireAreaAccess("archivio");
   if (isUnrestrictedSuperadmin(auth)) {
     return { auth };

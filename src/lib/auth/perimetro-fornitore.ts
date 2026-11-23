@@ -1,13 +1,16 @@
 export const RUOLO_FORNITORE = "fornitore";
 export const AREA_FORNITORI_PERCORSO = "/app/area-fornitori";
+export const ARCHIVIO_FORNITORI_PERCORSO = "/app/archivio/area-fornitori";
 
-/** Il permesso grafico resta nel perimetro dell'Area Fornitori. */
+function nelPercorso(chiave: string, percorso: string): boolean {
+  return chiave === percorso || chiave.startsWith(`${percorso}/`);
+}
+
+/** Area Fornitori e il solo ramo Archivio di quel gestionale. */
 export function permessoNelPerimetroFornitore(pageKey: string): boolean {
   const chiave = pageKey.trim();
-  if (chiave.startsWith("action:")) {
-    return chiave.startsWith(`action:${AREA_FORNITORI_PERCORSO}`);
-  }
-  return chiave === AREA_FORNITORI_PERCORSO || chiave.startsWith(`${AREA_FORNITORI_PERCORSO}/`);
+  const corpo = chiave.startsWith("action:") ? chiave.slice("action:".length) : chiave;
+  return nelPercorso(corpo, AREA_FORNITORI_PERCORSO) || nelPercorso(corpo, ARCHIVIO_FORNITORI_PERCORSO);
 }
 
 /** Accessi aziendali diversi dal solo portale fornitore. */

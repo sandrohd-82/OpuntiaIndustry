@@ -49,6 +49,7 @@ import {
   normalizeAppPath,
   resolvePageKey,
 } from "@/lib/auth/page-access";
+import { areeMenuConArchivioFornitore } from "@/lib/areas/archivio";
 import {
   AREA_ROUTES,
   SIDEBAR_AREA_ORDER,
@@ -182,7 +183,10 @@ export default async function AppLayout({
   const menuAreas = testMenuMode
     ? await getUserAreas(auth.actorUserId)
     : applyPageFilter
-      ? filterAreasByPageAccess(auth.areas, pageAccess)
+      ? areeMenuConArchivioFornitore(
+          filterAreasByPageAccess(auth.areas, pageAccess),
+          pageAccess
+        )
       : auth.areas;
 
   const roleName =

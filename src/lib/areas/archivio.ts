@@ -1,3 +1,5 @@
+import { ARCHIVIO_FORNITORI_PERCORSO } from "@/lib/auth/perimetro-fornitore";
+import { isNavPathVisible, type PageAccessMap } from "@/lib/auth/page-access";
 import {
   firstNavLeafPath,
   isNavBranch,
@@ -382,6 +384,27 @@ const ARCHIVIO_SOURCE_SLUGS: AreaSlug[] = [
   "area-fornitori",
   "area-fiscale",
 ];
+
+/** Il fornitore non ha l'area Archivio: vede solo il ramo acceso del suo gestionale. */
+export function areeMenuConArchivioFornitore(
+  areas: UserArea[],
+  pageAccess: PageAccessMap
+): UserArea[] {
+  if (areas.some((area) => area.slug === "archivio")) return areas;
+  if (!areas.some((area) => area.slug === "area-fornitori")) return areas;
+  if (!isNavPathVisible(ARCHIVIO_FORNITORI_PERCORSO, pageAccess)) return areas;
+  return [
+    ...areas,
+    {
+      area_id: "archivio-gestionale-fornitori",
+      slug: "archivio",
+      name: "Archivio",
+      description: "Archivio del Gestionale Fornitori",
+      icon: null,
+      sort_order: 900,
+    },
+  ];
+}
 
 export function filterArchivioNavByAccess(
   areas: UserArea[],
